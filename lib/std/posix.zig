@@ -6644,6 +6644,9 @@ pub const RecvFromError = error{
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
+
+    /// The other end closed the socket unexpectedly or a read is executed on a shut down socket
+    BrokenPipe,
 } || UnexpectedError;
 
 pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
@@ -6692,8 +6695,58 @@ pub fn recvfrom(
                 .CONNREFUSED => return error.ConnectionRefused,
                 .CONNRESET => return error.ConnectionResetByPeer,
                 .TIMEDOUT => return error.ConnectionTimedOut,
+                .PIPE => return error.BrokenPipe,
                 else => |err| return unexpectedErrno(err),
             }
+        }
+    }
+}
+
+pub const RecvMsgError = RecvFromError || error{
+    /// Reception of SCM_RIGHTS fds via ancillary data in msg.control would
+    /// exceed some system limit (generally this is retryable by trying to
+    /// receive fewer fds or closing some existing fds)
+    SystemFdQuotaExceeded,
+
+    /// Reception of SCM_RIGHTS fds via ancillary data in msg.control would
+    /// exceed some process limit (generally this is retryable by trying to
+    /// receive fewer fds, closing some existing fds, or changing the ulimit)
+    ProcessFdQuotaExceeded,
+};
+
+/// If `sockfd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
+pub fn recvmsg(
+    /// The file descriptor of the sending socket.
+    sockfd: socket_t,
+    /// Message header and iovecs
+    msg: *msghdr,
+    flags: u32,
+) RecvMsgError!usize {
+    if (@TypeOf(system.recvmsg) == void)
+        @compileError("recvmsg() not supported on this OS");
+    while (true) {
+        const rc = system.recvmsg(sockfd, msg, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .AGAIN => return error.WouldBlock,
+            .BADF => unreachable, // always a race condition
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .INTR => continue,
+            .FAULT => unreachable, // An invalid user space address was specified for an argument.
+            .INVAL => unreachable, // Invalid argument passed.
+            .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .MSGSIZE => return error.MessageTooBig,
+            .PIPE => return error.BrokenPipe,
+            .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .NETDOWN => return error.NetworkSubsystemFailed,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }

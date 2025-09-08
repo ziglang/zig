@@ -10779,7 +10779,15 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*sockaddr,
     noalias addrlen: ?*socklen_t,
 ) if (native_os == .windows) c_int else isize;
-pub extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
+
+pub const recvmsg = switch (native_os) {
+    // Windows: Technically, a form of recvmsg() exists for Windows, but the
+    // user has to install some kind of callback for it.  I'm not sure if/how
+    // we can map this to normal recvmsg() interface use.
+    // https://learn.microsoft.com/en-us/windows/win32/api/mswsock/nc-mswsock-lpfn_wsarecvmsg
+    .windows => void,
+    else => private.recvmsg,
+};
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 
@@ -11424,6 +11432,7 @@ const private = struct {
     extern "c" fn pipe2(fds: *[2]fd_t, flags: O) c_int;
     extern "c" fn readdir(dir: *DIR) ?*dirent;
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
     extern "c" fn sched_yield() c_int;
     extern "c" fn sendfile(out_fd: fd_t, in_fd: fd_t, offset: ?*off_t, count: usize) isize;
     extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
