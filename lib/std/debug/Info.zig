@@ -24,14 +24,15 @@ coverage: *Coverage,
 pub const LoadError = Dwarf.ElfModule.LoadError;
 
 pub fn load(gpa: Allocator, path: Path, coverage: *Coverage) LoadError!Info {
-    var sections: Dwarf.SectionArray = Dwarf.null_section_array;
-    var elf_module = try Dwarf.ElfModule.load(gpa, path, null, null, &sections, null);
-    try elf_module.dwarf.populateRanges(gpa);
+    var elf_module = try Dwarf.ElfModule.load(gpa, path, null, null, null, null);
+    // This is correct because `Dwarf.ElfModule` currently only supports native-endian ELF files.
+    const endian = @import("builtin").target.cpu.arch.endian();
+    try elf_module.dwarf.populateRanges(gpa, endian);
     var info: Info = .{
         .address_map = .{},
         .coverage = coverage,
     };
-    try info.address_map.put(gpa, elf_module.base_address, elf_module);
+    try info.address_map.put(gpa, 0, elf_module);
     return info;
 }
 
@@ -58,5 +59,7 @@ pub fn resolveAddresses(
     assert(sorted_pc_addrs.len == output.len);
     if (info.address_map.entries.len != 1) @panic("TODO");
     const elf_module = &info.address_map.values()[0];
-    return info.coverage.resolveAddressesDwarf(gpa, sorted_pc_addrs, output, &elf_module.dwarf);
+    // This is correct because `Dwarf.ElfModule` currently only supports native-endian ELF files.
+    const endian = @import("builtin").target.cpu.arch.endian();
+    return info.coverage.resolveAddressesDwarf(gpa, endian, sorted_pc_addrs, output, &elf_module.dwarf);
 }
