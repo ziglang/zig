@@ -1969,6 +1969,14 @@ or
       </p>
       {#see_also|@splat|@shuffle|@select|@reduce#}
 
+      {#header_open|Relationship with Arrays#}
+      <p>Vectors and {#link|Arrays#} each have a well-defined <strong>bit layout</strong>
+      and therefore support {#link|@bitCast#} between each other. {#link|Type Coercion#} implicitly peforms
+      {#syntax#}@bitCast{#endsyntax#}.</p>
+      <p>Arrays have well-defined byte layout, but vectors do not, making {#link|@ptrCast#} between
+      them {#link|Illegal Behavior#}.</p>
+      {#header_close#}
+
       {#header_open|Destructuring Vectors#}
       <p>
         Vectors can be destructured:
