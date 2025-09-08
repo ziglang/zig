@@ -29649,50 +29649,6 @@ pub fn coerceInMemoryAllowed(
         return .ok;
     }
 
-    // Arrays <-> Vectors
-    if ((dest_tag == .vector and src_tag == .array) or
-        (dest_tag == .array and src_tag == .vector))
-    {
-        const dest_len = dest_ty.arrayLen(zcu);
-        const src_len = src_ty.arrayLen(zcu);
-        if (dest_len != src_len) {
-            return .{ .array_len = .{
-                .actual = src_len,
-                .wanted = dest_len,
-            } };
-        }
-
-        const dest_elem_ty = dest_ty.childType(zcu);
-        const src_elem_ty = src_ty.childType(zcu);
-        const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_mut, target, dest_src, src_src, null);
-        if (child != .ok) {
-            return .{ .array_elem = .{
-                .child = try child.dupe(sema.arena),
-                .actual = src_elem_ty,
-                .wanted = dest_elem_ty,
-            } };
-        }
-
-        if (dest_tag == .array) {
-            const dest_info = dest_ty.arrayInfo(zcu);
-            if (dest_info.sentinel != null) {
-                return .{ .array_sentinel = .{
-                    .actual = Value.@"unreachable",
-                    .wanted = dest_info.sentinel.?,
-                    .ty = dest_info.elem_type,
-                } };
-            }
-        }
-
-        // The memory layout of @Vector(N, iM) is the same as the integer type i(N*M),
-        // that is to say, the padding bits are not in the same place as the array [N]iM.
-        // If there's no padding, the bitcast is possible.
-        const elem_bit_size = dest_elem_ty.bitSize(zcu);
-        const elem_abi_byte_size = dest_elem_ty.abiSize(zcu);
-        if (elem_abi_byte_size * 8 == elem_bit_size)
-            return .ok;
-    }
-
     // Optionals
     if (dest_tag == .optional and src_tag == .optional) {
         if ((maybe_dest_ptr_ty != null) != (maybe_src_ptr_ty != null)) {

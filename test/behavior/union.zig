@@ -103,7 +103,11 @@ test "basic extern unions" {
     var foo = FooExtern{ .int = 1 };
     try expect(foo.int == 1);
     foo.str.slice = "Well";
-    try expect(std.mem.eql(u8, std.mem.sliceTo(foo.str.slice, 0), "Well"));
+    try expect(foo.str.slice[0] == 'W');
+    try expect(foo.str.slice[1] == 'e');
+    try expect(foo.str.slice[2] == 'l');
+    try expect(foo.str.slice[3] == 'l');
+    try expect(foo.str.slice[4] == 0);
 }
 
 const ExternPtrOrInt = extern union {
