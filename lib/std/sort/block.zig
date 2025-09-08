@@ -190,78 +190,77 @@ pub fn blockContext(
         var order = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7 };
         const range = iterator.nextRange();
 
-        const sliced_items = items[range.start..];
         switch (range.length()) {
             8 => {
-                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 4, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 6, 7, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 4, 6, inner_context, lessThan);
-                swap(T, sliced_items, &order, 5, 7, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 5, 6, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 7, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 6, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 6, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
+                swap(&order, a + range.start, 0, 1, wrapped_context);
+                swap(&order, a + range.start, 2, 3, wrapped_context);
+                swap(&order, a + range.start, 4, 5, wrapped_context);
+                swap(&order, a + range.start, 6, 7, wrapped_context);
+                swap(&order, a + range.start, 0, 2, wrapped_context);
+                swap(&order, a + range.start, 1, 3, wrapped_context);
+                swap(&order, a + range.start, 4, 6, wrapped_context);
+                swap(&order, a + range.start, 5, 7, wrapped_context);
+                swap(&order, a + range.start, 1, 2, wrapped_context);
+                swap(&order, a + range.start, 5, 6, wrapped_context);
+                swap(&order, a + range.start, 0, 4, wrapped_context);
+                swap(&order, a + range.start, 3, 7, wrapped_context);
+                swap(&order, a + range.start, 1, 5, wrapped_context);
+                swap(&order, a + range.start, 2, 6, wrapped_context);
+                swap(&order, a + range.start, 1, 4, wrapped_context);
+                swap(&order, a + range.start, 3, 6, wrapped_context);
+                swap(&order, a + range.start, 2, 4, wrapped_context);
+                swap(&order, a + range.start, 3, 5, wrapped_context);
+                swap(&order, a + range.start, 3, 4, wrapped_context);
             },
             7 => {
-                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 5, 6, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 4, 6, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
-                swap(T, sliced_items, &order, 4, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 6, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
+                swap(&order, a + range.start, 1, 2, wrapped_context);
+                swap(&order, a + range.start, 3, 4, wrapped_context);
+                swap(&order, a + range.start, 5, 6, wrapped_context);
+                swap(&order, a + range.start, 0, 2, wrapped_context);
+                swap(&order, a + range.start, 3, 5, wrapped_context);
+                swap(&order, a + range.start, 4, 6, wrapped_context);
+                swap(&order, a + range.start, 0, 1, wrapped_context);
+                swap(&order, a + range.start, 4, 5, wrapped_context);
+                swap(&order, a + range.start, 2, 6, wrapped_context);
+                swap(&order, a + range.start, 0, 4, wrapped_context);
+                swap(&order, a + range.start, 1, 5, wrapped_context);
+                swap(&order, a + range.start, 0, 3, wrapped_context);
+                swap(&order, a + range.start, 2, 5, wrapped_context);
+                swap(&order, a + range.start, 1, 3, wrapped_context);
+                swap(&order, a + range.start, 2, 4, wrapped_context);
+                swap(&order, a + range.start, 2, 3, wrapped_context);
             },
             6 => {
-                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 4, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 5, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
+                swap(&order, a + range.start, 1, 2, wrapped_context);
+                swap(&order, a + range.start, 4, 5, wrapped_context);
+                swap(&order, a + range.start, 0, 2, wrapped_context);
+                swap(&order, a + range.start, 3, 5, wrapped_context);
+                swap(&order, a + range.start, 0, 1, wrapped_context);
+                swap(&order, a + range.start, 3, 4, wrapped_context);
+                swap(&order, a + range.start, 2, 5, wrapped_context);
+                swap(&order, a + range.start, 0, 3, wrapped_context);
+                swap(&order, a + range.start, 1, 4, wrapped_context);
+                swap(&order, a + range.start, 2, 4, wrapped_context);
+                swap(&order, a + range.start, 1, 3, wrapped_context);
+                swap(&order, a + range.start, 2, 3, wrapped_context);
             },
             5 => {
-                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 4, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
+                swap(&order, a + range.start, 0, 1, wrapped_context);
+                swap(&order, a + range.start, 3, 4, wrapped_context);
+                swap(&order, a + range.start, 2, 4, wrapped_context);
+                swap(&order, a + range.start, 2, 3, wrapped_context);
+                swap(&order, a + range.start, 1, 4, wrapped_context);
+                swap(&order, a + range.start, 0, 3, wrapped_context);
+                swap(&order, a + range.start, 0, 2, wrapped_context);
+                swap(&order, a + range.start, 1, 3, wrapped_context);
+                swap(&order, a + range.start, 1, 2, wrapped_context);
             },
             4 => {
-                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
-                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
+                swap(&order, a + range.start, 0, 1, wrapped_context);
+                swap(&order, a + range.start, 2, 3, wrapped_context);
+                swap(&order, a + range.start, 0, 2, wrapped_context);
+                swap(&order, a + range.start, 1, 3, wrapped_context);
+                swap(&order, a + range.start, 1, 2, wrapped_context);
             },
             else => {},
         }
@@ -908,16 +907,14 @@ fn binaryLast(
 }
 
 fn swap(
-    comptime T: type,
-    items: []T,
     order: *[8]u8,
+    start_index: usize,
     x: usize,
     y: usize,
     context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
-    if (lessThan(context, items[y], items[x]) or ((order.*)[x] > (order.*)[y] and !lessThan(context, items[x], items[y]))) {
-        mem.swap(T, &items[x], &items[y]);
+    if (context.lessThan(start_index + y, start_index + x) or ((order.*)[x] > (order.*)[y] and !context.lessThan(start_index + x, start_index + y))) {
+        context.swap(start_index + x, start_index + y);
         mem.swap(u8, &(order.*)[x], &(order.*)[y]);
     }
 }
