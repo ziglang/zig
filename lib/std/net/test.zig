@@ -12,10 +12,10 @@ test "parse and render IP addresses at comptime" {
         const ipv4addr = net.Address.parseIp("127.0.0.1", 0) catch unreachable;
         try std.testing.expectFmt("127.0.0.1:0", "{f}", .{ipv4addr});
 
-        try testing.expectError(error.InvalidIPAddressFormat, net.Address.parseIp("::123.123.123.123", 0));
-        try testing.expectError(error.InvalidIPAddressFormat, net.Address.parseIp("127.01.0.1", 0));
-        try testing.expectError(error.InvalidIPAddressFormat, net.Address.resolveIp("::123.123.123.123", 0));
-        try testing.expectError(error.InvalidIPAddressFormat, net.Address.resolveIp("127.01.0.1", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.Address.parseIp("::123.123.123.123", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.Address.parseIp("127.01.0.1", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.Address.resolveIp("::123.123.123.123", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.Address.resolveIp("127.01.0.1", 0));
     }
 }
 

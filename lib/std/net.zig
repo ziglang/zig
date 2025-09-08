@@ -105,7 +105,7 @@ pub const Address = extern union {
             => {},
         }
 
-        return error.InvalidIPAddressFormat;
+        return error.InvalidIpAddressFormat;
     }
 
     pub fn resolveIp(name: []const u8, port: u16) !Address {
@@ -128,7 +128,7 @@ pub const Address = extern union {
             else => return err,
         }
 
-        return error.InvalidIPAddressFormat;
+        return error.InvalidIpAddressFormat;
     }
 
     pub fn parseExpectingFamily(name: []const u8, family: posix.sa_family_t, port: u16) !Address {
@@ -360,7 +360,7 @@ pub const Ip4Address = extern struct {
             error.NonCanonical,
             => {},
         }
-        return error.InvalidIPAddressFormat;
+        return error.InvalidIpAddressFormat;
     }
 
     pub fn init(addr: [4]u8, port: u16) Ip4Address {
@@ -885,7 +885,7 @@ const GetAddressListError = Allocator.Error || File.OpenError || File.ReadError 
     Overflow,
     Incomplete,
     InvalidIpv4Mapping,
-    InvalidIPAddressFormat,
+    InvalidIpAddressFormat,
 
     InterfaceNotFound,
     FileSystem,
@@ -1427,7 +1427,7 @@ fn parseHosts(
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
-            error.InvalidIPAddressFormat,
+            error.InvalidIpAddressFormat,
             error.InvalidIpv4Mapping,
             error.NonCanonical,
             => continue,

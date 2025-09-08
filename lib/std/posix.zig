@@ -6116,55 +6116,6 @@ pub fn uname() utsname {
     }
 }
 
-pub fn res_mkquery(
-    op: u4,
-    dname: []const u8,
-    class: u8,
-    ty: u8,
-    data: []const u8,
-    newrr: ?[*]const u8,
-    buf: []u8,
-) usize {
-    _ = data;
-    _ = newrr;
-    // This implementation is ported from musl libc.
-    // A more idiomatic "ziggy" implementation would be welcome.
-    var name = dname;
-    if (mem.endsWith(u8, name, ".")) name.len -= 1;
-    assert(name.len <= 253);
-    const n = 17 + name.len + @intFromBool(name.len != 0);
-
-    // Construct query template - ID will be filled later
-    var q: [280]u8 = undefined;
-    @memset(q[0..n], 0);
-    q[2] = @as(u8, op) * 8 + 1;
-    q[5] = 1;
-    @memcpy(q[13..][0..name.len], name);
-    var i: usize = 13;
-    var j: usize = undefined;
-    while (q[i] != 0) : (i = j + 1) {
-        j = i;
-        while (q[j] != 0 and q[j] != '.') : (j += 1) {}
-        // TODO determine the circumstances for this and whether or
-        // not this should be an error.
-        if (j - i - 1 > 62) unreachable;
-        q[i - 1] = @intCast(j - i);
-    }
-    q[i + 1] = ty;
-    q[i + 3] = class;
-
-    // Make a reasonably unpredictable id
-    const ts = clock_gettime(.REALTIME) catch unreachable;
-    const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.nsec)));
-    const unsec: UInt = @bitCast(ts.nsec);
-    const id: u32 = @truncate(unsec + unsec / 65536);
-    q[0] = @truncate(id / 256);
-    q[1] = @truncate(id);
-
-    @memcpy(buf[0..n], q[0..n]);
-    return n;
-}
-
 pub const SendError = error{
     /// (For UNIX domain sockets, which are identified by pathname) Write permission is  denied
     /// on  the destination socket file, or search permission is denied for one of the
@@ -6734,56 +6685,6 @@ pub fn recvmsg(
             else => |err| return unexpectedErrno(err),
         }
     }
-}
-
-pub const DnExpandError = error{InvalidDnsPacket};
-
-pub fn dn_expand(
-    msg: []const u8,
-    comp_dn: []const u8,
-    exp_dn: []u8,
-) DnExpandError!usize {
-    // This implementation is ported from musl libc.
-    // A more idiomatic "ziggy" implementation would be welcome.
-    var p = comp_dn.ptr;
-    var len: usize = maxInt(usize);
-    const end = msg.ptr + msg.len;
-    if (p == end or exp_dn.len == 0) return error.InvalidDnsPacket;
-    var dest = exp_dn.ptr;
-    const dend = dest + @min(exp_dn.len, 254);
-    // detect reference loop using an iteration counter
-    var i: usize = 0;
-    while (i < msg.len) : (i += 2) {
-        // loop invariants: p<end, dest<dend
-        if ((p[0] & 0xc0) != 0) {
-            if (p + 1 == end) return error.InvalidDnsPacket;
-            const j = @as(usize, p[0] & 0x3f) << 8 | p[1];
-            if (len == maxInt(usize)) len = @intFromPtr(p) + 2 - @intFromPtr(comp_dn.ptr);
-            if (j >= msg.len) return error.InvalidDnsPacket;
-            p = msg.ptr + j;
-        } else if (p[0] != 0) {
-            if (dest != exp_dn.ptr) {
-                dest[0] = '.';
-                dest += 1;
-            }
-            var j = p[0];
-            p += 1;
-            if (j >= @intFromPtr(end) - @intFromPtr(p) or j >= @intFromPtr(dend) - @intFromPtr(dest)) {
-                return error.InvalidDnsPacket;
-            }
-            while (j != 0) {
-                j -= 1;
-                dest[0] = p[0];
-                dest += 1;
-                p += 1;
-            }
-        } else {
-            dest[0] = 0;
-            if (len == maxInt(usize)) len = @intFromPtr(p) + 1 - @intFromPtr(comp_dn.ptr);
-            return len;
-        }
-    }
-    return error.InvalidDnsPacket;
 }
 
 pub const SetSockOptError = error{

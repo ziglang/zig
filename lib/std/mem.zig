@@ -1678,6 +1678,7 @@ test "indexOfPos empty needle" {
 /// needle.len must be > 0
 /// does not count overlapping needles
 pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
+    if (needle.len == 1) return countScalar(T, haystack, needle[0]);
     assert(needle.len > 0);
     var i: usize = 0;
     var found: usize = 0;
@@ -1704,9 +1705,9 @@ test count {
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
-/// Returns the number of needles inside the haystack
-pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
-    const n = haystack.len;
+/// Returns the number of times `element` appears in a slice of memory.
+pub fn countScalar(comptime T: type, list: []const T, element: T) usize {
+    const n = list.len;
     var i: usize = 0;
     var found: usize = 0;
 
@@ -1716,16 +1717,16 @@ pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
         if (std.simd.suggestVectorLength(T)) |block_size| {
             const Block = @Vector(block_size, T);
 
-            const letter_mask: Block = @splat(needle);
+            const letter_mask: Block = @splat(element);
             while (n - i >= block_size) : (i += block_size) {
-                const haystack_block: Block = haystack[i..][0..block_size].*;
+                const haystack_block: Block = list[i..][0..block_size].*;
                 found += std.simd.countTrues(letter_mask == haystack_block);
             }
         }
     }
 
-    for (haystack[i..n]) |item| {
-        found += @intFromBool(item == needle);
+    for (list[i..n]) |item| {
+        found += @intFromBool(item == element);
     }
 
     return found;
@@ -1735,6 +1736,7 @@ test countScalar {
     try testing.expectEqual(0, countScalar(u8, "", 'h'));
     try testing.expectEqual(1, countScalar(u8, "h", 'h'));
     try testing.expectEqual(2, countScalar(u8, "hh", 'h'));
+    try testing.expectEqual(2, countScalar(u8, "ahhb", 'h'));
     try testing.expectEqual(3, countScalar(u8, "   abcabc   abc", 'b'));
 }
 
