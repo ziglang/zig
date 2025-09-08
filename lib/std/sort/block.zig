@@ -135,7 +135,29 @@ pub fn blockContext(
     b: usize,
     context: anytype,
 ) void {
-    _ = .{ a, b, context };
+    _ = .{ a, b };
+    const Context = struct {
+        sub_ctx: @TypeOf(context),
+
+        pub const lessThan = if (builtin.mode == .Debug) lessThanChecked else lessThanUnchecked;
+
+        fn lessThanChecked(ctx: @This(), i: usize, j: usize) bool {
+            const lt = ctx.sub_ctx.lessThan(i, j);
+            const gt = ctx.sub_ctx.lessThan(j, i);
+            std.debug.assert(!(lt and gt));
+            return lt;
+        }
+
+        fn lessThanUnchecked(ctx: @This(), i: usize, j: usize) bool {
+            return ctx.sub_ctx.lessThan(i, j);
+        }
+
+        pub fn swap(ctx: @This(), i: usize, j: usize) void {
+            return ctx.sub_ctx.swap(i, j);
+        }
+    };
+    const wrapped_context = Context{ .sub_ctx = context };
+    _ = wrapped_context;
     const lessThan = if (builtin.mode == .Debug) struct {
         fn lessThan(ctx: @TypeOf(inner_context), lhs: T, rhs: T) bool {
             const lt = lessThanFn(ctx, lhs, rhs);
