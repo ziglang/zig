@@ -53,7 +53,7 @@ pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
     if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
 }
 
-pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!usize {
+pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *DwarfUnwindContext) Error!usize {
     comptime assert(supports_unwinding);
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
     const gop = try self.modules.getOrPut(gpa, module.key());
@@ -120,7 +120,7 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 ///     mod: *const Module,
 ///     gpa: Allocator,
 ///     di: *DebugInfo,
-///     ctx: *SelfInfo.UnwindContext,
+///     ctx: *SelfInfo.DwarfUnwindContext,
 /// ) SelfInfo.Error!usize;
 /// ```
 const Module: type = Module: {
@@ -135,8 +135,7 @@ const Module: type = Module: {
     };
 };
 
-pub const UnwindContext = struct {
-    gpa: Allocator, // MLUGG TODO: make unmanaged (also maybe rename this type, DwarfUnwindContext or smth idk)
+pub const DwarfUnwindContext = struct {
     cfa: ?usize,
     pc: usize,
     thread_context: *std.debug.ThreadContext,
@@ -144,7 +143,7 @@ pub const UnwindContext = struct {
     vm: Dwarf.Unwind.VirtualMachine,
     stack_machine: Dwarf.expression.StackMachine(.{ .call_frame_context = true }),
 
-    pub fn init(gpa: Allocator, thread_context: *std.debug.ThreadContext) UnwindContext {
+    pub fn init(thread_context: *std.debug.ThreadContext) DwarfUnwindContext {
         comptime assert(supports_unwinding);
 
         const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
@@ -154,7 +153,6 @@ pub const UnwindContext = struct {
         const pc = stripInstructionPtrAuthCode(raw_pc_ptr.*);
 
         return .{
-            .gpa = gpa,
             .cfa = null,
             .pc = pc,
             .thread_context = thread_context,
@@ -164,19 +162,20 @@ pub const UnwindContext = struct {
         };
     }
 
-    pub fn deinit(self: *UnwindContext) void {
-        self.vm.deinit(self.gpa);
-        self.stack_machine.deinit(self.gpa);
+    pub fn deinit(self: *DwarfUnwindContext, gpa: Allocator) void {
+        self.vm.deinit(gpa);
+        self.stack_machine.deinit(gpa);
         self.* = undefined;
     }
 
-    pub fn getFp(self: *const UnwindContext) !usize {
+    pub fn getFp(self: *const DwarfUnwindContext) !usize {
         return (try regValueNative(self.thread_context, Dwarf.abi.fpRegNum(native_arch, self.reg_context), self.reg_context)).*;
     }
 
     /// Resolves the register rule and places the result into `out` (see regBytes)
     pub fn resolveRegisterRule(
-        context: *UnwindContext,
+        context: *DwarfUnwindContext,
+        gpa: Allocator,
         col: Dwarf.Unwind.VirtualMachine.Column,
         expression_context: std.debug.Dwarf.expression.Context,
         out: []u8,
@@ -224,7 +223,7 @@ pub const UnwindContext = struct {
             },
             .expression => |expression| {
                 context.stack_machine.reset();
-                const value = try context.stack_machine.run(expression, context.gpa, expression_context, context.cfa.?);
+                const value = try context.stack_machine.run(expression, gpa, expression_context, context.cfa.?);
                 const addr = if (value) |v| blk: {
                     if (v != .generic) return error.InvalidExpressionValue;
                     break :blk v.generic;
@@ -235,7 +234,7 @@ pub const UnwindContext = struct {
             },
             .val_expression => |expression| {
                 context.stack_machine.reset();
-                const value = try context.stack_machine.run(expression, context.gpa, expression_context, context.cfa.?);
+                const value = try context.stack_machine.run(expression, gpa, expression_context, context.cfa.?);
                 if (value) |v| {
                     if (v != .generic) return error.InvalidExpressionValue;
                     mem.writeInt(usize, out[0..@sizeOf(usize)], v.generic, native_endian);
@@ -252,13 +251,14 @@ pub const UnwindContext = struct {
     /// may require lazily loading the data in those sections.
     ///
     /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
-    pub fn unwindFrameDwarf(
-        context: *UnwindContext,
+    pub fn unwindFrame(
+        context: *DwarfUnwindContext,
+        gpa: Allocator,
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
         explicit_fde_offset: ?usize,
     ) Error!usize {
-        return unwindFrameDwarfInner(context, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
+        return unwindFrameInner(context, gpa, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
             error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
 
             error.UnimplementedArch,
@@ -302,8 +302,9 @@ pub const UnwindContext = struct {
             => return error.InvalidDebugInfo,
         };
     }
-    fn unwindFrameDwarfInner(
-        context: *UnwindContext,
+    fn unwindFrameInner(
+        context: *DwarfUnwindContext,
+        gpa: Allocator,
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
         explicit_fde_offset: ?usize,
@@ -338,7 +339,7 @@ pub const UnwindContext = struct {
         context.reg_context.eh_frame = cie.version != 4;
         context.reg_context.is_macho = native_os.isDarwin();
 
-        const row = try context.vm.runTo(context.gpa, context.pc - load_offset, cie, fde, @sizeOf(usize), native_endian);
+        const row = try context.vm.runTo(gpa, context.pc - load_offset, cie, fde, @sizeOf(usize), native_endian);
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
@@ -349,7 +350,7 @@ pub const UnwindContext = struct {
                 context.stack_machine.reset();
                 const value = try context.stack_machine.run(
                     expr,
-                    context.gpa,
+                    gpa,
                     expression_context,
                     context.cfa,
                 );
@@ -366,7 +367,7 @@ pub const UnwindContext = struct {
 
         // Buffering the modifications is done because copying the thread context is not portable,
         // some implementations (ie. darwin) use internal pointers to the mcontext.
-        var arena: std.heap.ArenaAllocator = .init(context.gpa);
+        var arena: std.heap.ArenaAllocator = .init(gpa);
         defer arena.deinit();
         const update_arena = arena.allocator();
 
@@ -388,7 +389,7 @@ pub const UnwindContext = struct {
 
                 const dest = try regBytes(context.thread_context, register, context.reg_context);
                 const src = try update_arena.alloc(u8, dest.len);
-                try context.resolveRegisterRule(column, expression_context, src);
+                try context.resolveRegisterRule(gpa, column, expression_context, src);
 
                 const new_update = try update_arena.create(RegisterUpdate);
                 new_update.* = .{

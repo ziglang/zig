@@ -747,7 +747,7 @@ pub fn dumpStackTrace(st: *const std.builtin.StackTrace) void {
 
 const StackIterator = union(enum) {
     /// Unwinding using debug info (e.g. DWARF CFI).
-    di: if (SelfInfo.supports_unwinding) SelfInfo.UnwindContext else noreturn,
+    di: if (SelfInfo.supports_unwinding) SelfInfo.DwarfUnwindContext else noreturn,
     /// Naive frame-pointer-based unwinding. Very simple, but typically unreliable.
     fp: usize,
 
@@ -766,17 +766,17 @@ const StackIterator = union(enum) {
         if (context_opt) |context| {
             context_buf.* = context.*;
             relocateContext(context_buf);
-            return .{ .di = .init(getDebugInfoAllocator(), context_buf) };
+            return .{ .di = .init(context_buf) };
         }
         if (getContext(context_buf)) {
-            return .{ .di = .init(getDebugInfoAllocator(), context_buf) };
+            return .{ .di = .init(context_buf) };
         }
         return .{ .fp = @frameAddress() };
     }
     fn deinit(si: *StackIterator) void {
         switch (si.*) {
             .fp => {},
-            .di => |*unwind_context| unwind_context.deinit(),
+            .di => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
         }
     }
 
@@ -944,6 +944,9 @@ fn printLineInfo(
                     tty_config.setColor(writer, .reset) catch {};
                 }
                 try writer.writeAll("\n");
+            } else |_| {
+                // Ignore all errors; it's a better UX to just print the source location without the
+                // corresponding line number. The user can always open the source file themselves.
             }
         }
     }
