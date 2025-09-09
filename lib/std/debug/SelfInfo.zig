@@ -355,7 +355,7 @@ pub const DwarfUnwindContext = struct {
         context.reg_context.eh_frame = cie.version != 4;
         context.reg_context.is_macho = native_os.isDarwin();
 
-        const row = try context.vm.runTo(gpa, context.pc - load_offset, cie, fde, @sizeOf(usize), native_endian);
+        const row = try context.vm.runTo(gpa, pc_vaddr, cie, fde, @sizeOf(usize), native_endian);
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
