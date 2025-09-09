@@ -342,7 +342,7 @@ pub fn blockContext(
                 last = index;
                 count += 1;
             }) {
-                index = findLastForward(T, items, items[last], Range.init(last + 1, A.end), find - count, inner_context, lessThan);
+                index = findLastForward(T, items, last, items[last], Range.init(last + 1, A.end), find - count, inner_context, lessThan, a, wrapped_context);
                 if (index == A.end) break;
             }
             index = last;
@@ -467,7 +467,7 @@ pub fn blockContext(
                 index = pull[pull_index].from + 1;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findLastForward(T, items, items[index], Range.init(index, pull[pull_index].to), length - count, inner_context, lessThan);
+                    index = findLastForward(T, items, index, items[index], Range.init(index, pull[pull_index].to), length - count, inner_context, lessThan, a, wrapped_context);
                     const range = Range.init(pull[pull_index].from, index - 1);
                     mem.rotate(T, items[range.start..range.end], count);
                     pull[pull_index].from = index - 1 - count;
@@ -825,17 +825,20 @@ fn findFirstBackward(
 fn findLastForward(
     comptime T: type,
     items: []T,
+    value_index: usize,
     value: T,
     range: Range,
     unique: usize,
     context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+    start_index: usize,
+    wrapped_context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
-    while (!lessThan(context, value, items[index - 1])) : (index += skip) {
+    while (!wrapped_context.lessThan(start_index + value_index, start_index + index - 1)) : (index += skip) {
         if (index >= range.end - skip) {
             return binaryLast(T, items, value, Range.init(index, range.end), context, lessThan);
         }
