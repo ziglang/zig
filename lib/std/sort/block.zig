@@ -577,7 +577,7 @@ pub fn blockContext(
                             if (buffer2.length() > 0) {
                                 mergeInternal(T, items, lastA, Range.init(lastA.end, B_split), buffer2, inner_context, lessThan, wrapped_context);
                             } else {
-                                mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), inner_context, lessThan);
+                                mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), inner_context, lessThan, a, wrapped_context);
                             }
 
                             if (buffer2.length() > 0) {
@@ -630,7 +630,7 @@ pub fn blockContext(
                 if (buffer2.length() > 0) {
                     mergeInternal(T, items, lastA, Range.init(lastA.end, B.end), buffer2, inner_context, lessThan, wrapped_context);
                 } else {
-                    mergeInPlace(T, items, lastA, Range.init(lastA.end, B.end), inner_context, lessThan);
+                    mergeInPlace(T, items, lastA, Range.init(lastA.end, B.end), inner_context, lessThan, a, wrapped_context);
                 }
             }
         }
@@ -686,6 +686,8 @@ fn mergeInPlace(
     B_arg: Range,
     context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+    start_index: usize,
+    wrapped_context: anytype,
 ) void {
     if (A_arg.length() == 0 or B_arg.length() == 0) return;
 
@@ -716,7 +718,7 @@ fn mergeInPlace(
 
         // rotate A into place
         const amount = mid - A.end;
-        mem.rotate(T, items[A.start..mid], A.length());
+        wrapped_context.rotate(Range.init(A.start, mid), A.length(), start_index);
         if (B.end == mid) break;
 
         // calculate the new A and B ranges
