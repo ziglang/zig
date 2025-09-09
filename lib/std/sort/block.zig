@@ -412,7 +412,7 @@ pub fn blockContext(
                 last = index - 1;
                 count += 1;
             }) {
-                index = findFirstBackward(T, items, last, items[last], Range.init(B.start, last), find - count, inner_context, lessThan, a, wrapped_context);
+                index = findFirstBackward(last, Range.init(B.start, last), find - count, a, wrapped_context);
                 if (index == B.start) break;
             }
             index = last;
@@ -473,7 +473,7 @@ pub fn blockContext(
                 index = pull[pull_index].from;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findFirstBackward(T, items, index - 1, items[index - 1], Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, inner_context, lessThan, a, wrapped_context);
+                    index = findFirstBackward(index - 1, Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, a, wrapped_context);
                     const range = Range.init(index + 1, pull[pull_index].from + 1);
                     mem.rotate(T, items[range.start..range.end], range.length() - count);
                     pull[pull_index].from = index + count;
@@ -569,7 +569,7 @@ pub fn blockContext(
                         // then drop that minimum A block behind. or if there are no B blocks left then keep dropping the remaining A blocks.
                         if ((lastB.length() > 0 and !lessThan(inner_context, items[lastB.end - 1], items[indexA])) or blockB.length() == 0) {
                             // figure out where to split the previous B block, and rotate it at the split
-                            const B_split = binaryFirst(T, items, items[indexA], lastB, inner_context, lessThan);
+                            const B_split = binaryFirst(indexA, lastB, a, wrapped_context);
                             const B_remaining = lastB.end - B_split;
 
                             // swap the minimum A block to the beginning of the rolling A blocks
@@ -669,7 +669,7 @@ pub fn blockContext(
                 // the values were pulled out to the left, so redistribute them back to the right
                 var buffer = Range.init(pull[pull_index].range.start, pull[pull_index].range.start + pull[pull_index].count);
                 while (buffer.length() > 0) {
-                    index = findFirstForward(T, items, buffer.start, items[buffer.start], Range.init(buffer.end, pull[pull_index].range.end), unique, inner_context, lessThan, a, wrapped_context);
+                    index = findFirstForward(buffer.start, Range.init(buffer.end, pull[pull_index].range.end), unique, a, wrapped_context);
                     const amount = index - buffer.end;
                     mem.rotate(T, items[buffer.start..index], buffer.length());
                     buffer.start += (amount + 1);
@@ -730,7 +730,7 @@ fn mergeInPlace(
 
     while (true) {
         // find the first place in B where the first item in A needs to be inserted
-        const mid = binaryFirst(T, items, items[A.start], B, context, lessThan);
+        const mid = binaryFirst(A.start, B, start_index, wrapped_context);
 
         // rotate A into place
         const amount = mid - A.end;
@@ -789,52 +789,42 @@ fn blockSwap(start1: usize, start2: usize, block_size: usize, context: anytype) 
 // combine a linear search with a binary search to reduce the number of comparisons in situations
 // where have some idea as to how many unique values there are and where the next value might be
 fn findFirstForward(
-    comptime T: type,
-    items: []T,
     value_index: usize,
-    value: T,
     range: Range,
     unique: usize,
-    context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
     start_index: usize,
-    wrapped_context: anytype,
+    context: anytype,
 ) usize {
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
-    while (wrapped_context.lessThan(start_index + index - 1, start_index + value_index)) : (index += skip) {
+    while (context.lessThan(start_index + index - 1, start_index + value_index)) : (index += skip) {
         if (index >= range.end - skip) {
-            return binaryFirst(T, items, value, Range.init(index, range.end), context, lessThan);
+            return binaryFirst(value_index, Range.init(index, range.end), start_index, context);
         }
     }
 
-    return binaryFirst(T, items, value, Range.init(index - skip, index), context, lessThan);
+    return binaryFirst(value_index, Range.init(index - skip, index), start_index, context);
 }
 
 fn findFirstBackward(
-    comptime T: type,
-    items: []T,
     value_index: usize,
-    value: T,
     range: Range,
     unique: usize,
-    context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
     start_index: usize,
-    wrapped_context: anytype,
+    context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
-    while (index > range.start and !wrapped_context.lessThan(start_index + index - 1, start_index + value_index)) : (index -= skip) {
+    while (index > range.start and !context.lessThan(start_index + index - 1, start_index + value_index)) : (index -= skip) {
         if (index < range.start + skip) {
-            return binaryFirst(T, items, value, Range.init(range.start, index), context, lessThan);
+            return binaryFirst(value_index, Range.init(range.start, index), start_index, context);
         }
     }
 
-    return binaryFirst(T, items, value, Range.init(index, index + skip), context, lessThan);
+    return binaryFirst(value_index, Range.init(index, index + skip), start_index, context);
 }
 
 fn findLastForward(
@@ -888,12 +878,10 @@ fn findLastBackward(
 }
 
 fn binaryFirst(
-    comptime T: type,
-    items: []T,
-    value: T,
+    value_index: usize,
     range: Range,
+    start_index: usize,
     context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) usize {
     var curr = range.start;
     var size = range.length();
@@ -902,8 +890,8 @@ fn binaryFirst(
         const offset = size % 2;
 
         size /= 2;
-        const mid_item = items[curr + size];
-        if (lessThan(context, mid_item, value)) {
+        const mid_index = curr + size;
+        if (context.lessThan(start_index + mid_index, start_index + value_index)) {
             curr += size + offset;
         }
     }
