@@ -7,10 +7,12 @@ gnu_eh_frame: ?[]const u8,
 pub const LookupCache = void;
 
 pub const DebugInfo = struct {
-    loaded_elf: ?Dwarf.ElfModule,
+    loaded_elf: ?ElfFile,
+    scanned_dwarf: bool,
     unwind: [2]?Dwarf.Unwind,
     pub const init: DebugInfo = .{
         .loaded_elf = null,
+        .scanned_dwarf = false,
         .unwind = @splat(null),
     };
     pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
@@ -92,55 +94,92 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) Error!ElfModu
     };
     return error.MissingDebugInfo;
 }
-fn loadDwarf(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
+fn loadElf(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
+    std.debug.assert(di.loaded_elf == null);
+    std.debug.assert(!di.scanned_dwarf);
+
     const load_result = if (module.name.len > 0) res: {
-        break :res Dwarf.ElfModule.load(gpa, .{
-            .root_dir = .cwd(),
-            .sub_path = module.name,
-        }, module.build_id, null, null, null);
+        var file = std.fs.cwd().openFile(module.name, .{}) catch return error.MissingDebugInfo;
+        defer file.close();
+        break :res ElfFile.load(gpa, file, module.build_id, &.native(module.name));
     } else res: {
         const path = std.fs.selfExePathAlloc(gpa) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => return error.ReadFailed,
         };
         defer gpa.free(path);
-        break :res Dwarf.ElfModule.load(gpa, .{
-            .root_dir = .cwd(),
-            .sub_path = path,
-        }, module.build_id, null, null, null);
+        var file = std.fs.cwd().openFile(path, .{}) catch return error.MissingDebugInfo;
+        defer file.close();
+        break :res ElfFile.load(gpa, file, module.build_id, &.native(path));
     };
     di.loaded_elf = load_result catch |err| switch (err) {
-        error.FileNotFound => return error.MissingDebugInfo,
-
         error.OutOfMemory,
-        error.InvalidDebugInfo,
-        error.MissingDebugInfo,
         error.Unexpected,
         => |e| return e,
 
-        error.InvalidElfEndian,
+        error.Overflow,
+        error.TruncatedElfFile,
+        error.InvalidCompressedSection,
         error.InvalidElfMagic,
         error.InvalidElfVersion,
-        error.InvalidUtf8,
-        error.InvalidWtf8,
-        error.EndOfStream,
-        error.Overflow,
-        error.UnimplementedDwarfForeignEndian, // this should be impossible as we're looking at the debug info for this process
+        error.InvalidElfClass,
+        error.InvalidElfEndian,
         => return error.InvalidDebugInfo,
 
-        else => return error.ReadFailed,
+        error.SystemResources,
+        error.MemoryMappingNotSupported,
+        error.AccessDenied,
+        error.LockedMemoryLimitExceeded,
+        error.ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded,
+        => return error.ReadFailed,
     };
+
+    const matches_native =
+        di.loaded_elf.?.endian == native_endian and
+        di.loaded_elf.?.is_64 == (@sizeOf(usize) == 8);
+
+    if (!matches_native) {
+        di.loaded_elf.?.deinit(gpa);
+        di.loaded_elf = null;
+        return error.InvalidDebugInfo;
+    }
 }
 pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, address: usize) Error!std.debug.Symbol {
-    if (di.loaded_elf == null) try module.loadDwarf(gpa, di);
+    if (di.loaded_elf == null) try module.loadElf(gpa, di);
     const vaddr = address - module.load_offset;
-    return di.loaded_elf.?.dwarf.getSymbol(gpa, native_endian, vaddr) catch |err| switch (err) {
-        error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
-        error.ReadFailed,
-        error.EndOfStream,
-        error.Overflow,
-        error.StreamTooLong,
-        => return error.InvalidDebugInfo,
+    if (di.loaded_elf.?.dwarf) |*dwarf| {
+        if (!di.scanned_dwarf) {
+            dwarf.open(gpa, native_endian) catch |err| switch (err) {
+                error.InvalidDebugInfo,
+                error.MissingDebugInfo,
+                error.OutOfMemory,
+                => |e| return e,
+                error.EndOfStream,
+                error.Overflow,
+                error.ReadFailed,
+                error.StreamTooLong,
+                => return error.InvalidDebugInfo,
+            };
+            di.scanned_dwarf = true;
+        }
+        return dwarf.getSymbol(gpa, native_endian, vaddr) catch |err| switch (err) {
+            error.InvalidDebugInfo,
+            error.MissingDebugInfo,
+            error.OutOfMemory,
+            => |e| return e,
+            error.ReadFailed,
+            error.EndOfStream,
+            error.Overflow,
+            error.StreamTooLong,
+            => return error.InvalidDebugInfo,
+        };
+    }
+    // When there's no DWARF available, fall back to searching the symtab.
+    return di.loaded_elf.?.searchSymtab(gpa, vaddr) catch |err| switch (err) {
+        error.NoSymtab, error.NoStrtab => return error.MissingDebugInfo,
+        error.BadSymtab => return error.InvalidDebugInfo,
+        error.OutOfMemory => |e| return e,
     };
 }
 fn prepareUnwindLookup(unwind: *Dwarf.Unwind, gpa: Allocator) Error!void {
@@ -166,7 +205,7 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
     } else unwinds: {
         // There is no `.eh_frame_hdr` section. There may still be an `.eh_frame` or `.debug_frame`
         // section, but we'll have to load the binary to get at it.
-        try module.loadDwarf(gpa, di);
+        try module.loadElf(gpa, di);
         const opt_debug_frame = &di.loaded_elf.?.debug_frame;
         const opt_eh_frame = &di.loaded_elf.?.eh_frame;
         // If both are present, we can't just pick one -- the info could be split between them.
@@ -232,6 +271,7 @@ const ElfModule = @This();
 const std = @import("../../std.zig");
 const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
+const ElfFile = std.debug.ElfFile;
 const elf = std.elf;
 const mem = std.mem;
 const Error = std.debug.SelfInfo.Error;
