@@ -865,6 +865,11 @@ pub inline fn writeSliceEndian(
     slice: []const Elem,
     endian: std.builtin.Endian,
 ) Error!void {
+    switch (@typeInfo(Elem)) {
+        .@"struct" => |info| comptime assert(info.layout != .auto),
+        .int, .@"enum" => {},
+        else => @compileError("ill-defined memory layout"),
+    }
     if (native_endian == endian) {
         return writeAll(w, @ptrCast(slice));
     } else {
