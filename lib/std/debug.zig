@@ -18,6 +18,7 @@ const root = @import("root");
 
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
+pub const ElfFile = @import("debug/ElfFile.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
 pub const Info = @import("debug/Info.zig");
 pub const Coverage = @import("debug/Coverage.zig");
