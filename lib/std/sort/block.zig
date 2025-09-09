@@ -591,7 +591,7 @@ pub fn blockContext(
                             // or failing that we'll use a strictly in-place merge algorithm (MergeInPlace)
 
                             if (buffer2.length() > 0) {
-                                mergeInternal(T, items, lastA, Range.init(lastA.end, B_split), buffer2, inner_context, lessThan, wrapped_context);
+                                mergeInternal(lastA, Range.init(lastA.end, B_split), buffer2, a, wrapped_context);
                             } else {
                                 mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), inner_context, lessThan, a, wrapped_context);
                             }
@@ -644,7 +644,7 @@ pub fn blockContext(
 
                 // merge the last A block with the remaining B values
                 if (buffer2.length() > 0) {
-                    mergeInternal(T, items, lastA, Range.init(lastA.end, B.end), buffer2, inner_context, lessThan, wrapped_context);
+                    mergeInternal(lastA, Range.init(lastA.end, B.end), buffer2, a, wrapped_context);
                 } else {
                     mergeInPlace(T, items, lastA, Range.init(lastA.end, B.end), inner_context, lessThan, a, wrapped_context);
                 }
@@ -747,14 +747,11 @@ fn mergeInPlace(
 
 // merge operation using an internal buffer
 fn mergeInternal(
-    comptime T: type,
-    items: []T,
     A: Range,
     B: Range,
     buffer: Range,
+    start_index: usize,
     context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
-    wrapped_context: anytype,
 ) void {
     // whenever we find a value to add to the final array, swap it with the value that's already in that spot
     // when this algorithm is finished, 'buffer' will contain its original contents, but in a different order
@@ -764,13 +761,13 @@ fn mergeInternal(
 
     if (B.length() > 0 and A.length() > 0) {
         while (true) {
-            if (!lessThan(context, items[B.start + B_count], items[buffer.start + A_count])) {
-                mem.swap(T, &items[A.start + insert], &items[buffer.start + A_count]);
+            if (!context.lessThan(start_index + B.start + B_count, start_index + buffer.start + A_count)) {
+                context.swap(start_index + A.start + insert, start_index + buffer.start + A_count);
                 A_count += 1;
                 insert += 1;
                 if (A_count >= A.length()) break;
             } else {
-                mem.swap(T, &items[A.start + insert], &items[B.start + B_count]);
+                context.swap(start_index + A.start + insert, start_index + B.start + B_count);
                 B_count += 1;
                 insert += 1;
                 if (B_count >= B.length()) break;
@@ -779,7 +776,7 @@ fn mergeInternal(
     }
 
     // swap the remainder of A into the final array
-    blockSwap(buffer.start + A_count, A.start + insert, A.length() - A_count, wrapped_context);
+    blockSwap(buffer.start + A_count, A.start + insert, A.length() - A_count, context);
 }
 
 fn blockSwap(start1: usize, start2: usize, block_size: usize, context: anytype) void {
