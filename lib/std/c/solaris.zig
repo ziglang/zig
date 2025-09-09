@@ -31,12 +31,6 @@ pub const poolid_t = id_t;
 pub const zoneid_t = id_t;
 pub const ctid_t = id_t;
 
-pub const SCM = struct {
-    pub const UCRED = 0x1012;
-    pub const RIGHTS = 0x1010;
-    pub const TIMESTAMP = SO.TIMESTAMP;
-};
-
 pub const fpregset_t = extern union {
     regs: [130]u32,
     chip_state: extern struct {
