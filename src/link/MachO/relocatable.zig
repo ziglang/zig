@@ -676,11 +676,11 @@ fn writeSectionsToFile(macho_file: *MachO) !void {
     const slice = macho_file.sections.slice();
     for (slice.items(.header), slice.items(.out), slice.items(.relocs)) |header, out, relocs| {
         try macho_file.pwriteAll(out.items, header.offset);
-        try macho_file.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+        try macho_file.pwriteAll(@ptrCast(relocs.items), header.reloff);
     }
 
     try macho_file.writeDataInCode();
-    try macho_file.pwriteAll(mem.sliceAsBytes(macho_file.symtab.items), macho_file.symtab_cmd.symoff);
+    try macho_file.pwriteAll(@ptrCast(macho_file.symtab.items), macho_file.symtab_cmd.symoff);
     try macho_file.pwriteAll(macho_file.strtab.items, macho_file.symtab_cmd.stroff);
 }
 

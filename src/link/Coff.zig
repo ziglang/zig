@@ -1,4 +1,38 @@
 //! The main driver of the self-hosted COFF linker.
+const Coff = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const coff_util = std.coff;
+const fmt = std.fmt;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const math = std.math;
+const mem = std.mem;
+
+const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
+const Cache = std.Build.Cache;
+
+const aarch64_util = link.aarch64;
+const allocPrint = std.fmt.allocPrint;
+const codegen = @import("../codegen.zig");
+const link = @import("../link.zig");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+
+const Compilation = @import("../Compilation.zig");
+const Zcu = @import("../Zcu.zig");
+const InternPool = @import("../InternPool.zig");
+const TableSection = @import("table_section.zig").TableSection;
+const StringTable = @import("StringTable.zig");
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
+const dev = @import("../dev.zig");
 
 base: link.File,
 image_base: u64,
@@ -2168,12 +2202,12 @@ fn writeStrtab(coff: *Coff) !void {
 
 fn writeSectionHeaders(coff: *Coff) !void {
     const offset = coff.getSectionHeadersOffset();
-    try coff.pwriteAll(mem.sliceAsBytes(coff.sections.items(.header)), offset);
+    try coff.pwriteAll(@ptrCast(coff.sections.items(.header)), offset);
 }
 
 fn writeDataDirectoriesHeaders(coff: *Coff) !void {
     const offset = coff.getDataDirectoryHeadersOffset();
-    try coff.pwriteAll(mem.sliceAsBytes(&coff.data_directories), offset);
+    try coff.pwriteAll(@ptrCast(&coff.data_directories), offset);
 }
 
 fn writeHeader(coff: *Coff) !void {
@@ -3067,41 +3101,6 @@ fn pwriteAll(coff: *Coff, bytes: []const u8, offset: u64) error{LinkFailure}!voi
         return diags.fail("failed to write: {s}", .{@errorName(err)});
     };
 }
-
-const Coff = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const coff_util = std.coff;
-const fmt = std.fmt;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const math = std.math;
-const mem = std.mem;
-
-const Allocator = std.mem.Allocator;
-const Path = std.Build.Cache.Path;
-const Directory = std.Build.Cache.Directory;
-const Cache = std.Build.Cache;
-
-const aarch64_util = link.aarch64;
-const allocPrint = std.fmt.allocPrint;
-const codegen = @import("../codegen.zig");
-const link = @import("../link.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-
-const Compilation = @import("../Compilation.zig");
-const Zcu = @import("../Zcu.zig");
-const InternPool = @import("../InternPool.zig");
-const TableSection = @import("table_section.zig").TableSection;
-const StringTable = @import("StringTable.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const AnalUnit = InternPool.AnalUnit;
-const dev = @import("../dev.zig");
 
 /// This is the start of a Portable Executable (PE) file.
 /// It starts with a MS-DOS header followed by a MS-DOS stub program.

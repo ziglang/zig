@@ -311,7 +311,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
         .indexCount = indexes_count,
     }), .little);
 
-    try writer.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
+    try writer.writeSliceEndian(Encoding, info.common_encodings[0..info.common_encodings_count], .little);
 
     for (info.personalities[0..info.personalities_count]) |ref| {
         const sym = ref.getSymbol(macho_file).?;
