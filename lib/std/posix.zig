@@ -3671,6 +3671,46 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     }
 }
 
+pub fn socketpair(domain: u32, socket_type: u32, protocol: u32) SocketError![2]socket_t {
+    // Note to the future: we could provide a shim here for e.g. windows which
+    // creates a listening socket, then creates a second socket and connects it
+    // to the listening socket, and then returns the two.
+    if (@TypeOf(system.socketpair) == void)
+        @compileError("socketpair() not supported by this OS");
+
+    // I'm not really sure if haiku supports flags here.  I'm following the
+    // existing filter here from pipe2(), because it sure seems like it
+    // supports flags there too, but haiku can be hard to understand.
+    const have_sock_flags = !builtin.target.os.tag.isDarwin() and native_os != .haiku;
+    const filtered_sock_type = if (!have_sock_flags)
+        socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC)
+    else
+        socket_type;
+    var socks: [2]socket_t = undefined;
+    const rc = system.socketpair(domain, filtered_sock_type, protocol, &socks);
+    switch (errno(rc)) {
+        .SUCCESS => {
+            errdefer close(socks[0]);
+            errdefer close(socks[1]);
+            if (!have_sock_flags) {
+                try setSockFlags(socks[0], socket_type);
+                try setSockFlags(socks[1], socket_type);
+            }
+            return socks;
+        },
+        .ACCES => return error.AccessDenied,
+        .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+        .INVAL => return error.ProtocolFamilyNotAvailable,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NOBUFS => return error.SystemResources,
+        .NOMEM => return error.SystemResources,
+        .PROTONOSUPPORT => return error.ProtocolNotSupported,
+        .PROTOTYPE => return error.SocketTypeNotSupported,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const ShutdownError = error{
     ConnectionAborted,
 
@@ -6604,6 +6644,9 @@ pub const RecvFromError = error{
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
+
+    /// The other end closed the socket unexpectedly or a read is executed on a shut down socket
+    BrokenPipe,
 } || UnexpectedError;
 
 pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
@@ -6652,8 +6695,58 @@ pub fn recvfrom(
                 .CONNREFUSED => return error.ConnectionRefused,
                 .CONNRESET => return error.ConnectionResetByPeer,
                 .TIMEDOUT => return error.ConnectionTimedOut,
+                .PIPE => return error.BrokenPipe,
                 else => |err| return unexpectedErrno(err),
             }
+        }
+    }
+}
+
+pub const RecvMsgError = RecvFromError || error{
+    /// Reception of SCM_RIGHTS fds via ancillary data in msg.control would
+    /// exceed some system limit (generally this is retryable by trying to
+    /// receive fewer fds or closing some existing fds)
+    SystemFdQuotaExceeded,
+
+    /// Reception of SCM_RIGHTS fds via ancillary data in msg.control would
+    /// exceed some process limit (generally this is retryable by trying to
+    /// receive fewer fds, closing some existing fds, or changing the ulimit)
+    ProcessFdQuotaExceeded,
+};
+
+/// If `sockfd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
+pub fn recvmsg(
+    /// The file descriptor of the sending socket.
+    sockfd: socket_t,
+    /// Message header and iovecs
+    msg: *msghdr,
+    flags: u32,
+) RecvMsgError!usize {
+    if (@TypeOf(system.recvmsg) == void)
+        @compileError("recvmsg() not supported on this OS");
+    while (true) {
+        const rc = system.recvmsg(sockfd, msg, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .AGAIN => return error.WouldBlock,
+            .BADF => unreachable, // always a race condition
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .INTR => continue,
+            .FAULT => unreachable, // An invalid user space address was specified for an argument.
+            .INVAL => unreachable, // Invalid argument passed.
+            .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .MSGSIZE => return error.MessageTooBig,
+            .PIPE => return error.BrokenPipe,
+            .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .NETDOWN => return error.NetworkSubsystemFailed,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
