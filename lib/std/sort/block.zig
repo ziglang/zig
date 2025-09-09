@@ -358,7 +358,7 @@ pub fn blockContext(
                 last = index;
                 count += 1;
             }) {
-                index = findLastForward(T, items, last, items[last], Range.init(last + 1, A.end), find - count, inner_context, lessThan, a, wrapped_context);
+                index = findLastForward(last, Range.init(last + 1, A.end), find - count, a, wrapped_context);
                 if (index == A.end) break;
             }
             index = last;
@@ -483,7 +483,7 @@ pub fn blockContext(
                 index = pull[pull_index].from + 1;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findLastForward(T, items, index, items[index], Range.init(index, pull[pull_index].to), length - count, inner_context, lessThan, a, wrapped_context);
+                    index = findLastForward(index, Range.init(index, pull[pull_index].to), length - count, a, wrapped_context);
                     const range = Range.init(pull[pull_index].from, index - 1);
                     mem.rotate(T, items[range.start..range.end], count);
                     pull[pull_index].from = index - 1 - count;
@@ -593,7 +593,7 @@ pub fn blockContext(
                             if (buffer2.length() > 0) {
                                 mergeInternal(lastA, Range.init(lastA.end, B_split), buffer2, a, wrapped_context);
                             } else {
-                                mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), inner_context, lessThan, a, wrapped_context);
+                                mergeInPlace(lastA, Range.init(lastA.end, B_split), a, wrapped_context);
                             }
 
                             if (buffer2.length() > 0) {
@@ -646,7 +646,7 @@ pub fn blockContext(
                 if (buffer2.length() > 0) {
                     mergeInternal(lastA, Range.init(lastA.end, B.end), buffer2, a, wrapped_context);
                 } else {
-                    mergeInPlace(T, items, lastA, Range.init(lastA.end, B.end), inner_context, lessThan, a, wrapped_context);
+                    mergeInPlace(lastA, Range.init(lastA.end, B.end), a, wrapped_context);
                 }
             }
         }
@@ -680,7 +680,7 @@ pub fn blockContext(
                 // the values were pulled out to the right, so redistribute them back to the left
                 var buffer = Range.init(pull[pull_index].range.end - pull[pull_index].count, pull[pull_index].range.end);
                 while (buffer.length() > 0) {
-                    index = findLastBackward(T, items, buffer.end - 1, items[buffer.end - 1], Range.init(pull[pull_index].range.start, buffer.start), unique, inner_context, lessThan, a, wrapped_context);
+                    index = findLastBackward(buffer.end - 1, Range.init(pull[pull_index].range.start, buffer.start), unique, a, wrapped_context);
                     const amount = buffer.start - index;
                     mem.rotate(T, items[index..buffer.end], amount);
                     buffer.start -= amount;
@@ -696,14 +696,10 @@ pub fn blockContext(
 }
 // merge operation without a buffer
 fn mergeInPlace(
-    comptime T: type,
-    items: []T,
     A_arg: Range,
     B_arg: Range,
-    context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
     start_index: usize,
-    wrapped_context: anytype,
+    context: anytype,
 ) void {
     if (A_arg.length() == 0 or B_arg.length() == 0) return;
 
@@ -730,17 +726,17 @@ fn mergeInPlace(
 
     while (true) {
         // find the first place in B where the first item in A needs to be inserted
-        const mid = binaryFirst(A.start, B, start_index, wrapped_context);
+        const mid = binaryFirst(A.start, B, start_index, context);
 
         // rotate A into place
         const amount = mid - A.end;
-        wrapped_context.rotate(Range.init(A.start, mid), A.length(), start_index);
+        context.rotate(Range.init(A.start, mid), A.length(), start_index);
         if (B.end == mid) break;
 
         // calculate the new A and B ranges
         B.start = mid;
         A = Range.init(A.start + amount, B.start);
-        A.start = binaryLast(T, items, items[A.start], A, context, lessThan);
+        A.start = binaryLast(A.start, A, start_index, context);
         if (A.length() == 0) break;
     }
 }
@@ -828,53 +824,43 @@ fn findFirstBackward(
 }
 
 fn findLastForward(
-    comptime T: type,
-    items: []T,
     value_index: usize,
-    value: T,
     range: Range,
     unique: usize,
-    context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
     start_index: usize,
-    wrapped_context: anytype,
+    context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
-    while (!wrapped_context.lessThan(start_index + value_index, start_index + index - 1)) : (index += skip) {
+    while (!context.lessThan(start_index + value_index, start_index + index - 1)) : (index += skip) {
         if (index >= range.end - skip) {
-            return binaryLast(T, items, value, Range.init(index, range.end), context, lessThan);
+            return binaryLast(value_index, Range.init(index, range.end), start_index, context);
         }
     }
 
-    return binaryLast(T, items, value, Range.init(index - skip, index), context, lessThan);
+    return binaryLast(value_index, Range.init(index - skip, index), start_index, context);
 }
 
 fn findLastBackward(
-    comptime T: type,
-    items: []T,
     value_index: usize,
-    value: T,
     range: Range,
     unique: usize,
-    context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
     start_index: usize,
-    wrapped_context: anytype,
+    context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
-    while (index > range.start and wrapped_context.lessThan(start_index + value_index, start_index + index - 1)) : (index -= skip) {
+    while (index > range.start and context.lessThan(start_index + value_index, start_index + index - 1)) : (index -= skip) {
         if (index < range.start + skip) {
-            return binaryLast(T, items, value, Range.init(range.start, index), context, lessThan);
+            return binaryLast(value_index, Range.init(range.start, index), start_index, context);
         }
     }
 
-    return binaryLast(T, items, value, Range.init(index, index + skip), context, lessThan);
+    return binaryLast(value_index, Range.init(index, index + skip), start_index, context);
 }
 
 fn binaryFirst(
@@ -899,12 +885,10 @@ fn binaryFirst(
 }
 
 fn binaryLast(
-    comptime T: type,
-    items: []T,
-    value: T,
+    value_index: usize,
     range: Range,
+    start_index: usize,
     context: anytype,
-    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) usize {
     var curr = range.start;
     var size = range.length();
@@ -913,8 +897,8 @@ fn binaryLast(
         const offset = size % 2;
 
         size /= 2;
-        const mid_item = items[curr + size];
-        if (!lessThan(context, value, mid_item)) {
+        const mid_index = curr + size;
+        if (!context.lessThan(start_index + value_index, start_index + mid_index)) {
             curr += size + offset;
         }
     }
