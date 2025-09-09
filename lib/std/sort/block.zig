@@ -396,7 +396,7 @@ pub fn blockContext(
                 last = index - 1;
                 count += 1;
             }) {
-                index = findFirstBackward(T, items, items[last], Range.init(B.start, last), find - count, inner_context, lessThan);
+                index = findFirstBackward(T, items, last, items[last], Range.init(B.start, last), find - count, inner_context, lessThan, a, wrapped_context);
                 if (index == B.start) break;
             }
             index = last;
@@ -457,7 +457,7 @@ pub fn blockContext(
                 index = pull[pull_index].from;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findFirstBackward(T, items, items[index - 1], Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, inner_context, lessThan);
+                    index = findFirstBackward(T, items, index - 1, items[index - 1], Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, inner_context, lessThan, a, wrapped_context);
                     const range = Range.init(index + 1, pull[pull_index].from + 1);
                     mem.rotate(T, items[range.start..range.end], range.length() - count);
                     pull[pull_index].from = index + count;
@@ -800,17 +800,20 @@ fn findFirstForward(
 fn findFirstBackward(
     comptime T: type,
     items: []T,
+    value_index: usize,
     value: T,
     range: Range,
     unique: usize,
     context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+    start_index: usize,
+    wrapped_context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
-    while (index > range.start and !lessThan(context, items[index - 1], value)) : (index -= skip) {
+    while (index > range.start and !wrapped_context.lessThan(start_index + index - 1, start_index + value_index)) : (index -= skip) {
         if (index < range.start + skip) {
             return binaryFirst(T, items, value, Range.init(range.start, index), context, lessThan);
         }
