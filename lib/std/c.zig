@@ -3991,6 +3991,17 @@ pub const W = switch (native_os) {
     },
     else => void,
 };
+pub const accept_filter_arg = switch (native_os) {
+    // https://github.com/freebsd/freebsd-src/blob/2024887abc7d1b931e00fbb0697658e98adf048d/sys/sys/socket.h#L205
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L164
+    // https://github.com/NetBSD/src/blob/cad5c68a8524927f65e22ad651de3905382be6e0/sys/sys/socket.h#L188
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L504
+    .freebsd, .dragonfly, .netbsd, .macos, .driverkit, .ios, .tvos, .watchos, .visionos => extern struct {
+        name: [16]u8,
+        arg: [240]u8,
+    },
+    else => void,
+};
 pub const clock_t = switch (native_os) {
     .linux => linux.clock_t,
     .emscripten => emscripten.clock_t,
