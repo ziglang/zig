@@ -1699,10 +1699,16 @@ test "remove" {
         try map.put(i, i);
     }
 
+    const map_capacity = map.capacity();
+    var available_slots = map.unmanaged.available;
+
     i = 0;
     while (i < 16) : (i += 1) {
         if (i % 3 == 0) {
             _ = map.remove(i);
+            try expectEqual(map_capacity, map.capacity());
+            available_slots += 1;
+            try expectEqual(available_slots, map.unmanaged.available);
         }
     }
     try expectEqual(map.count(), 10);
