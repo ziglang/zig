@@ -397,7 +397,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
             shdr.sh_offset + shdr.sh_size,
         });
 
-        try elf_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
+        try elf_file.base.file.?.pwriteAll(@ptrCast(relocs.items), shdr.sh_offset);
     }
 
     if (elf_file.section_indexes.eh_frame) |shndx| {
@@ -435,7 +435,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
             shdr.sh_offset,
             shdr.sh_offset + shdr.sh_size,
         });
-        try elf_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
+        try elf_file.base.file.?.pwriteAll(@ptrCast(relocs.items), shdr.sh_offset);
     }
 
     try writeGroups(elf_file);

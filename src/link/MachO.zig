@@ -2711,7 +2711,7 @@ pub fn writeSymtabToFile(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     const cmd = self.symtab_cmd;
-    try self.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.pwriteAll(@ptrCast(self.symtab.items), cmd.symoff);
     try self.pwriteAll(self.strtab.items, cmd.stroff);
 }
 

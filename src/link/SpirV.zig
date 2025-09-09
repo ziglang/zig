@@ -285,7 +285,8 @@ pub fn flush(
         else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
-    linker.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
+    // TODO endianness bug. use file writer and call writeSliceEndian instead
+    linker.base.file.?.writeAll(@ptrCast(linked_module)) catch |err|
         return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
 

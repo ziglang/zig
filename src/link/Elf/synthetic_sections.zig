@@ -1265,7 +1265,7 @@ pub const GnuHashSection = struct {
             bloom[idx] |= @as(u64, 1) << @as(u6, @intCast((h >> bloom_shift) % 64));
         }
 
-        try writer.writeAll(mem.sliceAsBytes(bloom));
+        try writer.writeSliceEndian(u64, bloom, .little);
 
         // Fill in the hash bucket indices
         const buckets = try gpa.alloc(u32, hash.num_buckets);
@@ -1278,7 +1278,7 @@ pub const GnuHashSection = struct {
             }
         }
 
-        try writer.writeAll(mem.sliceAsBytes(buckets));
+        try writer.writeSliceEndian(u32, buckets, .little);
 
         // Finally, write the hash table
         const table = try gpa.alloc(u32, hash.num_exports);
@@ -1294,7 +1294,7 @@ pub const GnuHashSection = struct {
             }
         }
 
-        try writer.writeAll(mem.sliceAsBytes(table));
+        try writer.writeSliceEndian(u32, table, .little);
     }
 
     pub fn hasher(name: [:0]const u8) u32 {
@@ -1442,8 +1442,8 @@ pub const VerneedSection = struct {
     }
 
     pub fn write(vern: VerneedSection, writer: *std.Io.Writer) !void {
-        try writer.writeAll(mem.sliceAsBytes(vern.verneed.items));
-        try writer.writeAll(mem.sliceAsBytes(vern.vernaux.items));
+        try writer.writeSliceEndian(elf.Elf64_Verneed, vern.verneed.items, .little);
+        try writer.writeSliceEndian(elf.Vernaux, vern.vernaux.items, .little);
     }
 };
 
