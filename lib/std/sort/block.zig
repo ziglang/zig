@@ -544,7 +544,7 @@ pub fn blockContext(
 
                 // if the second buffer is available, block swap the contents into that
                 if (buffer2.length() > 0) {
-                    blockSwap(T, items, lastA.start, buffer2.start, lastA.length());
+                    blockSwap(lastA.start, buffer2.start, lastA.length(), wrapped_context);
                 }
 
                 if (blockA.length() > 0) {
@@ -564,7 +564,7 @@ pub fn blockContext(
                                     minA = findA;
                                 }
                             }
-                            blockSwap(T, items, blockA.start, minA, block_size);
+                            blockSwap(blockA.start, minA, block_size, wrapped_context);
 
                             // swap the first item of the previous A block back with its original value, which is stored in buffer1
                             mem.swap(T, &items[blockA.start], &items[indexA]);
@@ -575,19 +575,19 @@ pub fn blockContext(
                             // or failing that we'll use a strictly in-place merge algorithm (MergeInPlace)
 
                             if (buffer2.length() > 0) {
-                                mergeInternal(T, items, lastA, Range.init(lastA.end, B_split), buffer2, inner_context, lessThan);
+                                mergeInternal(T, items, lastA, Range.init(lastA.end, B_split), buffer2, inner_context, lessThan, wrapped_context);
                             } else {
                                 mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), inner_context, lessThan);
                             }
 
                             if (buffer2.length() > 0) {
                                 // copy the previous A block into the buffer2, since that's where we need it to be when we go to merge it anyway
-                                blockSwap(T, items, blockA.start, buffer2.start, block_size);
+                                blockSwap(blockA.start, buffer2.start, block_size, wrapped_context);
 
                                 // this is equivalent to rotating, but faster
                                 // the area normally taken up by the A block is either the contents of buffer2, or data we don't need anymore since we memcopied it
                                 // either way, we don't need to retain the order of those items, so instead of rotating we can just block swap B to where it belongs
-                                blockSwap(T, items, B_split, blockA.start + block_size - B_remaining, B_remaining);
+                                blockSwap(B_split, blockA.start + block_size - B_remaining, B_remaining, wrapped_context);
                             } else {
                                 // we are unable to use the 'buffer2' trick to speed up the rotation operation since buffer2 doesn't exist, so perform a normal rotation
                                 mem.rotate(T, items[B_split .. blockA.start + block_size], blockA.start - B_split);
@@ -610,7 +610,7 @@ pub fn blockContext(
                             blockB.end = blockB.start;
                         } else {
                             // roll the leftmost A block to the end by swapping it with the next B block
-                            blockSwap(T, items, blockA.start, blockB.start, block_size);
+                            blockSwap(blockA.start, blockB.start, block_size, wrapped_context);
                             lastB = Range.init(blockA.start, blockA.start + block_size);
 
                             blockA.start += block_size;
@@ -628,7 +628,7 @@ pub fn blockContext(
 
                 // merge the last A block with the remaining B values
                 if (buffer2.length() > 0) {
-                    mergeInternal(T, items, lastA, Range.init(lastA.end, B.end), buffer2, inner_context, lessThan);
+                    mergeInternal(T, items, lastA, Range.init(lastA.end, B.end), buffer2, inner_context, lessThan, wrapped_context);
                 } else {
                     mergeInPlace(T, items, lastA, Range.init(lastA.end, B.end), inner_context, lessThan);
                 }
@@ -736,6 +736,7 @@ fn mergeInternal(
     buffer: Range,
     context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+    wrapped_context: anytype,
 ) void {
     // whenever we find a value to add to the final array, swap it with the value that's already in that spot
     // when this algorithm is finished, 'buffer' will contain its original contents, but in a different order
@@ -760,13 +761,13 @@ fn mergeInternal(
     }
 
     // swap the remainder of A into the final array
-    blockSwap(T, items, buffer.start + A_count, A.start + insert, A.length() - A_count);
+    blockSwap(buffer.start + A_count, A.start + insert, A.length() - A_count, wrapped_context);
 }
 
-fn blockSwap(comptime T: type, items: []T, start1: usize, start2: usize, block_size: usize) void {
+fn blockSwap(start1: usize, start2: usize, block_size: usize, context: anytype) void {
     var index: usize = 0;
     while (index < block_size) : (index += 1) {
-        mem.swap(T, &items[start1 + index], &items[start2 + index]);
+        context.swap(start1 + index, start2 + index);
     }
 }
 
