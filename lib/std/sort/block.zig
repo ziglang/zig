@@ -653,7 +653,7 @@ pub fn blockContext(
                 // the values were pulled out to the left, so redistribute them back to the right
                 var buffer = Range.init(pull[pull_index].range.start, pull[pull_index].range.start + pull[pull_index].count);
                 while (buffer.length() > 0) {
-                    index = findFirstForward(T, items, items[buffer.start], Range.init(buffer.end, pull[pull_index].range.end), unique, inner_context, lessThan);
+                    index = findFirstForward(T, items, buffer.start, items[buffer.start], Range.init(buffer.end, pull[pull_index].range.end), unique, inner_context, lessThan, a, wrapped_context);
                     const amount = index - buffer.end;
                     mem.rotate(T, items[buffer.start..index], buffer.length());
                     buffer.start += (amount + 1);
@@ -776,17 +776,19 @@ fn blockSwap(start1: usize, start2: usize, block_size: usize, context: anytype) 
 fn findFirstForward(
     comptime T: type,
     items: []T,
+    value_index: usize,
     value: T,
     range: Range,
     unique: usize,
     context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+    start_index: usize,
+    wrapped_context: anytype,
 ) usize {
-    if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
-    while (lessThan(context, items[index - 1], value)) : (index += skip) {
+    while (wrapped_context.lessThan(start_index + index - 1, start_index + value_index)) : (index += skip) {
         if (index >= range.end - skip) {
             return binaryFirst(T, items, value, Range.init(index, range.end), context, lessThan);
         }
