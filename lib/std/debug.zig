@@ -732,7 +732,15 @@ pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
     const tty_config = tty.detectConfig(.stderr());
     const stderr = lockStderrWriter(&.{});
     defer unlockStderrWriter();
-    writeCurrentStackTrace(options, stderr, tty_config) catch |err| switch (err) {
+    writeCurrentStackTrace(.{
+        .first_address = a: {
+            if (options.first_address) |a| break :a a;
+            if (options.context != null) break :a null;
+            break :a @returnAddress(); // don't include this frame in the trace
+        },
+        .context = options.context,
+        .allow_unsafe_unwind = options.allow_unsafe_unwind,
+    }, stderr, tty_config) catch |err| switch (err) {
         error.WriteFailed => {},
     };
 }
