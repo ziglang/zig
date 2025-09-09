@@ -30,7 +30,6 @@ pub const expression = @import("Dwarf/expression.zig");
 pub const abi = @import("Dwarf/abi.zig");
 pub const call_frame = @import("Dwarf/call_frame.zig");
 pub const Unwind = @import("Dwarf/Unwind.zig");
-pub const ElfModule = @import("Dwarf/ElfModule.zig");
 
 /// Useful to temporarily enable while working on this file.
 const debug_debug_mode = false;

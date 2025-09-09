@@ -78,6 +78,7 @@ pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) Error
 pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) Error![]const u8 {
     comptime assert(target_supported);
     const module: Module = try .lookup(&self.lookup_cache, gpa, address);
+    if (module.name.len == 0) return error.MissingDebugInfo;
     return module.name;
 }
 
