@@ -142,7 +142,7 @@ fn loadDebugInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo) !
         try di.dwarf.?.open(gpa, native_endian);
     }
 
-    if (try coff_obj.getPdbPath()) |raw_path| pdb: {
+    if (coff_obj.getPdbPath() catch return error.InvalidDebugInfo) |raw_path| pdb: {
         const path = blk: {
             if (fs.path.isAbsolute(raw_path)) {
                 break :blk raw_path;
