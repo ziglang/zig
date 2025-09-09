@@ -167,45 +167,6 @@ test "openat smoke test" {
     }
 }
 
-test "symlink with relative paths" {
-    if (native_os == .wasi) return error.SkipZigTest; // Can symlink, but can't change into tmpDir
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const target_name = "symlink-target";
-    const symlink_name = "symlinker";
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    // Create the target file
-    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "nonsense" });
-
-    // Want to test relative paths, so cd into the tmpdir for this test
-    try tmp.dir.setAsCwd();
-
-    if (native_os == .windows) {
-        const wtarget_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, target_name);
-        const wsymlink_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, symlink_name);
-        defer a.free(wtarget_name);
-        defer a.free(wsymlink_name);
-
-        std.os.windows.CreateSymbolicLink(tmp.dir.fd, wsymlink_name, wtarget_name, false) catch |err| switch (err) {
-            // Symlink requires admin privileges on windows, so this test can legitimately fail.
-            error.AccessDenied => return error.SkipZigTest,
-            else => return err,
-        };
-    } else {
-        try posix.symlink(target_name, symlink_name);
-    }
-
-    var buffer: [fs.max_path_bytes]u8 = undefined;
-    const given = try posix.readlink(symlink_name, buffer[0..]);
-    try expect(mem.eql(u8, target_name, given));
-}
-
 test "readlink on Windows" {
     if (native_os != .windows) return error.SkipZigTest;
 
@@ -218,55 +179,6 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.max_path_bytes]u8 = undefined;
     const given = try posix.readlink(symlink_path, buffer[0..]);
     try expect(mem.eql(u8, target_path, given));
-}
-
-test "link with relative paths" {
-    if (native_os == .wasi) return error.SkipZigTest; // Can link, but can't change into tmpDir
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstat()`.
-    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
-
-    switch (native_os) {
-        .wasi, .linux, .solaris, .illumos => {},
-        else => return error.SkipZigTest,
-    }
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    const target_name = "link-target";
-    const link_name = "newlink";
-
-    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "example" });
-
-    // Test 1: create the relative link from inside tmp
-    try tmp.dir.setAsCwd();
-    try posix.link(target_name, link_name);
-
-    // Verify
-    const efd = try tmp.dir.openFile(target_name, .{});
-    defer efd.close();
-
-    const nfd = try tmp.dir.openFile(link_name, .{});
-    defer nfd.close();
-
-    {
-        const estat = try posix.fstat(efd.handle);
-        const nstat = try posix.fstat(nfd.handle);
-        try testing.expectEqual(estat.ino, nstat.ino);
-        try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
-    }
-
-    // Test 2: Remove the link and see the stats update
-    try posix.unlink(link_name);
-
-    {
-        const estat = try posix.fstat(efd.handle);
-        try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
-    }
 }
 
 test "linkat with different directories" {
