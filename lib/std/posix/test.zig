@@ -607,24 +607,6 @@ test "mmap" {
     }
 }
 
-test "getenv" {
-    if (native_os == .wasi and !builtin.link_libc) {
-        // std.posix.getenv is not supported on WASI due to the need of allocation
-        return error.SkipZigTest;
-    }
-
-    if (native_os == .windows) {
-        try expect(std.process.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
-    } else {
-        try expect(posix.getenv("") == null);
-        try expect(posix.getenv("BOGUSDOESNOTEXISTENVVAR") == null);
-        if (builtin.link_libc) {
-            try testing.expectEqualStrings(posix.getenv("USER") orelse "", mem.span(std.c.getenv("USER") orelse ""));
-        }
-        try expect(posix.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
-    }
-}
-
 test "fcntl" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;

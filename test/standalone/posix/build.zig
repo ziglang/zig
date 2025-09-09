@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 const Case = struct {
     src_path: []const u8,
+    set_env_vars: bool = false,
 };
 
 const cases = [_]Case{
@@ -11,6 +12,7 @@ const cases = [_]Case{
     },
     .{
         .src_path = "getenv.zig",
+        .set_env_vars = true,
     },
     .{
         .src_path = "sigaction.zig",
@@ -67,6 +69,12 @@ fn run_exe(b: *std.Build, optimize: std.builtin.OptimizeMode, case: *const Case,
     });
 
     const run_cmd = b.addRunArtifact(exe);
+
+    if (case.set_env_vars) {
+        run_cmd.setEnvironmentVariable("ZIG_TEST_POSIX_1EQ", "test=variable");
+        run_cmd.setEnvironmentVariable("ZIG_TEST_POSIX_3EQ", "=test=variable=");
+        run_cmd.setEnvironmentVariable("ZIG_TEST_POSIX_EMPTY", "");
+    }
 
     return run_cmd;
 }
