@@ -137,6 +137,7 @@ pub const ifreq = system.ifreq;
 pub const in_pktinfo = system.in_pktinfo;
 pub const in6_pktinfo = system.in6_pktinfo;
 pub const ino_t = system.ino_t;
+pub const linger = system.linger;
 pub const mcontext_t = system.mcontext_t;
 pub const mode_t = system.mode_t;
 pub const msghdr = system.msghdr;

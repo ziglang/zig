@@ -4124,6 +4124,37 @@ pub const itimerspec = switch (native_os) {
     },
     else => void,
 };
+pub const linger = switch (native_os) {
+    .linux => linux.linger,
+    // https://github.com/freebsd/freebsd-src/blob/46347b3619757e3d683a87ca03efaf2ae242335f/sys/sys/socket.h#L200
+    .freebsd,
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L158
+    .dragonfly,
+    // https://github.com/NetBSD/src/blob/80bf25a5691072d4755e84567ccbdf0729370dea/sys/sys/socket.h#L183
+    .netbsd,
+    // https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/sys/socket.h#L126
+    .openbsd,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/socket.h#L214
+    .solaris,
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/sys/socket.h#L250
+    .illumos,
+    // https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/sys/socket.h#L87
+    .haiku,
+    // https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/sys/socket.h#L122
+    .serenity,
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L498
+    .driverkit,
+    .ios,
+    .macos,
+    .tvos,
+    .watchos,
+    .visionos,
+    => extern struct {
+        onoff: i32, // non-zero to linger on close
+        linger: i32, // time to linger in seconds
+    },
+    else => void,
+};
 pub const msghdr = switch (native_os) {
     .linux => linux.msghdr,
     .openbsd,

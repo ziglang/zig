@@ -4524,6 +4524,12 @@ pub const IPV6 = struct {
     pub const FREEBIND = 78;
 };
 
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=b1e904999542ad6764eafa54545f1c55776006d1#n43
+pub const linger = extern struct {
+    onoff: i32, // non-zero to linger on close
+    linger: i32, // time to linger in seconds
+};
+
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/in.h?id=64e844505bc08cde3f346f193cbbbab0096fef54#n250
 pub const in_pktinfo = extern struct {
     ifindex: i32,
