@@ -6459,7 +6459,7 @@ pub const IPPROTO = switch (native_os) {
         /// dummy for IP
         pub const IP = 0;
         /// IP6 hop-by-hop options
-        pub const HOPOPTS = IP;
+        pub const HOPOPTS = IPPROTO.IP;
         /// control message protocol
         pub const ICMP = 1;
         /// group mgmt protocol
@@ -6539,6 +6539,39 @@ pub const IPPROTO = switch (native_os) {
         pub const ICMPV6 = 58;
         pub const RAW = 255;
     },
+    else => void,
+};
+pub const IP = switch (native_os) {
+    .linux => linux.IP,
+    .freebsd => freebsd.IP,
+    .dragonfly => dragonfly.IP,
+    .netbsd => netbsd.IP,
+    .openbsd => openbsd.IP,
+    .solaris, .illumos => solaris.IP,
+    .haiku => haiku.IP,
+    .serenity => serenity.IP,
+    else => void,
+};
+pub const IPV6 = switch (native_os) {
+    .linux => linux.IPV6,
+    .freebsd => freebsd.IPV6,
+    .dragonfly => dragonfly.IPV6,
+    .netbsd => netbsd.IPV6,
+    .openbsd => openbsd.IPV6,
+    .solaris, .illumos => solaris.IPV6,
+    .haiku => haiku.IPV6,
+    .serenity => serenity.IPV6,
+    else => void,
+};
+pub const IPTOS = switch (native_os) {
+    .linux => linux.IPTOS,
+    .freebsd => freebsd.IPTOS,
+    .dragonfly => dragonfly.IPTOS,
+    .netbsd => netbsd.IPTOS,
+    .openbsd => openbsd.IPTOS,
+    .solaris, .illumos => solaris.IPTOS,
+    .haiku => haiku.IPTOS,
+    .serenity => serenity.IPTOS,
     else => void,
 };
 pub const SOL = switch (native_os) {
