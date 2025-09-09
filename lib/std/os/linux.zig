@@ -4524,6 +4524,19 @@ pub const IPV6 = struct {
     pub const FREEBIND = 78;
 };
 
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/in.h?id=64e844505bc08cde3f346f193cbbbab0096fef54#n250
+pub const in_pktinfo = extern struct {
+    ifindex: i32,
+    spec_dst: u32,
+    addr: u32,
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/ipv6.h?id=f24987ef6959a7efaf79bffd265522c3df18d431#n22
+pub const in6_pktinfo = extern struct {
+    addr: [16]u8,
+    ifindex: i32,
+};
+
 /// IEEE 802.3 Ethernet magic constants. The frame sizes omit the preamble
 /// and FCS/CRC (frame check sequence).
 pub const ETH = struct {

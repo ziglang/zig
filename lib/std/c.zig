@@ -4087,6 +4087,35 @@ pub const ifreq = switch (native_os) {
     },
     else => void,
 };
+pub const in_pktinfo = switch (native_os) {
+    .linux => linux.in_pktinfo,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/netinet/in.h#L1084
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L1132
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet/in.h#L696
+    .solaris, .illumos, .driverkit, .ios, .macos, .tvos, .watchos, .visionos => extern struct {
+        ifindex: u32,
+        spec_dst: u32,
+        addr: u32,
+    },
+    else => void,
+};
+pub const in6_pktinfo = switch (native_os) {
+    .linux => linux.in6_pktinfo,
+    // https://github.com/freebsd/freebsd-src/blob/9bfbc6826f72eb385bf52f4cde8080bccf7e3ebd/sys/netinet6/in6.h#L547
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/netinet6/in6.h#L575
+    // https://github.com/NetBSD/src/blob/80bf25a5691072d4755e84567ccbdf0729370dea/sys/netinet6/in6.h#L468
+    // https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/netinet6/in6.h#L365
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/netinet/in.h#L1093
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L114IP1
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet6/in6.h#L737
+    // https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/netinet6/in6.h#L63
+    // https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/sys/socket.h#L122
+    .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos, .driverkit, .ios, .macos, .tvos, .watchos, .visionos, .haiku, .serenity => extern struct {
+        addr: [16]u8,
+        ifindex: u32,
+    },
+    else => void,
+};
 pub const itimerspec = switch (native_os) {
     .linux => linux.itimerspec,
     .haiku => extern struct {
