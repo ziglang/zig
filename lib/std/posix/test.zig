@@ -17,6 +17,9 @@ const AtomicOrder = std.builtin.AtomicOrder;
 const native_os = builtin.target.os.tag;
 const tmpDir = std.testing.tmpDir;
 
+// NOTE: several additional tests are in test/standalone/posix/.  Any tests that mutate
+// process-wide POSIX state (cwd, signals, etc) cannot be Zig unit tests and should be over there.
+
 // https://github.com/ziglang/zig/issues/20288
 test "WTF-8 to WTF-16 conversion buffer overflows" {
     if (native_os != .windows) return error.SkipZigTest;
@@ -37,68 +40,6 @@ test "check WASI CWD" {
             try expectEqual(3, posix.AT.FDCWD);
         }
     }
-}
-
-test "chdir absolute parent" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    // Get current working directory path
-    var old_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const old_cwd = try posix.getcwd(old_cwd_buf[0..]);
-
-    {
-        // Firstly, changing to itself should have no effect
-        try posix.chdir(old_cwd);
-        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-        try expect(mem.eql(u8, old_cwd, new_cwd));
-    }
-
-    // Next, change current working directory to one level above
-    const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
-    try posix.chdir(parent);
-
-    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-    try expect(mem.eql(u8, parent, new_cwd));
-}
-
-test "chdir relative" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    // Use the tmpDir parent_dir as the "base" for the test. Then cd into the child
-    try tmp.parent_dir.setAsCwd();
-
-    // Capture base working directory path, to build expected full path
-    var base_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const base_cwd = try posix.getcwd(base_cwd_buf[0..]);
-
-    const dir_name = &tmp.sub_path;
-    const expected_path = try fs.path.resolve(a, &.{ base_cwd, dir_name });
-    defer a.free(expected_path);
-
-    // change current working directory to new directory
-    try posix.chdir(dir_name);
-
-    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-
-    // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
-    const resolved_cwd = try fs.path.resolve(a, &.{new_cwd});
-    defer a.free(resolved_cwd);
-
-    try expect(mem.eql(u8, expected_path, resolved_cwd));
 }
 
 test "open smoke test" {
@@ -453,12 +394,6 @@ test "getrandom" {
     // If this test fails the chance is significantly higher that there is a bug than
     // that two sets of 50 bytes were equal.
     try expect(!mem.eql(u8, &buf_a, &buf_b));
-}
-
-test "getcwd" {
-    // at least call it so it gets compiled
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    _ = posix.getcwd(&buf) catch undefined;
 }
 
 test "getuid" {
