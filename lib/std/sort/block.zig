@@ -664,7 +664,7 @@ pub fn blockContext(
                 // the values were pulled out to the right, so redistribute them back to the left
                 var buffer = Range.init(pull[pull_index].range.end - pull[pull_index].count, pull[pull_index].range.end);
                 while (buffer.length() > 0) {
-                    index = findLastBackward(T, items, items[buffer.end - 1], Range.init(pull[pull_index].range.start, buffer.start), unique, inner_context, lessThan);
+                    index = findLastBackward(T, items, buffer.end - 1, items[buffer.end - 1], Range.init(pull[pull_index].range.start, buffer.start), unique, inner_context, lessThan, a, wrapped_context);
                     const amount = buffer.start - index;
                     mem.rotate(T, items[index..buffer.end], amount);
                     buffer.start -= amount;
@@ -850,17 +850,20 @@ fn findLastForward(
 fn findLastBackward(
     comptime T: type,
     items: []T,
+    value_index: usize,
     value: T,
     range: Range,
     unique: usize,
     context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+    start_index: usize,
+    wrapped_context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
-    while (index > range.start and lessThan(context, value, items[index - 1])) : (index -= skip) {
+    while (index > range.start and wrapped_context.lessThan(start_index + value_index, start_index + index - 1)) : (index -= skip) {
         if (index < range.start + skip) {
             return binaryLast(T, items, value, Range.init(range.start, index), context, lessThan);
         }
