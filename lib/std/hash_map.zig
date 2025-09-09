@@ -1701,14 +1701,20 @@ test "remove" {
 
     const map_capacity = map.capacity();
     var available_slots = map.unmanaged.available;
+    var size = map.unmanaged.size;
 
     i = 0;
     while (i < 16) : (i += 1) {
         if (i % 3 == 0) {
             _ = map.remove(i);
+
             try expectEqual(map_capacity, map.capacity());
+
             available_slots += 1;
             try expectEqual(available_slots, map.unmanaged.available);
+
+            size -= 1;
+            try expectEqual(size, map.unmanaged.size);
         }
     }
     try expectEqual(map.count(), 10);
