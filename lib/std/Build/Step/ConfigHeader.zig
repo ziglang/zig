@@ -235,7 +235,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         .meson => |file_source| {
             try bw.writeAll(c_generated_line);
             const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes);
+            const contents = std.fs.cwd().readFileAlloc(src_path, arena, .limited(config_header.max_bytes)) catch |err| {
+                return step.fail("unable to read meson input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
             try render_meson(step, contents, bw, config_header.values, src_path);
         },
         .blank => {
