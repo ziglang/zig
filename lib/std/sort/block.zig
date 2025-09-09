@@ -115,7 +115,7 @@ pub fn block(
             return mem.swap(T, &ctx.items[a], &ctx.items[b]);
         }
     };
-    return blockContext(T, items, context, lessThanFn, 0, items.len, Context{ .items = items, .sub_ctx = context });
+    return blockContext(0, items.len, Context{ .items = items, .sub_ctx = context });
 }
 
 /// Stable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
@@ -127,10 +127,6 @@ pub fn block(
 /// NOTE: The algorithm only works when the comparison is less-than or greater-than.
 ///       (See https://github.com/ziglang/zig/issues/8289)
 pub fn blockContext(
-    comptime T: type,
-    items: []T,
-    inner_context: anytype,
-    comptime lessThanFn: fn (@TypeOf(inner_context), lhs: T, rhs: T) bool,
     a: usize,
     b: usize,
     context: anytype,
@@ -173,14 +169,6 @@ pub fn blockContext(
         }
     };
     const wrapped_context = Context{ .sub_ctx = context };
-    const lessThan = if (builtin.mode == .Debug) struct {
-        fn lessThan(ctx: @TypeOf(inner_context), lhs: T, rhs: T) bool {
-            const lt = lessThanFn(ctx, lhs, rhs);
-            const gt = lessThanFn(ctx, rhs, lhs);
-            std.debug.assert(!(lt and gt));
-            return lt;
-        }
-    }.lessThan else lessThanFn;
 
     const range_length = b - a;
 
@@ -475,7 +463,7 @@ pub fn blockContext(
                 while (count < length) : (count += 1) {
                     index = findFirstBackward(index - 1, Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, a, wrapped_context);
                     const range = Range.init(index + 1, pull[pull_index].from + 1);
-                    mem.rotate(T, items[range.start..range.end], range.length() - count);
+                    wrapped_context.rotate(range, range.length() - count, a);
                     pull[pull_index].from = index + count;
                 }
             } else if (pull[pull_index].to > pull[pull_index].from) {
@@ -485,7 +473,7 @@ pub fn blockContext(
                 while (count < length) : (count += 1) {
                     index = findLastForward(index, Range.init(index, pull[pull_index].to), length - count, a, wrapped_context);
                     const range = Range.init(pull[pull_index].from, index - 1);
-                    mem.rotate(T, items[range.start..range.end], count);
+                    wrapped_context.rotate(range, count, a);
                     pull[pull_index].from = index - 1 - count;
                 }
             }
@@ -529,10 +517,10 @@ pub fn blockContext(
                 }
             }
 
-            if (lessThan(inner_context, items[B.end - 1], items[A.start])) {
+            if (wrapped_context.lessThan(a + B.end - 1, a + A.start)) {
                 // the two ranges are in reverse order, so a simple rotation should fix it
-                mem.rotate(T, items[A.start..B.end], A.length());
-            } else if (lessThan(inner_context, items[A.end], items[A.end - 1])) {
+                wrapped_context.rotate(Range.init(A.start, B.end), A.length(), a);
+            } else if (wrapped_context.lessThan(a + A.end, a + A.end - 1)) {
                 // these two ranges weren't already in order, so we'll need to merge them!
                 var findA: usize = undefined;
 
@@ -547,7 +535,7 @@ pub fn blockContext(
                     indexA += 1;
                     index += block_size;
                 }) {
-                    mem.swap(T, &items[indexA], &items[index]);
+                    context.swap(a + indexA, a + index);
                 }
 
                 // start rolling the A blocks through the B blocks!
@@ -567,7 +555,7 @@ pub fn blockContext(
                     while (true) {
                         // if there's a previous B block and the first value of the minimum A block is <= the last value of the previous B block,
                         // then drop that minimum A block behind. or if there are no B blocks left then keep dropping the remaining A blocks.
-                        if ((lastB.length() > 0 and !lessThan(inner_context, items[lastB.end - 1], items[indexA])) or blockB.length() == 0) {
+                        if ((lastB.length() > 0 and !wrapped_context.lessThan(a + lastB.end - 1, a + indexA)) or blockB.length() == 0) {
                             // figure out where to split the previous B block, and rotate it at the split
                             const B_split = binaryFirst(indexA, lastB, a, wrapped_context);
                             const B_remaining = lastB.end - B_split;
@@ -576,14 +564,14 @@ pub fn blockContext(
                             var minA = blockA.start;
                             findA = minA + block_size;
                             while (findA < blockA.end) : (findA += block_size) {
-                                if (lessThan(inner_context, items[findA], items[minA])) {
+                                if (wrapped_context.lessThan(a + findA, a + minA)) {
                                     minA = findA;
                                 }
                             }
                             blockSwap(blockA.start, minA, block_size, wrapped_context);
 
                             // swap the first item of the previous A block back with its original value, which is stored in buffer1
-                            mem.swap(T, &items[blockA.start], &items[indexA]);
+                            context.swap(a + blockA.start, a + indexA);
                             indexA += 1;
 
                             // locally merge the previous A block with the B values that follow it
@@ -606,7 +594,7 @@ pub fn blockContext(
                                 blockSwap(B_split, blockA.start + block_size - B_remaining, B_remaining, wrapped_context);
                             } else {
                                 // we are unable to use the 'buffer2' trick to speed up the rotation operation since buffer2 doesn't exist, so perform a normal rotation
-                                mem.rotate(T, items[B_split .. blockA.start + block_size], blockA.start - B_split);
+                                wrapped_context.rotate(Range.init(B_split, blockA.start + block_size), blockA.start - B_split, a);
                             }
 
                             // update the range for the remaining A blocks, and the range remaining from the B block after it was split
@@ -618,7 +606,7 @@ pub fn blockContext(
                             if (blockA.length() == 0) break;
                         } else if (blockB.length() < block_size) {
                             // move the last B block, which is unevenly sized, to before the remaining A blocks, by using a rotation
-                            mem.rotate(T, items[blockA.start..blockB.end], blockB.start - blockA.start);
+                            wrapped_context.rotate(Range.init(blockA.start, blockB.end), blockB.start - blockA.start, a);
 
                             lastB = Range.init(blockA.start, blockA.start + blockB.length());
                             blockA.start += blockB.length();
@@ -660,7 +648,7 @@ pub fn blockContext(
         // it was consistently slightly slower than a simple insertion sort,
         // even for tens of millions of items. this may be because insertion
         // sort is quite fast when the data is already somewhat sorted, like it is here
-        sort.insertion(T, items[buffer2.start..buffer2.end], inner_context, lessThan);
+        sort.insertionContext(a + buffer2.start, a + buffer2.end, wrapped_context);
 
         pull_index = 0;
         while (pull_index < 2) : (pull_index += 1) {
@@ -671,7 +659,7 @@ pub fn blockContext(
                 while (buffer.length() > 0) {
                     index = findFirstForward(buffer.start, Range.init(buffer.end, pull[pull_index].range.end), unique, a, wrapped_context);
                     const amount = index - buffer.end;
-                    mem.rotate(T, items[buffer.start..index], buffer.length());
+                    wrapped_context.rotate(Range.init(buffer.start, index), buffer.length(), a);
                     buffer.start += (amount + 1);
                     buffer.end += amount;
                     unique -= 2;
@@ -682,7 +670,7 @@ pub fn blockContext(
                 while (buffer.length() > 0) {
                     index = findLastBackward(buffer.end - 1, Range.init(pull[pull_index].range.start, buffer.start), unique, a, wrapped_context);
                     const amount = buffer.start - index;
-                    mem.rotate(T, items[index..buffer.end], amount);
+                    wrapped_context.rotate(Range.init(index, buffer.end), amount, a);
                     buffer.start -= amount;
                     buffer.end -= (amount + 1);
                     unique -= 2;
