@@ -154,15 +154,15 @@ pub fn blockContext(
             return ctx.sub_ctx.swap(i, j);
         }
 
-        pub fn rotate(ctx: @This(), A: Range, amount: usize, start_index: usize) void {
-            ctx.naiveReverse(Range.init(A.start, A.start + amount), start_index);
-            ctx.naiveReverse(Range.init(A.start + amount, A.end), start_index);
-            ctx.naiveReverse(A, start_index);
+        pub fn rotate(ctx: @This(), A: Range, amount: usize) void {
+            ctx.naiveReverse(Range.init(A.start, A.start + amount));
+            ctx.naiveReverse(Range.init(A.start + amount, A.end));
+            ctx.naiveReverse(A);
         }
 
-        fn naiveReverse(ctx: @This(), A: Range, start_index: usize) void {
-            var i = start_index + A.start;
-            var j = start_index + A.end - 1;
+        fn naiveReverse(ctx: @This(), A: Range) void {
+            var i = A.start;
+            var j = A.end - 1;
             while (j > i) {
                 ctx.sub_ctx.swap(i, j);
                 i += 1;
@@ -348,7 +348,7 @@ pub fn blockContext(
                 last = index;
                 count += 1;
             }) {
-                index = findLastForward(last, Range.init(last + 1, A.end), find - count, 0, wrapped_context);
+                index = findLastForward(last, Range.init(last + 1, A.end), find - count, wrapped_context);
                 if (index == A.end) break;
             }
             index = last;
@@ -402,7 +402,7 @@ pub fn blockContext(
                 last = index - 1;
                 count += 1;
             }) {
-                index = findFirstBackward(last, Range.init(B.start, last), find - count, 0, wrapped_context);
+                index = findFirstBackward(last, Range.init(B.start, last), find - count, wrapped_context);
                 if (index == B.start) break;
             }
             index = last;
@@ -463,9 +463,9 @@ pub fn blockContext(
                 index = pull[pull_index].from;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findFirstBackward(index - 1, Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, 0, wrapped_context);
+                    index = findFirstBackward(index - 1, Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, wrapped_context);
                     const range = Range.init(index + 1, pull[pull_index].from + 1);
-                    wrapped_context.rotate(range, range.length() - count, 0);
+                    wrapped_context.rotate(range, range.length() - count);
                     pull[pull_index].from = index + count;
                 }
             } else if (pull[pull_index].to > pull[pull_index].from) {
@@ -473,9 +473,9 @@ pub fn blockContext(
                 index = pull[pull_index].from + 1;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findLastForward(index, Range.init(index, pull[pull_index].to), length - count, 0, wrapped_context);
+                    index = findLastForward(index, Range.init(index, pull[pull_index].to), length - count, wrapped_context);
                     const range = Range.init(pull[pull_index].from, index - 1);
-                    wrapped_context.rotate(range, count, 0);
+                    wrapped_context.rotate(range, count);
                     pull[pull_index].from = index - 1 - count;
                 }
             }
@@ -519,10 +519,10 @@ pub fn blockContext(
                 }
             }
 
-            if (wrapped_context.lessThan(0 + B.end - 1, 0 + A.start)) {
+            if (wrapped_context.lessThan(B.end - 1, A.start)) {
                 // the two ranges are in reverse order, so a simple rotation should fix it
-                wrapped_context.rotate(Range.init(A.start, B.end), A.length(), 0);
-            } else if (wrapped_context.lessThan(0 + A.end, 0 + A.end - 1)) {
+                wrapped_context.rotate(Range.init(A.start, B.end), A.length());
+            } else if (wrapped_context.lessThan(A.end, A.end - 1)) {
                 // these two ranges weren't already in order, so we'll need to merge them!
                 var findA: usize = undefined;
 
@@ -537,7 +537,7 @@ pub fn blockContext(
                     indexA += 1;
                     index += block_size;
                 }) {
-                    context.swap(0 + indexA, 0 + index);
+                    context.swap(indexA, index);
                 }
 
                 // start rolling the A blocks through the B blocks!
@@ -557,23 +557,23 @@ pub fn blockContext(
                     while (true) {
                         // if there's a previous B block and the first value of the minimum A block is <= the last value of the previous B block,
                         // then drop that minimum A block behind. or if there are no B blocks left then keep dropping the remaining A blocks.
-                        if ((lastB.length() > 0 and !wrapped_context.lessThan(a + lastB.end - 1, 0 + indexA)) or blockB.length() == 0) {
+                        if ((lastB.length() > 0 and !wrapped_context.lessThan(a + lastB.end - 1, indexA)) or blockB.length() == 0) {
                             // figure out where to split the previous B block, and rotate it at the split
-                            const B_split = binaryFirst(indexA, lastB, 0, wrapped_context);
+                            const B_split = binaryFirst(indexA, lastB, wrapped_context);
                             const B_remaining = lastB.end - B_split;
 
                             // swap the minimum A block to the beginning of the rolling A blocks
                             var minA = blockA.start;
                             findA = minA + block_size;
                             while (findA < blockA.end) : (findA += block_size) {
-                                if (wrapped_context.lessThan(0 + findA, 0 + minA)) {
+                                if (wrapped_context.lessThan(findA, minA)) {
                                     minA = findA;
                                 }
                             }
                             blockSwap(blockA.start, minA, block_size, wrapped_context);
 
                             // swap the first item of the previous A block back with its original value, which is stored in buffer1
-                            context.swap(0 + blockA.start, 0 + indexA);
+                            context.swap(blockA.start, indexA);
                             indexA += 1;
 
                             // locally merge the previous A block with the B values that follow it
@@ -581,9 +581,9 @@ pub fn blockContext(
                             // or failing that we'll use a strictly in-place merge algorithm (MergeInPlace)
 
                             if (buffer2.length() > 0) {
-                                mergeInternal(lastA, Range.init(lastA.end, B_split), buffer2, 0, wrapped_context);
+                                mergeInternal(lastA, Range.init(lastA.end, B_split), buffer2, wrapped_context);
                             } else {
-                                mergeInPlace(lastA, Range.init(lastA.end, B_split), 0, wrapped_context);
+                                mergeInPlace(lastA, Range.init(lastA.end, B_split), wrapped_context);
                             }
 
                             if (buffer2.length() > 0) {
@@ -596,7 +596,7 @@ pub fn blockContext(
                                 blockSwap(B_split, blockA.start + block_size - B_remaining, B_remaining, wrapped_context);
                             } else {
                                 // we are unable to use the 'buffer2' trick to speed up the rotation operation since buffer2 doesn't exist, so perform a normal rotation
-                                wrapped_context.rotate(Range.init(B_split, blockA.start + block_size), blockA.start - B_split, 0);
+                                wrapped_context.rotate(Range.init(B_split, blockA.start + block_size), blockA.start - B_split);
                             }
 
                             // update the range for the remaining A blocks, and the range remaining from the B block after it was split
@@ -608,7 +608,7 @@ pub fn blockContext(
                             if (blockA.length() == 0) break;
                         } else if (blockB.length() < block_size) {
                             // move the last B block, which is unevenly sized, to before the remaining A blocks, by using a rotation
-                            wrapped_context.rotate(Range.init(blockA.start, blockB.end), blockB.start - blockA.start, 0);
+                            wrapped_context.rotate(Range.init(blockA.start, blockB.end), blockB.start - blockA.start);
 
                             lastB = Range.init(blockA.start, blockA.start + blockB.length());
                             blockA.start += blockB.length();
@@ -634,9 +634,9 @@ pub fn blockContext(
 
                 // merge the last A block with the remaining B values
                 if (buffer2.length() > 0) {
-                    mergeInternal(lastA, Range.init(lastA.end, B.end), buffer2, 0, wrapped_context);
+                    mergeInternal(lastA, Range.init(lastA.end, B.end), buffer2, wrapped_context);
                 } else {
-                    mergeInPlace(lastA, Range.init(lastA.end, B.end), 0, wrapped_context);
+                    mergeInPlace(lastA, Range.init(lastA.end, B.end), wrapped_context);
                 }
             }
         }
@@ -650,7 +650,7 @@ pub fn blockContext(
         // it was consistently slightly slower than a simple insertion sort,
         // even for tens of millions of items. this may be because insertion
         // sort is quite fast when the data is already somewhat sorted, like it is here
-        sort.insertionContext(0 + buffer2.start, 0 + buffer2.end, wrapped_context);
+        sort.insertionContext(buffer2.start, buffer2.end, wrapped_context);
 
         pull_index = 0;
         while (pull_index < 2) : (pull_index += 1) {
@@ -659,9 +659,9 @@ pub fn blockContext(
                 // the values were pulled out to the left, so redistribute them back to the right
                 var buffer = Range.init(pull[pull_index].range.start, pull[pull_index].range.start + pull[pull_index].count);
                 while (buffer.length() > 0) {
-                    index = findFirstForward(buffer.start, Range.init(buffer.end, pull[pull_index].range.end), unique, 0, wrapped_context);
+                    index = findFirstForward(buffer.start, Range.init(buffer.end, pull[pull_index].range.end), unique, wrapped_context);
                     const amount = index - buffer.end;
-                    wrapped_context.rotate(Range.init(buffer.start, index), buffer.length(), 0);
+                    wrapped_context.rotate(Range.init(buffer.start, index), buffer.length());
                     buffer.start += (amount + 1);
                     buffer.end += amount;
                     unique -= 2;
@@ -670,9 +670,9 @@ pub fn blockContext(
                 // the values were pulled out to the right, so redistribute them back to the left
                 var buffer = Range.init(pull[pull_index].range.end - pull[pull_index].count, pull[pull_index].range.end);
                 while (buffer.length() > 0) {
-                    index = findLastBackward(buffer.end - 1, Range.init(pull[pull_index].range.start, buffer.start), unique, 0, wrapped_context);
+                    index = findLastBackward(buffer.end - 1, Range.init(pull[pull_index].range.start, buffer.start), unique, wrapped_context);
                     const amount = buffer.start - index;
-                    wrapped_context.rotate(Range.init(index, buffer.end), amount, 0);
+                    wrapped_context.rotate(Range.init(index, buffer.end), amount);
                     buffer.start -= amount;
                     buffer.end -= (amount + 1);
                     unique -= 2;
@@ -688,7 +688,6 @@ pub fn blockContext(
 fn mergeInPlace(
     A_arg: Range,
     B_arg: Range,
-    start_index: usize,
     context: anytype,
 ) void {
     if (A_arg.length() == 0 or B_arg.length() == 0) return;
@@ -716,17 +715,17 @@ fn mergeInPlace(
 
     while (true) {
         // find the first place in B where the first item in A needs to be inserted
-        const mid = binaryFirst(A.start, B, start_index, context);
+        const mid = binaryFirst(A.start, B, context);
 
         // rotate A into place
         const amount = mid - A.end;
-        context.rotate(Range.init(A.start, mid), A.length(), start_index);
+        context.rotate(Range.init(A.start, mid), A.length());
         if (B.end == mid) break;
 
         // calculate the new A and B ranges
         B.start = mid;
         A = Range.init(A.start + amount, B.start);
-        A.start = binaryLast(A.start, A, start_index, context);
+        A.start = binaryLast(A.start, A, context);
         if (A.length() == 0) break;
     }
 }
@@ -736,7 +735,6 @@ fn mergeInternal(
     A: Range,
     B: Range,
     buffer: Range,
-    start_index: usize,
     context: anytype,
 ) void {
     // whenever we find a value to add to the final array, swap it with the value that's already in that spot
@@ -747,13 +745,13 @@ fn mergeInternal(
 
     if (B.length() > 0 and A.length() > 0) {
         while (true) {
-            if (!context.lessThan(start_index + B.start + B_count, start_index + buffer.start + A_count)) {
-                context.swap(start_index + A.start + insert, start_index + buffer.start + A_count);
+            if (!context.lessThan(B.start + B_count, buffer.start + A_count)) {
+                context.swap(A.start + insert, buffer.start + A_count);
                 A_count += 1;
                 insert += 1;
                 if (A_count >= A.length()) break;
             } else {
-                context.swap(start_index + A.start + insert, start_index + B.start + B_count);
+                context.swap(A.start + insert, B.start + B_count);
                 B_count += 1;
                 insert += 1;
                 if (B_count >= B.length()) break;
@@ -778,85 +776,80 @@ fn findFirstForward(
     value_index: usize,
     range: Range,
     unique: usize,
-    start_index: usize,
     context: anytype,
 ) usize {
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
-    while (context.lessThan(start_index + index - 1, start_index + value_index)) : (index += skip) {
+    while (context.lessThan(index - 1, value_index)) : (index += skip) {
         if (index >= range.end - skip) {
-            return binaryFirst(value_index, Range.init(index, range.end), start_index, context);
+            return binaryFirst(value_index, Range.init(index, range.end), context);
         }
     }
 
-    return binaryFirst(value_index, Range.init(index - skip, index), start_index, context);
+    return binaryFirst(value_index, Range.init(index - skip, index), context);
 }
 
 fn findFirstBackward(
     value_index: usize,
     range: Range,
     unique: usize,
-    start_index: usize,
     context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
-    while (index > range.start and !context.lessThan(start_index + index - 1, start_index + value_index)) : (index -= skip) {
+    while (index > range.start and !context.lessThan(index - 1, value_index)) : (index -= skip) {
         if (index < range.start + skip) {
-            return binaryFirst(value_index, Range.init(range.start, index), start_index, context);
+            return binaryFirst(value_index, Range.init(range.start, index), context);
         }
     }
 
-    return binaryFirst(value_index, Range.init(index, index + skip), start_index, context);
+    return binaryFirst(value_index, Range.init(index, index + skip), context);
 }
 
 fn findLastForward(
     value_index: usize,
     range: Range,
     unique: usize,
-    start_index: usize,
     context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
-    while (!context.lessThan(start_index + value_index, start_index + index - 1)) : (index += skip) {
+    while (!context.lessThan(value_index, index - 1)) : (index += skip) {
         if (index >= range.end - skip) {
-            return binaryLast(value_index, Range.init(index, range.end), start_index, context);
+            return binaryLast(value_index, Range.init(index, range.end), context);
         }
     }
 
-    return binaryLast(value_index, Range.init(index - skip, index), start_index, context);
+    return binaryLast(value_index, Range.init(index - skip, index), context);
 }
 
 fn findLastBackward(
     value_index: usize,
     range: Range,
     unique: usize,
-    start_index: usize,
     context: anytype,
 ) usize {
     if (range.length() == 0) return range.start;
     const skip = @max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
-    while (index > range.start and context.lessThan(start_index + value_index, start_index + index - 1)) : (index -= skip) {
+    while (index > range.start and context.lessThan(value_index, index - 1)) : (index -= skip) {
         if (index < range.start + skip) {
-            return binaryLast(value_index, Range.init(range.start, index), start_index, context);
+            return binaryLast(value_index, Range.init(range.start, index), context);
         }
     }
 
-    return binaryLast(value_index, Range.init(index, index + skip), start_index, context);
+    return binaryLast(value_index, Range.init(index, index + skip), context);
 }
 
 fn binaryFirst(
     value_index: usize,
     range: Range,
-    start_index: usize,
     context: anytype,
 ) usize {
     var curr = range.start;
@@ -867,7 +860,7 @@ fn binaryFirst(
 
         size /= 2;
         const mid_index = curr + size;
-        if (context.lessThan(start_index + mid_index, start_index + value_index)) {
+        if (context.lessThan(mid_index, value_index)) {
             curr += size + offset;
         }
     }
@@ -877,7 +870,6 @@ fn binaryFirst(
 fn binaryLast(
     value_index: usize,
     range: Range,
-    start_index: usize,
     context: anytype,
 ) usize {
     var curr = range.start;
@@ -888,7 +880,7 @@ fn binaryLast(
 
         size /= 2;
         const mid_index = curr + size;
-        if (!context.lessThan(start_index + value_index, start_index + mid_index)) {
+        if (!context.lessThan(value_index, mid_index)) {
             curr += size + offset;
         }
     }
