@@ -34990,7 +34990,7 @@ fn resolveInferredErrorSet(
     const resolved_ty = func.resolvedErrorSetUnordered(ip);
     if (resolved_ty != .none) return resolved_ty;
 
-    if (zcu.analysis_in_progress.contains(AnalUnit.wrap(.{ .func = func_index }))) {
+    if (zcu.analysis_in_progress.contains(.wrap(.{ .func = func_index }))) {
         return sema.fail(block, src, "unable to resolve inferred error set", .{});
     }
 
