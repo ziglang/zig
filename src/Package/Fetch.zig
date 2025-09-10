@@ -94,7 +94,7 @@ latest_commit: ?git.Oid,
 module: ?*Package.Module,
 
 /// The number of times an HTTP request will retry if it fails
-retry_count: u16 = 2,
+retry_count: u16 = 3,
 
 /// The delay in milliseconds between HTTP request retries
 retry_delay_ms: u32 = 500,
