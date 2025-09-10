@@ -27457,15 +27457,9 @@ fn structFieldPtrByIndex(
 
     if (struct_type.layout == .@"packed") {
         assert(!field_is_comptime);
-        switch (struct_ty.packedStructFieldPtrInfo(struct_ptr_ty, field_index, pt)) {
-            .bit_ptr => |packed_offset| {
-                ptr_ty_data.flags.alignment = parent_align;
-                ptr_ty_data.packed_offset = packed_offset;
-            },
-            .byte_ptr => |ptr_info| {
-                ptr_ty_data.flags.alignment = ptr_info.alignment;
-            },
-        }
+        const packed_offset = struct_ty.packedStructFieldPtrInfo(struct_ptr_ty, field_index, pt);
+        ptr_ty_data.flags.alignment = parent_align;
+        ptr_ty_data.packed_offset = packed_offset;
     } else if (struct_type.layout == .@"extern") {
         assert(!field_is_comptime);
         // For extern structs, field alignment might be bigger than type's

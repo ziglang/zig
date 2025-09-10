@@ -2255,32 +2255,18 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
                     });
                     return parent_ptr.getOffsetPtr(byte_off, result_ty, pt);
                 },
-                .@"packed" => switch (aggregate_ty.packedStructFieldPtrInfo(parent_ptr_ty, field_idx, pt)) {
-                    .bit_ptr => |packed_offset| {
-                        const result_ty = try pt.ptrType(info: {
-                            var new = parent_ptr_info;
-                            new.packed_offset = packed_offset;
-                            new.child = field_ty.toIntern();
-                            if (new.flags.alignment == .none) {
-                                new.flags.alignment = try aggregate_ty.abiAlignmentSema(pt);
-                            }
-                            break :info new;
-                        });
-                        return pt.getCoerced(parent_ptr, result_ty);
-                    },
-                    .byte_ptr => |ptr_info| {
-                        const result_ty = try pt.ptrTypeSema(info: {
-                            var new = parent_ptr_info;
-                            new.child = field_ty.toIntern();
-                            new.packed_offset = .{
-                                .host_size = 0,
-                                .bit_offset = 0,
-                            };
-                            new.flags.alignment = ptr_info.alignment;
-                            break :info new;
-                        });
-                        return parent_ptr.getOffsetPtr(ptr_info.offset, result_ty, pt);
-                    },
+                .@"packed" => {
+                    const packed_offset = aggregate_ty.packedStructFieldPtrInfo(parent_ptr_ty, field_idx, pt);
+                    const result_ty = try pt.ptrType(info: {
+                        var new = parent_ptr_info;
+                        new.packed_offset = packed_offset;
+                        new.child = field_ty.toIntern();
+                        if (new.flags.alignment == .none) {
+                            new.flags.alignment = try aggregate_ty.abiAlignmentSema(pt);
+                        }
+                        break :info new;
+                    });
+                    return pt.getCoerced(parent_ptr, result_ty);
                 },
             }
         },
