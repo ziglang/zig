@@ -30670,6 +30670,19 @@ fn checkPtrAttributes(sema: *Sema, dest_ty: Type, inst_ty: Type, in_memory_resul
         } };
         return false;
     }
+
+    if (inst_info.packed_offset.host_size != dest_info.packed_offset.host_size or
+        inst_info.packed_offset.bit_offset != dest_info.packed_offset.bit_offset)
+    {
+        in_memory_result.* = .{ .ptr_bit_range = .{
+            .actual_host = inst_info.packed_offset.host_size,
+            .wanted_host = dest_info.packed_offset.host_size,
+            .actual_offset = inst_info.packed_offset.bit_offset,
+            .wanted_offset = dest_info.packed_offset.bit_offset,
+        } };
+        return false;
+    }
+
     return true;
 }
 

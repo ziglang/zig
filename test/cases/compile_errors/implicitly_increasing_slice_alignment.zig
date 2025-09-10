@@ -15,5 +15,6 @@ fn bar(x: []u32) void {
 
 // error
 //
-// :9:22: error: expected type '*[1]u32', found '*align(1) u32'
-// :9:22: note: pointer alignment '1' cannot cast into pointer alignment '4'
+// :9:22: error: expected type '*[1]u32', found '*align(8:8:8) u32'
+// :9:22: note: pointer host size '8' cannot cast into pointer host size '0'
+// :9:22: note: pointer bit offset '8' cannot cast into pointer bit offset '0'
