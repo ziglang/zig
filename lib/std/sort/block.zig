@@ -21,6 +21,7 @@ const Range = struct {
 };
 
 const Iterator = struct {
+    start_index: usize,
     size: usize,
     power_of_two: usize,
     numerator: usize,
@@ -29,12 +30,13 @@ const Iterator = struct {
     decimal_step: usize,
     numerator_step: usize,
 
-    fn init(size2: usize, min_level: usize) Iterator {
+    fn init(start_index: usize, size2: usize, min_level: usize) Iterator {
         const power_of_two = math.floorPowerOfTwo(usize, size2);
         const denominator = power_of_two / min_level;
         return Iterator{
             .numerator = 0,
-            .decimal = 0,
+            .decimal = start_index,
+            .start_index = start_index,
             .size = size2,
             .power_of_two = power_of_two,
             .denominator = denominator,
@@ -45,7 +47,7 @@ const Iterator = struct {
 
     fn begin(self: *Iterator) void {
         self.numerator = 0;
-        self.decimal = 0;
+        self.decimal = self.start_index;
     }
 
     fn nextRange(self: *Iterator) Range {
@@ -65,7 +67,7 @@ const Iterator = struct {
     }
 
     fn finished(self: *Iterator) bool {
-        return self.decimal >= self.size;
+        return self.decimal >= self.start_index + self.size;
     }
 
     fn nextLevel(self: *Iterator) bool {
@@ -189,82 +191,82 @@ pub fn blockContext(
     // sort groups of 4-8 items at a time using an unstable sorting network,
     // but keep track of the original item orders to force it to be stable
     // http://pages.ripco.net/~jgamble/nw.html
-    var iterator = Iterator.init(range_length, 4);
+    var iterator = Iterator.init(a, range_length, 4);
     while (!iterator.finished()) {
         var order = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7 };
         const range = iterator.nextRange();
 
         switch (range.length()) {
             8 => {
-                swap(&order, a + range.start, 0, 1, wrapped_context);
-                swap(&order, a + range.start, 2, 3, wrapped_context);
-                swap(&order, a + range.start, 4, 5, wrapped_context);
-                swap(&order, a + range.start, 6, 7, wrapped_context);
-                swap(&order, a + range.start, 0, 2, wrapped_context);
-                swap(&order, a + range.start, 1, 3, wrapped_context);
-                swap(&order, a + range.start, 4, 6, wrapped_context);
-                swap(&order, a + range.start, 5, 7, wrapped_context);
-                swap(&order, a + range.start, 1, 2, wrapped_context);
-                swap(&order, a + range.start, 5, 6, wrapped_context);
-                swap(&order, a + range.start, 0, 4, wrapped_context);
-                swap(&order, a + range.start, 3, 7, wrapped_context);
-                swap(&order, a + range.start, 1, 5, wrapped_context);
-                swap(&order, a + range.start, 2, 6, wrapped_context);
-                swap(&order, a + range.start, 1, 4, wrapped_context);
-                swap(&order, a + range.start, 3, 6, wrapped_context);
-                swap(&order, a + range.start, 2, 4, wrapped_context);
-                swap(&order, a + range.start, 3, 5, wrapped_context);
-                swap(&order, a + range.start, 3, 4, wrapped_context);
+                swap(&order, range.start, 0, 1, wrapped_context);
+                swap(&order, range.start, 2, 3, wrapped_context);
+                swap(&order, range.start, 4, 5, wrapped_context);
+                swap(&order, range.start, 6, 7, wrapped_context);
+                swap(&order, range.start, 0, 2, wrapped_context);
+                swap(&order, range.start, 1, 3, wrapped_context);
+                swap(&order, range.start, 4, 6, wrapped_context);
+                swap(&order, range.start, 5, 7, wrapped_context);
+                swap(&order, range.start, 1, 2, wrapped_context);
+                swap(&order, range.start, 5, 6, wrapped_context);
+                swap(&order, range.start, 0, 4, wrapped_context);
+                swap(&order, range.start, 3, 7, wrapped_context);
+                swap(&order, range.start, 1, 5, wrapped_context);
+                swap(&order, range.start, 2, 6, wrapped_context);
+                swap(&order, range.start, 1, 4, wrapped_context);
+                swap(&order, range.start, 3, 6, wrapped_context);
+                swap(&order, range.start, 2, 4, wrapped_context);
+                swap(&order, range.start, 3, 5, wrapped_context);
+                swap(&order, range.start, 3, 4, wrapped_context);
             },
             7 => {
-                swap(&order, a + range.start, 1, 2, wrapped_context);
-                swap(&order, a + range.start, 3, 4, wrapped_context);
-                swap(&order, a + range.start, 5, 6, wrapped_context);
-                swap(&order, a + range.start, 0, 2, wrapped_context);
-                swap(&order, a + range.start, 3, 5, wrapped_context);
-                swap(&order, a + range.start, 4, 6, wrapped_context);
-                swap(&order, a + range.start, 0, 1, wrapped_context);
-                swap(&order, a + range.start, 4, 5, wrapped_context);
-                swap(&order, a + range.start, 2, 6, wrapped_context);
-                swap(&order, a + range.start, 0, 4, wrapped_context);
-                swap(&order, a + range.start, 1, 5, wrapped_context);
-                swap(&order, a + range.start, 0, 3, wrapped_context);
-                swap(&order, a + range.start, 2, 5, wrapped_context);
-                swap(&order, a + range.start, 1, 3, wrapped_context);
-                swap(&order, a + range.start, 2, 4, wrapped_context);
-                swap(&order, a + range.start, 2, 3, wrapped_context);
+                swap(&order, range.start, 1, 2, wrapped_context);
+                swap(&order, range.start, 3, 4, wrapped_context);
+                swap(&order, range.start, 5, 6, wrapped_context);
+                swap(&order, range.start, 0, 2, wrapped_context);
+                swap(&order, range.start, 3, 5, wrapped_context);
+                swap(&order, range.start, 4, 6, wrapped_context);
+                swap(&order, range.start, 0, 1, wrapped_context);
+                swap(&order, range.start, 4, 5, wrapped_context);
+                swap(&order, range.start, 2, 6, wrapped_context);
+                swap(&order, range.start, 0, 4, wrapped_context);
+                swap(&order, range.start, 1, 5, wrapped_context);
+                swap(&order, range.start, 0, 3, wrapped_context);
+                swap(&order, range.start, 2, 5, wrapped_context);
+                swap(&order, range.start, 1, 3, wrapped_context);
+                swap(&order, range.start, 2, 4, wrapped_context);
+                swap(&order, range.start, 2, 3, wrapped_context);
             },
             6 => {
-                swap(&order, a + range.start, 1, 2, wrapped_context);
-                swap(&order, a + range.start, 4, 5, wrapped_context);
-                swap(&order, a + range.start, 0, 2, wrapped_context);
-                swap(&order, a + range.start, 3, 5, wrapped_context);
-                swap(&order, a + range.start, 0, 1, wrapped_context);
-                swap(&order, a + range.start, 3, 4, wrapped_context);
-                swap(&order, a + range.start, 2, 5, wrapped_context);
-                swap(&order, a + range.start, 0, 3, wrapped_context);
-                swap(&order, a + range.start, 1, 4, wrapped_context);
-                swap(&order, a + range.start, 2, 4, wrapped_context);
-                swap(&order, a + range.start, 1, 3, wrapped_context);
-                swap(&order, a + range.start, 2, 3, wrapped_context);
+                swap(&order, range.start, 1, 2, wrapped_context);
+                swap(&order, range.start, 4, 5, wrapped_context);
+                swap(&order, range.start, 0, 2, wrapped_context);
+                swap(&order, range.start, 3, 5, wrapped_context);
+                swap(&order, range.start, 0, 1, wrapped_context);
+                swap(&order, range.start, 3, 4, wrapped_context);
+                swap(&order, range.start, 2, 5, wrapped_context);
+                swap(&order, range.start, 0, 3, wrapped_context);
+                swap(&order, range.start, 1, 4, wrapped_context);
+                swap(&order, range.start, 2, 4, wrapped_context);
+                swap(&order, range.start, 1, 3, wrapped_context);
+                swap(&order, range.start, 2, 3, wrapped_context);
             },
             5 => {
-                swap(&order, a + range.start, 0, 1, wrapped_context);
-                swap(&order, a + range.start, 3, 4, wrapped_context);
-                swap(&order, a + range.start, 2, 4, wrapped_context);
-                swap(&order, a + range.start, 2, 3, wrapped_context);
-                swap(&order, a + range.start, 1, 4, wrapped_context);
-                swap(&order, a + range.start, 0, 3, wrapped_context);
-                swap(&order, a + range.start, 0, 2, wrapped_context);
-                swap(&order, a + range.start, 1, 3, wrapped_context);
-                swap(&order, a + range.start, 1, 2, wrapped_context);
+                swap(&order, range.start, 0, 1, wrapped_context);
+                swap(&order, range.start, 3, 4, wrapped_context);
+                swap(&order, range.start, 2, 4, wrapped_context);
+                swap(&order, range.start, 2, 3, wrapped_context);
+                swap(&order, range.start, 1, 4, wrapped_context);
+                swap(&order, range.start, 0, 3, wrapped_context);
+                swap(&order, range.start, 0, 2, wrapped_context);
+                swap(&order, range.start, 1, 3, wrapped_context);
+                swap(&order, range.start, 1, 2, wrapped_context);
             },
             4 => {
-                swap(&order, a + range.start, 0, 1, wrapped_context);
-                swap(&order, a + range.start, 2, 3, wrapped_context);
-                swap(&order, a + range.start, 0, 2, wrapped_context);
-                swap(&order, a + range.start, 1, 3, wrapped_context);
-                swap(&order, a + range.start, 1, 2, wrapped_context);
+                swap(&order, range.start, 0, 1, wrapped_context);
+                swap(&order, range.start, 2, 3, wrapped_context);
+                swap(&order, range.start, 0, 2, wrapped_context);
+                swap(&order, range.start, 1, 3, wrapped_context);
+                swap(&order, range.start, 1, 2, wrapped_context);
             },
             else => {},
         }
@@ -346,7 +348,7 @@ pub fn blockContext(
                 last = index;
                 count += 1;
             }) {
-                index = findLastForward(last, Range.init(last + 1, A.end), find - count, a, wrapped_context);
+                index = findLastForward(last, Range.init(last + 1, A.end), find - count, 0, wrapped_context);
                 if (index == A.end) break;
             }
             index = last;
@@ -400,7 +402,7 @@ pub fn blockContext(
                 last = index - 1;
                 count += 1;
             }) {
-                index = findFirstBackward(last, Range.init(B.start, last), find - count, a, wrapped_context);
+                index = findFirstBackward(last, Range.init(B.start, last), find - count, 0, wrapped_context);
                 if (index == B.start) break;
             }
             index = last;
@@ -461,9 +463,9 @@ pub fn blockContext(
                 index = pull[pull_index].from;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findFirstBackward(index - 1, Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, a, wrapped_context);
+                    index = findFirstBackward(index - 1, Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, 0, wrapped_context);
                     const range = Range.init(index + 1, pull[pull_index].from + 1);
-                    wrapped_context.rotate(range, range.length() - count, a);
+                    wrapped_context.rotate(range, range.length() - count, 0);
                     pull[pull_index].from = index + count;
                 }
             } else if (pull[pull_index].to > pull[pull_index].from) {
@@ -471,9 +473,9 @@ pub fn blockContext(
                 index = pull[pull_index].from + 1;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findLastForward(index, Range.init(index, pull[pull_index].to), length - count, a, wrapped_context);
+                    index = findLastForward(index, Range.init(index, pull[pull_index].to), length - count, 0, wrapped_context);
                     const range = Range.init(pull[pull_index].from, index - 1);
-                    wrapped_context.rotate(range, count, a);
+                    wrapped_context.rotate(range, count, 0);
                     pull[pull_index].from = index - 1 - count;
                 }
             }
@@ -517,10 +519,10 @@ pub fn blockContext(
                 }
             }
 
-            if (wrapped_context.lessThan(a + B.end - 1, a + A.start)) {
+            if (wrapped_context.lessThan(0 + B.end - 1, 0 + A.start)) {
                 // the two ranges are in reverse order, so a simple rotation should fix it
-                wrapped_context.rotate(Range.init(A.start, B.end), A.length(), a);
-            } else if (wrapped_context.lessThan(a + A.end, a + A.end - 1)) {
+                wrapped_context.rotate(Range.init(A.start, B.end), A.length(), 0);
+            } else if (wrapped_context.lessThan(0 + A.end, 0 + A.end - 1)) {
                 // these two ranges weren't already in order, so we'll need to merge them!
                 var findA: usize = undefined;
 
@@ -535,7 +537,7 @@ pub fn blockContext(
                     indexA += 1;
                     index += block_size;
                 }) {
-                    context.swap(a + indexA, a + index);
+                    context.swap(0 + indexA, 0 + index);
                 }
 
                 // start rolling the A blocks through the B blocks!
@@ -555,23 +557,23 @@ pub fn blockContext(
                     while (true) {
                         // if there's a previous B block and the first value of the minimum A block is <= the last value of the previous B block,
                         // then drop that minimum A block behind. or if there are no B blocks left then keep dropping the remaining A blocks.
-                        if ((lastB.length() > 0 and !wrapped_context.lessThan(a + lastB.end - 1, a + indexA)) or blockB.length() == 0) {
+                        if ((lastB.length() > 0 and !wrapped_context.lessThan(a + lastB.end - 1, 0 + indexA)) or blockB.length() == 0) {
                             // figure out where to split the previous B block, and rotate it at the split
-                            const B_split = binaryFirst(indexA, lastB, a, wrapped_context);
+                            const B_split = binaryFirst(indexA, lastB, 0, wrapped_context);
                             const B_remaining = lastB.end - B_split;
 
                             // swap the minimum A block to the beginning of the rolling A blocks
                             var minA = blockA.start;
                             findA = minA + block_size;
                             while (findA < blockA.end) : (findA += block_size) {
-                                if (wrapped_context.lessThan(a + findA, a + minA)) {
+                                if (wrapped_context.lessThan(0 + findA, 0 + minA)) {
                                     minA = findA;
                                 }
                             }
                             blockSwap(blockA.start, minA, block_size, wrapped_context);
 
                             // swap the first item of the previous A block back with its original value, which is stored in buffer1
-                            context.swap(a + blockA.start, a + indexA);
+                            context.swap(0 + blockA.start, 0 + indexA);
                             indexA += 1;
 
                             // locally merge the previous A block with the B values that follow it
@@ -579,9 +581,9 @@ pub fn blockContext(
                             // or failing that we'll use a strictly in-place merge algorithm (MergeInPlace)
 
                             if (buffer2.length() > 0) {
-                                mergeInternal(lastA, Range.init(lastA.end, B_split), buffer2, a, wrapped_context);
+                                mergeInternal(lastA, Range.init(lastA.end, B_split), buffer2, 0, wrapped_context);
                             } else {
-                                mergeInPlace(lastA, Range.init(lastA.end, B_split), a, wrapped_context);
+                                mergeInPlace(lastA, Range.init(lastA.end, B_split), 0, wrapped_context);
                             }
 
                             if (buffer2.length() > 0) {
@@ -594,7 +596,7 @@ pub fn blockContext(
                                 blockSwap(B_split, blockA.start + block_size - B_remaining, B_remaining, wrapped_context);
                             } else {
                                 // we are unable to use the 'buffer2' trick to speed up the rotation operation since buffer2 doesn't exist, so perform a normal rotation
-                                wrapped_context.rotate(Range.init(B_split, blockA.start + block_size), blockA.start - B_split, a);
+                                wrapped_context.rotate(Range.init(B_split, blockA.start + block_size), blockA.start - B_split, 0);
                             }
 
                             // update the range for the remaining A blocks, and the range remaining from the B block after it was split
@@ -606,7 +608,7 @@ pub fn blockContext(
                             if (blockA.length() == 0) break;
                         } else if (blockB.length() < block_size) {
                             // move the last B block, which is unevenly sized, to before the remaining A blocks, by using a rotation
-                            wrapped_context.rotate(Range.init(blockA.start, blockB.end), blockB.start - blockA.start, a);
+                            wrapped_context.rotate(Range.init(blockA.start, blockB.end), blockB.start - blockA.start, 0);
 
                             lastB = Range.init(blockA.start, blockA.start + blockB.length());
                             blockA.start += blockB.length();
@@ -632,9 +634,9 @@ pub fn blockContext(
 
                 // merge the last A block with the remaining B values
                 if (buffer2.length() > 0) {
-                    mergeInternal(lastA, Range.init(lastA.end, B.end), buffer2, a, wrapped_context);
+                    mergeInternal(lastA, Range.init(lastA.end, B.end), buffer2, 0, wrapped_context);
                 } else {
-                    mergeInPlace(lastA, Range.init(lastA.end, B.end), a, wrapped_context);
+                    mergeInPlace(lastA, Range.init(lastA.end, B.end), 0, wrapped_context);
                 }
             }
         }
@@ -648,7 +650,7 @@ pub fn blockContext(
         // it was consistently slightly slower than a simple insertion sort,
         // even for tens of millions of items. this may be because insertion
         // sort is quite fast when the data is already somewhat sorted, like it is here
-        sort.insertionContext(a + buffer2.start, a + buffer2.end, wrapped_context);
+        sort.insertionContext(0 + buffer2.start, 0 + buffer2.end, wrapped_context);
 
         pull_index = 0;
         while (pull_index < 2) : (pull_index += 1) {
@@ -657,9 +659,9 @@ pub fn blockContext(
                 // the values were pulled out to the left, so redistribute them back to the right
                 var buffer = Range.init(pull[pull_index].range.start, pull[pull_index].range.start + pull[pull_index].count);
                 while (buffer.length() > 0) {
-                    index = findFirstForward(buffer.start, Range.init(buffer.end, pull[pull_index].range.end), unique, a, wrapped_context);
+                    index = findFirstForward(buffer.start, Range.init(buffer.end, pull[pull_index].range.end), unique, 0, wrapped_context);
                     const amount = index - buffer.end;
-                    wrapped_context.rotate(Range.init(buffer.start, index), buffer.length(), a);
+                    wrapped_context.rotate(Range.init(buffer.start, index), buffer.length(), 0);
                     buffer.start += (amount + 1);
                     buffer.end += amount;
                     unique -= 2;
@@ -668,9 +670,9 @@ pub fn blockContext(
                 // the values were pulled out to the right, so redistribute them back to the left
                 var buffer = Range.init(pull[pull_index].range.end - pull[pull_index].count, pull[pull_index].range.end);
                 while (buffer.length() > 0) {
-                    index = findLastBackward(buffer.end - 1, Range.init(pull[pull_index].range.start, buffer.start), unique, a, wrapped_context);
+                    index = findLastBackward(buffer.end - 1, Range.init(pull[pull_index].range.start, buffer.start), unique, 0, wrapped_context);
                     const amount = buffer.start - index;
-                    wrapped_context.rotate(Range.init(index, buffer.end), amount, a);
+                    wrapped_context.rotate(Range.init(index, buffer.end), amount, 0);
                     buffer.start -= amount;
                     buffer.end -= (amount + 1);
                     unique -= 2;
