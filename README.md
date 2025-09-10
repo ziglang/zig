@@ -47,7 +47,7 @@ Ensure you have the required dependencies:
 
  * CMake >= 3.15
  * System C/C++ Toolchain
- * LLVM, Clang, LLD development libraries == 20.x
+ * LLVM, Clang, LLD development libraries == 21.x
 
 Then it is the standard CMake build process:
 
