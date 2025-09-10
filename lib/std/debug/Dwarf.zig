@@ -79,8 +79,8 @@ pub const Abbrev = struct {
     has_children: bool,
     attrs: []Attr,
 
-    fn deinit(abbrev: *Abbrev, allocator: Allocator) void {
-        allocator.free(abbrev.attrs);
+    fn deinit(abbrev: *Abbrev, gpa: Allocator) void {
+        gpa.free(abbrev.attrs);
         abbrev.* = undefined;
     }
 
@@ -96,11 +96,11 @@ pub const Abbrev = struct {
         offset: u64,
         abbrevs: []Abbrev,
 
-        fn deinit(table: *Table, allocator: Allocator) void {
+        fn deinit(table: *Table, gpa: Allocator) void {
             for (table.abbrevs) |*abbrev| {
-                abbrev.deinit(allocator);
+                abbrev.deinit(gpa);
             }
-            allocator.free(table.abbrevs);
+            gpa.free(table.abbrevs);
             table.* = undefined;
         }
 
@@ -213,8 +213,8 @@ pub const Die = struct {
         value: FormValue,
     };
 
-    fn deinit(self: *Die, allocator: Allocator) void {
-        allocator.free(self.attrs);
+    fn deinit(self: *Die, gpa: Allocator) void {
+        gpa.free(self.attrs);
         self.* = undefined;
     }
 
@@ -368,7 +368,7 @@ pub const ScanError = error{
     StreamTooLong,
 } || Allocator.Error;
 
-fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!void {
+fn scanAllFunctions(di: *Dwarf, gpa: Allocator, endian: Endian) ScanError!void {
     var fr: Reader = .fixed(di.section(.debug_info).?);
     var this_unit_offset: u64 = 0;
 
@@ -394,7 +394,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
             address_size = try fr.takeByte();
         }
 
-        const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
+        const abbrev_table = try di.getAbbrevTable(gpa, debug_abbrev_offset);
 
         var max_attrs: usize = 0;
         var zig_padding_abbrev_code: u7 = 0;
@@ -409,8 +409,8 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
                 }
             }
         }
-        const attrs_buf = try allocator.alloc(Die.Attr, max_attrs * 3);
-        defer allocator.free(attrs_buf);
+        const attrs_buf = try gpa.alloc(Die.Attr, max_attrs * 3);
+        defer gpa.free(attrs_buf);
         var attrs_bufs: [3][]Die.Attr = undefined;
         for (&attrs_bufs, 0..) |*buf, index| buf.* = attrs_buf[index * max_attrs ..][0..max_attrs];
 
@@ -510,7 +510,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
                                 else => return bad(),
                             };
 
-                            try di.func_list.append(allocator, .{
+                            try di.func_list.append(gpa, .{
                                 .name = fn_name,
                                 .pc_range = .{
                                     .start = low_pc,
@@ -535,7 +535,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
 
                         while (try iter.next()) |range| {
                             range_added = true;
-                            try di.func_list.append(allocator, .{
+                            try di.func_list.append(gpa, .{
                                 .name = fn_name,
                                 .pc_range = .{
                                     .start = range.start,
@@ -546,7 +546,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
                     }
 
                     if (fn_name != null and !range_added) {
-                        try di.func_list.append(allocator, .{
+                        try di.func_list.append(gpa, .{
                             .name = fn_name,
                             .pc_range = null,
                         });
@@ -560,11 +560,11 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
     }
 }
 
-fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!void {
+fn scanAllCompileUnits(di: *Dwarf, gpa: Allocator, endian: Endian) ScanError!void {
     var fr: Reader = .fixed(di.section(.debug_info).?);
     var this_unit_offset: u64 = 0;
 
-    var attrs_buf = std.array_list.Managed(Die.Attr).init(allocator);
+    var attrs_buf = std.array_list.Managed(Die.Attr).init(gpa);
     defer attrs_buf.deinit();
 
     while (this_unit_offset < fr.buffer.len) {
@@ -589,7 +589,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanErr
             address_size = try fr.takeByte();
         }
 
-        const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
+        const abbrev_table = try di.getAbbrevTable(gpa, debug_abbrev_offset);
 
         var max_attrs: usize = 0;
         for (abbrev_table.abbrevs) |abbrev| {
@@ -608,7 +608,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanErr
 
         if (compile_unit_die.tag_id != DW.TAG.compile_unit) return bad();
 
-        compile_unit_die.attrs = try allocator.dupe(Die.Attr, compile_unit_die.attrs);
+        compile_unit_die.attrs = try gpa.dupe(Die.Attr, compile_unit_die.attrs);
 
         var compile_unit: CompileUnit = .{
             .version = version,
@@ -645,7 +645,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanErr
             }
         };
 
-        try di.compile_unit_list.append(allocator, compile_unit);
+        try di.compile_unit_list.append(gpa, compile_unit);
 
         this_unit_offset += next_offset;
     }
@@ -855,32 +855,32 @@ pub fn findCompileUnit(di: *const Dwarf, endian: Endian, target_address: u64) !*
 
 /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
 /// seeks in the stream and parses it.
-fn getAbbrevTable(di: *Dwarf, allocator: Allocator, abbrev_offset: u64) !*const Abbrev.Table {
+fn getAbbrevTable(di: *Dwarf, gpa: Allocator, abbrev_offset: u64) !*const Abbrev.Table {
     for (di.abbrev_table_list.items) |*table| {
         if (table.offset == abbrev_offset) {
             return table;
         }
     }
     try di.abbrev_table_list.append(
-        allocator,
-        try di.parseAbbrevTable(allocator, abbrev_offset),
+        gpa,
+        try di.parseAbbrevTable(gpa, abbrev_offset),
     );
     return &di.abbrev_table_list.items[di.abbrev_table_list.items.len - 1];
 }
 
-fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table {
+fn parseAbbrevTable(di: *Dwarf, gpa: Allocator, offset: u64) !Abbrev.Table {
     var fr: Reader = .fixed(di.section(.debug_abbrev).?);
     fr.seek = cast(usize, offset) orelse return bad();
 
-    var abbrevs = std.array_list.Managed(Abbrev).init(allocator);
+    var abbrevs = std.array_list.Managed(Abbrev).init(gpa);
     defer {
         for (abbrevs.items) |*abbrev| {
-            abbrev.deinit(allocator);
+            abbrev.deinit(gpa);
         }
         abbrevs.deinit();
     }
 
-    var attrs = std.array_list.Managed(Abbrev.Attr).init(allocator);
+    var attrs = std.array_list.Managed(Abbrev.Attr).init(gpa);
     defer attrs.deinit();
 
     while (true) {
@@ -1446,7 +1446,7 @@ fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
     return str[casted_offset..last :0];
 }
 
-pub fn getSymbol(di: *Dwarf, allocator: Allocator, endian: Endian, address: u64) !std.debug.Symbol {
+pub fn getSymbol(di: *Dwarf, gpa: Allocator, endian: Endian, address: u64) !std.debug.Symbol {
     const compile_unit = di.findCompileUnit(endian, address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return .unknown,
         else => return err,
@@ -1456,7 +1456,7 @@ pub fn getSymbol(di: *Dwarf, allocator: Allocator, endian: Endian, address: u64)
         .compile_unit_name = compile_unit.die.getAttrString(di, endian, std.dwarf.AT.name, di.section(.debug_str), compile_unit) catch |err| switch (err) {
             error.MissingDebugInfo, error.InvalidDebugInfo => null,
         },
-        .source_location = di.getLineNumberInfo(allocator, endian, compile_unit, address) catch |err| switch (err) {
+        .source_location = di.getLineNumberInfo(gpa, endian, compile_unit, address) catch |err| switch (err) {
             error.MissingDebugInfo, error.InvalidDebugInfo => null,
             else => return err,
         },
