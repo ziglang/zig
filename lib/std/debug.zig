@@ -355,7 +355,7 @@ pub fn relocateContext(dest: *ThreadContext) void {
 /// The value which is placed on the stack to make a copy of a `ThreadContext`.
 const ThreadContextBuf = if (ThreadContext == noreturn) void else ThreadContext;
 /// The pointer through which a `ThreadContext` is received from callers of stack tracing logic.
-const ThreadContextPtr = if (ThreadContext == noreturn) noreturn else *const ThreadContext;
+pub const ThreadContextPtr = if (ThreadContext == noreturn) noreturn else *const ThreadContext;
 
 /// Capture the current context. The register values in the context will reflect the
 /// state after the platform `getcontext` function returns.
@@ -1297,7 +1297,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
     if (ThreadContext == noreturn) return handleSegfault(addr, name, null);
 
     // Some kernels don't align `ctx_ptr` properly, so we'll copy it into a local buffer.
-    var copied_ctx: ThreadContextBuf = undefined;
+    var copied_ctx: posix.ucontext_t = undefined;
     const orig_ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
     copied_ctx = orig_ctx.*;
     if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) {

@@ -17,7 +17,7 @@ pub const debug = struct {
 /// crash earlier than that.
 pub var zig_argv0: []const u8 = "zig";
 
-fn handleSegfaultImpl(addr: ?usize, name: []const u8, opt_ctx: ?*std.debug.ThreadContext) noreturn {
+fn handleSegfaultImpl(addr: ?usize, name: []const u8, opt_ctx: ?std.debug.ThreadContextPtr) noreturn {
     @branchHint(.cold);
     dumpCrashContext() catch {};
     std.debug.defaultHandleSegfault(addr, name, opt_ctx);
@@ -56,6 +56,7 @@ pub const AnalyzeBody = if (build_options.enable_debug_extensions) struct {
         current = ab.parent;
     }
 } else struct {
+    const current: ?noreturn = null;
     // Dummy implementation, with functions marked `inline` to avoid interfering with tail calls.
     pub inline fn push(_: AnalyzeBody, _: *Sema, _: *Sema.Block, _: []const Zir.Inst.Index) void {}
     pub inline fn pop(_: AnalyzeBody) void {}
@@ -75,6 +76,7 @@ pub const CodegenFunc = if (build_options.enable_debug_extensions) struct {
         current = null;
     }
 } else struct {
+    const current: ?noreturn = null;
     // Dummy implementation
     pub fn start(_: *const Zcu, _: InternPool.Index) void {}
     pub fn stop(_: InternPool.Index) void {}
