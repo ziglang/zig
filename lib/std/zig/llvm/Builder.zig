@@ -4111,6 +4111,8 @@ pub const Function = struct {
 
     pub const Block = struct {
         instruction: Instruction.Index,
+        // Reverses the block_order mapping.
+        remapped_index: u32,
 
         pub const Index = WipFunction.Block.Index;
     };
@@ -5067,6 +5069,10 @@ pub const Function = struct {
         return argument_index.toValue();
     }
 
+    fn remapBlock(self: @This(), blk: Block.Index) u32 {
+        return self.blocks[@intFromEnum(blk)].remapped_index;
+    }
+
     const ExtraDataTrail = struct {
         index: Instruction.ExtraIndex,
 
@@ -5154,6 +5160,7 @@ pub const WipFunction = struct {
     debug_location: DebugLocation,
     cursor: Cursor,
     blocks: std.ArrayListUnmanaged(Block),
+    block_order: std.ArrayListUnmanaged(u32),
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayListUnmanaged(String),
     strip: bool,
@@ -5200,6 +5207,7 @@ pub const WipFunction = struct {
             .debug_location = .no_location,
             .cursor = undefined,
             .blocks = .{},
+            .block_order = .{},
             .instructions = .{},
             .names = .{},
             .strip = options.strip,
@@ -5235,6 +5243,13 @@ pub const WipFunction = struct {
     }
 
     pub fn block(self: *WipFunction, incoming: u32, name: []const u8) Allocator.Error!Block.Index {
+        try self.block_order.ensureUnusedCapacity(self.builder.gpa, 1);
+        const res = try self.unplacedBlock(incoming, name);
+        self.block_order.appendAssumeCapacity(@intFromEnum(res));
+        return res;
+    }
+
+    pub fn unplacedBlock(self: *WipFunction, incoming: u32, name: []const u8) Allocator.Error!Block.Index {
         try self.blocks.ensureUnusedCapacity(self.builder.gpa, 1);
 
         const index: Block.Index = @enumFromInt(self.blocks.items.len);
@@ -5245,6 +5260,10 @@ pub const WipFunction = struct {
             .instructions = .{},
         });
         return index;
+    }
+
+    pub fn placeBlock(self: *WipFunction, blk: Block.Index) Allocator.Error!void {
+        try self.block_order.append(self.builder.gpa, @intFromEnum(blk));
     }
 
     pub fn ret(self: *WipFunction, val: Value) Allocator.Error!Instruction.Index {
@@ -6218,6 +6237,7 @@ pub const WipFunction = struct {
         const function = self.function.ptr(self.builder);
         const params_len = self.function.typeOf(self.builder).functionParameters(self.builder).len;
         const final_instructions_len = self.blocks.items.len + self.instructions.len;
+        assert(self.blocks.items.len == self.block_order.items.len); // All blocks should be placed once.
 
         const blocks = try gpa.alloc(Function.Block, self.blocks.items.len);
         errdefer gpa.free(blocks);
@@ -6321,14 +6341,18 @@ pub const WipFunction = struct {
                 instructions.items[param_index] = final_instruction_index;
                 final_instruction_index = @enumFromInt(@intFromEnum(final_instruction_index) + 1);
             }
-            for (blocks, self.blocks.items) |*final_block, current_block| {
+            for (self.block_order.items) |i| {
+                const current_block = self.blocks.items[i];
                 assert(current_block.incoming == current_block.branches);
-                final_block.instruction = final_instruction_index;
+                blocks[i].instruction = final_instruction_index;
                 final_instruction_index = @enumFromInt(@intFromEnum(final_instruction_index) + 1);
                 for (current_block.instructions.items) |instruction| {
                     instructions.items[@intFromEnum(instruction)] = final_instruction_index;
                     final_instruction_index = @enumFromInt(@intFromEnum(final_instruction_index) + 1);
                 }
+            }
+            for (self.block_order.items, 0..) |blk_idx, llvm_idx| {
+                blocks[blk_idx].remapped_index = @intCast(llvm_idx);
             }
         }
 
@@ -6396,7 +6420,8 @@ pub const WipFunction = struct {
                 debug_values[index] = new_argument_index;
             }
         }
-        for (self.blocks.items) |current_block| {
+        for (self.block_order.items) |i| {
+            const current_block = self.blocks.items[i];
             const new_block_index: Instruction.Index = @enumFromInt(function.instructions.len);
             value_indices[function.instructions.len] = value_index;
             function.instructions.appendAssumeCapacity(.{
@@ -6750,6 +6775,7 @@ pub const WipFunction = struct {
         self.instructions.deinit(self.builder.gpa);
         for (self.blocks.items) |*b| b.instructions.deinit(self.builder.gpa);
         self.blocks.deinit(self.builder.gpa);
+        self.block_order.deinit(self.builder.gpa);
         self.* = undefined;
     }
 
@@ -14017,7 +14043,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         try constants_block.writeAbbrev(Constants.BlockAddress{
                             .type_id = extra.function.typeOf(self),
                             .function = constant_adapter.getConstantIndex(extra.function.toConst(self)),
-                            .block = @intFromEnum(extra.block),
+                            .block = extra.function.ptrConst(self).remapBlock(extra.block),
                         });
                     },
                     .dso_local_equivalent,
@@ -15020,14 +15046,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         },
                         .br => {
                             try function_block.writeAbbrev(FunctionBlock.BrUnconditional{
-                                .block = data,
+                                .block = func.remapBlock(@enumFromInt(datas[instr_index])),
                             });
                         },
                         .br_cond => {
                             const extra = func.extraData(Function.Instruction.BrCond, data);
                             try function_block.writeAbbrev(FunctionBlock.BrConditional{
-                                .then_block = @intFromEnum(extra.then),
-                                .else_block = @intFromEnum(extra.@"else"),
+                                .then_block = func.remapBlock(extra.then),
+                                .else_block = func.remapBlock(extra.@"else"),
                                 .condition = adapter.getOffsetValueIndex(extra.cond),
                             });
                         },
@@ -15043,13 +15069,13 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             record.appendAssumeCapacity(adapter.getOffsetValueIndex(extra.data.val));
 
                             // Default block
-                            record.appendAssumeCapacity(@intFromEnum(extra.data.default));
+                            record.appendAssumeCapacity(func.remapBlock(extra.data.default));
 
                             const vals = extra.trail.next(extra.data.cases_len, Constant, &func);
                             const blocks = extra.trail.next(extra.data.cases_len, Function.Block.Index, &func);
                             for (vals, blocks) |val, block| {
                                 record.appendAssumeCapacity(adapter.constant_adapter.getConstantIndex(val));
-                                record.appendAssumeCapacity(@intFromEnum(block));
+                                record.appendAssumeCapacity(func.remapBlock(block));
                             }
 
                             try function_block.writeUnabbrev(12, record.items);
@@ -15081,7 +15107,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                                 const abs_value: u32 = @intCast(@abs(offset_value));
                                 const signed_vbr = if (offset_value > 0) abs_value << 1 else ((abs_value << 1) | 1);
                                 record.appendAssumeCapacity(signed_vbr);
-                                record.appendAssumeCapacity(@intFromEnum(block));
+                                record.appendAssumeCapacity(func.remapBlock(block));
                             }
 
                             if (kind == .@"phi fast") record.appendAssumeCapacity(@as(u8, @bitCast(FastMath{})));
@@ -15162,7 +15188,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         if (name == .none or name == .empty) continue;
 
                         try value_symtab_block.writeAbbrev(ValueSymbolTable.BlockEntry{
-                            .value_id = @intCast(block_index),
+                            .value_id = func.remapBlock(@enumFromInt(block_index)),
                             .string = name.slice(self).?,
                         });
                     }
