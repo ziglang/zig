@@ -13,7 +13,7 @@
 //!   from having too many active memory mappings.
 //! * When a page of memory is no longer needed, give it back to resident
 //!   memory as soon as possible, so that it causes page faults when used.
-//! * Cross-platform. Operates based on a backing allocator which makes it work
+//! * Cross platform. Operates based on a backing allocator which makes it work
 //!   everywhere, even freestanding.
 //! * Compile-time configuration.
 //!
