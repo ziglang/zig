@@ -348,7 +348,13 @@ pub fn deinit(di: *Dwarf, gpa: Allocator) void {
 }
 
 pub fn getSymbolName(di: *Dwarf, address: u64) ?[]const u8 {
-    for (di.func_list.items) |*func| {
+    // Iterate the function list backwards so that we see child DIEs before their parents. This is
+    // important because `DW_TAG_inlined_subroutine` DIEs will have a range which is a sub-range of
+    // their caller, and we want to return the callee's name, not the caller's.
+    var i: usize = di.func_list.items.len;
+    while (i > 0) {
+        i -= 1;
+        const func = &di.func_list.items[i];
         if (func.pc_range) |range| {
             if (address >= range.start and address < range.end) {
                 return func.name;
