@@ -593,3 +593,7 @@ pub const InterfaceIndexError = error{
 pub fn interfaceIndex(io: Io, name: []const u8) InterfaceIndexError!u32 {
     return io.vtable.netInterfaceIndex(io.userdata, name);
 }
+
+test {
+    _ = HostName;
+}

@@ -1143,13 +1143,7 @@ pub const Reader = struct {
     fn stream(io_reader: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         switch (r.mode) {
-            .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
-                error.Unimplemented => {
-                    r.mode = r.mode.toReading();
-                    return 0;
-                },
-                else => |e| return e,
-            },
+            .positional, .streaming => @panic("TODO"),
             .positional_reading => {
                 const dest = limit.slice(try w.writableSliceGreedy(1));
                 const n = try readPositional(r, dest);
