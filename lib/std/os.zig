@@ -5,7 +5,7 @@
 //!   slices as well as APIs which accept null-terminated byte buffers. Same goes
 //!   for WTF-16LE encoding.
 //! * Where operating systems share APIs, e.g. POSIX, these thin wrappers provide
-//!   cross platform abstracting.
+//!   cross-platform abstracting.
 //! * When there exists a corresponding libc function and linking libc, the libc
 //!   implementation is used. Exceptions are made for known buggy areas of libc.
 //!   On Linux libc can be side-stepped by using `std.os.linux` directly.

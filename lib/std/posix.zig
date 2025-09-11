@@ -1,6 +1,6 @@
 //! POSIX API layer.
 //!
-//! This is more cross platform than using OS-specific APIs, however, it is
+//! This is more cross-platform than using OS-specific APIs, however, it is
 //! lower-level and less portable than other namespaces such as `std.fs` and
 //! `std.process`.
 //!

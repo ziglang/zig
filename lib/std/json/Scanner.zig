@@ -311,7 +311,7 @@ pub fn stackHeight(self: *const @This()) usize {
     return self.stack.bit_len;
 }
 
-/// Pre allocate memory to hold the given number of nesting levels.
+/// Pre-allocate memory to hold the given number of nesting levels.
 /// `stackHeight()` up to the given number will not cause allocations.
 pub fn ensureTotalStackCapacity(self: *@This(), height: usize) Allocator.Error!void {
     try self.stack.ensureTotalCapacity(height);
@@ -1478,7 +1478,7 @@ pub const default_buffer_size = 0x1000;
 /// For tokens with a `[]const u8` payload, the payload is a slice into the current input buffer.
 /// The memory may become undefined during the next call to `json.Scanner.feedInput()`
 /// or any `json.Reader` method whose return error set includes `json.Error`.
-/// To keep the value persistently, it recommended to make a copy or to use `.alloc_always`,
+/// To keep the value persistently, it's recommended to make a copy or to use `.alloc_always`,
 /// which makes a copy for you.
 ///
 /// Note that `.number` and `.string` tokens that follow `.partial_*` tokens may have `0` length to indicate that
