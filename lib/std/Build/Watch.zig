@@ -11,7 +11,7 @@ os: Os,
 /// The number to show as the number of directories being watched.
 dir_count: usize,
 // These fields are common to most implementations so are kept here for simplicity.
-// They are `undefined` on implementations which do not utilize then.
+// They are `undefined` on implementations which do not utilize them.
 dir_table: DirTable,
 generation: Generation,
 
