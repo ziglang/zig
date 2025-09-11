@@ -327,7 +327,7 @@ pub fn endObjectFieldRaw(self: *Stringify) void {
 ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
 ///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
 ///      * See `Options.emit_strings_as_arrays`.
-///      * If the content is not valid UTF-8, rendered as an array of numbers instead.
+///      * If the content is not valid UTF-8, it is rendered as an array of numbers instead.
 ///  * Zig `[]T`, `[N]T`, `*[N]T`, `@Vector(N, T)`, and similar -> JSON array of the rendering of each item.
 ///  * Zig tuple -> JSON array of the rendering of each item.
 ///  * Zig `struct` -> JSON object with each field in declaration order.

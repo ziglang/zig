@@ -53,7 +53,7 @@ const SearchPhrase = struct {
     }
 };
 
-/// There five types of actions currently supported:
+/// There are five types of actions currently supported:
 /// .exact - will do an exact match against the haystack
 /// .contains - will check for existence within the haystack
 /// .not_present - will check for non-existence within the haystack
