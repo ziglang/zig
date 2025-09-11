@@ -371,7 +371,7 @@ pub const Id = switch (native_os) {
     else => usize,
 };
 
-/// Returns the platform ID of the callers thread.
+/// Returns the platform ID of the caller's thread.
 /// Attempts to use thread locals and avoid syscalls when possible.
 pub fn getCurrentId() Id {
     return Impl.getCurrentId();
