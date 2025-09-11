@@ -1202,6 +1202,9 @@ pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
             if (Value.fromInterned(elem).canMutateComptimeVarState(zcu)) break true;
         } else false,
         .un => |un| Value.fromInterned(un.val).canMutateComptimeVarState(zcu),
+        .tuple_type => |tuple| for (tuple.values.get(&zcu.intern_pool)) |elem| {
+            if (elem != .none and Value.fromInterned(elem).canMutateComptimeVarState(zcu)) break true;
+        } else false,
         else => false,
     };
 }

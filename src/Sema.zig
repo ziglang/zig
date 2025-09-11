@@ -17638,6 +17638,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
                             const is_comptime = field_val != .none;
                             const opt_default_val = if (is_comptime) Value.fromInterned(field_val) else null;
+
                             const default_val_ptr = try sema.optRefValue(opt_default_val);
                             const struct_field_fields = .{
                                 // name: [:0]const u8,
@@ -37075,6 +37076,16 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
                 else => unreachable,
             }
             return sema.notePathToComptimeAllocPtrInner(.fromInterned(elem), path);
+        },
+        .tuple_type => |tuple| {
+            const elem, const elem_idx = for (tuple.values.get(ip), 0..) |value_intern, i| {
+                const value: Value = .fromInterned(value_intern);
+                if (value.canMutateComptimeVarState(zcu)) break .{ value, i };
+            } else unreachable;
+
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            try path.print(arena, ").@\"struct\".fields[{d}].defaultValue().?", .{elem_idx});
+            return sema.notePathToComptimeAllocPtrInner(elem, path);
         },
         else => unreachable,
     }
