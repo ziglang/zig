@@ -154,17 +154,29 @@ fn loadDebugInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo) !
         };
         defer if (path.ptr != raw_path.ptr) gpa.free(path);
 
-        di.pdb = Pdb.init(gpa, path) catch |err| switch (err) {
+        const pdb_file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => break :pdb,
             else => |e| return e,
         };
-        try di.pdb.?.parseInfoStream();
-        try di.pdb.?.parseDbiStream();
+        errdefer pdb_file.close();
 
-        if (!mem.eql(u8, &coff_obj.guid, &di.pdb.?.guid) or coff_obj.age != di.pdb.?.age)
+        const pdb_reader = try gpa.create(std.fs.File.Reader);
+        errdefer gpa.destroy(pdb_reader);
+
+        pdb_reader.* = pdb_file.reader(try gpa.alloc(u8, 4096));
+        errdefer gpa.free(pdb_reader.interface.buffer);
+
+        var pdb: Pdb = try .init(gpa, pdb_reader);
+        errdefer pdb.deinit();
+        try pdb.parseInfoStream();
+        try pdb.parseDbiStream();
+
+        if (!mem.eql(u8, &coff_obj.guid, &pdb.guid) or coff_obj.age != pdb.age)
             return error.InvalidDebugInfo;
 
         di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(gpa);
+
+        di.pdb = pdb;
     }
 
     di.loaded = true;
@@ -204,7 +216,12 @@ pub const DebugInfo = struct {
     pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
         if (!di.loaded) return;
         if (di.dwarf) |*dwarf| dwarf.deinit(gpa);
-        if (di.pdb) |*pdb| pdb.deinit();
+        if (di.pdb) |*pdb| {
+            pdb.file_reader.file.close();
+            gpa.free(pdb.file_reader.interface.buffer);
+            gpa.destroy(pdb.file_reader);
+            pdb.deinit();
+        }
         gpa.free(di.coff_section_headers);
         if (di.mapped_file) |mapped| {
             const process_handle = windows.GetCurrentProcess();
