@@ -433,7 +433,7 @@ pub const FrameDescriptionEntry = struct {
             .lsb_z => {
                 // There is augmentation data, but it's irrelevant to us -- it
                 // only contains the LSDA pointer, which we don't care about.
-                const aug_data_len = try r.takeLeb128(u64);
+                const aug_data_len = try r.takeLeb128(usize);
                 _ = try r.discardAll(aug_data_len);
             },
         }
@@ -463,17 +463,20 @@ pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endia
         switch (try EntryHeader.read(&r, entry_offset, section.id, endian)) {
             .cie => |cie_info| {
                 // Ignore CIEs for now; we'll parse them when we read a corresponding FDE
-                try r.discardAll(cie_info.bytes_len);
+                try r.discardAll(cast(usize, cie_info.bytes_len) orelse return error.EndOfStream);
                 continue;
             },
             .fde => |fde_info| {
-                var cie_r: Reader = .fixed(section.bytes[fde_info.cie_offset..]);
+                if (fde_info.cie_offset > section.bytes.len) return error.EndOfStream;
+                var cie_r: Reader = .fixed(section.bytes[@intCast(fde_info.cie_offset)..]);
                 const cie_info = switch (try EntryHeader.read(&cie_r, fde_info.cie_offset, section.id, endian)) {
                     .cie => |cie_info| cie_info,
                     .fde, .terminator => return bad(), // this is meant to be a CIE
                 };
-                const cie: CommonInformationEntry = try .parse(try cie_r.take(cie_info.bytes_len), section.id, addr_size_bytes);
-                const fde: FrameDescriptionEntry = try .parse(section.vaddr + r.seek, try r.take(fde_info.bytes_len), cie, endian);
+                const cie_bytes_len = cast(usize, cie_info.bytes_len) orelse return error.EndOfStream;
+                const fde_bytes_len = cast(usize, fde_info.bytes_len) orelse return error.EndOfStream;
+                const cie: CommonInformationEntry = try .parse(try cie_r.take(cie_bytes_len), section.id, addr_size_bytes);
+                const fde: FrameDescriptionEntry = try .parse(section.vaddr + r.seek, try r.take(fde_bytes_len), cie, endian);
                 try fde_list.append(gpa, .{
                     .pc_begin = fde.pc_begin,
                     .fde_offset = entry_offset,
@@ -537,27 +540,29 @@ pub fn lookupPc(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian: End
 pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endian: Endian) !struct { Format, CommonInformationEntry, FrameDescriptionEntry } {
     const section = unwind.frame_section;
 
-    var fde_reader: Reader = .fixed(section.bytes[fde_offset..]);
+    if (fde_offset > section.bytes.len) return error.EndOfStream;
+    var fde_reader: Reader = .fixed(section.bytes[@intCast(fde_offset)..]);
     const fde_info = switch (try EntryHeader.read(&fde_reader, fde_offset, section.id, endian)) {
         .fde => |info| info,
         .cie, .terminator => return bad(), // This is meant to be an FDE
     };
 
     const cie_offset = fde_info.cie_offset;
-    var cie_reader: Reader = .fixed(section.bytes[cie_offset..]);
+    if (cie_offset > section.bytes.len) return error.EndOfStream;
+    var cie_reader: Reader = .fixed(section.bytes[@intCast(cie_offset)..]);
     const cie_info = switch (try EntryHeader.read(&cie_reader, cie_offset, section.id, endian)) {
         .cie => |info| info,
         .fde, .terminator => return bad(), // This is meant to be a CIE
     };
 
     const cie: CommonInformationEntry = try .parse(
-        try cie_reader.take(cie_info.bytes_len),
+        try cie_reader.take(cast(usize, cie_info.bytes_len) orelse return error.EndOfStream),
         section.id,
         addr_size_bytes,
     );
     const fde: FrameDescriptionEntry = try .parse(
         section.vaddr + fde_offset + fde_reader.seek,
-        try fde_reader.take(fde_info.bytes_len),
+        try fde_reader.take(cast(usize, fde_info.bytes_len) orelse return error.EndOfStream),
         cie,
         endian,
     );
@@ -566,9 +571,8 @@ pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endia
 }
 
 const EhPointerContext = struct {
-    // The address of the pointer field itself
+    /// The address of the pointer field itself
     pc_rel_base: u64,
-
     // These relative addressing modes are only used in specific cases, and
     // might not be available / required in all parsing contexts
     data_rel_base: ?u64 = null,
@@ -604,7 +608,7 @@ fn readEhPointerAbs(r: *Reader, enc_ty: EH.PE.Type, addr_size_bytes: u8, endian:
 fn readEhPointer(r: *Reader, enc: EH.PE, addr_size_bytes: u8, ctx: EhPointerContext, endian: Endian) !u64 {
     const offset = try readEhPointerAbs(r, enc.type, addr_size_bytes, endian);
     if (enc.indirect) return bad(); // GCC extension; not supported
-    const base = switch (enc.rel) {
+    const base: u64 = switch (enc.rel) {
         .abs, .aligned => 0,
         .pcrel => ctx.pc_rel_base,
         .textrel => ctx.text_rel_base orelse return bad(),
@@ -613,7 +617,10 @@ fn readEhPointer(r: *Reader, enc: EH.PE, addr_size_bytes: u8, ctx: EhPointerCont
         _ => return bad(),
     };
     return switch (offset) {
-        .signed => |s| @intCast(try std.math.add(i64, s, @as(i64, @intCast(base)))),
+        .signed => |s| if (s >= 0)
+            try std.math.add(u64, base, @intCast(s))
+        else
+            try std.math.sub(u64, base, @intCast(-s)),
         // absptr can actually contain signed values in some cases (aarch64 MachO)
         .unsigned => |u| u +% base,
     };

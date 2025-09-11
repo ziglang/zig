@@ -200,7 +200,7 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
             error.EndOfStream, error.Overflow => return error.InvalidDebugInfo,
             error.UnsupportedAddrSize => return error.UnsupportedDebugInfo,
         };
-        buf[0] = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
+        buf[0] = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(@as(usize, @intCast(module.load_offset + header.eh_frame_vaddr))));
         break :unwinds buf[0..1];
     } else unwinds: {
         // There is no `.eh_frame_hdr` section. There may still be an `.eh_frame` or `.debug_frame`
@@ -208,20 +208,19 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
         try module.loadElf(gpa, di);
         const opt_debug_frame = &di.loaded_elf.?.debug_frame;
         const opt_eh_frame = &di.loaded_elf.?.eh_frame;
+        var i: usize = 0;
         // If both are present, we can't just pick one -- the info could be split between them.
         // `.debug_frame` is likely to be the more complete section, so we'll prioritize that one.
         if (opt_debug_frame.*) |*debug_frame| {
-            buf[0] = .initSection(.debug_frame, debug_frame.vaddr, debug_frame.bytes);
-            if (opt_eh_frame.*) |*eh_frame| {
-                buf[1] = .initSection(.eh_frame, eh_frame.vaddr, eh_frame.bytes);
-                break :unwinds buf[0..2];
-            }
-            break :unwinds buf[0..1];
-        } else if (opt_eh_frame.*) |*eh_frame| {
-            buf[0] = .initSection(.eh_frame, eh_frame.vaddr, eh_frame.bytes);
-            break :unwinds buf[0..1];
+            buf[i] = .initSection(.debug_frame, debug_frame.vaddr, debug_frame.bytes);
+            i += 1;
         }
-        return error.MissingDebugInfo;
+        if (opt_eh_frame.*) |*eh_frame| {
+            buf[i] = .initSection(.eh_frame, eh_frame.vaddr, eh_frame.bytes);
+            i += 1;
+        }
+        if (i == 0) return error.MissingDebugInfo;
+        break :unwinds buf[0..i];
     };
     errdefer for (unwinds) |*u| u.deinit(gpa);
     for (unwinds) |*u| try prepareUnwindLookup(u, gpa);
