@@ -51,7 +51,7 @@ base: link.File,
 /// corresponding string_table entries. For such cases, when implementing
 /// serialization/deserialization, they should be adjusted to prefix that data
 /// with a null byte so that deserialization does not attempt to create
-/// string_table entries for them. Alternately those sites could be moved to
+/// string_table entries for them. Alternatively, those sites could be moved to
 /// use a different byte array for this purpose.
 string_bytes: std.ArrayListUnmanaged(u8),
 /// Sometimes we have logic that wants to borrow string bytes to store

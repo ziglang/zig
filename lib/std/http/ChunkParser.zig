@@ -25,7 +25,7 @@ pub const State = enum {
 /// less than or equal to `bytes.len`.
 ///
 /// After this function returns, `chunk_len` will contain the parsed chunk size
-/// in bytes when `state` is `data`. Alternately, `state` may become `invalid`,
+/// in bytes when `state` is `data`. Alternatively, `state` may become `invalid`,
 /// indicating a syntax error in the input stream.
 ///
 /// If the amount returned is less than `bytes.len`, the parser is in the

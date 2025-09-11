@@ -68,7 +68,7 @@ enum nubus_type_cpu {
  *  from Apple's FTP site at:
  *  ftp://dev.apple.com/devworld/Tool_Chest/Devices_-_Hardware/NuBus_Slot_Manager/
  *
- *  Alternately, TattleTech can be found at any Info-Mac mirror site.  
+ *  Alternatively, TattleTech can be found at any Info-Mac mirror site.
  *  or from its distribution site: ftp://ftp.decismkr.com/dms
  */
 
