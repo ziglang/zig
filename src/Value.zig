@@ -32,25 +32,42 @@ pub fn fmtDebug(val: Value) std.fmt.Alt(Value, dump) {
 }
 
 pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Alt(print_value.FormatContext, print_value.format) {
+    return val.fmtValueDepth(pt, print_value.default_depth);
+}
+
+pub fn fmtValueDepth(val: Value, pt: Zcu.PerThread, depth: u8) std.fmt.Alt(print_value.FormatContext, print_value.format) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
         .opt_sema = null,
-        .depth = 3,
+        .depth = depth,
     } };
 }
 
 pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Alt(print_value.FormatContext, print_value.formatSema) {
+    return val.fmtValueSemaDepth(pt, sema, print_value.default_depth);
+}
+
+pub fn fmtValueSemaDepth(val: Value, pt: Zcu.PerThread, sema: *Sema, depth: u8) std.fmt.Alt(print_value.FormatContext, print_value.formatSema) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
         .opt_sema = sema,
-        .depth = 3,
+        .depth = depth,
     } };
 }
 
-pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Alt(print_value.FormatContext, print_value.formatSema) {
-    return .{ .data = ctx };
+pub fn fmtValueOptSema(val: Value, pt: Zcu.PerThread, opt_sema: ?*Sema) std.fmt.Alt(print_value.FormatContext, print_value.formatOptSema) {
+    return val.fmtValueOptSemaDepth(pt, opt_sema, print_value.default_depth);
+}
+
+pub fn fmtValueOptSemaDepth(val: Value, pt: Zcu.PerThread, opt_sema: ?*Sema, depth: u8) std.fmt.Alt(print_value.FormatContext, print_value.formatOptSema) {
+    return .{ .data = .{
+        .val = val,
+        .pt = pt,
+        .opt_sema = opt_sema,
+        .depth = depth,
+    } };
 }
 
 /// Converts `val` to a null-terminated string stored in the InternPool.
