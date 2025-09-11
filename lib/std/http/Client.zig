@@ -27,7 +27,7 @@ ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disabl
 ca_bundle_mutex: std.Thread.Mutex = .{},
 /// Used both for the reader and writer buffers.
 tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
-/// If non-null, ssl secrets are logged to a stream. Creating such a stream
+/// If non-null, SSL secrets are logged to a stream. Creating such a stream
 /// allows other processes with access to that stream to decrypt all
 /// traffic over connections created with this `Client`.
 ssl_key_log: ?*std.crypto.tls.Client.SslKeyLog = null,
@@ -1651,7 +1651,7 @@ fn uriPort(uri: Uri, protocol: Protocol) u16 {
     return uri.port orelse protocol.port();
 }
 
-/// Open a connection to the host specified by `uri` and prepare to send a HTTP request.
+/// Open a connection to the host specified by `uri` and prepare to send an HTTP request.
 ///
 /// The caller is responsible for calling `deinit()` on the `Request`.
 /// This function is threadsafe.
