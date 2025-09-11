@@ -1,7 +1,9 @@
+const File = @This();
+
 const builtin = @import("builtin");
+
 const std = @import("../std.zig");
 const Io = std.Io;
-const File = @This();
 const assert = std.debug.assert;
 
 handle: Handle,

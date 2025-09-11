@@ -548,6 +548,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 }
 
 test {
+    _ = net;
     _ = Reader;
     _ = Writer;
     _ = tty;
@@ -688,42 +689,7 @@ pub const UnexpectedError = error{
     Unexpected,
 };
 
-pub const Dir = struct {
-    handle: Handle,
-
-    pub fn cwd() Dir {
-        return .{ .handle = std.fs.cwd().fd };
-    }
-
-    pub const Handle = std.posix.fd_t;
-
-    pub fn openFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
-        return io.vtable.fileOpen(io.userdata, dir, sub_path, flags);
-    }
-
-    pub fn createFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-        return io.vtable.createFile(io.userdata, dir, sub_path, flags);
-    }
-
-    pub const WriteFileOptions = struct {
-        /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-        /// On WASI, `sub_path` should be encoded as valid UTF-8.
-        /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-        sub_path: []const u8,
-        data: []const u8,
-        flags: File.CreateFlags = .{},
-    };
-
-    pub const WriteFileError = File.WriteError || File.OpenError || Cancelable;
-
-    /// Writes content to the file system, using the file creation flags provided.
-    pub fn writeFile(dir: Dir, io: Io, options: WriteFileOptions) WriteFileError!void {
-        var file = try dir.createFile(io, options.sub_path, options.flags);
-        defer file.close(io);
-        try file.writeAll(io, options.data);
-    }
-};
-
+pub const Dir = @import("Io/Dir.zig");
 pub const File = @import("Io/File.zig");
 
 pub const Timestamp = enum(i96) {
