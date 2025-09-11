@@ -38,7 +38,7 @@ comptime {
 /// enum is non-exhaustive only to avoid Illegal Behavior when malformed messages are sent over the
 /// socket; unnamed tags are an error condition and should terminate the connection.
 ///
-/// Every tag has a curresponding `extern struct` representing the full message (or a header of the
+/// Every tag has a corresponding `extern struct` representing the full message (or a header of the
 /// message if it is variable-length). For instance, `.hello` corresponds to `Hello`.
 ///
 /// When introducing a tag, make sure to add a corresponding `extern struct` whose first field is

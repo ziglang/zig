@@ -889,7 +889,7 @@ test "create file and symlink" {
     };
     try createDirAndSymlink(root.dir, "../../../file1", "d/e/f/symlink2");
 
-    // Danglink symlnik, file created later
+    // Danglink symlink, file created later
     try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
     file = try createDirAndFile(root.dir, "g/h/i/file4", default_mode);
     file.close();

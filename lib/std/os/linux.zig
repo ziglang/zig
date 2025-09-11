@@ -690,7 +690,7 @@ pub const futex_param4 = extern union {
 /// The futex v1 syscall, see also the newer the futex2_{wait,wakeup,requeue,waitv} syscalls.
 ///
 /// The futex_op parameter is a sub-command and flags.  The sub-command
-/// defines which of the subsequent paramters are relevant.
+/// defines which of the subsequent parameters are relevant.
 pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
     return syscall6(
         if (@hasField(SYS, "futex")) .futex else .futex_time64,
@@ -738,7 +738,7 @@ pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout
 /// No further information is provided: any number of other futexes may also
 /// have been woken by the same event, and if more than one futex was woken,
 /// the returned index may refer to any one of them.
-/// (It is not necessaryily the futex with the smallest index, nor the one
+/// (It is not necessarily the futex with the smallest index, nor the one
 /// most recently woken, nor...)
 ///
 /// Requires at least kernel v5.16.
@@ -1927,7 +1927,7 @@ pub fn sigemptyset() sigset_t {
     return [_]SigsetElement{0} ** sigset_len;
 }
 
-/// Zig's version of sigfillset.  Returns initalized sigset_t.
+/// Zig's version of sigfillset.  Returns initialized sigset_t.
 pub fn sigfillset() sigset_t {
     return [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
 }
@@ -6341,7 +6341,7 @@ pub const IORING_OP = enum(u8) {
 };
 // io_uring_sqe.uring_cmd_flags (rw_flags in the Zig struct)
 
-/// use registered buffer; pass thig flag along with setting sqe->buf_index.
+/// use registered buffer; pass this flag along with setting sqe->buf_index.
 pub const IORING_URING_CMD_FIXED = 1 << 0;
 
 // io_uring_sqe.fsync_flags (rw_flags in the Zig struct)
@@ -6395,7 +6395,7 @@ pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
 pub const IORING_SEND_ZC_REPORT_USAGE = 1 << 3;
 /// If set, send or recv will grab as many buffers from the buffer group ID given and send them all.
 /// The completion result will be the number of buffers send, with the starting buffer ID in cqe as per usual.
-/// The buffers be contigious from the starting buffer ID.
+/// The buffers are contiguous from the starting buffer ID.
 /// Used with IOSQE_BUFFER_SELECT.
 pub const IORING_RECVSEND_BUNDLE = 1 << 4;
 /// CQE.RES FOR IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was requested
@@ -6596,7 +6596,7 @@ pub const IORING_REGISTER = enum(u32) {
     REGISTER_PBUF_RING,
     UNREGISTER_PBUF_RING,
 
-    // sync cancelation API
+    // sync cancellation API
     REGISTER_SYNC_CANCEL,
 
     // register a range of fixed file slots for automatic slot allocation
@@ -8643,7 +8643,7 @@ pub const NETLINK = struct {
 
 // Flags values
 
-/// It is request message.
+/// It is a request message.
 pub const NLM_F_REQUEST = 0x01;
 
 /// Multipart message, terminated by NLMSG_DONE

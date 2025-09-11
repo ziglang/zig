@@ -524,7 +524,7 @@ pub fn addRPathSpecial(m: *Module, bytes: []const u8) void {
     m.rpaths.append(b.allocator, .{ .special = b.dupe(bytes) }) catch @panic("OOM");
 }
 
-/// Equvialent to the following C code, applied to all C source files owned by
+/// Equivalent to the following C code, applied to all C source files owned by
 /// this `Module`:
 /// ```c
 /// #define name value
