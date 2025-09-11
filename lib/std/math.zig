@@ -447,7 +447,7 @@ pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
     }
     switch (info_r) {
         .int => {
-            // in the rare usecase of r not being comptime_int or float,
+            // in the rare use case of r not being comptime_int or float,
             // take the penalty of having an intermediary type conversion,
             // otherwise the alternative is to unwind iteratively to avoid overflow
             const R = comptime do: {

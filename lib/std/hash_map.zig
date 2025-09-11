@@ -123,7 +123,7 @@ pub const default_max_load_percentage = 80;
 /// load factors (up to 80% by default) for low memory usage.
 /// For a hash map that can be initialized directly that does not store an Allocator
 /// field, see `HashMapUnmanaged`.
-/// If iterating over the table entries is a strong usecase and needs to be fast,
+/// If iterating over the table entries is a strong use case and needs to be fast,
 /// prefer the alternative `std.ArrayHashMap`.
 /// Context must be a struct type with two member functions:
 ///   hash(self, K) u64
@@ -207,7 +207,7 @@ pub fn HashMap(
         /// Release the backing array and invalidate this map.
         /// This does *not* deinit keys, values, or the context!
         /// If your keys or values need to be released, ensure
-        /// that that is done before calling this function.
+        /// that is done before calling this function.
         pub fn deinit(self: *Self) void {
             self.unmanaged.deinit(self.allocator);
             self.* = undefined;
