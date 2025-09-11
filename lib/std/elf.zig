@@ -744,7 +744,8 @@ pub const SectionHeaderBufferIterator = struct {
 
         const size: u64 = if (it.elf_header.is_64) @sizeOf(Elf64_Shdr) else @sizeOf(Elf32_Shdr);
         const offset = it.elf_header.shoff + size * it.index;
-        var reader = std.Io.Reader.fixed(it.buf[offset..]);
+        if (offset > it.buf.len) return error.EndOfStream;
+        var reader = std.Io.Reader.fixed(it.buf[@intCast(offset)..]);
 
         return takeShdr(&reader, it.elf_header);
     }

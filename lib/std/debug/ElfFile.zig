@@ -19,7 +19,7 @@ strtab: ?[]const u8,
 symtab: ?SymtabSection,
 
 /// Binary search table lazily populated by `searchSymtab`.
-symbol_search_table: ?[]u64,
+symbol_search_table: ?[]usize,
 
 /// The memory-mapped ELF file, which is referenced by `dwarf`. This field is here only so that
 /// this memory can be unmapped by `ElfFile.deinit`.
@@ -259,7 +259,7 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
                 swap_endian: bool,
                 target: u64,
                 symbols: []align(1) const Sym,
-                fn predicate(ctx: @This(), sym_index: u64) bool {
+                fn predicate(ctx: @This(), sym_index: usize) bool {
                     // We need to return `true` for the first N items, then `false` for the rest --
                     // the index we'll get out is the first `false` one. So, we'll return `true` iff
                     // the target address is after the *end* of this symbol. This synchronizes with
@@ -270,7 +270,7 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
                     return ctx.target >= sym_end;
                 }
             };
-            const sym_index_index = std.sort.partitionPoint(u64, search_table, @as(SearchContext, .{
+            const sym_index_index = std.sort.partitionPoint(usize, search_table, @as(SearchContext, .{
                 .swap_endian = swap_endian,
                 .target = vaddr,
                 .symbols = symbols,
@@ -291,8 +291,8 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
 fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, symbols: []align(1) const Sym) error{
     OutOfMemory,
     BadSymtab,
-}![]u64 {
-    var result: std.ArrayList(u64) = .empty;
+}![]usize {
+    var result: std.ArrayList(usize) = .empty;
     defer result.deinit(gpa);
 
     const swap_endian = endian != @import("builtin").cpu.arch.endian();
@@ -308,7 +308,7 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
     const SortContext = struct {
         swap_endian: bool,
         symbols: []align(1) const Sym,
-        fn lessThan(ctx: @This(), lhs_sym_index: u64, rhs_sym_index: u64) bool {
+        fn lessThan(ctx: @This(), lhs_sym_index: usize, rhs_sym_index: usize) bool {
             // We sort by *end* address, not start address. This matches up with logic in `searchSymtab`.
             var lhs_sym = ctx.symbols[lhs_sym_index];
             var rhs_sym = ctx.symbols[rhs_sym_index];
@@ -321,7 +321,7 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
             return lhs_val < rhs_val;
         }
     };
-    std.mem.sort(u64, result.items, @as(SortContext, .{
+    std.mem.sort(usize, result.items, @as(SortContext, .{
         .swap_endian = swap_endian,
         .symbols = symbols,
     }), SortContext.lessThan);
@@ -504,7 +504,7 @@ fn loadInner(
                 continue;
             }
 
-            const buf = try arena.alloc(u8, ch_size);
+            const buf = try arena.alloc(u8, std.math.cast(usize, ch_size) orelse return error.Overflow);
             var fw: std.Io.Writer = .fixed(buf);
             var decompress: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
             const n = decompress.reader.streamRemaining(&fw) catch |err| switch (err) {
