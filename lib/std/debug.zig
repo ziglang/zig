@@ -815,13 +815,17 @@ const StackIterator = union(enum) {
 
     /// On aarch64-macos, Apple mandate that the frame pointer is always used.
     /// TODO: are there any other architectures with guarantees like this?
-    const fp_unwind_is_safe = !builtin.omit_frame_pointer and builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();
+    const fp_unwind_is_safe = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();
 
     /// Whether the current unwind strategy is allowed given `allow_unsafe`.
     fn stratOk(it: *const StackIterator, allow_unsafe: bool) bool {
         return switch (it.*) {
             .di => true,
-            .fp => allow_unsafe or fp_unwind_is_safe,
+            // If we omitted frame pointers from *this* compilation, FP unwinding would crash
+            // immediately regardless of anything. But FPs could also be omitted from a different
+            // linked object, so it's not guaranteed to be safe, unless the target specifically
+            // requires it.
+            .fp => !builtin.omit_frame_pointer and (fp_unwind_is_safe or allow_unsafe),
         };
     }
 
