@@ -1625,7 +1625,7 @@ pub fn addInstallArtifact(
     return Step.InstallArtifact.create(b, artifact, options);
 }
 
-///`dest_rel_path` is relative to prefix path
+/// `dest_rel_path` is relative to prefix path
 pub fn installFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .prefix, dest_rel_path).step);
 }
@@ -1634,12 +1634,12 @@ pub fn installDirectory(b: *Build, options: Step.InstallDir.Options) void {
     b.getInstallStep().dependOn(&b.addInstallDirectory(options).step);
 }
 
-///`dest_rel_path` is relative to bin path
+/// `dest_rel_path` is relative to bin path
 pub fn installBinFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .bin, dest_rel_path).step);
 }
 
-///`dest_rel_path` is relative to lib path
+/// `dest_rel_path` is relative to lib path
 pub fn installLibFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .lib, dest_rel_path).step);
 }
