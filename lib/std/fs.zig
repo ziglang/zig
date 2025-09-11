@@ -107,12 +107,14 @@ pub fn updateFileAbsolute(
     source_path: []const u8,
     dest_path: []const u8,
     args: Dir.CopyFileOptions,
-) !Dir.PrevStatus {
+) !std.Io.Dir.PrevStatus {
     assert(path.isAbsolute(source_path));
     assert(path.isAbsolute(dest_path));
     const my_cwd = cwd();
     return Dir.updateFile(my_cwd, source_path, my_cwd, dest_path, args);
 }
+
+test updateFileAbsolute {}
 
 /// Same as `Dir.copyFile`, except asserts that both `source_path` and `dest_path`
 /// are absolute. See `Dir.copyFile` for a function that operates on both
@@ -131,6 +133,8 @@ pub fn copyFileAbsolute(
     return Dir.copyFile(my_cwd, source_path, my_cwd, dest_path, args);
 }
 
+test copyFileAbsolute {}
+
 /// Create a new directory, based on an absolute path.
 /// Asserts that the path is absolute. See `Dir.makeDir` for a function that operates
 /// on both absolute and relative paths.
@@ -142,11 +146,15 @@ pub fn makeDirAbsolute(absolute_path: []const u8) !void {
     return posix.mkdir(absolute_path, Dir.default_mode);
 }
 
+test makeDirAbsolute {}
+
 /// Same as `makeDirAbsolute` except the parameter is null-terminated.
 pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
     assert(path.isAbsoluteZ(absolute_path_z));
     return posix.mkdirZ(absolute_path_z, Dir.default_mode);
 }
+
+test makeDirAbsoluteZ {}
 
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 LE-encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
@@ -702,16 +710,10 @@ pub fn realpathAlloc(allocator: Allocator, pathname: []const u8) ![]u8 {
 }
 
 test {
-    if (native_os != .wasi) {
-        _ = &makeDirAbsolute;
-        _ = &makeDirAbsoluteZ;
-        _ = &copyFileAbsolute;
-        _ = &updateFileAbsolute;
-    }
-    _ = &AtomicFile;
-    _ = &Dir;
-    _ = &File;
-    _ = &path;
+    _ = AtomicFile;
+    _ = Dir;
+    _ = File;
+    _ = path;
     _ = @import("fs/test.zig");
     _ = @import("fs/get_app_data_dir.zig");
 }

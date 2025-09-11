@@ -939,7 +939,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     }
 }
 
-pub const PReadError = std.Io.ReadPositionalError;
+pub const PReadError = std.Io.File.ReadPositionalError;
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
 ///
