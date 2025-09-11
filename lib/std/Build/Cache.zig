@@ -114,7 +114,7 @@ fn getPrefixSubpath(allocator: Allocator, prefix: []const u8, path: []u8) ![]u8 
     return relative;
 }
 
-/// This is 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
+/// This is 128 bits - Even with 2^54 cache entries, the probability of a collision would be under 10^-6
 pub const bin_digest_len = 16;
 pub const hex_digest_len = bin_digest_len * 2;
 pub const BinDigest = [bin_digest_len]u8;
