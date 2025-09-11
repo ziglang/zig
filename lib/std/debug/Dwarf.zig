@@ -2129,7 +2129,7 @@ pub const ElfModule = struct {
     /// Reads debug info from an already mapped ELF file.
     ///
     /// If the required sections aren't present but a reference to external debug
-    /// info is, then this this function will recurse to attempt to load the debug
+    /// info is, then this function will recurse to attempt to load the debug
     /// sections from an external file.
     pub fn load(
         gpa: Allocator,

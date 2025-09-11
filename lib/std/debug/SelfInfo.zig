@@ -1055,7 +1055,7 @@ fn readCoffDebugInfo(gpa: Allocator, coff_obj: *coff.Coff) !Module {
 
 /// Reads debug info from an ELF file, or the current binary if none in specified.
 /// If the required sections aren't present but a reference to external debug info is,
-/// then this this function will recurse to attempt to load the debug sections from
+/// then this function will recurse to attempt to load the debug sections from
 /// an external file.
 pub fn readElfDebugInfo(
     allocator: Allocator,

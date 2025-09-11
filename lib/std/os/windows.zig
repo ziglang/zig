@@ -3942,7 +3942,7 @@ pub const RTL_QUERY_REGISTRY_NOEXPAND = 0x00000010;
 
 /// QueryRoutine field ignored.  EntryContext field points to location to store value.
 /// For null terminated strings, EntryContext points to UNICODE_STRING structure that
-/// that describes maximum size of buffer. If .Buffer field is NULL then a buffer is
+/// describes maximum size of buffer. If .Buffer field is NULL then a buffer is
 /// allocated.
 pub const RTL_QUERY_REGISTRY_DIRECT = 0x00000020;
 
