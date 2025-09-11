@@ -6596,7 +6596,7 @@ pub const IORING_REGISTER = enum(u32) {
     REGISTER_PBUF_RING,
     UNREGISTER_PBUF_RING,
 
-    // sync cancellation API
+    // sync cancelation API
     REGISTER_SYNC_CANCEL,
 
     // register a range of fixed file slots for automatic slot allocation
