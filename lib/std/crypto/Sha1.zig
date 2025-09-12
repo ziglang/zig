@@ -297,7 +297,7 @@ test "sha1 streaming" {
 }
 
 test "sha1 aligned final" {
-    var block = [_]u8{0} ** Sha1.block_length;
+    var block: [Sha1.block_length]u8 = @splat(0);
     var out: [Sha1.digest_length]u8 = undefined;
 
     var h = Sha1.init(.{});

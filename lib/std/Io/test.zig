@@ -64,7 +64,7 @@ test "File seek ops" {
     var file = try tmp.dir.createFile(tmp_file_name, .{});
     defer file.close();
 
-    try file.writeAll(&([_]u8{0x55} ** 8192));
+    try file.writeAll(&@as([8192]u8, @splat(0x55)));
 
     // Seek to the end
     try file.seekFromEnd(0);

@@ -384,7 +384,7 @@ test "Random shuffle" {
     const random = prng.random();
 
     var seq = [_]u8{ 0, 1, 2, 3, 4 };
-    var seen = [_]bool{false} ** 5;
+    var seen: [5]bool = @splat(false);
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -422,7 +422,7 @@ fn testRange(r: Random, start: i8, end: i8) !void {
 }
 fn testRangeBias(r: Random, start: i8, end: i8, biased: bool) !void {
     const count = @as(usize, @intCast(@as(i32, end) - @as(i32, start)));
-    var values_buffer = [_]bool{false} ** 0x100;
+    var values_buffer: [0x100]bool = @splat(false);
     const values = values_buffer[0..count];
     var i: usize = 0;
     while (i < count) {

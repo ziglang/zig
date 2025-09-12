@@ -16,6 +16,10 @@ pub fn main() !void {
         \\const err = @import("./test.zig").err;
         \\const any = @import("./test.zig").any;
         \\
+        \\inline fn strMul(comptime str: []const u8, comptime times: usize) [str.len * times]u8 {
+        \\    const result: [times][str.len]u8 = @splat(str[0..str.len].*);
+        \\    return @bitCast(result);
+        \\}
         \\
     );
 
@@ -50,19 +54,30 @@ pub fn main() !void {
     try output.flush();
 }
 
-const i_structure_500_nested_arrays = "[" ** 500 ++ "]" ** 500;
-const n_structure_100000_opening_arrays = "[" ** 100000;
-const n_structure_open_array_object = "[{\"\":" ** 50000 ++ "\n";
+inline fn strMul(comptime str: []const u8, comptime times: usize) [str.len * times]u8 {
+    const result: [times][str.len]u8 = @splat(str[0..str.len].*);
+    return @bitCast(result);
+}
+
+const i_structure_500_nested_arrays = &strMul("[", 500) ++ &strMul("]", 500);
+const n_structure_100000_opening_arrays = &strMul("[", 100000);
+const n_structure_open_array_object = &strMul("[{\"\":", 50000) ++ "\n";
 
 fn writeString(writer: anytype, s: []const u8) !void {
     if (s.len > 200) {
         // There are a few of these we can compress with Zig expressions.
         if (std.mem.eql(u8, s, i_structure_500_nested_arrays)) {
-            return writer.writeAll("\"[\" ** 500 ++ \"]\" ** 500");
+            return writer.writeAll(
+                \\&strMul("[", 500) ++ &strMul("]", 500)
+            );
         } else if (std.mem.eql(u8, s, n_structure_100000_opening_arrays)) {
-            return writer.writeAll("\"[\" ** 100000");
+            return writer.writeAll(
+                \\&strMul("[", 100000)
+            );
         } else if (std.mem.eql(u8, s, n_structure_open_array_object)) {
-            return writer.writeAll("\"[{\\\"\\\":\" ** 50000 ++ \"\\n\"");
+            return writer.writeAll(
+                \\&strMul("[{\"\":", 50000)
+            );
         }
         unreachable;
     }

@@ -212,7 +212,8 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             fn finalizePrehashed(self: *Signer, msg_hash: [Hash.digest_length]u8) (IdentityElementError || NonCanonicalError)!Signature {
                 const scalar_encoded_length = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, scalar_encoded_length);
-                var h: [h_len]u8 = [_]u8{0} ** (h_len - Hash.digest_length) ++ msg_hash;
+                const zeros: [h_len - Hash.digest_length]u8 = @splat(0);
+                var h: [h_len]u8 = zeros ++ msg_hash;
 
                 std.debug.assert(h.len >= scalar_encoded_length);
                 const z = reduceToScalar(scalar_encoded_length, h[0..scalar_encoded_length].*);
@@ -275,7 +276,8 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             fn verifyPrehashed(self: *Verifier, msg_hash: [Hash.digest_length]u8) VerifyError!void {
                 const ht = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, ht);
-                var h: [h_len]u8 = [_]u8{0} ** (h_len - Hash.digest_length) ++ msg_hash;
+                const zeros: [h_len - Hash.digest_length]u8 = @splat(0);
+                var h: [h_len]u8 = zeros ++ msg_hash;
 
                 const z = reduceToScalar(ht, h[0..ht].*);
                 if (z.isZero()) {
@@ -316,10 +318,10 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             ///
             /// Except in tests, applications should generally call `generate()` instead of this function.
             pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
-                const h = [_]u8{0x00} ** Hash.digest_length;
-                const k0 = [_]u8{0x01} ** SecretKey.encoded_length;
+                const h: [Hash.digest_length]u8 = @splat(0x00);
+                const k0: [SecretKey.encoded_length]u8 = @splat(0x01);
                 const secret_key = deterministicScalar(h, k0, seed).toBytes(.big);
-                return fromSecretKey(SecretKey{ .bytes = secret_key });
+                return fromSecretKey(.{ .bytes = secret_key });
             }
 
             /// Generate a new, random key pair.
@@ -367,11 +369,11 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
         // Reduce the coordinate of a field element to the scalar field.
         fn reduceToScalar(comptime unreduced_len: usize, s: [unreduced_len]u8) Curve.scalar.Scalar {
             if (unreduced_len >= 48) {
-                var xs = [_]u8{0} ** 64;
+                var xs: [64]u8 = @splat(0);
                 @memcpy(xs[xs.len - s.len ..], s[0..]);
                 return Curve.scalar.Scalar.fromBytes64(xs, .big);
             }
-            var xs = [_]u8{0} ** 48;
+            var xs: [48]u8 = @splat(0);
             @memcpy(xs[xs.len - s.len ..], s[0..]);
             return Curve.scalar.Scalar.fromBytes48(xs, .big);
         }
@@ -379,9 +381,9 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
         // Create a deterministic scalar according to a secret key and optional noise.
         // This uses the overly conservative scheme from the "Deterministic ECDSA and EdDSA Signatures with Additional Randomness" draft.
         fn deterministicScalar(h: [Hash.digest_length]u8, secret_key: Curve.scalar.CompressedScalar, noise: ?[noise_length]u8) Curve.scalar.Scalar {
-            var k = [_]u8{0x00} ** h.len;
-            var m = [_]u8{0x00} ** (h.len + 1 + noise_length + secret_key.len + h.len);
-            var t = [_]u8{0x00} ** Curve.scalar.encoded_length;
+            var k: [h.len]u8 = @splat(0x00);
+            var m: [h.len + 1 + noise_length + secret_key.len + h.len]u8 = @splat(0x00);
+            var t: [Curve.scalar.encoded_length]u8 = @splat(0x00);
             const m_v = m[0..h.len];
             const m_i = &m[m_v.len];
             const m_z = m[m_v.len + 1 ..][0..noise_length];

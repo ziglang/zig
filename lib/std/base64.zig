@@ -86,7 +86,7 @@ pub const Base64Encoder = struct {
     /// A bunch of assertions, then simply pass the data right through.
     pub fn init(alphabet_chars: [64]u8, pad_char: ?u8) Base64Encoder {
         assert(alphabet_chars.len == 64);
-        var char_in_alphabet = [_]bool{false} ** 256;
+        var char_in_alphabet: [256]bool = @splat(false);
         for (alphabet_chars) |c| {
             assert(!char_in_alphabet[c]);
             assert(pad_char == null or c != pad_char.?);
@@ -176,12 +176,12 @@ pub const Base64Decoder = struct {
 
     pub fn init(alphabet_chars: [64]u8, pad_char: ?u8) Base64Decoder {
         var result = Base64Decoder{
-            .char_to_index = [_]u8{invalid_char} ** 256,
-            .fast_char_to_index = .{[_]u32{invalid_char_tst} ** 256} ** 4,
+            .char_to_index = @splat(invalid_char),
+            .fast_char_to_index = @splat(@splat(invalid_char_tst)),
             .pad_char = pad_char,
         };
 
-        var char_in_alphabet = [_]bool{false} ** 256;
+        var char_in_alphabet: [256]bool = @splat(false);
         for (alphabet_chars, 0..) |c, i| {
             assert(!char_in_alphabet[c]);
             assert(pad_char == null or c != pad_char.?);
@@ -302,7 +302,7 @@ pub const Base64DecoderWithIgnore = struct {
     pub fn init(alphabet_chars: [64]u8, pad_char: ?u8, ignore_chars: []const u8) Base64DecoderWithIgnore {
         var result = Base64DecoderWithIgnore{
             .decoder = Base64Decoder.init(alphabet_chars, pad_char),
-            .char_is_ignored = [_]bool{false} ** 256,
+            .char_is_ignored = @splat(false),
         };
         for (ignore_chars) |c| {
             assert(result.decoder.char_to_index[c] == Base64Decoder.invalid_char);

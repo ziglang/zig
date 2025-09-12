@@ -138,8 +138,8 @@ pub const Parser = struct {
         var optional_statements: std.ArrayList(*Node) = .empty;
 
         const num_statement_types = @typeInfo(rc.OptionalStatements).@"enum".fields.len;
-        var statement_type_has_duplicates = [_]bool{false} ** num_statement_types;
-        var last_statement_per_type = [_]?*Node{null} ** num_statement_types;
+        var statement_type_has_duplicates: [num_statement_types]bool = @splat(false);
+        var last_statement_per_type: [num_statement_types]?*Node = @splat(null);
 
         while (true) {
             const lookahead_token = try self.lookaheadToken(.normal);

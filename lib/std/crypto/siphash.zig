@@ -91,7 +91,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
             self.msg_len +%= @as(u8, @truncate(b.len));
 
-            var buf = [_]u8{0} ** 8;
+            var buf: [8]u8 = @splat(0);
             @memcpy(buf[0..b.len], b);
             buf[7] = self.msg_len;
             self.round(buf);

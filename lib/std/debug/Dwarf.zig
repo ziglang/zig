@@ -750,7 +750,7 @@ pub const FrameDescriptionEntry = struct {
 
 const num_sections = std.enums.directEnumArrayLen(Section.Id, 0);
 pub const SectionArray = [num_sections]?Section;
-pub const null_section_array = [_]?Section{null} ** num_sections;
+pub const null_section_array: [num_sections]?Section = @splat(null);
 
 pub const OpenError = ScanError;
 
@@ -1889,7 +1889,7 @@ const FileEntry = struct {
     dir_index: u32 = 0,
     mtime: u64 = 0,
     size: u64 = 0,
-    md5: [16]u8 = [1]u8{0} ** 16,
+    md5: [16]u8 = @splat(0),
 };
 
 const LineNumberProgram = struct {

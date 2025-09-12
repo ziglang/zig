@@ -35,7 +35,7 @@ pub fn main() !void {
             var pos: usize = if (builtin.os.tag == .windows) 2 else 0;
             // locate delims/anchor
             const delims = [_][]const u8{ ":", ":", ":", " in ", "(", ")" };
-            var marks = [_]usize{0} ** delims.len;
+            var marks: [delims.len]usize = @splat(0);
             for (delims, 0..) |delim, i| {
                 marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
                     // unexpected pattern: emit raw line and cont

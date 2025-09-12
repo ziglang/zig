@@ -1068,7 +1068,7 @@ pub const FixedFileInfo = struct {
     pub const key = std.unicode.utf8ToUtf16LeStringLiteral("VS_VERSION_INFO");
 
     pub const Version = struct {
-        parts: [4]u16 = [_]u16{0} ** 4,
+        parts: [4]u16 = @splat(0),
 
         pub fn mostSignificantCombinedParts(self: Version) u32 {
             return (@as(u32, self.parts[0]) << 16) + self.parts[1];

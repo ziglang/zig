@@ -1041,7 +1041,7 @@ test "const alloc with comptime-known initializer is made comptime-known" {
             positive: bool,
         };
         const biggest: Const = .{
-            .limbs = &([1]usize{comptime std.math.maxInt(usize)} ** 128),
+            .limbs = &@as([128]usize, @splat(std.math.maxInt(usize))),
             .positive = false,
         };
         if (biggest.positive) @compileError("bad");

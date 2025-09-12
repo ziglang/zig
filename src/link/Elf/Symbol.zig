@@ -356,7 +356,7 @@ const Format = struct {
             if (symbol.atom(elf_file)) |atom_ptr| {
                 try writer.print(" : atom({d})", .{atom_ptr.atom_index});
             }
-            var buf: [2]u8 = .{'_'} ** 2;
+            var buf: [2]u8 = @splat('_');
             if (symbol.flags.@"export") buf[0] = 'E';
             if (symbol.flags.import) buf[1] = 'I';
             try writer.print(" : {s}", .{&buf});

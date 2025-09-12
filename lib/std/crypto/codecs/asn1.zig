@@ -224,7 +224,7 @@ test Element {
         .slice = Element.Slice{ .start = 2, .end = short_form.len },
     }, Element.decode(&short_form, 0));
 
-    const long_form = [_]u8{ 0x30, 129, 129 } ++ [_]u8{0} ** 129;
+    const long_form = [_]u8{ 0x30, 129, 129 } ++ @as([129]u8, @splat(0));
     try std.testing.expectEqual(Element{
         .tag = Tag.universal(.sequence, true),
         .slice = Element.Slice{ .start = 3, .end = long_form.len },
