@@ -20,6 +20,7 @@
 //! Additionally, lines reporting unwind errors are removed:
 //!
 //!   Unwind error at address `/proc/self/exe:0x1016533` (unwind info unavailable), remaining frames may be incorrect
+//!   Cannot print stack trace: safe unwind unavilable for target
 //!
 //! With these transformations, the test harness can safely do string comparisons.
 
@@ -45,7 +46,9 @@ pub fn main() !void {
     const w = &out_fw.interface;
 
     while (in_fr.interface.takeDelimiterInclusive('\n')) |in_line| {
-        if (std.mem.startsWith(u8, in_line, "Unwind error at address `")) {
+        if (std.mem.eql(u8, in_line, "Cannot print stack trace: safe unwind unavailable for target\n") or
+            std.mem.startsWith(u8, in_line, "Unwind error at address `"))
+        {
             // Remove these lines from the output.
             continue;
         }
