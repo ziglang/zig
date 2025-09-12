@@ -264,85 +264,57 @@ pub const DebugInfo = struct {
     }
 };
 
-pub const supports_unwinding: bool = true;
-pub const UnwindContext = switch (builtin.cpu.arch) {
-    .x86 => struct {
-        pc: usize,
-        frames: []usize,
-        frames_capacity: usize,
-        next_index: usize,
-        /// Marked `noinline` to ensure that `RtlCaptureStackBackTrace` includes our caller.
-        pub noinline fn init(ctx: *windows.CONTEXT, gpa: Allocator) Allocator.Error!UnwindContext {
-            const frames_buf = try gpa.alloc(usize, 1024);
-            errdefer comptime unreachable;
-            const frames_len = windows.ntdll.RtlCaptureStackBackTrace(0, frames_buf.len, @ptrCast(frames_buf.ptr), null);
-            const regs = ctx.getRegs();
-            const first_index = for (frames_buf[0..frames_len], 0..) |ret_addr, idx| {
-                if (ret_addr == regs.ip) break idx;
-            } else i: {
-                // If we were called by an exception handler, `regs.ip` wasn't in the trace because
-                // RtlCaptureStackBackTrace omits the KiUserExceptionDispatcher frame, which is the
-                // one in `regs.ip`. In that case, we have to start one frame shallower instead, and
-                // we can figure out that frame's ip from the context's bp.
-                const start_addr_ptr: *const usize = @ptrFromInt(regs.bp + 4);
-                const start_addr = start_addr_ptr.*;
-                for (frames_buf[0..frames_len], 0..) |ret_addr, idx| {
-                    if (ret_addr == start_addr) break :i idx;
-                }
-                // The IP in the context can't be found; return an empty trace.
-                gpa.free(frames_buf);
-                return .{ .pc = 0, .frames = &.{}, .frames_capacity = 0, .next_index = 0 };
-            };
-            return .{
-                .pc = @returnAddress(),
-                .frames = frames_buf[0..frames_len],
-                .frames_capacity = 0,
-                .next_index = first_index,
-            };
-        }
-        pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void {
-            gpa.free(ctx.frames.ptr[0..ctx.frames_capacity]);
-            ctx.* = undefined;
-        }
-        pub fn getFp(ctx: *UnwindContext) usize {
-            _ = ctx;
-            return 0;
-        }
-    },
-    else => struct {
-        pc: usize,
-        cur: windows.CONTEXT,
-        history_table: windows.UNWIND_HISTORY_TABLE,
-        pub fn init(ctx: *const windows.CONTEXT, gpa: Allocator) Allocator.Error!UnwindContext {
-            _ = gpa;
-            return .{
-                .pc = @returnAddress(),
-                .cur = ctx.*,
-                .history_table = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE),
-            };
-        }
-        pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void {
-            _ = ctx;
-            _ = gpa;
-        }
-        pub fn getFp(ctx: *UnwindContext) usize {
-            return ctx.cur.getRegs().bp;
-        }
-    },
+pub const supports_unwinding: bool = switch (builtin.cpu.arch) {
+    else => true,
+    // On x86, `RtlVirtualUnwind` does not exist. We could in theory use `RtlCaptureStackBackTrace`
+    // instead, but on x86, it turns out that function is just... doing FP unwinding with esp! It's
+    // hard to find implementation details to confirm that, but the most authoritative source I have
+    // is an entry in the LLVM mailing list from 2020/08/16 which contains this quote:
+    //
+    // > x86 doesn't have what most architectures would consider an "unwinder" in the sense of
+    // > restoring registers; there is simply a linked list of frames that participate in SEH and
+    // > that desire to be called for a dynamic unwind operation, so RtlCaptureStackBackTrace
+    // > assumes that EBP-based frames are in use and walks an EBP-based frame chain on x86 - not
+    // > all x86 code is written with EBP-based frames so while even though we generally build the
+    // > OS that way, you might always run the risk of encountering external code that uses EBP as a
+    // > general purpose register for which such an unwind attempt for a stack trace would fail.
+    //
+    // Regardless, it's easy to effectively confirm this hypothesis just by compiling some code with
+    // `-fomit-frame-pointer -OReleaseFast` and observing that `RtlCaptureStackBackTrace` returns an
+    // empty trace when it's called in such an application. Note that without `-OReleaseFast` or
+    // similar, LLVM seems reluctant to ever clobber ebp, so you'll get a trace returned which just
+    // contains all of the kernel32/ntdll frames but none of your own. Don't be deceived---this is
+    // just coincidental!
+    //
+    // Anyway, the point is, the only stack walking primitive on x86-windows is FP unwinding. We
+    // *could* ask Microsoft to do that for us with `RtlCaptureStackBackTrace`... but better to just
+    // use our existing FP unwinder in `std.debug`!
+    .x86 => false,
+};
+pub const UnwindContext = struct {
+    pc: usize,
+    cur: windows.CONTEXT,
+    history_table: windows.UNWIND_HISTORY_TABLE,
+    pub fn init(ctx: *const windows.CONTEXT, gpa: Allocator) Allocator.Error!UnwindContext {
+        _ = gpa;
+        return .{
+            .pc = @returnAddress(),
+            .cur = ctx.*,
+            .history_table = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE),
+        };
+    }
+    pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void {
+        _ = ctx;
+        _ = gpa;
+    }
+    pub fn getFp(ctx: *UnwindContext) usize {
+        return ctx.cur.getRegs().bp;
+    }
 };
 pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
     _ = module;
     _ = gpa;
     _ = di;
-
-    if (builtin.cpu.arch == .x86) {
-        const i = context.next_index;
-        if (i == context.frames.len) return 0;
-        context.next_index += 1;
-        const ip = context.frames[i];
-        context.pc = ip -| 1;
-        return ip;
-    }
 
     const current_regs = context.cur.getRegs();
     var image_base: windows.DWORD64 = undefined;
