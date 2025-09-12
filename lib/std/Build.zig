@@ -2540,7 +2540,7 @@ fn dumpBadDirnameHelp(
 
     try w.print(msg, args);
 
-    const tty_config = std.Io.tty.detectConfig(.stderr());
+    const tty_config: std.Io.tty.Config = .detect(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
