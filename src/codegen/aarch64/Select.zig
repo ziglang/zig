@@ -5821,29 +5821,21 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .unwrap_errunion_err_ptr => {
-            if (isel.live_values.fetchRemove(air.inst_index)) |error_ptr_vi| unused: {
-                defer error_ptr_vi.value.deref(isel);
+            if (isel.live_values.fetchRemove(air.inst_index)) |error_vi| {
+                defer error_vi.value.deref(isel);
                 const ty_op = air.data(air.inst_index).ty_op;
-                switch (codegen.errUnionErrorOffset(
-                    isel.air.typeOf(ty_op.operand, ip).childType(zcu).errorUnionPayload(zcu),
-                    zcu,
-                )) {
-                    0 => try error_ptr_vi.value.move(isel, ty_op.operand),
-                    else => |error_offset| {
-                        const error_ptr_ra = try error_ptr_vi.value.defReg(isel) orelse break :unused;
-                        const error_union_ptr_vi = try isel.use(ty_op.operand);
-                        const error_union_ptr_mat = try error_union_ptr_vi.matReg(isel);
-                        const lo12: u12 = @truncate(error_offset >> 0);
-                        const hi12: u12 = @intCast(error_offset >> 12);
-                        if (hi12 > 0) try isel.emit(.add(
-                            error_ptr_ra.x(),
-                            if (lo12 > 0) error_ptr_ra.x() else error_union_ptr_mat.ra.x(),
-                            .{ .shifted_immediate = .{ .immediate = hi12, .lsl = .@"12" } },
-                        ));
-                        if (lo12 > 0) try isel.emit(.add(error_ptr_ra.x(), error_union_ptr_mat.ra.x(), .{ .immediate = lo12 }));
-                        try error_union_ptr_mat.finish(isel);
-                    },
-                }
+                const error_union_ptr_ty = isel.air.typeOf(ty_op.operand, ip);
+                const error_union_ptr_info = error_union_ptr_ty.ptrInfo(zcu);
+                const error_union_ptr_vi = try isel.use(ty_op.operand);
+                const error_union_ptr_mat = try error_union_ptr_vi.matReg(isel);
+                _ = try error_vi.value.load(isel, ty_op.ty.toType(), error_union_ptr_mat.ra, .{
+                    .offset = codegen.errUnionErrorOffset(
+                        ZigType.fromInterned(error_union_ptr_info.child).errorUnionPayload(zcu),
+                        zcu,
+                    ),
+                    .@"volatile" = error_union_ptr_info.flags.is_volatile,
+                });
+                try error_union_ptr_mat.finish(isel);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -8031,6 +8023,7 @@ pub fn layout(
         while (save_index < saves.len) {
             if (save_index + 2 <= saves.len and saves[save_index + 1].needs_restore and
                 saves[save_index + 0].class == saves[save_index + 1].class and
+                saves[save_index + 0].size == saves[save_index + 1].size and
                 saves[save_index + 0].offset + saves[save_index + 0].size == saves[save_index + 1].offset)
             {
                 try isel.emit(.ldp(
@@ -8337,7 +8330,7 @@ fn elemPtr(
         }),
         2 => {
             const shift: u6 = @intCast(@ctz(elem_size));
-            const temp_ra = temp_ra: switch (op) {
+            const temp_ra, const free_temp_ra = temp_ra: switch (op) {
                 .add => switch (base_ra) {
                     else => {
                         const temp_ra = try isel.allocIntReg();
@@ -8346,7 +8339,7 @@ fn elemPtr(
                             .register = temp_ra.x(),
                             .shift = .{ .lsl = shift },
                         } }));
-                        break :temp_ra temp_ra;
+                        break :temp_ra .{ temp_ra, true };
                     },
                     .zr => {
                         if (shift > 0) try isel.emit(.ubfm(elem_ptr_ra.x(), elem_ptr_ra.x(), .{
@@ -8354,7 +8347,7 @@ fn elemPtr(
                             .immr = -%shift,
                             .imms = ~shift,
                         }));
-                        break :temp_ra elem_ptr_ra;
+                        break :temp_ra .{ elem_ptr_ra, false };
                     },
                 },
                 .sub => {
@@ -8364,10 +8357,10 @@ fn elemPtr(
                         .register = temp_ra.x(),
                         .shift = .{ .lsl = shift },
                     } }));
-                    break :temp_ra temp_ra;
+                    break :temp_ra .{ temp_ra, true };
                 },
             };
-            defer if (temp_ra != elem_ptr_ra) isel.freeReg(temp_ra);
+            defer if (free_temp_ra) isel.freeReg(temp_ra);
             try isel.emit(.add(temp_ra.x(), index_mat.ra.x(), .{ .shifted_register = .{
                 .register = index_mat.ra.x(),
                 .shift = .{ .lsl = @intCast(63 - @clz(elem_size) - shift) },
@@ -9296,7 +9289,14 @@ pub const Value = struct {
                 part_offset -= part_size;
                 var wrapped_res_part_it = res_vi.field(ty, part_offset, part_size);
                 const wrapped_res_part_vi = try wrapped_res_part_it.only(isel);
-                const wrapped_res_part_ra = try wrapped_res_part_vi.?.defReg(isel) orelse if (need_carry) .zr else continue;
+                const wrapped_res_part_ra = wrapped_res_part_ra: {
+                    const overflow_ra_lock: RegLock = switch (opts.overflow) {
+                        .ra => |ra| isel.lockReg(ra),
+                        else => .empty,
+                    };
+                    defer overflow_ra_lock.unlock(isel);
+                    break :wrapped_res_part_ra try wrapped_res_part_vi.?.defReg(isel) orelse if (need_carry) .zr else continue;
+                };
                 const unwrapped_res_part_ra = unwrapped_res_part_ra: {
                     if (!need_wrap) break :unwrapped_res_part_ra wrapped_res_part_ra;
                     if (int_info.bits % 32 == 0) {
