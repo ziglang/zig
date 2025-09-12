@@ -25455,14 +25455,8 @@ fn zirCUndef(
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = block.builtinCallArgSrc(extra.node, 0);
 
-    if (block.is_typeof) {
-        const name = try sema.resolveInst(extra.operand);
-        const coerced_name = try sema.coerce(block, .slice_const_u8, name, src);
-        _ = try sema.resolveConstDefinedValue(block, src, coerced_name, .{ .simple = .operand_cUndef_macro_name });
-    } else {
-        const name = try sema.resolveConstString(block, src, extra.operand, .{ .simple = .operand_cUndef_macro_name });
-        try block.c_import_buf.?.print("#undef {s}\n", .{name});
-    }
+    const name = try sema.resolveConstString(block, src, extra.operand, .{ .simple = .operand_cUndef_macro_name });
+    try block.c_import_buf.?.print("#undef {s}\n", .{name});
 
     return .void_value;
 }
@@ -25475,14 +25469,8 @@ fn zirCInclude(
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = block.builtinCallArgSrc(extra.node, 0);
 
-    if (block.is_typeof) {
-        const name = try sema.resolveInst(extra.operand);
-        const coerced_name = try sema.coerce(block, .slice_const_u8, name, src);
-        _ = try sema.resolveConstDefinedValue(block, src, coerced_name, .{ .simple = .operand_cInclude_file_name });
-    } else {
-        const name = try sema.resolveConstString(block, src, extra.operand, .{ .simple = .operand_cInclude_file_name });
-        try block.c_import_buf.?.print("#include <{s}>\n", .{name});
-    }
+    const name = try sema.resolveConstString(block, src, extra.operand, .{ .simple = .operand_cInclude_file_name });
+    try block.c_import_buf.?.print("#include <{s}>\n", .{name});
 
     return .void_value;
 }
@@ -25498,26 +25486,14 @@ fn zirCDefine(
     const name_src = block.builtinCallArgSrc(extra.node, 0);
     const val_src = block.builtinCallArgSrc(extra.node, 1);
 
-    if (block.is_typeof) {
-        const lhs = try sema.resolveInst(extra.lhs);
-        const coerced_name = try sema.coerce(block, .slice_const_u8, lhs, name_src);
-        _ = try sema.resolveConstDefinedValue(block, name_src, coerced_name, .{ .simple = .operand_cDefine_macro_name });
+    const name = try sema.resolveConstString(block, name_src, extra.lhs, .{ .simple = .operand_cDefine_macro_name });
+    const rhs = try sema.resolveInst(extra.rhs);
 
-        const rhs = try sema.resolveInst(extra.rhs);
-        if (sema.typeOf(rhs).zigTypeTag(zcu) != .void) {
-            const coerced_val = try sema.coerce(block, .slice_const_u8, lhs, val_src);
-            _ = try sema.resolveConstDefinedValue(block, val_src, coerced_val, .{ .simple = .operand_cDefine_macro_value });
-        }
+    if (sema.typeOf(rhs).zigTypeTag(zcu) != .void) {
+        const value = try sema.resolveConstString(block, val_src, extra.rhs, .{ .simple = .operand_cDefine_macro_value });
+        try block.c_import_buf.?.print("#define {s} {s}\n", .{ name, value });
     } else {
-        const name = try sema.resolveConstString(block, name_src, extra.lhs, .{ .simple = .operand_cDefine_macro_name });
-        const rhs = try sema.resolveInst(extra.rhs);
-
-        if (sema.typeOf(rhs).zigTypeTag(zcu) != .void) {
-            const value = try sema.resolveConstString(block, val_src, extra.rhs, .{ .simple = .operand_cDefine_macro_value });
-            try block.c_import_buf.?.print("#define {s} {s}\n", .{ name, value });
-        } else {
-            try block.c_import_buf.?.print("#define {s}\n", .{name});
-        }
+        try block.c_import_buf.?.print("#define {s}\n", .{name});
     }
 
     return .void_value;

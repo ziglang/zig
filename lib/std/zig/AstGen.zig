@@ -9102,6 +9102,7 @@ fn typeOf(
     var typeof_scope = gz.makeSubBlock(scope);
     typeof_scope.is_comptime = false;
     typeof_scope.is_typeof = true;
+    typeof_scope.c_import = false;
     defer typeof_scope.unstack();
 
     if (args.len == 1) {
