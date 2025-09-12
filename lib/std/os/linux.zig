@@ -1834,20 +1834,23 @@ pub fn setgroups(size: usize, list: [*]const gid_t) usize {
     }
 }
 
-pub fn setsid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.setsid))));
+pub fn setsid() usize {
+    return syscall0(.setsid);
 }
 
 pub fn getpid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.getpid))));
+    // Casts result to a pid_t, safety-checking >= 0, because getpid() cannot fail
+    return @intCast(@as(u32, @truncate(syscall0(.getpid))));
 }
 
 pub fn getppid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.getppid))));
+    // Casts result to a pid_t, safety-checking >= 0, because getppid() cannot fail
+    return @intCast(@as(u32, @truncate(syscall0(.getppid))));
 }
 
 pub fn gettid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.gettid))));
+    // Casts result to a pid_t, safety-checking >= 0, because gettid() cannot fail
+    return @intCast(@as(u32, @truncate(syscall0(.gettid))));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {

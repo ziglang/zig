@@ -7000,7 +7000,7 @@ pub const SetSidError = error{
 pub fn setsid() SetSidError!pid_t {
     const rc = system.setsid();
     switch (errno(rc)) {
-        .SUCCESS => return rc,
+        .SUCCESS => return @intCast(rc),
         .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
