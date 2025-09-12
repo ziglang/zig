@@ -553,3 +553,50 @@ pub const DirEnt = extern struct {
         return @ptrCast(&dirent.name);
     }
 };
+
+// https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/netinet/in.h#L122
+pub const IP = struct {
+    pub const OPTIONS = 1;
+    pub const HDRINCL = 2;
+    pub const TOS = 3;
+    pub const TTL = 4;
+    pub const RECVOPTS = 5;
+    pub const RECVRETOPTS = 6;
+    pub const RECVDSTADDR = 7;
+    pub const RETOPTS = 8;
+    pub const MULTICAST_IF = 9;
+    pub const MULTICAST_TTL = 10;
+    pub const MULTICAST_LOOP = 11;
+    pub const ADD_MEMBERSHIP = 12;
+    pub const DROP_MEMBERSHIP = 13;
+    pub const BLOCK_SOURCE = 14;
+    pub const UNBLOCK_SOURCE = 15;
+    pub const ADD_SOURCE_MEMBERSHIP = 16;
+    pub const DROP_SOURCE_MEMBERSHIP = 17;
+    pub const DONTFRAG = 38;
+};
+
+// https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/netinet/in.h#L150
+pub const IPV6 = struct {
+    pub const MULTICAST_IF = 24;
+    pub const MULTICAST_HOPS = 25;
+    pub const MULTICAST_LOOP = 26;
+    pub const UNICAST_HOPS = 27;
+    pub const JOIN_GROUP = 28;
+    pub const LEAVE_GROUP = 29;
+    pub const V6ONLY = 30;
+    pub const PKTINFO = 31;
+    pub const RECVPKTINFO = 32;
+    pub const HOPLIMIT = 33;
+    pub const RECVHOPLIMIT = 34;
+    pub const HOPOPTS = 35;
+    pub const DSTOPTS = 36;
+    pub const RTHDR = 37;
+};
+
+// https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/netinet/ip.h#L36
+pub const IPTOS = struct {
+    pub const RELIABILITY = 0x04;
+    pub const THROUGHPUT = 0x08;
+    pub const LOWDELAY = 0x10;
+};

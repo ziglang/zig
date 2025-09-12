@@ -31,12 +31,6 @@ pub const poolid_t = id_t;
 pub const zoneid_t = id_t;
 pub const ctid_t = id_t;
 
-pub const SCM = struct {
-    pub const UCRED = 0x1012;
-    pub const RIGHTS = 0x1010;
-    pub const TIMESTAMP = SO.TIMESTAMP;
-};
-
 pub const fpregset_t = extern union {
     regs: [130]u32,
     chip_state: extern struct {
@@ -369,3 +363,118 @@ pub fn IOW(io_type: u8, nr: u8, comptime IOT: type) i32 {
 pub fn IOWR(io_type: u8, nr: u8, comptime IOT: type) i32 {
     return ioImpl(.read_write, io_type, nr, IOT);
 }
+
+// https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L1141
+// (old OpenSolaris is very similar, it's just missing a few more-modern ones, and probably modern Solaris has those)
+pub const IP = struct {
+    pub const OPTIONS = 1;
+    pub const HDRINCL = 2;
+    pub const TOS = 3;
+    pub const TTL = 4;
+    pub const RECVOPTS = 0x5;
+    pub const RECVRETOPTS = 0x6;
+    pub const RECVDSTADDR = 0x7;
+    pub const RETOPTS = 0x8;
+    pub const RECVIF = 0x9;
+    pub const RECVSLLA = 0xa;
+    pub const RECVTTL = 0xb;
+    pub const RECVTOS = 0xc;
+    pub const MULTICAST_IF = 0x10;
+    pub const MULTICAST_TTL = 0x11;
+    pub const MULTICAST_LOOP = 0x12;
+    pub const ADD_MEMBERSHIP = 0x13;
+    pub const DROP_MEMBERSHIP = 0x14;
+    pub const BLOCK_SOURCE = 0x15;
+    pub const UNBLOCK_SOURCE = 0x16;
+    pub const ADD_SOURCE_MEMBERSHIP = 0x17;
+    pub const DROP_SOURCE_MEMBERSHIP = 0x18;
+    pub const NEXTHOP = 0x19;
+    pub const PKTINFO = 0x1a;
+    pub const RECVPKTINFO = 0x1a;
+    pub const DONTFRAG = 0x1b;
+    pub const MINTTL = 0x1c;
+    pub const SEC_OPT = 0x22;
+    pub const BOUND_IF = 0x41;
+    pub const UNSPEC_SRC = 0x42;
+    pub const BROADCAST_TTL = 0x43;
+    pub const DHCPINIT_IF = 0x45;
+    pub const REUSEADDR = 0x104;
+    pub const DONTROUTE = 0x105;
+    pub const BROADCAST = 0x106;
+    // Same namespace, but these are arguments rather than option names
+    pub const DEFAULT_MULTICAST_TTL = 1;
+    pub const DEFAULT_MULTICAST_LOOP = 1;
+};
+
+// https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L1192
+// (old OpenSolaris is very similar, it's just missing a few more-modern ones, and probably modern Solaris has those)
+pub const IPV6 = struct {
+    pub const UNICAST_HOPS = 0x5;
+    pub const MULTICAST_IF = 0x6;
+    pub const MULTICAST_HOPS = 0x7;
+    pub const MULTICAST_LOOP = 0x8;
+    pub const JOIN_GROUP = 0x9;
+    pub const LEAVE_GROUP = 0xa;
+    pub const ADD_MEMBERSHIP = 0x9;
+    pub const DROP_MEMBERSHIP = 0xa;
+    pub const PKTINFO = 0xb;
+    pub const HOPLIMIT = 0xc;
+    pub const NEXTHOP = 0xd;
+    pub const HOPOPTS = 0xe;
+    pub const DSTOPTS = 0xf;
+    pub const RTHDR = 0x10;
+    pub const RTHDRDSTOPTS = 0x11;
+    pub const RECVPKTINFO = 0x12;
+    pub const RECVHOPLIMIT = 0x13;
+    pub const RECVHOPOPTS = 0x14;
+    pub const OLD_RECVDSTOPTS = 0x15;
+    pub const RECVRTHDR = 0x16;
+    pub const RECVRTHDRDSTOPTS = 0x17;
+    pub const CHECKSUM = 0x18;
+    pub const RECVTCLASS = 0x19;
+    pub const USE_MIN_MTU = 0x20;
+    pub const DONTFRAG = 0x21;
+    pub const SEC_OPT = 0x22;
+    pub const SRC_PREFERENCES = 0x23;
+    pub const RECVPATHMTU = 0x24;
+    pub const PATHMTU = 0x25;
+    pub const TCLASS = 0x26;
+    pub const V6ONLY = 0x27;
+    pub const RECVDSTOPTS = 0x28;
+    pub const MINHOPCOUNT = 0x2f;
+    pub const BOUND_IF = 0x41;
+    pub const UNSPEC_SRC = 0x42;
+    // Same namespace, but these are arguments rather than option names
+    pub const RTHDR_TYPE_0 = 0;
+    pub const PREFER_SRC_HOME = 0x01;
+    pub const PREFER_SRC_COA = 0x02;
+    pub const PREFER_SRC_PUBLIC = 0x04;
+    pub const PREFER_SRC_TMP = 0x08;
+    pub const PREFER_SRC_NONCGA = 0x10;
+    pub const PREFER_SRC_CGA = 0x20;
+    pub const PREFER_SRC_MIPMASK = PREFER_SRC_HOME | PREFER_SRC_COA;
+    pub const PREFER_SRC_MIPDEFAULT = PREFER_SRC_HOME;
+    pub const PREFER_SRC_TMPMASK = PREFER_SRC_PUBLIC | PREFER_SRC_TMP;
+    pub const PREFER_SRC_TMPDEFAULT = PREFER_SRC_PUBLIC;
+    pub const PREFER_SRC_CGAMASK = PREFER_SRC_NONCGA | PREFER_SRC_CGA;
+    pub const PREFER_SRC_CGADEFAULT = PREFER_SRC_NONCGA;
+    pub const PREFER_SRC_MASK = PREFER_SRC_MIPMASK | PREFER_SRC_TMPMASK | PREFER_SRC_CGAMASK;
+    pub const PREFER_SRC_DEFAULT = PREFER_SRC_MIPDEFAULT | PREFER_SRC_TMPDEFAULT | PREFER_SRC_CGADEFAULT;
+};
+
+// https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/ip.h#L64
+pub const IPTOS = struct {
+    pub const LOWDELAY = 0x10;
+    pub const THROUGHPUT = 0x08;
+    pub const RELIABILITY = 0x04;
+    pub const ECT = 0x02;
+    pub const CE = 0x01;
+    pub const PREC_NETCONTROL = 0xe0;
+    pub const PREC_INTERNETCONTROL = 0xc0;
+    pub const PREC_CRITIC_ECP = 0xa0;
+    pub const PREC_FLASHOVERRIDE = 0x80;
+    pub const PREC_FLASH = 0x60;
+    pub const PREC_IMMEDIATE = 0x40;
+    pub const PREC_PRIORITY = 0x20;
+    pub const PREC_ROUTINE = 0x00;
+};
