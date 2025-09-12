@@ -23,7 +23,7 @@ pub fn format(val: Value, writer: *std.Io.Writer) !void {
 
 /// This is a debug function. In order to print values in a meaningful way
 /// we also need access to the type.
-pub fn dump(start_val: Value, w: std.Io.Writer) std.Io.Writer.Error!void {
+pub fn dump(start_val: Value, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("(interned: {})", .{start_val.toIntern()});
 }
 
@@ -1179,6 +1179,16 @@ pub fn eql(a: Value, b: Value, ty: Type, zcu: *Zcu) bool {
 }
 
 pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
+    const ip = &zcu.intern_pool;
+
+    // First, check if the type of the value can mutate comptime var state
+    switch (val.ip_index) {
+        .type_type => return false,
+        else => if (val.typeOf(zcu).toValue().canMutateComptimeVarState(zcu)) {
+            return true;
+        },
+    }
+
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .error_union => |error_union| switch (error_union.val) {
             .err_name => false,
@@ -1193,7 +1203,7 @@ pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
             .uav => |uav| Value.fromInterned(uav.val).canMutateComptimeVarState(zcu),
             .arr_elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(zcu),
         },
-        .slice => |slice| return Value.fromInterned(slice.ptr).canMutateComptimeVarState(zcu),
+        .slice => |slice| Value.fromInterned(slice.ptr).canMutateComptimeVarState(zcu),
         .opt => |opt| switch (opt.val) {
             .none => false,
             else => |payload| Value.fromInterned(payload).canMutateComptimeVarState(zcu),
@@ -1202,9 +1212,34 @@ pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
             if (Value.fromInterned(elem).canMutateComptimeVarState(zcu)) break true;
         } else false,
         .un => |un| Value.fromInterned(un.val).canMutateComptimeVarState(zcu),
-        .tuple_type => |tuple| for (tuple.values.get(&zcu.intern_pool)) |elem| {
-            if (elem != .none and Value.fromInterned(elem).canMutateComptimeVarState(zcu)) break true;
+        .opt_type, .undef => |parent_ty| Value.fromInterned(parent_ty).canMutateComptimeVarState(zcu),
+        .vector_type => |vector| Value.fromInterned(vector.child).canMutateComptimeVarState(zcu),
+        .error_union_type => |err_union| Value.fromInterned(err_union.payload_type).canMutateComptimeVarState(zcu),
+        .tuple_type => |tuple| for (tuple.values.get(ip), tuple.types.get(ip)) |default, ty| {
+            if (default != .none and Value.fromInterned(default).canMutateComptimeVarState(zcu)) break true;
+            if (ty != .none and Value.fromInterned(ty).canMutateComptimeVarState(zcu)) break true;
         } else false,
+        .union_type => for (ip.loadUnionType(val.toIntern()).field_types.get(ip)) |ty| {
+            if (ty != .none and Value.fromInterned(ty).canMutateComptimeVarState(zcu)) break true;
+        } else false,
+        .func_type => |func| for (func.param_types.get(ip)) |param_ty| {
+            if (param_ty != .none and Value.fromInterned(param_ty).canMutateComptimeVarState(zcu)) break true;
+        } else func.return_type != .none and Value.fromInterned(func.return_type).canMutateComptimeVarState(zcu),
+        inline .array_type, .ptr_type => |span| check: {
+            if (Value.fromInterned(span.child).canMutateComptimeVarState(zcu)) break :check true;
+            break :check span.sentinel != .none and Value.fromInterned(span.sentinel).canMutateComptimeVarState(zcu);
+        },
+        .struct_type => check: {
+            const struct_ty = ip.loadStructType(val.toIntern());
+            const field_tys = struct_ty.field_types.get(ip);
+            const field_vals = struct_ty.field_inits.get(ip);
+            break :check for (field_tys, 0..) |ty, i| {
+                if (ty != .none and Value.fromInterned(ty).canMutateComptimeVarState(zcu)) break true;
+                if (field_vals.len == 0) continue;
+                const default = field_vals[i];
+                if (default != .none and Value.fromInterned(default).canMutateComptimeVarState(zcu)) break true;
+            } else false;
+        },
         else => false,
     };
 }
