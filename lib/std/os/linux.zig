@@ -1834,8 +1834,8 @@ pub fn setgroups(size: usize, list: [*]const gid_t) usize {
     }
 }
 
-pub fn setsid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.setsid))));
+pub fn setsid() usize {
+    return syscall0(.setsid);
 }
 
 pub fn getpid() pid_t {
