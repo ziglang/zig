@@ -586,7 +586,8 @@ pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
 /// - `!`: output error union value as either the unwrapped value, or the formatted error value; may be followed by a format specifier for the underlying value.
 /// - `*`: output the address of the value instead of the value itself.
 /// - `any`: output a value of any type using its default format.
-/// - `f`: delegates to a method on the type named "format" with the signature `fn (*Writer, args: anytype) Writer.Error!void`.
+/// - `f`: delegates to a method on the type `T` named "format" with the signature `fn (T, *Writer) Writer.Error!void`.
+///   The "format" method may also be supplied and/or overriden using the `std.fmt.Alt` function.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
