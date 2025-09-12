@@ -47,8 +47,8 @@
 //!     // Print the message to stderr, silently ignoring any errors
 //!     std.debug.lockStdErr();
 //!     defer std.debug.unlockStdErr();
-//!     const stderr = std.fs.File.stderr().deprecatedWriter();
-//!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
+//!     var stderr = std.fs.File.stderr().writer(&.{});
+//!     nosuspend stderr.interface.print(prefix ++ format ++ "\n", args) catch return;
 //! }
 //!
 //! pub fn main() void {
