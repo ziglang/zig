@@ -1916,7 +1916,7 @@ pub const Writer = struct {
 
         const copy_file_range = switch (native_os) {
             .freebsd => std.os.freebsd.copy_file_range,
-            .linux => if (std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else {},
+            .linux => std.os.linux.wrapped.copy_file_range,
             else => {},
         };
         if (@TypeOf(copy_file_range) != void) cfr: {
