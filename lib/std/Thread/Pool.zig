@@ -92,6 +92,38 @@ fn join(pool: *Pool, spawned: usize) void {
     pool.allocator.free(pool.threads);
 }
 
+/// Used by spawn functions to limit 'f' return type to void, noreturn or error union with void or noreturn.
+fn callFn(f: anytype, args: anytype) void {
+    const bad_fn_return = "expected return type of startFn to be 'noreturn', '!noreturn', 'void', or '!void'";
+
+    switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+        .void, .noreturn => {
+            @call(.auto, f, args);
+        },
+
+        .error_union => |info| {
+            switch (info.payload) {
+                void, noreturn => {
+                    @call(.auto, f, args) catch |err| {
+                        std.debug.print("error: {s}\n", .{@errorName(err)});
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                    };
+                },
+
+                else => {
+                    @compileError(bad_fn_return);
+                },
+            }
+        },
+
+        else => {
+            @compileError(bad_fn_return);
+        },
+    }
+}
+
 /// Runs `func` in the thread pool, calling `WaitGroup.start` beforehand, and
 /// `WaitGroup.finish` after it returns.
 ///
@@ -101,7 +133,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
     wait_group.start();
 
     if (builtin.single_threaded) {
-        @call(.auto, func, args);
+        callFn(func, args);
         wait_group.finish();
         return;
     }
@@ -115,7 +147,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
 
         fn runFn(runnable: *Runnable, _: ?usize) void {
             const closure: *@This() = @alignCast(@fieldParentPtr("runnable", runnable));
-            @call(.auto, func, closure.arguments);
+            callFn(func, closure.arguments);
             closure.wait_group.finish();
 
             // The thread pool's allocator is protected by the mutex.
@@ -132,7 +164,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
 
         const closure = pool.allocator.create(Closure) catch {
             pool.mutex.unlock();
-            @call(.auto, func, args);
+            callFn(func, args);
             wait_group.finish();
             return;
         };
@@ -163,7 +195,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
     wait_group.start();
 
     if (builtin.single_threaded) {
-        @call(.auto, func, .{0} ++ args);
+        callFn(func, .{0} ++ args);
         wait_group.finish();
         return;
     }
@@ -177,7 +209,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
 
         fn runFn(runnable: *Runnable, id: ?usize) void {
             const closure: *@This() = @alignCast(@fieldParentPtr("runnable", runnable));
-            @call(.auto, func, .{id.?} ++ closure.arguments);
+            callFn(func, .{id.?} ++ closure.arguments);
             closure.wait_group.finish();
 
             // The thread pool's allocator is protected by the mutex.
@@ -195,7 +227,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
         const closure = pool.allocator.create(Closure) catch {
             const id: ?usize = pool.ids.getIndex(std.Thread.getCurrentId());
             pool.mutex.unlock();
-            @call(.auto, func, .{id.?} ++ args);
+            callFn(func, .{id.?} ++ args);
             wait_group.finish();
             return;
         };
@@ -215,7 +247,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
 
 pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
     if (builtin.single_threaded) {
-        @call(.auto, func, args);
+        callFn(func, args);
         return;
     }
 
@@ -227,7 +259,7 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
 
         fn runFn(runnable: *Runnable, _: ?usize) void {
             const closure: *@This() = @alignCast(@fieldParentPtr("runnable", runnable));
-            @call(.auto, func, closure.arguments);
+            callFn(func, closure.arguments);
 
             // The thread pool's allocator is protected by the mutex.
             const mutex = &closure.pool.mutex;
