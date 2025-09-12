@@ -970,6 +970,73 @@ test "saturating add" {
                 const expected = i8x3{ 127, 127, 127 };
                 try expect(mem.eql(i8, &@as([3]i8, expected), &@as([3]i8, result)));
             }
+            try testElemType(i4);
+            try testElemType(u4);
+            try testElemType(i8);
+            try testElemType(u8);
+            try testElemType(i12);
+            try testElemType(u12);
+            try testElemType(i16);
+            try testElemType(u16);
+            try testElemType(i24);
+            try testElemType(u24);
+            try testElemType(i32);
+            try testElemType(u32);
+            try testElemType(i48);
+            try testElemType(u48);
+            try testElemType(i64);
+            try testElemType(u64);
+        }
+        fn testElemType(comptime Elem: type) !void {
+            const min = std.math.minInt(Elem);
+            const max = std.math.maxInt(Elem);
+
+            var v: @Vector(4, Elem) = .{ 0, 1, 0, 1 };
+            v +|= .{ 0, 0, 1, 1 };
+            try expect(v[0] == 0);
+            try expect(v[1] == 1);
+            try expect(v[2] == 1);
+            try expect(v[3] == 2);
+
+            v = .{ 0, max, 1, max };
+            v +|= .{ max, 0, max, 1 };
+            try expect(v[0] == max);
+            try expect(v[1] == max);
+            try expect(v[2] == max);
+            try expect(v[3] == max);
+
+            v = .{ 1, max - 1, max / 2, max };
+            v +|= .{ max - 1, 1, max / 2, max };
+            try expect(v[0] == max);
+            try expect(v[1] == max);
+            try expect(v[2] == max - 1);
+            try expect(v[3] == max);
+
+            switch (@typeInfo(Elem).int.signedness) {
+                .signed => {
+                    v = .{ -1, -1, 0, -1 };
+                    v +|= .{ 1, 0, -1, -1 };
+                    try expect(v[0] == 0);
+                    try expect(v[1] == -1);
+                    try expect(v[2] == -1);
+                    try expect(v[3] == -2);
+
+                    v = .{ 0, min, -1, min };
+                    v +|= .{ min, 0, min, -1 };
+                    try expect(v[0] == min);
+                    try expect(v[1] == min);
+                    try expect(v[2] == min);
+                    try expect(v[3] == min);
+
+                    v = .{ -1, min + 1, min / 2, min };
+                    v +|= .{ min + 1, -1, min / 2, min };
+                    try expect(v[0] == min);
+                    try expect(v[1] == min);
+                    try expect(v[2] == min);
+                    try expect(v[3] == min);
+                },
+                .unsigned => {},
+            }
         }
     };
     try S.doTheTest();
@@ -986,14 +1053,83 @@ test "saturating subtraction" {
 
     const S = struct {
         fn doTheTest() !void {
-            // Broken out to avoid https://github.com/ziglang/zig/issues/11251
-            const u8x3 = @Vector(3, u8);
-            var lhs = u8x3{ 0, 0, 0 };
-            var rhs = u8x3{ 255, 255, 255 };
-            _ = .{ &lhs, &rhs };
-            const result = lhs -| rhs;
-            const expected = u8x3{ 0, 0, 0 };
-            try expect(mem.eql(u8, &@as([3]u8, expected), &@as([3]u8, result)));
+            {
+                // Broken out to avoid https://github.com/ziglang/zig/issues/11251
+                const u8x3 = @Vector(3, u8);
+                var lhs = u8x3{ 0, 0, 0 };
+                var rhs = u8x3{ 255, 255, 255 };
+                _ = .{ &lhs, &rhs };
+                const result = lhs -| rhs;
+                const expected = u8x3{ 0, 0, 0 };
+                try expect(mem.eql(u8, &@as([3]u8, expected), &@as([3]u8, result)));
+            }
+            try testElemType(i4);
+            try testElemType(u4);
+            try testElemType(i8);
+            try testElemType(u8);
+            try testElemType(i12);
+            try testElemType(u12);
+            try testElemType(i16);
+            try testElemType(u16);
+            try testElemType(i24);
+            try testElemType(u24);
+            try testElemType(i32);
+            try testElemType(u32);
+            try testElemType(i48);
+            try testElemType(u48);
+            try testElemType(i64);
+            try testElemType(u64);
+        }
+        fn testElemType(comptime Elem: type) !void {
+            const min = std.math.minInt(Elem);
+            const max = std.math.maxInt(Elem);
+
+            var v: @Vector(4, Elem) = .{ 0, 1, 0, 1 };
+            v -|= .{ 0, 0, 1, 1 };
+            try expect(v[0] == 0);
+            try expect(v[1] == 1);
+            try expect(v[2] == @max(min, -1));
+            try expect(v[3] == 0);
+
+            v = .{ 0, max, 1, max };
+            v -|= .{ max, 0, max, 1 };
+            try expect(v[0] == @min(min + 1, 0));
+            try expect(v[1] == max);
+            try expect(v[2] == @min(min + 2, 0));
+            try expect(v[3] == max - 1);
+
+            v = .{ 1, max - 1, max / 2, max };
+            v -|= .{ max - 1, 1, max / 2, max };
+            try expect(v[0] == @min(min + 3, 0));
+            try expect(v[1] == max - 2);
+            try expect(v[2] == 0);
+            try expect(v[3] == 0);
+
+            switch (@typeInfo(Elem).int.signedness) {
+                .signed => {
+                    v = .{ -1, -1, 0, -1 };
+                    v -|= .{ -1, 0, 1, 1 };
+                    try expect(v[0] == 0);
+                    try expect(v[1] == -1);
+                    try expect(v[2] == -1);
+                    try expect(v[3] == -2);
+
+                    v = .{ 0, min, -1, min };
+                    v -|= .{ max, 0, max, 1 };
+                    try expect(v[0] == min + 1);
+                    try expect(v[1] == min);
+                    try expect(v[2] == min);
+                    try expect(v[3] == min);
+
+                    v = .{ -1, min + 1, min / 2, min };
+                    v -|= .{ max, 1, max / 2, max };
+                    try expect(v[0] == min);
+                    try expect(v[1] == min);
+                    try expect(v[2] == min + 1);
+                    try expect(v[3] == min);
+                },
+                .unsigned => {},
+            }
         }
     };
     try S.doTheTest();
