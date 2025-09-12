@@ -155,6 +155,22 @@ pub fn blockContext(
         pub fn swap(ctx: @This(), i: usize, j: usize) void {
             return ctx.sub_ctx.swap(i, j);
         }
+
+        pub fn rotate(ctx: @This(), A: Range, amount: usize, start_index: usize) void {
+            ctx.naiveReverse(Range.init(A.start, A.start + amount), start_index);
+            ctx.naiveReverse(Range.init(A.start + amount, A.end), start_index);
+            ctx.naiveReverse(A, start_index);
+        }
+
+        fn naiveReverse(ctx: @This(), A: Range, start_index: usize) void {
+            var i = start_index + A.start;
+            var j = start_index + A.end - 1;
+            while (j > i) {
+                ctx.sub_ctx.swap(i, j);
+                i += 1;
+                j -= 1;
+            }
+        }
     };
     const wrapped_context = Context{ .sub_ctx = context };
     const lessThan = if (builtin.mode == .Debug) struct {
