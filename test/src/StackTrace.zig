@@ -62,6 +62,8 @@ fn addCaseTarget(
 
     // On aarch64-macos, FP unwinding is blessed by Apple to always be reliable, and std.debug knows this.
     const fp_unwind_is_safe = target.result.cpu.arch == .aarch64 and target.result.os.tag.isDarwin();
+    // On x86-windows, only FP unwinding is available.
+    const supports_unwind_tables = target.result.os.tag != .windows or target.result.cpu.arch != .x86;
 
     const use_llvm_vals: []const bool = if (both_backends) &.{ true, false } else &.{true};
     const pie_vals: []const ?bool = if (both_pie) &.{ true, false } else &.{null};
@@ -88,6 +90,7 @@ fn addCaseTarget(
             for (link_libc_vals) |link_libc| {
                 for (strip_debug_vals) |strip_debug| {
                     for (unwind_info_vals) |unwind_info| {
+                        if (unwind_info.tables and !supports_unwind_tables) continue;
                         self.addCaseInstance(
                             target,
                             triple,
@@ -97,7 +100,7 @@ fn addCaseTarget(
                             pie,
                             link_libc,
                             strip_debug,
-                            !unwind_info.tables,
+                            !unwind_info.tables and supports_unwind_tables,
                             !unwind_info.fp,
                             config.expect_panic,
                             if (strip_debug) config.expect_strip else config.expect,
