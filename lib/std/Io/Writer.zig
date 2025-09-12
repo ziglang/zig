@@ -555,9 +555,8 @@ pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
 /// - *width* is the total width of the field in bytes. This only applies to number formatting.
 /// - *precision* specifies how many decimals a formatted number should have.
 ///
-/// Note that most of the parameters are optional and may be omitted. Also you
-/// can leave out separators like `:` and `.` when all parameters after the
-/// separator are omitted.
+/// The specifier is required. The other parameters are optional and may be omitted. Also, you
+/// can leave out separators like `:` and `.` when all parameters after the separator are omitted.
 ///
 /// Only exception is the *fill* parameter. If a non-zero *fill* character is
 /// required at the same time as *width* is specified, one has to specify
@@ -1043,9 +1042,34 @@ pub fn printValue(
     const T = @TypeOf(value);
 
     switch (fmt.len) {
+        0 => @compileError("a format specifier is required"),
         1 => switch (fmt[0]) {
             '*' => return w.printAddress(value),
-            'f' => return value.format(w),
+            'f' => switch (@typeInfo(T)) {
+                .pointer => |ptr_info| switch (ptr_info.size) {
+                    .slice => {
+                        try w.writeAll("{ ");
+                        for (value, 0..) |elem, i| {
+                            try w.printValue(fmt, options, elem, max_depth - 1);
+                            if (i != value.len - 1) {
+                                try w.writeAll(", ");
+                            }
+                        }
+                        try w.writeAll(" }");
+                    },
+                },
+                .array => {
+                    try w.writeAll("{ ");
+                    for (value, 0..) |elem, i| {
+                        try w.printValue(fmt, options, elem, max_depth - 1);
+                        if (i < value.len - 1) {
+                            try w.writeAll(", ");
+                        }
+                    }
+                    try w.writeAll(" }");
+                },
+                else => return value.format(w),
+            },
             'd' => switch (@typeInfo(T)) {
                 .float, .comptime_float => return printFloat(w, value, options.toNumber(.decimal, .lower)),
                 .int, .comptime_int => return printInt(w, value, 10, .lower, options),
@@ -1199,27 +1223,20 @@ pub fn printValue(
     }
 
     const is_any = comptime std.mem.eql(u8, fmt, ANY);
-    if (!is_any and std.meta.hasMethod(T, "format") and fmt.len == 0) {
-        // after 0.15.0 is tagged, delete this compile error and its condition
-        @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
-    }
+    if (!is_any) invalidFmtError(fmt, value);
 
     switch (@typeInfo(T)) {
         .float, .comptime_float => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return printFloat(w, value, options.toNumber(.decimal, .lower));
         },
         .int, .comptime_int => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return printInt(w, value, 10, .lower, options);
         },
         .bool => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             const string: []const u8 = if (value) "true" else "false";
             return w.alignBufferOptions(string, options);
         },
         .void => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return w.alignBufferOptions("void", options);
         },
         .optional => {
@@ -1249,12 +1266,10 @@ pub fn printValue(
             }
         },
         .error_set => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             optionsForbidden(options);
             return printErrorSet(w, value);
         },
         .@"enum" => |info| {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             optionsForbidden(options);
             if (info.is_exhaustive) {
                 return printEnumExhaustive(w, value);
@@ -1264,7 +1279,6 @@ pub fn printValue(
         },
         .@"union" => |info| {
             if (!is_any) {
-                if (fmt.len != 0) invalidFmtError(fmt, value);
                 return printValue(w, ANY, options, value, max_depth);
             }
             if (max_depth == 0) {
@@ -1299,10 +1313,6 @@ pub fn printValue(
             }
         },
         .@"struct" => |info| {
-            if (!is_any) {
-                if (fmt.len != 0) invalidFmtError(fmt, value);
-                return printValue(w, ANY, options, value, max_depth);
-            }
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
@@ -1350,13 +1360,10 @@ pub fn printValue(
                 },
             },
             .many, .c => {
-                if (!is_any) @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
                 optionsForbidden(options);
                 try w.printAddress(value);
             },
             .slice => {
-                if (!is_any)
-                    @compileError("cannot format slice without a specifier (i.e. {s}, {x}, {b64}, or {any})");
                 if (max_depth == 0) return w.writeAll("{ ... }");
                 try w.writeAll("{ ");
                 for (value, 0..) |elem, i| {
@@ -1369,7 +1376,6 @@ pub fn printValue(
             },
         },
         .array => {
-            if (!is_any) @compileError("cannot format array without a specifier (i.e. {s} or {any})");
             if (max_depth == 0) return w.writeAll("{ ... }");
             try w.writeAll("{ ");
             for (value, 0..) |elem, i| {
@@ -1381,22 +1387,18 @@ pub fn printValue(
             try w.writeAll(" }");
         },
         .vector => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return printVector(w, fmt, options, value, max_depth);
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return w.alignBufferOptions(@typeName(value), options);
         },
         .enum_literal => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             optionsForbidden(options);
             var vecs: [2][]const u8 = .{ ".", @tagName(value) };
             return w.writeVecAll(&vecs);
         },
         .null => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return w.alignBufferOptions("null", options);
         },
         else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
