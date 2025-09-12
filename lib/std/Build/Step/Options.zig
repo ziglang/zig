@@ -546,7 +546,7 @@ test Options {
         .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
         .host = .{
             .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(.{}),
+            .result = try std.zig.system.resolveTargetQuery(.{}, arena.allocator()),
         },
         .zig_lib_directory = std.Build.Cache.Directory.cwd(),
         .time_report = false,
