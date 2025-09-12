@@ -678,6 +678,12 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
             tty_config.setColor(writer, .reset) catch {};
             return;
         },
+        error.CannotUnwindFromContext => {
+            tty_config.setColor(writer, .dim) catch {};
+            try writer.print("Cannot print stack trace: context unwind unavailable for target\n", .{});
+            tty_config.setColor(writer, .reset) catch {};
+            return;
+        },
     };
     defer it.deinit();
     if (!it.stratOk(options.allow_unsafe_unwind)) {
@@ -787,7 +793,7 @@ const StackIterator = union(enum) {
     /// It is important that this function is marked `inline` so that it can safely use
     /// `@frameAddress` and `getContext` as the caller's stack frame and our own are one
     /// and the same.
-    inline fn init(context_opt: ?ThreadContextPtr, context_buf: *ThreadContextBuf) error{OutOfMemory}!StackIterator {
+    inline fn init(context_opt: ?ThreadContextPtr, context_buf: *ThreadContextBuf) error{ OutOfMemory, CannotUnwindFromContext }!StackIterator {
         if (builtin.cpu.arch.isSPARC()) {
             // Flush all the register windows on stack.
             if (builtin.cpu.has(.sparc, .v9)) {
@@ -797,11 +803,12 @@ const StackIterator = union(enum) {
             }
         }
         if (context_opt) |context| {
+            if (!SelfInfo.supports_unwinding) return error.CannotUnwindFromContext;
             context_buf.* = context.*;
             relocateContext(context_buf);
             return .{ .di = try .init(context_buf, getDebugInfoAllocator()) };
         }
-        if (getContext(context_buf)) {
+        if (SelfInfo.supports_unwinding and getContext(context_buf)) {
             return .{ .di = try .init(context_buf, getDebugInfoAllocator()) };
         }
         return .{ .fp = @frameAddress() };
