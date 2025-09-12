@@ -7,7 +7,6 @@ const expectError = testing.expectError;
 const fs = std.fs;
 const mem = std.mem;
 const elf = std.elf;
-const Thread = std.Thread;
 const linux = std.os.linux;
 
 const a = std.testing.allocator;
@@ -17,6 +16,9 @@ const AtomicRmwOp = std.builtin.AtomicRmwOp;
 const AtomicOrder = std.builtin.AtomicOrder;
 const native_os = builtin.target.os.tag;
 const tmpDir = std.testing.tmpDir;
+
+// NOTE: several additional tests are in test/standalone/posix/.  Any tests that mutate
+// process-wide POSIX state (cwd, signals, etc) cannot be Zig unit tests and should be over there.
 
 // https://github.com/ziglang/zig/issues/20288
 test "WTF-8 to WTF-16 conversion buffer overflows" {
@@ -38,68 +40,6 @@ test "check WASI CWD" {
             try expectEqual(3, posix.AT.FDCWD);
         }
     }
-}
-
-test "chdir absolute parent" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    // Get current working directory path
-    var old_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const old_cwd = try posix.getcwd(old_cwd_buf[0..]);
-
-    {
-        // Firstly, changing to itself should have no effect
-        try posix.chdir(old_cwd);
-        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-        try expect(mem.eql(u8, old_cwd, new_cwd));
-    }
-
-    // Next, change current working directory to one level above
-    const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
-    try posix.chdir(parent);
-
-    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-    try expect(mem.eql(u8, parent, new_cwd));
-}
-
-test "chdir relative" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    // Use the tmpDir parent_dir as the "base" for the test. Then cd into the child
-    try tmp.parent_dir.setAsCwd();
-
-    // Capture base working directory path, to build expected full path
-    var base_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const base_cwd = try posix.getcwd(base_cwd_buf[0..]);
-
-    const dir_name = &tmp.sub_path;
-    const expected_path = try fs.path.resolve(a, &.{ base_cwd, dir_name });
-    defer a.free(expected_path);
-
-    // change current working directory to new directory
-    try posix.chdir(dir_name);
-
-    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-
-    // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
-    const resolved_cwd = try fs.path.resolve(a, &.{new_cwd});
-    defer a.free(resolved_cwd);
-
-    try expect(mem.eql(u8, expected_path, resolved_cwd));
 }
 
 test "open smoke test" {
@@ -227,45 +167,6 @@ test "openat smoke test" {
     }
 }
 
-test "symlink with relative paths" {
-    if (native_os == .wasi) return error.SkipZigTest; // Can symlink, but can't change into tmpDir
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const target_name = "symlink-target";
-    const symlink_name = "symlinker";
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    // Create the target file
-    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "nonsense" });
-
-    // Want to test relative paths, so cd into the tmpdir for this test
-    try tmp.dir.setAsCwd();
-
-    if (native_os == .windows) {
-        const wtarget_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, target_name);
-        const wsymlink_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, symlink_name);
-        defer a.free(wtarget_name);
-        defer a.free(wsymlink_name);
-
-        std.os.windows.CreateSymbolicLink(tmp.dir.fd, wsymlink_name, wtarget_name, false) catch |err| switch (err) {
-            // Symlink requires admin privileges on windows, so this test can legitimately fail.
-            error.AccessDenied => return error.SkipZigTest,
-            else => return err,
-        };
-    } else {
-        try posix.symlink(target_name, symlink_name);
-    }
-
-    var buffer: [fs.max_path_bytes]u8 = undefined;
-    const given = try posix.readlink(symlink_name, buffer[0..]);
-    try expect(mem.eql(u8, target_name, given));
-}
-
 test "readlink on Windows" {
     if (native_os != .windows) return error.SkipZigTest;
 
@@ -278,55 +179,6 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.max_path_bytes]u8 = undefined;
     const given = try posix.readlink(symlink_path, buffer[0..]);
     try expect(mem.eql(u8, target_path, given));
-}
-
-test "link with relative paths" {
-    if (native_os == .wasi) return error.SkipZigTest; // Can link, but can't change into tmpDir
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstat()`.
-    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
-
-    switch (native_os) {
-        .wasi, .linux, .solaris, .illumos => {},
-        else => return error.SkipZigTest,
-    }
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    // Restore default CWD at end of test.
-    const orig_cwd = try fs.cwd().openDir(".", .{});
-    defer orig_cwd.setAsCwd() catch unreachable;
-
-    const target_name = "link-target";
-    const link_name = "newlink";
-
-    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "example" });
-
-    // Test 1: create the relative link from inside tmp
-    try tmp.dir.setAsCwd();
-    try posix.link(target_name, link_name);
-
-    // Verify
-    const efd = try tmp.dir.openFile(target_name, .{});
-    defer efd.close();
-
-    const nfd = try tmp.dir.openFile(link_name, .{});
-    defer nfd.close();
-
-    {
-        const estat = try posix.fstat(efd.handle);
-        const nstat = try posix.fstat(nfd.handle);
-        try testing.expectEqual(estat.ino, nstat.ino);
-        try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
-    }
-
-    // Test 2: Remove the link and see the stats update
-    try posix.unlink(link_name);
-
-    {
-        const estat = try posix.fstat(efd.handle);
-        try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
-    }
 }
 
 test "linkat with different directories" {
@@ -446,70 +298,6 @@ test "readlinkat" {
     try expect(mem.eql(u8, "file.txt", read_link));
 }
 
-fn testThreadIdFn(thread_id: *Thread.Id) void {
-    thread_id.* = Thread.getCurrentId();
-}
-
-test "Thread.getCurrentId" {
-    if (builtin.single_threaded) return error.SkipZigTest;
-
-    var thread_current_id: Thread.Id = undefined;
-    const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
-    thread.join();
-    try expect(Thread.getCurrentId() != thread_current_id);
-}
-
-test "spawn threads" {
-    if (builtin.single_threaded) return error.SkipZigTest;
-
-    var shared_ctx: i32 = 1;
-
-    const thread1 = try Thread.spawn(.{}, start1, .{});
-    const thread2 = try Thread.spawn(.{}, start2, .{&shared_ctx});
-    const thread3 = try Thread.spawn(.{}, start2, .{&shared_ctx});
-    const thread4 = try Thread.spawn(.{}, start2, .{&shared_ctx});
-
-    thread1.join();
-    thread2.join();
-    thread3.join();
-    thread4.join();
-
-    try expect(shared_ctx == 4);
-}
-
-fn start1() u8 {
-    return 0;
-}
-
-fn start2(ctx: *i32) u8 {
-    _ = @atomicRmw(i32, ctx, AtomicRmwOp.Add, 1, AtomicOrder.seq_cst);
-    return 0;
-}
-
-test "cpu count" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    const cpu_count = try Thread.getCpuCount();
-    try expect(cpu_count >= 1);
-}
-
-test "thread local storage" {
-    if (builtin.single_threaded) return error.SkipZigTest;
-
-    const thread1 = try Thread.spawn(.{}, testTls, .{});
-    const thread2 = try Thread.spawn(.{}, testTls, .{});
-    try testTls();
-    thread1.join();
-    thread2.join();
-}
-
-threadlocal var x: i32 = 1234;
-fn testTls() !void {
-    if (x != 1234) return error.TlsBadStartValue;
-    x += 1;
-    if (x != 1235) return error.TlsBadEndValue;
-}
-
 test "getrandom" {
     var buf_a: [50]u8 = undefined;
     var buf_b: [50]u8 = undefined;
@@ -518,12 +306,6 @@ test "getrandom" {
     // If this test fails the chance is significantly higher that there is a bug than
     // that two sets of 50 bytes were equal.
     try expect(!mem.eql(u8, &buf_a, &buf_b));
-}
-
-test "getcwd" {
-    // at least call it so it gets compiled
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    _ = posix.getcwd(&buf) catch undefined;
 }
 
 test "getuid" {
@@ -737,24 +519,6 @@ test "mmap" {
     }
 }
 
-test "getenv" {
-    if (native_os == .wasi and !builtin.link_libc) {
-        // std.posix.getenv is not supported on WASI due to the need of allocation
-        return error.SkipZigTest;
-    }
-
-    if (native_os == .windows) {
-        try expect(std.process.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
-    } else {
-        try expect(posix.getenv("") == null);
-        try expect(posix.getenv("BOGUSDOESNOTEXISTENVVAR") == null);
-        if (builtin.link_libc) {
-            try testing.expectEqualStrings(posix.getenv("USER") orelse "", mem.span(std.c.getenv("USER") orelse ""));
-        }
-        try expect(posix.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
-    }
-}
-
 test "fcntl" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
@@ -936,154 +700,6 @@ test "sigset add/del" {
     }
     for (1..posix.NSIG) |i| {
         try expectEqual(false, posix.sigismember(&sigset, @truncate(i)));
-    }
-}
-
-test "sigaction" {
-    if (native_os == .wasi or native_os == .windows)
-        return error.SkipZigTest;
-
-    // https://github.com/ziglang/zig/issues/15381
-    if (native_os == .macos and builtin.target.cpu.arch == .x86_64) {
-        return error.SkipZigTest;
-    }
-
-    const test_signo = posix.SIG.URG; // URG only because it is ignored by default in debuggers
-
-    const S = struct {
-        var handler_called_count: u32 = 0;
-
-        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
-            _ = ctx_ptr;
-            // Check that we received the correct signal.
-            const info_sig = switch (native_os) {
-                .netbsd => info.info.signo,
-                else => info.signo,
-            };
-            if (sig == test_signo and sig == info_sig) {
-                handler_called_count += 1;
-            }
-        }
-    };
-
-    var sa: posix.Sigaction = .{
-        .handler = .{ .sigaction = &S.handler },
-        .mask = posix.sigemptyset(),
-        .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
-    };
-
-    var old_sa: posix.Sigaction = undefined;
-
-    // Install the new signal handler.
-    posix.sigaction(test_signo, &sa, null);
-
-    // Check that we can read it back correctly.
-    posix.sigaction(test_signo, null, &old_sa);
-    try testing.expectEqual(&S.handler, old_sa.handler.sigaction.?);
-    try testing.expect((old_sa.flags & posix.SA.SIGINFO) != 0);
-
-    // Invoke the handler.
-    try posix.raise(test_signo);
-    try testing.expectEqual(1, S.handler_called_count);
-
-    // Check if passing RESETHAND correctly reset the handler to SIG_DFL
-    posix.sigaction(test_signo, null, &old_sa);
-    try testing.expectEqual(posix.SIG.DFL, old_sa.handler.handler);
-
-    // Reinstall the signal w/o RESETHAND and re-raise
-    sa.flags = posix.SA.SIGINFO;
-    posix.sigaction(test_signo, &sa, null);
-    try posix.raise(test_signo);
-    try testing.expectEqual(2, S.handler_called_count);
-
-    // Now set the signal to ignored
-    sa.handler = .{ .handler = posix.SIG.IGN };
-    sa.flags = 0;
-    posix.sigaction(test_signo, &sa, null);
-
-    // Re-raise to ensure handler is actually ignored
-    try posix.raise(test_signo);
-    try testing.expectEqual(2, S.handler_called_count);
-
-    // Ensure that ignored state is returned when querying
-    posix.sigaction(test_signo, null, &old_sa);
-    try testing.expectEqual(posix.SIG.IGN, old_sa.handler.handler);
-}
-
-test "sigset_t bits" {
-    if (native_os == .wasi or native_os == .windows)
-        return error.SkipZigTest;
-
-    if (true) {
-        // https://github.com/ziglang/zig/issues/24380
-        return error.SkipZigTest;
-    }
-
-    const S = struct {
-        var expected_sig: i32 = undefined;
-        var handler_called_count: u32 = 0;
-
-        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
-            _ = ctx_ptr;
-
-            const info_sig = switch (native_os) {
-                .netbsd => info.info.signo,
-                else => info.signo,
-            };
-            if (sig == expected_sig and sig == info_sig) {
-                handler_called_count += 1;
-            }
-        }
-    };
-
-    const self_pid = posix.system.getpid();
-
-    // To check that sigset_t mapping matches kernel (think u32/u64 mismatches on
-    // big-endian), try sending a blocked signal to make sure the mask matches the
-    // signal.  (Send URG and CHLD because they're ignored by default in the
-    // debugger, vs. USR1 or other named signals)
-    inline for ([_]usize{ posix.SIG.URG, posix.SIG.CHLD, 62, 94, 126 }) |test_signo| {
-        if (test_signo >= posix.NSIG) continue;
-
-        S.expected_sig = test_signo;
-        S.handler_called_count = 0;
-
-        const sa: posix.Sigaction = .{
-            .handler = .{ .sigaction = &S.handler },
-            .mask = posix.sigemptyset(),
-            .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
-        };
-
-        var old_sa: posix.Sigaction = undefined;
-
-        // Install the new signal handler.
-        posix.sigaction(test_signo, &sa, &old_sa);
-
-        // block the signal and see that its delayed until unblocked
-        var block_one: posix.sigset_t = posix.sigemptyset();
-        posix.sigaddset(&block_one, test_signo);
-        posix.sigprocmask(posix.SIG.BLOCK, &block_one, null);
-
-        // qemu maps target signals to host signals 1-to-1, so targets
-        // with more signals than the host will fail to send the signal.
-        const rc = posix.system.kill(self_pid, test_signo);
-        switch (posix.errno(rc)) {
-            .SUCCESS => {
-                // See that the signal is blocked, then unblocked
-                try testing.expectEqual(0, S.handler_called_count);
-                posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
-                try testing.expectEqual(1, S.handler_called_count);
-            },
-            .INVAL => {
-                // Signal won't get delviered.  Just clean up.
-                posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
-                try testing.expectEqual(0, S.handler_called_count);
-            },
-            else => |errno| return posix.unexpectedErrno(errno),
-        }
-
-        // Restore original handler
-        posix.sigaction(test_signo, &old_sa, null);
     }
 }
 

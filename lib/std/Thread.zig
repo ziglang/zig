@@ -1637,3 +1637,40 @@ test detach {
     event.wait();
     try std.testing.expectEqual(value, 1);
 }
+
+test "Thread.getCpuCount" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    const cpu_count = try Thread.getCpuCount();
+    try std.testing.expect(cpu_count >= 1);
+}
+
+fn testThreadIdFn(thread_id: *Thread.Id) void {
+    thread_id.* = Thread.getCurrentId();
+}
+
+test "Thread.getCurrentId" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    var thread_current_id: Thread.Id = undefined;
+    const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
+    thread.join();
+    try std.testing.expect(Thread.getCurrentId() != thread_current_id);
+}
+
+test "thread local storage" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    const thread1 = try Thread.spawn(.{}, testTls, .{});
+    const thread2 = try Thread.spawn(.{}, testTls, .{});
+    try testTls();
+    thread1.join();
+    thread2.join();
+}
+
+threadlocal var x: i32 = 1234;
+fn testTls() !void {
+    if (x != 1234) return error.TlsBadStartValue;
+    x += 1;
+    if (x != 1235) return error.TlsBadEndValue;
+}
