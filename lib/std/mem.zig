@@ -632,7 +632,8 @@ pub fn sortUnstable(
 /// Sorts a range [a, b) using a stable algorithm (maintains relative order of equal elements) with custom context.
 /// This is a lower-level interface for sorting that works with indices instead of slices.
 ///
-/// The context must provide lessThan(a_idx, b_idx) and swap(a_idx, b_idx) methods.
+/// The context must provide lessThan(a_idx, b_idx) and swap(a_idx, b_idx) methods and optionally
+/// a rotate(start_idx, end_idx, amount) method (see `mem.rotate`).
 pub fn sortContext(a: usize, b: usize, context: anytype) void {
     std.sort.blockContext(a, b, context);
 }

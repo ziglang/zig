@@ -116,6 +116,10 @@ pub fn block(
         pub fn swap(ctx: @This(), a: usize, b: usize) void {
             return mem.swap(T, &ctx.items[a], &ctx.items[b]);
         }
+
+        pub fn rotate(ctx: @This(), a: usize, b: usize, amount: usize) void {
+            return mem.rotate(T, ctx.items[a..b], amount);
+        }
     };
     return blockContext(0, items.len, Context{ .items = items, .sub_ctx = context });
 }
@@ -124,7 +128,10 @@ pub fn block(
 /// O(1) memory (no allocator required).
 /// Sorts in ascending order with respect to the given `lessThan` function.
 /// `context` must have methods `swap` and `lessThan`,
-/// which each take 2 `usize` parameters indicating the index of an item.
+/// which each take 2 `usize` parameters indicating the index of an item. Optionally
+/// the `context` can define a `rotate` method which takes 2 `usize` parameters
+/// indicating the start and end index and another `usize` indicating how many
+/// steps to rotate.
 ///
 /// NOTE: The algorithm only works when the comparison is less-than or greater-than.
 ///       (See https://github.com/ziglang/zig/issues/8289)
@@ -154,7 +161,13 @@ pub fn blockContext(
             return ctx.sub_ctx.swap(i, j);
         }
 
-        pub fn rotate(ctx: @This(), A: Range, amount: usize) void {
+        pub const rotate = if (std.meta.hasFn(@TypeOf(context), "rotate")) innerRotate else naiveRotate;
+
+        fn innerRotate(ctx: @This(), A: Range, amount: usize) void {
+            ctx.sub_ctx.rotate(A.start, A.end, amount);
+        }
+
+        fn naiveRotate(ctx: @This(), A: Range, amount: usize) void {
             ctx.naiveReverse(Range.init(A.start, A.start + amount));
             ctx.naiveReverse(Range.init(A.start + amount, A.end));
             ctx.naiveReverse(A);
