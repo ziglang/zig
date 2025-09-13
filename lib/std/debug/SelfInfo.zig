@@ -18,8 +18,8 @@ const root = @import("root");
 
 const SelfInfo = @This();
 
-modules: std.AutoArrayHashMapUnmanaged(usize, Module.DebugInfo),
-lookup_cache: Module.LookupCache,
+modules: if (target_supported) std.AutoArrayHashMapUnmanaged(usize, Module.DebugInfo) else void,
+lookup_cache: if (target_supported) Module.LookupCache else void,
 
 pub const Error = error{
     /// The required debug info is invalid or corrupted.
@@ -40,7 +40,7 @@ pub const target_supported: bool = Module != void;
 /// Indicates whether the `SelfInfo` implementation has support for unwinding on this target.
 ///
 /// For whether DWARF unwinding is *theoretically* possible, see `Dwarf.abi.supportsUnwinding`.
-pub const supports_unwinding: bool = Module.supports_unwinding;
+pub const supports_unwinding: bool = target_supported and Module.supports_unwinding;
 
 pub const UnwindContext = if (supports_unwinding) Module.UnwindContext;
 

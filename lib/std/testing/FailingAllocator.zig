@@ -64,7 +64,7 @@ fn alloc(
     const self: *FailingAllocator = @ptrCast(@alignCast(ctx));
     if (self.alloc_index == self.fail_index) {
         if (!self.has_induced_failure) {
-            const st = std.debug.captureCurrentStackTrace(return_address, &self.stack_addresses);
+            const st = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &self.stack_addresses);
             @memset(self.stack_addresses[@min(st.index, self.stack_addresses.len)..], 0);
             self.has_induced_failure = true;
         }
