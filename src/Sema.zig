@@ -37003,16 +37003,15 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
 
     value_path: switch (ip.indexToKey(val.toIntern())) {
         .ptr => |ptr| switch (ptr.base_addr) {
-            .nav, .int => unreachable,
+            .nav, .int => break :value_path,
             .comptime_alloc, .comptime_field => return val,
-            .eu_payload, .opt_payload => |base| {
-                const baseval: Value = .fromInterned(base);
-                return sema.notePathToComptimeAllocPtrInner(baseval, path);
-            },
-            .uav => |uav| return sema.notePathToComptimeAllocPtrInner(.fromInterned(uav.val), path),
-            .arr_elem, .field => |base_index| {
-                const baseval: Value = .fromInterned(base_index.base);
-                return sema.notePathToComptimeAllocPtrInner(baseval, path);
+            else => if (val.findComptimeVarRef(zcu, .value_only) != .none) {
+                // If we lead to a comptime var by value,
+                // let `notePathToComptimeAllocPtr` do the pointer derivation
+                return val;
+            } else {
+                // Otherwise, we must be dealing with a reference in the type
+                break :value_path;
             },
         },
         .error_union => |eu| {

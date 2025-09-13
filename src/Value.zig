@@ -1181,9 +1181,10 @@ pub fn eql(a: Value, b: Value, ty: Type, zcu: *Zcu) bool {
 /// If `val` contains a reference to comptime mutable memory,
 /// then reference in question is returned.
 /// Otherwise, `.none` is returned.
-fn findComptimeVarRef(
+pub fn findComptimeVarRef(
     value: Value,
     zcu: *const Zcu,
+    search: enum { value_only, type_value },
 ) InternPool.Index {
     const implementation = struct {
         // A linked list of every possibly self-referential value visited so far.
@@ -1328,14 +1329,18 @@ fn findComptimeVarRef(
     };
 
     const ip = &zcu.intern_pool;
-    return switch (implementation.inner(value.toIntern(), ip, null)) {
-        .none => implementation.inner(value.typeOf(zcu).toIntern(), ip, null),
-        else => |result| result,
+    const val_result = implementation.inner(value.toIntern(), ip, null);
+    return switch (search) {
+        .value_only => val_result,
+        .type_value => switch (val_result) {
+            .none => implementation.inner(value.typeOf(zcu).toIntern(), ip, null),
+            else => |result| result,
+        },
     };
 }
 
 pub fn canMutateComptimeVarState(value: Value, zcu: *const Zcu) bool {
-    return value.findComptimeVarRef(zcu) != .none;
+    return value.findComptimeVarRef(zcu, .type_value) != .none;
 }
 
 /// Gets the `Nav` referenced by this pointer.  If the pointer does not point
