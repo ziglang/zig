@@ -80,8 +80,8 @@ max_stdio_size: usize,
 /// the step fails.
 stdio_limit: std.Io.Limit,
 
-captured_stdout: ?*Output,
-captured_stderr: ?*Output,
+captured_stdout: ?*CapturedStdIo,
+captured_stderr: ?*CapturedStdIo,
 
 dep_output_file: ?*Output,
 
@@ -142,6 +142,7 @@ pub const Arg = union(enum) {
     artifact: PrefixedArtifact,
     lazy_path: PrefixedLazyPath,
     decorated_directory: DecoratedLazyPath,
+    file_content: PrefixedLazyPath,
     bytes: []u8,
     output_file: *Output,
     output_directory: *Output,
@@ -167,6 +168,25 @@ pub const Output = struct {
     generated_file: std.Build.GeneratedFile,
     prefix: []const u8,
     basename: []const u8,
+};
+
+pub const CapturedStdIo = struct {
+    output: Output,
+    trim_whitespace: TrimWhitespace,
+
+    pub const Options = struct {
+        /// `null` means `stdout`/`stderr`.
+        basename: ?[]const u8 = null,
+        /// Does not affect `expectStdOutEqual`/`expectStdErrEqual`.
+        trim_whitespace: TrimWhitespace = .none,
+    };
+
+    pub const TrimWhitespace = enum {
+        none,
+        all,
+        leading,
+        trailing,
+    };
 };
 
 pub fn create(owner: *std.Build, name: []const u8) *Run {
@@ -316,6 +336,60 @@ pub fn addPrefixedFileArg(run: *Run, prefix: []const u8, lp: std.Build.LazyPath)
         .lazy_path = lp.dupe(b),
     };
     run.argv.append(b.allocator, .{ .lazy_path = prefixed_file_source }) catch @panic("OOM");
+    lp.addStepDependencies(&run.step);
+}
+
+/// Appends the content of an input file to the command line arguments.
+///
+/// The child process will see a single argument, even if the file contains whitespace.
+/// This means that the entire file content up to EOF is rendered as one contiguous
+/// string, including escape sequences. Notably, any (trailing) newlines will show up
+/// like this: "hello,\nfile world!\n"
+///
+/// Modifications to the source file will be detected as a cache miss in subsequent
+/// builds, causing the child process to be re-executed.
+///
+/// This function may not be used to supply the first argument of a `Run` step.
+///
+/// Related:
+/// * `addPrefixedFileContentArg` - same thing but prepends a string to the argument
+pub fn addFileContentArg(run: *Run, lp: std.Build.LazyPath) void {
+    run.addPrefixedFileContentArg("", lp);
+}
+
+/// Appends the content of an input file to the command line arguments prepended with a string.
+///
+/// For example, a prefix of "-F" will result in the child process seeing something
+/// like this: "-Fmy file content"
+///
+/// The child process will see a single argument, even if the prefix and/or the file
+/// contain whitespace.
+/// This means that the entire file content up to EOF is rendered as one contiguous
+/// string, including escape sequences. Notably, any (trailing) newlines will show up
+/// like this: "hello,\nfile world!\n"
+///
+/// Modifications to the source file will be detected as a cache miss in subsequent
+/// builds, causing the child process to be re-executed.
+///
+/// This function may not be used to supply the first argument of a `Run` step.
+///
+/// Related:
+/// * `addFileContentArg` - same thing but without the prefix
+pub fn addPrefixedFileContentArg(run: *Run, prefix: []const u8, lp: std.Build.LazyPath) void {
+    const b = run.step.owner;
+
+    // Some parts of this step's configure phase API rely on the first argument being somewhat
+    // transparent/readable, but the content of the file specified by `lp` remains completely
+    // opaque until its path can be resolved during the make phase.
+    if (run.argv.items.len == 0) {
+        @panic("'addFileContentArg'/'addPrefixedFileContentArg' cannot be first argument");
+    }
+
+    const prefixed_file_source: PrefixedLazyPath = .{
+        .prefix = b.dupe(prefix),
+        .lazy_path = lp.dupe(b),
+    };
+    run.argv.append(b.allocator, .{ .file_content = prefixed_file_source }) catch @panic("OOM");
     lp.addStepDependencies(&run.step);
 }
 
@@ -469,6 +543,7 @@ pub fn addPathDir(run: *Run, search_path: []const u8) void {
             break :use_wine std.mem.endsWith(u8, p.lazy_path.basename(b, &run.step), ".exe");
         },
         .decorated_directory => false,
+        .file_content => unreachable, // not allowed as first arg
         .bytes => |bytes| std.mem.endsWith(u8, bytes, ".exe"),
         .output_file, .output_directory => false,
     };
@@ -553,34 +628,42 @@ pub fn addCheck(run: *Run, new_check: StdIo.Check) void {
     }
 }
 
-pub fn captureStdErr(run: *Run) std.Build.LazyPath {
+pub fn captureStdErr(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPath {
     assert(run.stdio != .inherit);
+    const b = run.step.owner;
 
-    if (run.captured_stderr) |output| return .{ .generated = .{ .file = &output.generated_file } };
+    if (run.captured_stderr) |captured| return .{ .generated = .{ .file = &captured.output.generated_file } };
 
-    const output = run.step.owner.allocator.create(Output) catch @panic("OOM");
-    output.* = .{
-        .prefix = "",
-        .basename = "stderr",
-        .generated_file = .{ .step = &run.step },
+    const captured = b.allocator.create(CapturedStdIo) catch @panic("OOM");
+    captured.* = .{
+        .output = .{
+            .prefix = "",
+            .basename = if (options.basename) |basename| b.dupe(basename) else "stderr",
+            .generated_file = .{ .step = &run.step },
+        },
+        .trim_whitespace = options.trim_whitespace,
     };
-    run.captured_stderr = output;
-    return .{ .generated = .{ .file = &output.generated_file } };
+    run.captured_stderr = captured;
+    return .{ .generated = .{ .file = &captured.output.generated_file } };
 }
 
-pub fn captureStdOut(run: *Run) std.Build.LazyPath {
+pub fn captureStdOut(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPath {
     assert(run.stdio != .inherit);
+    const b = run.step.owner;
 
-    if (run.captured_stdout) |output| return .{ .generated = .{ .file = &output.generated_file } };
+    if (run.captured_stdout) |captured| return .{ .generated = .{ .file = &captured.output.generated_file } };
 
-    const output = run.step.owner.allocator.create(Output) catch @panic("OOM");
-    output.* = .{
-        .prefix = "",
-        .basename = "stdout",
-        .generated_file = .{ .step = &run.step },
+    const captured = b.allocator.create(CapturedStdIo) catch @panic("OOM");
+    captured.* = .{
+        .output = .{
+            .prefix = "",
+            .basename = if (options.basename) |basename| b.dupe(basename) else "stdout",
+            .generated_file = .{ .step = &run.step },
+        },
+        .trim_whitespace = options.trim_whitespace,
     };
-    run.captured_stdout = output;
-    return .{ .generated = .{ .file = &output.generated_file } };
+    run.captured_stdout = captured;
+    return .{ .generated = .{ .file = &captured.output.generated_file } };
 }
 
 /// Adds an additional input files that, when modified, indicates that this Run
@@ -732,6 +815,35 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 try argv_list.append(resolved_arg);
                 man.hash.addBytes(resolved_arg);
             },
+            .file_content => |file_plp| {
+                const file_path = file_plp.lazy_path.getPath3(b, step);
+
+                var result: std.Io.Writer.Allocating = .init(arena);
+                errdefer result.deinit();
+                result.writer.writeAll(file_plp.prefix) catch return error.OutOfMemory;
+
+                const file = file_path.root_dir.handle.openFile(file_path.subPathOrDot(), .{}) catch |err| {
+                    return step.fail(
+                        "unable to open input file '{f}': {t}",
+                        .{ file_path, err },
+                    );
+                };
+                defer file.close();
+
+                var buf: [1024]u8 = undefined;
+                var file_reader = file.reader(&buf);
+                _ = file_reader.interface.streamRemaining(&result.writer) catch |err| switch (err) {
+                    error.ReadFailed => return step.fail(
+                        "failed to read from '{f}': {t}",
+                        .{ file_path, file_reader.err.? },
+                    ),
+                    error.WriteFailed => return error.OutOfMemory,
+                };
+
+                try argv_list.append(result.written());
+                man.hash.addBytes(file_plp.prefix);
+                _ = try man.addFilePath(file_path, null);
+            },
             .artifact => |pa| {
                 const artifact = pa.artifact;
 
@@ -775,12 +887,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         .none => {},
     }
 
-    if (run.captured_stdout) |output| {
-        man.hash.addBytes(output.basename);
+    if (run.captured_stdout) |captured| {
+        man.hash.addBytes(captured.output.basename);
+        man.hash.add(captured.trim_whitespace);
     }
 
-    if (run.captured_stderr) |output| {
-        man.hash.addBytes(output.basename);
+    if (run.captured_stderr) |captured| {
+        man.hash.addBytes(captured.output.basename);
+        man.hash.add(captured.trim_whitespace);
     }
 
     hashStdIo(&man.hash, run.stdio);
@@ -951,7 +1065,7 @@ pub fn rerunInFuzzMode(
     const step = &run.step;
     const b = step.owner;
     const arena = b.allocator;
-    var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var argv_list: std.ArrayList([]const u8) = .empty;
     for (run.argv.items) |arg| {
         switch (arg) {
             .bytes => |bytes| {
@@ -964,6 +1078,25 @@ pub fn rerunInFuzzMode(
             .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
                 try argv_list.append(arena, b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix }));
+            },
+            .file_content => |file_plp| {
+                const file_path = file_plp.lazy_path.getPath3(b, step);
+
+                var result: std.Io.Writer.Allocating = .init(arena);
+                errdefer result.deinit();
+                result.writer.writeAll(file_plp.prefix) catch return error.OutOfMemory;
+
+                const file = try file_path.root_dir.handle.openFile(file_path.subPathOrDot(), .{});
+                defer file.close();
+
+                var buf: [1024]u8 = undefined;
+                var file_reader = file.reader(&buf);
+                _ = file_reader.interface.streamRemaining(&result.writer) catch |err| switch (err) {
+                    error.ReadFailed => return file_reader.err.?,
+                    error.WriteFailed => return error.OutOfMemory,
+                };
+
+                try argv_list.append(arena, result.written());
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
@@ -991,8 +1124,8 @@ pub fn rerunInFuzzMode(
 fn populateGeneratedPaths(
     arena: std.mem.Allocator,
     output_placeholders: []const IndexedOutput,
-    captured_stdout: ?*Output,
-    captured_stderr: ?*Output,
+    captured_stdout: ?*CapturedStdIo,
+    captured_stderr: ?*CapturedStdIo,
     cache_root: Build.Cache.Directory,
     digest: *const Build.Cache.HexDigest,
 ) !void {
@@ -1002,15 +1135,15 @@ fn populateGeneratedPaths(
         });
     }
 
-    if (captured_stdout) |output| {
-        output.generated_file.path = try cache_root.join(arena, &.{
-            "o", digest, output.basename,
+    if (captured_stdout) |captured| {
+        captured.output.generated_file.path = try cache_root.join(arena, &.{
+            "o", digest, captured.output.basename,
         });
     }
 
-    if (captured_stderr) |output| {
-        output.generated_file.path = try cache_root.join(arena, &.{
-            "o", digest, output.basename,
+    if (captured_stderr) |captured| {
+        captured.output.generated_file.path = try cache_root.join(arena, &.{
+            "o", digest, captured.output.basename,
         });
     }
 }
@@ -1251,7 +1384,7 @@ fn runCommand(
 
     // Capture stdout and stderr to GeneratedFile objects.
     const Stream = struct {
-        captured: ?*Output,
+        captured: ?*CapturedStdIo,
         bytes: ?[]const u8,
     };
     for ([_]Stream{
@@ -1264,10 +1397,10 @@ fn runCommand(
             .bytes = result.stdio.stderr,
         },
     }) |stream| {
-        if (stream.captured) |output| {
-            const output_components = .{ output_dir_path, output.basename };
+        if (stream.captured) |captured| {
+            const output_components = .{ output_dir_path, captured.output.basename };
             const output_path = try b.cache_root.join(arena, &output_components);
-            output.generated_file.path = output_path;
+            captured.output.generated_file.path = output_path;
 
             const sub_path = b.pathJoin(&output_components);
             const sub_path_dirname = fs.path.dirname(sub_path).?;
@@ -1276,7 +1409,13 @@ fn runCommand(
                     b.cache_root, sub_path_dirname, @errorName(err),
                 });
             };
-            b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = stream.bytes.? }) catch |err| {
+            const data = switch (captured.trim_whitespace) {
+                .none => stream.bytes.?,
+                .all => mem.trim(u8, stream.bytes.?, &std.ascii.whitespace),
+                .leading => mem.trimStart(u8, stream.bytes.?, &std.ascii.whitespace),
+                .trailing => mem.trimEnd(u8, stream.bytes.?, &std.ascii.whitespace),
+            };
+            b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = data }) catch |err| {
                 return step.fail("unable to write file '{f}{s}': {s}", .{
                     b.cache_root, sub_path, @errorName(err),
                 });
