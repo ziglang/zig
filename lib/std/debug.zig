@@ -754,6 +754,10 @@ pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
 
 /// Write a previously captured stack trace to `writer`, annotated with source locations.
 pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+    // Fetch `st.index` straight away. Aside from avoiding redundant loads, this prevents issues if
+    // `st` is `@errorReturnTrace()` and errors are encountered while writing the stack trace.
+    const n_frames = st.index;
+    if (n_frames == 0) return writer.writeAll("(empty stack trace)\n");
     const di_gpa = getDebugInfoAllocator();
     const di = getSelfDebugInfo() catch |err| switch (err) {
         error.UnsupportedTarget => {
@@ -763,14 +767,13 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
             return;
         },
     };
-    if (st.index == 0) return writer.writeAll("(empty stack trace)\n");
-    const captured_frames = @min(st.index, st.instruction_addresses.len);
+    const captured_frames = @min(n_frames, st.instruction_addresses.len);
     for (st.instruction_addresses[0..captured_frames]) |return_address| {
         try printSourceAtAddress(di_gpa, di, writer, return_address -| 1, tty_config);
     }
-    if (st.index > captured_frames) {
+    if (n_frames > captured_frames) {
         tty_config.setColor(writer, .bold) catch {};
-        try writer.print("({d} additional stack frames skipped...)\n", .{st.index - captured_frames});
+        try writer.print("({d} additional stack frames skipped...)\n", .{n_frames - captured_frames});
         tty_config.setColor(writer, .reset) catch {};
     }
 }
@@ -853,7 +856,7 @@ const StackIterator = union(enum) {
                 const di = getSelfDebugInfo() catch unreachable;
                 const di_gpa = getDebugInfoAllocator();
                 if (di.unwindFrame(di_gpa, unwind_context)) |ra| {
-                    if (ra == 0) return .end;
+                    if (ra <= 1) return .end;
                     return .{ .frame = ra };
                 } else |err| {
                     const pc = unwind_context.pc;
@@ -888,7 +891,9 @@ const StackIterator = union(enum) {
                 if (bp != 0 and bp <= fp) return .end;
 
                 it.fp = bp;
-                return .{ .frame = ra_ptr.* };
+                const ra = ra_ptr.*;
+                if (ra <= 1) return .end;
+                return .{ .frame = ra };
             },
         }
     }
@@ -1409,11 +1414,12 @@ test "manage resources correctly" {
             return @returnAddress();
         }
     };
-    var discarding: std.io.Writer.Discarding = .init(&.{});
-    var di: SelfInfo = try .open(testing.allocator);
-    defer di.deinit();
+    const gpa = std.testing.allocator;
+    var discarding: std.Io.Writer.Discarding = .init(&.{});
+    var di: SelfInfo = .init;
+    defer di.deinit(gpa);
     try printSourceAtAddress(
-        testing.allocator,
+        gpa,
         &di,
         &discarding.writer,
         S.showMyTrace(),
