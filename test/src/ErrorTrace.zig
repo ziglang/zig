@@ -13,6 +13,9 @@ pub const Case = struct {
     /// On these arch/OS pairs we will not test the error trace on optimized LLVM builds because the
     /// optimizations break the error trace. We will test the binary with error tracing disabled,
     /// just to ensure that the expected error is still returned from `main`.
+    ///
+    /// LLVM ReleaseSmall builds always have the trace disabled regardless of this field, because it
+    /// seems that LLVM is particularly good at optimizing traces away in those.
     disable_trace_optimized: []const DisableConfig = &.{},
 
     pub const DisableConfig = struct { std.Target.Cpu.Arch, std.Target.Os.Tag };
@@ -58,6 +61,7 @@ fn addCaseConfig(
     const error_tracing: bool = tracing: {
         if (optimize == .Debug) break :tracing true;
         if (backend != .llvm) break :tracing true;
+        if (optimize == .ReleaseSmall) break :tracing false;
         for (case.disable_trace_optimized) |disable| {
             const d_arch, const d_os = disable;
             if (target.result.cpu.arch == d_arch and target.result.os.tag == d_os) {
