@@ -133,15 +133,33 @@ pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     return .{ .data = .{
         .ty = ty,
         .pt = pt,
+        .opt_sema = null,
+    } };
+}
+
+pub fn fmtSema(ty: Type, pt: Zcu.PerThread, sema: *Sema) Formatter {
+    return .{ .data = .{
+        .ty = ty,
+        .pt = pt,
+        .opt_sema = sema,
+    } };
+}
+
+pub fn fmtOptSema(ty: Type, pt: Zcu.PerThread, opt_sema: ?*Sema) Formatter {
+    return .{ .data = .{
+        .ty = ty,
+        .pt = pt,
+        .opt_sema = opt_sema,
     } };
 }
 
 const Format = struct {
     ty: Type,
     pt: Zcu.PerThread,
+    opt_sema: ?*Sema,
 
     fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return print(f.ty, writer, f.pt);
+        return print(f.ty, writer, f.pt, f.opt_sema);
     }
 };
 
@@ -156,8 +174,7 @@ pub fn dump(start_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
 }
 
 /// Prints a name suitable for `@typeName`.
-/// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.Error!void {
+pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread, opt_sema: ?*Sema) std.Io.Writer.Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
@@ -174,8 +191,8 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
 
             if (info.sentinel != .none) switch (info.flags.size) {
                 .one, .c => unreachable,
-                .many => try writer.print("[*:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
-                .slice => try writer.print("[:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .many => try writer.print("[*:{f}]", .{Value.fromInterned(info.sentinel).fmtValueOptSema(pt, opt_sema)}),
+                .slice => try writer.print("[:{f}]", .{Value.fromInterned(info.sentinel).fmtValueOptSema(pt, opt_sema)}),
             } else switch (info.flags.size) {
                 .one => try writer.writeAll("*"),
                 .many => try writer.writeAll("[*]"),
@@ -211,39 +228,39 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             if (info.flags.is_const) try writer.writeAll("const ");
             if (info.flags.is_volatile) try writer.writeAll("volatile ");
 
-            try print(Type.fromInterned(info.child), writer, pt);
+            try print(Type.fromInterned(info.child), writer, pt, opt_sema);
             return;
         },
         .array_type => |array_type| {
             if (array_type.sentinel == .none) {
                 try writer.print("[{d}]", .{array_type.len});
-                try print(Type.fromInterned(array_type.child), writer, pt);
+                try print(Type.fromInterned(array_type.child), writer, pt, opt_sema);
             } else {
                 try writer.print("[{d}:{f}]", .{
                     array_type.len,
-                    Value.fromInterned(array_type.sentinel).fmtValue(pt),
+                    Value.fromInterned(array_type.sentinel).fmtValueOptSema(pt, opt_sema),
                 });
-                try print(Type.fromInterned(array_type.child), writer, pt);
+                try print(Type.fromInterned(array_type.child), writer, pt, opt_sema);
             }
             return;
         },
         .vector_type => |vector_type| {
             try writer.print("@Vector({d}, ", .{vector_type.len});
-            try print(Type.fromInterned(vector_type.child), writer, pt);
+            try print(Type.fromInterned(vector_type.child), writer, pt, opt_sema);
             try writer.writeAll(")");
             return;
         },
         .opt_type => |child| {
             try writer.writeByte('?');
-            return print(Type.fromInterned(child), writer, pt);
+            return print(Type.fromInterned(child), writer, pt, opt_sema);
         },
         .error_union_type => |error_union_type| {
-            try print(Type.fromInterned(error_union_type.error_set_type), writer, pt);
+            try print(Type.fromInterned(error_union_type.error_set_type), writer, pt, opt_sema);
             try writer.writeByte('!');
             if (error_union_type.payload_type == .generic_poison_type) {
                 try writer.writeAll("anytype");
             } else {
-                try print(Type.fromInterned(error_union_type.payload_type), writer, pt);
+                try print(Type.fromInterned(error_union_type.payload_type), writer, pt, opt_sema);
             }
             return;
         },
@@ -325,8 +342,8 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, val, i| {
                 try writer.writeAll(if (i == 0) " " else ", ");
                 if (val != .none) try writer.writeAll("comptime ");
-                try print(Type.fromInterned(field_ty), writer, pt);
-                if (val != .none) try writer.print(" = {f}", .{Value.fromInterned(val).fmtValue(pt)});
+                try print(Type.fromInterned(field_ty), writer, pt, opt_sema);
+                if (val != .none) try writer.print(" = {f}", .{Value.fromInterned(val).fmtValueOptSema(pt, opt_sema)});
             }
             try writer.writeAll(" }");
         },
@@ -362,7 +379,7 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
                 if (param_ty == .generic_poison_type) {
                     try writer.writeAll("anytype");
                 } else {
-                    try print(Type.fromInterned(param_ty), writer, pt);
+                    try print(Type.fromInterned(param_ty), writer, pt, opt_sema);
                 }
             }
             if (fn_info.is_var_args) {
@@ -389,13 +406,13 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             if (fn_info.return_type == .generic_poison_type) {
                 try writer.writeAll("anytype");
             } else {
-                try print(Type.fromInterned(fn_info.return_type), writer, pt);
+                try print(Type.fromInterned(fn_info.return_type), writer, pt, opt_sema);
             }
         },
         .anyframe_type => |child| {
             if (child == .none) return writer.writeAll("anyframe");
             try writer.writeAll("anyframe->");
-            return print(Type.fromInterned(child), writer, pt);
+            return print(Type.fromInterned(child), writer, pt, opt_sema);
         },
 
         // values, not types
