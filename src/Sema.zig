@@ -29545,18 +29545,18 @@ pub fn coerceInMemoryAllowed(
     const maybe_src_ptr_ty = try sema.typePtrOrOptionalPtrTy(src_ty);
     if (maybe_dest_ptr_ty) |dest_ptr_ty| {
         if (maybe_src_ptr_ty) |src_ptr_ty| {
-            return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target, dest_src, src_src);
+            return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target, dest_src, src_src, src_val);
         }
     }
 
     // Slices
     if (dest_ty.isSlice(zcu) and src_ty.isSlice(zcu)) {
-        return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src);
+        return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src, src_val);
     }
 
     // Functions
     if (dest_tag == .@"fn" and src_tag == .@"fn") {
-        return try sema.coerceInMemoryAllowedFns(block, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src);
+        return try sema.coerceInMemoryAllowedFns(block, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src, src_val);
     }
 
     // Error Unions
@@ -29801,6 +29801,7 @@ fn coerceInMemoryAllowedFns(
     target: *const std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
+    src_val: ?Value,
 ) !InMemoryCoercionResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -29809,17 +29810,22 @@ fn coerceInMemoryAllowedFns(
     const dest_info = zcu.typeToFunc(dest_ty).?;
     const src_info = zcu.typeToFunc(src_ty).?;
 
+    const comptime_known_src = src_val != null;
+    const inline_exempt = src_info.cc == .@"inline" and comptime_known_src;
+
     {
         if (dest_info.is_var_args != src_info.is_var_args) {
-            return InMemoryCoercionResult{ .fn_var_args = dest_info.is_var_args };
+            return .{ .fn_var_args = dest_info.is_var_args };
         }
 
         if (dest_info.is_generic != src_info.is_generic) {
-            return InMemoryCoercionResult{ .fn_generic = dest_info.is_generic };
+            // Coercion of pointer to generic function to regular function pointer is allowed as long
+            // as the pointer to generic function is comptime known.
+            if (!comptime_known_src) return .{ .fn_generic = dest_info.is_generic };
         }
 
-        const callconv_ok = callconvCoerceAllowed(target, src_info.cc, dest_info.cc) and
-            (!dest_is_mut or callconvCoerceAllowed(target, dest_info.cc, src_info.cc));
+        const callconv_ok = inline_exempt or (callconvCoerceAllowed(target, src_info.cc, dest_info.cc) and
+            (!dest_is_mut or callconvCoerceAllowed(target, dest_info.cc, src_info.cc)));
 
         if (!callconv_ok) {
             return .{ .fn_cc = .{
@@ -29874,6 +29880,7 @@ fn coerceInMemoryAllowedFns(
         const src_param_ty: Type = .fromInterned(src_info.param_types.get(ip)[param_i]);
 
         comptime_param: {
+            if (inline_exempt) break :comptime_param;
             const src_is_comptime = src_info.paramIsComptime(@intCast(param_i));
             const dest_is_comptime = dest_info.paramIsComptime(@intCast(param_i));
             if (src_is_comptime == dest_is_comptime) break :comptime_param;
@@ -29956,6 +29963,7 @@ fn coerceInMemoryAllowedPtrs(
     target: *const std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
+    src_val: ?Value,
 ) !InMemoryCoercionResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -30004,6 +30012,11 @@ fn coerceInMemoryAllowedPtrs(
         } };
     }
 
+    const child_src_val: ?Value = if (src_val) |v| switch (try pointerDerefExtra(sema, block, src_src, v)) {
+        .val => |val| val,
+        .runtime_load, .needed_well_defined, .out_of_bounds => null,
+    } else null;
+
     const dest_child: Type = .fromInterned(dest_info.child);
     const src_child: Type = .fromInterned(src_info.child);
     const child = try sema.coerceInMemoryAllowed(
@@ -30025,7 +30038,7 @@ fn coerceInMemoryAllowedPtrs(
         target,
         dest_src,
         src_src,
-        null,
+        child_src_val,
     );
     if (child != .ok and !dest_is_mut) allow: {
         // As a special case, we also allow coercing `*[n:s]T` to `*[n]T`, akin to dropping the sentinel from a slice.
@@ -33750,11 +33763,11 @@ fn resolvePeerTypesInner(
                     .peer_idx_b = i,
                 } };
                 // ty -> cur_ty
-                if (.ok == try sema.coerceInMemoryAllowedFns(block, cur_ty, ty, false, target, src, src)) {
+                if (.ok == try sema.coerceInMemoryAllowedFns(block, cur_ty, ty, false, target, src, src, null)) {
                     continue;
                 }
                 // cur_ty -> ty
-                if (.ok == try sema.coerceInMemoryAllowedFns(block, ty, cur_ty, false, target, src, src)) {
+                if (.ok == try sema.coerceInMemoryAllowedFns(block, ty, cur_ty, false, target, src, src, null)) {
                     opt_cur_ty = ty;
                     continue;
                 }
