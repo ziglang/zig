@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .fuzz = true,
         }),
+        .use_llvm = true, // #23423
     });
 
     b.installArtifact(exe);
