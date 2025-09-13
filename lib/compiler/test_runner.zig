@@ -17,7 +17,9 @@ var fba_buffer: [8192]u8 = undefined;
 var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
 
-const crippled = switch (builtin.zig_backend) {
+/// Keep in sync with logic in `std.Build.addRunArtifact` which decides whether
+/// the test runner will communicate with the build runner via `std.zig.Server`.
+const need_simple = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
@@ -33,7 +35,7 @@ pub fn main() void {
         return;
     }
 
-    if (crippled) {
+    if (need_simple) {
         return mainSimple() catch @panic("test failure\n");
     }
 
@@ -380,7 +382,7 @@ pub fn fuzz(
 
     // Some compiler backends are not capable of handling fuzz testing yet but
     // we still want CI test coverage enabled.
-    if (crippled) return;
+    if (need_simple) return;
 
     // Smoke test to ensure the test did not use conditional compilation to
     // contradict itself by making it not actually be a fuzz test when the test
