@@ -9648,6 +9648,33 @@ pub const PTRACE = struct {
     pub const SECCOMP_GET_FILTER = 0x420c;
     pub const SECCOMP_GET_METADATA = 0x420d;
     pub const GET_SYSCALL_INFO = 0x420e;
+
+    pub const EVENT = struct {
+        pub const FORK = 1;
+        pub const VFORK = 2;
+        pub const CLONE = 3;
+        pub const EXEC = 4;
+        pub const VFORK_DONE = 5;
+        pub const EXIT = 6;
+        pub const SECCOMP = 7;
+        pub const STOP = 128;
+    };
+
+    pub const O = struct {
+        pub const TRACESYSGOOD = 1;
+        pub const TRACEFORK = 1 << PTRACE.EVENT.FORK;
+        pub const TRACEVFORK = 1 << PTRACE.EVENT.VFORK;
+        pub const TRACECLONE = 1 << PTRACE.EVENT.CLONE;
+        pub const TRACEEXEC = 1 << PTRACE.EVENT.EXEC;
+        pub const TRACEVFORKDONE = 1 << PTRACE.EVENT.VFORK_DONE;
+        pub const TRACEEXIT = 1 << PTRACE.EVENT.EXIT;
+        pub const TRACESECCOMP = 1 << PTRACE.EVENT.SECCOMP;
+
+        pub const EXITKILL = 1 << 20;
+        pub const SUSPEND_SECCOMP = 1 << 21;
+
+        pub const MASK = 0x000000ff | PTRACE.O.EXITKILL | PTRACE.O.SUSPEND_SECCOMP;
+    };
 };
 
 /// For futex2_waitv and futex2_requeue. Arrays of `futex2_waitone` allow
