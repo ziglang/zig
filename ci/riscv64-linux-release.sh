@@ -52,4 +52,4 @@ stage3-release/bin/zig build test-cases test-modules test-unit test-c-abi test-s
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  --test-timeout-ms 60_000
+  --test-timeout-ms 120_000
