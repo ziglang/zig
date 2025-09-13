@@ -37,6 +37,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
     cases.addCase(.{
@@ -86,12 +88,6 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         \\    return error.UnrelatedError;
         \\    ^
         ,
-        .disable_trace_optimized = &.{
-            .{ .x86_64, .linux },
-            .{ .x86, .linux },
-            .{ .x86_64, .windows },
-            .{ .x86, .windows },
-        },
     });
 
     cases.addCase(.{
@@ -121,6 +117,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 
@@ -172,6 +170,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 
@@ -242,6 +242,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 
@@ -282,6 +284,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 
@@ -317,6 +321,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 
@@ -352,6 +358,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 
@@ -392,6 +400,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 
@@ -423,8 +433,11 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         .disable_trace_optimized = &.{
             .{ .x86_64, .linux },
             .{ .x86, .linux },
+            .{ .aarch64, .linux },
             .{ .x86_64, .windows },
             .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
         },
     });
 }
