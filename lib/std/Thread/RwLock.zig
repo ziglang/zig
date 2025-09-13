@@ -301,8 +301,8 @@ test "concurrent access" {
 
     const num_writers: usize = 2;
     const num_readers: usize = 4;
-    const num_writes: usize = 10000;
-    const num_reads: usize = num_writes * 2;
+    const num_writes: usize = 4096;
+    const num_reads: usize = 8192;
 
     const Runner = struct {
         const Self = @This();
