@@ -786,11 +786,10 @@ pub const Mutable = struct {
         assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
 
         if (a.limbs.len == 1 and b.limbs.len == 1) {
-            const ov = @mulWithOverflow(a.limbs[0], b.limbs[0]);
-            rma.limbs[0] = ov[0];
-            if (ov[1] == 0) {
+            rma.limbs[0], const overflow_bit = @mulWithOverflow(a.limbs[0], b.limbs[0]);
+            if (overflow_bit == 0) {
                 rma.len = 1;
-                rma.positive = (a.positive == b.positive);
+                rma.positive = (a.positive == b.positive) or rma.limbs[0] == 0;
                 return;
             }
         }
