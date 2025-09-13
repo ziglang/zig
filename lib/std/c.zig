@@ -10856,6 +10856,18 @@ pub const pthread_threadid_np = switch (native_os) {
     else => {},
 };
 
+pub const caddr_t = ?[*]u8;
+
+pub const ptrace = switch (native_os) {
+    .linux, .serenity => private.ptrace,
+    .macos, .ios, .tvos, .watchos, .visionos => darwin.ptrace,
+    .dragonfly => dragonfly.ptrace,
+    .freebsd => freebsd.ptrace,
+    .netbsd => netbsd.ptrace,
+    .openbsd => openbsd.ptrace,
+    else => {},
+};
+
 pub extern "c" fn sem_init(sem: *sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *sem_t) c_int;
 pub extern "c" fn sem_open(name: [*:0]const u8, flag: c_int, mode: mode_t, value: c_uint) *sem_t;
@@ -11305,7 +11317,6 @@ pub const pthread_attr_get_qos_class_np = darwin.pthread_attr_get_qos_class_np;
 pub const pthread_attr_set_qos_class_np = darwin.pthread_attr_set_qos_class_np;
 pub const pthread_get_qos_class_np = darwin.pthread_get_qos_class_np;
 pub const pthread_set_qos_class_self_np = darwin.pthread_set_qos_class_self_np;
-pub const ptrace = darwin.ptrace;
 pub const qos_class_t = darwin.qos_class_t;
 pub const task_flavor_t = darwin.task_flavor_t;
 pub const task_for_pid = darwin.task_for_pid;
@@ -11341,7 +11352,6 @@ pub const vm_region_submap_info_64 = darwin.vm_region_submap_info_64;
 pub const vm_region_submap_short_info_64 = darwin.vm_region_submap_short_info_64;
 pub const vm_region_top_info = darwin.vm_region_top_info;
 
-pub const caddr_t = darwin.caddr_t;
 pub const exception_behavior_array_t = darwin.exception_behavior_array_t;
 pub const exception_behavior_t = darwin.exception_behavior_t;
 pub const exception_data_t = darwin.exception_data_t;
@@ -11465,6 +11475,9 @@ const private = struct {
     extern "c" fn munlock(addr: *align(page_size) const anyopaque, len: usize) c_int;
     extern "c" fn mlockall(flags: MCL) c_int;
     extern "c" fn munlockall() c_int;
+
+    // linux and https://github.com/SerenityOS/serenity/blob/502caef9a40bccc7459f9835f2174a601106299a/Userland/Libraries/LibC/sys/ptrace.cpp
+    extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: ?*anyopaque) c_long;
 
     /// macos modernized symbols.
     /// x86_64 links to $INODE64 suffix for 64-bit support.
