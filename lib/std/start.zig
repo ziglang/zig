@@ -635,10 +635,11 @@ pub inline fn callMain() u8 {
                     else => {},
                 }
                 std.log.err("{s}", .{@errorName(err)});
-                if (native_os != .freestanding) {
-                    if (@errorReturnTrace()) |trace| {
+                switch (native_os) {
+                    .freestanding, .other => {},
+                    else => if (@errorReturnTrace()) |trace| {
                         std.debug.dumpStackTrace(trace);
-                    }
+                    },
                 }
                 return 1;
             };
