@@ -1,14 +1,14 @@
 const std = @import("std");
 
 pub fn main() anyerror!void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer if (gpa.deinit() == .leak) @panic("found memory leaks");
-    const allocator = gpa.allocator();
+    var debug_alloc_inst: std.heap.DebugAllocator(.{}) = .init;
+    defer std.debug.assert(debug_alloc_inst.deinit() == .ok);
+    const gpa = debug_alloc_inst.allocator();
 
-    var it = try std.process.argsWithAllocator(allocator);
+    var it = try std.process.argsWithAllocator(gpa);
     defer it.deinit();
     _ = it.next() orelse unreachable; // skip binary name
-    const child_exe_path = it.next() orelse unreachable;
+    const child_exe_path_orig = it.next() orelse unreachable;
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -16,62 +16,67 @@ pub fn main() anyerror!void {
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};
 
-    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 128);
-    defer buf.deinit();
-    try buf.appendSlice("@echo off\n");
-    try buf.append('"');
-    try buf.appendSlice(child_exe_path);
-    try buf.append('"');
+    // `child_exe_path_orig` might be relative; make it relative to our new cwd.
+    const child_exe_path = try std.fs.path.resolve(gpa, &.{ "..\\..\\..", child_exe_path_orig });
+    defer gpa.free(child_exe_path);
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(gpa);
+    try buf.print(gpa,
+        \\@echo off
+        \\"{s}"
+    , .{child_exe_path});
+    // Trailing newline intentionally omitted above so we can add args.
     const preamble_len = buf.items.len;
 
-    try buf.appendSlice(" %*");
+    try buf.appendSlice(gpa, " %*");
     try tmp.dir.writeFile(.{ .sub_path = "args1.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
-    try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
+    try buf.appendSlice(gpa, " %1 %2 %3 %4 %5 %6 %7 %8 %9");
     try tmp.dir.writeFile(.{ .sub_path = "args2.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
-    try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
+    try buf.appendSlice(gpa, " \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
     try tmp.dir.writeFile(.{ .sub_path = "args3.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     // Test cases are from https://github.com/rust-lang/rust/blob/master/tests/ui/std/windows-bat-args.rs
-    try testExecError(error.InvalidBatchScriptArg, allocator, &.{"\x00"});
-    try testExecError(error.InvalidBatchScriptArg, allocator, &.{"\n"});
-    try testExecError(error.InvalidBatchScriptArg, allocator, &.{"\r"});
-    try testExec(allocator, &.{ "a", "b" }, null);
-    try testExec(allocator, &.{ "c is for cat", "d is for dog" }, null);
-    try testExec(allocator, &.{ "\"", " \"" }, null);
-    try testExec(allocator, &.{ "\\", "\\" }, null);
-    try testExec(allocator, &.{">file.txt"}, null);
-    try testExec(allocator, &.{"whoami.exe"}, null);
-    try testExec(allocator, &.{"&a.exe"}, null);
-    try testExec(allocator, &.{"&echo hello "}, null);
-    try testExec(allocator, &.{ "&echo hello", "&whoami", ">file.txt" }, null);
-    try testExec(allocator, &.{"!TMP!"}, null);
-    try testExec(allocator, &.{"key=value"}, null);
-    try testExec(allocator, &.{"\"key=value\""}, null);
-    try testExec(allocator, &.{"key = value"}, null);
-    try testExec(allocator, &.{"key=[\"value\"]"}, null);
-    try testExec(allocator, &.{ "", "a=b" }, null);
-    try testExec(allocator, &.{"key=\"foo bar\""}, null);
-    try testExec(allocator, &.{"key=[\"my_value]"}, null);
-    try testExec(allocator, &.{"key=[\"my_value\",\"other-value\"]"}, null);
-    try testExec(allocator, &.{"key\\=value"}, null);
-    try testExec(allocator, &.{"key=\"&whoami\""}, null);
-    try testExec(allocator, &.{"key=\"value\"=5"}, null);
-    try testExec(allocator, &.{"key=[\">file.txt\"]"}, null);
-    try testExec(allocator, &.{"%hello"}, null);
-    try testExec(allocator, &.{"%PATH%"}, null);
-    try testExec(allocator, &.{"%%cd:~,%"}, null);
-    try testExec(allocator, &.{"%PATH%PATH%"}, null);
-    try testExec(allocator, &.{"\">file.txt"}, null);
-    try testExec(allocator, &.{"abc\"&echo hello"}, null);
-    try testExec(allocator, &.{"123\">file.txt"}, null);
-    try testExec(allocator, &.{"\"&echo hello&whoami.exe"}, null);
-    try testExec(allocator, &.{ "\"hello^\"world\"", "hello &echo oh no >file.txt" }, null);
-    try testExec(allocator, &.{"&whoami.exe"}, null);
+    try testExecError(error.InvalidBatchScriptArg, gpa, &.{"\x00"});
+    try testExecError(error.InvalidBatchScriptArg, gpa, &.{"\n"});
+    try testExecError(error.InvalidBatchScriptArg, gpa, &.{"\r"});
+    try testExec(gpa, &.{ "a", "b" }, null);
+    try testExec(gpa, &.{ "c is for cat", "d is for dog" }, null);
+    try testExec(gpa, &.{ "\"", " \"" }, null);
+    try testExec(gpa, &.{ "\\", "\\" }, null);
+    try testExec(gpa, &.{">file.txt"}, null);
+    try testExec(gpa, &.{"whoami.exe"}, null);
+    try testExec(gpa, &.{"&a.exe"}, null);
+    try testExec(gpa, &.{"&echo hello "}, null);
+    try testExec(gpa, &.{ "&echo hello", "&whoami", ">file.txt" }, null);
+    try testExec(gpa, &.{"!TMP!"}, null);
+    try testExec(gpa, &.{"key=value"}, null);
+    try testExec(gpa, &.{"\"key=value\""}, null);
+    try testExec(gpa, &.{"key = value"}, null);
+    try testExec(gpa, &.{"key=[\"value\"]"}, null);
+    try testExec(gpa, &.{ "", "a=b" }, null);
+    try testExec(gpa, &.{"key=\"foo bar\""}, null);
+    try testExec(gpa, &.{"key=[\"my_value]"}, null);
+    try testExec(gpa, &.{"key=[\"my_value\",\"other-value\"]"}, null);
+    try testExec(gpa, &.{"key\\=value"}, null);
+    try testExec(gpa, &.{"key=\"&whoami\""}, null);
+    try testExec(gpa, &.{"key=\"value\"=5"}, null);
+    try testExec(gpa, &.{"key=[\">file.txt\"]"}, null);
+    try testExec(gpa, &.{"%hello"}, null);
+    try testExec(gpa, &.{"%PATH%"}, null);
+    try testExec(gpa, &.{"%%cd:~,%"}, null);
+    try testExec(gpa, &.{"%PATH%PATH%"}, null);
+    try testExec(gpa, &.{"\">file.txt"}, null);
+    try testExec(gpa, &.{"abc\"&echo hello"}, null);
+    try testExec(gpa, &.{"123\">file.txt"}, null);
+    try testExec(gpa, &.{"\"&echo hello&whoami.exe"}, null);
+    try testExec(gpa, &.{ "\"hello^\"world\"", "hello &echo oh no >file.txt" }, null);
+    try testExec(gpa, &.{"&whoami.exe"}, null);
 
     // Ensure that trailing space and . characters can't lead to unexpected bat/cmd script execution.
     // In many Windows APIs (including CreateProcess), trailing space and . characters are stripped
@@ -89,17 +94,17 @@ pub fn main() anyerror!void {
     //     > "args1.bat .. "
     //     '"args1.bat .. "' is not recognized as an internal or external command,
     //     operable program or batch file.
-    try std.testing.expectError(error.FileNotFound, testExecBat(allocator, "args1.bat .. ", &.{"abc"}, null));
+    try std.testing.expectError(error.FileNotFound, testExecBat(gpa, "args1.bat .. ", &.{"abc"}, null));
     const absolute_with_trailing = blk: {
-        const absolute_path = try std.fs.realpathAlloc(allocator, "args1.bat");
-        defer allocator.free(absolute_path);
-        break :blk try std.mem.concat(allocator, u8, &.{ absolute_path, " .. " });
+        const absolute_path = try std.fs.realpathAlloc(gpa, "args1.bat");
+        defer gpa.free(absolute_path);
+        break :blk try std.mem.concat(gpa, u8, &.{ absolute_path, " .. " });
     };
-    defer allocator.free(absolute_with_trailing);
-    try std.testing.expectError(error.FileNotFound, testExecBat(allocator, absolute_with_trailing, &.{"abc"}, null));
+    defer gpa.free(absolute_with_trailing);
+    try std.testing.expectError(error.FileNotFound, testExecBat(gpa, absolute_with_trailing, &.{"abc"}, null));
 
     var env = env: {
-        var env = try std.process.getEnvMap(allocator);
+        var env = try std.process.getEnvMap(gpa);
         errdefer env.deinit();
         // No escaping
         try env.put("FOO", "123");
@@ -110,37 +115,37 @@ pub fn main() anyerror!void {
         break :env env;
     };
     defer env.deinit();
-    try testExec(allocator, &.{"%FOO%"}, &env);
+    try testExec(gpa, &.{"%FOO%"}, &env);
 
     // Ensure that none of the `>file.txt`s have caused file.txt to be created
     try std.testing.expectError(error.FileNotFound, tmp.dir.access("file.txt", .{}));
 }
 
-fn testExecError(err: anyerror, allocator: std.mem.Allocator, args: []const []const u8) !void {
-    return std.testing.expectError(err, testExec(allocator, args, null));
+fn testExecError(err: anyerror, gpa: std.mem.Allocator, args: []const []const u8) !void {
+    return std.testing.expectError(err, testExec(gpa, args, null));
 }
 
-fn testExec(allocator: std.mem.Allocator, args: []const []const u8, env: ?*std.process.EnvMap) !void {
-    try testExecBat(allocator, "args1.bat", args, env);
-    try testExecBat(allocator, "args2.bat", args, env);
-    try testExecBat(allocator, "args3.bat", args, env);
+fn testExec(gpa: std.mem.Allocator, args: []const []const u8, env: ?*std.process.EnvMap) !void {
+    try testExecBat(gpa, "args1.bat", args, env);
+    try testExecBat(gpa, "args2.bat", args, env);
+    try testExecBat(gpa, "args3.bat", args, env);
 }
 
-fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []const u8, env: ?*std.process.EnvMap) !void {
-    var argv = try std.array_list.Managed([]const u8).initCapacity(allocator, 1 + args.len);
-    defer argv.deinit();
-    argv.appendAssumeCapacity(bat);
-    argv.appendSliceAssumeCapacity(args);
+fn testExecBat(gpa: std.mem.Allocator, bat: []const u8, args: []const []const u8, env: ?*std.process.EnvMap) !void {
+    const argv = try gpa.alloc([]const u8, 1 + args.len);
+    defer gpa.free(argv);
+    argv[0] = bat;
+    @memcpy(argv[1..], args);
 
     const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
 
     const result = try std.process.Child.run(.{
-        .allocator = allocator,
+        .allocator = gpa,
         .env_map = env,
-        .argv = argv.items,
+        .argv = argv,
     });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
 
     try std.testing.expectEqualStrings("", result.stderr);
     var it = std.mem.splitScalar(u8, result.stdout, '\x00');
