@@ -1335,9 +1335,9 @@ test "union field ptr - zero sized field" {
 }
 
 test "packed union in packed struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = packed struct {
         nested: packed union {
@@ -1420,7 +1420,6 @@ test "union reassignment can use previous value" {
 }
 
 test "reinterpreting enum value inside packed union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const U = packed union {
@@ -1549,13 +1548,9 @@ test "packed union field pointer has correct alignment" {
     const bp = &b.u.x;
     const cp = &c.u.x;
 
-    const host_size = switch (builtin.zig_backend) {
-        else => comptime std.math.divCeil(comptime_int, @bitSizeOf(S), 8) catch unreachable,
-        .stage2_x86_64 => @sizeOf(S),
-    };
-    comptime assert(@TypeOf(ap) == *align(4:2:host_size) u20);
-    comptime assert(@TypeOf(bp) == *align(1:2:host_size) u20);
-    comptime assert(@TypeOf(cp) == *align(64:2:host_size) u20);
+    comptime assert(@TypeOf(ap) == *align(4:2:@sizeOf(S)) u20);
+    comptime assert(@TypeOf(bp) == *align(1:2:@sizeOf(S)) u20);
+    comptime assert(@TypeOf(cp) == *align(64:2:@sizeOf(S)) u20);
 
     a.u = .{ .x = 123 };
     b.u = .{ .x = 456 };
@@ -1612,7 +1607,6 @@ test "memset extern union" {
 }
 
 test "memset packed union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const U = packed union {

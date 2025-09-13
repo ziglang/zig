@@ -14,4 +14,4 @@ fn loadv(ptr: anytype) i31 {
 // backend=stage2
 // target=native
 //
-// :10:15: error: unable to determine vector element index of type '*align(16:0:4:?) i31'
+// :5:22: error: vector index not comptime known

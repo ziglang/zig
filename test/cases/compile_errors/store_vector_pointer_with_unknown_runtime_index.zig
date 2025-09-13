@@ -14,4 +14,4 @@ fn storev(ptr: anytype, val: i31) void {
 // backend=stage2
 // target=native
 //
-// :10:8: error: unable to determine vector element index of type '*align(16:0:4:?) i31'
+// :6:15: error: vector index not comptime known

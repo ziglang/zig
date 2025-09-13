@@ -1,8 +1,6 @@
 pub const Foo = enum(c_int) {
     A = Foo.B,
     C = D,
-
-    pub const B = 0;
 };
 export fn entry() void {
     const s: Foo = Foo.E;
@@ -11,7 +9,5 @@ export fn entry() void {
 const D = 1;
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:5: error: dependency loop detected
