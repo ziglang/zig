@@ -1866,18 +1866,26 @@ fn nativeAndCompatible32bit(b: *std.Build, skip_non_native: bool) []const std.Bu
     const host = b.graph.host.result;
     const only_native = (&b.graph.host)[0..1];
     if (skip_non_native) return only_native;
-    const arch32: std.Target.Cpu.Arch = switch (host.cpu.arch) {
-        .x86_64 => .x86,
-        .aarch64 => .arm,
-        .aarch64_be => .armeb,
+    const arch32: std.Target.Cpu.Arch = switch (host.os.tag) {
+        .windows => switch (host.cpu.arch) {
+            .x86_64 => .x86,
+            .aarch64 => .thumb,
+            .aarch64_be => .thumbeb,
+            else => return only_native,
+        },
+        .freebsd => switch (host.cpu.arch) {
+            .aarch64 => .arm,
+            .aarch64_be => .armeb,
+            else => return only_native,
+        },
+        .linux, .netbsd => switch (host.cpu.arch) {
+            .x86_64 => .x86,
+            .aarch64 => .arm,
+            .aarch64_be => .armeb,
+            else => return only_native,
+        },
         else => return only_native,
     };
-    switch (host.os.tag) {
-        .windows => if (arch32.isArm()) return only_native,
-        .macos, .freebsd => if (arch32 == .x86) return only_native,
-        .linux, .netbsd => {},
-        else => return only_native,
-    }
     return b.graph.arena.dupe(std.Build.ResolvedTarget, &.{
         b.graph.host,
         b.resolveTargetQuery(.{ .cpu_arch = arch32, .os_tag = host.os.tag }),
