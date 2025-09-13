@@ -629,10 +629,12 @@ pub fn sortUnstable(
     std.sort.pdq(T, items, context, lessThanFn);
 }
 
-/// TODO: currently this just calls `insertionSortContext`. The block sort implementation
-/// in this file needs to be adapted to use the sort context.
+/// Sorts a range [a, b) using a stable algorithm (maintains relative order of equal elements) with custom context.
+/// This is a lower-level interface for sorting that works with indices instead of slices.
+///
+/// The context must provide lessThan(a_idx, b_idx) and swap(a_idx, b_idx) methods.
 pub fn sortContext(a: usize, b: usize, context: anytype) void {
-    std.sort.insertionContext(a, b, context);
+    std.sort.blockContext(a, b, context);
 }
 
 /// Sorts a range [a, b) using an unstable algorithm with custom context.
