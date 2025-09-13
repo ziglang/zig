@@ -7,6 +7,7 @@ const math = std.math;
 pub const Mode = enum { stable, unstable };
 
 pub const block = @import("sort/block.zig").block;
+pub const blockContext = @import("sort/block.zig").blockContext;
 pub const pdq = @import("sort/pdq.zig").pdq;
 pub const pdqContext = @import("sort/pdq.zig").pdqContext;
 
@@ -159,7 +160,7 @@ const sort_funcs = &[_]fn (comptime type, anytype, anytype, comptime anytype) vo
 };
 
 const context_sort_funcs = &[_]fn (usize, usize, anytype) void{
-    // blockContext,
+    blockContext,
     pdqContext,
     insertionContext,
     heapContext,
