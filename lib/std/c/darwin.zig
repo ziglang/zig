@@ -4,6 +4,7 @@ const native_arch = builtin.target.cpu.arch;
 const assert = std.debug.assert;
 const AF = std.c.AF;
 const PROT = std.c.PROT;
+const caddr_t = std.c.caddr_t;
 const fd_t = std.c.fd_t;
 const iovec_const = std.posix.iovec_const;
 const mode_t = std.c.mode_t;
@@ -1317,8 +1318,6 @@ pub const PT = enum(c_int) {
     DENY_ATTACH = 31,
     _,
 };
-
-pub const caddr_t = ?[*]u8;
 
 pub extern "c" fn ptrace(request: PT, pid: pid_t, addr: caddr_t, data: c_int) c_int;
 
