@@ -171,6 +171,7 @@ pub fn parseInfoStream(self: *Pdb) !void {
     const string_table_index = str_tab_index: {
         const name_bytes_len = try reader.takeInt(u32, .little);
         const name_bytes = try reader.readAlloc(gpa, name_bytes_len);
+        defer gpa.free(name_bytes);
 
         const HashTableHeader = extern struct {
             size: u32,
