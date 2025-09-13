@@ -505,23 +505,14 @@ pub fn DebugAllocator(comptime config: Config) type {
             return if (leaks) .leak else .ok;
         }
 
-        fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
-            if (stack_n == 0) return;
-            @memset(addresses, 0);
-            var stack_trace: StackTrace = .{
-                .instruction_addresses = addresses,
-                .index = 0,
-            };
-            std.debug.captureStackTrace(first_trace_addr, &stack_trace);
+        fn collectStackTrace(first_trace_addr: usize, addr_buf: *[stack_n]usize) void {
+            const st = std.debug.captureCurrentStackTrace(.{ .first_address = first_trace_addr }, addr_buf);
+            @memset(addr_buf[@min(st.index, addr_buf.len)..], 0);
         }
 
         fn reportDoubleFree(ret_addr: usize, alloc_stack_trace: StackTrace, free_stack_trace: StackTrace) void {
-            var addresses: [stack_n]usize = @splat(0);
-            var second_free_stack_trace: StackTrace = .{
-                .instruction_addresses = &addresses,
-                .index = 0,
-            };
-            std.debug.captureStackTrace(ret_addr, &second_free_stack_trace);
+            var addr_buf: [stack_n]usize = undefined;
+            const second_free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
             log.err("Double free detected. Allocation: {f} First free: {f} Second free: {f}", .{
                 alloc_stack_trace, free_stack_trace, second_free_stack_trace,
             });
@@ -562,12 +553,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
 
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                var free_stack_trace: StackTrace = .{
-                    .instruction_addresses = &addresses,
-                    .index = 0,
-                };
-                std.debug.captureStackTrace(ret_addr, &free_stack_trace);
+                var addr_buf: [stack_n]usize = undefined;
+                const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
                 log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
@@ -672,12 +659,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
 
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                var free_stack_trace = StackTrace{
-                    .instruction_addresses = &addresses,
-                    .index = 0,
-                };
-                std.debug.captureStackTrace(ret_addr, &free_stack_trace);
+                var addr_buf: [stack_n]usize = undefined;
+                const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
                 log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
@@ -900,12 +883,8 @@ pub fn DebugAllocator(comptime config: Config) type {
                 if (requested_size == 0) @panic("Invalid free");
                 const slot_alignment = bucket.log2PtrAligns(slot_count)[slot_index];
                 if (old_memory.len != requested_size or alignment != slot_alignment) {
-                    var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                    var free_stack_trace: StackTrace = .{
-                        .instruction_addresses = &addresses,
-                        .index = 0,
-                    };
-                    std.debug.captureStackTrace(return_address, &free_stack_trace);
+                    var addr_buf: [stack_n]usize = undefined;
+                    const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &addr_buf);
                     if (old_memory.len != requested_size) {
                         log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                             requested_size,
@@ -999,12 +978,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             if (requested_size == 0) @panic("Invalid free");
             const slot_alignment = bucket.log2PtrAligns(slot_count)[slot_index];
             if (memory.len != requested_size or alignment != slot_alignment) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                var free_stack_trace: StackTrace = .{
-                    .instruction_addresses = &addresses,
-                    .index = 0,
-                };
-                std.debug.captureStackTrace(return_address, &free_stack_trace);
+                var addr_buf: [stack_n]usize = undefined;
+                const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &addr_buf);
                 if (memory.len != requested_size) {
                     log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                         requested_size,

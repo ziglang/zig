@@ -95,8 +95,7 @@ pub fn get_DYNAMIC() ?[*]const elf.Dyn {
 pub fn linkmap_iterator(phdrs: []const elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
     _ = phdrs;
     const _DYNAMIC = get_DYNAMIC() orelse {
-        // No PT_DYNAMIC means this is either a statically-linked program or a
-        // badly corrupted dynamically-linked one.
+        // No PT_DYNAMIC means this is a statically-linked non-PIE program.
         return .{ .current = null };
     };
 

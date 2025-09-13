@@ -47,6 +47,7 @@ else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
     else => struct {
+        pub const getcontext = {};
         pub const ucontext_t = void;
         pub const pid_t = void;
         pub const pollfd = void;
@@ -7513,7 +7514,7 @@ pub const UnexpectedError = error{
 pub fn unexpectedErrno(err: E) UnexpectedError {
     if (unexpected_error_tracing) {
         std.debug.print("unexpected errno: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(.{});
     }
     return error.Unexpected;
 }

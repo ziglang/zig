@@ -839,62 +839,75 @@ pub const nlist = extern struct {
 
 pub const nlist_64 = extern struct {
     n_strx: u32,
-    n_type: u8,
+    n_type: packed union {
+        bits: packed struct(u8) {
+            ext: bool,
+            type: enum(u3) {
+                undf = 0,
+                abs = 1,
+                sect = 7,
+                pbud = 6,
+                indr = 5,
+                _,
+            },
+            pext: bool,
+            /// Any non-zero value indicates this is an stab, so the `stab` field should be used.
+            is_stab: u3,
+        },
+        stab: enum(u8) {
+            gsym = N_GSYM,
+            fname = N_FNAME,
+            fun = N_FUN,
+            stsym = N_STSYM,
+            lcsym = N_LCSYM,
+            bnsym = N_BNSYM,
+            ast = N_AST,
+            opt = N_OPT,
+            rsym = N_RSYM,
+            sline = N_SLINE,
+            ensym = N_ENSYM,
+            ssym = N_SSYM,
+            so = N_SO,
+            oso = N_OSO,
+            lsym = N_LSYM,
+            bincl = N_BINCL,
+            sol = N_SOL,
+            params = N_PARAMS,
+            version = N_VERSION,
+            olevel = N_OLEVEL,
+            psym = N_PSYM,
+            eincl = N_EINCL,
+            entry = N_ENTRY,
+            lbrac = N_LBRAC,
+            excl = N_EXCL,
+            rbrac = N_RBRAC,
+            bcomm = N_BCOMM,
+            ecomm = N_ECOMM,
+            ecoml = N_ECOML,
+            leng = N_LENG,
+            _,
+        },
+    },
     n_sect: u8,
-    n_desc: u16,
+    n_desc: packed struct(u16) {
+        _pad0: u3 = 0,
+        arm_thumb_def: bool,
+        referenced_dynamically: bool,
+        /// The meaning of this bit is contextual.
+        /// See `N_DESC_DISCARDED` and `N_NO_DEAD_STRIP`.
+        discarded_or_no_dead_strip: bool,
+        weak_ref: bool,
+        /// The meaning of this bit is contextual.
+        /// See `N_WEAK_DEF` and `N_REF_TO_WEAK`.
+        weak_def_or_ref_to_weak: bool,
+        symbol_resolver: bool,
+        alt_entry: bool,
+        _pad2: u6 = 0,
+    },
     n_value: u64,
 
-    pub fn stab(sym: nlist_64) bool {
-        return N_STAB & sym.n_type != 0;
-    }
-
-    pub fn pext(sym: nlist_64) bool {
-        return N_PEXT & sym.n_type != 0;
-    }
-
-    pub fn ext(sym: nlist_64) bool {
-        return N_EXT & sym.n_type != 0;
-    }
-
-    pub fn sect(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_SECT;
-    }
-
-    pub fn undf(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_UNDF;
-    }
-
-    pub fn indr(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_INDR;
-    }
-
-    pub fn abs(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_ABS;
-    }
-
-    pub fn weakDef(sym: nlist_64) bool {
-        return sym.n_desc & N_WEAK_DEF != 0;
-    }
-
-    pub fn weakRef(sym: nlist_64) bool {
-        return sym.n_desc & N_WEAK_REF != 0;
-    }
-
-    pub fn discarded(sym: nlist_64) bool {
-        return sym.n_desc & N_DESC_DISCARDED != 0;
-    }
-
-    pub fn noDeadStrip(sym: nlist_64) bool {
-        return sym.n_desc & N_NO_DEAD_STRIP != 0;
-    }
-
     pub fn tentative(sym: nlist_64) bool {
-        if (!sym.undf()) return false;
-        return sym.n_value != 0;
+        return sym.n_type.bits.type == .undf and sym.n_value != 0;
     }
 };
 
@@ -2046,7 +2059,7 @@ pub const unwind_info_compressed_second_level_page_header = extern struct {
     // encodings array
 };
 
-pub const UnwindInfoCompressedEntry = packed struct {
+pub const UnwindInfoCompressedEntry = packed struct(u32) {
     funcOffset: u24,
     encodingIndex: u8,
 };

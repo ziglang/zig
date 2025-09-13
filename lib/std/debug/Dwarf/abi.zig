@@ -7,7 +7,7 @@ const Arch = std.Target.Cpu.Arch;
 
 /// Tells whether unwinding for this target is supported by the Dwarf standard.
 ///
-/// See also `std.debug.SelfInfo.supportsUnwinding` which tells whether the Zig
+/// See also `std.debug.SelfInfo.supports_unwinding` which tells whether the Zig
 /// standard library has a working implementation of unwinding for this target.
 pub fn supportsUnwinding(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
@@ -139,7 +139,7 @@ pub fn regBytes(
         };
     }
 
-    if (!std.debug.have_ucontext) return error.ThreadContextNotSupported;
+    if (posix.ucontext_t == void) return error.ThreadContextNotSupported;
 
     const ucontext_ptr = thread_context_ptr;
     return switch (builtin.cpu.arch) {
@@ -347,5 +347,5 @@ pub fn regValueNative(
 ) !*align(1) usize {
     const reg_bytes = try regBytes(thread_context_ptr, reg_number, reg_context);
     if (@sizeOf(usize) != reg_bytes.len) return error.IncompatibleRegisterSize;
-    return mem.bytesAsValue(usize, reg_bytes[0..@sizeOf(usize)]);
+    return @ptrCast(reg_bytes);
 }
