@@ -1178,70 +1178,164 @@ pub fn eql(a: Value, b: Value, ty: Type, zcu: *Zcu) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
-    const ip = &zcu.intern_pool;
+/// If `val` contains a reference to comptime mutable memory,
+/// then reference in question is returned.
+/// Otherwise, `.none` is returned.
+fn findComptimeVarRef(
+    value: Value,
+    zcu: *const Zcu,
+) InternPool.Index {
+    const implementation = struct {
+        // A linked list of every possibly self-referential value visited so far.
+        // This is stack allocated and passed through recursion.
+        const Traversal = struct {
+            prev: ?*const Traversal,
+            val: InternPool.Index,
+        };
 
-    // First, check if the type of the value can mutate comptime var state
-    switch (val.ip_index) {
-        .type_type => return false,
-        else => if (val.typeOf(zcu).toValue().canMutateComptimeVarState(zcu)) {
-            return true;
-        },
-    }
+        /// Does not check the type of `val` for these references.
+        fn inner(
+            val: InternPool.Index,
+            ip: *const InternPool,
+            parents: ?*const Traversal,
+        ) InternPool.Index {
+            switch (val) {
+                // Guard clause to quickly filter out simple values.
+                // Skips iteration of `parents`.
+                else => return .none,
 
-    return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
-        .error_union => |error_union| switch (error_union.val) {
-            .err_name => false,
-            .payload => |payload| Value.fromInterned(payload).canMutateComptimeVarState(zcu),
-        },
-        .ptr => |ptr| switch (ptr.base_addr) {
-            .nav => false, // The value of a Nav can never reference a comptime alloc.
-            .int => false,
-            .comptime_alloc => true, // A comptime alloc is either mutable or references comptime-mutable memory.
-            .comptime_field => true, // Comptime field pointers are comptime-mutable, albeit only to the "correct" value.
-            .eu_payload, .opt_payload => |base| Value.fromInterned(base).canMutateComptimeVarState(zcu),
-            .uav => |uav| Value.fromInterned(uav.val).canMutateComptimeVarState(zcu),
-            .arr_elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(zcu),
-        },
-        .slice => |slice| Value.fromInterned(slice.ptr).canMutateComptimeVarState(zcu),
-        .opt => |opt| switch (opt.val) {
-            .none => false,
-            else => |payload| Value.fromInterned(payload).canMutateComptimeVarState(zcu),
-        },
-        .aggregate => |aggregate| for (aggregate.storage.values()) |elem| {
-            if (Value.fromInterned(elem).canMutateComptimeVarState(zcu)) break true;
-        } else false,
-        .un => |un| Value.fromInterned(un.val).canMutateComptimeVarState(zcu),
-        .opt_type, .undef => |parent_ty| Value.fromInterned(parent_ty).canMutateComptimeVarState(zcu),
-        .vector_type => |vector| Value.fromInterned(vector.child).canMutateComptimeVarState(zcu),
-        .error_union_type => |err_union| Value.fromInterned(err_union.payload_type).canMutateComptimeVarState(zcu),
-        .tuple_type => |tuple| for (tuple.values.get(ip), tuple.types.get(ip)) |default, ty| {
-            if (default != .none and Value.fromInterned(default).canMutateComptimeVarState(zcu)) break true;
-            if (ty != .none and Value.fromInterned(ty).canMutateComptimeVarState(zcu)) break true;
-        } else false,
-        .union_type => for (ip.loadUnionType(val.toIntern()).field_types.get(ip)) |ty| {
-            if (ty != .none and Value.fromInterned(ty).canMutateComptimeVarState(zcu)) break true;
-        } else false,
-        .func_type => |func| for (func.param_types.get(ip)) |param_ty| {
-            if (param_ty != .none and Value.fromInterned(param_ty).canMutateComptimeVarState(zcu)) break true;
-        } else func.return_type != .none and Value.fromInterned(func.return_type).canMutateComptimeVarState(zcu),
-        inline .array_type, .ptr_type => |span| check: {
-            if (Value.fromInterned(span.child).canMutateComptimeVarState(zcu)) break :check true;
-            break :check span.sentinel != .none and Value.fromInterned(span.sentinel).canMutateComptimeVarState(zcu);
-        },
-        .struct_type => check: {
-            const struct_ty = ip.loadStructType(val.toIntern());
-            const field_tys = struct_ty.field_types.get(ip);
-            const field_vals = struct_ty.field_inits.get(ip);
-            break :check for (field_tys, 0..) |ty, i| {
-                if (ty != .none and Value.fromInterned(ty).canMutateComptimeVarState(zcu)) break true;
-                if (field_vals.len == 0) continue;
-                const default = field_vals[i];
-                if (default != .none and Value.fromInterned(default).canMutateComptimeVarState(zcu)) break true;
-            } else false;
-        },
-        else => false,
+                .none => unreachable,
+
+                _,
+                .ptr_const_comptime_int_type,
+                .ptr_usize_type,
+                .manyptr_const_u8_sentinel_0_type,
+                .manyptr_const_u8_type,
+                .manyptr_u8_type,
+                .slice_const_u8_sentinel_0_type,
+                .slice_const_u8_type,
+                => {},
+            }
+
+            // Check every value which has already been traversed,
+            // and avoid infinite recursion with self-referential values.
+            var cur = parents;
+            while (cur) |node| {
+                if (node.val == val) {
+                    return .none;
+                }
+                cur = node.prev;
+            }
+
+            // The next node in our linked list of parents.
+            // Note thay when it is impossible for `val` to create a cyclical reference,
+            // we simply pass the original `parents` to eliminate unnecesary iteration.
+            const traversed: Traversal = .{
+                .prev = parents,
+                .val = val,
+            };
+
+            return switch (ip.indexToKey(val)) {
+                .ptr => |ptr| switch (ptr.base_addr) {
+                    .nav => .none, // The value of a Nav can never reference a comptime alloc.
+                    .int => .none,
+                    .comptime_alloc => val, // A comptime alloc is either mutable or references comptime-mutable memory.
+                    .comptime_field => val, // Comptime field pointers are comptime-mutable, albeit only to the "correct" value.
+                    .eu_payload, .opt_payload => |base| inner(base, ip, parents),
+                    .uav => |uav| inner(uav.val, ip, parents),
+                    .arr_elem, .field => |base_index| inner(base_index.base, ip, parents),
+                },
+                .slice => |slice| inner(slice.ptr, ip, parents),
+                .error_union => |error_union| switch (error_union.val) {
+                    .err_name => .none,
+                    .payload => |payload| inner(payload, ip, parents),
+                },
+                .opt => |opt| switch (opt.val) {
+                    .none => .none,
+                    else => |payload| inner(payload, ip, parents),
+                },
+                .aggregate => |aggregate| for (aggregate.storage.values()) |elem| {
+                    // An aggregate can be self referential by containing a pointer to itself,
+                    // so we
+                    switch (inner(elem, ip, &traversed)) {
+                        .none => {},
+                        else => |result| break result,
+                    }
+                } else .none,
+                .un => |un| inner(un.val, ip, &traversed),
+                .opt_type => |parent_ty| inner(parent_ty, ip, parents),
+                .vector_type => |vector| inner(vector.child, ip, parents),
+                .error_union_type => |eu| inner(eu.payload_type, ip, parents),
+                .tuple_type => |tup| for (tup.values.get(ip), tup.types.get(ip)) |default, ty| {
+                    // A tuple type can be self referential by containing a
+                    if (default != .none) {
+                        const default_check = inner(default, ip, &traversed);
+                        if (default_check != .none) break default_check;
+                    }
+                    if (ty != .none) {
+                        const ty_check = inner(ty, ip, &traversed);
+                        if (ty_check != .none) break ty_check;
+                    }
+                } else .none,
+                .union_type => for (ip.loadUnionType(val).field_types.get(ip)) |ty| {
+                    if (ty != .none) {
+                        const ty_check = inner(ty, ip, &traversed);
+                        if (ty_check != .none) break ty_check;
+                    }
+                } else .none,
+                .func_type => |func| for (func.param_types.get(ip)) |param_ty| {
+                    if (param_ty != .none) {
+                        const param_check = inner(param_ty, ip, &traversed);
+                        if (param_check != .none) break param_check;
+                    }
+                } else switch (func.return_type) {
+                    .none => .none,
+                    else => |ret| inner(ret, ip, &traversed),
+                },
+                .array_type => |array| check: {
+                    if (array.sentinel != .none) {
+                        const sent_check = inner(array.sentinel, ip, &traversed);
+                        if (sent_check != .none) break :check sent_check;
+                    }
+                    break :check inner(array.child, ip, &traversed);
+                },
+                .ptr_type => |ptr| check: {
+                    if (ptr.sentinel != .none) {
+                        const sent_check = inner(ptr.sentinel, ip, &traversed);
+                        if (sent_check != .none) break :check sent_check;
+                    }
+                    break :check inner(ptr.child, ip, &traversed);
+                },
+                .struct_type => check: {
+                    const struct_ty = ip.loadStructType(val);
+                    const field_tys = struct_ty.field_types.get(ip);
+                    const field_vals = struct_ty.field_inits.get(ip);
+                    break :check for (field_vals) |default| {
+                        if (default != .none) {
+                            const default_check = inner(default, ip, &traversed);
+                            if (default_check != .none) break default_check;
+                        }
+                    } else for (field_tys) |ty| {
+                        if (ty != .none) {
+                            const ty_check = inner(ty, ip, &traversed);
+                            if (ty_check != .none) break ty_check;
+                        }
+                    } else .none;
+                },
+                else => .none,
+            };
+        }
     };
+
+    const ip = &zcu.intern_pool;
+    return switch (implementation.inner(value.toIntern(), ip, null)) {
+        .none => implementation.inner(value.typeOf(zcu).toIntern(), ip, null),
+        else => |result| result,
+    };
+}
+
+pub fn canMutateComptimeVarState(value: Value, zcu: *const Zcu) bool {
+    return value.findComptimeVarRef(zcu) != .none;
 }
 
 /// Gets the `Nav` referenced by this pointer.  If the pointer does not point

@@ -36996,13 +36996,25 @@ fn notePathToComptimeAllocPtr(
 }
 
 fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayListUnmanaged(u8)) Allocator.Error!Value {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
     const arena = sema.arena;
+    const zcu = sema.pt.zcu;
+    const ip = &zcu.intern_pool;
     assert(val.canMutateComptimeVarState(zcu));
+
     value_path: switch (ip.indexToKey(val.toIntern())) {
-        .ptr => if (sema.isComptimeMutablePtr(val)) return val,
+        .ptr => |ptr| switch (ptr.base_addr) {
+            .nav, .int => unreachable,
+            .comptime_alloc, .comptime_field => return val,
+            .eu_payload, .opt_payload => |base| {
+                const baseval: Value = .fromInterned(base);
+                return sema.notePathToComptimeAllocPtrInner(baseval, path);
+            },
+            .uav => |uav| return sema.notePathToComptimeAllocPtrInner(.fromInterned(uav.val), path),
+            .arr_elem, .field => |base_index| {
+                const baseval: Value = .fromInterned(base_index.base);
+                return sema.notePathToComptimeAllocPtrInner(baseval, path);
+            },
+        },
         .error_union => |eu| {
             const payload: Value = .fromInterned(eu.val.payload);
             if (payload.canMutateComptimeVarState(zcu)) {
@@ -37019,7 +37031,9 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
             }
         },
         .opt => |opt| {
-            if (opt.val != .none and Value.fromInterned(opt.val).canMutateComptimeVarState(zcu)) {
+            if (opt.val == .none) break :value_path;
+            const opt_payload: Value = .fromInterned(opt.val);
+            if (opt_payload.canMutateComptimeVarState(zcu)) {
                 try path.appendSlice(arena, ".?");
                 return sema.notePathToComptimeAllocPtrInner(.fromInterned(opt.val), path);
             }
@@ -37040,13 +37054,14 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
             const elem: InternPool.Index, const elem_idx: usize = switch (agg.storage) {
                 .bytes => break :value_path,
                 .repeated_elem => |elem| check_repeat: {
-                    if (Value.fromInterned(elem).canMutateComptimeVarState(zcu)) {
+                    const elem_val: Value = .fromInterned(elem);
+                    if (elem_val.canMutateComptimeVarState(zcu)) {
                         break :check_repeat .{ elem, 0 };
-                    }
-                    break :value_path;
+                    } else break :value_path;
                 },
                 .elems => |elems| for (elems, 0..) |elem, elem_idx| {
-                    if (Value.fromInterned(elem).canMutateComptimeVarState(zcu)) {
+                    const elem_val: Value = .fromInterned(elem);
+                    if (elem_val.canMutateComptimeVarState(zcu)) {
                         break .{ elem, elem_idx };
                     }
                 } else break :value_path,
@@ -37065,12 +37080,12 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
                     const name = agg_ty.structFieldName(elem_idx, zcu).unwrap().?;
                     try path.print(arena, ".{f}", .{name.fmt(ip)});
                 },
-                else => {},
+                else => unreachable,
             }
             return sema.notePathToComptimeAllocPtrInner(.fromInterned(elem), path);
         },
         .struct_type => {
-            // Since the fields are displayed by their @typeInfo index and neve called by name,
+            // Since the fields are displayed by their @typeInfo index and never called by name,
             // we can share implementations with tuple types
             const struct_ty = ip.loadStructType(val.toIntern());
             continue :value_path .{
@@ -37139,7 +37154,6 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
         },
         .func_type => |func| {
             try path.insertSlice(arena, 0, "@typeInfo(");
-
             for (func.param_types.get(ip), 0..) |param_ty, i| {
                 if (param_ty != .none) {
                     const param: Value = .fromInterned(param_ty);
@@ -37149,7 +37163,6 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
                     }
                 }
             }
-
             try path.appendSlice(arena, ").@\"fn\".return_type.?");
             return sema.notePathToComptimeAllocPtrInner(.fromInterned(func.return_type), path);
         },
@@ -37166,9 +37179,10 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
         else => {},
     }
 
+    const ty = val.typeOf(zcu).toValue();
     try path.insertSlice(arena, 0, "@TypeOf(");
     try path.append(arena, ')');
-    return sema.notePathToComptimeAllocPtrInner(val.typeOf(zcu).toValue(), path);
+    return sema.notePathToComptimeAllocPtrInner(ty, path);
 }
 
 /// Returns true if any value contained in `val` is undefined.
