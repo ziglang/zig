@@ -1576,7 +1576,7 @@ pub fn connect(
     host: []const u8,
     port: u16,
     protocol: Protocol,
-) ConnectError!*Connection {
+) ConnectTcpError!*Connection {
     const proxy = switch (protocol) {
         .plain => client.http_proxy,
         .tls => client.https_proxy,
