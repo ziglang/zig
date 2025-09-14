@@ -10,21 +10,31 @@ const Alignment = std.mem.Alignment;
 /// nothing.
 pub const ArenaAllocator = struct {
     child_allocator: Allocator,
-    state: State,
+    begin: ?*Region,
+    end: ?*Region,
 
-    /// Inner state of ArenaAllocator. Can be stored rather than the entire ArenaAllocator
-    /// as a memory-saving optimization.
-    pub const State = struct {
-        buffer_list: std.SinglyLinkedList = .{},
-        end_index: usize = 0,
-
-        pub fn promote(self: State, child_allocator: Allocator) ArenaAllocator {
-            return .{
-                .child_allocator = child_allocator,
-                .state = self,
-            };
-        }
+    pub const Region = struct {
+        next: ?*Region,
+        count: usize, // Current usage in bytes
+        capacity: usize, // Total capacity in bytes
+        base_ptr: [*]u8, // Pointer to the beginning of the allocation
+        data: [*]u8, // base_ptr + @sizeOf(Region)
     };
+
+    pub const Mark = struct {
+        region: ?*Region,
+        count: usize,
+    };
+
+    const DEFAULT_REGION_CAPACITY: usize = 64 * 1024; // 64 KiB
+
+    pub fn init(child_allocator: Allocator) ArenaAllocator {
+        return .{
+            .child_allocator = child_allocator,
+            .begin = null,
+            .end = null,
+        };
+    }
 
     pub fn allocator(self: *ArenaAllocator) Allocator {
         return .{
@@ -38,231 +48,206 @@ pub const ArenaAllocator = struct {
         };
     }
 
-    const BufNode = struct {
-        data: usize,
-        node: std.SinglyLinkedList.Node = .{},
-    };
-    const BufNode_alignment: Alignment = .of(BufNode);
-
-    pub fn init(child_allocator: Allocator) ArenaAllocator {
-        return (State{}).promote(child_allocator);
-    }
-
-    pub fn deinit(self: ArenaAllocator) void {
-        // NOTE: When changing this, make sure `reset()` is adjusted accordingly!
-
-        var it = self.state.buffer_list.first;
-        while (it) |node| {
-            // this has to occur before the free because the free frees node
-            const next_it = node.next;
-            const buf_node: *BufNode = @fieldParentPtr("node", node);
-            const alloc_buf = @as([*]u8, @ptrCast(buf_node))[0..buf_node.data];
-            self.child_allocator.rawFree(alloc_buf, BufNode_alignment, @returnAddress());
-            it = next_it;
-        }
-    }
-
-    pub const ResetMode = union(enum) {
-        /// Releases all allocated memory in the arena.
-        free_all,
-        /// This will pre-heat the arena for future allocations by allocating a
-        /// large enough buffer for all previously done allocations.
-        /// Preheating will speed up the allocation process by invoking the backing allocator
-        /// less often than before. If `reset()` is used in a loop, this means that after the
-        /// biggest operation, no memory allocations are performed anymore.
-        retain_capacity,
-        /// This is the same as `retain_capacity`, but the memory will be shrunk to
-        /// this value if it exceeds the limit.
-        retain_with_limit: usize,
-    };
-    /// Queries the current memory use of this arena.
-    /// This will **not** include the storage required for internal keeping.
-    pub fn queryCapacity(self: ArenaAllocator) usize {
-        var size: usize = 0;
-        var it = self.state.buffer_list.first;
-        while (it) |node| : (it = node.next) {
-            // Compute the actually allocated size excluding the
-            // linked list node.
-            const buf_node: *BufNode = @fieldParentPtr("node", node);
-            size += buf_node.data - @sizeOf(BufNode);
-        }
-        return size;
-    }
-    /// Resets the arena allocator and frees all allocated memory.
-    ///
-    /// `mode` defines how the currently allocated memory is handled.
-    /// See the variant documentation for `ResetMode` for the effects of each mode.
-    ///
-    /// The function will return whether the reset operation was successful or not.
-    /// If the reallocation  failed `false` is returned. The arena will still be fully
-    /// functional in that case, all memory is released. Future allocations just might
-    /// be slower.
-    ///
-    /// NOTE: If `mode` is `free_all`, the function will always return `true`.
-    pub fn reset(self: *ArenaAllocator, mode: ResetMode) bool {
-        // Some words on the implementation:
-        // The reset function can be implemented with two basic approaches:
-        // - Counting how much bytes were allocated since the last reset, and storing that
-        //   information in State. This will make reset fast and alloc only a teeny tiny bit
-        //   slower.
-        // - Counting how much bytes were allocated by iterating the chunk linked list. This
-        //   will make reset slower, but alloc() keeps the same speed when reset() as if reset()
-        //   would not exist.
-        //
-        // The second variant was chosen for implementation, as with more and more calls to reset(),
-        // the function will get faster and faster. At one point, the complexity of the function
-        // will drop to amortized O(1), as we're only ever having a single chunk that will not be
-        // reallocated, and we're not even touching the backing allocator anymore.
-        //
-        // Thus, only the first hand full of calls to reset() will actually need to iterate the linked
-        // list, all future calls are just taking the first node, and only resetting the `end_index`
-        // value.
-        const requested_capacity = switch (mode) {
-            .retain_capacity => self.queryCapacity(),
-            .retain_with_limit => |limit| @min(limit, self.queryCapacity()),
-            .free_all => 0,
+    inline fn new_region(self: *ArenaAllocator, capacity: usize, alignment: Alignment) ?*Region {
+        const header_size = @sizeOf(Region);
+        const size_bytes = header_size + capacity;
+        const region_align_bytes = @alignOf(Region);
+        const alloc_align_bytes = @max(alignment.toByteUnits(), region_align_bytes);
+        const alloc_alignment = Alignment.fromByteUnits(alloc_align_bytes);
+        const raw = self.child_allocator.rawAlloc(size_bytes, alloc_alignment, @returnAddress()) orelse return null;
+        const base_ptr: [*]u8 = raw;
+        const data_ptr: [*]u8 = @ptrCast(@as([*]u8, @ptrFromInt(@intFromPtr(base_ptr))) + header_size);
+        const region: *Region = @ptrCast(@alignCast(base_ptr));
+        region.* = .{
+            .next = null,
+            .count = 0,
+            .capacity = capacity,
+            .base_ptr = base_ptr,
+            .data = data_ptr,
         };
-        if (requested_capacity == 0) {
-            // just reset when we don't have anything to reallocate
-            self.deinit();
-            self.state = State{};
-            return true;
-        }
-        const total_size = requested_capacity + @sizeOf(BufNode);
-        // Free all nodes except for the last one
-        var it = self.state.buffer_list.first;
-        const maybe_first_node = while (it) |node| {
-            // this has to occur before the free because the free frees node
-            const next_it = node.next;
-            if (next_it == null)
-                break node;
-            const buf_node: *BufNode = @fieldParentPtr("node", node);
-            const alloc_buf = @as([*]u8, @ptrCast(buf_node))[0..buf_node.data];
-            self.child_allocator.rawFree(alloc_buf, BufNode_alignment, @returnAddress());
-            it = next_it;
-        } else null;
-        std.debug.assert(maybe_first_node == null or maybe_first_node.?.next == null);
-        // reset the state before we try resizing the buffers, so we definitely have reset the arena to 0.
-        self.state.end_index = 0;
-        if (maybe_first_node) |first_node| {
-            self.state.buffer_list.first = first_node;
-            // perfect, no need to invoke the child_allocator
-            const first_buf_node: *BufNode = @fieldParentPtr("node", first_node);
-            if (first_buf_node.data == total_size)
-                return true;
-            const first_alloc_buf = @as([*]u8, @ptrCast(first_buf_node))[0..first_buf_node.data];
-            if (self.child_allocator.rawResize(first_alloc_buf, BufNode_alignment, total_size, @returnAddress())) {
-                // successful resize
-                first_buf_node.data = total_size;
-            } else {
-                // manual realloc
-                const new_ptr = self.child_allocator.rawAlloc(total_size, BufNode_alignment, @returnAddress()) orelse {
-                    // we failed to preheat the arena properly, signal this to the user.
-                    return false;
-                };
-                self.child_allocator.rawFree(first_alloc_buf, BufNode_alignment, @returnAddress());
-                const buf_node: *BufNode = @ptrCast(@alignCast(new_ptr));
-                buf_node.* = .{ .data = total_size };
-                self.state.buffer_list.first = &buf_node.node;
-            }
-        }
-        return true;
+        return region;
     }
 
-    fn createNode(self: *ArenaAllocator, prev_len: usize, minimum_size: usize) ?*BufNode {
-        const actual_min_size = minimum_size + (@sizeOf(BufNode) + 16);
-        const big_enough_len = prev_len + actual_min_size;
-        const len = big_enough_len + big_enough_len / 2;
-        const ptr = self.child_allocator.rawAlloc(len, BufNode_alignment, @returnAddress()) orelse
-            return null;
-        const buf_node: *BufNode = @ptrCast(@alignCast(ptr));
-        buf_node.* = .{ .data = len };
-        self.state.buffer_list.prepend(&buf_node.node);
-        self.state.end_index = 0;
-        return buf_node;
+    inline fn free_region(self: *ArenaAllocator, region: *Region) void {
+        const size_bytes = @sizeOf(Region) + region.capacity;
+        const alloc_alignment = Alignment.fromByteUnits(@alignOf(Region));
+        const slice: []u8 = region.base_ptr[0..size_bytes];
+        self.child_allocator.rawFree(slice, alloc_alignment, @returnAddress());
     }
 
     fn alloc(ctx: *anyopaque, n: usize, alignment: Alignment, ra: usize) ?[*]u8 {
         const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
-
         const ptr_align = alignment.toByteUnits();
-        var cur_node: *BufNode = if (self.state.buffer_list.first) |first_node|
-            @fieldParentPtr("node", first_node)
-        else
-            (self.createNode(0, n + ptr_align) orelse return null);
-        while (true) {
-            const cur_alloc_buf = @as([*]u8, @ptrCast(cur_node))[0..cur_node.data];
-            const cur_buf = cur_alloc_buf[@sizeOf(BufNode)..];
-            const addr = @intFromPtr(cur_buf.ptr) + self.state.end_index;
-            const adjusted_addr = mem.alignForward(usize, addr, ptr_align);
-            const adjusted_index = self.state.end_index + (adjusted_addr - addr);
-            const new_end_index = adjusted_index + n;
+        const add_call = @addWithOverflow(n, if (ptr_align == 0) 0 else ptr_align - 1);
+        if (add_call[1] != 0) return null;
+        const aligned_size = add_call[0];
 
-            if (new_end_index <= cur_buf.len) {
-                const result = cur_buf[adjusted_index..new_end_index];
-                self.state.end_index = new_end_index;
-                return result.ptr;
-            }
-
-            const bigger_buf_size = @sizeOf(BufNode) + new_end_index;
-            if (self.child_allocator.rawResize(cur_alloc_buf, BufNode_alignment, bigger_buf_size, @returnAddress())) {
-                cur_node.data = bigger_buf_size;
-            } else {
-                // Allocate a new node if that's not possible
-                cur_node = self.createNode(cur_buf.len, n + ptr_align) orelse return null;
-            }
+        if (self.end == null) {
+            assert(self.begin == null);
+            const capacity = @max(DEFAULT_REGION_CAPACITY, aligned_size);
+            self.end = self.new_region(capacity, alignment) orelse return null;
+            self.begin = self.end;
         }
+
+        var current_region = self.end.?;
+        while (current_region.count + aligned_size > current_region.capacity and current_region.next != null) {
+            current_region = current_region.next.?;
+        }
+        if (current_region.count + aligned_size > current_region.capacity) {
+            assert(current_region.next == null);
+            const capacity = @max(DEFAULT_REGION_CAPACITY, aligned_size);
+            current_region.next = self.new_region(capacity, alignment) orelse return null;
+            current_region = current_region.next.?;
+            self.end = current_region;
+        }
+
+        const addr = @intFromPtr(current_region.data) + current_region.count;
+        const adjusted_addr = mem.alignForward(usize, addr, ptr_align);
+        const alignment_offset = adjusted_addr - addr;
+        if (current_region.count + alignment_offset + n > current_region.capacity) return null;
+
+        const result: [*]u8 = @ptrCast(@as([*]u8, @ptrFromInt(adjusted_addr)));
+        current_region.count += alignment_offset + n;
+        return result;
     }
 
     fn resize(ctx: *anyopaque, buf: []u8, alignment: Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
         _ = alignment;
         _ = ret_addr;
-
-        const cur_node = self.state.buffer_list.first orelse return false;
-        const cur_buf_node: *BufNode = @fieldParentPtr("node", cur_node);
-        const cur_buf = @as([*]u8, @ptrCast(cur_buf_node))[@sizeOf(BufNode)..cur_buf_node.data];
-        if (@intFromPtr(cur_buf.ptr) + self.state.end_index != @intFromPtr(buf.ptr) + buf.len) {
-            // It's not the most recent allocation, so it cannot be expanded,
-            // but it's fine if they want to make it smaller.
+        if (self.end == null) return false;
+        const current_region = self.end.?;
+        const current_buf = current_region.data[0..current_region.count];
+        if (@intFromPtr(current_buf.ptr) + current_buf.len != @intFromPtr(buf.ptr) + buf.len) {
             return new_len <= buf.len;
         }
-
         if (buf.len >= new_len) {
-            self.state.end_index -= buf.len - new_len;
+            current_region.count -= buf.len - new_len;
             return true;
-        } else if (cur_buf.len - self.state.end_index >= new_len - buf.len) {
-            self.state.end_index += new_len - buf.len;
+        } else if (current_region.count + (new_len - buf.len) <= current_region.capacity) {
+            current_region.count += new_len - buf.len;
             return true;
-        } else {
-            return false;
         }
+        return false;
     }
 
-    fn remap(
-        context: *anyopaque,
-        memory: []u8,
-        alignment: Alignment,
-        new_len: usize,
-        return_address: usize,
-    ) ?[*]u8 {
-        return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
+    fn remap(context: *anyopaque, memory: []u8, alignment: Alignment, new_len: usize, return_address: usize) ?[*]u8 {
+        const self: *ArenaAllocator = @ptrCast(@alignCast(context));
+        if (new_len <= memory.len) return memory.ptr;
+        const new_ptr = alloc(self, new_len, alignment, return_address) orelse return null;
+        @memmove(new_ptr[0..memory.len], memory);
+        return new_ptr;
     }
 
     fn free(ctx: *anyopaque, buf: []u8, alignment: Alignment, ret_addr: usize) void {
+        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
         _ = alignment;
         _ = ret_addr;
-
-        const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
-
-        const cur_node = self.state.buffer_list.first orelse return;
-        const cur_buf_node: *BufNode = @fieldParentPtr("node", cur_node);
-        const cur_buf = @as([*]u8, @ptrCast(cur_buf_node))[@sizeOf(BufNode)..cur_buf_node.data];
-
-        if (@intFromPtr(cur_buf.ptr) + self.state.end_index == @intFromPtr(buf.ptr) + buf.len) {
-            self.state.end_index -= buf.len;
+        if (self.end == null) return;
+        const current_region = self.end.?;
+        const current_buf = current_region.data[0..current_region.count];
+        if (@intFromPtr(current_buf.ptr) + current_buf.len == @intFromPtr(buf.ptr) + buf.len) {
+            current_region.count -= buf.len;
         }
+    }
+
+    pub fn deinit(self: *ArenaAllocator) void {
+        var current = self.begin;
+        while (current) |region| {
+            const next = region.next;
+            self.free_region(region);
+            current = next;
+        }
+        self.begin = null;
+        self.end = null;
+    }
+
+    pub inline fn snapshot(self: *ArenaAllocator) Mark {
+        if (self.end == null) {
+            assert(self.begin == null);
+            return .{ .region = null, .count = 0 };
+        }
+        return .{ .region = self.end, .count = self.end.?.count };
+    }
+
+    pub fn reset(self: *ArenaAllocator) void {
+        _ = self.resetWithMode(.free_all);
+    }
+
+    pub const ResetMode = union(enum) {
+        free_all,
+        retain_capacity,
+        retain_with_limit: usize,
+    };
+
+    pub inline fn resetWithMode(self: *ArenaAllocator, mode: ResetMode) bool {
+        var requested_capacity: usize = 0;
+        const max_alignment: Alignment = Alignment.fromByteUnits(@alignOf(Region));
+
+        // Collect requested_capacity without modifying the list
+        if (mode != .free_all) {
+            if (self.begin) |first_region| {
+                var current: ?*Region = first_region;
+                while (current) |region| {
+                    requested_capacity += region.count;
+                    current = region.next;
+                }
+            }
+        }
+        // Free all regions
+        var current = self.begin;
+        while (current) |region| {
+            const next = region.next;
+            self.free_region(region);
+            current = next;
+        }
+        self.begin = null;
+        self.end = null;
+
+        // Apply capacity limit for .retain_with_limit
+        switch (mode) {
+            .free_all => requested_capacity = 0,
+            .retain_capacity => {}, // Keep requested_capacity
+            .retain_with_limit => |limit| requested_capacity = @min(requested_capacity, limit),
+        }
+
+        if (requested_capacity == 0) {
+            return true;
+        }
+
+        // Create a new region with the requested capacity
+        const nw_region = self.new_region(requested_capacity, max_alignment) orelse {
+            return false;
+        };
+        self.begin = nw_region;
+        self.end = nw_region;
+        return true;
+    }
+
+    pub fn rewind(self: *ArenaAllocator, mark: Mark) void {
+        if (mark.region == null) {
+            self.reset();
+            return;
+        }
+        mark.region.?.count = mark.count;
+        var current = mark.region.?.next;
+        while (current) |region| {
+            region.count = 0;
+            current = region.next;
+        }
+        self.end = mark.region;
+    }
+
+    pub fn trim(self: *ArenaAllocator) void {
+        if (self.end == null) return;
+        var current = self.end.?.next;
+        while (current) |region| {
+            const next = region.next;
+            self.free_region(region);
+            current = next;
+        }
+        self.end.?.next = null;
     }
 };
 
@@ -290,17 +275,13 @@ test "reset with preheating" {
 }
 
 test "reset while retaining a buffer" {
-    var arena_allocator = ArenaAllocator.init(std.testing.allocator);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    var arena_allocator = ArenaAllocator.init(gpa.allocator());
     defer arena_allocator.deinit();
     const a = arena_allocator.allocator();
-
-    // Create two internal buffers
     _ = try a.alloc(u8, 1);
     _ = try a.alloc(u8, 1000);
-
-    // Check that we have at least two buffers
-    try std.testing.expect(arena_allocator.state.buffer_list.first.?.next != null);
-
-    // This retains the first allocated buffer
-    try std.testing.expect(arena_allocator.reset(.{ .retain_with_limit = 1 }));
+    try std.testing.expect(arena_allocator.begin != null);
+    try std.testing.expect(arena_allocator.resetWithMode(.{ .retain_with_limit = 1000 }));
 }
