@@ -1732,7 +1732,7 @@ pub const Writer = struct {
     ) std.Io.Writer.FileError!usize {
         const reader_buffered = file_reader.interface.buffered();
         if (reader_buffered.len >= @intFromEnum(limit))
-            return sendFileBuffered(io_w, file_reader, reader_buffered);
+            return sendFileBuffered(io_w, file_reader, limit.slice(reader_buffered));
         const writer_buffered = io_w.buffered();
         const file_limit = @intFromEnum(limit) - reader_buffered.len;
         const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));

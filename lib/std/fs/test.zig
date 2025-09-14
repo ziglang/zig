@@ -1525,6 +1525,41 @@ test "sendfile" {
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
 
+test "sendfile with buffered data" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+
+    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    defer dir.close();
+
+    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writeAll("AAAABBBB");
+
+    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    var src_buffer: [32]u8 = undefined;
+    var file_reader = src_file.reader(&src_buffer);
+
+    try file_reader.seekTo(0);
+    try file_reader.interface.fill(8);
+
+    var fallback_buffer: [32]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+
+    try std.testing.expectEqual(4, try file_writer.interface.sendFileAll(&file_reader, .limited(4)));
+
+    var written_buf: [8]u8 = undefined;
+    const amt = try dest_file.preadAll(&written_buf, 0);
+
+    try std.testing.expectEqual(4, amt);
+    try std.testing.expectEqualSlices(u8, "AAAA", written_buf[0..amt]);
+}
+
 test "copyRangeAll" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
