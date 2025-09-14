@@ -3,14 +3,17 @@ const std = @import("std");
 const common = @import("common.zig");
 
 comptime {
-    @export(&strcmp, .{ .name = "strcmp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&strncmp, .{ .name = "strncmp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&strcasecmp, .{ .name = "strcasecmp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&strncasecmp, .{ .name = "strncasecmp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__strcasecmp_l, .{ .name = "__strcasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__strncasecmp_l, .{ .name = "__strncasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__strcasecmp_l, .{ .name = "strcasecmp_l", .linkage = .weak, .visibility = common.visibility });
-    @export(&__strncasecmp_l, .{ .name = "strncasecmp_l", .linkage = .weak, .visibility = common.visibility });
+    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
+        // Functions specific to musl and wasi-libc.
+        @export(&strcmp, .{ .name = "strcmp", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strncmp, .{ .name = "strncmp", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strcasecmp, .{ .name = "strcasecmp", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strncasecmp, .{ .name = "strncasecmp", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__strcasecmp_l, .{ .name = "__strcasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__strncasecmp_l, .{ .name = "__strncasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__strcasecmp_l, .{ .name = "strcasecmp_l", .linkage = .weak, .visibility = common.visibility });
+        @export(&__strncasecmp_l, .{ .name = "strncasecmp_l", .linkage = .weak, .visibility = common.visibility });
+    }
 }
 
 fn strcmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
