@@ -17,6 +17,13 @@ comptime {
         @export(&strcspn, .{ .name = "strcspn", .linkage = common.linkage, .visibility = common.visibility });
         @export(&strpbrk, .{ .name = "strpbrk", .linkage = common.linkage, .visibility = common.visibility });
         @export(&strstr, .{ .name = "strstr", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strtok, .{ .name = "strtok", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strtok_r, .{ .name = "strtok_r", .linkage = common.linkage, .visibility = common.visibility });
+    }
+
+    if (builtin.target.isMinGW()) {
+        // Files specific to MinGW-w64.
+        @export(&strtok_r, .{ .name = "strtok_r", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -167,4 +174,56 @@ test strstr {
     try std.testing.expectEqual(null, strstr("foobarbaz", "boofarfaz"));
     try std.testing.expectEqual(null, strstr("foobarbaz", "fa"));
     try std.testing.expectEqual(null, strstr("foobarbaz", "c"));
+}
+
+fn strtok_r(s: ?[*:0]u8, sep: [*:0]const u8, lasts: *?[*:0]u8) callconv(.c) ?[*:0]u8 {
+    const slice = std.mem.span(s orelse lasts.* orelse return null);
+    const delim = std.mem.span(sep);
+    const index = std.mem.indexOfNone(u8, slice, delim) orelse {
+        lasts.* = null;
+        return null;
+    };
+    if (std.mem.indexOfAny(u8, slice[index..], delim)) |len| {
+        slice[index + len] = 0;
+        lasts.* = slice[index + len + 1 ..];
+    } else {
+        lasts.* = null;
+    }
+    return slice[index..];
+}
+
+fn strtok(s: ?[*:0]u8, sep: [*:0]const u8) callconv(.c) ?[*:0]u8 {
+    const static = struct {
+        var lasts: ?[*:0]u8 = null;
+    };
+    return strtok_r(s, sep, &static.lasts);
+}
+
+test strtok {
+    var str = "?a???b,,,#c?#,".*;
+    {
+        const ret = strtok(&str, "?");
+        try std.testing.expectEqual(str[1..], ret);
+        try std.testing.expectEqualStrings("a", std.mem.span(ret.?));
+    }
+    {
+        const ret = strtok(null, ",");
+        try std.testing.expectEqual(str[3..], ret);
+        try std.testing.expectEqualStrings("??b", std.mem.span(ret.?));
+    }
+    {
+        const ret = strtok(null, "#,");
+        try std.testing.expectEqual(str[10..], ret);
+        try std.testing.expectEqualStrings("c?", std.mem.span(ret.?));
+    }
+    {
+        const ret = strtok(null, "?");
+        try std.testing.expectEqual(str[13..], ret);
+        try std.testing.expectEqualStrings(",", std.mem.span(ret.?));
+    }
+    {
+        const ret = strtok(null, "?");
+        try std.testing.expectEqual(null, ret);
+    }
+    try std.testing.expectEqualSlices(u8, "?a" ++ .{0} ++ "??b" ++ .{0} ++ ",,#c?" ++ .{0} ++ ",", &str);
 }

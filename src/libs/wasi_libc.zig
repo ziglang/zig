@@ -1055,8 +1055,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/string/strnlen.c",
     "musl/src/string/strrchr.c",
     "musl/src/string/strsep.c",
-    "musl/src/string/strtok.c",
-    "musl/src/string/strtok_r.c",
     "musl/src/string/strverscmp.c",
     "musl/src/string/swab.c",
     "musl/src/string/wcpcpy.c",
