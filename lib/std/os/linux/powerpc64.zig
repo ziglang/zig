@@ -185,11 +185,11 @@ pub fn restore_rt() callconv(.naked) noreturn {
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
             : .{ .memory = true, .cr0 = true, .r0 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true }),
-        else => asm volatile (
+        else => _ = asm volatile (
             \\ sc
-            :
+            : [r0] "={r0}" (-> usize), // r0 is clobbered
             : [number] "{r0}" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .memory = true, .cr0 = true, .r0 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true }),
+            : .{ .memory = true, .cr0 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true }),
     }
 }
 
