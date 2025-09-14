@@ -13,6 +13,8 @@ comptime {
         @export(&__strncasecmp_l, .{ .name = "__strncasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
         @export(&__strcasecmp_l, .{ .name = "strcasecmp_l", .linkage = .weak, .visibility = common.visibility });
         @export(&__strncasecmp_l, .{ .name = "strncasecmp_l", .linkage = .weak, .visibility = common.visibility });
+        @export(&strspn, .{ .name = "strspn", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strcspn, .{ .name = "strcspn", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -104,4 +106,31 @@ test strncmp {
     try std.testing.expect(strncmp("a", "c", 1) < 0);
     try std.testing.expect(strncmp("b", "a", 1) > 0);
     try std.testing.expect(strncmp("\xff", "\x02", 1) > 0);
+}
+
+fn strspn(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) usize {
+    const slice1 = std.mem.span(s1);
+    const slice2 = std.mem.span(s2);
+    return std.mem.indexOfNone(u8, slice1, slice2) orelse slice1.len;
+}
+
+test strspn {
+    try std.testing.expectEqual(0, strspn("foobarbaz", ""));
+    try std.testing.expectEqual(0, strspn("foobarbaz", "c"));
+    try std.testing.expectEqual(3, strspn("foobarbaz", "fo"));
+    try std.testing.expectEqual(9, strspn("foobarbaz", "fobarz"));
+    try std.testing.expectEqual(9, strspn("foobarbaz", "abforz"));
+}
+
+fn strcspn(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) usize {
+    const slice1 = std.mem.span(s1);
+    const slice2 = std.mem.span(s2);
+    return std.mem.indexOfAny(u8, slice1, slice2) orelse slice1.len;
+}
+
+test strcspn {
+    try std.testing.expectEqual(0, strcspn("foobarbaz", "f"));
+    try std.testing.expectEqual(3, strcspn("foobarbaz", "rab"));
+    try std.testing.expectEqual(4, strcspn("foobarbaz", "ra"));
+    try std.testing.expectEqual(9, strcspn("foobarbaz", ""));
 }
