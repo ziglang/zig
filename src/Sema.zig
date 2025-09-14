@@ -4376,8 +4376,9 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             if (zcu.intern_pool.isFuncBody(val)) {
                 const ty: Type = .fromInterned(zcu.intern_pool.typeOf(val));
                 if (try ty.fnHasRuntimeBitsSema(pt)) {
-                    try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = val }));
-                    try zcu.ensureFuncBodyAnalysisQueued(val);
+                    const orig_fn_index = zcu.intern_pool.unwrapCoercedFunc(val);
+                    try sema.addReferenceEntry(block, src, .wrap(.{ .func = orig_fn_index }));
+                    try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
                 }
             }
 
@@ -5589,16 +5590,21 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
     }
 
     try sema.ensureMemoizedStateResolved(src, .panic);
-    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"panic.call"));
-
-    const panic_fn = Air.internedToRef(zcu.builtin_decl_values.get(.@"panic.call"));
-
+    const panic_fn_index = zcu.builtin_decl_values.get(.@"panic.call");
     const opt_usize_ty = try pt.optionalType(.usize_type);
     const null_ret_addr = Air.internedToRef((try pt.intern(.{ .opt = .{
         .ty = opt_usize_ty.toIntern(),
         .val = .none,
     } })));
-    try sema.callBuiltin(block, src, panic_fn, .auto, &.{ coerced_msg, null_ret_addr }, .@"@panic");
+    // `callBuiltin` also calls `addReferenceEntry` to the function body for us.
+    try sema.callBuiltin(
+        block,
+        src,
+        .fromIntern(panic_fn_index),
+        .auto,
+        &.{ coerced_msg, null_ret_addr },
+        .@"@panic",
+    );
 }
 
 fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -7567,8 +7573,9 @@ fn analyzeCall(
         ref_func: {
             const runtime_func_val = try sema.resolveValue(runtime_func) orelse break :ref_func;
             if (!ip.isFuncBody(runtime_func_val.toIntern())) break :ref_func;
-            try sema.addReferenceEntry(block, call_src, .wrap(.{ .func = runtime_func_val.toIntern() }));
-            try zcu.ensureFuncBodyAnalysisQueued(runtime_func_val.toIntern());
+            const orig_fn_index = ip.unwrapCoercedFunc(runtime_func_val.toIntern());
+            try sema.addReferenceEntry(block, call_src, .wrap(.{ .func = orig_fn_index }));
+            try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
         }
 
         const call_tag: Air.Inst.Tag = switch (modifier) {
@@ -26383,23 +26390,27 @@ fn explainWhyTypeIsNotPacked(
 /// instructions. This function ensures the panic function will be available to
 /// be called during that time.
 fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !void {
+    const zcu = sema.pt.zcu;
+
     // If the backend doesn't support `.panic_fn`, it doesn't want us to lower the panic handlers.
     // The backend will transform panics into traps instead.
-    if (sema.pt.zcu.backendSupportsFeature(.panic_fn)) {
-        _ = try sema.getPanicIdFunc(src, panic_id);
-    }
+    if (!zcu.backendSupportsFeature(.panic_fn)) return;
+
+    const fn_index = try sema.getPanicIdFunc(src, panic_id);
+    const orig_fn_index = zcu.intern_pool.unwrapCoercedFunc(fn_index);
+    try sema.addReferenceEntry(null, src, .wrap(.{ .func = orig_fn_index }));
+    try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
 }
 
 fn getPanicIdFunc(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !InternPool.Index {
     const zcu = sema.pt.zcu;
     try sema.ensureMemoizedStateResolved(src, .panic);
-    const panic_func = zcu.builtin_decl_values.get(panic_id.toBuiltin());
-    try zcu.ensureFuncBodyAnalysisQueued(panic_func);
+    const panic_fn_index = zcu.builtin_decl_values.get(panic_id.toBuiltin());
     switch (sema.owner.unwrap()) {
         .@"comptime", .nav_ty, .nav_val, .type, .memoized_state => {},
         .func => |owner_func| zcu.intern_pool.funcSetHasErrorTrace(owner_func, true),
     }
-    return panic_func;
+    return panic_fn_index;
 }
 
 fn addSafetyCheck(
@@ -31143,6 +31154,11 @@ fn addReferenceEntry(
     referenced_unit: AnalUnit,
 ) !void {
     const zcu = sema.pt.zcu;
+    const ip = &zcu.intern_pool;
+    switch (referenced_unit.unwrap()) {
+        .func => |f| assert(ip.unwrapCoercedFunc(f) == f), // for `.{ .func = f }`, `f` must be uncoerced
+        else => {},
+    }
     if (!zcu.comp.incremental and zcu.comp.reference_trace == 0) return;
     const gop = try sema.references.getOrPut(sema.gpa, referenced_unit);
     if (gop.found_existing) return;
@@ -31329,8 +31345,9 @@ fn maybeQueueFuncBodyAnalysis(sema: *Sema, block: *Block, src: LazySrcLoc, nav_i
     const nav_val = zcu.navValue(nav_index);
     if (!ip.isFuncBody(nav_val.toIntern())) return;
 
-    try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = nav_val.toIntern() }));
-    try zcu.ensureFuncBodyAnalysisQueued(nav_val.toIntern());
+    const orig_fn_index = ip.unwrapCoercedFunc(nav_val.toIntern());
+    try sema.addReferenceEntry(block, src, .wrap(.{ .func = orig_fn_index }));
+    try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
 }
 
 fn analyzeRef(
@@ -34963,8 +34980,9 @@ fn resolveInferredErrorSet(
         }
         // In this case we are dealing with the actual InferredErrorSet object that
         // corresponds to the function, not one created to track an inline/comptime call.
-        try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = func_index }));
-        try pt.ensureFuncBodyUpToDate(func_index);
+        const orig_func_index = ip.unwrapCoercedFunc(func_index);
+        try sema.addReferenceEntry(block, src, .wrap(.{ .func = orig_func_index }));
+        try pt.ensureFuncBodyUpToDate(orig_func_index);
     }
 
     // This will now have been resolved by the logic at the end of `Zcu.analyzeFnBody`
