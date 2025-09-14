@@ -132,6 +132,8 @@ sources: std.StringArrayHashMapUnmanaged(Source) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
 include_dirs: std.ArrayList([]const u8) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
+iquote_include_dirs: std.ArrayList([]const u8) = .empty,
+/// Allocated into `gpa`, but keys are externally managed.
 system_include_dirs: std.ArrayList([]const u8) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
 after_include_dirs: std.ArrayList([]const u8) = .empty,
@@ -192,6 +194,7 @@ pub fn deinit(comp: *Compilation) void {
     }
     comp.sources.deinit(gpa);
     comp.include_dirs.deinit(gpa);
+    comp.iquote_include_dirs.deinit(gpa);
     comp.system_include_dirs.deinit(gpa);
     comp.after_include_dirs.deinit(gpa);
     comp.framework_dirs.deinit(gpa);
@@ -240,11 +243,25 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
     const ptr_width = comp.target.ptrBitWidth();
     const is_gnu = comp.langopts.standard.isGNU();
 
-    if (comp.langopts.gnuc_version > 0) {
-        try w.print("#define __GNUC__ {d}\n", .{comp.langopts.gnuc_version / 10_000});
-        try w.print("#define __GNUC_MINOR__ {d}\n", .{comp.langopts.gnuc_version / 100 % 100});
-        try w.print("#define __GNUC_PATCHLEVEL__ {d}\n", .{comp.langopts.gnuc_version % 100});
+    const gnuc_version = comp.langopts.gnuc_version orelse comp.langopts.emulate.defaultGccVersion();
+    if (gnuc_version > 0) {
+        try w.print("#define __GNUC__ {d}\n", .{gnuc_version / 10_000});
+        try w.print("#define __GNUC_MINOR__ {d}\n", .{gnuc_version / 100 % 100});
+        try w.print("#define __GNUC_PATCHLEVEL__ {d}\n", .{gnuc_version % 100});
     }
+
+    try w.writeAll(
+        \\#define __ARO_EMULATE_CLANG__ 1
+        \\#define __ARO_EMULATE_GCC__ 2
+        \\#define __ARO_EMULATE_MSVC__ 3
+        \\
+    );
+    const emulated = switch (comp.langopts.emulate) {
+        .clang => "__ARO_EMULATE_CLANG__",
+        .gcc => "__ARO_EMULATE_GCC__",
+        .msvc => "__ARO_EMULATE_MSVC__",
+    };
+    try w.print("#define __ARO_EMULATE__ {s}\n", .{emulated});
 
     if (comp.code_gen_options.optimization_level.hasAnyOptimizations()) {
         try define(w, "__OPTIMIZE__");
@@ -330,6 +347,8 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
         => try define(w, "__APPLE__"),
         .wasi => try define(w, "__wasi__"),
         .emscripten => try define(w, "__EMSCRIPTEN__"),
+        .@"3ds" => try define(w, "__3DS__"),
+        .vita => try define(w, "__vita__"),
         else => {},
     }
 
@@ -431,10 +450,13 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
                 .{ .f16c, "__F16C__" },
                 .{ .gfni, "__GFNI__" },
                 .{ .evex512, "__EVEX512__" },
-                .{ .avx10_1_256, "__AVX10_1__" },
-                .{ .avx10_1_512, "__AVX10_1_512__" },
-                .{ .avx10_2_256, "__AVX10_2__" },
-                .{ .avx10_2_512, "__AVX10_2_512__" },
+
+                .{ .avx10_1, "__AVX10_1__" },
+                .{ .avx10_1, "__AVX10_1_512__" },
+
+                .{ .avx10_2, "__AVX10_2__" },
+                .{ .avx10_2, "__AVX10_2_512__" },
+
                 .{ .avx512cd, "__AVX512CD__" },
                 .{ .avx512vpopcntdq, "__AVX512VPOPCNTDQ__" },
                 .{ .avx512vnni, "__AVX512VNNI__" },
@@ -935,7 +957,7 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
 pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefinesMode) AddSourceError!Source {
     try comp.type_store.initNamedTypes(comp);
 
-    var allocating: std.io.Writer.Allocating = try .initCapacity(comp.gpa, 2 << 13);
+    var allocating: std.Io.Writer.Allocating = try .initCapacity(comp.gpa, 2 << 13);
     defer allocating.deinit();
 
     comp.writeBuiltinMacros(system_defines_mode, &allocating.writer) catch |err| switch (err) {
@@ -1297,6 +1319,11 @@ fn generateIntWidth(comp: *Compilation, w: *std.Io.Writer, name: []const u8, qt:
     try w.print("#define __{s}_WIDTH__ {d}\n", .{ name, qt.sizeof(comp) * 8 });
 }
 
+fn generateIntMaxAndWidth(comp: *Compilation, w: *std.Io.Writer, name: []const u8, qt: QualType) !void {
+    try comp.generateIntMax(w, name, qt);
+    try comp.generateIntWidth(w, name, qt);
+}
+
 fn generateSizeofType(comp: *Compilation, w: *std.Io.Writer, name: []const u8, qt: QualType) !void {
     try w.print("#define {s} {d}\n", .{ name, qt.sizeof(comp) });
 }
@@ -1597,7 +1624,7 @@ pub fn hasInclude(
     which: WhichInclude,
     opt_dep_file: ?*DepFile,
 ) Compilation.Error!bool {
-    if (try FindInclude.run(comp, filename, switch (which) {
+    if (try FindInclude.run(comp, filename, include_type, switch (which) {
         .next => .{ .only_search_after_dir = comp.getSource(includer_token_source).path },
         .first => switch (include_type) {
             .quotes => .{ .allow_same_dir = comp.getSource(includer_token_source).path },
@@ -1629,6 +1656,7 @@ const FindInclude = struct {
     fn run(
         comp: *Compilation,
         include_path: []const u8,
+        include_type: IncludeType,
         search_strat: union(enum) {
             allow_same_dir: []const u8,
             only_search,
@@ -1663,7 +1691,12 @@ const FindInclude = struct {
                 find.wait_for = std.fs.path.dirname(other_file);
             },
         }
-
+        switch (include_type) {
+            .quotes => for (comp.iquote_include_dirs.items) |dir| {
+                if (try find.checkIncludeDir(dir, .user)) |res| return res;
+            },
+            .angle_brackets => {},
+        }
         for (comp.include_dirs.items) |dir| {
             if (try find.checkIncludeDir(dir, .user)) |res| return res;
         }
@@ -1876,7 +1909,7 @@ pub fn findInclude(
     /// include vs include_next
     which: WhichInclude,
 ) Compilation.Error!?Source {
-    const found = try FindInclude.run(comp, filename, switch (which) {
+    const found = try FindInclude.run(comp, filename, include_type, switch (which) {
         .next => .{ .only_search_after_dir = comp.getSource(includer_token.source).path },
         .first => switch (include_type) {
             .quotes => .{ .allow_same_dir = comp.getSource(includer_token.source).path },

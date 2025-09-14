@@ -91,11 +91,11 @@ const Pattern = struct {
     fn init(pl: *Pattern, allocator: mem.Allocator, template: Template) Error!void {
         const source = template[0];
         const impl = template[1];
-        var tok_list = std.array_list.Managed(CToken).init(allocator);
-        defer tok_list.deinit();
+        var tok_list: std.ArrayList(CToken) = .empty;
+        defer tok_list.deinit(allocator);
 
         pl.* = .{
-            .slicer = try tokenizeMacro(source, &tok_list),
+            .slicer = try tokenizeMacro(allocator, source, &tok_list),
             .impl = impl,
         };
     }
@@ -170,7 +170,7 @@ pub fn match(pl: PatternList, ms: MacroSlicer) Error!?Impl {
     return null;
 }
 
-fn tokenizeMacro(source: []const u8, tok_list: *std.array_list.Managed(CToken)) Error!MacroSlicer {
+fn tokenizeMacro(allocator: mem.Allocator, source: []const u8, tok_list: *std.ArrayList(CToken)) Error!MacroSlicer {
     var param_count: u32 = 0;
     var param_buf: [8][]const u8 = undefined;
 
@@ -207,7 +207,7 @@ fn tokenizeMacro(source: []const u8, tok_list: *std.array_list.Managed(CToken)) 
                 const slice = source[tok.start..tok.end];
                 for (param_buf[0..param_count], 0..) |param, i| {
                     if (std.mem.eql(u8, param, slice)) {
-                        try tok_list.append(.{
+                        try tok_list.append(allocator, .{
                             .id = .macro_param,
                             .source = .unused,
                             .end = @intCast(i),
@@ -224,12 +224,12 @@ fn tokenizeMacro(source: []const u8, tok_list: *std.array_list.Managed(CToken)) 
             .nl, .eof => break,
             else => {},
         }
-        try tok_list.append(tok);
+        try tok_list.append(allocator, tok);
     }
 
     return .{
         .source = source,
-        .tokens = try tok_list.toOwnedSlice(),
+        .tokens = try tok_list.toOwnedSlice(allocator),
         .params = param_count,
     };
 }
@@ -243,9 +243,9 @@ test "Macro matching" {
             source: []const u8,
             comptime expected_match: ?Impl,
         ) !void {
-            var tok_list = std.array_list.Managed(CToken).init(allocator);
-            defer tok_list.deinit();
-            const ms = try tokenizeMacro(source, &tok_list);
+            var tok_list: std.ArrayList(CToken) = .empty;
+            defer tok_list.deinit(allocator);
+            const ms = try tokenizeMacro(allocator, source, &tok_list);
             defer allocator.free(ms.tokens);
 
             const matched = try pattern_list.match(ms);

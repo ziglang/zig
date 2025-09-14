@@ -194,6 +194,7 @@ pub const Option = enum {
     @"microsoft-anon-tag",
     @"out-of-scope-function",
     @"date-time",
+    @"variadic-macro-arguments-omitted",
     @"attribute-todo",
 
     /// GNU extensions
@@ -496,27 +497,35 @@ pub fn formatArgs(w: *std.Io.Writer, fmt: []const u8, args: anytype) std.Io.Writ
             else => switch (@typeInfo(@TypeOf(arg))) {
                 .int, .comptime_int => try Diagnostics.formatInt(w, fmt[i..], arg),
                 .pointer => try Diagnostics.formatString(w, fmt[i..], arg),
-                else => unreachable,
+                else => comptime unreachable,
             },
         };
     }
     try w.writeAll(fmt[i..]);
 }
 
-pub fn formatString(w: *std.Io.Writer, fmt: []const u8, str: []const u8) std.Io.Writer.Error!usize {
-    const template = "{s}";
-    const i = std.mem.indexOf(u8, fmt, template).?;
+pub fn templateIndex(w: *std.Io.Writer, fmt: []const u8, template: []const u8) std.Io.Writer.Error!usize {
+    const i = std.mem.indexOf(u8, fmt, template) orelse {
+        if (@import("builtin").mode == .Debug) {
+            std.debug.panic("template `{s}` not found in format string `{s}`", .{ template, fmt });
+        }
+        try w.print("template `{s}` not found in format string `{s}` (this is a bug in arocc)", .{ template, fmt });
+        return 0;
+    };
     try w.writeAll(fmt[0..i]);
-    try w.writeAll(str);
     return i + template.len;
 }
 
+pub fn formatString(w: *std.Io.Writer, fmt: []const u8, str: []const u8) std.Io.Writer.Error!usize {
+    const i = templateIndex(w, fmt, "{s}");
+    try w.writeAll(str);
+    return i;
+}
+
 pub fn formatInt(w: *std.Io.Writer, fmt: []const u8, int: anytype) std.Io.Writer.Error!usize {
-    const template = "{d}";
-    const i = std.mem.indexOf(u8, fmt, template).?;
-    try w.writeAll(fmt[0..i]);
+    const i = templateIndex(w, fmt, "{d}");
     try w.printInt(int, 10, .lower, .{});
-    return i + template.len;
+    return i;
 }
 
 fn addMessage(d: *Diagnostics, msg: Message) Compilation.Error!void {

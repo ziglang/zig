@@ -154,17 +154,14 @@ pub const Ascii = struct {
         return .{ .val = @intCast(val) };
     }
 
-    pub fn format(ctx: Ascii, w: *std.Io.Writer, fmt_str: []const u8) !usize {
-        const template = "{c}";
-        const i = std.mem.indexOf(u8, fmt_str, template).?;
-        try w.writeAll(fmt_str[0..i]);
-
+    pub fn format(ctx: Ascii, w: *std.Io.Writer, fmt: []const u8) !usize {
+        const i = Diagnostics.templateIndex(w, fmt, "{c}");
         if (std.ascii.isPrint(ctx.val)) {
             try w.writeByte(ctx.val);
         } else {
             try w.print("x{x:0>2}", .{ctx.val});
         }
-        return i + template.len;
+        return i;
     }
 };
 
@@ -345,7 +342,7 @@ pub const Parser = struct {
                 else => switch (@typeInfo(@TypeOf(arg))) {
                     .int, .comptime_int => try Diagnostics.formatInt(w, fmt[i..], arg),
                     .pointer => try Diagnostics.formatString(w, fmt[i..], arg),
-                    else => unreachable,
+                    else => comptime unreachable,
                 },
             };
         }

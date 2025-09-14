@@ -110,7 +110,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
         defer macro_buf.deinit(gpa);
 
         var discard_buf: [256]u8 = undefined;
-        var discarding: std.io.Writer.Discarding = .init(&discard_buf);
+        var discarding: std.Io.Writer.Discarding = .init(&discard_buf);
         assert(!try d.parseArgs(&discarding.writer, &macro_buf, aro_args));
         if (macro_buf.items.len > std.math.maxInt(u32)) {
             return d.fatal("user provided macro source exceeded max size", .{});
@@ -206,9 +206,11 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
         out_file_path = path;
     }
 
-    var out_writer = out_file.writer(&.{});
-    out_writer.interface.writeAll(rendered_zig) catch
-        return d.fatal("failed to write result to '{s}': {s}", .{ out_file_path, aro.Driver.errorDescription(out_writer.err.?) });
+    var out_writer = out_file.writer(&out_buf);
+    out_writer.interface.writeAll(rendered_zig) catch {};
+    out_writer.interface.flush() catch {};
+    if (out_writer.err) |write_err|
+        return d.fatal("failed to write result to '{s}': {s}", .{ out_file_path, aro.Driver.errorDescription(write_err) });
 
     if (fast_exit) process.exit(0);
 }

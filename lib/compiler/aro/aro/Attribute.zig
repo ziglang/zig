@@ -792,12 +792,7 @@ pub fn normalize(name: []const u8) []const u8 {
 }
 
 fn ignoredAttrErr(p: *Parser, tok: TokenIndex, attr: Attribute.Tag, context: []const u8) !void {
-    const strings_top = p.strings.items.len;
-    defer p.strings.items.len = strings_top;
-
-    try p.strings.print("attribute '{s}' ignored on {s}", .{ @tagName(attr), context });
-    const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
-    try p.errStr(.ignored_attribute, tok, str);
+    try p.err(tok, .ignored_attribute, .{ @tagName(attr), context });
 }
 
 pub fn applyParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic) !QualType {

@@ -469,7 +469,7 @@ fn formatArgs(p: *Parser, w: *std.Io.Writer, fmt: []const u8, args: anytype) !vo
             else => switch (@typeInfo(@TypeOf(arg))) {
                 .int, .comptime_int => try Diagnostics.formatInt(w, fmt[i..], arg),
                 .pointer => try Diagnostics.formatString(w, fmt[i..], arg),
-                else => unreachable,
+                else => comptime unreachable,
             },
         };
     }
@@ -477,22 +477,18 @@ fn formatArgs(p: *Parser, w: *std.Io.Writer, fmt: []const u8, args: anytype) !vo
 }
 
 fn formatTokenId(w: *std.Io.Writer, fmt: []const u8, tok_id: Tree.Token.Id) !usize {
-    const template = "{tok_id}";
-    const i = std.mem.indexOf(u8, fmt, template).?;
-    try w.writeAll(fmt[0..i]);
+    const i = Diagnostics.templateIndex(w, fmt, "{tok_id}");
     try w.writeAll(tok_id.symbol());
-    return i + template.len;
+    return i;
 }
 
 fn formatQualType(p: *Parser, w: *std.Io.Writer, fmt: []const u8, qt: QualType) !usize {
-    const template = "{qt}";
-    const i = std.mem.indexOf(u8, fmt, template).?;
-    try w.writeAll(fmt[0..i]);
+    const i = Diagnostics.templateIndex(w, fmt, "{qt}");
     try w.writeByte('\'');
     try qt.print(p.comp, w);
     try w.writeByte('\'');
 
-    if (qt.isC23Auto()) return i + template.len;
+    if (qt.isC23Auto()) return i;
     if (qt.get(p.comp, .vector)) |vector_ty| {
         try w.print(" (vector of {d} '", .{vector_ty.len});
         try vector_ty.elem.printDesugared(p.comp, w);
@@ -502,14 +498,11 @@ fn formatQualType(p: *Parser, w: *std.Io.Writer, fmt: []const u8, qt: QualType) 
         try qt.printDesugared(p.comp, w);
         try w.writeAll("')");
     }
-    return i + template.len;
+    return i;
 }
 
 fn formatResult(p: *Parser, w: *std.Io.Writer, fmt: []const u8, res: Result) !usize {
-    const template = "{value}";
-    const i = std.mem.indexOf(u8, fmt, template).?;
-    try w.writeAll(fmt[0..i]);
-
+    const i = Diagnostics.templateIndex(w, fmt, "{value}");
     switch (res.val.opt_ref) {
         .none => try w.writeAll("(none)"),
         .null => try w.writeAll("nullptr_t"),
@@ -521,8 +514,7 @@ fn formatResult(p: *Parser, w: *std.Io.Writer, fmt: []const u8, res: Result) !us
             },
         },
     }
-
-    return i + template.len;
+    return i;
 }
 
 const Normalized = struct {
@@ -532,10 +524,8 @@ const Normalized = struct {
         return .{ .str = str };
     }
 
-    pub fn format(ctx: Normalized, w: *std.Io.Writer, fmt_str: []const u8) !usize {
-        const template = "{normalized}";
-        const i = std.mem.indexOf(u8, fmt_str, template).?;
-        try w.writeAll(fmt_str[0..i]);
+    pub fn format(ctx: Normalized, w: *std.Io.Writer, fmt: []const u8) !usize {
+        const i = Diagnostics.templateIndex(w, fmt, "{normalized}");
         var it: std.unicode.Utf8Iterator = .{
             .bytes = ctx.str,
             .i = 0,
@@ -557,7 +547,7 @@ const Normalized = struct {
                 });
             }
         }
-        return i + template.len;
+        return i;
     }
 };
 
@@ -568,12 +558,10 @@ const Codepoint = struct {
         return .{ .codepoint = codepoint };
     }
 
-    pub fn format(ctx: Codepoint, w: *std.Io.Writer, fmt_str: []const u8) !usize {
-        const template = "{codepoint}";
-        const i = std.mem.indexOf(u8, fmt_str, template).?;
-        try w.writeAll(fmt_str[0..i]);
+    pub fn format(ctx: Codepoint, w: *std.Io.Writer, fmt: []const u8) !usize {
+        const i = Diagnostics.templateIndex(w, fmt, "{codepoint}");
         try w.print("{X:0>4}", .{ctx.codepoint});
-        return i + template.len;
+        return i;
     }
 };
 
@@ -584,12 +572,10 @@ const Escaped = struct {
         return .{ .str = str };
     }
 
-    pub fn format(ctx: Escaped, w: *std.Io.Writer, fmt_str: []const u8) !usize {
-        const template = "{s}";
-        const i = std.mem.indexOf(u8, fmt_str, template).?;
-        try w.writeAll(fmt_str[0..i]);
+    pub fn format(ctx: Escaped, w: *std.Io.Writer, fmt: []const u8) !usize {
+        const i = Diagnostics.templateIndex(w, fmt, "{s}");
         try std.zig.stringEscape(ctx.str, w);
-        return i + template.len;
+        return i;
     }
 };
 
@@ -626,11 +612,11 @@ pub fn errValueChanged(p: *Parser, tok_i: TokenIndex, diagnostic: Diagnostic, re
 fn checkDeprecatedUnavailable(p: *Parser, ty: QualType, usage_tok: TokenIndex, decl_tok: TokenIndex) !void {
     if (ty.getAttribute(p.comp, .@"error")) |@"error"| {
         const msg_str = p.comp.interner.get(@"error".msg.ref()).bytes;
-        try p.err(usage_tok, .error_attribute, .{ p.tokSlice(@"error".__name_tok), std.zig.fmtString(msg_str) });
+        try p.err(usage_tok, .error_attribute, .{ p.tokSlice(@"error".__name_tok), Escaped.init(msg_str) });
     }
     if (ty.getAttribute(p.comp, .warning)) |warning| {
         const msg_str = p.comp.interner.get(warning.msg.ref()).bytes;
-        try p.err(usage_tok, .warning_attribute, .{ p.tokSlice(warning.__name_tok), std.zig.fmtString(msg_str) });
+        try p.err(usage_tok, .warning_attribute, .{ p.tokSlice(warning.__name_tok), Escaped.init(msg_str) });
     }
     if (ty.getAttribute(p.comp, .unavailable)) |unavailable| {
         try p.errDeprecated(usage_tok, .unavailable, unavailable.msg);
@@ -4734,7 +4720,7 @@ fn asmOperand(p: *Parser, names: *std.ArrayList(?TokenIndex), constraints: *Node
     try constraints.append(gpa, constraint.node);
 
     const l_paren = p.eatToken(.l_paren) orelse {
-        try p.err(p.tok_i, .expected_token, .{ p.tok_ids[p.tok_i], .l_paren });
+        try p.err(p.tok_i, .expected_token, .{ p.tok_ids[p.tok_i], Token.Id.l_paren });
         return error.ParsingFailed;
     };
     const maybe_res = try p.expr();
@@ -10221,12 +10207,30 @@ test "Node locations" {
     try std.testing.expectEqual(0, comp.diagnostics.total);
     for (tree.root_decls.items[tree.root_decls.items.len - 3 ..], 0..) |node, i| {
         const slice = tree.tokSlice(node.tok(&tree));
-        const expected = switch (i) {
+        const expected_slice = switch (i) {
             0 => "foo",
             1 => "bar",
             2 => "main",
             else => unreachable,
         };
-        try std.testing.expectEqualStrings(expected, slice);
+        try std.testing.expectEqualStrings(expected_slice, slice);
+
+        const loc = node.loc(&tree).expand(&comp);
+        const expected_col: u32 = switch (i) {
+            0 => 5,
+            1 => 5,
+            2 => 5,
+            else => unreachable,
+        };
+        try std.testing.expectEqual(expected_col, loc.col);
+
+        const expected_line_no = i + 1;
+        try std.testing.expectEqual(expected_line_no, loc.line_no);
+
+        const expected_source_path = "file.c";
+        try std.testing.expectEqualStrings(expected_source_path, loc.path);
+
+        const expected_source_kind = Source.Kind.user;
+        try std.testing.expectEqual(expected_source_kind, loc.kind);
     }
 }

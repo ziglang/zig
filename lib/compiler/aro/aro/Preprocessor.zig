@@ -1703,7 +1703,10 @@ fn expandFuncMacro(
                     else
                         &[1]TokenWithExpansionLocs{tokFromRaw(raw_next)},
                     .macro_param, .macro_param_no_expand => getPasteArgs(args.items[raw_next.end]),
-                    .keyword_va_args => variable_arguments.items,
+                    .keyword_va_args => if (variable_arguments.items.len == 0) blk: {
+                        try pp.err(raw_next, .no_argument_variadic_macro, .{});
+                        break :blk &[1]TokenWithExpansionLocs{.{ .id = .placemarker, .loc = .{ .id = .generated } }};
+                    } else variable_arguments.items,
                     .keyword_va_opt => blk: {
                         try pp.expandVaOpt(&va_opt_buf, raw_next, variable_arguments.items.len != 0);
                         if (va_opt_buf.items.len == 0) break;

@@ -175,8 +175,10 @@ pub fn transMacro(mt: *MacroTranslator) ParseError!void {
 }
 
 fn createMacroFn(mt: *MacroTranslator, name: []const u8, ref: ZigNode, proto_alias: *ast.Payload.Func) !ZigNode {
-    var fn_params = std.array_list.Managed(ast.Payload.Param).init(mt.t.gpa);
-    defer fn_params.deinit();
+    const gpa = mt.t.gpa;
+    const arena = mt.t.arena;
+    var fn_params: std.ArrayList(ast.Payload.Param) = .empty;
+    defer fn_params.deinit(gpa);
 
     var block_scope = try Scope.Block.init(mt.t, &mt.t.global_scope.base, false);
     defer block_scope.deinit();
@@ -184,7 +186,7 @@ fn createMacroFn(mt: *MacroTranslator, name: []const u8, ref: ZigNode, proto_ali
     for (proto_alias.data.params) |param| {
         const param_name = try block_scope.makeMangledName(param.name orelse "arg");
 
-        try fn_params.append(.{
+        try fn_params.append(gpa, .{
             .name = param_name,
             .type = param.type,
             .is_noalias = param.is_noalias,
@@ -198,27 +200,28 @@ fn createMacroFn(mt: *MacroTranslator, name: []const u8, ref: ZigNode, proto_ali
     else
         unreachable;
 
-    const unwrap_expr = try ZigTag.unwrap.create(mt.t.arena, init);
-    const args = try mt.t.arena.alloc(ZigNode, fn_params.items.len);
+    const unwrap_expr = try ZigTag.unwrap.create(arena, init);
+    const args = try arena.alloc(ZigNode, fn_params.items.len);
     for (fn_params.items, 0..) |param, i| {
-        args[i] = try ZigTag.identifier.create(mt.t.arena, param.name.?);
+        args[i] = try ZigTag.identifier.create(arena, param.name.?);
     }
-    const call_expr = try ZigTag.call.create(mt.t.arena, .{
+    const call_expr = try ZigTag.call.create(arena, .{
         .lhs = unwrap_expr,
         .args = args,
     });
-    const return_expr = try ZigTag.@"return".create(mt.t.arena, call_expr);
-    const block = try ZigTag.block_single.create(mt.t.arena, return_expr);
+    const return_expr = try ZigTag.@"return".create(arena, call_expr);
+    const block = try ZigTag.block_single.create(arena, return_expr);
 
-    return ZigTag.pub_inline_fn.create(mt.t.arena, .{
+    return ZigTag.pub_inline_fn.create(arena, .{
         .name = name,
-        .params = try mt.t.arena.dupe(ast.Payload.Param, fn_params.items),
+        .params = try arena.dupe(ast.Payload.Param, fn_params.items),
         .return_type = proto_alias.data.return_type,
         .body = block,
     });
 }
 
 fn parseCExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
+    const arena = mt.t.arena;
     // TODO parseCAssignExpr here
     var block_scope = try Scope.Block.init(mt.t, scope, true);
     defer block_scope.deinit();
@@ -229,14 +232,14 @@ fn parseCExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
     var last = node;
     while (true) {
         // suppress result
-        const ignore = try ZigTag.discard.create(mt.t.arena, .{ .should_skip = false, .value = last });
+        const ignore = try ZigTag.discard.create(arena, .{ .should_skip = false, .value = last });
         try block_scope.statements.append(mt.t.gpa, ignore);
 
         last = try mt.parseCCondExpr(&block_scope.base);
         if (!mt.eat(.comma)) break;
     }
 
-    const break_node = try ZigTag.break_val.create(mt.t.arena, .{
+    const break_node = try ZigTag.break_val.create(arena, .{
         .label = block_scope.label,
         .val = last,
     });
@@ -245,10 +248,11 @@ fn parseCExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
 }
 
 fn parseCNumLit(mt: *MacroTranslator) ParseError!ZigNode {
+    const arena = mt.t.arena;
     const lit_bytes = mt.tokSlice();
     mt.i += 1;
 
-    var bytes = try std.ArrayListUnmanaged(u8).initCapacity(mt.t.arena, lit_bytes.len + 3);
+    var bytes = try std.ArrayListUnmanaged(u8).initCapacity(arena, lit_bytes.len + 3);
 
     const prefix = aro.Tree.Token.NumberPrefix.fromString(lit_bytes);
     switch (prefix) {
@@ -330,7 +334,7 @@ fn parseCNumLit(mt: *MacroTranslator) ParseError!ZigNode {
     }
 
     if (is_float) {
-        const type_node = try ZigTag.type.create(mt.t.arena, switch (suffix) {
+        const type_node = try ZigTag.type.create(arena, switch (suffix) {
             .F16 => "f16",
             .F => "f32",
             .None => "f64",
@@ -339,10 +343,10 @@ fn parseCNumLit(mt: *MacroTranslator) ParseError!ZigNode {
             .Q, .F128 => "f128",
             else => unreachable,
         });
-        const rhs = try ZigTag.float_literal.create(mt.t.arena, bytes.items);
-        return ZigTag.as.create(mt.t.arena, .{ .lhs = type_node, .rhs = rhs });
+        const rhs = try ZigTag.float_literal.create(arena, bytes.items);
+        return ZigTag.as.create(arena, .{ .lhs = type_node, .rhs = rhs });
     } else {
-        const type_node = try ZigTag.type.create(mt.t.arena, switch (suffix) {
+        const type_node = try ZigTag.type.create(arena, switch (suffix) {
             .None => "c_int",
             .U => "c_uint",
             .L => "c_long",
@@ -365,11 +369,11 @@ fn parseCNumLit(mt: *MacroTranslator) ParseError!ZigNode {
             else => unreachable,
         };
 
-        const literal_node = try ZigTag.integer_literal.create(mt.t.arena, bytes.items);
+        const literal_node = try ZigTag.integer_literal.create(arena, bytes.items);
         if (guaranteed_to_fit) {
-            return ZigTag.as.create(mt.t.arena, .{ .lhs = type_node, .rhs = literal_node });
+            return ZigTag.as.create(arena, .{ .lhs = type_node, .rhs = literal_node });
         } else {
-            return mt.t.createHelperCallNode(.promoteIntLiteral, &.{ type_node, literal_node, try ZigTag.enum_literal.create(mt.t.arena, @tagName(prefix)) });
+            return mt.t.createHelperCallNode(.promoteIntLiteral, &.{ type_node, literal_node, try ZigTag.enum_literal.create(arena, @tagName(prefix)) });
         }
     }
 }
@@ -563,6 +567,7 @@ fn escapeUnprintables(mt: *MacroTranslator) ![]const u8 {
 }
 
 fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
+    const arena = mt.t.arena;
     const tok = mt.peek();
     switch (tok) {
         .char_literal,
@@ -573,12 +578,12 @@ fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
         => {
             const slice = mt.tokSlice();
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
-                return ZigTag.char_literal.create(mt.t.arena, try mt.escapeUnprintables());
+                return ZigTag.char_literal.create(arena, try mt.escapeUnprintables());
             } else {
                 mt.i += 1;
 
-                const str = try std.fmt.allocPrint(mt.t.arena, "0x{x}", .{slice[1 .. slice.len - 1]});
-                return ZigTag.integer_literal.create(mt.t.arena, str);
+                const str = try std.fmt.allocPrint(arena, "0x{x}", .{slice[1 .. slice.len - 1]});
+                return ZigTag.integer_literal.create(arena, str);
             }
         },
         .string_literal,
@@ -586,7 +591,7 @@ fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
         .string_literal_utf_8,
         .string_literal_utf_32,
         .string_literal_wide,
-        => return ZigTag.string_literal.create(mt.t.arena, try mt.escapeUnprintables()),
+        => return ZigTag.string_literal.create(arena, try mt.escapeUnprintables()),
         .pp_num => return mt.parseCNumLit(),
         .l_paren => {
             mt.i += 1;
@@ -600,7 +605,7 @@ fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
             mt.i += 1;
 
             const mangled_name = scope.getAlias(param) orelse param;
-            return try ZigTag.identifier.create(mt.t.arena, mangled_name);
+            return try ZigTag.identifier.create(arena, mangled_name);
         },
         .identifier, .extended_identifier => {
             const slice = mt.tokSlice();
@@ -608,17 +613,17 @@ fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
 
             const mangled_name = scope.getAlias(slice) orelse slice;
             if (Translator.builtin_typedef_map.get(mangled_name)) |ty| {
-                return ZigTag.type.create(mt.t.arena, ty);
+                return ZigTag.type.create(arena, ty);
             }
             if (builtins.map.get(mangled_name)) |builtin| {
-                const builtin_identifier = try ZigTag.identifier.create(mt.t.arena, "__builtin");
-                return ZigTag.field_access.create(mt.t.arena, .{
+                const builtin_identifier = try ZigTag.identifier.create(arena, "__builtin");
+                return ZigTag.field_access.create(arena, .{
                     .lhs = builtin_identifier,
                     .field_name = builtin.name,
                 });
             }
 
-            const identifier = try ZigTag.identifier.create(mt.t.arena, mangled_name);
+            const identifier = try ZigTag.identifier.create(arena, mangled_name);
             scope.skipVariableDiscard(mangled_name);
             refs_var: {
                 const ident_node = mt.t.global_scope.sym_table.get(slice) orelse break :refs_var;
@@ -1114,6 +1119,8 @@ fn parseCPostfixExpr(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNode) P
 }
 
 fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNode) ParseError!ZigNode {
+    const gpa = mt.t.gpa;
+    const arena = mt.t.arena;
     var node = type_name orelse try mt.parseCPrimaryExpr(scope);
     while (true) {
         switch (mt.peek()) {
@@ -1122,39 +1129,39 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                 const field_name = mt.tokSlice();
                 try mt.expect(.identifier);
 
-                node = try ZigTag.field_access.create(mt.t.arena, .{ .lhs = node, .field_name = field_name });
+                node = try ZigTag.field_access.create(arena, .{ .lhs = node, .field_name = field_name });
             },
             .arrow => {
                 mt.i += 1;
                 const field_name = mt.tokSlice();
                 try mt.expect(.identifier);
 
-                const deref = try ZigTag.deref.create(mt.t.arena, node);
-                node = try ZigTag.field_access.create(mt.t.arena, .{ .lhs = deref, .field_name = field_name });
+                const deref = try ZigTag.deref.create(arena, node);
+                node = try ZigTag.field_access.create(arena, .{ .lhs = deref, .field_name = field_name });
             },
             .l_bracket => {
                 mt.i += 1;
 
                 const index_val = try mt.macroIntFromBool(try mt.parseCExpr(scope));
-                const index = try ZigTag.as.create(mt.t.arena, .{
-                    .lhs = try ZigTag.type.create(mt.t.arena, "usize"),
-                    .rhs = try ZigTag.int_cast.create(mt.t.arena, index_val),
+                const index = try ZigTag.as.create(arena, .{
+                    .lhs = try ZigTag.type.create(arena, "usize"),
+                    .rhs = try ZigTag.int_cast.create(arena, index_val),
                 });
-                node = try ZigTag.array_access.create(mt.t.arena, .{ .lhs = node, .rhs = index });
+                node = try ZigTag.array_access.create(arena, .{ .lhs = node, .rhs = index });
                 try mt.expect(.r_bracket);
             },
             .l_paren => {
                 mt.i += 1;
 
                 if (mt.eat(.r_paren)) {
-                    node = try ZigTag.call.create(mt.t.arena, .{ .lhs = node, .args = &.{} });
+                    node = try ZigTag.call.create(arena, .{ .lhs = node, .args = &.{} });
                 } else {
-                    var args = std.array_list.Managed(ZigNode).init(mt.t.gpa);
-                    defer args.deinit();
+                    var args: std.ArrayList(ZigNode) = .empty;
+                    defer args.deinit(gpa);
 
                     while (true) {
                         const arg = try mt.parseCCondExpr(scope);
-                        try args.append(arg);
+                        try args.append(gpa, arg);
 
                         const next_id = mt.peek();
                         switch (next_id) {
@@ -1171,7 +1178,7 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                             },
                         }
                     }
-                    node = try ZigTag.call.create(mt.t.arena, .{ .lhs = node, .args = try mt.t.arena.dupe(ZigNode, args.items) });
+                    node = try ZigTag.call.create(arena, .{ .lhs = node, .args = try arena.dupe(ZigNode, args.items) });
                 }
             },
             .l_brace => {
@@ -1179,8 +1186,8 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
 
                 // Check for designated field initializers
                 if (mt.peek() == .period) {
-                    var init_vals = std.array_list.Managed(ast.Payload.ContainerInitDot.Initializer).init(mt.t.gpa);
-                    defer init_vals.deinit();
+                    var init_vals: std.ArrayList(ast.Payload.ContainerInitDot.Initializer) = .empty;
+                    defer init_vals.deinit(gpa);
 
                     while (true) {
                         try mt.expect(.period);
@@ -1189,7 +1196,7 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                         try mt.expect(.equal);
 
                         const val = try mt.parseCCondExpr(scope);
-                        try init_vals.append(.{ .name = name, .value = val });
+                        try init_vals.append(gpa, .{ .name = name, .value = val });
 
                         const next_id = mt.peek();
                         switch (next_id) {
@@ -1206,17 +1213,17 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                             },
                         }
                     }
-                    const tuple_node = try ZigTag.container_init_dot.create(mt.t.arena, try mt.t.arena.dupe(ast.Payload.ContainerInitDot.Initializer, init_vals.items));
-                    node = try ZigTag.std_mem_zeroinit.create(mt.t.arena, .{ .lhs = node, .rhs = tuple_node });
+                    const tuple_node = try ZigTag.container_init_dot.create(arena, try arena.dupe(ast.Payload.ContainerInitDot.Initializer, init_vals.items));
+                    node = try ZigTag.std_mem_zeroinit.create(arena, .{ .lhs = node, .rhs = tuple_node });
                     continue;
                 }
 
-                var init_vals = std.array_list.Managed(ZigNode).init(mt.t.gpa);
-                defer init_vals.deinit();
+                var init_vals: std.ArrayList(ZigNode) = .empty;
+                defer init_vals.deinit(gpa);
 
                 while (true) {
                     const val = try mt.parseCCondExpr(scope);
-                    try init_vals.append(val);
+                    try init_vals.append(gpa, val);
 
                     const next_id = mt.peek();
                     switch (next_id) {
@@ -1233,8 +1240,8 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                         },
                     }
                 }
-                const tuple_node = try ZigTag.tuple.create(mt.t.arena, try mt.t.arena.dupe(ZigNode, init_vals.items));
-                node = try ZigTag.std_mem_zeroinit.create(mt.t.arena, .{ .lhs = node, .rhs = tuple_node });
+                const tuple_node = try ZigTag.tuple.create(arena, try arena.dupe(ZigNode, init_vals.items));
+                node = try ZigTag.std_mem_zeroinit.create(arena, .{ .lhs = node, .rhs = tuple_node });
             },
             .plus_plus, .minus_minus => {
                 try mt.fail("TODO postfix inc/dec expr", .{});

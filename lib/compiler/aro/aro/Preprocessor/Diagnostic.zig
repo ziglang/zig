@@ -449,3 +449,10 @@ pub const date_time: Diagnostic = .{
     .opt = .@"date-time",
     .show_in_system_headers = true,
 };
+
+pub const no_argument_variadic_macro: Diagnostic = .{
+    .fmt = "passing no argument for the '...' parameter of a variadic macro is incompatible with C standards before C23",
+    .opt = .@"variadic-macro-arguments-omitted",
+    .kind = .off,
+    .extension = true,
+};

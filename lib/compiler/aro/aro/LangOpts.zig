@@ -7,6 +7,14 @@ pub const Compiler = enum {
     clang,
     gcc,
     msvc,
+
+    pub fn defaultGccVersion(self: Compiler) u32 {
+        return switch (self) {
+            .clang => 4 * 10_000 + 2 * 100 + 1,
+            .gcc => 7 * 10_000 + 1 * 100 + 0,
+            .msvc => 0,
+        };
+    }
 };
 
 /// The floating-point evaluation method for intermediate results within a single expression
@@ -139,7 +147,7 @@ preserve_comments_in_macros: bool = false,
 /// Used ONLY for generating __GNUC__ and related macros. Does not control the presence/absence of any features
 /// Encoded as major * 10,000 + minor * 100 + patch
 /// e.g. 4.2.1 == 40201
-gnuc_version: u32 = 0,
+gnuc_version: ?u32 = null,
 
 pub fn setStandard(self: *LangOpts, name: []const u8) error{InvalidStandard}!void {
     self.standard = Standard.NameMap.get(name) orelse return error.InvalidStandard;
