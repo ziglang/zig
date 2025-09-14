@@ -3831,6 +3831,7 @@ test rotate {
 
 /// Replace needle with replacement as many times as possible, writing to an output buffer which is assumed to be of
 /// appropriate size. Use replacementSize to calculate an appropriate buffer size.
+/// The `input` and `output` slices must not overlap.
 /// The needle must not be empty.
 /// Returns the number of replacements made.
 pub fn replace(comptime T: type, input: []const T, needle: []const T, replacement: []const T, output: []T) usize {
