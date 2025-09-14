@@ -16,20 +16,20 @@ comptime {
     }
 }
 
-fn strcmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
+fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
     // We need to perform unsigned comparisons.
-    return switch (std.mem.orderZ(u8, @ptrCast(s1), @ptrCast(s2))) {
+    return switch (std.mem.orderZ(u8, s1, s2)) {
         .lt => -1,
         .eq => 0,
         .gt => 1,
     };
 }
 
-fn strncmp(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize) callconv(.c) c_int {
+fn strncmp(s1: [*:0]const u8, s2: [*:0]const u8, n: usize) callconv(.c) c_int {
     if (n == 0) return 0;
 
-    var l: [*:0]const u8 = @ptrCast(s1);
-    var r: [*:0]const u8 = @ptrCast(s2);
+    var l = s1;
+    var r = s2;
     var i = n - 1;
 
     while (l[0] != 0 and r[0] != 0 and i != 0 and l[0] == r[0]) {
@@ -41,10 +41,10 @@ fn strncmp(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize) callconv(.c) 
     return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
-fn strcasecmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
+fn strcasecmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
     const toLower = std.ascii.toLower;
-    var l: [*:0]const u8 = @ptrCast(s1);
-    var r: [*:0]const u8 = @ptrCast(s2);
+    var l = s1;
+    var r = s2;
 
     while (l[0] != 0 and r[0] != 0 and (l[0] == r[0] or toLower(l[0]) == toLower(r[0]))) {
         l += 1;
@@ -54,15 +54,15 @@ fn strcasecmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
     return @as(c_int, toLower(l[0])) - @as(c_int, toLower(r[0]));
 }
 
-fn __strcasecmp_l(s1: [*:0]const c_char, s2: [*:0]const c_char, locale: *anyopaque) callconv(.c) c_int {
+fn __strcasecmp_l(s1: [*:0]const u8, s2: [*:0]const u8, locale: *anyopaque) callconv(.c) c_int {
     _ = locale;
     return strcasecmp(s1, s2);
 }
 
-fn strncasecmp(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize) callconv(.c) c_int {
+fn strncasecmp(s1: [*:0]const u8, s2: [*:0]const u8, n: usize) callconv(.c) c_int {
     const toLower = std.ascii.toLower;
-    var l: [*:0]const u8 = @ptrCast(s1);
-    var r: [*:0]const u8 = @ptrCast(s2);
+    var l = s1;
+    var r = s2;
     var i = n - 1;
 
     while (l[0] != 0 and r[0] != 0 and i != 0 and (l[0] == r[0] or toLower(l[0]) == toLower(r[0]))) {
@@ -74,34 +74,34 @@ fn strncasecmp(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize) callconv(
     return @as(c_int, toLower(l[0])) - @as(c_int, toLower(r[0]));
 }
 
-fn __strncasecmp_l(s1: [*:0]const c_char, s2: [*:0]const c_char, n: usize, locale: *anyopaque) callconv(.c) c_int {
+fn __strncasecmp_l(s1: [*:0]const u8, s2: [*:0]const u8, n: usize, locale: *anyopaque) callconv(.c) c_int {
     _ = locale;
     return strncasecmp(s1, s2, n);
 }
 
 test strcasecmp {
-    try std.testing.expect(strcasecmp(@ptrCast("a"), @ptrCast("b")) < 0);
-    try std.testing.expect(strcasecmp(@ptrCast("b"), @ptrCast("a")) > 0);
-    try std.testing.expect(strcasecmp(@ptrCast("A"), @ptrCast("b")) < 0);
-    try std.testing.expect(strcasecmp(@ptrCast("b"), @ptrCast("A")) > 0);
-    try std.testing.expect(strcasecmp(@ptrCast("A"), @ptrCast("A")) == 0);
-    try std.testing.expect(strcasecmp(@ptrCast("B"), @ptrCast("b")) == 0);
-    try std.testing.expect(strcasecmp(@ptrCast("bb"), @ptrCast("AA")) > 0);
+    try std.testing.expect(strcasecmp("a", "b") < 0);
+    try std.testing.expect(strcasecmp("b", "a") > 0);
+    try std.testing.expect(strcasecmp("A", "b") < 0);
+    try std.testing.expect(strcasecmp("b", "A") > 0);
+    try std.testing.expect(strcasecmp("A", "A") == 0);
+    try std.testing.expect(strcasecmp("B", "b") == 0);
+    try std.testing.expect(strcasecmp("bb", "AA") > 0);
 }
 
 test strncasecmp {
-    try std.testing.expect(strncasecmp(@ptrCast("a"), @ptrCast("b"), 1) < 0);
-    try std.testing.expect(strncasecmp(@ptrCast("b"), @ptrCast("a"), 1) > 0);
-    try std.testing.expect(strncasecmp(@ptrCast("A"), @ptrCast("b"), 1) < 0);
-    try std.testing.expect(strncasecmp(@ptrCast("b"), @ptrCast("A"), 1) > 0);
-    try std.testing.expect(strncasecmp(@ptrCast("A"), @ptrCast("A"), 1) == 0);
-    try std.testing.expect(strncasecmp(@ptrCast("B"), @ptrCast("b"), 1) == 0);
-    try std.testing.expect(strncasecmp(@ptrCast("bb"), @ptrCast("AA"), 2) > 0);
+    try std.testing.expect(strncasecmp("a", "b", 1) < 0);
+    try std.testing.expect(strncasecmp("b", "a", 1) > 0);
+    try std.testing.expect(strncasecmp("A", "b", 1) < 0);
+    try std.testing.expect(strncasecmp("b", "A", 1) > 0);
+    try std.testing.expect(strncasecmp("A", "A", 1) == 0);
+    try std.testing.expect(strncasecmp("B", "b", 1) == 0);
+    try std.testing.expect(strncasecmp("bb", "AA", 2) > 0);
 }
 
 test strncmp {
-    try std.testing.expect(strncmp(@ptrCast("a"), @ptrCast("b"), 1) < 0);
-    try std.testing.expect(strncmp(@ptrCast("a"), @ptrCast("c"), 1) < 0);
-    try std.testing.expect(strncmp(@ptrCast("b"), @ptrCast("a"), 1) > 0);
-    try std.testing.expect(strncmp(@ptrCast("\xff"), @ptrCast("\x02"), 1) > 0);
+    try std.testing.expect(strncmp("a", "b", 1) < 0);
+    try std.testing.expect(strncmp("a", "c", 1) < 0);
+    try std.testing.expect(strncmp("b", "a", 1) > 0);
+    try std.testing.expect(strncmp("\xff", "\x02", 1) > 0);
 }
