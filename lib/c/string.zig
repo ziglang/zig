@@ -15,6 +15,8 @@ comptime {
         @export(&__strncasecmp_l, .{ .name = "strncasecmp_l", .linkage = .weak, .visibility = common.visibility });
         @export(&strspn, .{ .name = "strspn", .linkage = common.linkage, .visibility = common.visibility });
         @export(&strcspn, .{ .name = "strcspn", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strpbrk, .{ .name = "strpbrk", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&strstr, .{ .name = "strstr", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -133,4 +135,36 @@ test strcspn {
     try std.testing.expectEqual(3, strcspn("foobarbaz", "rab"));
     try std.testing.expectEqual(4, strcspn("foobarbaz", "ra"));
     try std.testing.expectEqual(9, strcspn("foobarbaz", ""));
+}
+
+fn strpbrk(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) ?[*:0]const u8 {
+    const slice1 = std.mem.span(s1);
+    const slice2 = std.mem.span(s2);
+    const index = std.mem.indexOfAny(u8, slice1, slice2) orelse
+        return null;
+    return s1 + index;
+}
+
+test strpbrk {
+    try std.testing.expectEqualStrings("barbaz", std.mem.span(strpbrk("foobarbaz", "rab").?));
+    try std.testing.expectEqualStrings("arbaz", std.mem.span(strpbrk("foobarbaz", "ra").?));
+    try std.testing.expectEqual(null, strpbrk("foobarbaz", ""));
+}
+
+fn strstr(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) ?[*:0]const u8 {
+    const slice1 = std.mem.span(s1);
+    const slice2 = std.mem.span(s2);
+    const index = std.mem.indexOf(u8, slice1, slice2) orelse
+        return null;
+    return s1 + index;
+}
+
+test strstr {
+    try std.testing.expectEqualStrings("barbaz", std.mem.span(strstr("foobarbaz", "ba").?));
+    try std.testing.expectEqualStrings("foobarbaz", std.mem.span(strstr("foobarbaz", "fo").?));
+    try std.testing.expectEqualStrings("foobarbaz", std.mem.span(strstr("foobarbaz", "f").?));
+    try std.testing.expectEqualStrings("foobarbaz", std.mem.span(strstr("foobarbaz", "").?));
+    try std.testing.expectEqual(null, strstr("foobarbaz", "boofarfaz"));
+    try std.testing.expectEqual(null, strstr("foobarbaz", "fa"));
+    try std.testing.expectEqual(null, strstr("foobarbaz", "c"));
 }
