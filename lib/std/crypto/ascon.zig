@@ -111,7 +111,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 self.st[i / 8] = mem.readInt(u64, bytes[i..][0..8], endian);
             }
             if (i < bytes.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / 8] = mem.readInt(u64, padded[0..], endian);
             }
@@ -142,7 +142,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 self.st[i / 8] ^= mem.readInt(u64, bytes[i..][0..8], endian);
             }
             if (i < bytes.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / 8] ^= mem.readInt(u64, padded[0..], endian);
             }
@@ -160,7 +160,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 mem.writeInt(u64, out[i..][0..8], self.st[i / 8], endian);
             }
             if (i < out.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 mem.writeInt(u64, padded[0..], self.st[i / 8], endian);
                 @memcpy(out[i..], padded[0 .. out.len - i]);
             }
@@ -182,7 +182,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 mem.writeInt(u64, out[i..][0..8], x, native_endian);
             }
             if (i < in.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 @memcpy(padded[0 .. in.len - i], in[i..]);
                 const x = mem.readInt(u64, &padded, native_endian) ^ mem.nativeTo(u64, self.st[i / 8], endian);
                 mem.writeInt(u64, &padded, x, native_endian);
@@ -287,7 +287,8 @@ pub fn State(comptime endian: std.builtin.Endian) type {
 
 test "ascon" {
     const Ascon = State(.big);
-    const bytes = [_]u8{0x01} ** Ascon.block_bytes;
+    var bytes: [Ascon.block_bytes]u8 = undefined;
+    @memset(&bytes, 1);
     var st = Ascon.init(bytes);
     var out: [Ascon.block_bytes]u8 = undefined;
     st.permute();
@@ -370,16 +371,16 @@ pub const AsconAead128 = struct {
             const adrem = ad.len - i;
             if (adrem > 0) {
                 if (adrem >= 8) {
-                    var buf = [_]u8{0} ** 8;
+                    var buf: [8]u8 = @splat(0);
                     @memcpy(buf[0..8], ad[i..][0..8]);
                     self.st.st[0] ^= mem.readInt(u64, &buf, .little);
 
-                    buf = [_]u8{0} ** 8;
+                    buf = @splat(0);
                     @memcpy(buf[0 .. adrem - 8], ad[i + 8 ..]);
                     buf[adrem - 8] = 0x01;
                     self.st.st[1] ^= mem.readInt(u64, &buf, .little);
                 } else {
-                    var buf = [_]u8{0} ** 8;
+                    var buf: [8]u8 = @splat(0);
                     @memcpy(buf[0..adrem], ad[i..]);
                     buf[adrem] = 0x01;
                     self.st.st[0] ^= mem.readInt(u64, &buf, .little);
@@ -440,7 +441,7 @@ pub const AsconAead128 = struct {
             state.st.addBytes(m[i..][0..8]);
             state.st.extractBytes(c[i..][0..8]);
 
-            var buf = [_]u8{0} ** 8;
+            var buf: [8]u8 = @splat(0);
             @memcpy(buf[0 .. remaining - 8], m[i + 8 ..]);
             const m1 = mem.readInt(u64, &buf, .little);
             state.st.st[1] ^= m1;
@@ -458,18 +459,18 @@ pub const AsconAead128 = struct {
             state.st.st[1] ^= 0x01;
         } else if (remaining > 0) {
             // All in first word
-            var temp = [_]u8{0} ** 8;
+            var temp: [8]u8 = @splat(0);
             @memcpy(temp[0..remaining], m[i..]);
             state.st.addBytes(&temp);
             state.st.extractBytes(c[i..][0..remaining]);
             // Add padding
-            temp = [_]u8{0} ** 8;
+            temp = @splat(0);
             temp[remaining] = 0x01;
             state.st.addBytes(&temp);
-            state.st.addBytes(&[_]u8{0} ** 8); // Second word stays zero
+            // Second word stays zero
         } else {
             // Empty message or exact multiple - add padding block
-            var padded = [_]u8{0} ** 16;
+            var padded: [16]u8 = @splat(0);
             padded[0] = 0x01;
             state.st.addBytes(&padded);
         }
@@ -527,7 +528,7 @@ pub const AsconAead128 = struct {
             mem.writeInt(u64, m[i..][0..8], state.st.st[0], .little);
             state.st.st[0] = c0;
 
-            var buf = [_]u8{0} ** 8;
+            var buf: [8]u8 = @splat(0);
             @memcpy(buf[0 .. crem - 8], saved_ct[8..][0 .. crem - 8]);
             const c1 = mem.readInt(u64, &buf, .little);
             const m1 = state.st.st[1] ^ c1;
@@ -551,7 +552,7 @@ pub const AsconAead128 = struct {
             // Add padding to word 1 at position 0
             state.st.st[1] ^= 0x01;
         } else if (crem > 0) {
-            var buf = [_]u8{0} ** 8;
+            var buf: [8]u8 = @splat(0);
             @memcpy(buf[0..crem], c[i..]);
             const c0 = mem.readInt(u64, &buf, .little);
             const m0 = state.st.st[0] ^ c0;
@@ -637,14 +638,14 @@ pub const AsconHash256 = struct {
 
         // Store partial block for finalization
         if (i < b.len) {
-            var padded = [_]u8{0} ** 8;
+            var padded: [8]u8 = @splat(0);
             const remaining = b.len - i;
             @memcpy(padded[0..remaining], b[i..]);
             padded[remaining] = 0x01;
             self.st.addBytes(&padded);
         } else {
             // Add padding block
-            var padded = [_]u8{0} ** 8;
+            var padded: [8]u8 = @splat(0);
             padded[0] = 0x01;
             self.st.addBytes(&padded);
         }
@@ -733,14 +734,14 @@ pub const AsconXof128 = struct {
 
         // Store partial block for finalization
         if (i < b.len) {
-            var padded = [_]u8{0} ** 8;
+            var padded: [8]u8 = @splat(0);
             const remaining = b.len - i;
             @memcpy(padded[0..remaining], b[i..]);
             padded[remaining] = 0x01;
             self.st.addBytes(&padded);
         } else {
             // Add padding block
-            var padded = [_]u8{0} ** 8;
+            var padded: [8]u8 = @splat(0);
             padded[0] = 0x01;
             self.st.addBytes(&padded);
         }
@@ -821,7 +822,7 @@ pub const AsconCxof128 = struct {
 
             // Process final partial block with padding
             if (i < options.custom.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 const remaining = options.custom.len - i;
                 @memcpy(padded[0..remaining], options.custom[i..]);
                 padded[remaining] = 0x01;
@@ -829,14 +830,14 @@ pub const AsconCxof128 = struct {
                 self.st.permuteR(12);
             } else {
                 // Add padding block
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 padded[0] = 0x01;
                 self.st.addBytes(&padded);
                 self.st.permuteR(12);
             }
         } else {
             // Empty customization still needs padding
-            var padded = [_]u8{0} ** 8;
+            var padded: [8]u8 = @splat(0);
             padded[0] = 0x01;
             self.st.addBytes(&padded);
             self.st.permuteR(12);
@@ -878,14 +879,14 @@ pub const AsconCxof128 = struct {
 
         // Store partial block for finalization
         if (i < b.len) {
-            var padded = [_]u8{0} ** 8;
+            var padded: [8]u8 = @splat(0);
             const remaining = b.len - i;
             @memcpy(padded[0..remaining], b[i..]);
             padded[remaining] = 0x01;
             self.st.addBytes(&padded);
         } else {
             // Add padding block
-            var padded = [_]u8{0} ** 8;
+            var padded: [8]u8 = @splat(0);
             padded[0] = 0x01;
             self.st.addBytes(&padded);
         }
