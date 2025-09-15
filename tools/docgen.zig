@@ -37,6 +37,7 @@ pub fn main() !void {
     if (!args_it.skip()) @panic("expected self arg");
 
     var opt_code_dir: ?[]const u8 = null;
+    var opt_base_dir: ?[]const u8 = null;
     var opt_input: ?[]const u8 = null;
     var opt_output: ?[]const u8 = null;
 
@@ -50,6 +51,12 @@ pub fn main() !void {
                     opt_code_dir = param;
                 } else {
                     fatal("expected parameter after --code-dir", .{});
+                }
+            } else if (mem.eql(u8, arg, "--base-dir")) {
+                if (args_it.next()) |param| {
+                    opt_base_dir = param;
+                } else {
+                    fatal("expected parameter after --base-dir", .{});
                 }
             } else {
                 fatal("unrecognized option: '{s}'", .{arg});
@@ -83,7 +90,7 @@ pub fn main() !void {
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
     var toc = try genToc(arena, &tokenizer);
 
-    try genHtml(arena, &tokenizer, &toc, code_dir, &out_file_writer.interface);
+    try genHtml(arena, &tokenizer, &toc, code_dir, opt_base_dir, &out_file_writer.interface);
     try out_file_writer.end();
 }
 
@@ -985,6 +992,7 @@ fn genHtml(
     tokenizer: *Tokenizer,
     toc: *Toc,
     code_dir: std.fs.Dir,
+    opt_base_dir: ?[]const u8,
     out: *Writer,
 ) !void {
     for (toc.nodes) |node| {
@@ -1045,7 +1053,13 @@ fn genHtml(
                 };
                 defer allocator.free(contents);
 
-                try out.writeAll(contents);
+                if (opt_base_dir) |base_dir| {
+                    const rep_contents = try mem.replaceOwned(u8, allocator, contents, base_dir, "");
+                    defer allocator.free(rep_contents);
+                    try out.writeAll(rep_contents);
+                } else {
+                    try out.writeAll(contents);
+                }
             },
         }
     }
