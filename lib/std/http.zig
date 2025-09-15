@@ -748,7 +748,7 @@ pub const BodyWriter = struct {
     /// How many zeroes to reserve for hex-encoded chunk length.
     const chunk_len_digits = 8;
     const max_chunk_len: usize = std.math.pow(u64, 16, chunk_len_digits) - 1;
-    const chunk_header_template = ("0" ** chunk_len_digits) ++ "\r\n";
+    const chunk_header_template = @as([chunk_len_digits]u8, @splat('0')) ++ "\r\n";
 
     comptime {
         assert(max_chunk_len == std.math.maxInt(u32));

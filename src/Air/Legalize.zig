@@ -1754,7 +1754,7 @@ fn scalarizeOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!
                 .data = .{ .ty_pl = .{
                     .ty = Air.internedToRef(try zcu.intern_pool.getTupleType(zcu.gpa, pt.tid, .{
                         .types = &.{ wrapped_res_scalar_ty.toIntern(), .u1_type },
-                        .values = &(.{.none} ** 2),
+                        .values = &.{ .none, .none },
                     })),
                     .payload = try l.addExtra(Air.Bin, .{
                         .lhs = loop.block.add(l, .{

@@ -472,7 +472,7 @@ pub const Edwards25519 = struct {
             st.final(&hctx);
             xctx = hctx[0..];
         }
-        const empty_block = [_]u8{0} ** H.block_length;
+        const empty_block: [H.block_length]u8 = @splat(0);
         var t = [3]u8{ 0, n * h_l, 0 };
         var xctx_len_u8 = [1]u8{@as(u8, @intCast(xctx.len))};
         var st = H.init(.{});
@@ -541,7 +541,7 @@ pub const Edwards25519 = struct {
 const htest = @import("../test.zig");
 
 test "packing/unpacking" {
-    const s = [_]u8{170} ++ [_]u8{0} ** 31;
+    const s = [_]u8{170} ++ @as([31]u8, @splat(0));
     var b = Edwards25519.basePoint;
     const pk = try b.mul(s);
     var buf: [128]u8 = undefined;
@@ -610,7 +610,7 @@ test "hash-to-curve operation" {
 }
 
 test "implicit reduction of invalid scalars" {
-    const s = [_]u8{0} ** 31 ++ [_]u8{255};
+    const s = @as([31]u8, @splat(0)) ++ [_]u8{255};
     const p1 = try Edwards25519.basePoint.mulPublic(s);
     const p2 = try Edwards25519.basePoint.mul(s);
     const p3 = try p1.mulPublic(s);

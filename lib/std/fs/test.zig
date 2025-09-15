@@ -1304,16 +1304,16 @@ test "max file name component lengths" {
     if (native_os == .windows) {
         // U+FFFF is the character with the largest code point that is encoded as a single
         // UTF-16 code unit, so Windows allows for NAME_MAX of them.
-        const maxed_windows_filename = ("\u{FFFF}".*) ** windows.NAME_MAX;
-        try testFilenameLimits(tmp.dir, &maxed_windows_filename);
+        const maxed_windows_filename: [windows.NAME_MAX][3]u8 = @splat("\u{FFFF}".*);
+        try testFilenameLimits(tmp.dir, @ptrCast(&maxed_windows_filename));
     } else if (native_os == .wasi) {
         // On WASI, the maxed filename depends on the host OS, so in order for this test to
         // work on any host, we need to use a length that will work for all platforms
         // (i.e. the minimum max_name_bytes of all supported platforms).
-        const maxed_wasi_filename = [_]u8{'1'} ** 255;
+        const maxed_wasi_filename: [255]u8 = @splat('1');
         try testFilenameLimits(tmp.dir, &maxed_wasi_filename);
     } else {
-        const maxed_ascii_filename = [_]u8{'1'} ** std.fs.max_name_bytes;
+        const maxed_ascii_filename: [std.fs.max_name_bytes]u8 = @splat('1');
         try testFilenameLimits(tmp.dir, &maxed_ascii_filename);
     }
 }

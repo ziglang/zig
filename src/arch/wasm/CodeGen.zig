@@ -3249,7 +3249,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 // non-packed structs are not handled in this function because they
                 // are by-ref types.
                 assert(struct_type.layout == .@"packed");
-                var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
+                var buf: [8]u8 = @splat(0); // zero the buffer so we do not read 0xaa as integer
                 val.writeToPackedMemory(ty, pt, &buf, 0) catch unreachable;
                 const backing_int_ty = Type.fromInterned(struct_type.backingIntTypeUnordered(ip));
                 const int_val = try pt.intValue(
@@ -3263,7 +3263,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         .un => {
             const int_type = try pt.intType(.unsigned, @intCast(ty.bitSize(zcu)));
 
-            var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
+            var buf: [8]u8 = @splat(0); // zero the buffer so we do not read 0xaa as integer
             val.writeToPackedMemory(ty, pt, &buf, 0) catch unreachable;
             const int_val = try pt.intValue(
                 int_type,
@@ -5314,7 +5314,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     };
 
     if (elements.len <= Air.Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
+        var buf: [Air.Liveness.bpi - 1]Air.Inst.Ref = @splat(.none);
         @memcpy(buf[0..elements.len], elements);
         return cg.finishAir(inst, result, &buf);
     }
@@ -6131,19 +6131,19 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         const cross_1 = try cg.callIntrinsic(
             .__multi3,
-            &[_]InternPool.Index{.i64_type} ** 4,
+            &@as([4]InternPool.Index, @splat(.i64_type)),
             Type.i128,
             &.{ lhs_msb, zero, rhs_lsb, zero },
         );
         const cross_2 = try cg.callIntrinsic(
             .__multi3,
-            &[_]InternPool.Index{.i64_type} ** 4,
+            &@as([4]InternPool.Index, @splat(.i64_type)),
             Type.i128,
             &.{ rhs_msb, zero, lhs_lsb, zero },
         );
         const mul_lsb = try cg.callIntrinsic(
             .__multi3,
-            &[_]InternPool.Index{.i64_type} ** 4,
+            &@as([4]InternPool.Index, @splat(.i64_type)),
             Type.i128,
             &.{ rhs_lsb, zero, lhs_lsb, zero },
         );

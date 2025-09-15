@@ -1394,7 +1394,7 @@ pub fn unwindFrameMachO(
 
                     const reg_numbers = [_]u3{ 1, 2, 3, 4, 5, 6 };
                     var registers: [reg_numbers.len]u3 = undefined;
-                    var used_indices = [_]bool{false} ** reg_numbers.len;
+                    var used_indices: [reg_numbers.len]bool = @splat(false);
                     for (digits[digits.len - reg_count ..], 0..) |target_unused_index, i| {
                         var unused_count: u8 = 0;
                         const unused_index = for (used_indices, 0..) |used, index| {

@@ -41,7 +41,7 @@ pub const Curve25519 = struct {
 
     /// Multiply a point by the cofactor, returning WeakPublicKey if the element is in a small-order group.
     pub fn clearCofactor(p: Curve25519) WeakPublicKeyError!Curve25519 {
-        const cofactor = [_]u8{8} ++ [_]u8{0} ** 31;
+        const cofactor = [_]u8{8} ++ @as([31]u8, @splat(0));
         return ladder(p, cofactor, 4) catch return error.WeakPublicKey;
     }
 
@@ -146,7 +146,7 @@ test "non-affine edwards25519 to curve25519 projection" {
 }
 
 test "small order check" {
-    var s: [32]u8 = [_]u8{1} ++ [_]u8{0} ** 31;
+    var s: [32]u8 = [_]u8{1} ++ @as([31]u8, @splat(0));
     const small_order_ss: [7][32]u8 = .{
         .{
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0 (order 4)

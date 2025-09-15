@@ -1,5 +1,5 @@
 export fn foo() void {
-    const bytes align(@alignOf([]const u8)) = [1]u8{0xfa} ** 16;
+    const bytes align(@alignOf([]const u8)) = @as([16]u8, @splat(0xfa));
     _ = @as(*const []const u8, @ptrCast(&bytes)).*;
 }
 

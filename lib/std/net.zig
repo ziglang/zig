@@ -1153,7 +1153,7 @@ fn linuxLookupName(
             .scope_id = addr.addr.in6.sa.scope_id,
             .port = 65535,
             .flowinfo = 0,
-            .addr = [1]u8{0} ** 16,
+            .addr = @splat(0),
         };
         var sa4: posix.sockaddr.in = undefined;
         @memset(@as([*]u8, @ptrCast(&sa4))[0..@sizeOf(posix.sockaddr.in)], 0);
@@ -1161,7 +1161,7 @@ fn linuxLookupName(
             .family = posix.AF.INET,
             .port = 65535,
             .addr = 0,
-            .zero = [1]u8{0} ** 8,
+            .zero = @splat(0),
         };
         var sa: *align(4) posix.sockaddr = undefined;
         var da: *align(4) posix.sockaddr = undefined;
@@ -1339,23 +1339,23 @@ fn linuxLookupNameFromNull(
     if (flags.PASSIVE) {
         if (family != posix.AF.INET6) {
             addrs.appendAssumeCapacity(.{
-                .addr = Address.initIp4([1]u8{0} ** 4, port),
+                .addr = Address.initIp4(@splat(0), port),
             });
         }
         if (family != posix.AF.INET) {
             addrs.appendAssumeCapacity(.{
-                .addr = Address.initIp6([1]u8{0} ** 16, port, 0, 0),
+                .addr = Address.initIp6(@splat(0), port, 0, 0),
             });
         }
     } else {
         if (family != posix.AF.INET6) {
             addrs.appendAssumeCapacity(.{
-                .addr = Address.initIp4([4]u8{ 127, 0, 0, 1 }, port),
+                .addr = Address.initIp4(.{ 127, 0, 0, 1 }, port),
             });
         }
         if (family != posix.AF.INET) {
             addrs.appendAssumeCapacity(.{
-                .addr = Address.initIp6(([1]u8{0} ** 15) ++ [1]u8{1}, port, 0, 0),
+                .addr = Address.initIp6(@as([15]u8, @splat(0)) ++ [1]u8{1}, port, 0, 0),
             });
         }
     }

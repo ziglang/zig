@@ -98,8 +98,8 @@ test "parse and render IPv6 addresses" {
     // TODO Make this test pass on other operating systems.
     if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin() or builtin.os.tag == .windows) {
         try testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
-        // Assumes IFNAMESIZE will always be a multiple of 2
-        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
+
+        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3" ++ @as([std.posix.IFNAMESIZE - 4]u8, @splat('0')), 0));
         try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
     }
 }
@@ -143,7 +143,7 @@ test "parse and render UNIX addresses" {
     const addr = net.Address.initUnix("/tmp/testpath") catch unreachable;
     try std.testing.expectFmt("/tmp/testpath", "{f}", .{addr});
 
-    const too_long = [_]u8{'a'} ** 200;
+    const too_long: [200]u8 = @splat('a');
     try testing.expectError(error.NameTooLong, net.Address.initUnix(too_long[0..]));
 }
 
