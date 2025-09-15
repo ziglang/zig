@@ -4064,6 +4064,7 @@ fn updateLazyValue(
         },
         .error_union => |error_union| {
             try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.refType(.fromInterned(error_union.ty));
             var err_buf: [4]u8 = undefined;
             const err_bytes = err_buf[0 .. std.math.divCeil(u17, zcu.errorSetBits(), 8) catch unreachable];
             dwarf.writeInt(err_bytes, switch (error_union.val) {
@@ -4101,7 +4102,6 @@ fn updateLazyValue(
                 try diw.writeUleb128(err_bytes.len);
                 try diw.writeAll(err_bytes);
             }
-            try wip_nav.refType(.fromInterned(error_union.ty));
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
         .enum_literal => |enum_literal| {
