@@ -1681,13 +1681,13 @@ const ResolvConf = struct {
         var sl: posix.socklen_t = @sizeOf(posix.sockaddr.in);
         var family: posix.sa_family_t = posix.AF.INET;
 
-        var ns_buffer: [3]Address = undefined;
+        var ns_addr_buffer: [3]Address = undefined;
 
         var index: u2 = 0;
         while (index < rc.ns_len) : (index += 1) {
             const ip = rc.ns_buffer[index];
-            ns_buffer[index] = ip.addr;
-            assert(ns_buffer[index].getPort() == 53);
+            ns_addr_buffer[index] = ip.addr;
+            assert(ns_addr_buffer[index].getPort() == 53);
             if (ip.addr.any.family != posix.AF.INET) {
                 family = posix.AF.INET6;
             }
@@ -1721,7 +1721,7 @@ const ResolvConf = struct {
             );
             var i: u2 = 0;
             while (i < rc.ns_len) : (i += 1) {
-                var n = ns_buffer[i];
+                var n = ns_addr_buffer[i];
                 if (n.any.family != posix.AF.INET) continue;
                 mem.writeInt(u32, n.in6.sa.addr[12..], n.in.sa.addr, native_endian);
                 n.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
@@ -1759,7 +1759,7 @@ const ResolvConf = struct {
                     if (answers[i].len == 0) {
                         var idx: u2 = 0;
                         while (idx < rc.ns_len) : (idx += 1) {
-                            const n = ns_buffer[idx];
+                            const n = ns_addr_buffer[idx];
                             _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &n.any, sl) catch undefined;
                         }
                     }
@@ -1782,8 +1782,8 @@ const ResolvConf = struct {
 
                 // Ignore replies from addresses we didn't send to
                 var idx: u2 = 0;
-                const ns = while (idx < rc.ns_len) : (idx += 1) {
-                    const n = ns_buffer[idx];
+                const ns_addr = while (idx < rc.ns_len) : (idx += 1) {
+                    const n = ns_addr_buffer[idx];
                     if (n.eql(sa)) break n;
                 } else continue;
 
@@ -1803,7 +1803,7 @@ const ResolvConf = struct {
                     0, 3 => {},
                     2 => if (servfail_retry != 0) {
                         servfail_retry -= 1;
-                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
+                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns_addr.any, sl) catch undefined;
                     },
                     else => continue,
                 }
