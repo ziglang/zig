@@ -1724,12 +1724,12 @@ const ResolvConf = struct {
             );
             for (&ns_arr) |*ns| {
                 if (ns.*) |*n| {
-                    if (n.*.any.family != posix.AF.INET) continue;
-                    mem.writeInt(u32, n.*.in6.sa.addr[12..], n.*.in.sa.addr, native_endian);
-                    n.*.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-                    n.*.any.family = posix.AF.INET6;
-                    n.*.in6.sa.flowinfo = 0;
-                    n.*.in6.sa.scope_id = 0;
+                    if (n.any.family != posix.AF.INET) continue;
+                    mem.writeInt(u32, n.in6.sa.addr[12..], n.in.sa.addr, native_endian);
+                    n.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
+                    n.any.family = posix.AF.INET6;
+                    n.in6.sa.flowinfo = 0;
+                    n.in6.sa.scope_id = 0;
                 }
             }
             sl = @sizeOf(posix.sockaddr.in6);
