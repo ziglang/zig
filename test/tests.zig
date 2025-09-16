@@ -419,8 +419,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
         .{
             .target = .{
@@ -429,8 +427,6 @@ const test_targets = blk: {
                 .abi = .musl,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
         .{
             .target = .{
@@ -440,8 +436,6 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
             .extra_target = true,
         },
         .{
@@ -451,8 +445,6 @@ const test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
 
         .{
