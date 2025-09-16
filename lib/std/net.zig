@@ -1681,12 +1681,12 @@ const ResolvConf = struct {
         var sl: posix.socklen_t = @sizeOf(posix.sockaddr.in);
         var family: posix.sa_family_t = posix.AF.INET;
 
-        var ns_arr: [3]Address = .{ null, null, null };
+        var ns_buffer: [3]Address = undefined;
 
         for (0..rc.ns_len) |index| {
             const ip = rc.ns_buffer[index];
-            ns_arr[index] = ip.addr;
-            assert(ns_arr[index].?.getPort() == 53);
+            ns_buffer[index] = ip.addr;
+            assert(ns_buffer[index].getPort() == 53);
             if (ip.addr.any.family != posix.AF.INET) {
                 family = posix.AF.INET6;
             }
@@ -1718,15 +1718,14 @@ const ResolvConf = struct {
                 std.os.linux.IPV6.V6ONLY,
                 &mem.toBytes(@as(c_int, 0)),
             );
-            for (&ns_arr) |*ns| {
-                if (ns.*) |*n| {
-                    if (n.any.family != posix.AF.INET) continue;
-                    mem.writeInt(u32, n.in6.sa.addr[12..], n.in.sa.addr, native_endian);
-                    n.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-                    n.any.family = posix.AF.INET6;
-                    n.in6.sa.flowinfo = 0;
-                    n.in6.sa.scope_id = 0;
-                }
+            for (0..rc.ns_len) |index| {
+                var n = ns_buffer[index];
+                if (n.any.family != posix.AF.INET) continue;
+                mem.writeInt(u32, n.in6.sa.addr[12..], n.in.sa.addr, native_endian);
+                n.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
+                n.any.family = posix.AF.INET6;
+                n.in6.sa.flowinfo = 0;
+                n.in6.sa.scope_id = 0;
             }
             sl = @sizeOf(posix.sockaddr.in6);
         }
@@ -1756,10 +1755,9 @@ const ResolvConf = struct {
                 var i: usize = 0;
                 while (i < queries.len) : (i += 1) {
                     if (answers[i].len == 0) {
-                        for (&ns_arr) |*ns| {
-                            if (ns.*) |*n| {
-                                _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &n.any, sl) catch undefined;
-                            }
+                        for (0..rc.ns_len) |index| {
+                            const n = ns_buffer[index];
+                            _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &n.any, sl) catch undefined;
                         }
                     }
                 }
@@ -1780,10 +1778,9 @@ const ResolvConf = struct {
                 if (rlen < 4) continue;
 
                 // Ignore replies from addresses we didn't send to
-                const ns = for (ns_arr) |ns| {
-                    if (ns) |n| {
-                        if (n.eql(sa)) break n;
-                    }
+                const ns = for (0..rc.ns_len) |index| {
+                    const n = ns_buffer[index];
+                    if (n.eql(sa)) break n;
                 } else continue;
 
                 // Find which query this answer goes with, if any
