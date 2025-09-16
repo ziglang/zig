@@ -327,24 +327,16 @@ pub fn float(r: Random, comptime T: type) T {
 ///
 /// To use different parameters, use: floatNorm(...) * desiredStddev + desiredMean.
 pub fn floatNorm(r: Random, comptime T: type) T {
-    const value = ziggurat.next_f64(r, ziggurat.NormDist);
-    switch (T) {
-        f32 => return @floatCast(value),
-        f64 => return value,
-        else => @compileError("unknown floating point type"),
-    }
+    const tables = ziggurat.distributions(T).normal;
+    return ziggurat.next(T, r, tables);
 }
 
 /// Return an exponentially distributed float with a rate parameter of 1.
 ///
 /// To use a different rate parameter, use: floatExp(...) / desiredRate.
 pub fn floatExp(r: Random, comptime T: type) T {
-    const value = ziggurat.next_f64(r, ziggurat.ExpDist);
-    switch (T) {
-        f32 => return @floatCast(value),
-        f64 => return value,
-        else => @compileError("unknown floating point type"),
-    }
+    const tables = ziggurat.distributions(T).exponential;
+    return ziggurat.next(T, r, tables);
 }
 
 /// Shuffle a slice into a random order.
