@@ -1590,13 +1590,15 @@ const ResolvConf = struct {
     ndots: u32,
     timeout: u32,
     search: ArrayList(u8),
-    ns: [3]?LookupAddr,
+    ns_buffer: [3]LookupAddr,
+    ns_len: u2,
 
     /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
     /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
     fn init(rc: *ResolvConf, gpa: Allocator) !void {
         rc.* = .{
-            .ns = .{ null, null, null },
+            .ns_buffer = undefined,
+            .ns_len = 0,
             .search = .empty,
             .ndots = 1,
             .timeout = 5,
@@ -1608,7 +1610,7 @@ const ResolvConf = struct {
             error.FileNotFound,
             error.NotDir,
             error.AccessDenied,
-            => return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53),
+            => return linuxLookupNameFromNumericUnspec(&rc.ns_buffer, &rc.ns_len, "127.0.0.1", 53),
             else => |e| return e,
         };
         defer file.close();
@@ -1650,7 +1652,7 @@ const ResolvConf = struct {
                 },
                 .nameserver => {
                     const ip_txt = line_it.next() orelse continue;
-                    try linuxLookupNameFromNumericUnspec(&rc.ns, ip_txt, 53);
+                    try linuxLookupNameFromNumericUnspec(&rc.ns_buffer, &rc.ns_len, ip_txt, 53);
                 },
                 .domain, .search => {
                     rc.search.items.len = 0;
@@ -1662,11 +1664,9 @@ const ResolvConf = struct {
             else => |e| return e,
         }
 
-        for (rc.ns) |n| {
-            if (n != null) return;
+        if (rc.ns_len == 0) {
+            return linuxLookupNameFromNumericUnspec(&rc.ns_buffer, &rc.ns_len, "127.0.0.1", 53);
         }
-
-        return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53);
     }
 
     fn resMSendRc(
@@ -1681,15 +1681,14 @@ const ResolvConf = struct {
         var sl: posix.socklen_t = @sizeOf(posix.sockaddr.in);
         var family: posix.sa_family_t = posix.AF.INET;
 
-        var ns_arr: [3]?Address = .{ null, null, null };
+        var ns_arr: [3]Address = .{ null, null, null };
 
-        for (&ns_arr, rc.ns) |*ns, iplit| {
-            if (iplit) |ip| {
-                ns.* = ip.addr;
-                assert(ns.*.?.getPort() == 53);
-                if (ip.addr.any.family != posix.AF.INET) {
-                    family = posix.AF.INET6;
-                }
+        for (0..rc.ns_len) |index| {
+            const ip = rc.ns_buffer[index];
+            ns_arr[index] = ip.addr;
+            assert(ns_arr[index].?.getPort() == 53);
+            if (ip.addr.any.family != posix.AF.INET) {
+                family = posix.AF.INET6;
             }
         }
 
@@ -1829,19 +1828,16 @@ const ResolvConf = struct {
 };
 
 fn linuxLookupNameFromNumericUnspec(
-    addrs: *[3]?LookupAddr,
+    addrs: *[3]LookupAddr,
+    addrs_len: *u2,
     name: []const u8,
     port: u16,
 ) !void {
-    const address = try Address.resolveIp(name, port);
-    for (addrs) |*addr| {
-        if (addr.* == null) {
-            addr.* = .{ .addr = address };
-            return;
-        }
-    }
+    if (addrs_len.* >= addrs.len - 1) return error.OutOfMemory;
 
-    return error.OutOfMemory;
+    const address = try Address.resolveIp(name, port);
+    addrs[addrs_len.*] = .{ .addr = address };
+    addrs_len.* += 1;
 }
 
 fn dnsParse(
