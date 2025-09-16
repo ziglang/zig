@@ -1665,9 +1665,11 @@ const ResolvConf = struct {
             else => |e| return e,
         }
 
-        if (&rc.ns == &[3]?LookupAddr{ null, null, null }) {
-            return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53);
+        for (rc.ns) |n| {
+            if (n != null) return;
         }
+
+        return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53);
     }
 
     fn resMSendRc(
