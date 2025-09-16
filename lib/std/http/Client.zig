@@ -712,8 +712,21 @@ pub const Response = struct {
     pub fn reader(response: *Response, transfer_buffer: []u8) *Reader {
         response.head.invalidateStrings();
         const req = response.request;
-        if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
+
+        // Check if the response should have a body based on method and status code
+        // Per RFC 9110 Section 6.3:
+        // Any response to a HEAD request and any response with a 1xx (Informational),
+        // 204 (No Content), or 304 (Not Modified) status code is always terminated
+        // by the first empty line after the header fields
+        if (!req.method.responseHasBody() or
+            head.status.class() == .informational or
+            head.status == .no_content or
+            head.status == .not_modified)
+        {
+            return .ending;
+        }
+
         return req.reader.bodyReader(transfer_buffer, head.transfer_encoding, head.content_length);
     }
 
@@ -733,8 +746,23 @@ pub const Response = struct {
         decompress_buffer: []u8,
     ) *Reader {
         response.head.invalidateStrings();
+        const req = response.request;
         const head = &response.head;
-        return response.request.reader.bodyReaderDecompressing(
+
+        // Check if the response should have a body based on method and status code
+        // Per RFC 9110 Section 6.3:
+        // Any response to a HEAD request and any response with a 1xx (Informational),
+        // 204 (No Content), or 304 (Not Modified) status code is always terminated
+        // by the first empty line after the header fields
+        if (!req.method.responseHasBody() or
+            head.status.class() == .informational or
+            head.status == .no_content or
+            head.status == .not_modified)
+        {
+            return .ending;
+        }
+
+        return req.reader.bodyReaderDecompressing(
             transfer_buffer,
             head.transfer_encoding,
             head.content_length,
@@ -793,6 +821,9 @@ pub const Request = struct {
     /// Populated in `receiveHead`; used in `deinit` to determine whether to
     /// discard the body to reuse the connection.
     response_transfer_encoding: http.TransferEncoding = .none,
+    /// Populated in `receiveHead`; used in `deinit` to determine whether to
+    /// discard the body to reuse the connection.
+    response_status: ?http.Status = null,
 
     /// These headers are kept including when following a redirect to a
     /// different domain.
@@ -869,7 +900,18 @@ pub const Request = struct {
                 .ready => false,
                 .received_head => c: {
                     if (r.method.requestHasBody()) break :c true;
-                    if (!r.method.responseHasBody()) break :c false;
+
+                    // Check if response should have a body based on method and status
+                    const has_body = if (r.response_status) |status|
+                        r.method.responseHasBody() and
+                            status.class() != .informational and
+                            status != .no_content and
+                            status != .not_modified
+                    else
+                        r.method.responseHasBody();
+
+                    if (!has_body) break :c false;
+
                     const reader = r.reader.bodyReader(&.{}, r.response_transfer_encoding, r.response_content_length);
                     _ = reader.discardRemaining() catch |err| switch (err) {
                         error.ReadFailed => break :c true,
@@ -1117,6 +1159,7 @@ pub const Request = struct {
 
             if (head.status == .@"continue") {
                 if (r.handle_continue) continue;
+                r.response_status = head.status;
                 r.response_transfer_encoding = head.transfer_encoding;
                 r.response_content_length = head.content_length;
                 return response; // we're not handling the 100-continue
@@ -1130,6 +1173,7 @@ pub const Request = struct {
             if (r.method == .CONNECT and head.status.class() == .success) {
                 // This connection is no longer doing HTTP.
                 connection.closing = false;
+                r.response_status = head.status;
                 r.response_transfer_encoding = head.transfer_encoding;
                 r.response_content_length = head.content_length;
                 return response;
@@ -1145,8 +1189,10 @@ pub const Request = struct {
             if (r.method == .HEAD or head.status.class() == .informational or
                 head.status == .no_content or head.status == .not_modified)
             {
-                r.response_transfer_encoding = head.transfer_encoding;
-                r.response_content_length = head.content_length;
+                r.response_status = head.status;
+                // For these status codes, there is no body even if headers suggest otherwise
+                r.response_transfer_encoding = .none;
+                r.response_content_length = 0;
                 return response;
             }
 
@@ -1167,6 +1213,7 @@ pub const Request = struct {
             if (!r.accept_encoding[@intFromEnum(head.content_encoding)])
                 return error.HttpContentEncodingUnsupported;
 
+            r.response_status = head.status;
             r.response_transfer_encoding = head.transfer_encoding;
             r.response_content_length = head.content_length;
             return response;
