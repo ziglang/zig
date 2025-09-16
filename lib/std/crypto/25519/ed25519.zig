@@ -175,6 +175,10 @@ pub const Ed25519 = struct {
             self.h.update(msg);
         }
 
+        fn isIdentity(p: Curve) bool {
+            return p.x.isZero() and p.y.equivalent(p.z);
+        }
+
         pub const VerifyError = WeakPublicKeyError || IdentityElementError ||
             SignatureVerificationError;
 
@@ -195,9 +199,9 @@ pub const Ed25519 = struct {
                 hram,
             ));
             const check = sb_ah.sub(self.expected_r.clearCofactor());
-            if (check.rejectIdentity()) |_| {
+            if (!isIdentity(check)) {
                 return error.SignatureVerificationFailed;
-            } else |_| {}
+            }
         }
 
         /// Verify that the signature is valid for the entire message using cofactorless verification.
@@ -221,9 +225,9 @@ pub const Ed25519 = struct {
                 hram,
             ));
             const check = sb_ah.sub(self.expected_r);
-            if (check.rejectIdentity()) |_| {
+            if (!isIdentity(check)) {
                 return error.SignatureVerificationFailed;
-            } else |_| {}
+            }
         }
     };
 
