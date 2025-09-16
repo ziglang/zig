@@ -13,8 +13,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:24: error: 'y' not accessible from inner function
 // :3:9: note: crossed function definition here

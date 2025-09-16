@@ -9,8 +9,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:10: error: access of union field 'float' while field 'int' is active
 // :1:11: note: union declared here

@@ -6,8 +6,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:5: error: switch must handle all possibilities
 // :1:20: note: unhandled enumeration value: 'M'

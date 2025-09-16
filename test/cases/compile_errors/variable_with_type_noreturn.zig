@@ -4,8 +4,6 @@ export fn entry9() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: unreachable code
 // :2:23: note: control flow is diverted here

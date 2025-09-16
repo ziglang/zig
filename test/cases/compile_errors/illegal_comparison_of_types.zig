@@ -17,8 +17,6 @@ export fn entry2() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:14: error: operator == not allowed for type '[]u8'
 // :9:16: error: operator == not allowed for type 'tmp.EnumWithData'

@@ -19,5 +19,5 @@ fn add(a: u16, b: u16) u16 {
 }
 
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

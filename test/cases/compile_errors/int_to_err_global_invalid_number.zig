@@ -9,7 +9,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:27: error: integer value '3' represents no error

@@ -10,8 +10,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:5: error: unknown @memset length
 // :4:13: note: destination type '[*]u8' provides no length

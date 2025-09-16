@@ -77,12 +77,13 @@ path will be prepended as a prefix on the test case name.
 
 ```zig
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,x86_64-macos
 ```
 
 Possible backends are:
 
+ * `auto`: the default; compiler picks the backend based on robustness.
  * `stage1`: equivalent to `-fstage1`.
- * `stage2`: equivalent to passing `-fno-stage1 -fno-LLVM`.
- * `llvm`: equivalent to `-fLLVM -fno-stage1`.
+ * `selfhosted`: equivalent to passing `-fno-llvm -fno-lld`.
+ * `llvm`: equivalent to `-fllvm`.

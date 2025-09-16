@@ -6,7 +6,5 @@ export fn foo(a: i32) *const Foo {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:33: error: expected pointer type, found 'i32'

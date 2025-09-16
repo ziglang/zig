@@ -6,8 +6,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:32: error: type '[]i32' has no members
 // :4:32: note: slice values have 'len' and 'ptr' members

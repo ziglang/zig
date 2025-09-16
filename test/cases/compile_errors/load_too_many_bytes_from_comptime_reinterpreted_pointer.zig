@@ -7,7 +7,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:28: error: dereference of '*const i64' exceeds bounds of containing decl of type 'f32'

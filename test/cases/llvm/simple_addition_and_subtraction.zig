@@ -16,6 +16,6 @@ fn assert(ok: bool) void {
 }
 
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,x86_64-macos
 //
