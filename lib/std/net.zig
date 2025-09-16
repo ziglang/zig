@@ -1786,7 +1786,7 @@ const ResolvConf = struct {
                 // Ignore replies from addresses we didn't send to
                 const ns = for (ns_arr) |ns| {
                     if (ns) |n| {
-                        if (n.eql(sa)) break ns;
+                        if (n.eql(sa)) break n;
                     }
                 } else continue;
 
@@ -1806,7 +1806,7 @@ const ResolvConf = struct {
                     0, 3 => {},
                     2 => if (servfail_retry != 0) {
                         servfail_retry -= 1;
-                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.?.any, sl) catch undefined;
+                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
                     },
                     else => continue,
                 }
