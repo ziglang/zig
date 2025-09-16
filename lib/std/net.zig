@@ -1483,7 +1483,7 @@ fn linuxLookupNameFromDnsSearch(
 ) !void {
     var rc: ResolvConf = undefined;
     rc.init(gpa) catch return error.ResolveConfParseFailed;
-    defer rc.deinit();
+    defer rc.deinit(gpa);
 
     // Count dots, suppress search when >=ndots or name ends in
     // a dot, which is an explicit request for global scope.
@@ -1586,7 +1586,6 @@ fn linuxLookupNameFromDns(
 }
 
 const ResolvConf = struct {
-    gpa: Allocator,
     attempts: u32,
     ndots: u32,
     timeout: u32,
@@ -1595,16 +1594,15 @@ const ResolvConf = struct {
 
     /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
     /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
-    fn init(rc: *ResolvConf) !void {
+    fn init(rc: *ResolvConf, gpa: Allocator) !void {
         rc.* = .{
-            .gpa = gpa,
             .ns = .{ null, null, null },
             .search = .empty,
             .ndots = 1,
             .timeout = 5,
             .attempts = 2,
         };
-        errdefer rc.deinit();
+        errdefer rc.deinit(gpa);
 
         const file = fs.openFileAbsoluteZ("/etc/resolv.conf", .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -1617,7 +1615,7 @@ const ResolvConf = struct {
 
         var line_buf: [512]u8 = undefined;
         var file_reader = file.reader(&line_buf);
-        return parse(rc, &file_reader.interface) catch |err| switch (err) {
+        return parse(rc, gpa, &file_reader.interface) catch |err| switch (err) {
             error.ReadFailed => return file_reader.err.?,
             else => |e| return e,
         };
@@ -1626,8 +1624,7 @@ const ResolvConf = struct {
     const Directive = enum { options, nameserver, domain, search };
     const Option = enum { ndots, attempts, timeout };
 
-    fn parse(rc: *ResolvConf, reader: *Io.Reader) !void {
-        const gpa = rc.gpa;
+    fn parse(rc: *ResolvConf, gpa: Allocator, reader: *Io.Reader) !void {
         while (reader.takeSentinel('\n')) |line_with_comment| {
             const line = line: {
                 var split = mem.splitScalar(u8, line_with_comment, '#');
@@ -1825,8 +1822,7 @@ const ResolvConf = struct {
         }
     }
 
-    fn deinit(rc: *ResolvConf) void {
-        const gpa = rc.gpa;
+    fn deinit(rc: *ResolvConf, gpa: Allocator) void {
         rc.search.deinit(gpa);
         rc.* = undefined;
     }
