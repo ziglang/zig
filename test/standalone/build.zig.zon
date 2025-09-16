@@ -37,8 +37,8 @@
         .issue_339 = .{
             .path = "issue_339",
         },
-        .issue_8550 = .{
-            .path = "issue_8550",
+        .compile_asm = .{
+            .path = "compile_asm",
         },
         .issue_794 = .{
             .path = "issue_794",
