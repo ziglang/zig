@@ -1969,6 +1969,14 @@ or
       </p>
       {#see_also|@splat|@shuffle|@select|@reduce#}
 
+      {#header_open|Relationship with Arrays#}
+      <p>Vectors and {#link|Arrays#} each have a well-defined <strong>bit layout</strong>
+      and therefore support {#link|@bitCast#} between each other. {#link|Type Coercion#} implicitly peforms
+      {#syntax#}@bitCast{#endsyntax#}.</p>
+      <p>Arrays have well-defined byte layout, but vectors do not, making {#link|@ptrCast#} between
+      them {#link|Illegal Behavior#}.</p>
+      {#header_close#}
+
       {#header_open|Destructuring Vectors#}
       <p>
         Vectors can be destructured:
@@ -2496,6 +2504,7 @@ or
       {#header_open|packed union#}
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
           to be in a {#link|packed struct#}.</p>
+      <p>All fields in a packed union must have the same {#link|@bitSizeOf#}.</p>
       {#header_close#}
 
       {#header_open|Anonymous Union Literals#}
@@ -6278,10 +6287,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>
-              Need to use the same allocator in multiple threads? Use one of your choice
-              wrapped around {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}
-          </li>
-          <li>
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}.
           </li>
@@ -6290,7 +6295,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
               cyclical pattern (such as a video game main loop, or a web server request handler),
               such that it would make sense to free everything at once at the end?
               In this case, it is recommended to follow this pattern:
-      {#code|cli_allocation.zig#}
+              {#code|cli_allocation.zig#}
 
               When using this kind of allocator, there is no need to free anything manually. Everything
               gets freed at once with the call to {#syntax#}arena.deinit(){#endsyntax#}.
@@ -6313,14 +6318,18 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           </li>
           <li>
               Finally, if none of the above apply, you need a general purpose allocator.
-              Zig's general purpose allocator is available as a function that takes a {#link|comptime#}
-              {#link|struct#} of configuration options and returns a type.
-              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#} in
-              your main function, and then pass it or sub-allocators around to various parts of your
+              If you are in Debug mode, {#syntax#}std.heap.DebugAllocator{#endsyntax#} is available as a
+              function that takes a {#link|comptime#} {#link|struct#} of configuration options and returns a type.
+              Generally, you will set up exactly one in your main function, and
+              then pass it or sub-allocators around to various parts of your
               application.
           </li>
           <li>
-              You can also consider {#link|Implementing an Allocator#}.
+              If you are compiling in ReleaseFast mode, {#syntax#}std.heap.smp_allocator{#endsyntax#} is
+              a solid choice for a general purpose allocator.
+          </li>
+          <li>
+              You can also consider implementing an allocator.
           </li>
       </ol>
       {#header_close#}
@@ -6353,17 +6362,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}allocator.create{#endsyntax#} is determined by the allocator's implementation.
       </p>
       <p>TODO: thread local variables</p>
-      {#header_close#}
-
-      {#header_open|Implementing an Allocator#}
-      <p>Zig programmers can implement their own allocators by fulfilling the Allocator interface.
-      In order to do this one must read carefully the documentation comments in std/mem.zig and
-      then supply a {#syntax#}allocFn{#endsyntax#} and a {#syntax#}resizeFn{#endsyntax#}.
-      </p>
-      <p>
-      There are many example allocators to look at for inspiration. Look at std/heap.zig and
-      {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}.
-      </p>
       {#header_close#}
 
       {#header_open|Heap Allocation Failure#}

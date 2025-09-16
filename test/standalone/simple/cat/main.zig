@@ -13,9 +13,10 @@ pub fn main() !void {
 
     const exe = args[0];
     var catted_anything = false;
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    var stdin_reader = std.fs.File.stdin().readerStreaming(&.{});
+    var stdin_reader = fs.File.stdin().readerStreaming(&.{});
 
     const cwd = fs.cwd();
 
@@ -23,6 +24,7 @@ pub fn main() !void {
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             _ = try stdout.sendFileAll(&stdin_reader, .unlimited);
+            try stdout.flush();
         } else if (mem.startsWith(u8, arg, "-")) {
             return usage(exe);
         } else {
@@ -32,10 +34,12 @@ pub fn main() !void {
             catted_anything = true;
             var file_reader = file.reader(&.{});
             _ = try stdout.sendFileAll(&file_reader, .unlimited);
+            try stdout.flush();
         }
     }
     if (!catted_anything) {
         _ = try stdout.sendFileAll(&stdin_reader, .unlimited);
+        try stdout.flush();
     }
 }
 

@@ -10599,6 +10599,12 @@ pub const socket = switch (native_os) {
     else => private.socket,
 };
 
+pub const socketpair = switch (native_os) {
+    // https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/#unsupported\unavailable:
+    .windows => void,
+    else => private.socketpair,
+};
+
 pub const stat = switch (native_os) {
     .macos => switch (native_arch) {
         .x86_64 => private.@"stat$INODE64",
@@ -10740,7 +10746,6 @@ pub extern "c" fn uname(buf: *utsname) c_int;
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
 pub extern "c" fn shutdown(socket: fd_t, how: c_int) c_int;
 pub extern "c" fn bind(socket: fd_t, address: ?*const sockaddr, address_len: socklen_t) c_int;
-pub extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
 pub extern "c" fn listen(sockfd: fd_t, backlog: c_uint) c_int;
 pub extern "c" fn getsockname(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
 pub extern "c" fn getpeername(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
@@ -10774,7 +10779,15 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*sockaddr,
     noalias addrlen: ?*socklen_t,
 ) if (native_os == .windows) c_int else isize;
-pub extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
+
+pub const recvmsg = switch (native_os) {
+    // Windows: Technically, a form of recvmsg() exists for Windows, but the
+    // user has to install some kind of callback for it.  I'm not sure if/how
+    // we can map this to normal recvmsg() interface use.
+    // https://learn.microsoft.com/en-us/windows/win32/api/mswsock/nc-mswsock-lpfn_wsarecvmsg
+    .windows => void,
+    else => private.recvmsg,
+};
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 
@@ -11419,6 +11432,7 @@ const private = struct {
     extern "c" fn pipe2(fds: *[2]fd_t, flags: O) c_int;
     extern "c" fn readdir(dir: *DIR) ?*dirent;
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
     extern "c" fn sched_yield() c_int;
     extern "c" fn sendfile(out_fd: fd_t, in_fd: fd_t, offset: ?*off_t, count: usize) isize;
     extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
@@ -11429,6 +11443,7 @@ const private = struct {
     extern "c" fn sigismember(set: ?*const sigset_t, signo: c_int) c_int;
     extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+    extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn sysconf(sc: c_int) c_long;

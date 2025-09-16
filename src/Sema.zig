@@ -4376,8 +4376,9 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             if (zcu.intern_pool.isFuncBody(val)) {
                 const ty: Type = .fromInterned(zcu.intern_pool.typeOf(val));
                 if (try ty.fnHasRuntimeBitsSema(pt)) {
-                    try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = val }));
-                    try zcu.ensureFuncBodyAnalysisQueued(val);
+                    const orig_fn_index = zcu.intern_pool.unwrapCoercedFunc(val);
+                    try sema.addReferenceEntry(block, src, .wrap(.{ .func = orig_fn_index }));
+                    try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
                 }
             }
 
@@ -5589,16 +5590,21 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
     }
 
     try sema.ensureMemoizedStateResolved(src, .panic);
-    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"panic.call"));
-
-    const panic_fn = Air.internedToRef(zcu.builtin_decl_values.get(.@"panic.call"));
-
+    const panic_fn_index = zcu.builtin_decl_values.get(.@"panic.call");
     const opt_usize_ty = try pt.optionalType(.usize_type);
     const null_ret_addr = Air.internedToRef((try pt.intern(.{ .opt = .{
         .ty = opt_usize_ty.toIntern(),
         .val = .none,
     } })));
-    try sema.callBuiltin(block, src, panic_fn, .auto, &.{ coerced_msg, null_ret_addr }, .@"@panic");
+    // `callBuiltin` also calls `addReferenceEntry` to the function body for us.
+    try sema.callBuiltin(
+        block,
+        src,
+        .fromIntern(panic_fn_index),
+        .auto,
+        &.{ coerced_msg, null_ret_addr },
+        .@"@panic",
+    );
 }
 
 fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -7567,8 +7573,9 @@ fn analyzeCall(
         ref_func: {
             const runtime_func_val = try sema.resolveValue(runtime_func) orelse break :ref_func;
             if (!ip.isFuncBody(runtime_func_val.toIntern())) break :ref_func;
-            try sema.addReferenceEntry(block, call_src, .wrap(.{ .func = runtime_func_val.toIntern() }));
-            try zcu.ensureFuncBodyAnalysisQueued(runtime_func_val.toIntern());
+            const orig_fn_index = ip.unwrapCoercedFunc(runtime_func_val.toIntern());
+            try sema.addReferenceEntry(block, call_src, .wrap(.{ .func = orig_fn_index }));
+            try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
         }
 
         const call_tag: Air.Inst.Tag = switch (modifier) {
@@ -26383,23 +26390,27 @@ fn explainWhyTypeIsNotPacked(
 /// instructions. This function ensures the panic function will be available to
 /// be called during that time.
 fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !void {
+    const zcu = sema.pt.zcu;
+
     // If the backend doesn't support `.panic_fn`, it doesn't want us to lower the panic handlers.
     // The backend will transform panics into traps instead.
-    if (sema.pt.zcu.backendSupportsFeature(.panic_fn)) {
-        _ = try sema.getPanicIdFunc(src, panic_id);
-    }
+    if (!zcu.backendSupportsFeature(.panic_fn)) return;
+
+    const fn_index = try sema.getPanicIdFunc(src, panic_id);
+    const orig_fn_index = zcu.intern_pool.unwrapCoercedFunc(fn_index);
+    try sema.addReferenceEntry(null, src, .wrap(.{ .func = orig_fn_index }));
+    try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
 }
 
 fn getPanicIdFunc(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !InternPool.Index {
     const zcu = sema.pt.zcu;
     try sema.ensureMemoizedStateResolved(src, .panic);
-    const panic_func = zcu.builtin_decl_values.get(panic_id.toBuiltin());
-    try zcu.ensureFuncBodyAnalysisQueued(panic_func);
+    const panic_fn_index = zcu.builtin_decl_values.get(panic_id.toBuiltin());
     switch (sema.owner.unwrap()) {
         .@"comptime", .nav_ty, .nav_val, .type, .memoized_state => {},
         .func => |owner_func| zcu.intern_pool.funcSetHasErrorTrace(owner_func, true),
     }
-    return panic_func;
+    return panic_fn_index;
 }
 
 fn addSafetyCheck(
@@ -29649,50 +29660,6 @@ pub fn coerceInMemoryAllowed(
         return .ok;
     }
 
-    // Arrays <-> Vectors
-    if ((dest_tag == .vector and src_tag == .array) or
-        (dest_tag == .array and src_tag == .vector))
-    {
-        const dest_len = dest_ty.arrayLen(zcu);
-        const src_len = src_ty.arrayLen(zcu);
-        if (dest_len != src_len) {
-            return .{ .array_len = .{
-                .actual = src_len,
-                .wanted = dest_len,
-            } };
-        }
-
-        const dest_elem_ty = dest_ty.childType(zcu);
-        const src_elem_ty = src_ty.childType(zcu);
-        const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_mut, target, dest_src, src_src, null);
-        if (child != .ok) {
-            return .{ .array_elem = .{
-                .child = try child.dupe(sema.arena),
-                .actual = src_elem_ty,
-                .wanted = dest_elem_ty,
-            } };
-        }
-
-        if (dest_tag == .array) {
-            const dest_info = dest_ty.arrayInfo(zcu);
-            if (dest_info.sentinel != null) {
-                return .{ .array_sentinel = .{
-                    .actual = Value.@"unreachable",
-                    .wanted = dest_info.sentinel.?,
-                    .ty = dest_info.elem_type,
-                } };
-            }
-        }
-
-        // The memory layout of @Vector(N, iM) is the same as the integer type i(N*M),
-        // that is to say, the padding bits are not in the same place as the array [N]iM.
-        // If there's no padding, the bitcast is possible.
-        const elem_bit_size = dest_elem_ty.bitSize(zcu);
-        const elem_abi_byte_size = dest_elem_ty.abiSize(zcu);
-        if (elem_abi_byte_size * 8 == elem_bit_size)
-            return .ok;
-    }
-
     // Optionals
     if (dest_tag == .optional and src_tag == .optional) {
         if ((maybe_dest_ptr_ty != null) != (maybe_src_ptr_ty != null)) {
@@ -31187,6 +31154,11 @@ fn addReferenceEntry(
     referenced_unit: AnalUnit,
 ) !void {
     const zcu = sema.pt.zcu;
+    const ip = &zcu.intern_pool;
+    switch (referenced_unit.unwrap()) {
+        .func => |f| assert(ip.unwrapCoercedFunc(f) == f), // for `.{ .func = f }`, `f` must be uncoerced
+        else => {},
+    }
     if (!zcu.comp.incremental and zcu.comp.reference_trace == 0) return;
     const gop = try sema.references.getOrPut(sema.gpa, referenced_unit);
     if (gop.found_existing) return;
@@ -31373,8 +31345,9 @@ fn maybeQueueFuncBodyAnalysis(sema: *Sema, block: *Block, src: LazySrcLoc, nav_i
     const nav_val = zcu.navValue(nav_index);
     if (!ip.isFuncBody(nav_val.toIntern())) return;
 
-    try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = nav_val.toIntern() }));
-    try zcu.ensureFuncBodyAnalysisQueued(nav_val.toIntern());
+    const orig_fn_index = ip.unwrapCoercedFunc(nav_val.toIntern());
+    try sema.addReferenceEntry(block, src, .wrap(.{ .func = orig_fn_index }));
+    try zcu.ensureFuncBodyAnalysisQueued(orig_fn_index);
 }
 
 fn analyzeRef(
@@ -35007,8 +34980,9 @@ fn resolveInferredErrorSet(
         }
         // In this case we are dealing with the actual InferredErrorSet object that
         // corresponds to the function, not one created to track an inline/comptime call.
-        try sema.addReferenceEntry(block, src, AnalUnit.wrap(.{ .func = func_index }));
-        try pt.ensureFuncBodyUpToDate(func_index);
+        const orig_func_index = ip.unwrapCoercedFunc(func_index);
+        try sema.addReferenceEntry(block, src, .wrap(.{ .func = orig_func_index }));
+        try pt.ensureFuncBodyUpToDate(orig_func_index);
     }
 
     // This will now have been resolved by the logic at the end of `Zcu.analyzeFnBody`
@@ -35614,6 +35588,12 @@ fn unionFields(
     if (small.any_aligned_fields)
         try field_aligns.ensureTotalCapacityPrecise(sema.arena, fields_len);
 
+    var max_bits: u64 = 0;
+    var min_bits: u64 = std.math.maxInt(u64);
+    var max_bits_src: LazySrcLoc = undefined;
+    var min_bits_src: LazySrcLoc = undefined;
+    var max_bits_ty: Type = undefined;
+    var min_bits_ty: Type = undefined;
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
@@ -35622,6 +35602,7 @@ fn unionFields(
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     var last_tag_val: ?Value = null;
+    const layout = union_type.flagsUnordered(ip).layout;
     while (field_i < fields_len) : (field_i += 1) {
         if (field_i % fields_per_u32 == 0) {
             cur_bit_bag = zir.extra[bit_bag_index];
@@ -35773,31 +35754,45 @@ fn unionFields(
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
-        const layout = union_type.flagsUnordered(ip).layout;
-        if (layout == .@"extern" and
-            !try sema.validateExternType(field_ty, .union_field))
-        {
-            const msg = msg: {
-                const msg = try sema.errMsg(type_src, "extern unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
-                errdefer msg.destroy(sema.gpa);
+        switch (layout) {
+            .@"extern" => if (!try sema.validateExternType(field_ty, .union_field)) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(type_src, "extern unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
+                    errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotExtern(msg, type_src, field_ty, .union_field);
+                    try sema.explainWhyTypeIsNotExtern(msg, type_src, field_ty, .union_field);
 
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        } else if (layout == .@"packed" and !try sema.validatePackedType(field_ty)) {
-            const msg = msg: {
-                const msg = try sema.errMsg(type_src, "packed unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
-                errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, field_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            },
+            .@"packed" => {
+                if (!try sema.validatePackedType(field_ty)) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(type_src, "packed unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
+                        errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotPacked(msg, type_src, field_ty);
+                        try sema.explainWhyTypeIsNotPacked(msg, type_src, field_ty);
 
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+                        try sema.addDeclaredHereNote(msg, field_ty);
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(&block_scope, msg);
+                }
+                const field_bits = try field_ty.bitSizeSema(pt);
+                if (field_bits >= max_bits) {
+                    max_bits = field_bits;
+                    max_bits_src = type_src;
+                    max_bits_ty = field_ty;
+                }
+                if (field_bits <= min_bits) {
+                    min_bits = field_bits;
+                    min_bits_src = type_src;
+                    min_bits_ty = field_ty;
+                }
+            },
+            .auto => {},
         }
 
         field_types.appendAssumeCapacity(field_ty.toIntern());
@@ -35814,6 +35809,19 @@ fn unionFields(
 
     union_type.setFieldTypes(ip, field_types.items);
     union_type.setFieldAligns(ip, field_aligns.items);
+
+    if (layout == .@"packed" and fields_len != 0 and min_bits != max_bits) {
+        const msg = msg: {
+            const msg = try sema.errMsg(src, "packed union has fields with mismatching bit sizes", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(min_bits_src, msg, "{d} bits here", .{min_bits});
+            try sema.addDeclaredHereNote(msg, min_bits_ty);
+            try sema.errNote(max_bits_src, msg, "{d} bits here", .{max_bits});
+            try sema.addDeclaredHereNote(msg, max_bits_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(&block_scope, msg);
+    }
 
     if (explicit_tags_seen.len > 0) {
         const tag_ty = union_type.tagTypeUnordered(ip);

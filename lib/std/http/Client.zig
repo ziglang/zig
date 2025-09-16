@@ -382,7 +382,7 @@ pub const Connection = struct {
         return c.stream_reader.getStream();
     }
 
-    fn host(c: *Connection) []u8 {
+    pub fn host(c: *Connection) []u8 {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
@@ -1751,13 +1751,6 @@ pub const FetchOptions = struct {
     pub const Location = union(enum) {
         url: []const u8,
         uri: Uri,
-    };
-
-    pub const ResponseStorage = struct {
-        list: *std.ArrayListUnmanaged(u8),
-        /// If null then only the existing capacity will be used.
-        allocator: ?Allocator = null,
-        append_limit: std.Io.Limit = .unlimited,
     };
 };
 

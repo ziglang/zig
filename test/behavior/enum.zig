@@ -1325,3 +1325,10 @@ test "large enum field values" {
         try expect(@intFromEnum(e) == std.math.maxInt(i128));
     }
 }
+
+test "comptime @enumFromInt with signed arithmetic" {
+    const E = enum(i8) { foo = -1, bar = 0 };
+    const x: E = @enumFromInt(@as(i8, -1) * 0);
+    comptime assert(x == .bar);
+    comptime assert(@intFromEnum(x) == 0);
+}

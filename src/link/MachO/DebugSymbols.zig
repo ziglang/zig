@@ -403,7 +403,7 @@ pub fn writeSymtab(self: *DebugSymbols, off: u32, macho_file: *MachO) !u32 {
         internal.writeSymtab(macho_file, self);
     }
 
-    try self.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.file.?.pwriteAll(@ptrCast(self.symtab.items), cmd.symoff);
 
     return off + cmd.nsyms * @sizeOf(macho.nlist_64);
 }

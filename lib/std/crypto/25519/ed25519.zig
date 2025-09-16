@@ -179,13 +179,49 @@ pub const Ed25519 = struct {
             SignatureVerificationError;
 
         /// Verify that the signature is valid for the entire message.
+        ///
+        /// This function uses cofactored verification for broad interoperability.
+        /// It aligns single-signature verification with common batch verification approaches.
+        ///
+        /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
+        /// or SignatureVerificationError if the signature is invalid for the given message and key.
         pub fn verify(self: *Verifier) VerifyError!void {
             var hram64: [Sha512.digest_length]u8 = undefined;
             self.h.final(&hram64);
             const hram = Curve.scalar.reduce64(hram64);
+            const sb_ah = (try Curve.basePoint.mulDoubleBasePublic(
+                Curve.scalar.mul8(self.s),
+                self.a.clearCofactor().neg(),
+                hram,
+            ));
+            const check = sb_ah.sub(self.expected_r.clearCofactor());
+            if (check.rejectIdentity()) |_| {
+                return error.SignatureVerificationFailed;
+            } else |_| {}
+        }
 
-            const sb_ah = try Curve.basePoint.mulDoubleBasePublic(self.s, self.a.neg(), hram);
-            if (self.expected_r.sub(sb_ah).rejectLowOrder()) {
+        /// Verify that the signature is valid for the entire message using cofactorless verification.
+        ///
+        /// This function performs strict verification without cofactor multiplication,
+        /// checking the exact equation: [s]B = R + [H(R,A,m)]A
+        ///
+        /// This is more restrictive than the cofactored `verify()` method and may reject
+        /// specially crafted signatures that would be accepted by cofactored verification.
+        /// But it will never reject valid signatures created using the `sign()` method.
+        ///
+        /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
+        /// or SignatureVerificationError if the signature is invalid for the given message and key.
+        pub fn verifyStrict(self: *Verifier) VerifyError!void {
+            var hram64: [Sha512.digest_length]u8 = undefined;
+            self.h.final(&hram64);
+            const hram = Curve.scalar.reduce64(hram64);
+            const sb_ah = (try Curve.basePoint.mulDoubleBasePublic(
+                self.s,
+                self.a.neg(),
+                hram,
+            ));
+            const check = sb_ah.sub(self.expected_r);
+            if (check.rejectIdentity()) |_| {
                 return error.SignatureVerificationFailed;
             } else |_| {}
         }
@@ -226,12 +262,33 @@ pub const Ed25519 = struct {
         pub const VerifyError = Verifier.InitError || Verifier.VerifyError;
 
         /// Verify the signature against a message and public key.
+        ///
+        /// This function uses cofactored verification for broad interoperability.
+        /// It aligns single-signature verification with common batch verification approaches.
+        ///
         /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
         /// or SignatureVerificationError if the signature is invalid for the given message and key.
         pub fn verify(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
             var st = try sig.verifier(public_key);
             st.update(msg);
             try st.verify();
+        }
+
+        /// Verify the signature against a message and public key using cofactorless verification.
+        ///
+        /// This performs strict verification without cofactor multiplication,
+        /// checking the exact equation: [s]B = R + [H(R,A,m)]A
+        ///
+        /// This is more restrictive than the standard `verify()` method and may reject
+        /// specially crafted signatures that would be accepted by cofactored verification.
+        /// But it will never reject valid signatures created using the `sign()` method.
+        ///
+        /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
+        /// or SignatureVerificationError if the signature is invalid for the given message and key.
+        pub fn verifyStrict(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
+            var st = try sig.verifier(public_key);
+            st.update(msg);
+            try st.verifyStrict();
         }
     };
 
@@ -556,7 +613,7 @@ test "batch verification" {
 
 test "test vectors" {
     const Vec = struct {
-        msg_hex: *const [64:0]u8,
+        msg_hex: []const u8,
         public_key_hex: *const [64:0]u8,
         sig_hex: *const [128:0]u8,
         expected: ?anyerror,
@@ -638,7 +695,8 @@ test "test vectors" {
     };
     for (entries) |entry| {
         var msg: [64 / 2]u8 = undefined;
-        _ = try fmt.hexToBytes(&msg, entry.msg_hex);
+        const msg_len = entry.msg_hex.len / 2;
+        _ = try fmt.hexToBytes(msg[0..msg_len], entry.msg_hex);
         var public_key_bytes: [32]u8 = undefined;
         _ = try fmt.hexToBytes(&public_key_bytes, entry.public_key_hex);
         const public_key = Ed25519.PublicKey.fromBytes(public_key_bytes) catch |err| {
@@ -649,9 +707,9 @@ test "test vectors" {
         _ = try fmt.hexToBytes(&sig_bytes, entry.sig_hex);
         const sig = Ed25519.Signature.fromBytes(sig_bytes);
         if (entry.expected) |error_type| {
-            try std.testing.expectError(error_type, sig.verify(&msg, public_key));
+            try std.testing.expectError(error_type, sig.verify(msg[0..msg_len], public_key));
         } else {
-            try sig.verify(&msg, public_key);
+            try sig.verify(msg[0..msg_len], public_key);
         }
     }
 }
@@ -700,4 +758,36 @@ test "key pair from secret key" {
     const kp2 = try Ed25519.KeyPair.fromSecretKey(kp.secret_key);
     try std.testing.expectEqualSlices(u8, &kp.secret_key.toBytes(), &kp2.secret_key.toBytes());
     try std.testing.expectEqualSlices(u8, &kp.public_key.toBytes(), &kp2.public_key.toBytes());
+}
+
+test "cofactored vs cofactorless verification" {
+    const msg_hex = "65643235353139766563746f72732033";
+    const public_key_hex = "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79";
+    const sig_hex = "fa9dde274f4820efb19a890f8ba2d8791710a4303ceef4aedf9dddc4e81a1f11701a598b9a02ae60505dd0c2938a1a0c2d6ffd4676cfb49125b19e9cb358da06";
+
+    var msg: [16]u8 = undefined;
+    _ = try fmt.hexToBytes(&msg, msg_hex);
+
+    var pk_bytes: [32]u8 = undefined;
+    _ = try fmt.hexToBytes(&pk_bytes, public_key_hex);
+    const pk = try Ed25519.PublicKey.fromBytes(pk_bytes);
+
+    var sig_bytes: [64]u8 = undefined;
+    _ = try fmt.hexToBytes(&sig_bytes, sig_hex);
+    const sig = Ed25519.Signature.fromBytes(sig_bytes);
+
+    try sig.verify(&msg, pk);
+
+    try std.testing.expectError(
+        error.SignatureVerificationFailed,
+        sig.verifyStrict(&msg, pk),
+    );
+}
+
+test "regular signature verifies with both verify and verifyStrict" {
+    const kp = Ed25519.KeyPair.generate();
+    const msg = "test message";
+    const sig = try kp.sign(msg, null);
+    try sig.verify(msg, kp.public_key);
+    try sig.verifyStrict(msg, kp.public_key);
 }

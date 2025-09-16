@@ -1465,7 +1465,7 @@ pub fn writeShdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+            try self.pwriteAll(@ptrCast(buf), self.shdr_table_offset.?);
         },
         .p64 => {
             const buf = try gpa.alloc(elf.Elf64_Shdr, self.sections.items(.shdr).len);
@@ -1478,7 +1478,7 @@ pub fn writeShdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+            try self.pwriteAll(@ptrCast(buf), self.shdr_table_offset.?);
         },
     }
 }
@@ -1505,7 +1505,7 @@ fn writePhdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+            try self.pwriteAll(@ptrCast(buf), phdr_table.p_offset);
         },
         .p64 => {
             const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
@@ -1517,7 +1517,7 @@ fn writePhdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+            try self.pwriteAll(@ptrCast(buf), phdr_table.p_offset);
         },
     }
 }
@@ -3157,7 +3157,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.versym) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        try self.pwriteAll(mem.sliceAsBytes(self.versym.items), shdr.sh_offset);
+        try self.pwriteAll(@ptrCast(self.versym.items), shdr.sh_offset);
     }
 
     if (self.section_indexes.verneed) |shndx| {
@@ -3226,7 +3226,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.got.addRela(self);
         try self.copy_rel.addRela(self);
         self.sortRelaDyn();
-        try self.pwriteAll(mem.sliceAsBytes(self.rela_dyn.items), shdr.sh_offset);
+        try self.pwriteAll(@ptrCast(self.rela_dyn.items), shdr.sh_offset);
     }
 
     if (self.section_indexes.plt) |shndx| {
@@ -3256,7 +3256,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.rela_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try self.plt.addRela(self);
-        try self.pwriteAll(mem.sliceAsBytes(self.rela_plt.items), shdr.sh_offset);
+        try self.pwriteAll(@ptrCast(self.rela_plt.items), shdr.sh_offset);
     }
 
     try self.writeSymtab();
@@ -3364,13 +3364,13 @@ pub fn writeSymtab(self: *Elf) !void {
                 };
                 if (foreign_endian) mem.byteSwapAllFields(elf.Elf32_Sym, out);
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), symtab_shdr.sh_offset);
+            try self.pwriteAll(@ptrCast(buf), symtab_shdr.sh_offset);
         },
         .p64 => {
             if (foreign_endian) {
                 for (self.symtab.items) |*sym| mem.byteSwapAllFields(elf.Elf64_Sym, sym);
             }
-            try self.pwriteAll(mem.sliceAsBytes(self.symtab.items), symtab_shdr.sh_offset);
+            try self.pwriteAll(@ptrCast(self.symtab.items), symtab_shdr.sh_offset);
         },
     }
 
