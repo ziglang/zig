@@ -2521,7 +2521,7 @@ pub const Object = struct {
                     o.debug_compile_unit, // Scope
                     0, // Line
                     .none, // Underlying type
-                    ty.abiSize(zcu) * 8,
+                    layout.payload_size * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.metadataTuple(fields.items),
                 );
