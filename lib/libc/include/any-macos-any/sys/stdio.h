@@ -37,6 +37,7 @@
 #define RENAME_EXCL                     0x00000004
 #define RENAME_RESERVED1                0x00000008
 #define RENAME_NOFOLLOW_ANY             0x00000010
+#define RENAME_RESOLVE_BENEATH          0x00000020
 #endif
 
 #if __DARWIN_C_LEVEL >= 200809L

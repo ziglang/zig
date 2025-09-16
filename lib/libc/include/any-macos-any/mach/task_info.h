@@ -511,6 +511,16 @@ typedef struct task_security_config_info * task_security_config_info_t;
 #define TASK_SECURITY_CONFIG_INFO_COUNT  ((mach_msg_type_number_t) \
 	        (sizeof(struct task_security_config_info) / sizeof(natural_t)))
 
+
+#define TASK_IPC_SPACE_POLICY_INFO  33 /* Runtime security mitigations configuration for the task */
+struct task_ipc_space_policy_info {
+	uint32_t  space_policy;                       /* Configuration bitmask */
+};
+
+typedef struct task_ipc_space_policy_info * task_ipc_space_policy_info_t;
+#define TASK_IPC_SPACE_POLICY_INFO_COUNT  ((mach_msg_type_number_t) \
+	        (sizeof(struct task_ipc_space_policy_info) / sizeof(natural_t)))
+
 /*
  * Type to control EXC_GUARD delivery options for a task
  * via task_get/set_exc_guard_behavior interface(s).

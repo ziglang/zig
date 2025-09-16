@@ -115,6 +115,9 @@
      *   ios, iOSApplicationExtension, tvos, tvOSApplicationExtension, watchos,
      *   watchOSApplicationExtension, driverkit, visionos, visionOSApplicationExtension
      *
+     *   Within each platform a tuple of versions will represent the version the API was
+     *   introduced in, followed by the version it was deperecated in.
+     *
      * Examples:
      *
      *    API_DEPRECATED("Deprecated", macos(10.4, 10.8))
@@ -143,6 +146,10 @@
      *   ios, iOSApplicationExtension, tvos, tvOSApplicationExtension, watchos,
      *   watchOSApplicationExtension, driverkit, visionos, visionOSApplicationExtension
      *
+     *   Within each platform a tuple of versions will represent the version the API was
+     *   introduced in, followed by the version it was deperecated in, and finally the version it
+     *   was removed in.
+     *
      * Examples:
      *
      *    API_OBSOLETED("No longer supported", macos(10.4, 10.8, 11.0))
@@ -151,6 +158,7 @@
      *    API_OBSOLETED_WITH_REPLACEMENT("-setName:", tvos(10.0, 10.4, 12.0), ios(9.0, 10.0, 11.0))
      *    API_OBSOLETED_WITH_REPLACEMENT("SomeClassName", macos(10.4, 10.6, 11.0), watchos(2.0, 3.0, 4.0))
      */
+
     #define API_OBSOLETED(...) __API_OBSOLETED_MSG_GET_MACRO_93585900(__VA_ARGS__,__API_OBSOLETED_MSG15,__API_OBSOLETED_MSG14,__API_OBSOLETED_MSG13,__API_OBSOLETED_MSG12,__API_OBSOLETED_MSG11,__API_OBSOLETED_MSG10,__API_OBSOLETED_MSG9,__API_OBSOLETED_MSG8,__API_OBSOLETED_MSG7,__API_OBSOLETED_MSG6,__API_OBSOLETED_MSG5,__API_OBSOLETED_MSG4,__API_OBSOLETED_MSG3,__API_OBSOLETED_MSG2,__API_OBSOLETED_MSG1,__API_OBSOLETED_MSG0,0,0)(__VA_ARGS__)
     #define API_OBSOLETED_WITH_REPLACEMENT(...) __API_OBSOLETED_REP_GET_MACRO_93585900(__VA_ARGS__,__API_OBSOLETED_REP15,__API_OBSOLETED_REP14,__API_OBSOLETED_REP13,__API_OBSOLETED_REP12,__API_OBSOLETED_REP11,__API_OBSOLETED_REP10,__API_OBSOLETED_REP9,__API_OBSOLETED_REP8,__API_OBSOLETED_REP7,__API_OBSOLETED_REP6,__API_OBSOLETED_REP5,__API_OBSOLETED_REP4,__API_OBSOLETED_REP3,__API_OBSOLETED_REP2,__API_OBSOLETED_REP1,__API_OBSOLETED_REP0,0,0)(__VA_ARGS__)
 
@@ -189,7 +197,7 @@
 #endif
 
 #ifndef API_AVAILABLE_END
-  #define API_AVAILABLE_END(...)
+  #define API_AVAILABLE_END
 #endif
 
 #ifndef API_DEPRECATED
@@ -201,7 +209,7 @@
 #endif
 
 #ifndef API_DEPRECATED_END
-  #define API_DEPRECATED_END(...)
+  #define API_DEPRECATED_END
 #endif
 
 #ifndef API_DEPRECATED_WITH_REPLACEMENT
@@ -213,7 +221,7 @@
 #endif
 
 #ifndef API_DEPRECATED_WITH_REPLACEMENT_END
-  #define API_DEPRECATED_WITH_REPLACEMENT_END(...)
+  #define API_DEPRECATED_WITH_REPLACEMENT_END
 #endif
 
 #ifndef API_OBSOLETED
@@ -225,7 +233,7 @@
 #endif
 
 #ifndef API_OBSOLETED_END
-  #define API_OBSOLETED_END(...)
+  #define API_OBSOLETED_END
 #endif
 
 #ifndef API_OBSOLETED_WITH_REPLACEMENT
@@ -237,7 +245,7 @@
 #endif
 
 #ifndef API_OBSOLETED_WITH_REPLACEMENT_END
-  #define API_OBSOLETED_WITH_REPLACEMENT_END(...)
+  #define API_OBSOLETED_WITH_REPLACEMENT_END
 #endif
 
 #ifndef API_UNAVAILABLE
@@ -249,7 +257,7 @@
 #endif
 
 #ifndef API_UNAVAILABLE_END
-  #define API_UNAVAILABLE_END(...)
+  #define API_UNAVAILABLE_END
 #endif
 
 #if __has_include(<AvailabilityProhibitedInternal.h>)
@@ -269,7 +277,7 @@
 #endif
 
 #ifndef SPI_AVAILABLE_END
-  #define SPI_AVAILABLE_END(...)
+  #define SPI_AVAILABLE_END
 #endif
 
 #ifndef SPI_DEPRECATED

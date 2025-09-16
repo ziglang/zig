@@ -93,8 +93,10 @@ __BEGIN_DECLS
 #if defined(__XPC_TEST__) && __XPC_TEST__
 #define XPC_TESTSTATIC
 #define XPC_TESTEXTERN extern
+#define XPC_TESTNORETURN
 #else // defined(__XPC_TEST__) && __XPC_TEST__
 #define XPC_TESTSTATIC static
+#define XPC_TESTNORETURN XPC_NORETURN
 #endif // defined(__XPC_TEST__) && __XPC_TEST__
 
 #if __has_feature(objc_arc)
@@ -241,6 +243,8 @@ __BEGIN_DECLS
 
 #define XPC_SWIFT_UNAVAILABLE(msg) __swift_unavailable(msg)
 #define XPC_SWIFT_NOEXPORT XPC_SWIFT_UNAVAILABLE("Unavailable in Swift from the XPC C Module")
+
+#define XPC_SWIFT_SENDABLE __attribute__((__swift_attr__("@Sendable")))
 
 __END_DECLS
 

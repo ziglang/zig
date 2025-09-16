@@ -39,18 +39,55 @@
 /* Removed in Issue 7 */
 #if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L
 
-#if __has_builtin(__builtin___memmove_chk) || defined(__GNUC__)
-#undef bcopy
-/* void	bcopy(const void *src, void *dst, size_t len) */
-#define bcopy(src, dest, ...) \
-		__builtin___memmove_chk (dest, src, __VA_ARGS__, __darwin_obsz0 (dest))
+#ifdef __LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES
+
+static inline void
+__bcopy_ptrcheck(const void *_LIBC_SIZE(__n) __src, void *const _LIBC_SIZE(__n) __darwin_pass_obsz0 __dst, size_t __n) {
+	memmove(__dst, __src, __n);
+}
+
+static inline void
+__bzero_ptrcheck(void *const _LIBC_SIZE(__n) __darwin_pass_obsz0 __dst, size_t __n) {
+	memset(__dst, 0, __n);
+}
+
+#define __bcopy_chk_func __bcopy_ptrcheck
+#define __bzero_chk_func __bzero_ptrcheck
+
+#else
+
+#ifndef __has_builtin
+#define __undef__has_builtin
+#define __has_builtin(x) defined(__GNUC__)
 #endif
 
-#if __has_builtin(__builtin___memset_chk) || defined(__GNUC__)
+#if __has_builtin(__builtin___memmove_chk)
+#define __bcopy_chk_func(src, dst, ...) \
+	__builtin___memmove_chk(dst, src, __VA_ARGS__, __darwin_obsz0 (dst))
+#endif
+
+#if __has_builtin(__builtin___memset_chk)
+#define __bzero_chk_func(dst, ...) \
+	__builtin___memset_chk(dst, 0, __VA_ARGS__, __darwin_obsz0 (dst))
+#endif
+
+#ifdef __undef__has_builtin
+#undef __undef__has_builtin
+#undef __has_builtin
+#endif
+
+#endif
+
+#ifdef __bcopy_chk_func
+#undef bcopy
+/* void	bcopy(const void *src, void *dst, size_t len) */
+#define bcopy(...) __bcopy_chk_func (__VA_ARGS__)
+#endif
+
+#ifdef __bzero_chk_func
 #undef bzero
 /* void	bzero(void *s, size_t n) */
-#define bzero(dest, ...) \
-		__builtin___memset_chk (dest, 0, __VA_ARGS__, __darwin_obsz0 (dest))
+#define bzero(...) __bzero_chk_func (__VA_ARGS__)
 #endif
 
 #endif
