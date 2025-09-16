@@ -1683,7 +1683,8 @@ const ResolvConf = struct {
 
         var ns_buffer: [3]Address = undefined;
 
-        for (0..rc.ns_len) |index| {
+        var index: u2 = 0;
+        while (index < rc.ns_len) : (index += 1) {
             const ip = rc.ns_buffer[index];
             ns_buffer[index] = ip.addr;
             assert(ns_buffer[index].getPort() == 53);
@@ -1718,8 +1719,9 @@ const ResolvConf = struct {
                 std.os.linux.IPV6.V6ONLY,
                 &mem.toBytes(@as(c_int, 0)),
             );
-            for (0..rc.ns_len) |index| {
-                var n = ns_buffer[index];
+            var i: u2 = 0;
+            while (i < rc.ns_len) : (i += 1) {
+                var n = ns_buffer[i];
                 if (n.any.family != posix.AF.INET) continue;
                 mem.writeInt(u32, n.in6.sa.addr[12..], n.in.sa.addr, native_endian);
                 n.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
@@ -1755,8 +1757,9 @@ const ResolvConf = struct {
                 var i: usize = 0;
                 while (i < queries.len) : (i += 1) {
                     if (answers[i].len == 0) {
-                        for (0..rc.ns_len) |index| {
-                            const n = ns_buffer[index];
+                        var idx: u2 = 0;
+                        while (idx < rc.ns_len) : (idx += 1) {
+                            const n = ns_buffer[idx];
                             _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &n.any, sl) catch undefined;
                         }
                     }
@@ -1778,8 +1781,9 @@ const ResolvConf = struct {
                 if (rlen < 4) continue;
 
                 // Ignore replies from addresses we didn't send to
-                const ns = for (0..rc.ns_len) |index| {
-                    const n = ns_buffer[index];
+                var idx: u2 = 0;
+                const ns = while (idx < rc.ns_len) : (idx += 1) {
+                    const n = ns_buffer[idx];
                     if (n.eql(sa)) break n;
                 } else continue;
 
