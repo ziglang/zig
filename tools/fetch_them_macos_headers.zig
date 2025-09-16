@@ -27,6 +27,7 @@ const OsVer = enum(u32) {
     ventura = 13,
     sonoma = 14,
     sequoia = 15,
+    tahoe = 26,
 };
 
 const Target = struct {
@@ -102,16 +103,8 @@ pub fn main() anyerror!void {
         fatal("don't know how to parse SDK version: {s}", .{
             parsed_json.value.DefaultProperties.MACOSX_DEPLOYMENT_TARGET,
         });
-    const os_ver: OsVer = switch (version.major) {
-        10 => .catalina,
-        11 => .big_sur,
-        12 => .monterey,
-        13 => .ventura,
-        14 => .sonoma,
-        15 => .sequoia,
-        else => unreachable,
-    };
-    info("found SDK deployment target macOS {f} aka '{s}'", .{ version, @tagName(os_ver) });
+    const os_ver: OsVer = @enumFromInt(version.major);
+    info("found SDK deployment target macOS {f} aka '{t}'", .{ version, os_ver });
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
