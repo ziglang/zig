@@ -9098,14 +9098,15 @@ fn typeOf(
         return astgen.failNode(node, "expected at least 1 argument, found 0", .{});
     }
     const gpa = astgen.gpa;
+
+    var typeof_scope = gz.makeSubBlock(scope);
+    typeof_scope.is_comptime = false;
+    typeof_scope.is_typeof = true;
+    typeof_scope.c_import = false;
+    defer typeof_scope.unstack();
+
     if (args.len == 1) {
         const typeof_inst = try gz.makeBlockInst(.typeof_builtin, node);
-
-        var typeof_scope = gz.makeSubBlock(scope);
-        typeof_scope.is_comptime = false;
-        typeof_scope.is_typeof = true;
-        typeof_scope.c_import = false;
-        defer typeof_scope.unstack();
 
         const ty_expr = try reachableExpr(&typeof_scope, &typeof_scope.base, .{ .rl = .none }, args[0], node);
         if (!gz.refIsNoReturn(ty_expr)) {
@@ -9123,9 +9124,6 @@ fn typeOf(
 
     const typeof_inst = try gz.addExtendedMultiOpPayloadIndex(.typeof_peer, payload_index, args.len);
 
-    var typeof_scope = gz.makeSubBlock(scope);
-    typeof_scope.is_comptime = false;
-
     for (args, 0..) |arg, i| {
         const param_ref = try reachableExpr(&typeof_scope, &typeof_scope.base, .{ .rl = .none }, arg, node);
         astgen.extra.items[args_index + i] = @intFromEnum(param_ref);
@@ -9141,7 +9139,6 @@ fn typeOf(
     });
     try astgen.extra.ensureUnusedCapacity(gpa, body_len);
     astgen.appendBodyWithFixups(body);
-    typeof_scope.unstack();
 
     return rvalue(gz, ri, typeof_inst, node);
 }
