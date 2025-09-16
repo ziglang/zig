@@ -49,54 +49,47 @@ fn AesGcmSiv(comptime Aes: anytype) type {
 
             // Derive authentication and message keys per RFC 8452 Section 4
             // Each encryption produces 16 bytes, but we only use first 8 bytes of each block
-            var key_block: [16]u8 = undefined;
-            var cipher_out: [16]u8 = undefined;
 
-            // Generate authentication key (128 bits = 2 * 8 bytes)
-            // Block 0: counter = 0 with nonce
-            mem.writeInt(u32, key_block[0..4], 0, .little);
-            key_block[4..16].* = nonce;
-            aes.encrypt(&cipher_out, &key_block);
-            @memcpy(auth_key[0..8], cipher_out[0..8]);
-
-            // Block 1: counter = 1 with nonce
-            mem.writeInt(u32, key_block[0..4], 1, .little);
-            aes.encrypt(&cipher_out, &key_block);
-            @memcpy(auth_key[8..16], cipher_out[0..8]);
-
-            // Generate message encryption key
             if (key_length == 16) {
-                // AES-128-GCM-SIV: 128-bit message key = 2 * 8 bytes
-                // Block 2: counter = 2 with nonce
-                mem.writeInt(u32, key_block[0..4], 2, .little);
-                aes.encrypt(&cipher_out, &key_block);
-                @memcpy(message_key[0..8], cipher_out[0..8]);
+                // AES-128-GCM-SIV: Process 4 blocks in parallel
+                var key_blocks: [4 * 16]u8 = undefined;
+                var cipher_outs: [4 * 16]u8 = undefined;
 
-                // Block 3: counter = 3 with nonce
-                mem.writeInt(u32, key_block[0..4], 3, .little);
-                aes.encrypt(&cipher_out, &key_block);
-                @memcpy(message_key[8..16], cipher_out[0..8]);
+                // Set up all 4 blocks with counters 0-3 and nonce
+                inline for (0..4) |i| {
+                    mem.writeInt(u32, key_blocks[i * 16 ..][0..4], @intCast(i), .little);
+                    key_blocks[i * 16 + 4 .. i * 16 + 16].* = nonce;
+                }
+
+                // Encrypt all 4 blocks in parallel
+                aes.encryptWide(4, &cipher_outs, &key_blocks);
+
+                // Extract the key material (first 8 bytes of each block)
+                @memcpy(auth_key[0..8], cipher_outs[0..8]);
+                @memcpy(auth_key[8..16], cipher_outs[16..24]);
+                @memcpy(message_key[0..8], cipher_outs[32..40]);
+                @memcpy(message_key[8..16], cipher_outs[48..56]);
             } else {
-                // AES-256-GCM-SIV: 256-bit message key = 4 * 8 bytes
-                // Block 2: counter = 2 with nonce
-                mem.writeInt(u32, key_block[0..4], 2, .little);
-                aes.encrypt(&cipher_out, &key_block);
-                @memcpy(message_key[0..8], cipher_out[0..8]);
+                // AES-256-GCM-SIV: Process 6 blocks in parallel
+                var key_blocks: [6 * 16]u8 = undefined;
+                var cipher_outs: [6 * 16]u8 = undefined;
 
-                // Block 3: counter = 3 with nonce
-                mem.writeInt(u32, key_block[0..4], 3, .little);
-                aes.encrypt(&cipher_out, &key_block);
-                @memcpy(message_key[8..16], cipher_out[0..8]);
+                // Set up all 6 blocks with counters 0-5 and nonce
+                inline for (0..6) |i| {
+                    mem.writeInt(u32, key_blocks[i * 16 ..][0..4], @intCast(i), .little);
+                    key_blocks[i * 16 + 4 .. i * 16 + 16].* = nonce;
+                }
 
-                // Block 4: counter = 4 with nonce
-                mem.writeInt(u32, key_block[0..4], 4, .little);
-                aes.encrypt(&cipher_out, &key_block);
-                @memcpy(message_key[16..24], cipher_out[0..8]);
+                // Encrypt all 6 blocks in parallel
+                aes.encryptWide(6, &cipher_outs, &key_blocks);
 
-                // Block 5: counter = 5 with nonce
-                mem.writeInt(u32, key_block[0..4], 5, .little);
-                aes.encrypt(&cipher_out, &key_block);
-                @memcpy(message_key[24..32], cipher_out[0..8]);
+                // Extract the key material (first 8 bytes of each block)
+                @memcpy(auth_key[0..8], cipher_outs[0..8]);
+                @memcpy(auth_key[8..16], cipher_outs[16..24]);
+                @memcpy(message_key[0..8], cipher_outs[32..40]);
+                @memcpy(message_key[8..16], cipher_outs[48..56]);
+                @memcpy(message_key[16..24], cipher_outs[64..72]);
+                @memcpy(message_key[24..32], cipher_outs[80..88]);
             }
         }
 
