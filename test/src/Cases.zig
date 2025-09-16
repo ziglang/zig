@@ -28,7 +28,6 @@ pub const DepModule = struct {
 pub const Backend = enum {
     /// Test does not care which backend is used; compiler gets to pick the default.
     auto,
-    stage1,
     selfhosted,
     llvm,
 };
@@ -623,7 +622,6 @@ pub fn lowerToBuildSteps(
         const would_use_llvm = @import("../tests.zig").wouldUseLlvm(
             switch (case.backend) {
                 .auto => null,
-                .stage1 => continue,
                 .selfhosted => false,
                 .llvm => true,
             },
@@ -699,7 +697,6 @@ pub fn lowerToBuildSteps(
 
         switch (case.backend) {
             .auto => {},
-            .stage1 => continue,
             .selfhosted => {
                 artifact.use_llvm = false;
                 artifact.use_lld = false;
