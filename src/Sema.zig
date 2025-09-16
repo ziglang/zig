@@ -5713,10 +5713,6 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
     const body = sema.code.bodySlice(extra.end, extra.data.body_len);
 
-    // we check this here to avoid undefined symbols
-    if (!build_options.have_llvm)
-        return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
-
     var c_import_buf = std.array_list.Managed(u8).init(gpa);
     defer c_import_buf.deinit();
 
@@ -5741,8 +5737,11 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 
     _ = try sema.analyzeInlineBody(&child_block, body, inst);
 
-    var c_import_res = comp.cImport(c_import_buf.items, parent_block.ownerModule()) catch |err|
-        return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
+    const prog_node = zcu.cur_sema_prog_node.start("@cImport", 0);
+    defer prog_node.end();
+
+    var c_import_res = comp.cImport(c_import_buf.items, parent_block.ownerModule(), prog_node) catch |err|
+        return sema.fail(&child_block, src, "C import failed: {t}", .{err});
     defer c_import_res.deinit(gpa);
 
     if (c_import_res.errors.errorMessageCount() != 0) {

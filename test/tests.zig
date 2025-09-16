@@ -9,13 +9,9 @@ const Step = std.Build.Step;
 const compare_output = @import("compare_output.zig");
 const stack_traces = @import("stack_traces.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
-const translate_c = @import("translate_c.zig");
-const run_translated_c = @import("run_translated_c.zig");
 const llvm_ir = @import("llvm_ir.zig");
 
 // Implementations
-pub const TranslateCContext = @import("src/TranslateC.zig");
-pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
@@ -2190,42 +2186,6 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, 
     return cases.step;
 }
 
-pub fn addTranslateCTests(
-    b: *std.Build,
-    parent_step: *std.Build.Step,
-    test_filters: []const []const u8,
-    test_target_filters: []const []const u8,
-) void {
-    const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
-    cases.* = TranslateCContext{
-        .b = b,
-        .step = parent_step,
-        .test_index = 0,
-        .test_filters = test_filters,
-        .test_target_filters = test_target_filters,
-    };
-
-    translate_c.addCases(cases);
-}
-
-pub fn addRunTranslatedCTests(
-    b: *std.Build,
-    parent_step: *std.Build.Step,
-    test_filters: []const []const u8,
-    target: std.Build.ResolvedTarget,
-) void {
-    const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
-    cases.* = .{
-        .b = b,
-        .step = parent_step,
-        .test_index = 0,
-        .test_filters = test_filters,
-        .target = target,
-    };
-
-    run_translated_c.addCases(cases);
-}
-
 const ModuleTestOptions = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
@@ -2587,9 +2547,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
-    target: std.Build.ResolvedTarget,
     case_test_options: @import("src/Cases.zig").CaseTestOptions,
-    translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
 ) !void {
     const arena = b.allocator;
@@ -2602,15 +2560,6 @@ pub fn addCases(
 
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
-
-    cases.lowerToTranslateCSteps(
-        b,
-        parent_step,
-        case_test_options.test_filters,
-        case_test_options.test_target_filters,
-        target,
-        translate_c_options,
-    );
 
     cases.lowerToBuildSteps(
         b,

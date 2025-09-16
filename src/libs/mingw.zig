@@ -296,7 +296,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
 
     const aro = @import("aro");
-    var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
+    var diagnostics: aro.Diagnostics = .{
+        .output = .{ .to_list = .{ .arena = .init(gpa) } },
+    };
+    defer diagnostics.deinit();
+    var aro_comp = aro.Compilation.init(gpa, arena, &diagnostics, std.fs.cwd());
     defer aro_comp.deinit();
 
     aro_comp.target = target.*;
@@ -316,17 +320,22 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
     const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
 
-    var pp = aro.Preprocessor.init(&aro_comp);
+    var pp = aro.Preprocessor.init(&aro_comp, .{ .provided = 0 });
     defer pp.deinit();
     pp.linemarkers = .none;
     pp.preserve_whitespace = true;
 
     try pp.preprocessSources(&.{ def_file_source, builtin_macros });
 
-    for (aro_comp.diagnostics.list.items) |diagnostic| {
-        if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.Io.tty.detectConfig(std.fs.File.stderr()));
-            return error.AroPreprocessorFailed;
+    if (aro_comp.diagnostics.output.to_list.messages.items.len != 0) {
+        var buffer: [64]u8 = undefined;
+        const w = std.debug.lockStderrWriter(&buffer);
+        defer std.debug.unlockStderrWriter();
+        for (aro_comp.diagnostics.output.to_list.messages.items) |msg| {
+            if (msg.kind == .@"fatal error" or msg.kind == .@"error") {
+                msg.write(w, .detect(std.fs.File.stderr()), true) catch {};
+                return error.AroPreprocessorFailed;
+            }
         }
     }
 
@@ -335,9 +344,9 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
         var buffer: [1024]u8 = undefined;
-        var def_final_file_writer = def_final_file.writer(&buffer);
-        try pp.prettyPrintTokens(&def_final_file_writer.interface, .result_only);
-        try def_final_file_writer.interface.flush();
+        var file_writer = def_final_file.writer(&buffer);
+        try pp.prettyPrintTokens(&file_writer.interface, .result_only);
+        try file_writer.interface.flush();
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });

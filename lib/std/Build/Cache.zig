@@ -459,9 +459,9 @@ pub const Manifest = struct {
         }
     }
 
-    pub fn addDepFile(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+    pub fn addDepFile(self: *Manifest, dir: fs.Dir, dep_file_sub_path: []const u8) !void {
         assert(self.manifest_file == null);
-        return self.addDepFileMaybePost(dir, dep_file_basename);
+        return self.addDepFileMaybePost(dir, dep_file_sub_path);
     }
 
     pub const HitError = error{
@@ -1049,14 +1049,14 @@ pub const Manifest = struct {
         self.hash.hasher.update(&new_file.bin_digest);
     }
 
-    pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+    pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_sub_path: []const u8) !void {
         assert(self.manifest_file != null);
-        return self.addDepFileMaybePost(dir, dep_file_basename);
+        return self.addDepFileMaybePost(dir, dep_file_sub_path);
     }
 
-    fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+    fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_sub_path: []const u8) !void {
         const gpa = self.cache.gpa;
-        const dep_file_contents = try dir.readFileAlloc(dep_file_basename, gpa, .limited(manifest_file_size_max));
+        const dep_file_contents = try dir.readFileAlloc(dep_file_sub_path, gpa, .limited(manifest_file_size_max));
         defer gpa.free(dep_file_contents);
 
         var error_buf: std.ArrayListUnmanaged(u8) = .empty;
@@ -1083,7 +1083,7 @@ pub const Manifest = struct {
                 },
                 else => |err| {
                     try err.printError(gpa, &error_buf);
-                    log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
+                    log.err("failed parsing {s}: {s}", .{ dep_file_sub_path, error_buf.items });
                     return error.InvalidDepFile;
                 },
             }
