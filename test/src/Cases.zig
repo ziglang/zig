@@ -271,26 +271,6 @@ pub fn addC(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Ca
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
 
-pub fn addCompareOutput(
-    ctx: *Cases,
-    name: []const u8,
-    src: [:0]const u8,
-    expected_stdout: []const u8,
-) void {
-    ctx.addExe(name, .{}).addCompareOutput(src, expected_stdout);
-}
-
-/// Adds a test case that compiles the Zig source given in `src`, executes
-/// it, runs it, and tests the output against `expected_stdout`
-pub fn compareOutput(
-    ctx: *Cases,
-    name: []const u8,
-    src: [:0]const u8,
-    expected_stdout: []const u8,
-) void {
-    return ctx.addCompareOutput(name, src, expected_stdout);
-}
-
 pub fn addTransform(
     ctx: *Cases,
     name: []const u8,

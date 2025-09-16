@@ -568,7 +568,6 @@ pub fn build(b: *std.Build) !void {
     unit_tests.root_module.addOptions("build_options", exe_options);
     unit_tests_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
         b,
         optimization_modes,
@@ -590,7 +589,6 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
     if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
