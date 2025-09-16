@@ -8,7 +8,6 @@
 //! https://sbarral.github.io/etf.
 
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const math = std.math;
 const Random = std.Random;
 
@@ -107,8 +106,6 @@ pub fn tableGen(
 /// Namespace containing distributions for a specific floating point type.
 pub fn distributions(comptime T: type) type {
     std.debug.assert(@typeInfo(T) == .float);
-    // TODO: possibly update `norm_r`, `norm_v`, `exp_r`, `exp_v`,
-    // as I believe they are just accurate for f64s, might be wrong though.
     return struct {
         pub const norm_r = 3.6541528853610088;
         pub const norm_v = 0.00492867323399;
@@ -180,28 +177,65 @@ pub const NormDist = distributions(f64).normal;
 /// Deprecated. Use `distributions.exponential` instead.
 pub const ExpDist = distributions(f64).exponential;
 
-test "normal dist smoke test" {
-    // Hardcode 0 as the seed because it's possible a seed exists that fails
-    // this test.
-    var prng = Random.DefaultPrng.init(0);
-    const random = prng.random();
+fn zigguratTests(comptime T: type) type {
+    return struct {
+        test "normal dist correctness" {
+            const n = 10000;
+            const p = 0.682689492136; // chance of `random.floatNorm` ∈ [-1.0, 1.0]
+            const mu = n * p;
+            const sigma = @sqrt(n * p * (1.0 - p));
+            // interval that `in_range` will land in (inclusive) with 95% confidence
+            const in_range_min: u32 = @intFromFloat(@ceil(mu - 1.97 * sigma));
+            const in_range_max: u32 = @intFromFloat(@floor(mu + 1.97 * sigma));
 
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) {
-        _ = random.floatNorm(f64);
-    }
-}
+            var prng = Random.DefaultPrng.init(switch (@typeInfo(T).float.bits) {
+                // By random chance, this fails for `f64` on seed `0`
+                // and for `f32` on seed `1`. Thus this setup.
+                64 => 1,
+                else => 0,
+            });
+            const random = prng.random();
 
-test "exp dist smoke test" {
-    var prng = Random.DefaultPrng.init(0);
-    const random = prng.random();
+            var in_range: u32 = 0;
+            for (0..n) |_| {
+                const value = random.floatNorm(T);
+                if (value >= -1.0 and value <= 1.0) in_range += 1;
+            }
 
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) {
-        _ = random.floatExp(f64);
-    }
+            try std.testing.expect(in_range >= in_range_min);
+            try std.testing.expect(in_range <= in_range_max);
+        }
+        test "exponential dist correctness" {
+            const n = 10000;
+            const p = 0.5; // chance of `random.floatExp` < @log(2.0)
+            const mu = n * p;
+            const sigma = @sqrt(n * p * (1.0 - p));
+            // interval that `in_range` will land in (inclusive) with 95% confidence
+            const in_range_min: u32 = @intFromFloat(@ceil(mu - 1.97 * sigma));
+            const in_range_max: u32 = @intFromFloat(@floor(mu + 1.97 * sigma));
+
+            var prng = Random.DefaultPrng.init(0);
+            const random = prng.random();
+
+            var in_range: u32 = 0;
+            for (0..n) |_| {
+                const value = random.floatExp(T);
+                if (value < @log(2.0)) in_range += 1;
+            }
+
+            try std.testing.expect(in_range >= in_range_min);
+            try std.testing.expect(in_range <= in_range_max);
+        }
+        test "distributions" {
+            const dists = distributions(T);
+            _ = dists.normal;
+            _ = dists.exponential;
+        }
+    };
 }
 
 test {
-    _ = NormDist;
+    inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
+        _ = zigguratTests(T);
+    }
 }
