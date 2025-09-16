@@ -37013,44 +37013,74 @@ fn notePathToComptimeAllocPtr(
 }
 
 fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayListUnmanaged(u8)) Allocator.Error!Value {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
     const arena = sema.arena;
+    const zcu = sema.pt.zcu;
+    const ip = &zcu.intern_pool;
     assert(val.canMutateComptimeVarState(zcu));
-    switch (ip.indexToKey(val.toIntern())) {
-        .ptr => return val,
+
+    value_path: switch (ip.indexToKey(val.toIntern())) {
+        .ptr => |ptr| switch (ptr.base_addr) {
+            .nav, .int => break :value_path,
+            .comptime_alloc, .comptime_field => return val,
+            else => if (val.findComptimeVarRef(zcu, .value_only) != .none) {
+                // If we lead to a comptime var by value,
+                // let `notePathToComptimeAllocPtr` do the pointer derivation
+                return val;
+            } else {
+                // Otherwise, we must be dealing with a reference in the type
+                break :value_path;
+            },
+        },
         .error_union => |eu| {
-            try path.insert(arena, 0, '(');
-            try path.appendSlice(arena, " catch unreachable)");
-            return sema.notePathToComptimeAllocPtrInner(.fromInterned(eu.val.payload), path);
+            const payload: Value = .fromInterned(eu.val.payload);
+            if (payload.canMutateComptimeVarState(zcu)) {
+                try path.insert(arena, 0, '(');
+                try path.appendSlice(arena, " catch unreachable)");
+                return sema.notePathToComptimeAllocPtrInner(payload, path);
+            }
         },
         .slice => |slice| {
-            try path.appendSlice(arena, ".ptr");
-            return sema.notePathToComptimeAllocPtrInner(.fromInterned(slice.ptr), path);
+            const ptr: Value = .fromInterned(slice.ptr);
+            if (ptr.canMutateComptimeVarState(zcu)) {
+                try path.appendSlice(arena, ".ptr");
+                return sema.notePathToComptimeAllocPtrInner(.fromInterned(slice.ptr), path);
+            }
         },
         .opt => |opt| {
-            try path.appendSlice(arena, ".?");
-            return sema.notePathToComptimeAllocPtrInner(.fromInterned(opt.val), path);
+            if (opt.val == .none) break :value_path;
+            const opt_payload: Value = .fromInterned(opt.val);
+            if (opt_payload.canMutateComptimeVarState(zcu)) {
+                try path.appendSlice(arena, ".?");
+                return sema.notePathToComptimeAllocPtrInner(.fromInterned(opt.val), path);
+            }
         },
         .un => |un| {
             assert(un.tag != .none);
-            const union_ty: Type = .fromInterned(un.ty);
-            const backing_enum = union_ty.unionTagTypeHypothetical(zcu);
-            const field_idx = backing_enum.enumTagFieldIndex(.fromInterned(un.tag), zcu).?;
-            const field_name = backing_enum.enumFieldName(field_idx, zcu);
-            try path.print(arena, ".{f}", .{field_name.fmt(ip)});
-            return sema.notePathToComptimeAllocPtrInner(.fromInterned(un.val), path);
+            const un_val: Value = .fromInterned(un.val);
+            if (un_val.canMutateComptimeVarState(zcu)) {
+                const union_ty: Type = .fromInterned(un.ty);
+                const backing_enum = union_ty.unionTagTypeHypothetical(zcu);
+                const field_idx = backing_enum.enumTagFieldIndex(.fromInterned(un.tag), zcu).?;
+                const field_name = backing_enum.enumFieldName(field_idx, zcu);
+                try path.print(arena, ".{f}", .{field_name.fmt(ip)});
+                return sema.notePathToComptimeAllocPtrInner(un_val, path);
+            }
         },
         .aggregate => |agg| {
             const elem: InternPool.Index, const elem_idx: usize = switch (agg.storage) {
-                .bytes => unreachable,
-                .repeated_elem => |elem| .{ elem, 0 },
+                .bytes => break :value_path,
+                .repeated_elem => |elem| check_repeat: {
+                    const elem_val: Value = .fromInterned(elem);
+                    if (elem_val.canMutateComptimeVarState(zcu)) {
+                        break :check_repeat .{ elem, 0 };
+                    } else break :value_path;
+                },
                 .elems => |elems| for (elems, 0..) |elem, elem_idx| {
-                    if (Value.fromInterned(elem).canMutateComptimeVarState(zcu)) {
+                    const elem_val: Value = .fromInterned(elem);
+                    if (elem_val.canMutateComptimeVarState(zcu)) {
                         break .{ elem, elem_idx };
                     }
-                } else unreachable,
+                } else break :value_path,
             };
             const agg_ty: Type = .fromInterned(agg.ty);
             switch (agg_ty.zigTypeTag(zcu)) {
@@ -37070,8 +37100,106 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
             }
             return sema.notePathToComptimeAllocPtrInner(.fromInterned(elem), path);
         },
-        else => unreachable,
+        .struct_type => {
+            // Since the fields are displayed by their @typeInfo index and never called by name,
+            // we can share implementations with tuple types
+            const struct_ty = ip.loadStructType(val.toIntern());
+            continue :value_path .{
+                .tuple_type = .{
+                    .values = struct_ty.field_inits,
+                    .types = struct_ty.field_types,
+                },
+            };
+        },
+        .tuple_type => |tuple| {
+            const problem, const problem_idx, const info_fieldname = for (
+                tuple.values.get(ip),
+                tuple.types.get(ip),
+                0..,
+            ) |default_intern, ty_intern, i| {
+                const ty: Value = .fromInterned(ty_intern);
+                if (ty.canMutateComptimeVarState(zcu)) break .{ ty, i, "type" };
+                if (default_intern == .none) continue;
+                const default: Value = .fromInterned(default_intern);
+                if (default.canMutateComptimeVarState(zcu)) break .{ default, i, "defaultValue().?" };
+            } else break :value_path;
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            try path.print(arena, ").@\"struct\".fields[{d}].{s}", .{ problem_idx, info_fieldname });
+            return sema.notePathToComptimeAllocPtrInner(problem, path);
+        },
+        .union_type => {
+            const union_ty = ip.loadUnionType(val.toIntern());
+            const problem, const problem_index = for (union_ty.field_types.get(ip), 0..) |ty, i| {
+                const field_ty: Value = .fromInterned(ty);
+                if (field_ty.canMutateComptimeVarState(zcu)) {
+                    break .{ field_ty, i };
+                }
+            } else break :value_path;
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            try path.print(arena, ").@\"union\".fields[{d}].type", .{problem_index});
+            return sema.notePathToComptimeAllocPtrInner(problem, path);
+        },
+        .ptr_type => |ptr| {
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            if (ptr.sentinel != .none) {
+                const sentinel: Value = .fromInterned(ptr.sentinel);
+                if (sentinel.canMutateComptimeVarState(zcu)) {
+                    try path.appendSlice(arena, ").pointer.sentinel().?");
+                    return sema.notePathToComptimeAllocPtrInner(sentinel, path);
+                }
+            }
+            try path.appendSlice(arena, ").pointer.child");
+            return sema.notePathToComptimeAllocPtrInner(.fromInterned(ptr.child), path);
+        },
+        .array_type => |array| {
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            if (array.sentinel != .none) {
+                const sentinel: Value = .fromInterned(array.sentinel);
+                if (sentinel.canMutateComptimeVarState(zcu)) {
+                    try path.appendSlice(arena, ").array.sentinel().?");
+                    return sema.notePathToComptimeAllocPtrInner(sentinel, path);
+                }
+            }
+            try path.appendSlice(arena, ").array.child");
+            return sema.notePathToComptimeAllocPtrInner(.fromInterned(array.child), path);
+        },
+        .vector_type => |vec| {
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            try path.appendSlice(arena, ").vector.child");
+            return sema.notePathToComptimeAllocPtrInner(.fromInterned(vec.child), path);
+        },
+        .func_type => |func| {
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            for (func.param_types.get(ip), 0..) |param_ty, i| {
+                if (param_ty != .none) {
+                    const param: Value = .fromInterned(param_ty);
+                    if (param.canMutateComptimeVarState(zcu)) {
+                        try path.print(arena, ").@\"fn\".params[{d}].type.?", .{i});
+                        return sema.notePathToComptimeAllocPtrInner(param, path);
+                    }
+                }
+            }
+            try path.appendSlice(arena, ").@\"fn\".return_type.?");
+            return sema.notePathToComptimeAllocPtrInner(.fromInterned(func.return_type), path);
+        },
+        .error_union_type => |error_union| {
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            try path.appendSlice(arena, ").error_union.payload");
+            return sema.notePathToComptimeAllocPtrInner(.fromInterned(error_union.payload_type), path);
+        },
+        .opt_type => |optional| {
+            try path.insertSlice(arena, 0, "@typeInfo(");
+            try path.appendSlice(arena, ").optional.child");
+            return sema.notePathToComptimeAllocPtrInner(.fromInterned(optional), path);
+        },
+        else => {},
     }
+
+    // By this point, we know that the comptime var reference lies in the type
+    const ty = val.typeOf(zcu).toValue();
+    try path.insertSlice(arena, 0, "@TypeOf(");
+    try path.append(arena, ')');
+    return sema.notePathToComptimeAllocPtrInner(ty, path);
 }
 
 /// Returns true if any value contained in `val` is undefined.
