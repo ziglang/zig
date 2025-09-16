@@ -1595,7 +1595,7 @@ const ResolvConf = struct {
 
     /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
     /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
-    fn init(rc: *ResolvConf, gpa: Allocator) !void {
+    fn init(rc: *ResolvConf) !void {
         rc.* = .{
             .gpa = gpa,
             .ns = .{ null, null, null },
