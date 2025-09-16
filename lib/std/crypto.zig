@@ -31,6 +31,16 @@ pub const aead = struct {
         pub const Aes256Gcm = @import("crypto/aes_gcm.zig").Aes256Gcm;
     };
 
+    pub const aes_gcm_siv = struct {
+        pub const Aes128GcmSiv = @import("crypto/aes_gcm_siv.zig").Aes128GcmSiv;
+        pub const Aes256GcmSiv = @import("crypto/aes_gcm_siv.zig").Aes256GcmSiv;
+    };
+
+    pub const aes_siv = struct {
+        pub const Aes128Siv = @import("crypto/aes_siv.zig").Aes128Siv;
+        pub const Aes256Siv = @import("crypto/aes_siv.zig").Aes256Siv;
+    };
+
     pub const aes_ocb = struct {
         pub const Aes128Ocb = @import("crypto/aes_ocb.zig").Aes128Ocb;
         pub const Aes256Ocb = @import("crypto/aes_ocb.zig").Aes256Ocb;
@@ -248,6 +258,12 @@ test {
 
     _ = aead.aes_gcm.Aes128Gcm;
     _ = aead.aes_gcm.Aes256Gcm;
+
+    _ = aead.aes_gcm_siv.Aes128GcmSiv;
+    _ = aead.aes_gcm_siv.Aes256GcmSiv;
+
+    _ = aead.aes_siv.Aes128Siv;
+    _ = aead.aes_siv.Aes256Siv;
 
     _ = aead.aes_ocb.Aes128Ocb;
     _ = aead.aes_ocb.Aes256Ocb;
