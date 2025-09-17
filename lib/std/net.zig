@@ -1683,11 +1683,9 @@ const ResolvConf = struct {
 
         var ns_addr_buffer: [3]Address = undefined;
 
-        var index: u2 = 0;
-        while (index < rc.ns_len) : (index += 1) {
-            const ip = rc.ns_buffer[index];
-            ns_addr_buffer[index] = ip.addr;
-            assert(ns_addr_buffer[index].getPort() == 53);
+        for (rc.ns_buffer[0..rc.ns_len], ns_addr_buffer[0..rc.ns_len]) |ip, *addr|
+            addr.* = ip.addr;
+            assert(addr.getPort() == 53);
             if (ip.addr.any.family != posix.AF.INET) {
                 family = posix.AF.INET6;
             }
