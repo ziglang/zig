@@ -792,6 +792,16 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
         ,
         .Debug = .{
+            // std.debug.sys_can_stack_trace
+            .exclude_arch = &.{
+                .loongarch32,
+                .loongarch64,
+                .mips,
+                .mipsel,
+                .mips64,
+                .mips64el,
+                .s390x,
+            },
             .exclude_os = &.{
                 .openbsd, // integer overflow
                 .windows, // TODO intermittent failures
