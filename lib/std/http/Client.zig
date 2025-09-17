@@ -23,7 +23,7 @@ pub const disable_tls = std.options.http_disable_tls;
 /// Used for all client allocations. Must be thread-safe.
 allocator: Allocator,
 
-ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
+ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .default,
 ca_bundle_mutex: std.Thread.Mutex = .{},
 /// Used both for the reader and writer buffers.
 tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
