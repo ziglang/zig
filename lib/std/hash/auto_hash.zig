@@ -137,7 +137,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
             }
         },
 
-        .@"union" => |info| {
+        .@"union" => |info| blk: {
             if (info.tag_type) |tag_type| {
                 const tag = std.meta.activeTag(key);
                 hash(hasher, tag, strat);
@@ -146,9 +146,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
                         if (field.type != void) {
                             hash(hasher, @field(key, field.name), strat);
                         }
-                        // TODO use a labelled break when it does not crash the compiler. cf #2908
-                        // break :blk;
-                        return;
+                        break :blk;
                     }
                 }
                 unreachable;
