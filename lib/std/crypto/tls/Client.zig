@@ -94,17 +94,7 @@ pub const Options = struct {
         explicit: []const u8,
     },
     /// How to verify the authenticity of server certificates.
-    ca: union(enum) {
-        /// No ca verification is performed, which prevents a trusted connection from
-        /// being established.
-        no_verification,
-        /// Verify that the server certificate is a valid self-signed certificate.
-        /// This provides no authorization guarantees, as anyone can create a
-        /// self-signed certificate.
-        self_signed,
-        /// Verify that the server certificate is authorized by a given ca bundle.
-        bundle: Certificate.Bundle,
-    },
+    ca_bundle: *Certificate.Bundle,
     /// If non-null, ssl secrets are logged to this stream. Creating such a log file allows
     /// other programs with access to that file to decrypt all traffic over this connection.
     ///
@@ -640,23 +630,12 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                 try prev_cert.verify(subject, now_sec);
                             }
 
-                            switch (options.ca) {
-                                .no_verification => {
-                                    handshake_state = .trust_chain_established;
-                                    break :cert;
-                                },
-                                .self_signed => {
-                                    try subject.verify(subject, now_sec);
-                                    handshake_state = .trust_chain_established;
-                                    break :cert;
-                                },
-                                .bundle => |ca_bundle| if (ca_bundle.verify(subject, now_sec)) |_| {
-                                    handshake_state = .trust_chain_established;
-                                    break :cert;
-                                } else |err| switch (err) {
-                                    error.CertificateIssuerNotFound => {},
-                                    else => |e| return e,
-                                },
+                            if (options.ca_bundle.verify(subject, now_sec)) |_| {
+                                handshake_state = .trust_chain_established;
+                                break :cert;
+                            } else |err| switch (err) {
+                                error.CertificateIssuerNotFound => {},
+                                else => |e| return e,
                             }
 
                             prev_cert = subject;

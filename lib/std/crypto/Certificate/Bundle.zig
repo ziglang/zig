@@ -15,10 +15,30 @@ pub const default: Bundle = .{
     .source = .system,
 };
 
+/// No ca verification is performed, which prevents a trusted connection from
+/// being established.
+pub const no_verification = .{
+    .source = .{ .callback = &noVerification },
+};
+
+fn noVerification(_: *Bundle, _: Certificate.Parsed, _: i64) VerifyError!void {}
+
+/// Verify that the server certificate is a valid self-signed certificate. This
+/// provides no authorization guarantees, as anyone can create a self-signed
+/// certificate.
+pub const self_signed = .{
+    .source = .{ .callback = &selfSigned },
+};
+
+fn selfSigned(_: *Bundle, subject: Certificate.Parsed, now_sec: i64) VerifyError!void {
+    try subject.verify(subject, now_sec);
+}
+
 pub const Source = union(enum) {
     system,
     file: []const u8,
     bytes: []const u8,
+    callback: *const fn (cb: *Bundle, subject: Certificate.Parsed, now_sec: i64) VerifyError!void,
 };
 
 pub fn init(allocator: Allocator, source: Source) !Bundle {
@@ -33,7 +53,10 @@ pub const VerifyError = Certificate.Parsed.VerifyError || error{
     CertificateIssuerNotFound,
 };
 
-pub fn verify(cb: Bundle, subject: Certificate.Parsed, now_sec: i64) VerifyError!void {
+pub fn verify(cb: *Bundle, subject: Certificate.Parsed, now_sec: i64) VerifyError!void {
+    if (cb.source == .callback)
+        return cb.source.callback(cb, subject, now_sec);
+
     const bytes_index = cb.find(subject.issuer()) orelse return error.CertificateIssuerNotFound;
     const issuer_cert: Certificate = .{
         .buffer = cb.bytes.items,
@@ -43,6 +66,14 @@ pub fn verify(cb: Bundle, subject: Certificate.Parsed, now_sec: i64) VerifyError
     // that parsing will succeed here.
     const issuer = issuer_cert.parse() catch unreachable;
     try subject.verify(issuer, now_sec);
+}
+
+pub const VerifyRescanError = VerifyError || RescanError;
+
+pub fn verifyRescan(cb: *Bundle, allocator: Allocator, subject: Certificate.Parsed, now_sec: i64) VerifyRescanError!void {
+    _ = cb.find(subject.issuer()) orelse try cb.rescan(allocator);
+
+    return cb.verify(subject, now_sec);
 }
 
 /// The returned bytes become invalid after calling any of the rescan functions
@@ -93,6 +124,7 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
         },
         .file => |path| return rescanWithPath(cb, gpa, path),
         .bytes => |buffer| return rescanWithBytes(cb, gpa, buffer),
+        .callback => {},
     }
 }
 

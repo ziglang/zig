@@ -12,6 +12,7 @@ const mem = std.mem;
 const net = std.net;
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
+const Certificate = std.crypto.Certificate;
 const assert = std.debug.assert;
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
@@ -23,7 +24,9 @@ pub const disable_tls = std.options.http_disable_tls;
 /// Used for all client allocations. Must be thread-safe.
 allocator: Allocator,
 
-ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .default,
+ca_bundle: if (disable_tls) void else Certificate.Bundle = if (disable_tls) {} else .{
+    .source = .{ .callback = &caVerify },
+},
 ca_bundle_mutex: std.Thread.Mutex = .{},
 /// Used both for the reader and writer buffers.
 tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
@@ -31,10 +34,6 @@ tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.cr
 /// allows other processes with access to that stream to decrypt all
 /// traffic over connections created with this `Client`.
 ssl_key_log: ?*std.crypto.tls.Client.SslKeyLog = null,
-
-/// When this is `true`, the next time this client performs an HTTPS request,
-/// it will first rescan the system for root certificates.
-next_https_rescan_certs: bool = true,
 
 /// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
@@ -325,13 +324,12 @@ pub const Connection = struct {
                     .closing = false,
                     .protocol = .tls,
                 },
-                // TODO data race here on ca_bundle if the user sets next_https_rescan_certs to true
                 .client = std.crypto.tls.Client.init(
                     tls.connection.stream_reader.interface(),
                     &tls.connection.stream_writer.interface,
                     .{
                         .host = .{ .explicit = remote_host },
-                        .ca = .{ .bundle = client.ca_bundle },
+                        .ca_bundle = &client.ca_bundle,
                         .ssl_key_log = client.ssl_key_log,
                         .read_buffer = tls_read_buffer,
                         .write_buffer = socket_write_buffer,
@@ -460,6 +458,20 @@ pub const Connection = struct {
         try c.stream_writer.interface.flush();
     }
 };
+
+fn caVerify(ca_bundle: *Certificate.Bundle, subject: Certificate.Parsed, now_sec: i64) Certificate.Bundle.VerifyError!void {
+    const client: *Client = @fieldParentPtr("ca_bundle", ca_bundle);
+
+    client.ca_bundle_mutex.lock();
+    defer client.ca_bundle_mutex.unlock();
+
+    client.ca_bundle.source = .system;
+    defer client.ca_bundle.source = .{ .callback = &caVerify };
+
+    // TODO: return the original error if it's part of VerifyError set
+    client.ca_bundle.verifyRescan(client.allocator, subject, now_sec) catch
+        return error.CertificateIssuerNotFound;
+}
 
 pub const Response = struct {
     request: *Request,
@@ -1681,16 +1693,6 @@ pub fn request(
 
     if (protocol == .tls) {
         if (disable_tls) unreachable;
-        if (@atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
-            client.ca_bundle_mutex.lock();
-            defer client.ca_bundle_mutex.unlock();
-
-            if (client.next_https_rescan_certs) {
-                client.ca_bundle.rescan(client.allocator) catch
-                    return error.CertificateBundleLoadFailure;
-                @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
-            }
-        }
     }
 
     const connection = options.connection orelse c: {
