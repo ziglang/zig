@@ -616,9 +616,10 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 var path_it = mem.tokenizeScalar(u8, PATH, path.delimiter);
                 while (path_it.next()) |a_path| {
                     var resolved_path_buf: [max_path_bytes - 1:0]u8 = undefined;
-                    const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
+                    const resolved_path = std.fmt.bufPrintSentinel(&resolved_path_buf, "{s}/{s}", .{
                         a_path,
                         std.os.argv[0],
+                        0,
                     }) catch continue;
 
                     var real_path_buf: [max_path_bytes]u8 = undefined;

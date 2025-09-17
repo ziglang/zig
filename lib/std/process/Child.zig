@@ -1320,10 +1320,11 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
     const pipe_path = blk: {
         var tmp_buf: [128]u8 = undefined;
         // Forge a random path for the pipe.
-        const pipe_path = std.fmt.bufPrintZ(
+        const pipe_path = std.fmt.bufPrintSentinel(
             &tmp_buf,
             "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
             .{ windows.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .monotonic) },
+            0,
         ) catch unreachable;
         const len = std.unicode.wtf8ToWtf16Le(&tmp_bufw, pipe_path) catch unreachable;
         tmp_bufw[len] = 0;
