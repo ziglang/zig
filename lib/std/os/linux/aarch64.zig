@@ -260,7 +260,4 @@ pub const ucontext_t = extern struct {
     mcontext: mcontext_t,
 };
 
-/// TODO
-pub const getcontext = {};
-
 pub const Elf_Symndx = u32;

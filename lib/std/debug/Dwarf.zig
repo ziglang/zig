@@ -27,7 +27,6 @@ const Reader = std.Io.Reader;
 const Dwarf = @This();
 
 pub const expression = @import("Dwarf/expression.zig");
-pub const abi = @import("Dwarf/abi.zig");
 pub const call_frame = @import("Dwarf/call_frame.zig");
 pub const Unwind = @import("Dwarf/Unwind.zig");
 
@@ -1415,7 +1414,7 @@ pub fn readUnitHeader(r: *Reader, endian: Endian) ScanError!UnitHeader {
 }
 
 /// Returns the DWARF register number for an x86_64 register number found in compact unwind info
-pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
+pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u16 {
     return switch (unwind_reg_number) {
         1 => 3, // RBX
         2 => 12, // R12
@@ -1424,6 +1423,60 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
         5 => 15, // R15
         6 => 6, // RBP
         else => error.InvalidRegister,
+    };
+}
+
+/// Returns `null` for CPU architectures without an instruction pointer register.
+pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
+    return switch (arch) {
+        .x86 => 8,
+        .x86_64 => 16,
+        .arm, .armeb, .thumb, .thumbeb => 15,
+        .aarch64, .aarch64_be => 32,
+        else => null,
+    };
+}
+
+pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
+    return switch (arch) {
+        .x86 => 5,
+        .x86_64 => 6,
+        .arm, .armeb, .thumb, .thumbeb => 11,
+        .aarch64, .aarch64_be => 29,
+        else => unreachable,
+    };
+}
+
+pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
+    return switch (arch) {
+        .x86 => 4,
+        .x86_64 => 7,
+        .arm, .armeb, .thumb, .thumbeb => 13,
+        .aarch64, .aarch64_be => 31,
+        else => unreachable,
+    };
+}
+
+/// Tells whether unwinding for this target is supported by the Dwarf standard.
+///
+/// See also `std.debug.SelfInfo.supports_unwinding` which tells whether the Zig
+/// standard library has a working implementation of unwinding for this target.
+pub fn supportsUnwinding(target: *const std.Target) bool {
+    return switch (target.cpu.arch) {
+        .amdgcn,
+        .nvptx,
+        .nvptx64,
+        .spirv32,
+        .spirv64,
+        => false,
+
+        // Enabling this causes relocation errors such as:
+        // error: invalid relocation type R_RISCV_SUB32 at offset 0x20
+        .riscv64, .riscv64be, .riscv32, .riscv32be => false,
+
+        // Conservative guess. Feel free to update this logic with any targets
+        // that are known to not support Dwarf unwinding.
+        else => true,
     };
 }
 
