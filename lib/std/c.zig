@@ -10994,6 +10994,9 @@ pub extern "c" fn dlclose(handle: *anyopaque) c_int;
 pub extern "c" fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
 pub extern "c" fn dlerror() ?[*:0]u8;
 
+pub const dladdr = if (native_os.isDarwin()) darwin.dladdr else {};
+pub const dl_info = if (native_os.isDarwin()) darwin.dl_info else {};
+
 pub extern "c" fn sync() void;
 pub extern "c" fn syncfs(fd: c_int) c_int;
 pub extern "c" fn fsync(fd: c_int) c_int;

@@ -332,6 +332,34 @@ pub const UnwindContext = struct {
                     .Wcr = @splat(0),
                     .Wvr = @splat(0),
                 },
+                .thumb => .{
+                    .ContextFlags = 0,
+                    .R0 = ctx.r[0],
+                    .R1 = ctx.r[1],
+                    .R2 = ctx.r[2],
+                    .R3 = ctx.r[3],
+                    .R4 = ctx.r[4],
+                    .R5 = ctx.r[5],
+                    .R6 = ctx.r[6],
+                    .R7 = ctx.r[7],
+                    .R8 = ctx.r[8],
+                    .R9 = ctx.r[9],
+                    .R10 = ctx.r[10],
+                    .R11 = ctx.r[11],
+                    .R12 = ctx.r[12],
+                    .Sp = ctx.r[13],
+                    .Lr = ctx.r[14],
+                    .Pc = ctx.r[15],
+                    .Cpsr = 0,
+                    .Fpcsr = 0,
+                    .Padding = 0,
+                    .DUMMYUNIONNAME = .{ .S = @splat(0) },
+                    .Bvr = @splat(0),
+                    .Bcr = @splat(0),
+                    .Wvr = @splat(0),
+                    .Wcr = @splat(0),
+                    .Padding2 = @splat(0),
+                },
                 else => comptime unreachable,
             },
             .history_table = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE),
@@ -345,7 +373,7 @@ pub const UnwindContext = struct {
         return ctx.cur.getRegs().bp;
     }
 };
-pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !void {
     _ = module;
     _ = gpa;
     _ = di;
@@ -374,10 +402,10 @@ pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo,
     const next_regs = context.cur.getRegs();
     const tib = &windows.teb().NtTib;
     if (next_regs.sp < @intFromPtr(tib.StackLimit) or next_regs.sp > @intFromPtr(tib.StackBase)) {
-        return 0;
+        context.pc = 0;
+    } else {
+        context.pc = next_regs.ip -| 1;
     }
-    context.pc = next_regs.ip -| 1;
-    return next_regs.ip;
 }
 
 const WindowsModule = @This();

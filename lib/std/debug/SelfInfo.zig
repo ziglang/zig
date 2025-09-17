@@ -2,7 +2,6 @@
 //! goal of minimal code bloat and compilation speed penalty.
 
 const builtin = @import("builtin");
-const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 const native_arch = builtin.cpu.arch;
 
@@ -12,6 +11,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Dwarf = std.debug.Dwarf;
 const CpuContext = std.debug.cpu_context.Native;
+
+const stripInstructionPtrAuthCode = std.debug.stripInstructionPtrAuthCode;
 
 const root = @import("root");
 
@@ -52,7 +53,7 @@ pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
     if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
 }
 
-pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!usize {
+pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!void {
     comptime assert(supports_unwinding);
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
     const gop = try self.modules.getOrPut(gpa, module.key());
@@ -115,7 +116,7 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 /// pub const supports_unwinding: bool;
 /// /// Only required if `supports_unwinding == true`.
 /// pub const UnwindContext = struct {
-///     /// A PC value inside the function of the last unwound frame.
+///     /// A PC value representing the location in the last frame.
 ///     pc: usize,
 ///     pub fn init(ctx: *std.debug.cpu_context.Native, gpa: Allocator) Allocator.Error!UnwindContext;
 ///     pub fn deinit(uc: *UnwindContext, gpa: Allocator) void;
@@ -123,21 +124,22 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 ///     /// pointer is unknown, 0 may be returned instead.
 ///     pub fn getFp(uc: *UnwindContext) usize;
 /// };
-/// /// Only required if `supports_unwinding == true`. Unwinds a single stack frame and returns
-/// /// the next return address (which may be 0 indicating end of stack).
+/// /// Only required if `supports_unwinding == true`. Unwinds a single stack frame.
+/// /// The caller will read the new instruction poiter from the `pc` field.
+/// /// `pc = 0` indicates end of stack / no more frames.
 /// pub fn unwindFrame(
 ///     mod: *const Module,
 ///     gpa: Allocator,
 ///     di: *DebugInfo,
 ///     ctx: *UnwindContext,
-/// ) SelfInfo.Error!usize;
+/// ) SelfInfo.Error!void;
 /// ```
 const Module: type = Module: {
     // Allow overriding the target-specific `SelfInfo` implementation by exposing `root.debug.Module`.
     if (@hasDecl(root, "debug") and @hasDecl(root.debug, "Module")) {
         break :Module root.debug.Module;
     }
-    break :Module switch (native_os) {
+    break :Module switch (builtin.os.tag) {
         .linux,
         .netbsd,
         .freebsd,
@@ -222,7 +224,7 @@ pub const DwarfUnwindContext = struct {
                 const register = col.register orelse return error.InvalidRegister;
                 // The default type is usually undefined, but can be overriden by ABI authors.
                 // See the doc comment on `Dwarf.Unwind.VirtualMachine.RegisterRule.default`.
-                if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 18) {
+                if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 28) {
                     // Callee-saved registers are initialized as if they had the .same_value rule
                     const src = try context.cpu_context.dwarfRegisterBytes(register);
                     if (src.len != out.len) return error.RegisterSizeMismatch;
@@ -310,7 +312,7 @@ pub const DwarfUnwindContext = struct {
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
         explicit_fde_offset: ?usize,
-    ) Error!usize {
+    ) Error!void {
         return unwindFrameInner(context, gpa, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
             error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
 
@@ -358,9 +360,10 @@ pub const DwarfUnwindContext = struct {
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
         explicit_fde_offset: ?usize,
-    ) !usize {
-        if (!supports_unwinding) return error.UnsupportedCpuArchitecture;
-        if (context.pc == 0) return 0;
+    ) !void {
+        comptime assert(supports_unwinding);
+
+        if (context.pc == 0) return;
 
         const pc_vaddr = context.pc - load_offset;
 
@@ -430,12 +433,12 @@ pub const DwarfUnwindContext = struct {
             }
         }
 
-        const return_address: u64 = if (has_return_address) pc: {
+        const return_address: usize = if (has_return_address) pc: {
             const raw_ptr = try regNative(&new_cpu_context, cie.return_address_register);
             break :pc stripInstructionPtrAuthCode(raw_ptr.*);
         } else 0;
 
-        (try regNative(new_cpu_context, ip_reg_num)).* = return_address;
+        (try regNative(&new_cpu_context, ip_reg_num)).* = return_address;
 
         // The new CPU context is complete; flush changes.
         context.cpu_context = new_cpu_context;
@@ -444,11 +447,9 @@ pub const DwarfUnwindContext = struct {
         // *after* the call, it could (in the case of noreturn functions) actually point outside of
         // the caller's address range, meaning an FDE lookup would fail. We can handle this by
         // subtracting 1 from `return_address` so that the next lookup is guaranteed to land inside
-        // the `call` instruction`. The exception to this rule is signal frames, where the return
+        // the `call` instruction. The exception to this rule is signal frames, where the return
         // address is the same instruction that triggered the handler.
         context.pc = if (cie.is_signal_frame) return_address else return_address -| 1;
-
-        return return_address;
     }
     /// Since register rules are applied (usually) during a panic,
     /// checked addition / subtraction is used so that we can return
@@ -458,25 +459,6 @@ pub const DwarfUnwindContext = struct {
             try std.math.add(usize, base, @as(usize, @intCast(offset)))
         else
             try std.math.sub(usize, base, @as(usize, @intCast(-offset)));
-    }
-    /// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
-    /// This function clears these signature bits to make the pointer usable.
-    pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
-        if (native_arch.isAARCH64()) {
-            // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
-            // The save / restore is because `xpaclri` operates on x30 (LR)
-            return asm (
-                \\mov x16, x30
-                \\mov x30, x15
-                \\hint 0x07
-                \\mov x15, x30
-                \\mov x30, x16
-                : [ret] "={x15}" (-> usize),
-                : [ptr] "{x15}" (ptr),
-                : .{ .x16 = true });
-        }
-
-        return ptr;
     }
 
     pub fn regNative(ctx: *CpuContext, num: u16) error{

@@ -585,12 +585,14 @@ pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) 
     while (true) switch (it.next()) {
         .switch_to_fp => if (!it.stratOk(options.allow_unsafe_unwind)) break,
         .end => break,
-        .frame => |return_address| {
+        .frame => |pc_addr| {
             if (wait_for) |target| {
-                if (return_address != target) continue;
+                // Possible off-by-one error: `pc_addr` might be one less than the return address (so
+                // that it falls *inside* the function call), while `target` *is* a return address.
+                if (pc_addr != target and pc_addr + 1 != target) continue;
                 wait_for = null;
             }
-            if (frame_idx < addr_buf.len) addr_buf[frame_idx] = return_address;
+            if (frame_idx < addr_buf.len) addr_buf[frame_idx] = pc_addr;
             frame_idx += 1;
         },
     };
@@ -631,6 +633,7 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
     var printed_any_frame = false;
     while (true) switch (it.next()) {
         .switch_to_fp => |unwind_error| {
+            if (StackIterator.fp_unwind_is_safe) continue; // no need to even warn
             const module_name = di.getModuleNameForAddress(di_gpa, unwind_error.address) catch "???";
             const caption: []const u8 = switch (unwind_error.err) {
                 error.MissingDebugInfo => "unwind info unavailable",
@@ -658,12 +661,14 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
             }
         },
         .end => break,
-        .frame => |return_address| {
+        .frame => |pc_addr| {
             if (wait_for) |target| {
-                if (return_address != target) continue;
+                // Possible off-by-one error: `pc_addr` might be one less than the return address (so
+                // that it falls *inside* the function call), while `target` *is* a return address.
+                if (pc_addr != target and pc_addr + 1 != target) continue;
                 wait_for = null;
             }
-            try printSourceAtAddress(di_gpa, di, writer, return_address -| 1, tty_config);
+            try printSourceAtAddress(di_gpa, di, writer, pc_addr, tty_config);
             printed_any_frame = true;
         },
     };
@@ -703,8 +708,8 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
         },
     };
     const captured_frames = @min(n_frames, st.instruction_addresses.len);
-    for (st.instruction_addresses[0..captured_frames]) |return_address| {
-        try printSourceAtAddress(di_gpa, di, writer, return_address -| 1, tty_config);
+    for (st.instruction_addresses[0..captured_frames]) |pc_addr| {
+        try printSourceAtAddress(di_gpa, di, writer, pc_addr, tty_config);
     }
     if (n_frames > captured_frames) {
         tty_config.setColor(writer, .bold) catch {};
@@ -725,6 +730,8 @@ pub fn dumpStackTrace(st: *const std.builtin.StackTrace) void {
 const StackIterator = union(enum) {
     /// Unwinding using debug info (e.g. DWARF CFI).
     di: if (SelfInfo.supports_unwinding) SelfInfo.UnwindContext else noreturn,
+    /// We will first report the *current* PC of this `UnwindContext`, then we will switch to `di`.
+    di_first: if (SelfInfo.supports_unwinding) SelfInfo.UnwindContext else noreturn,
     /// Naive frame-pointer-based unwinding. Very simple, but typically unreliable.
     fp: usize,
 
@@ -742,9 +749,12 @@ const StackIterator = union(enum) {
         }
         if (opt_context_ptr) |context_ptr| {
             if (!SelfInfo.supports_unwinding) return error.CannotUnwindFromContext;
-            return .{ .di = .init(context_ptr) };
+            // Use `di_first` here so we report the PC in the context before unwinding any further.
+            return .{ .di_first = .init(context_ptr) };
         }
         if (SelfInfo.supports_unwinding and cpu_context.Native != noreturn) {
+            // We don't need `di_first` here, because our PC is in `std.debug`; we're only interested
+            // in our caller's frame and above.
             return .{ .di = .init(&.current()) };
         }
         return .{ .fp = @frameAddress() };
@@ -752,7 +762,7 @@ const StackIterator = union(enum) {
     fn deinit(si: *StackIterator) void {
         switch (si.*) {
             .fp => {},
-            .di => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
+            .di, .di_first => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
         }
     }
 
@@ -763,7 +773,7 @@ const StackIterator = union(enum) {
     /// Whether the current unwind strategy is allowed given `allow_unsafe`.
     fn stratOk(it: *const StackIterator, allow_unsafe: bool) bool {
         return switch (it.*) {
-            .di => true,
+            .di, .di_first => true,
             // If we omitted frame pointers from *this* compilation, FP unwinding would crash
             // immediately regardless of anything. But FPs could also be omitted from a different
             // linked object, so it's not guaranteed to be safe, unless the target specifically
@@ -773,11 +783,11 @@ const StackIterator = union(enum) {
     }
 
     const Result = union(enum) {
-        /// A stack frame has been found; this is the corresponding return address.
+        /// A stack frame has been found; this is the corresponding program counter address.
         frame: usize,
         /// The end of the stack has been reached.
         end,
-        /// We were using the `.di` strategy, but are now switching to `.fp` due to this error.
+        /// We were using `SelfInfo.UnwindInfo`, but are now switching to FP unwinding due to this error.
         switch_to_fp: struct {
             address: usize,
             err: SelfInfo.Error,
@@ -785,20 +795,25 @@ const StackIterator = union(enum) {
     };
     fn next(it: *StackIterator) Result {
         switch (it.*) {
+            .di_first => |unwind_context| {
+                const first_pc = unwind_context.pc;
+                if (first_pc == 0) return .end;
+                it.* = .{ .di = unwind_context };
+                return .{ .frame = first_pc };
+            },
             .di => |*unwind_context| {
                 const di = getSelfDebugInfo() catch unreachable;
                 const di_gpa = getDebugInfoAllocator();
-                if (di.unwindFrame(di_gpa, unwind_context)) |ra| {
-                    if (ra <= 1) return .end;
-                    return .{ .frame = ra };
-                } else |err| {
+                di.unwindFrame(di_gpa, unwind_context) catch |err| {
                     const pc = unwind_context.pc;
                     it.* = .{ .fp = unwind_context.getFp() };
                     return .{ .switch_to_fp = .{
                         .address = pc,
                         .err = err,
                     } };
-                }
+                };
+                const pc = unwind_context.pc;
+                return if (pc == 0) .end else .{ .frame = pc };
             },
             .fp => |fp| {
                 if (fp == 0) return .end; // we reached the "sentinel" base pointer
@@ -824,9 +839,9 @@ const StackIterator = union(enum) {
                 if (bp != 0 and bp <= fp) return .end;
 
                 it.fp = bp;
-                const ra = ra_ptr.*;
+                const ra = stripInstructionPtrAuthCode(ra_ptr.*);
                 if (ra <= 1) return .end;
-                return .{ .frame = ra };
+                return .{ .frame = ra - 1 };
             },
         }
     }
@@ -859,6 +874,26 @@ const StackIterator = union(enum) {
         return math.sub(usize, addr, -off) catch return null;
     }
 };
+
+/// Some platforms use pointer authentication: the upper bits of instruction pointers contain a
+/// signature. This function clears those signature bits to make the pointer directly usable.
+pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
+    if (native_arch.isAARCH64()) {
+        // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
+        // The save / restore is because `xpaclri` operates on x30 (LR)
+        return asm (
+            \\mov x16, x30
+            \\mov x30, x15
+            \\hint 0x07
+            \\mov x15, x30
+            \\mov x30, x16
+            : [ret] "={x15}" (-> usize),
+            : [ptr] "{x15}" (ptr),
+            : .{ .x16 = true });
+    }
+
+    return ptr;
+}
 
 fn printSourceAtAddress(gpa: Allocator, debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) Writer.Error!void {
     const symbol: Symbol = debug_info.getSymbolAtAddress(gpa, address) catch |err| switch (err) {
