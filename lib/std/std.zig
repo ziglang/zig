@@ -171,6 +171,22 @@ pub const Options = struct {
     http_enable_ssl_key_log_file: bool = @import("builtin").mode == .Debug,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    /// Whether to allow capturing and writing stack traces. This affects the following functions:
+    /// * `debug.captureCurrentStackTrace`
+    /// * `debug.writeCurrentStackTrace`
+    /// * `debug.dumpCurrentStackTrace`
+    /// * `debug.writeStackTrace`
+    /// * `debug.dumpStackTrace`
+    ///
+    /// Stack traces can generally be collected and printed when debug info is stripped, but are
+    /// often less useful since they usually cannot be mapped to source locations and/or have bad
+    /// source locations. The stack tracing logic can also be quite large, which may be undesirable,
+    /// particularly in ReleaseSmall.
+    ///
+    /// If this is `false`, then captured stack traces will always be empty, and attempts to write
+    /// stack traces will just print an error to the relevant `Io.Writer` and return.
+    allow_stack_tracing: bool = !@import("builtin").strip_debug_info,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
