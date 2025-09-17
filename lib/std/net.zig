@@ -1830,7 +1830,7 @@ fn linuxLookupNameFromNumericUnspec(
     name: []const u8,
     port: u16,
 ) !void {
-    if (addrs_len.* >= addrs.len - 1) return error.OutOfMemory;
+    if (addrs_len.* == addrs.len) return error.OutOfMemory;
 
     const address = try Address.resolveIp(name, port);
     addrs[addrs_len.*] = .{ .addr = address };
