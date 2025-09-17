@@ -11,8 +11,7 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Dwarf = std.debug.Dwarf;
-const regBytes = Dwarf.abi.regBytes;
-const regValueNative = Dwarf.abi.regValueNative;
+const CpuContext = std.debug.cpu_context.Native;
 
 const root = @import("root");
 
@@ -38,8 +37,6 @@ pub const Error = error{
 pub const target_supported: bool = Module != void;
 
 /// Indicates whether the `SelfInfo` implementation has support for unwinding on this target.
-///
-/// For whether DWARF unwinding is *theoretically* possible, see `Dwarf.abi.supportsUnwinding`.
 pub const supports_unwinding: bool = target_supported and Module.supports_unwinding;
 
 pub const UnwindContext = if (supports_unwinding) Module.UnwindContext;
@@ -120,7 +117,7 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 /// pub const UnwindContext = struct {
 ///     /// A PC value inside the function of the last unwound frame.
 ///     pc: usize,
-///     pub fn init(tc: *std.debug.ThreadContext, gpa: Allocator) Allocator.Error!UnwindContext;
+///     pub fn init(ctx: *std.debug.cpu_context.Native, gpa: Allocator) Allocator.Error!UnwindContext;
 ///     pub fn deinit(uc: *UnwindContext, gpa: Allocator) void;
 ///     /// Returns the frame pointer associated with the last unwound stack frame. If the frame
 ///     /// pointer is unknown, 0 may be returned instead.
@@ -141,9 +138,26 @@ const Module: type = Module: {
         break :Module root.debug.Module;
     }
     break :Module switch (native_os) {
-        .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => @import("SelfInfo/ElfModule.zig"),
-        .macos, .ios, .watchos, .tvos, .visionos => @import("SelfInfo/DarwinModule.zig"),
-        .uefi, .windows => @import("SelfInfo/WindowsModule.zig"),
+        .linux,
+        .netbsd,
+        .freebsd,
+        .dragonfly,
+        .openbsd,
+        .solaris,
+        .illumos,
+        => @import("SelfInfo/ElfModule.zig"),
+
+        .macos,
+        .ios,
+        .watchos,
+        .tvos,
+        .visionos,
+        => @import("SelfInfo/DarwinModule.zig"),
+
+        .uefi,
+        .windows,
+        => @import("SelfInfo/WindowsModule.zig"),
+
         else => void,
     };
 };
@@ -153,26 +167,25 @@ const Module: type = Module: {
 pub const DwarfUnwindContext = struct {
     cfa: ?usize,
     pc: usize,
-    thread_context: *std.debug.ThreadContext,
-    reg_context: Dwarf.abi.RegisterContext,
+    cpu_context: CpuContext,
     vm: Dwarf.Unwind.VirtualMachine,
     stack_machine: Dwarf.expression.StackMachine(.{ .call_frame_context = true }),
 
-    pub fn init(thread_context: *std.debug.ThreadContext, gpa: Allocator) error{}!DwarfUnwindContext {
+    pub fn init(cpu_context: *const CpuContext) DwarfUnwindContext {
         comptime assert(supports_unwinding);
-        _ = gpa;
 
-        const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
-        const raw_pc_ptr = regValueNative(thread_context, ip_reg_num, null) catch {
-            unreachable; // error means unsupported, in which case `supports_unwinding` should have been `false`
+        // `@constCast` is safe because we aren't going to store to the resulting pointer.
+        const raw_pc_ptr = regNative(@constCast(cpu_context), ip_reg_num) catch |err| switch (err) {
+            error.InvalidRegister => unreachable, // `ip_reg_num` is definitely valid
+            error.UnsupportedRegister => unreachable, // the implementation needs to support ip
+            error.IncompatibleRegisterSize => unreachable, // ip is definitely `usize`-sized
         };
         const pc = stripInstructionPtrAuthCode(raw_pc_ptr.*);
 
         return .{
             .cfa = null,
             .pc = pc,
-            .thread_context = thread_context,
-            .reg_context = undefined,
+            .cpu_context = cpu_context.*,
             .vm = .{},
             .stack_machine = .{},
         };
@@ -185,17 +198,25 @@ pub const DwarfUnwindContext = struct {
     }
 
     pub fn getFp(self: *const DwarfUnwindContext) usize {
-        return (regValueNative(self.thread_context, Dwarf.abi.fpRegNum(native_arch, self.reg_context), self.reg_context) catch return 0).*;
+        // `@constCast` is safe because we aren't going to store to the resulting pointer.
+        const ptr = regNative(@constCast(&self.cpu_context), fp_reg_num) catch |err| switch (err) {
+            error.InvalidRegister => unreachable, // `fp_reg_num` is definitely valid
+            error.UnsupportedRegister => unreachable, // the implementation needs to support fp
+            error.IncompatibleRegisterSize => unreachable, // fp is a pointer so is `usize`-sized
+        };
+        return ptr.*;
     }
 
-    /// Resolves the register rule and places the result into `out` (see regBytes)
+    /// Resolves the register rule and places the result into `out` (see regBytes). Returns `true`
+    /// iff the rule was undefined. This is *not* the same as `col.rule == .undefined`, because the
+    /// default rule may be undefined.
     pub fn resolveRegisterRule(
         context: *DwarfUnwindContext,
         gpa: Allocator,
         col: Dwarf.Unwind.VirtualMachine.Column,
         expression_context: std.debug.Dwarf.expression.Context,
         out: []u8,
-    ) !void {
+    ) !bool {
         switch (col.rule) {
             .default => {
                 const register = col.register orelse return error.InvalidRegister;
@@ -203,58 +224,74 @@ pub const DwarfUnwindContext = struct {
                 // See the doc comment on `Dwarf.Unwind.VirtualMachine.RegisterRule.default`.
                 if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 18) {
                     // Callee-saved registers are initialized as if they had the .same_value rule
-                    const src = try regBytes(context.thread_context, register, context.reg_context);
+                    const src = try context.cpu_context.dwarfRegisterBytes(register);
                     if (src.len != out.len) return error.RegisterSizeMismatch;
                     @memcpy(out, src);
-                    return;
+                    return false;
                 }
                 @memset(out, undefined);
+                return true;
             },
             .undefined => {
                 @memset(out, undefined);
+                return true;
             },
             .same_value => {
                 // TODO: This copy could be eliminated if callers always copy the state then call this function to update it
                 const register = col.register orelse return error.InvalidRegister;
-                const src = try regBytes(context.thread_context, register, context.reg_context);
+                const src = try context.cpu_context.dwarfRegisterBytes(register);
                 if (src.len != out.len) return error.RegisterSizeMismatch;
                 @memcpy(out, src);
+                return false;
             },
             .offset => |offset| {
-                if (context.cfa) |cfa| {
-                    const addr = try applyOffset(cfa, offset);
-                    const ptr: *const usize = @ptrFromInt(addr);
-                    mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
-                } else return error.InvalidCFA;
+                const cfa = context.cfa orelse return error.InvalidCFA;
+                const addr = try applyOffset(cfa, offset);
+                const ptr: *const usize = @ptrFromInt(addr);
+                mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
+                return false;
             },
             .val_offset => |offset| {
-                if (context.cfa) |cfa| {
-                    mem.writeInt(usize, out[0..@sizeOf(usize)], try applyOffset(cfa, offset), native_endian);
-                } else return error.InvalidCFA;
+                const cfa = context.cfa orelse return error.InvalidCFA;
+                mem.writeInt(usize, out[0..@sizeOf(usize)], try applyOffset(cfa, offset), native_endian);
+                return false;
             },
             .register => |register| {
-                const src = try regBytes(context.thread_context, register, context.reg_context);
+                const src = try context.cpu_context.dwarfRegisterBytes(register);
                 if (src.len != out.len) return error.RegisterSizeMismatch;
                 @memcpy(out, src);
+                return false;
             },
             .expression => |expression| {
                 context.stack_machine.reset();
-                const value = try context.stack_machine.run(expression, gpa, expression_context, context.cfa.?);
-                const addr = if (value) |v| blk: {
-                    if (v != .generic) return error.InvalidExpressionValue;
-                    break :blk v.generic;
-                } else return error.NoExpressionValue;
-
+                const value = try context.stack_machine.run(
+                    expression,
+                    gpa,
+                    expression_context,
+                    context.cfa.?,
+                ) orelse return error.NoExpressionValue;
+                const addr = switch (value) {
+                    .generic => |addr| addr,
+                    else => return error.InvalidExpressionValue,
+                };
                 const ptr: *usize = @ptrFromInt(addr);
                 mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
+                return false;
             },
             .val_expression => |expression| {
                 context.stack_machine.reset();
-                const value = try context.stack_machine.run(expression, gpa, expression_context, context.cfa.?);
-                if (value) |v| {
-                    if (v != .generic) return error.InvalidExpressionValue;
-                    mem.writeInt(usize, out[0..@sizeOf(usize)], v.generic, native_endian);
-                } else return error.NoExpressionValue;
+                const value = try context.stack_machine.run(
+                    expression,
+                    gpa,
+                    expression_context,
+                    context.cfa.?,
+                ) orelse return error.NoExpressionValue;
+                const val_raw = switch (value) {
+                    .generic => |raw| raw,
+                    else => return error.InvalidExpressionValue,
+                };
+                mem.writeInt(usize, out[0..@sizeOf(usize)], val_raw, native_endian);
+                return false;
             },
             .architectural => return error.UnimplementedRegisterRule,
         }
@@ -277,9 +314,6 @@ pub const DwarfUnwindContext = struct {
         return unwindFrameInner(context, gpa, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
             error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
 
-            error.UnimplementedArch,
-            error.UnimplementedOs,
-            error.ThreadContextNotSupported,
             error.UnimplementedRegisterRule,
             error.UnsupportedAddrSize,
             error.UnsupportedDwarfVersion,
@@ -289,10 +323,10 @@ pub const DwarfUnwindContext = struct {
             error.UnimplementedTypedComparison,
             error.UnimplementedTypeConversion,
             error.UnknownExpressionOpcode,
+            error.UnsupportedRegister,
             => return error.UnsupportedDebugInfo,
 
             error.InvalidRegister,
-            error.RegisterContextRequired,
             error.ReadFailed,
             error.EndOfStream,
             error.IncompatibleRegisterSize,
@@ -346,20 +380,17 @@ pub const DwarfUnwindContext = struct {
         // may not reference other debug sections anyway.
         var expression_context: Dwarf.expression.Context = .{
             .format = format,
-            .thread_context = context.thread_context,
-            .reg_context = context.reg_context,
+            .cpu_context = &context.cpu_context,
             .cfa = context.cfa,
         };
 
         context.vm.reset();
-        context.reg_context.eh_frame = cie.version != 4;
-        context.reg_context.is_macho = native_os.isDarwin();
 
         const row = try context.vm.runTo(gpa, pc_vaddr, cie, fde, @sizeOf(usize), native_endian);
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
-                const value = (try regValueNative(context.thread_context, register, context.reg_context)).*;
+                const value = (try regNative(&context.cpu_context, register)).*;
                 break :blk try applyOffset(value, offset);
             },
             .expression => |expr| blk: {
@@ -381,73 +412,41 @@ pub const DwarfUnwindContext = struct {
 
         expression_context.cfa = context.cfa;
 
-        // Buffering the modifications is done because copying the thread context is not portable,
-        // some implementations (ie. darwin) use internal pointers to the mcontext.
-        var arena: std.heap.ArenaAllocator = .init(gpa);
-        defer arena.deinit();
-        const update_arena = arena.allocator();
-
-        const RegisterUpdate = struct {
-            // Backed by thread_context
-            dest: []u8,
-            // Backed by arena
-            src: []const u8,
-            prev: ?*@This(),
-        };
-
-        var update_tail: ?*RegisterUpdate = null;
         var has_return_address = true;
+
+        // Create a copy of the CPU context, to which we will apply the new rules.
+        var new_cpu_context = context.cpu_context;
+
+        // On all implemented architectures, the CFA is defined as being the previous frame's SP
+        (try regNative(&new_cpu_context, sp_reg_num)).* = context.cfa.?;
+
         for (context.vm.rowColumns(row)) |column| {
             if (column.register) |register| {
+                const dest = try new_cpu_context.dwarfRegisterBytes(register);
+                const rule_undef = try context.resolveRegisterRule(gpa, column, expression_context, dest);
                 if (register == cie.return_address_register) {
-                    has_return_address = column.rule != .undefined;
+                    has_return_address = !rule_undef;
                 }
-
-                const dest = try regBytes(context.thread_context, register, context.reg_context);
-                const src = try update_arena.alloc(u8, dest.len);
-                try context.resolveRegisterRule(gpa, column, expression_context, src);
-
-                const new_update = try update_arena.create(RegisterUpdate);
-                new_update.* = .{
-                    .dest = dest,
-                    .src = src,
-                    .prev = update_tail,
-                };
-                update_tail = new_update;
             }
         }
 
-        // On all implemented architectures, the CFA is defined as being the previous frame's SP
-        (try regValueNative(context.thread_context, Dwarf.abi.spRegNum(native_arch, context.reg_context), context.reg_context)).* = context.cfa.?;
+        const return_address: u64 = if (has_return_address) pc: {
+            const raw_ptr = try regNative(&new_cpu_context, cie.return_address_register);
+            break :pc stripInstructionPtrAuthCode(raw_ptr.*);
+        } else 0;
 
-        while (update_tail) |tail| {
-            @memcpy(tail.dest, tail.src);
-            update_tail = tail.prev;
-        }
+        (try regNative(new_cpu_context, ip_reg_num)).* = return_address;
 
-        if (has_return_address) {
-            context.pc = stripInstructionPtrAuthCode((try regValueNative(
-                context.thread_context,
-                cie.return_address_register,
-                context.reg_context,
-            )).*);
-        } else {
-            context.pc = 0;
-        }
+        // The new CPU context is complete; flush changes.
+        context.cpu_context = new_cpu_context;
 
-        const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
-        (try regValueNative(context.thread_context, ip_reg_num, context.reg_context)).* = context.pc;
-
-        // The call instruction will have pushed the address of the instruction that follows the call as the return address.
-        // This next instruction may be past the end of the function if the caller was `noreturn` (ie. the last instruction in
-        // the function was the call). If we were to look up an FDE entry using the return address directly, it could end up
-        // either not finding an FDE at all, or using the next FDE in the program, producing incorrect results. To prevent this,
-        // we subtract one so that the next lookup is guaranteed to land inside the
-        //
-        // The exception to this rule is signal frames, where we return execution would be returned to the instruction
-        // that triggered the handler.
-        const return_address = context.pc;
-        if (context.pc > 0 and !cie.is_signal_frame) context.pc -= 1;
+        // Also update the stored pc. However, because `return_address` points to the instruction
+        // *after* the call, it could (in the case of noreturn functions) actually point outside of
+        // the caller's address range, meaning an FDE lookup would fail. We can handle this by
+        // subtracting 1 from `return_address` so that the next lookup is guaranteed to land inside
+        // the `call` instruction`. The exception to this rule is signal frames, where the return
+        // address is the same instruction that triggered the handler.
+        context.pc = if (cie.is_signal_frame) return_address else return_address -| 1;
 
         return return_address;
     }
@@ -479,4 +478,18 @@ pub const DwarfUnwindContext = struct {
 
         return ptr;
     }
+
+    pub fn regNative(ctx: *CpuContext, num: u16) error{
+        InvalidRegister,
+        UnsupportedRegister,
+        IncompatibleRegisterSize,
+    }!*align(1) usize {
+        const bytes = try ctx.dwarfRegisterBytes(num);
+        if (bytes.len != @sizeOf(usize)) return error.IncompatibleRegisterSize;
+        return @ptrCast(bytes);
+    }
+
+    const ip_reg_num = Dwarf.ipRegNum(native_arch).?;
+    const fp_reg_num = Dwarf.fpRegNum(native_arch);
+    const sp_reg_num = Dwarf.spRegNum(native_arch);
 };

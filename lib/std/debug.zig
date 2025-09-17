@@ -22,6 +22,7 @@ pub const ElfFile = @import("debug/ElfFile.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
 pub const Info = @import("debug/Info.zig");
 pub const Coverage = @import("debug/Coverage.zig");
+pub const cpu_context = @import("debug/cpu_context.zig");
 
 pub const simple_panic = @import("debug/simple_panic.zig");
 pub const no_panic = @import("debug/no_panic.zig");
@@ -331,66 +332,8 @@ test dumpHexFallible {
     try std.testing.expectEqualStrings(expected, aw.written());
 }
 
-/// Platform-specific thread state. This contains register state, and on some platforms
-/// information about the stack. This is not safe to trivially copy, because some platforms
-/// use internal pointers within this structure. After copying, call `relocateContext`.
-pub const ThreadContext = ThreadContext: {
-    // Allow overriding the target's `ThreadContext` by exposing `root.debug.ThreadContext`.
-    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "ThreadContext")) {
-        break :ThreadContext root.debug.ThreadContext;
-    }
-
-    if (native_os == .windows) break :ThreadContext windows.CONTEXT;
-    if (posix.ucontext_t != void) break :ThreadContext posix.ucontext_t;
-
-    break :ThreadContext noreturn;
-};
-/// Updates any internal pointers of a `ThreadContext` after the caller copies it.
-pub fn relocateContext(dest: *ThreadContext) void {
-    switch (native_os) {
-        .macos => dest.mcontext = &dest.__mcontext_data,
-        else => {},
-    }
-}
-/// The value which is placed on the stack to make a copy of a `ThreadContext`.
-const ThreadContextBuf = if (ThreadContext == noreturn) void else ThreadContext;
-/// The pointer through which a `ThreadContext` is received from callers of stack tracing logic.
-pub const ThreadContextPtr = if (ThreadContext == noreturn) noreturn else *const ThreadContext;
-
-/// Capture the current context. The register values in the context will reflect the
-/// state after the platform `getcontext` function returns.
-///
-/// It is valid to call this if the platform doesn't have context capturing support,
-/// in that case `false` will be returned. This function is `inline` so that the `false`
-/// is comptime-known at the call site in that case.
-pub inline fn getContext(context: *ThreadContextBuf) bool {
-    // Allow overriding the target's `getContext` by exposing `root.debug.getContext`.
-    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "getContext")) {
-        return root.debug.getContext(context);
-    }
-
-    if (native_os == .windows) {
-        context.* = std.mem.zeroes(windows.CONTEXT);
-        windows.ntdll.RtlCaptureContext(context);
-        return true;
-    }
-
-    if (@TypeOf(posix.system.getcontext) != void) {
-        if (posix.system.getcontext(context) != 0) return false;
-        if (native_os == .macos) {
-            assert(context.mcsize == @sizeOf(std.c.mcontext_t));
-
-            // On aarch64-macos, the system getcontext doesn't write anything into the pc
-            // register slot, it only writes lr. This makes the context consistent with
-            // other aarch64 getcontext implementations which write the current lr
-            // (where getcontext will return to) into both the lr and pc slot of the context.
-            if (native_arch == .aarch64) context.mcontext.ss.pc = context.mcontext.ss.lr;
-        }
-        return true;
-    }
-
-    return false;
-}
+/// The pointer through which a `cpu_context.Native` is received from callers of stack tracing logic.
+pub const CpuContextPtr = if (cpu_context.Native == noreturn) noreturn else *const cpu_context.Native;
 
 /// Invokes detectable illegal behavior when `ok` is `false`.
 ///
@@ -616,10 +559,10 @@ pub const StackUnwindOptions = struct {
     /// used to omit intermediate handling code (for instance, a panic handler and its machinery)
     /// from stack traces.
     first_address: ?usize = null,
-    /// If not `null`, we will unwind from this `ThreadContext` instead of the current top of the
-    /// stack. The main use case here is printing stack traces from signal handlers, where the
-    /// kernel provides a `*const ThreadContext` of the state before the signal.
-    context: ?ThreadContextPtr = null,
+    /// If not `null`, we will unwind from this `cpu_context.Native` instead of the current top of
+    /// the stack. The main use case here is printing stack traces from signal handlers, where the
+    /// kernel provides a `*const cpu_context.Native` of the state before the signal.
+    context: ?CpuContextPtr = null,
     /// If `true`, stack unwinding strategies which may cause crashes are used as a last resort.
     /// If `false`, only known-safe mechanisms will be attempted.
     allow_unsafe_unwind: bool = false,
@@ -630,8 +573,7 @@ pub const StackUnwindOptions = struct {
 ///
 /// See `writeCurrentStackTrace` to immediately print the trace instead of capturing it.
 pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) std.builtin.StackTrace {
-    var context_buf: ThreadContextBuf = undefined;
-    var it = StackIterator.init(options.context, &context_buf) catch {
+    var it = StackIterator.init(options.context) catch {
         return .{ .index = 0, .instruction_addresses = &.{} };
     };
     defer it.deinit();
@@ -670,14 +612,7 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
             return;
         },
     };
-    var context_buf: ThreadContextBuf = undefined;
-    var it = StackIterator.init(options.context, &context_buf) catch |err| switch (err) {
-        error.OutOfMemory => {
-            tty_config.setColor(writer, .dim) catch {};
-            try writer.print("Cannot print stack trace: out of memory\n", .{});
-            tty_config.setColor(writer, .reset) catch {};
-            return;
-        },
+    var it = StackIterator.init(options.context) catch |err| switch (err) {
         error.CannotUnwindFromContext => {
             tty_config.setColor(writer, .dim) catch {};
             try writer.print("Cannot print stack trace: context unwind unavailable for target\n", .{});
@@ -794,9 +729,9 @@ const StackIterator = union(enum) {
     fp: usize,
 
     /// It is important that this function is marked `inline` so that it can safely use
-    /// `@frameAddress` and `getContext` as the caller's stack frame and our own are one
-    /// and the same.
-    inline fn init(context_opt: ?ThreadContextPtr, context_buf: *ThreadContextBuf) error{ OutOfMemory, CannotUnwindFromContext }!StackIterator {
+    /// `@frameAddress` and `cpu_context.Native.current` as the caller's stack frame and
+    /// our own are one and the same.
+    inline fn init(opt_context_ptr: ?CpuContextPtr) error{CannotUnwindFromContext}!StackIterator {
         if (builtin.cpu.arch.isSPARC()) {
             // Flush all the register windows on stack.
             if (builtin.cpu.has(.sparc, .v9)) {
@@ -805,14 +740,12 @@ const StackIterator = union(enum) {
                 asm volatile ("ta 3" ::: .{ .memory = true }); // ST_FLUSH_WINDOWS
             }
         }
-        if (context_opt) |context| {
+        if (opt_context_ptr) |context_ptr| {
             if (!SelfInfo.supports_unwinding) return error.CannotUnwindFromContext;
-            context_buf.* = context.*;
-            relocateContext(context_buf);
-            return .{ .di = try .init(context_buf, getDebugInfoAllocator()) };
+            return .{ .di = .init(context_ptr) };
         }
-        if (SelfInfo.supports_unwinding and getContext(context_buf)) {
-            return .{ .di = try .init(context_buf, getDebugInfoAllocator()) };
+        if (SelfInfo.supports_unwinding and cpu_context.Native != noreturn) {
+            return .{ .di = .init(&.current()) };
         }
         return .{ .fp = @frameAddress() };
     }
@@ -1212,7 +1145,7 @@ pub const have_segfault_handling_support = switch (native_os) {
     .windows,
     => true,
 
-    .freebsd, .openbsd => ThreadContext != noreturn,
+    .freebsd, .openbsd => cpu_context.Native != noreturn,
     else => false,
 };
 
@@ -1309,33 +1242,8 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
         };
         break :info .{ addr, name };
     };
-
-    if (ThreadContext == noreturn) return handleSegfault(addr, name, null);
-
-    // Some kernels don't align `ctx_ptr` properly, so we'll copy it into a local buffer.
-    var copied_ctx: posix.ucontext_t = undefined;
-    const orig_ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
-    copied_ctx = orig_ctx.*;
-    if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) {
-        // The kernel incorrectly writes the contents of `__mcontext_data` right after `mcontext`,
-        // rather than after the 8 bytes of padding that are supposed to sit between the two. Copy the
-        // contents to the right place so that the `mcontext` pointer will be correct after the
-        // `relocateContext` call below.
-        const WrittenContext = extern struct {
-            onstack: c_int,
-            sigmask: std.c.sigset_t,
-            stack: std.c.stack_t,
-            link: ?*std.c.ucontext_t,
-            mcsize: u64,
-            mcontext: *std.c.mcontext_t,
-            __mcontext_data: std.c.mcontext_t align(@sizeOf(usize)), // Disable padding after `mcontext`.
-        };
-        const written_ctx: *align(1) WrittenContext = @ptrCast(ctx_ptr);
-        copied_ctx.__mcontext_data = written_ctx.__mcontext_data;
-    }
-    relocateContext(&copied_ctx);
-
-    handleSegfault(addr, name, &copied_ctx);
+    const opt_cpu_context: ?cpu_context.Native = cpu_context.fromPosixSignalContext(ctx_ptr);
+    handleSegfault(addr, name, if (opt_cpu_context) |*ctx| ctx else null);
 }
 
 fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
@@ -1347,10 +1255,10 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_
         windows.EXCEPTION_STACK_OVERFLOW => .{ "Stack overflow", null },
         else => return windows.EXCEPTION_CONTINUE_SEARCH,
     };
-    handleSegfault(addr, name, info.ContextRecord);
+    handleSegfault(addr, name, &cpu_context.fromWindowsContext(info.ContextRecord));
 }
 
-fn handleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?ThreadContextPtr) noreturn {
+fn handleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContextPtr) noreturn {
     // Allow overriding the target-agnostic segfault handler by exposing `root.debug.handleSegfault`.
     if (@hasDecl(root, "debug") and @hasDecl(root.debug, "handleSegfault")) {
         return root.debug.handleSegfault(addr, name, opt_ctx);
@@ -1358,7 +1266,7 @@ fn handleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?ThreadContextPtr) no
     return defaultHandleSegfault(addr, name, opt_ctx);
 }
 
-pub fn defaultHandleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?ThreadContextPtr) noreturn {
+pub fn defaultHandleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContextPtr) noreturn {
     // There is very similar logic to the following in `defaultPanic`.
     switch (panic_stage) {
         0 => {

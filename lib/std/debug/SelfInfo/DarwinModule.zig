@@ -265,12 +265,9 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
         error.OutOfMemory,
         error.Unexpected,
         => |e| return e,
-        error.UnimplementedArch,
-        error.UnimplementedOs,
-        error.ThreadContextNotSupported,
+        error.UnsupportedRegister,
         => return error.UnsupportedDebugInfo,
         error.InvalidRegister,
-        error.RegisterContextRequired,
         error.IncompatibleRegisterSize,
         => return error.InvalidDebugInfo,
     };
@@ -396,7 +393,6 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
     };
 
     if (entry.raw_encoding == 0) return error.MissingDebugInfo;
-    const reg_context: Dwarf.abi.RegisterContext = .{ .eh_frame = false, .is_macho = true };
 
     const encoding: macho.CompactUnwindEncoding = @bitCast(entry.raw_encoding);
     const new_ip = switch (builtin.cpu.arch) {
@@ -405,16 +401,16 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
             .RBP_FRAME => ip: {
                 const frame = encoding.value.x86_64.frame;
 
-                const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
+                const fp = (try dwarfRegNative(&context.cpu_context, fp_reg_num)).*;
                 const new_sp = fp + 2 * @sizeOf(usize);
 
                 const ip_ptr = fp + @sizeOf(usize);
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
 
-                (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).* = new_fp;
-                (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
-                (try regValueNative(context.thread_context, ip_reg_num, reg_context)).* = new_ip;
+                (try dwarfRegNative(&context.cpu_context, fp_reg_num)).* = new_fp;
+                (try dwarfRegNative(&context.cpu_context, sp_reg_num)).* = new_sp;
+                (try dwarfRegNative(&context.cpu_context, ip_reg_num)).* = new_ip;
 
                 const regs: [5]u3 = .{
                     frame.reg0,
@@ -427,7 +423,7 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
                     if (reg == 0) continue;
                     const addr = fp - frame.frame_offset * @sizeOf(usize) + i * @sizeOf(usize);
                     const reg_number = try Dwarf.compactUnwindToDwarfRegNumber(reg);
-                    (try regValueNative(context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(addr)).*;
+                    (try dwarfRegNative(&context.cpu_context, reg_number)).* = @as(*const usize, @ptrFromInt(addr)).*;
                 }
 
                 break :ip new_ip;
@@ -437,7 +433,7 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
             => ip: {
                 const frameless = encoding.value.x86_64.frameless;
 
-                const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
+                const sp = (try dwarfRegNative(&context.cpu_context, sp_reg_num)).*;
                 const stack_size: usize = stack_size: {
                     if (encoding.mode.x86_64 == .STACK_IMMD) {
                         break :stack_size @as(usize, frameless.stack.direct.stack_size) * @sizeOf(usize);
@@ -487,7 +483,7 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
                     var reg_addr = sp + stack_size - @sizeOf(usize) * @as(usize, reg_count + 1);
                     for (0..reg_count) |i| {
                         const reg_number = try Dwarf.compactUnwindToDwarfRegNumber(registers[i]);
-                        (try regValueNative(context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        (try dwarfRegNative(&context.cpu_context, reg_number)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         reg_addr += @sizeOf(usize);
                     }
 
@@ -497,8 +493,8 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_sp = ip_ptr + @sizeOf(usize);
 
-                (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
-                (try regValueNative(context.thread_context, ip_reg_num, reg_context)).* = new_ip;
+                (try dwarfRegNative(&context.cpu_context, sp_reg_num)).* = new_sp;
+                (try dwarfRegNative(&context.cpu_context, ip_reg_num)).* = new_ip;
 
                 break :ip new_ip;
             },
@@ -516,10 +512,10 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
         .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
             .OLD => return error.UnsupportedDebugInfo,
             .FRAMELESS => ip: {
-                const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
+                const sp = (try dwarfRegNative(&context.cpu_context, sp_reg_num)).*;
                 const new_sp = sp + encoding.value.arm64.frameless.stack_size * 16;
-                const new_ip = (try regValueNative(context.thread_context, 30, reg_context)).*;
-                (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
+                const new_ip = (try dwarfRegNative(&context.cpu_context, 30)).*;
+                (try dwarfRegNative(&context.cpu_context, sp_reg_num)).* = new_sp;
                 break :ip new_ip;
             },
             .DWARF => {
@@ -535,15 +531,15 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
             .FRAME => ip: {
                 const frame = encoding.value.arm64.frame;
 
-                const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
+                const fp = (try dwarfRegNative(&context.cpu_context, fp_reg_num)).*;
                 const ip_ptr = fp + @sizeOf(usize);
 
                 var reg_addr = fp - @sizeOf(usize);
                 inline for (@typeInfo(@TypeOf(frame.x_reg_pairs)).@"struct".fields, 0..) |field, i| {
                     if (@field(frame.x_reg_pairs, field.name) != 0) {
-                        (try regValueNative(context.thread_context, 19 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        (try dwarfRegNative(&context.cpu_context, 19 + i)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         reg_addr += @sizeOf(usize);
-                        (try regValueNative(context.thread_context, 20 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        (try dwarfRegNative(&context.cpu_context, 20 + i)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         reg_addr += @sizeOf(usize);
                     }
                 }
@@ -552,12 +548,12 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
                     if (@field(frame.d_reg_pairs, field.name) != 0) {
                         // Only the lower half of the 128-bit V registers are restored during unwinding
                         {
-                            const dest: *align(1) usize = @ptrCast(try regBytes(context.thread_context, 64 + 8 + i, context.reg_context));
+                            const dest: *align(1) usize = @ptrCast(try context.cpu_context.dwarfRegisterBytes(64 + 8 + i));
                             dest.* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         }
                         reg_addr += @sizeOf(usize);
                         {
-                            const dest: *align(1) usize = @ptrCast(try regBytes(context.thread_context, 64 + 9 + i, context.reg_context));
+                            const dest: *align(1) usize = @ptrCast(try context.cpu_context.dwarfRegisterBytes(64 + 9 + i));
                             dest.* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         }
                         reg_addr += @sizeOf(usize);
@@ -567,8 +563,8 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
 
-                (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).* = new_fp;
-                (try regValueNative(context.thread_context, ip_reg_num, reg_context)).* = new_ip;
+                (try dwarfRegNative(&context.cpu_context, fp_reg_num)).* = new_fp;
+                (try dwarfRegNative(&context.cpu_context, ip_reg_num)).* = new_ip;
 
                 break :ip new_ip;
             },
@@ -782,13 +778,9 @@ test {
     _ = MachoSymbol;
 }
 
-fn fpRegNum(reg_context: Dwarf.abi.RegisterContext) u8 {
-    return Dwarf.abi.fpRegNum(builtin.target.cpu.arch, reg_context);
-}
-fn spRegNum(reg_context: Dwarf.abi.RegisterContext) u8 {
-    return Dwarf.abi.spRegNum(builtin.target.cpu.arch, reg_context);
-}
-const ip_reg_num = Dwarf.abi.ipRegNum(builtin.target.cpu.arch).?;
+const ip_reg_num = Dwarf.ipRegNum(builtin.target.cpu.arch).?;
+const fp_reg_num = Dwarf.fpRegNum(builtin.target.cpu.arch);
+const sp_reg_num = Dwarf.spRegNum(builtin.target.cpu.arch);
 
 /// Uses `mmap` to map the file at `path` into memory.
 fn mapDebugInfoFile(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
@@ -821,8 +813,7 @@ const mem = std.mem;
 const posix = std.posix;
 const testing = std.testing;
 const Error = std.debug.SelfInfo.Error;
-const regBytes = Dwarf.abi.regBytes;
-const regValueNative = Dwarf.abi.regValueNative;
+const dwarfRegNative = std.debug.SelfInfo.DwarfUnwindContext.regNative;
 
 const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
