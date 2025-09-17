@@ -1893,6 +1893,7 @@ pub fn addStandaloneTests(
     enable_macos_sdk: bool,
     enable_ios_sdk: bool,
     enable_symlinks_windows: bool,
+    skip_translate_c: bool,
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
     if (compilerHasPackageManager(b)) {
@@ -1905,6 +1906,7 @@ pub fn addStandaloneTests(
             .simple_skip_release_safe = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSafe) == null,
             .simple_skip_release_fast = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseFast) == null,
             .simple_skip_release_small = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSmall) == null,
+            .skip_translate_c = skip_translate_c,
         });
         const test_cases_dep_step = test_cases_dep.builder.default_step;
         test_cases_dep_step.name = b.dupe(test_cases_dep_name);
