@@ -1717,9 +1717,7 @@ const ResolvConf = struct {
                 std.os.linux.IPV6.V6ONLY,
                 &mem.toBytes(@as(c_int, 0)),
             );
-            var i: u2 = 0;
-            while (i < rc.ns_len) : (i += 1) {
-                var n = ns_addr_buffer[i];
+            for (ns_addr_buffer[0..rc.ns_len]) |*n| {
                 if (n.any.family != posix.AF.INET) continue;
                 mem.writeInt(u32, n.in6.sa.addr[12..], n.in.sa.addr, native_endian);
                 n.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
