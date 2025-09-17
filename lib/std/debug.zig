@@ -175,18 +175,12 @@ pub const runtime_safety = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
+/// Whether we can unwind the stack on this target, allowing capturing and/or printing the current
+/// stack trace. It is still legal to call `captureCurrentStackTrace`, `writeCurrentStackTrace`, and
+/// `dumpCurrentStackTrace` if this is `false`; it will just print an error / capture an empty
+/// trace due to missing functionality. This value is just intended as a heuristic to avoid
+/// pointless work e.g. capturing always-empty stack traces.
 pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
-    // Observed to go into an infinite loop.
-    // TODO: Make this work.
-    .loongarch32,
-    .loongarch64,
-    .mips,
-    .mipsel,
-    .mips64,
-    .mips64el,
-    .s390x,
-    => false,
-
     // `@returnAddress()` in LLVM 10 gives
     // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
     // On Emscripten, Zig only supports `@returnAddress()` in debug builds
@@ -1178,9 +1172,10 @@ pub const have_segfault_handling_support = switch (native_os) {
     .solaris,
     .illumos,
     .windows,
+    .freebsd,
+    .openbsd,
     => true,
 
-    .freebsd, .openbsd => cpu_context.Native != noreturn,
     else => false,
 };
 
