@@ -1683,10 +1683,10 @@ const ResolvConf = struct {
 
         var ns_addr_buffer: [3]Address = undefined;
 
-        for (rc.ns_buffer[0..rc.ns_len], ns_addr_buffer[0..rc.ns_len]) |ip, *addr| {
-            addr.* = ip.addr;
-            assert(addr.getPort() == 53);
-            if (ip.addr.any.family != posix.AF.INET) {
+        for (ns_addr_buffer[0..rc.ns_len], rc.ns_buffer[0..rc.ns_len]) |*ns, iplit| {
+            ns.* = iplit.addr;
+            assert(ns.getPort() == 53);
+            if (iplit.addr.any.family != posix.AF.INET) {
                 family = posix.AF.INET6;
             }
         }
@@ -1753,7 +1753,7 @@ const ResolvConf = struct {
                 var i: usize = 0;
                 while (i < queries.len) : (i += 1) {
                     if (answers[i].len == 0) {
-                         for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
+                        for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
                             _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
                         }
                     }
@@ -1775,7 +1775,7 @@ const ResolvConf = struct {
                 if (rlen < 4) continue;
 
                 // Ignore replies from addresses we didn't send to
-                const ns_addr = for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
+                const ns = for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
                     if (ns.eql(sa)) break ns;
                 } else continue;
 
@@ -1795,7 +1795,7 @@ const ResolvConf = struct {
                     0, 3 => {},
                     2 => if (servfail_retry != 0) {
                         servfail_retry -= 1;
-                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns_addr.any, sl) catch undefined;
+                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
                     },
                     else => continue,
                 }
