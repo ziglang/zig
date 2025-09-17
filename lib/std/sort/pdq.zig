@@ -332,7 +332,7 @@ fn reverseRange(a: usize, b: usize, context: anytype) void {
 test "pdqContext respects arbitrary range boundaries" {
     // Regression test for issue #25250
     // pdqsort should never access indices outside the specified [a, b) range
-    var data = [_]i32{0} ** 2000;
+    var data: [2000]i32 = @splat(0);
 
     // Fill with data that triggers the partialInsertionSort path
     for (0..data.len) |i| {
