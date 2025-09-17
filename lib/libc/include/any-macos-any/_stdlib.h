@@ -123,18 +123,23 @@ typedef struct {
 
 #define	RAND_MAX	0x7fffffff
 
-// When _USE_EXTENDED_LOCALES_ is enabled (by including xlocale.h),
-// MB_CUR_MAX is defined by xlocale.h.
-#if !defined(MB_CUR_MAX) && !defined(_USE_EXTENDED_LOCALES_)
 #if __has_feature(modules)
 // When clang modules are enabled, there can only be one definition of
 // MB_CUR_MAX, and that needs to be the same one used by xlocale.h.
 #include <_mb_cur_max.h>
-#else
+#else /* !__has_feature(modules) */
+#ifndef MB_CUR_MAX
+#ifdef _USE_EXTENDED_LOCALES_
+#define	MB_CUR_MAX	(___mb_cur_max())
+#ifndef MB_CUR_MAX_L
+#define	MB_CUR_MAX_L(x)	(___mb_cur_max_l(x))
+#endif /* !MB_CUR_MAX_L */
+#else /* !_USE_EXTENDED_LOCALES_ */
 extern int __mb_cur_max;
 #define	MB_CUR_MAX	__mb_cur_max
+#endif /* _USE_EXTENDED_LOCALES_ */
+#endif /* MB_CUR_MAX */
 #endif /* __has_feature(modules) */
-#endif /* !MB_CUR_MAX && !_USE_EXTENDED_LOCALES_ */
 
 #include <malloc/_malloc.h>
 #include <_abort.h>

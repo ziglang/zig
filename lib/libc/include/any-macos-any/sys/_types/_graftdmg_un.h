@@ -43,6 +43,9 @@
 #define SBC_STRICT_AUTH                 0x0010  /* Strict authentication mode */
 #define SBC_PRESERVE_GRAFT              0x0020  /* Preserve graft itself until unmount */
 
+/* Flag values for ungraftdmg */
+#define UNGRAFTDMG_NOFORCE              0x0000000000000002ULL  /* Disallow ungraft if a non-dir vnode inside the graft is in use */
+
 typedef struct secure_boot_cryptex_args {
 	u_int32_t sbc_version;
 	u_int32_t sbc_4cc;

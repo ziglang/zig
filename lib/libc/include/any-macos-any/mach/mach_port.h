@@ -501,7 +501,7 @@ kern_return_t mach_port_kobject
 (
 	ipc_space_read_t task,
 	mach_port_name_t name,
-	natural_t *object_type,
+	ipc_info_object_type_t *object_type,
 	mach_vm_address_t *object_addr
 );
 
@@ -610,7 +610,7 @@ kern_return_t mach_port_kobject_description
 (
 	ipc_space_read_t task,
 	mach_port_name_t name,
-	natural_t *object_type,
+	ipc_info_object_type_t *object_type,
 	mach_vm_address_t *object_addr,
 	kobject_description_t description
 );
@@ -1690,7 +1690,7 @@ union __RequestUnion__mach_port_subsystem {
 		mach_msg_header_t Head;
 		NDR_record_t NDR;
 		kern_return_t RetCode;
-		natural_t object_type;
+		ipc_info_object_type_t object_type;
 		mach_vm_address_t object_addr;
 	} __Reply__mach_port_kobject_t __attribute__((unused));
 #ifdef  __MigPackStructs
@@ -1790,7 +1790,7 @@ union __RequestUnion__mach_port_subsystem {
 		mach_msg_header_t Head;
 		NDR_record_t NDR;
 		kern_return_t RetCode;
-		natural_t object_type;
+		ipc_info_object_type_t object_type;
 		mach_vm_address_t object_addr;
 		mach_msg_type_number_t descriptionOffset; /* MiG doesn't use it */
 		mach_msg_type_number_t descriptionCnt;

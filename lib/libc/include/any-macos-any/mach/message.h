@@ -839,7 +839,7 @@ typedef kern_return_t mach_msg_return_t;
 #define MACH_SEND_INVALID_RT_OOL_SIZE   0x10000015
 /* compatibility: no longer a returned error */
 #define MACH_SEND_NO_GRANT_DEST         0x10000016
-/* The destination port doesn't accept ports in body */
+/* compatibility: no longer a returned error */
 #define MACH_SEND_MSG_FILTERED          0x10000017
 /* Message send was rejected by message filter */
 #define MACH_SEND_AUX_TOO_SMALL         0x10000018
@@ -883,7 +883,6 @@ typedef kern_return_t mach_msg_return_t;
 /* invalid reply port used in a STRICT_REPLY message */
 #define MACH_RCV_INVALID_ARGUMENTS      0x10004013
 /* invalid receive arguments, receive has not started */
-
 
 
 __BEGIN_DECLS
