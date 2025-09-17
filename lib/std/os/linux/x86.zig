@@ -436,17 +436,3 @@ pub fn getContextInternal() callconv(.naked) usize {
           [sigset_size] "i" (linux.NSIG / 8),
         : .{ .cc = true, .memory = true, .eax = true, .ecx = true, .edx = true });
 }
-
-pub inline fn getcontext(context: *ucontext_t) usize {
-    // This method is used so that getContextInternal can control
-    // its prologue in order to read ESP from a constant offset.
-    // An aligned stack is not needed for getContextInternal.
-    var clobber_edx: usize = undefined;
-    return asm volatile (
-        \\ calll %[getContextInternal:P]
-        : [_] "={eax}" (-> usize),
-          [_] "={edx}" (clobber_edx),
-        : [_] "{edx}" (context),
-          [getContextInternal] "X" (&getContextInternal),
-        : .{ .cc = true, .memory = true, .ecx = true });
-}

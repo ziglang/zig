@@ -426,6 +426,3 @@ pub const ucontext_t = extern struct {
     stack: stack_t,
     sigset: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
 };
-
-/// TODO
-pub const getcontext = {};

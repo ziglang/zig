@@ -258,6 +258,3 @@ pub const VDSO = void;
 
 /// TODO
 pub const ucontext_t = void;
-
-/// TODO
-pub const getcontext = {};

@@ -295,11 +295,45 @@ pub const UnwindContext = struct {
     pc: usize,
     cur: windows.CONTEXT,
     history_table: windows.UNWIND_HISTORY_TABLE,
-    pub fn init(ctx: *const windows.CONTEXT, gpa: Allocator) Allocator.Error!UnwindContext {
-        _ = gpa;
+    pub fn init(ctx: *const std.debug.cpu_context.Native) UnwindContext {
         return .{
             .pc = @returnAddress(),
-            .cur = ctx.*,
+            .cur = switch (builtin.cpu.arch) {
+                .x86_64 => std.mem.zeroInit(windows.CONTEXT, .{
+                    .Rax = ctx.gprs.get(.rax),
+                    .Rcx = ctx.gprs.get(.rcx),
+                    .Rdx = ctx.gprs.get(.rdx),
+                    .Rbx = ctx.gprs.get(.rbx),
+                    .Rsp = ctx.gprs.get(.rsp),
+                    .Rbp = ctx.gprs.get(.rbp),
+                    .Rsi = ctx.gprs.get(.rsi),
+                    .Rdi = ctx.gprs.get(.rdi),
+                    .R8 = ctx.gprs.get(.r8),
+                    .R9 = ctx.gprs.get(.r9),
+                    .R10 = ctx.gprs.get(.r10),
+                    .R11 = ctx.gprs.get(.r11),
+                    .R12 = ctx.gprs.get(.r12),
+                    .R13 = ctx.gprs.get(.r13),
+                    .R14 = ctx.gprs.get(.r14),
+                    .R15 = ctx.gprs.get(.r15),
+                    .Rip = ctx.gprs.get(.rip),
+                }),
+                .aarch64, .aarch64_be => .{
+                    .ContextFlags = 0,
+                    .Cpsr = 0,
+                    .DUMMYUNIONNAME = .{ .X = ctx.x },
+                    .Sp = ctx.sp,
+                    .Pc = ctx.pc,
+                    .V = @splat(.{ .B = @splat(0) }),
+                    .Fpcr = 0,
+                    .Fpsr = 0,
+                    .Bcr = @splat(0),
+                    .Bvr = @splat(0),
+                    .Wcr = @splat(0),
+                    .Wvr = @splat(0),
+                },
+                else => comptime unreachable,
+            },
             .history_table = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE),
         };
     }

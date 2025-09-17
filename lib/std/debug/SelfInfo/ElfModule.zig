@@ -26,7 +26,6 @@ pub fn key(m: ElfModule) usize {
 pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) Error!ElfModule {
     _ = cache;
     _ = gpa;
-    if (builtin.target.os.tag == .haiku) @panic("TODO implement lookup module for Haiku");
     const DlIterContext = struct {
         /// input
         address: usize,
@@ -261,7 +260,7 @@ pub const supports_unwinding: bool = s: {
 };
 comptime {
     if (supports_unwinding) {
-        std.debug.assert(Dwarf.abi.supportsUnwinding(&builtin.target));
+        std.debug.assert(Dwarf.supportsUnwinding(&builtin.target));
     }
 }
 
