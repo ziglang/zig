@@ -567,13 +567,11 @@ pub const StackUnwindOptions = struct {
 ///
 /// See `writeCurrentStackTrace` to immediately print the trace instead of capturing it.
 pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) std.builtin.StackTrace {
-    var it = StackIterator.init(options.context) catch {
-        return .{ .index = 0, .instruction_addresses = &.{} };
-    };
+    const empty_trace: std.builtin.StackTrace = .{ .index = 0, .instruction_addresses = &.{} };
+    if (!std.options.allow_stack_tracing) return empty_trace;
+    var it = StackIterator.init(options.context) catch return empty_trace;
     defer it.deinit();
-    if (!it.stratOk(options.allow_unsafe_unwind)) {
-        return .{ .index = 0, .instruction_addresses = &.{} };
-    }
+    if (!it.stratOk(options.allow_unsafe_unwind)) return empty_trace;
     var frame_idx: usize = 0;
     var wait_for = options.first_address;
     while (true) switch (it.next()) {
@@ -599,6 +597,12 @@ pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) 
 ///
 /// See `captureCurrentStackTrace` to capture the trace addresses into a buffer instead of printing.
 pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+    if (!std.options.allow_stack_tracing) {
+        tty_config.setColor(writer, .dim) catch {};
+        try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
+        tty_config.setColor(writer, .reset) catch {};
+        return;
+    }
     const di_gpa = getDebugInfoAllocator();
     const di = getSelfDebugInfo() catch |err| switch (err) {
         error.UnsupportedTarget => {
@@ -688,6 +692,12 @@ pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
 
 /// Write a previously captured stack trace to `writer`, annotated with source locations.
 pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+    if (!std.options.allow_stack_tracing) {
+        tty_config.setColor(writer, .dim) catch {};
+        try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
+        tty_config.setColor(writer, .reset) catch {};
+        return;
+    }
     // Fetch `st.index` straight away. Aside from avoiding redundant loads, this prevents issues if
     // `st` is `@errorReturnTrace()` and errors are encountered while writing the stack trace.
     const n_frames = st.index;
