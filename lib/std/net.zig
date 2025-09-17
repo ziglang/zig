@@ -1683,7 +1683,7 @@ const ResolvConf = struct {
 
         var ns_addr_buffer: [3]Address = undefined;
 
-        for (rc.ns_buffer[0..rc.ns_len], ns_addr_buffer[0..rc.ns_len]) |ip, *addr|
+        for (rc.ns_buffer[0..rc.ns_len], ns_addr_buffer[0..rc.ns_len]) |ip, *addr| {
             addr.* = ip.addr;
             assert(addr.getPort() == 53);
             if (ip.addr.any.family != posix.AF.INET) {
