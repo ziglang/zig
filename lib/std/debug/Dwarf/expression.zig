@@ -1566,10 +1566,7 @@ test "basics" {
 
         // Register location description
         var cpu_context: std.debug.cpu_context.Native = undefined;
-        std.debug.relocateContext(&cpu_context);
-        context = Context{
-            .cpu_context = &cpu_context,
-        };
+        context = .{ .cpu_context = &cpu_context };
 
         const reg_bytes = try cpu_context.dwarfRegisterBytes(0);
         mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);

@@ -17,7 +17,7 @@ pub const debug = struct {
 /// crash earlier than that.
 pub var zig_argv0: []const u8 = "zig";
 
-fn handleSegfaultImpl(addr: ?usize, name: []const u8, opt_ctx: ?std.debug.ThreadContextPtr) noreturn {
+fn handleSegfaultImpl(addr: ?usize, name: []const u8, opt_ctx: ?std.debug.CpuContextPtr) noreturn {
     @branchHint(.cold);
     dumpCrashContext() catch {};
     std.debug.defaultHandleSegfault(addr, name, opt_ctx);
