@@ -1826,7 +1826,8 @@ fn linuxLookupNameFromNumericUnspec(
     name: []const u8,
     port: u16,
 ) !void {
-    if (addrs_len.* == addrs.len) return error.OutOfMemory;
+    // Ignore new nameserver entries past the third one
+    if (addrs_len.* == addrs.len) return;
 
     const address = try Address.resolveIp(name, port);
     addrs[addrs_len.*] = .{ .addr = address };
