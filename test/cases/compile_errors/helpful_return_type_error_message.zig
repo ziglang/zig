@@ -16,8 +16,6 @@ export fn quux() u32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:18: error: expected type 'u32', found 'error{Ohno}'
 // :1:17: note: function cannot return an error

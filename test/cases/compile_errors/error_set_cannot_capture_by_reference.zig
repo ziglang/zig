@@ -9,7 +9,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:23: error: error set cannot be captured by reference

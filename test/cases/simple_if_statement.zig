@@ -1,16 +1,16 @@
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
 fn assert(ok: bool) void {
     if (!ok) unreachable;
 }
 
 pub fn main() void {
-    var x: u32 = 0;
-    for ("hello") |_| {
-        x += 1;
-    }
-    assert("hello".len == x);
+    assert(add(1, 2) == 3);
 }
 
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,x86_64-macos
 //

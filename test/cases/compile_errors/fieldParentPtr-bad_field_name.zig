@@ -6,8 +6,6 @@ export fn foo(a: *i32) *Foo {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:28: error: no field named 'a' in struct 'tmp.Foo'
 // :1:20: note: struct declared here

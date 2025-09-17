@@ -11,8 +11,6 @@ export fn c() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:45: error: null pointer casted to type '*const u32'
 // :6:34: error: expected pointer type, found 'comptime_int'

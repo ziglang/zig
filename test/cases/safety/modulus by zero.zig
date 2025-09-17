@@ -16,5 +16,5 @@ fn mod0(a: i32, b: i32) i32 {
     return @mod(a, b);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

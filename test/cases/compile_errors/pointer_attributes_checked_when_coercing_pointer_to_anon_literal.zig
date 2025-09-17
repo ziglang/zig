@@ -13,8 +13,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:29: error: expected type '[][]const u8', found '*const [2][]const u8'
 // :2:29: note: cast discards const qualifier

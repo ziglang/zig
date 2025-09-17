@@ -3,7 +3,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:21: error: no align available for type 'noreturn'

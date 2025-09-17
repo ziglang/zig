@@ -8,7 +8,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:13: error: switch on type '[:0]const u8'

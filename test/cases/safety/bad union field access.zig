@@ -23,5 +23,5 @@ fn bar(f: *Foo) void {
     f.float = 12.34;
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

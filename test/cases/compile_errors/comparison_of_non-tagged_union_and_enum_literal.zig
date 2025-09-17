@@ -7,8 +7,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:14: error: comparison of union and enum literal is only valid for tagged union types
 // :2:15: note: union 'tmp.entry.U' is not a tagged union

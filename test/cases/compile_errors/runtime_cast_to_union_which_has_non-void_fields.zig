@@ -13,8 +13,6 @@ fn foo(l: Letter) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :11:22: error: runtime coercion from enum 'tmp.Letter' to union 'tmp.Value' which has non-void fields
 // :3:5: note: field 'A' has type 'i32'

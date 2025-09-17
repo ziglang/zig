@@ -3,7 +3,5 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:16: error: expected type expression, found ':'

@@ -10,8 +10,6 @@ export fn wrong_return_type() void {
 }
 
 // error
-// backend=stage2,llvm
-// target=native
 //
 // :3:25: error: expected type 'fn () void', found 'fn (i32) void'
 // :3:25: note: function with 1 parameters cannot cast into a function with 0 parameters

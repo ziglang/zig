@@ -4,7 +4,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:18: error: cannot dereference non-pointer type 'comptime_int'

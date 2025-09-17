@@ -12,7 +12,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:13: error: Type.Fn.is_generic must be false for @Type

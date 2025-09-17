@@ -7,8 +7,6 @@ pub export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:18: error: expected pointer type, found 'i32'
 // :6:19: error: integer cannot be converted to slice type '[]u8'

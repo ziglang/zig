@@ -91,7 +91,7 @@ pub fn build(b: *std.Build) !void {
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
     const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
-    const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
+    const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse skip_translate_c;
     const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
     const skip_netbsd = b.option(bool, "skip-netbsd", "Main test suite skips targets with netbsd OS") orelse false;
     const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
@@ -464,25 +464,27 @@ pub fn build(b: *std.Build) !void {
         .max_rss = 4000000000,
     }));
 
-    test_modules_step.dependOn(tests.addModuleTests(b, .{
-        .test_filters = test_filters,
-        .test_target_filters = test_target_filters,
-        .test_extra_targets = test_extra_targets,
-        .root_src = "test/c_import.zig",
-        .name = "c-import",
-        .desc = "Run the @cImport tests",
-        .optimize_modes = optimization_modes,
-        .include_paths = &.{"test/c_import"},
-        .skip_single_threaded = true,
-        .skip_non_native = skip_non_native,
-        .skip_freebsd = skip_freebsd,
-        .skip_netbsd = skip_netbsd,
-        .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
-        .skip_linux = skip_linux,
-        .skip_llvm = skip_llvm,
-        .skip_libc = skip_libc,
-    }));
+    if (!skip_translate_c) {
+        test_modules_step.dependOn(tests.addModuleTests(b, .{
+            .test_filters = test_filters,
+            .test_target_filters = test_target_filters,
+            .test_extra_targets = test_extra_targets,
+            .root_src = "test/c_import.zig",
+            .name = "c-import",
+            .desc = "Run the @cImport tests",
+            .optimize_modes = optimization_modes,
+            .include_paths = &.{"test/c_import"},
+            .skip_single_threaded = true,
+            .skip_non_native = skip_non_native,
+            .skip_freebsd = skip_freebsd,
+            .skip_netbsd = skip_netbsd,
+            .skip_windows = skip_windows,
+            .skip_macos = skip_macos,
+            .skip_linux = skip_linux,
+            .skip_llvm = skip_llvm,
+            .skip_libc = skip_libc,
+        }));
+    }
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
@@ -568,7 +570,6 @@ pub fn build(b: *std.Build) !void {
     unit_tests.root_module.addOptions("build_options", exe_options);
     unit_tests_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
         b,
         optimization_modes,
@@ -590,7 +591,6 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
     if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,

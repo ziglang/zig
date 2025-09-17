@@ -27,8 +27,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:11: error: cannot compare strings with !=
 // :7:11: error: cannot compare strings with ==

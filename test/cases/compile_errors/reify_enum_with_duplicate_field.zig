@@ -13,8 +13,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: duplicate enum field 'A'
 // :2:9: note: other field here

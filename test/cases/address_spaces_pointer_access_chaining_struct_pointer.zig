@@ -8,6 +8,6 @@ pub fn main() void {
 
 // compile
 // output_mode=Exe
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,x86_64-macos
 //

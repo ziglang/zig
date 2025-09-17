@@ -6,7 +6,5 @@ export fn x() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:9: error: expected type '[]anyopaque', found '*u32'

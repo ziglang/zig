@@ -13,8 +13,6 @@ export fn varEntry() u32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:21: error: expected type 'u32', found 'u64'
 // :6:21: note: unsigned 32-bit int cannot represent all possible unsigned 64-bit values
