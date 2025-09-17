@@ -230,7 +230,7 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
         else => unreachable,
     }
 }
-pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
+pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!void {
     if (di.unwind[0] == null) try module.loadUnwindInfo(gpa, di);
     std.debug.assert(di.unwind[0] != null);
     for (&di.unwind) |*opt_unwind| {
