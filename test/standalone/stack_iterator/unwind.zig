@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const fatal = std.process.fatal;
 
 noinline fn frame3(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
-    expected[0] = @returnAddress();
+    expected[0] = @returnAddress() - 1;
     return std.debug.captureCurrentStackTrace(.{
         .first_address = @returnAddress(),
         .allow_unsafe_unwind = true,
@@ -58,12 +58,12 @@ noinline fn frame2(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTr
         }
     }
 
-    expected[1] = @returnAddress();
+    expected[1] = @returnAddress() - 1;
     return frame3(expected, addr_buf);
 }
 
 noinline fn frame1(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
-    expected[2] = @returnAddress();
+    expected[2] = @returnAddress() - 1;
 
     // Use a stack frame that is too big to encode in __unwind_info's stack-immediate encoding
     // to exercise the stack-indirect encoding path
@@ -74,12 +74,12 @@ noinline fn frame1(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTr
 }
 
 noinline fn frame0(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
-    expected[3] = @returnAddress();
+    expected[3] = @returnAddress() - 1;
     return frame1(expected, addr_buf);
 }
 
 pub fn main() void {
-    if (std.posix.ucontext_t == void and builtin.omit_frame_pointer) {
+    if (std.debug.cpu_context.Native == noreturn and builtin.omit_frame_pointer) {
         // Stack unwinding is impossible.
         return;
     }
