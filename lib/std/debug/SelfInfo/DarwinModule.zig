@@ -1,6 +1,5 @@
 /// The runtime address where __TEXT is loaded.
 text_base: usize,
-load_offset: usize,
 name: []const u8,
 
 pub fn key(m: *const DarwinModule) usize {
@@ -12,38 +11,14 @@ pub const LookupCache = void;
 pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) Error!DarwinModule {
     _ = cache;
     _ = gpa;
-    const image_count = std.c._dyld_image_count();
-    for (0..image_count) |image_idx| {
-        const header = std.c._dyld_get_image_header(@intCast(image_idx)) orelse continue;
-        const text_base = @intFromPtr(header);
-        if (address < text_base) continue;
-        const load_offset = std.c._dyld_get_image_vmaddr_slide(@intCast(image_idx));
-
-        // Find the __TEXT segment
-        var it: macho.LoadCommandIterator = .{
-            .ncmds = header.ncmds,
-            .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
-        };
-        const text_segment_cmd = while (it.next()) |load_cmd| {
-            if (load_cmd.cmd() != .SEGMENT_64) continue;
-            const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
-            if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
-            break segment_cmd;
-        } else continue;
-
-        const seg_start = load_offset + text_segment_cmd.vmaddr;
-        assert(seg_start == text_base);
-        const seg_end = seg_start + text_segment_cmd.vmsize;
-        if (address < seg_start or address >= seg_end) continue;
-
-        // We've found the matching __TEXT segment. This is the image we need.
-        return .{
-            .text_base = text_base,
-            .load_offset = load_offset,
-            .name = mem.span(std.c._dyld_get_image_name(@intCast(image_idx))),
-        };
+    var info: std.c.dl_info = undefined;
+    switch (std.c.dladdr(@ptrFromInt(address), &info)) {
+        0 => return error.MissingDebugInfo,
+        else => return .{
+            .name = std.mem.span(info.fname),
+            .text_base = @intFromPtr(info.fbase),
+        },
     }
-    return error.MissingDebugInfo;
 }
 fn loadUnwindInfo(module: *const DarwinModule) DebugInfo.Unwind {
     const header: *std.macho.mach_header = @ptrFromInt(module.text_base);
@@ -52,55 +27,114 @@ fn loadUnwindInfo(module: *const DarwinModule) DebugInfo.Unwind {
         .ncmds = header.ncmds,
         .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
     };
-    const sections = while (it.next()) |load_cmd| {
+    const sections, const text_vmaddr = while (it.next()) |load_cmd| {
         if (load_cmd.cmd() != .SEGMENT_64) continue;
         const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
         if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
-        break load_cmd.getSections();
+        break .{ load_cmd.getSections(), segment_cmd.vmaddr };
     } else unreachable;
+
+    const vmaddr_slide = module.text_base - text_vmaddr;
 
     var unwind_info: ?[]const u8 = null;
     var eh_frame: ?[]const u8 = null;
     for (sections) |sect| {
         if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
-            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
+            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(vmaddr_slide + sect.addr)));
             unwind_info = sect_ptr[0..@intCast(sect.size)];
         } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
-            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
+            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(vmaddr_slide + sect.addr)));
             eh_frame = sect_ptr[0..@intCast(sect.size)];
         }
     }
     return .{
+        .vmaddr_slide = vmaddr_slide,
         .unwind_info = unwind_info,
         .eh_frame = eh_frame,
     };
 }
 fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO {
-    const mapped_mem = try mapDebugInfoFile(module.name);
-    errdefer posix.munmap(mapped_mem);
+    const all_mapped_memory = try mapDebugInfoFile(module.name);
+    errdefer posix.munmap(all_mapped_memory);
 
-    const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
+    // In most cases, the file we just mapped is a Mach-O binary. However, it could be a "universal
+    // binary": a simple file format which contains Mach-O binaries for multiple targets. For
+    // instance, `/usr/lib/dyld` is currently distributed as a universal binary containing images
+    // for both ARM64 Macs and x86_64 Macs.
+    if (all_mapped_memory.len < 4) return error.InvalidDebugInfo;
+    const magic = @as(*const u32, @ptrCast(all_mapped_memory.ptr)).*;
+    // The contents of a Mach-O file, which may or may not be the whole of `all_mapped_memory`.
+    const mapped_macho = switch (magic) {
+        macho.MH_MAGIC_64 => all_mapped_memory,
+
+        macho.FAT_CIGAM => mapped_macho: {
+            // This is the universal binary format (aka a "fat binary"). Annoyingly, the whole thing
+            // is big-endian, so we'll be swapping some bytes.
+            if (all_mapped_memory.len < @sizeOf(macho.fat_header)) return error.InvalidDebugInfo;
+            const hdr: *const macho.fat_header = @ptrCast(all_mapped_memory.ptr);
+            const archs_ptr: [*]const macho.fat_arch = @ptrCast(all_mapped_memory.ptr + @sizeOf(macho.fat_header));
+            const archs: []const macho.fat_arch = archs_ptr[0..@byteSwap(hdr.nfat_arch)];
+            const native_cpu_type = switch (builtin.cpu.arch) {
+                .x86_64 => macho.CPU_TYPE_X86_64,
+                .aarch64 => macho.CPU_TYPE_ARM64,
+                else => comptime unreachable,
+            };
+            for (archs) |*arch| {
+                if (@byteSwap(arch.cputype) != native_cpu_type) continue;
+                const offset = @byteSwap(arch.offset);
+                const size = @byteSwap(arch.size);
+                break :mapped_macho all_mapped_memory[offset..][0..size];
+            }
+            // Our native architecture was not present in the fat binary.
+            return error.MissingDebugInfo;
+        },
+
+        // Even on modern 64-bit targets, this format doesn't seem to be too extensively used. It
+        // will be fairly easy to add support here if necessary; it's very similar to above.
+        macho.FAT_CIGAM_64 => return error.UnsupportedDebugInfo,
+
+        else => return error.InvalidDebugInfo,
+    };
+
+    const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_macho.ptr));
     if (hdr.magic != macho.MH_MAGIC_64)
         return error.InvalidDebugInfo;
 
-    const symtab: macho.symtab_command = symtab: {
+    const symtab: macho.symtab_command, const text_vmaddr: u64 = lc_iter: {
         var it: macho.LoadCommandIterator = .{
             .ncmds = hdr.ncmds,
-            .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+            .buffer = mapped_macho[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
         };
+        var symtab: ?macho.symtab_command = null;
+        var text_vmaddr: ?u64 = null;
         while (it.next()) |cmd| switch (cmd.cmd()) {
-            .SYMTAB => break :symtab cmd.cast(macho.symtab_command) orelse return error.InvalidDebugInfo,
+            .SYMTAB => symtab = cmd.cast(macho.symtab_command) orelse return error.InvalidDebugInfo,
+            .SEGMENT_64 => if (cmd.cast(macho.segment_command_64)) |seg_cmd| {
+                if (!mem.eql(u8, seg_cmd.segName(), "__TEXT")) continue;
+                text_vmaddr = seg_cmd.vmaddr;
+            },
             else => {},
         };
-        return error.MissingDebugInfo;
+        break :lc_iter .{
+            symtab orelse return error.MissingDebugInfo,
+            text_vmaddr orelse return error.MissingDebugInfo,
+        };
     };
 
-    const syms_ptr: [*]align(1) const macho.nlist_64 = @ptrCast(mapped_mem[symtab.symoff..]);
+    const syms_ptr: [*]align(1) const macho.nlist_64 = @ptrCast(mapped_macho[symtab.symoff..]);
     const syms = syms_ptr[0..symtab.nsyms];
-    const strings = mapped_mem[symtab.stroff..][0 .. symtab.strsize - 1 :0];
+    const strings = mapped_macho[symtab.stroff..][0 .. symtab.strsize - 1];
 
     var symbols: std.ArrayList(MachoSymbol) = try .initCapacity(gpa, syms.len);
     defer symbols.deinit(gpa);
+
+    // This map is temporary; it is used only to detect duplicates here. This is
+    // necessary because we prefer to use STAB ("symbolic debugging table") symbols,
+    // but they might not be present, so we track normal symbols too.
+    // Indices match 1-1 with those of `symbols`.
+    var symbol_names: std.StringArrayHashMapUnmanaged(void) = .empty;
+    defer symbol_names.deinit(gpa);
+    try symbol_names.ensureUnusedCapacity(gpa, syms.len);
 
     var ofile: u32 = undefined;
     var last_sym: MachoSymbol = undefined;
@@ -115,7 +149,25 @@ fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO
     } = .init;
 
     for (syms) |*sym| {
-        if (sym.n_type.bits.is_stab == 0) continue;
+        if (sym.n_type.bits.is_stab == 0) {
+            if (sym.n_strx == 0) continue;
+            switch (sym.n_type.bits.type) {
+                .undf, .pbud, .indr, .abs, _ => continue,
+                .sect => {
+                    const name = std.mem.sliceTo(strings[sym.n_strx..], 0);
+                    const gop = symbol_names.getOrPutAssumeCapacity(name);
+                    if (!gop.found_existing) {
+                        assert(gop.index == symbols.items.len);
+                        symbols.appendAssumeCapacity(.{
+                            .strx = sym.n_strx,
+                            .addr = sym.n_value,
+                            .ofile = MachoSymbol.unknown_ofile,
+                        });
+                    }
+                },
+            }
+            continue;
+        }
 
         // TODO handle globals N_GSYM, and statics N_STSYM
         switch (sym.n_type.stab) {
@@ -132,7 +184,6 @@ fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO
                     last_sym = .{
                         .strx = 0,
                         .addr = sym.n_value,
-                        .size = 0,
                         .ofile = ofile,
                     };
                 },
@@ -145,14 +196,22 @@ fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO
                 },
                 .fun_strx => {
                     state = .fun_size;
-                    last_sym.size = @intCast(sym.n_value);
                 },
                 else => return error.InvalidDebugInfo,
             },
             .ensym => switch (state) {
                 .fun_size => {
                     state = .ensym;
-                    symbols.appendAssumeCapacity(last_sym);
+                    if (last_sym.strx != 0) {
+                        const name = std.mem.sliceTo(strings[sym.n_strx..], 0);
+                        const gop = symbol_names.getOrPutAssumeCapacity(name);
+                        if (!gop.found_existing) {
+                            assert(gop.index == symbols.items.len);
+                            symbols.appendAssumeCapacity(last_sym);
+                        } else {
+                            symbols.items[gop.index] = last_sym;
+                        }
+                    }
                 },
                 else => return error.InvalidDebugInfo,
             },
@@ -168,9 +227,12 @@ fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO
     }
 
     switch (state) {
-        .init => return error.MissingDebugInfo,
+        .init => {
+            // Missing STAB symtab entries is still okay, unless there were also no normal symbols.
+            if (symbols.items.len == 0) return error.MissingDebugInfo;
+        },
         .oso_close => {},
-        else => return error.InvalidDebugInfo,
+        else => return error.InvalidDebugInfo, // corrupted STAB entries in symtab
     }
 
     const symbols_slice = try symbols.toOwnedSlice(gpa);
@@ -182,10 +244,11 @@ fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO
     mem.sort(MachoSymbol, symbols_slice, {}, MachoSymbol.addressLessThan);
 
     return .{
-        .mapped_memory = mapped_mem,
+        .mapped_memory = all_mapped_memory,
         .symbols = symbols_slice,
         .strings = strings,
         .ofiles = .empty,
+        .vaddr_offset = module.text_base - text_vmaddr,
     };
 }
 pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, address: usize) Error!std.debug.Symbol {
@@ -195,7 +258,7 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
     };
     const loaded_macho = &di.loaded_macho.?;
 
-    const vaddr = address - module.load_offset;
+    const vaddr = address - loaded_macho.vaddr_offset;
     const symbol = MachoSymbol.find(loaded_macho.symbols, vaddr) orelse return .unknown;
 
     // offset of `address` from start of `symbol`
@@ -211,6 +274,11 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
         .compile_unit_name = null,
         .source_location = null,
     };
+
+    if (symbol.ofile == MachoSymbol.unknown_ofile) {
+        // We don't have STAB info, so can't track down the object file; all we can do is the symbol name.
+        return sym_only_result;
+    }
 
     const o_file: *DebugInfo.OFile = of: {
         const gop = try loaded_macho.ofiles.getOrPut(gpa, symbol.ofile);
@@ -233,7 +301,7 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
     const compile_unit = o_file.dwarf.findCompileUnit(native_endian, symbol_ofile_vaddr) catch return sym_only_result;
 
     return .{
-        .name = o_file.dwarf.getSymbolName(symbol_ofile_vaddr) orelse stab_symbol,
+        .name = o_file.dwarf.getSymbolName(symbol_ofile_vaddr + address_symbol_offset) orelse stab_symbol,
         .compile_unit_name = compile_unit.die.getAttrString(
             &o_file.dwarf,
             native_endian,
@@ -256,7 +324,7 @@ pub const UnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
+pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!void {
     return unwindFrameInner(module, gpa, di, context) catch |err| switch (err) {
         error.InvalidDebugInfo,
         error.MissingDebugInfo,
@@ -272,7 +340,7 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
         => return error.InvalidDebugInfo,
     };
 }
-fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !void {
     if (di.unwind == null) di.unwind = module.loadUnwindInfo();
     const unwind = &di.unwind.?;
 
@@ -500,11 +568,11 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
             },
             .DWARF => {
                 const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
-                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
+                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - unwind.vmaddr_slide;
                 return context.unwindFrame(
                     gpa,
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
-                    module.load_offset,
+                    unwind.vmaddr_slide,
                     @intCast(encoding.value.x86_64.dwarf),
                 );
             },
@@ -520,11 +588,11 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
             },
             .DWARF => {
                 const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
-                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
+                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - unwind.vmaddr_slide;
                 return context.unwindFrame(
                     gpa,
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
-                    module.load_offset,
+                    unwind.vmaddr_slide,
                     @intCast(encoding.value.x86_64.dwarf),
                 );
             },
@@ -572,9 +640,7 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
         else => comptime unreachable, // unimplemented
     };
 
-    context.pc = UnwindContext.stripInstructionPtrAuthCode(new_ip);
-    if (context.pc > 0) context.pc -= 1;
-    return new_ip;
+    context.pc = std.debug.stripInstructionPtrAuthCode(new_ip) -| 1;
 }
 pub const DebugInfo = struct {
     unwind: ?Unwind,
@@ -590,6 +656,7 @@ pub const DebugInfo = struct {
             for (loaded_macho.ofiles.values()) |*ofile| {
                 ofile.dwarf.deinit(gpa);
                 ofile.symbols_by_name.deinit(gpa);
+                posix.munmap(ofile.mapped_memory);
             }
             loaded_macho.ofiles.deinit(gpa);
             gpa.free(loaded_macho.symbols);
@@ -598,6 +665,9 @@ pub const DebugInfo = struct {
     }
 
     const Unwind = struct {
+        /// The slide applied to the following sections. So, `unwind_info.ptr` is this many bytes
+        /// higher than the vmaddr of `__unwind_info`, and likewise for `__eh_frame`.
+        vmaddr_slide: u64,
         // Backed by the in-memory sections mapped by the loader
         unwind_info: ?[]const u8,
         eh_frame: ?[]const u8,
@@ -606,21 +676,31 @@ pub const DebugInfo = struct {
     const LoadedMachO = struct {
         mapped_memory: []align(std.heap.page_size_min) const u8,
         symbols: []const MachoSymbol,
-        strings: [:0]const u8,
+        strings: []const u8,
         /// Key is index into `strings` of the file path.
         ofiles: std.AutoArrayHashMapUnmanaged(u32, OFile),
+        /// This is not necessarily the same as the vmaddr_slide that dyld would report. This is
+        /// because the segments in the file on disk might differ from the ones in memory. Normally
+        /// we wouldn't necessarily expect that to work, but /usr/lib/dyld is incredibly annoying:
+        /// it exists on disk (necessarily, because the kernel needs to load it!), but is also in
+        /// the dyld cache (dyld actually restart itself from cache after loading it), and the two
+        /// versions have (very) different segment base addresses. It's sort of like a large slide
+        /// has been applied to all addresses in memory. For an optimal experience, we consider the
+        /// on-disk vmaddr instead of the in-memory one.
+        vaddr_offset: usize,
     };
 
     const OFile = struct {
+        mapped_memory: []align(std.heap.page_size_min) const u8,
         dwarf: Dwarf,
-        strtab: [:0]const u8,
+        strtab: []const u8,
         symtab: []align(1) const macho.nlist_64,
         /// All named symbols in `symtab`. Stored `u32` key is the index into `symtab`. Accessed
         /// through `SymbolAdapter`, so that the symbol name is used as the logical key.
         symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true),
 
         const SymbolAdapter = struct {
-            strtab: [:0]const u8,
+            strtab: []const u8,
             symtab: []align(1) const macho.nlist_64,
             pub fn hash(ctx: SymbolAdapter, sym_name: []const u8) u32 {
                 _ = ctx;
@@ -663,7 +743,7 @@ pub const DebugInfo = struct {
 
         if (mapped_mem.len < symtab_cmd.stroff + symtab_cmd.strsize) return error.InvalidDebugInfo;
         if (mapped_mem[symtab_cmd.stroff + symtab_cmd.strsize - 1] != 0) return error.InvalidDebugInfo;
-        const strtab = mapped_mem[symtab_cmd.stroff..][0 .. symtab_cmd.strsize - 1 :0];
+        const strtab = mapped_mem[symtab_cmd.stroff..][0 .. symtab_cmd.strsize - 1];
 
         const n_sym_bytes = symtab_cmd.nsyms * @sizeOf(macho.nlist_64);
         if (mapped_mem.len < symtab_cmd.symoff + n_sym_bytes) return error.InvalidDebugInfo;
@@ -717,6 +797,7 @@ pub const DebugInfo = struct {
         try dwarf.open(gpa, native_endian);
 
         return .{
+            .mapped_memory = mapped_mem,
             .dwarf = dwarf,
             .strtab = strtab,
             .symtab = symtab,
@@ -728,8 +809,9 @@ pub const DebugInfo = struct {
 const MachoSymbol = struct {
     strx: u32,
     addr: u64,
-    size: u32,
+    /// Value may be `unknown_ofile`.
     ofile: u32,
+    const unknown_ofile = std.math.maxInt(u32);
     fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
         _ = context;
         return lhs.addr < rhs.addr;
@@ -754,9 +836,9 @@ const MachoSymbol = struct {
 
     test find {
         const symbols: []const MachoSymbol = &.{
-            .{ .addr = 100, .strx = undefined, .size = undefined, .ofile = undefined },
-            .{ .addr = 200, .strx = undefined, .size = undefined, .ofile = undefined },
-            .{ .addr = 300, .strx = undefined, .size = undefined, .ofile = undefined },
+            .{ .addr = 100, .strx = undefined, .ofile = undefined },
+            .{ .addr = 200, .strx = undefined, .ofile = undefined },
+            .{ .addr = 300, .strx = undefined, .ofile = undefined },
         };
 
         try testing.expectEqual(null, find(symbols, 0));

@@ -354,6 +354,14 @@ pub extern "c" fn _dyld_image_count() u32;
 pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
 pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
+pub extern "c" fn dladdr(addr: *const anyopaque, info: *dl_info) c_int;
+
+pub const dl_info = extern struct {
+    fname: [*:0]const u8,
+    fbase: *anyopaque,
+    sname: ?[*:0]const u8,
+    saddr: ?*anyopaque,
+};
 
 pub const COPYFILE = packed struct(u32) {
     ACL: bool = false,

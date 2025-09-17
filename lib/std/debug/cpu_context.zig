@@ -214,6 +214,12 @@ pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
             .sp = ctx.Sp,
             .pc = ctx.Pc,
         },
+        .thumb => .{ .r = .{
+            ctx.R0,  ctx.R1, ctx.R2,  ctx.R3,
+            ctx.R4,  ctx.R5, ctx.R6,  ctx.R7,
+            ctx.R8,  ctx.R9, ctx.R10, ctx.R11,
+            ctx.R12, ctx.Sp, ctx.Lr,  ctx.Pc,
+        } },
         else => comptime unreachable,
     };
 }
