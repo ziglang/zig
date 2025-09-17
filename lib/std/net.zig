@@ -1717,13 +1717,13 @@ const ResolvConf = struct {
                 std.os.linux.IPV6.V6ONLY,
                 &mem.toBytes(@as(c_int, 0)),
             );
-            for (ns_addr_buffer[0..rc.ns_len]) |*n| {
-                if (n.any.family != posix.AF.INET) continue;
-                mem.writeInt(u32, n.in6.sa.addr[12..], n.in.sa.addr, native_endian);
-                n.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-                n.any.family = posix.AF.INET6;
-                n.in6.sa.flowinfo = 0;
-                n.in6.sa.scope_id = 0;
+            for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
+                if (ns.any.family != posix.AF.INET) continue;
+                mem.writeInt(u32, ns.in6.sa.addr[12..], ns.in.sa.addr, native_endian);
+                ns.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
+                ns.any.family = posix.AF.INET6;
+                ns.in6.sa.flowinfo = 0;
+                ns.in6.sa.scope_id = 0;
             }
             sl = @sizeOf(posix.sockaddr.in6);
         }
@@ -1753,10 +1753,8 @@ const ResolvConf = struct {
                 var i: usize = 0;
                 while (i < queries.len) : (i += 1) {
                     if (answers[i].len == 0) {
-                        var idx: u2 = 0;
-                        while (idx < rc.ns_len) : (idx += 1) {
-                            const n = ns_addr_buffer[idx];
-                            _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &n.any, sl) catch undefined;
+                         for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
+                            _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
                         }
                     }
                 }
@@ -1777,10 +1775,8 @@ const ResolvConf = struct {
                 if (rlen < 4) continue;
 
                 // Ignore replies from addresses we didn't send to
-                var idx: u2 = 0;
-                const ns_addr = while (idx < rc.ns_len) : (idx += 1) {
-                    const n = ns_addr_buffer[idx];
-                    if (n.eql(sa)) break n;
+                const ns_addr = for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
+                    if (ns.eql(sa)) break ns;
                 } else continue;
 
                 // Find which query this answer goes with, if any
