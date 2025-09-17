@@ -4476,6 +4476,14 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     }
 }
 
+pub fn getpid() pid_t {
+    return system.getpid();
+}
+
+pub fn getppid() pid_t {
+    return system.getppid();
+}
+
 pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
     var status: if (builtin.link_libc) c_int else u32 = undefined;
     while (true) {
