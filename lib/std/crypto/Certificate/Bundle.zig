@@ -182,7 +182,7 @@ fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
 fn rescanWithBytes(cb: *Bundle, gpa: Allocator, buffer: []const u8) AddCertsFromBytesError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
-    try addCerts(cb, gpa, buffer);
+    try addCertsFromBytes(cb, gpa, buffer);
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
@@ -254,16 +254,17 @@ pub const AddCertsFromFileError = Allocator.Error ||
     AddCertsFromBytesError;
 
 pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
-    const size = try file.getEndPos();
+    const size = std.math.cast(usize, try file.getEndPos()) orelse
+        return error.CertificateAuthorityBundleTooBig;
 
-    // We borrow `bytes` as a temporary buffer for both the base64-encoded data
-    // and the base64-decoded der certificate data. This is possible by
-    // computing the decoded length and reserving the space for the decoded
-    // bytes first.
+    // We borrow `bytes` as a temporary buffer for both the decoded certificate
+    // data and the encoded data from `file`. This is possible by placing the
+    // file data after the decoded data filled by addCertsFromBytes.
     const decoded_size_upper_bound = try std.base64.standard.Decoder.calcSizeUpperBound(size);
     const needed_capacity = std.math.cast(u32, decoded_size_upper_bound + size) orelse
         return error.CertificateAuthorityBundleTooBig;
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
+
     const end_reserved: u32 = @intCast(cb.bytes.items.len + decoded_size_upper_bound);
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
     const end_index = try file.readAll(buffer);
@@ -277,23 +278,17 @@ pub const AddCertsFromBytesError = Allocator.Error ||
     std.base64.Error ||
     error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
 
-pub fn addCerts(cb: *Bundle, gpa: Allocator, buffer: []const u8) AddCertsFromBytesError!void {
-    // We borrow `bytes` as a temporary buffer for the base64-decoded der
-    // certificate data. This is possible by computing the decoded length and
-    // reserving the space for the decoded bytes first.
-    const decoded_size_upper_bound = try std.base64.standard.Decoder.calcSizeUpperBound(buffer.len);
-    const needed_capacity = std.math.cast(u32, decoded_size_upper_bound) orelse
-        return error.CertificateAuthorityBundleTooBig;
-    try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
-
-    return cb.addCertsFromBytes(gpa, buffer);
-}
-
-fn addCertsFromBytes(cb: *Bundle, gpa: Allocator, encoded_bytes: []const u8) AddCertsFromBytesError!void {
+pub fn addCertsFromBytes(cb: *Bundle, gpa: Allocator, encoded_bytes: []const u8) AddCertsFromBytesError!void {
     const begin_marker = "-----BEGIN CERTIFICATE-----";
     const end_marker = "-----END CERTIFICATE-----";
 
     const now_sec = std.time.timestamp();
+
+    // We borrow `bytes` as a temporary buffer for the decoded certificate data.
+    const decoded_size_upper_bound = try std.base64.standard.Decoder.calcSizeUpperBound(encoded_bytes.len);
+    const needed_capacity = std.math.cast(u32, decoded_size_upper_bound) orelse
+        return error.CertificateAuthorityBundleTooBig;
+    try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
 
     var start_index: usize = 0;
     while (mem.indexOfPos(u8, encoded_bytes, start_index, begin_marker)) |begin_marker_start| {
@@ -370,15 +365,6 @@ const MapContext = struct {
 };
 
 test "load certificate bundle" {
-    // load from the system
-
-    {
-        if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-        var bundle: Bundle = try .init(std.testing.allocator, .system);
-        defer bundle.deinit(std.testing.allocator);
-    }
-
     // load from a file
 
     {
@@ -402,6 +388,15 @@ test "load certificate bundle" {
         var bundle: Bundle = try .init(std.testing.allocator, .{
             .bytes = cacert_pem,
         });
+        defer bundle.deinit(std.testing.allocator);
+    }
+
+    // load from the system
+
+    {
+        if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+        var bundle: Bundle = try .init(std.testing.allocator, .system);
         defer bundle.deinit(std.testing.allocator);
     }
 }
