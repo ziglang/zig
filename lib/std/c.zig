@@ -11038,7 +11038,10 @@ pub extern "c" fn sem_trywait(sem: *sem_t) c_int;
 pub extern "c" fn sem_timedwait(sem: *sem_t, abs_timeout: *const timespec) c_int;
 pub extern "c" fn sem_getvalue(sem: *sem_t, sval: *c_int) c_int;
 
-pub extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: mode_t) c_int;
+pub const shm_open = switch (native_os) {
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => darwin.shm_open,
+    else => private.shm_open,
+};
 pub extern "c" fn shm_unlink(name: [*:0]const u8) c_int;
 
 pub extern "c" fn kqueue() c_int;
@@ -11616,6 +11619,7 @@ const private = struct {
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn sysconf(sc: c_int) c_long;
+    extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: mode_t) c_int;
 
     extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
     extern "c" fn getcontext(ucp: *ucontext_t) c_int;
