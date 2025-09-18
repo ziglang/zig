@@ -53,7 +53,7 @@ pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
     if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
 }
 
-pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!void {
+pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!usize {
     comptime assert(supports_unwinding);
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
     const gop = try self.modules.getOrPut(gpa, module.key());
@@ -124,15 +124,14 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 ///     /// pointer is unknown, 0 may be returned instead.
 ///     pub fn getFp(uc: *UnwindContext) usize;
 /// };
-/// /// Only required if `supports_unwinding == true`. Unwinds a single stack frame.
-/// /// The caller will read the new instruction poiter from the `pc` field.
-/// /// `pc = 0` indicates end of stack / no more frames.
+/// /// Only required if `supports_unwinding == true`. Unwinds a single stack frame, and returns
+/// /// the frame's return address.
 /// pub fn unwindFrame(
 ///     mod: *const Module,
 ///     gpa: Allocator,
 ///     di: *DebugInfo,
 ///     ctx: *UnwindContext,
-/// ) SelfInfo.Error!void;
+/// ) SelfInfo.Error!usize;
 /// ```
 const Module: type = Module: {
     // Allow overriding the target-specific `SelfInfo` implementation by exposing `root.debug.Module`.
@@ -312,7 +311,7 @@ pub const DwarfUnwindContext = struct {
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
         explicit_fde_offset: ?usize,
-    ) Error!void {
+    ) Error!usize {
         return unwindFrameInner(context, gpa, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
             error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
 
@@ -360,10 +359,10 @@ pub const DwarfUnwindContext = struct {
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
         explicit_fde_offset: ?usize,
-    ) !void {
+    ) !usize {
         comptime assert(supports_unwinding);
 
-        if (context.pc == 0) return;
+        if (context.pc == 0) return 0;
 
         const pc_vaddr = context.pc - load_offset;
 
@@ -443,13 +442,19 @@ pub const DwarfUnwindContext = struct {
         // The new CPU context is complete; flush changes.
         context.cpu_context = new_cpu_context;
 
-        // Also update the stored pc. However, because `return_address` points to the instruction
-        // *after* the call, it could (in the case of noreturn functions) actually point outside of
-        // the caller's address range, meaning an FDE lookup would fail. We can handle this by
-        // subtracting 1 from `return_address` so that the next lookup is guaranteed to land inside
-        // the `call` instruction. The exception to this rule is signal frames, where the return
-        // address is the same instruction that triggered the handler.
-        context.pc = if (cie.is_signal_frame) return_address else return_address -| 1;
+        // The caller will subtract 1 from the return address to get an address corresponding to the
+        // function call. However, if this is a signal frame, that's actually incorrect, because the
+        // "return address" we have is the instruction which triggered the signal (if the signal
+        // handler returned, the instruction would be re-run). Compensate for this by incrementing
+        // the address in that case.
+        const adjusted_ret_addr = if (cie.is_signal_frame) return_address +| 1 else return_address;
+
+        // We also want to do that same subtraction here to get the PC for the next frame's FDE.
+        // This is because if the callee was noreturn, then the function call might be the caller's
+        // last instruction, so `return_address` might actually point outside of it!
+        context.pc = adjusted_ret_addr -| 1;
+
+        return adjusted_ret_addr;
     }
     /// Since register rules are applied (usually) during a panic,
     /// checked addition / subtraction is used so that we can return

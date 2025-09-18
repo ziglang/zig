@@ -577,14 +577,12 @@ pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) 
     while (true) switch (it.next()) {
         .switch_to_fp => if (!it.stratOk(options.allow_unsafe_unwind)) break,
         .end => break,
-        .frame => |pc_addr| {
+        .frame => |ret_addr| {
             if (wait_for) |target| {
-                // Possible off-by-one error: `pc_addr` might be one less than the return address (so
-                // that it falls *inside* the function call), while `target` *is* a return address.
-                if (pc_addr != target and pc_addr + 1 != target) continue;
+                if (ret_addr != target) continue;
                 wait_for = null;
             }
-            if (frame_idx < addr_buf.len) addr_buf[frame_idx] = pc_addr;
+            if (frame_idx < addr_buf.len) addr_buf[frame_idx] = ret_addr;
             frame_idx += 1;
         },
     };
@@ -659,14 +657,14 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
             }
         },
         .end => break,
-        .frame => |pc_addr| {
+        .frame => |ret_addr| {
             if (wait_for) |target| {
-                // Possible off-by-one error: `pc_addr` might be one less than the return address (so
-                // that it falls *inside* the function call), while `target` *is* a return address.
-                if (pc_addr != target and pc_addr + 1 != target) continue;
+                if (ret_addr != target) continue;
                 wait_for = null;
             }
-            try printSourceAtAddress(di_gpa, di, writer, pc_addr, tty_config);
+            // `ret_addr` is the return address, which is *after* the function call.
+            // Subtract 1 to get an address *in* the function call for a better source location.
+            try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
             printed_any_frame = true;
         },
     };
@@ -712,8 +710,10 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
         },
     };
     const captured_frames = @min(n_frames, st.instruction_addresses.len);
-    for (st.instruction_addresses[0..captured_frames]) |pc_addr| {
-        try printSourceAtAddress(di_gpa, di, writer, pc_addr, tty_config);
+    for (st.instruction_addresses[0..captured_frames]) |ret_addr| {
+        // `ret_addr` is the return address, which is *after* the function call.
+        // Subtract 1 to get an address *in* the function call for a better source location.
+        try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
     }
     if (n_frames > captured_frames) {
         tty_config.setColor(writer, .bold) catch {};
@@ -787,7 +787,7 @@ const StackIterator = union(enum) {
     }
 
     const Result = union(enum) {
-        /// A stack frame has been found; this is the corresponding program counter address.
+        /// A stack frame has been found; this is the corresponding return address.
         frame: usize,
         /// The end of the stack has been reached.
         end,
@@ -797,18 +797,21 @@ const StackIterator = union(enum) {
             err: SelfInfo.Error,
         },
     };
+
     fn next(it: *StackIterator) Result {
         switch (it.*) {
             .di_first => |unwind_context| {
                 const first_pc = unwind_context.pc;
                 if (first_pc == 0) return .end;
                 it.* = .{ .di = unwind_context };
-                return .{ .frame = first_pc };
+                // The caller expects *return* addresses, where they will subtract 1 to find the address of the call.
+                // However, we have the actual current PC, which should not be adjusted. Compensate by adding 1.
+                return .{ .frame = first_pc +| 1 };
             },
             .di => |*unwind_context| {
                 const di = getSelfDebugInfo() catch unreachable;
                 const di_gpa = getDebugInfoAllocator();
-                di.unwindFrame(di_gpa, unwind_context) catch |err| {
+                const ret_addr = di.unwindFrame(di_gpa, unwind_context) catch |err| {
                     const pc = unwind_context.pc;
                     it.* = .{ .fp = unwind_context.getFp() };
                     return .{ .switch_to_fp = .{
@@ -816,8 +819,8 @@ const StackIterator = union(enum) {
                         .err = err,
                     } };
                 };
-                const pc = unwind_context.pc;
-                return if (pc == 0) .end else .{ .frame = pc };
+                if (ret_addr <= 1) return .end;
+                return .{ .frame = ret_addr };
             },
             .fp => |fp| {
                 if (fp == 0) return .end; // we reached the "sentinel" base pointer
@@ -845,7 +848,7 @@ const StackIterator = union(enum) {
                 it.fp = bp;
                 const ra = stripInstructionPtrAuthCode(ra_ptr.*);
                 if (ra <= 1) return .end;
-                return .{ .frame = ra - 1 };
+                return .{ .frame = ra };
             },
         }
     }
