@@ -603,7 +603,9 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
 }
 
 /// Deprecated in favor of `bufPrintSentinel`
-pub const bufPrintZ = bufPrintSentinel;
+pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
+    return try bufPrintSentinel(buf, fmt, args, 0);
+}
 
 pub fn bufPrintSentinel(
     buf: []u8,
