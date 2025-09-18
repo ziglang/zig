@@ -58,7 +58,7 @@ pub fn next(comptime T: type, random: Random, comptime tables: Table(T)) T {
 }
 
 pub fn Table(comptime T: type) type {
-    std.debug.assert(@typeInfo(T) == .float);
+    comptime std.debug.assert(@typeInfo(T) == .float);
     return struct {
         x: [257]T,
         f: [257]T,
@@ -105,7 +105,7 @@ pub fn tableGen(
 
 /// Namespace containing distributions for a specific floating point type.
 pub fn distributions(comptime T: type) type {
-    std.debug.assert(@typeInfo(T) == .float);
+    comptime std.debug.assert(@typeInfo(T) == .float);
     return struct {
         pub const norm_r = 3.6541528853610088;
         pub const norm_v = 0.00492867323399;
