@@ -18933,6 +18933,73 @@ fn addToInferredErrorSetPtr(sema: *Sema, ies: *InferredErrorSet, op_ty: Type) !v
     }
 }
 
+fn isPointerToStackAllocation(sema: *Sema, ptr: Air.Inst.Ref) CompileError!bool {
+    const inst = ptr.toIndex() orelse return false;
+    const tag = sema.air_instructions.items(.tag)[@intFromEnum(inst)];
+    const data = sema.air_instructions.items(.data)[@intFromEnum(inst)];
+
+    return switch (tag) {
+        .alloc => true,
+        .ret_ptr, .arg => false,
+
+        // Simple ty_op instructions - check the operand
+        .bitcast,
+        .optional_payload_ptr,
+        .unwrap_errunion_payload_ptr,
+        .array_to_slice,
+        .struct_field_ptr_index_0,
+        .struct_field_ptr_index_1,
+        .struct_field_ptr_index_2,
+        .struct_field_ptr_index_3,
+        => try sema.isPointerToStackAllocation(data.ty_op.operand),
+
+        // Instructions with binary operands in extra data
+        .ptr_elem_ptr, .ptr_add, .ptr_sub => blk: {
+            const tmp_air = sema.getTmpAir();
+            const bin = tmp_air.extraData(Air.Bin, data.ty_pl.payload).data;
+            break :blk try sema.isPointerToStackAllocation(bin.lhs);
+        },
+
+        // Struct field pointer
+        .struct_field_ptr => blk: {
+            const tmp_air = sema.getTmpAir();
+            const extra = tmp_air.extraData(Air.StructField, data.ty_pl.payload).data;
+            break :blk try sema.isPointerToStackAllocation(extra.struct_operand);
+        },
+
+        else => false,
+    };
+}
+
+fn isSliceToStackAllocation(sema: *Sema, slice_ref: Air.Inst.Ref) CompileError!bool {
+    const inst = slice_ref.toIndex() orelse return false;
+    const tag = sema.air_instructions.items(.tag)[@intFromEnum(inst)];
+    const data = sema.air_instructions.items(.data)[@intFromEnum(inst)];
+
+    return switch (tag) {
+        .arg => false,
+
+        // Slice creation from pointer + length
+        .slice => blk: {
+            const tmp_air = sema.getTmpAir();
+            const bin = tmp_air.extraData(Air.Bin, data.ty_pl.payload).data;
+            break :blk try sema.isPointerToStackAllocation(bin.lhs);
+        },
+
+        // Array to slice conversion
+        .array_to_slice => try sema.isPointerToStackAllocation(data.ty_op.operand),
+
+        // Recursive slice operations
+        .slice_ptr => try sema.isSliceToStackAllocation(data.ty_op.operand),
+        .slice_elem_ptr, .slice_elem_val => try sema.isSliceToStackAllocation(data.bin_op.lhs),
+
+        // Internal slice field pointers
+        .ptr_slice_ptr_ptr, .ptr_slice_len_ptr => try sema.isPointerToStackAllocation(data.ty_op.operand),
+
+        else => false,
+    };
+}
+
 fn analyzeRet(
     sema: *Sema,
     block: *Block,
@@ -18948,6 +19015,20 @@ fn analyzeRet(
     if (sema.fn_ret_ty_ies != null and sema.fn_ret_ty.zigTypeTag(zcu) == .error_union) {
         try sema.addToInferredErrorSet(uncasted_operand);
     }
+
+    // Check for returning pointers or slices to stack-allocated memory
+    const operand_ty = sema.typeOf(uncasted_operand);
+    if (operand_ty.isSlice(zcu)) {
+        // Check if this is a slice of stack-allocated memory
+        if (try sema.isSliceToStackAllocation(uncasted_operand)) {
+            return sema.fail(block, operand_src, "cannot return slice of stack-allocated memory", .{});
+        }
+    } else if (operand_ty.isPtrAtRuntime(zcu)) {
+        if (try sema.isPointerToStackAllocation(uncasted_operand)) {
+            return sema.fail(block, operand_src, "cannot return pointer to stack-allocated memory", .{});
+        }
+    }
+
     const operand = sema.coerceExtra(block, sema.fn_ret_ty, uncasted_operand, operand_src, .{ .is_ret = true }) catch |err| switch (err) {
         error.NotCoercible => unreachable,
         else => |e| return e,
