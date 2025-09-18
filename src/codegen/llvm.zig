@@ -1115,7 +1115,7 @@ pub const Object = struct {
                 .NoPrune = false,
                 // Workaround for https://github.com/llvm/llvm-project/pull/106464
                 .StackDepth = true,
-                .TraceLoads = options.fuzz,
+                .TraceLoads = false,
                 .TraceStores = false,
                 .CollectControlFlow = false,
             },

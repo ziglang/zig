@@ -57,9 +57,6 @@ fn bitsetUsizes(elems: usize) usize {
 const Executable = struct {
     /// Tracks the hit count for each pc as updated by the process's instrumentation.
     pc_counters: []u8,
-    /// Read-only memory section containing compiled-in constants found from parsing the executable
-    rodata_addr: usize,
-    rodata_size: usize,
 
     cache_f: std.fs.Dir,
     /// Shared copy of all pcs that have been hit stored in a memory-mapped file that can viewed
@@ -72,79 +69,11 @@ const Executable = struct {
     /// Used before this structure is initialized to avoid illegal behavior
     /// from instrumentation functions being called and using undefined values.
     pub const preinit: Executable = .{
-        .rodata_addr = 0,
-        .rodata_size = 0,
         .pc_counters = undefined, // instrumentation works off the __sancov_cntrs section
         .cache_f = undefined,
         .shared_seen_pcs = undefined,
         .pc_digest = undefined,
     };
-
-    /// Even on error, this initializes rodata_addr and rodata_size to valid values
-    fn initRodata(self: *Executable) !void {
-        errdefer {
-            self.rodata_addr = 0;
-            self.rodata_size = 0;
-        }
-
-        const exec_path = std.fs.selfExePathAlloc(gpa) catch |e|
-            if (e == error.OutOfMemory) @panic("OOM") else return e;
-        defer gpa.free(exec_path);
-        const exec_file = try std.fs.cwd().openFile(exec_path, .{});
-        defer exec_file.close();
-
-        switch (builtin.object_format) {
-            .elf => {
-                // We use two reader instances since the data they respectively read are
-                // not next to each other in the file.
-                //
-                // Multiple instances is safe since Elf.SectionHeaderIterator always calls
-                // seekTo (which we also use to arbitrarily set the index) and we always
-                // call seekTo to arbitrarily read from the string table.
-                var r_buf: [4096]u8 = undefined;
-                var r = exec_file.reader(&r_buf);
-                var str_r_buf: [4096]u8 = undefined;
-                var str_r = exec_file.reader(&str_r_buf);
-
-                const ehdr: std.elf.Header = try .read(&r.interface);
-                if (ehdr.shstrndx == 0) return error.NoElfStringTable;
-                var shdr_it = ehdr.iterateSectionHeaders(&r);
-
-                shdr_it.index = ehdr.shstrndx;
-                const str_tab_shdr = try shdr_it.next() orelse return error.InvalidElfSection;
-                const str_tab_off = str_tab_shdr.sh_offset;
-
-                shdr_it.index = 0;
-                while (try shdr_it.next()) |shdr| {
-                    const flags: packed struct {
-                        write: bool,
-                        alloc: bool,
-                        execinstr: bool,
-                    } = @bitCast(@as(u3, @truncate(shdr.sh_flags)));
-                    if (shdr.sh_addr == 0 or shdr.sh_size == 0 or flags != @TypeOf(flags){
-                        .alloc = true,
-                        .write = false,
-                        .execinstr = false,
-                    }) continue;
-
-                    const rodata_name = ".rodata\x00";
-                    try str_r.seekTo(try math.add(u64, str_tab_off, shdr.sh_name));
-                    const section_name = str_r.interface.take(rodata_name.len) catch return r.err.?;
-                    if (!std.mem.eql(u8, section_name, rodata_name))
-                        continue;
-
-                    const addr = math.cast(usize, shdr.sh_addr) orelse return error.Overflow;
-                    const size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-                    _ = try math.add(usize, addr, size); // make sure there is no overflow
-                    self.rodata_addr = addr;
-                    self.rodata_size = size;
-                    return;
-                }
-                return error.NoRodataSection;
-            },
-            else => return error.UnsupportedObjectFormat,
-        }
-    }
 
     fn getCoverageFile(cache_dir: std.fs.Dir, pcs: []const usize, pc_digest: u64) MemoryMappedList {
         const pc_bitset_usizes = bitsetUsizes(pcs.len);
@@ -284,11 +213,6 @@ const Executable = struct {
             .{ self.pc_counters.len, pcs.len },
         );
 
-        self.initRodata() catch |e| if (e != error.UnsupportedObjectFormat) std.log.err(
-            \\failed to enumerate read-only memory: {t}
-            \\efficiency will be severly reduced
-        , .{e});
-
         self.pc_digest = std.hash.Wyhash.hash(0, mem.sliceAsBytes(pcs));
         self.shared_seen_pcs = getCoverageFile(cache_dir, pcs, self.pc_digest);
 
@@ -322,33 +246,22 @@ const Executable = struct {
     };
 };
 
-/// Data gathered from instrumentation functions
-/// Seperate from Executable since its state is resetable and changes
-/// Seperate from Fuzzer since it may be needed before fuzzing starts
+/// Data gathered from instrumentation functions.
+/// Seperate from Executable since its state is resetable and changes.
+/// Seperate from Fuzzer since it may be needed before fuzzing starts.
 const Instrumentation = struct {
     /// Bitset of seen pcs across all runs excluding fresh pcs.
     /// This is seperate then shared_seen_pcs because multiple fuzzing processes are likely using
     /// it which causes contention and unrelated pcs to our campaign being set.
     seen_pcs: []usize,
-    /// Bitset of seen rodata bytes read across all runs
-    seen_rodata_loads: []usize,
-
-    /// Bitset of run's read bytes that weren't present in seen_loads
-    /// Elements are always zero if !any_new_data_loads
-    new_rodata_loads: []usize,
-    any_new_rodata_loads: bool,
 
     /// Stores a fresh input's new pcs
     fresh_pcs: []usize,
-    /// Stores a fresh input's new reads
-    /// Elements are always zero if !any_fresh_rodata_loads
-    fresh_rodata_loads: []usize,
-    any_fresh_rodata_loads: bool,
 
     /// Pcs which __sanitizer_cov_trace_switch and __sanitizer_cov_trace_const_cmpx
     /// have been called from and have had their already been added to const_x_vals
     const_pcs: std.AutoArrayHashMapUnmanaged(usize, void) = .empty,
-    /// Values that have been constant operands in comparisons, switch cases, or memory reads
+    /// Values that have been constant operands in comparisons and switch cases.
     /// There may be duplicates in this array if they came from different addresses, which is
     /// fine as they are likely more important and hence more likely to be selected.
     const_vals2: std.ArrayListUnmanaged(u16) = .empty,
@@ -361,12 +274,7 @@ const Instrumentation = struct {
     /// from instrumentation functions being called and using undefined values.
     pub const preinit: Instrumentation = .{
         .seen_pcs = undefined, // currently only updated by `Fuzzer`
-        .seen_rodata_loads = undefined,
-        .new_rodata_loads = undefined,
-        .any_new_rodata_loads = undefined,
         .fresh_pcs = undefined,
-        .fresh_rodata_loads = undefined,
-        .any_fresh_rodata_loads = undefined,
     };
 
     pub fn depreinit(self: *Instrumentation) void {
@@ -379,20 +287,14 @@ const Instrumentation = struct {
 
     pub fn init() Instrumentation {
         const pc_bitset_usizes = bitsetUsizes(exec.pc_counters.len);
-        const rodata_bitset_usizes = bitsetUsizes(exec.rodata_size);
-        const alloc_usizes = pc_bitset_usizes * 2 + rodata_bitset_usizes * 3;
+        const alloc_usizes = pc_bitset_usizes * 2;
         const buf = gpa.alloc(u8, alloc_usizes * @sizeOf(usize)) catch @panic("OOM");
         var fba_ctx: std.heap.FixedBufferAllocator = .init(buf);
         const fba = fba_ctx.allocator();
 
         var self: Instrumentation = .{
             .seen_pcs = fba.alloc(usize, pc_bitset_usizes) catch unreachable,
-            .seen_rodata_loads = fba.alloc(usize, rodata_bitset_usizes) catch unreachable,
-            .new_rodata_loads = fba.alloc(usize, rodata_bitset_usizes) catch unreachable,
-            .any_new_rodata_loads = undefined,
             .fresh_pcs = fba.alloc(usize, pc_bitset_usizes) catch unreachable,
-            .fresh_rodata_loads = fba.alloc(usize, rodata_bitset_usizes) catch unreachable,
-            .any_fresh_rodata_loads = undefined,
         };
         self.reset();
         return self;
@@ -400,12 +302,7 @@ const Instrumentation = struct {
 
     pub fn reset(self: *Instrumentation) void {
         @memset(self.seen_pcs, 0);
-        @memset(self.seen_rodata_loads, 0);
-        @memset(self.new_rodata_loads, 0);
-        self.any_new_rodata_loads = false;
         @memset(self.fresh_pcs, 0);
-        @memset(self.fresh_rodata_loads, 0);
-        self.any_fresh_rodata_loads = false;
         self.const_pcs.clearRetainingCapacity();
         self.const_vals2.clearRetainingCapacity();
         self.const_vals4.clearRetainingCapacity();
@@ -418,16 +315,7 @@ const Instrumentation = struct {
         return (self.const_pcs.getOrPut(gpa, pc) catch @panic("OOM")).found_existing;
     }
 
-    pub fn clearNewRodataLoads(self: *Instrumentation) void {
-        if (self.any_new_rodata_loads) {
-            @memset(self.new_rodata_loads, 0);
-            self.any_new_rodata_loads = false;
-        }
-    }
-
     pub fn isFresh(self: *Instrumentation) bool {
-        if (self.any_new_rodata_loads) return true;
-
         var hit_pcs = exec.pcBitsetIterator();
         for (self.seen_pcs) |seen_pcs| {
             if (hit_pcs.next() & ~seen_pcs != 0) return true;
@@ -436,38 +324,24 @@ const Instrumentation = struct {
         return false;
     }
 
-    /// Updates fresh_pcs and fresh_rodata_loads
-    /// any_new_rodata_loads and elements of new_rodata_loads are unspecified
-    /// afterwards, but still valid.
+    /// Updates `fresh_pcs`
     pub fn setFresh(self: *Instrumentation) void {
         var hit_pcs = exec.pcBitsetIterator();
         for (self.seen_pcs, self.fresh_pcs) |seen_pcs, *fresh_pcs| {
             fresh_pcs.* = hit_pcs.next() & ~seen_pcs;
         }
-
-        mem.swap([]usize, &self.fresh_rodata_loads, &self.new_rodata_loads);
-        mem.swap(bool, &self.any_fresh_rodata_loads, &self.any_new_rodata_loads);
     }
 
-    /// Returns if exec.pc_counters and new_rodata_loads are the same or a superset of fresh_pcs and
-    /// fresh_rodata_loads respectively.
+    /// Returns if `exec.pc_counters` is a superset of `fresh_pcs`.
     pub fn atleastFresh(self: *Instrumentation) bool {
         var hit_pcs = exec.pcBitsetIterator();
         for (self.fresh_pcs) |fresh_pcs| {
             if (fresh_pcs & hit_pcs.next() != fresh_pcs) return false;
         }
-
-        if (self.any_fresh_rodata_loads) {
-            if (!self.any_new_rodata_loads) return false;
-            for (self.new_rodata_loads, self.fresh_rodata_loads) |n, f| {
-                if (n & f != f) return false;
-            }
-        }
-
         return true;
     }
 
-    /// Updates based off fresh_pcs and fresh_rodata_loads
+    /// Updates based off `fresh_pcs`
     fn updateSeen(self: *Instrumentation) void {
         comptime assert(abi.SeenPcsHeader.trailing[0] == .pc_bits_usize);
         const shared_seen_pcs: [*]volatile usize = @ptrCast(
@@ -478,11 +352,6 @@ const Instrumentation = struct {
             seen.* |= fresh;
             if (fresh != 0)
                 _ = @atomicRmw(usize, shared_seen, .Or, fresh, .monotonic);
-        }
-
-        if (self.any_fresh_rodata_loads) {
-            for (self.seen_rodata_loads, self.fresh_rodata_loads) |*s, f|
-                s.* |= f;
         }
     }
 };
@@ -496,8 +365,8 @@ const Fuzzer = struct {
     /// input.
     input: MemoryMappedList,
 
-    /// Minimized past inputs leading to new pcs or rodata reads. These are randomly mutated in
-    /// round-robin fashion
+    /// Minimized past inputs leading to new pc hits.
+    /// These are randomly mutated in round-robin fashion
     /// Element zero is always an empty input. It is gauraunteed no other elements are empty.
     corpus: std.ArrayListUnmanaged([]const u8),
     corpus_pos: usize,
@@ -596,10 +465,9 @@ const Fuzzer = struct {
         self.run();
         inst.setFresh();
         inst.updateSeen();
-        inst.clearNewRodataLoads();
     }
 
-    /// Assumes fresh_pcs and fresh_rodata_loads correspond to the input
+    /// Assumes `fresh_pcs` correspond to the input
     fn minimizeInput(self: *Fuzzer) void {
         // The minimization technique is kept relatively simple, we sequentially try to remove each
         // byte and check that the new pcs and memory loads are still hit.
@@ -609,7 +477,6 @@ const Fuzzer = struct {
             const old = self.input.orderedRemove(i);
 
             @memset(exec.pc_counters, 0);
-            inst.clearNewRodataLoads();
             self.run();
 
             if (!inst.atleastFresh()) {
@@ -623,11 +490,7 @@ const Fuzzer = struct {
     }
 
     fn run(self: *Fuzzer) void {
-        // We don't need to clear pc_counters here; all we care about is new hits and not already
-        // seen hits. Ideally, we wouldn't even have these counters and do something similiar to
-        // what we do for tracking memory (i.e. a __sanitizer_cov function that updates a flag on a
-        // new hit.)
-        assert(!inst.any_new_rodata_loads);
+        // `pc_counters` is not cleared since only new hits are relevant.
 
         mem.bytesAsValue(usize, self.input.items[0..8]).* =
             mem.nativeToLittle(usize, self.input.items.len - 8);
@@ -673,7 +536,6 @@ const Fuzzer = struct {
                 inst.setFresh();
                 self.minimizeInput();
                 inst.updateSeen();
-                inst.clearNewRodataLoads();
 
                 // An empty-input has always been tried, so if an empty input is fresh then the
                 // test has to be non-deterministic. This has to be checked as duplicate empty
@@ -794,58 +656,6 @@ export fn __sanitizer_cov_trace_switch(val: u64, cases: [*]const u64) void {
             else => {}, // Should be impossible
         }
     }
-}
-
-fn genericLoad(T: anytype, ptr: *align(1) const T, comptime opt_const_vals_field: ?[]const u8) void {
-    const addr = @intFromPtr(ptr);
-    const off = addr -% exec.rodata_addr;
-    if (off >= exec.rodata_size) {
-        @branchHint(.likely);
-        return;
-    }
-
-    const i = off / @bitSizeOf(usize);
-    // Bits are intentionally truncated since the pointer will almost always be aligned
-    const hit = (@as(usize, (1 << @sizeOf(T)) - 1)) << @intCast(off % @bitSizeOf(usize));
-    const new = hit & ~inst.seen_rodata_loads[i];
-    if (new == 0) {
-        @branchHint(.likely);
-        return;
-    }
-
-    inst.new_rodata_loads[i] |= new;
-    inst.any_new_rodata_loads = true;
-
-    if (opt_const_vals_field) |const_vals_field| {
-        // This may have already been hit and this run is just being used for evaluating the
-        // input, in which case we do not want to readd the same value.
-        if (inst.any_fresh_rodata_loads) {
-            @branchHint(.unlikely);
-            if (new & ~inst.fresh_rodata_loads[i] == 0)
-                return;
-        }
-        @field(inst, const_vals_field).append(gpa, ptr.*) catch @panic("OOM");
-    }
-}
-
-export fn __sanitizer_cov_load1(ptr: *align(1) const u8) void {
-    genericLoad(u8, ptr, null);
-}
-
-export fn __sanitizer_cov_load2(ptr: *align(1) const u16) void {
-    genericLoad(u16, ptr, "const_vals2");
-}
-
-export fn __sanitizer_cov_load4(ptr: *align(1) const u32) void {
-    genericLoad(u32, ptr, "const_vals4");
-}
-
-export fn __sanitizer_cov_load8(ptr: *align(1) const u64) void {
-    genericLoad(u64, ptr, "const_vals8");
-}
-
-export fn __sanitizer_cov_load16(ptr: *align(1) const u128) void {
-    genericLoad(u128, ptr, "const_vals16");
 }
 
 export fn __sanitizer_cov_trace_cmp1(arg1: u8, arg2: u8) void {
