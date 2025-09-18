@@ -1547,7 +1547,7 @@ const PrecClass = struct {
     minor: u8 = 0,
     assoc: Assoc = Assoc.left,
 
-    const Major = enum (u3) {
+    const Major = enum(u3) {
         arithmetic = 0,
         bitwise = 1,
         comparison = 2,
@@ -1556,9 +1556,9 @@ const PrecClass = struct {
         root = 5,
     };
 
-    pub const start: PrecClass = .{.major = .root};
+    pub const start: PrecClass = .{ .major = .root };
 
-    pub const Rel = enum (i2) {
+    pub const Rel = enum(i2) {
         lt = -1,
         eq = 0,
         gt = 1,
@@ -1568,20 +1568,20 @@ const PrecClass = struct {
         }
     };
 
-    /// arith > coerc 
-    /// bitwi > coerc 
+    /// arith > coerc
+    /// bitwi > coerc
     /// coerc > compr > logic > root
     /// order[y][x] --> y cmp x
     const major_ordering = b: {
         const base_greater_than_relations = [_][2]Major{
             .{ .arithmetic, .coercion },
-            .{ .bitwise,    .coercion },
-            .{ .coercion,   .comparison },
+            .{ .bitwise, .coercion },
+            .{ .coercion, .comparison },
             .{ .comparison, .logical },
-            .{ .logical,    .root },
+            .{ .logical, .root },
         };
 
-        var order: [6][6] ?Rel = @splat(@splat(null));
+        var order: [6][6]?Rel = @splat(@splat(null));
         for (base_greater_than_relations) |relation| {
             const i = @intFromEnum(relation[0]);
             const j = @intFromEnum(relation[1]);
@@ -1644,52 +1644,52 @@ const OperInfo = struct {
 //  logic 0:                 and
 //  logic 1:                 or
 // Class Ordering is this:
-//  arith > coerc 
-//  bitwi > coerc 
+//  arith > coerc
+//  bitwi > coerc
 //  coerc > compr > logic
 // With subclass order of this:
 //  a0 == a1 > a2
 //  b0 > b1 > b3
 //  l0 > l1
 const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = .start, .tag = Node.Tag.root }, 0, .{
-    .keyword_or = .{ .prec = .{.major = .logical, .minor = 1}, .tag = .bool_or },
+    .keyword_or = .{ .prec = .{ .major = .logical, .minor = 1 }, .tag = .bool_or },
 
-    .keyword_and = .{ .prec = .{.major = .logical, .minor = 0}, .tag = .bool_and },
+    .keyword_and = .{ .prec = .{ .major = .logical, .minor = 0 }, .tag = .bool_and },
 
-    .equal_equal = .{ .prec = .{.major = .comparison, .assoc = Assoc.none}, .tag = .equal_equal },
-    .bang_equal = .{ .prec = .{.major = .comparison, .assoc = Assoc.none}, .tag = .bang_equal },
-    .angle_bracket_left = .{ .prec = .{.major = .comparison, .assoc = Assoc.none}, .tag = .less_than },
-    .angle_bracket_right = .{ .prec = .{.major = .comparison, .assoc = Assoc.none}, .tag = .greater_than },
-    .angle_bracket_left_equal = .{ .prec = .{.major = .comparison, .assoc = Assoc.none}, .tag = .less_or_equal },
-    .angle_bracket_right_equal = .{ .prec = .{.major = .comparison, .assoc = Assoc.none}, .tag = .greater_or_equal },
+    .equal_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .equal_equal },
+    .bang_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .bang_equal },
+    .angle_bracket_left = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .less_than },
+    .angle_bracket_right = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .greater_than },
+    .angle_bracket_left_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .less_or_equal },
+    .angle_bracket_right_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .greater_or_equal },
 
-    .ampersand = .{ .prec = .{.major = .bitwise, .minor = 1}, .tag = .bit_and },
-    .caret = .{ .prec = .{.major = .bitwise, .minor = 2}, .tag = .bit_xor },
-    .pipe = .{ .prec = .{.major = .bitwise, .minor = 3}, .tag = .bit_or },
-    
-    .keyword_orelse = .{ .prec = .{.major = .coercion}, .tag = .@"orelse" },
-    .keyword_catch = .{ .prec = .{.major = .coercion}, .tag = .@"catch" },
+    .ampersand = .{ .prec = .{ .major = .bitwise, .minor = 1 }, .tag = .bit_and },
+    .caret = .{ .prec = .{ .major = .bitwise, .minor = 2 }, .tag = .bit_xor },
+    .pipe = .{ .prec = .{ .major = .bitwise, .minor = 3 }, .tag = .bit_or },
 
-    .angle_bracket_angle_bracket_left = .{ .prec = .{.major = .bitwise, .minor = 0}, .tag = .shl },
-    .angle_bracket_angle_bracket_left_pipe = .{ .prec = .{.major = .bitwise, .minor = 0}, .tag = .shl_sat },
-    .angle_bracket_angle_bracket_right = .{ .prec = .{.major = .bitwise, .minor = 0}, .tag = .shr },
+    .keyword_orelse = .{ .prec = .{ .major = .coercion }, .tag = .@"orelse" },
+    .keyword_catch = .{ .prec = .{ .major = .coercion }, .tag = .@"catch" },
 
-    .plus = .{ .prec = .{.major = .arithmetic, .minor = 2}, .tag = .add },
-    .minus = .{ .prec = .{.major = .arithmetic, .minor = 2}, .tag = .sub },
-    .plus_plus = .{ .prec = .{.major = .arithmetic, .minor = 2}, .tag = .array_cat },
-    .plus_percent = .{ .prec = .{.major = .arithmetic, .minor = 2}, .tag = .add_wrap },
-    .minus_percent = .{ .prec = .{.major = .arithmetic, .minor = 2}, .tag = .sub_wrap },
-    .plus_pipe = .{ .prec = .{.major = .arithmetic, .minor = 2}, .tag = .add_sat },
-    .minus_pipe = .{ .prec = .{.major = .arithmetic, .minor = 2}, .tag = .sub_sat },
+    .angle_bracket_angle_bracket_left = .{ .prec = .{ .major = .bitwise, .minor = 0 }, .tag = .shl },
+    .angle_bracket_angle_bracket_left_pipe = .{ .prec = .{ .major = .bitwise, .minor = 0 }, .tag = .shl_sat },
+    .angle_bracket_angle_bracket_right = .{ .prec = .{ .major = .bitwise, .minor = 0 }, .tag = .shr },
 
-    .pipe_pipe = .{ .prec = .{.major = .arithmetic, .minor = 0}, .tag = .merge_error_sets },
-    .asterisk = .{ .prec = .{.major = .arithmetic, .minor = 0}, .tag = .mul },
-    .slash = .{ .prec = .{.major = .arithmetic, .minor = 0}, .tag = .div },
-    .asterisk_percent = .{ .prec = .{.major = .arithmetic, .minor = 0}, .tag = .mul_wrap },
-    .asterisk_pipe = .{ .prec = .{.major = .arithmetic, .minor = 0}, .tag = .mul_sat },
+    .plus = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .add },
+    .minus = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .sub },
+    .plus_plus = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .array_cat },
+    .plus_percent = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .add_wrap },
+    .minus_percent = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .sub_wrap },
+    .plus_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .add_sat },
+    .minus_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .sub_sat },
 
-    .asterisk_asterisk = .{ .prec = .{.major = .arithmetic, .minor = 1, .assoc = Assoc.none}, .tag = .array_mult },
-    .percent = .{ .prec = .{.major = .arithmetic, .minor = 1, .assoc = Assoc.none}, .tag = .mod },
+    .pipe_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .merge_error_sets },
+    .asterisk = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .mul },
+    .slash = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .div },
+    .asterisk_percent = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .mul_wrap },
+    .asterisk_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .mul_sat },
+
+    .asterisk_asterisk = .{ .prec = .{ .major = .arithmetic, .minor = 1, .assoc = Assoc.none }, .tag = .array_mult },
+    .percent = .{ .prec = .{ .major = .arithmetic, .minor = 1, .assoc = Assoc.none }, .tag = .mod },
 });
 
 fn parseExprPrecedence(p: *Parse, min_exc_prec: PrecClass) Error!?Node.Index {
@@ -1699,7 +1699,7 @@ fn parseExprPrecedence(p: *Parse, min_exc_prec: PrecClass) Error!?Node.Index {
         const tok_tag = p.tokenTag(p.tok_i);
         const info = operTable[@as(usize, @intCast(@intFromEnum(tok_tag)))];
         const rel = info.prec.cmp(min_exc_prec) orelse return p.fail(.ambiguous_operator_precedence);
-        
+
         if (rel == .lt) {
             break;
         }
