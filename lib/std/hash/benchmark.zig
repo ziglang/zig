@@ -21,6 +21,7 @@ const Hash = struct {
     has_anytype_api: ?[]const comptime_int = null,
     init_u8s: ?[]const u8 = null,
     init_u64: ?u64 = null,
+    final_field: ?[]const u8 = null,
 };
 
 const hashes = [_]Hash{
@@ -54,6 +55,7 @@ const hashes = [_]Hash{
     Hash{
         .ty = hash.Adler32,
         .name = "adler32",
+        .final_field = "adler",
     },
     Hash{
         .ty = hash.crc.Crc32,
@@ -119,6 +121,9 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
         if (H.init_u64) |init| {
             break :blk H.ty.init(init);
         }
+        if (!@hasDecl(H.ty, "init")) {
+            break :blk H.ty{};
+        }
         break :blk H.ty.init();
     };
 
@@ -126,7 +131,12 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
     for (0..block_count) |i| {
         h.update(blocks[i * block_size ..][0..block_size]);
     }
-    const final = if (H.has_crypto_api) @as(u64, @truncate(h.finalInt())) else h.final();
+    const final = if (H.has_crypto_api)
+        @as(u64, @truncate(h.finalInt()))
+    else if (H.final_field) |field|
+        @field(h, field)
+    else
+        h.final();
     std.mem.doNotOptimizeAway(final);
 
     const elapsed_ns = timer.read();
@@ -340,7 +350,8 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    const stdout = &stdout_writer.interface;
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
@@ -420,7 +431,7 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
