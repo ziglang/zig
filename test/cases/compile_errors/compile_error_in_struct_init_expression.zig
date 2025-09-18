@@ -10,7 +10,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:14: error: use of undeclared identifier 'crap'

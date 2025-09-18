@@ -16,7 +16,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:6: error: non-pointer parameter declared noalias

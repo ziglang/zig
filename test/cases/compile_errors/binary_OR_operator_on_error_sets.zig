@@ -6,7 +6,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:18: error: invalid operands to binary bitwise expression: 'error_set' and 'error_set'

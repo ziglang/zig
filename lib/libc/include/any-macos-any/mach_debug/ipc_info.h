@@ -70,6 +70,81 @@
 #include <mach/port.h>
 #include <mach/machine/vm_types.h>
 
+/*!
+ * @brief
+ * Type for mach_port_kobject_description() only.
+ *
+ * @discussion
+ * This type preserved the `IOT_*` values that @c ipc_kobject_type_t used
+ * to carry, whose ABI of this type was known to debugging tools of userspace,
+ * by copying XNU's source.
+ *
+ * This provides a guaranteed stable interface now (however no guarantee
+ * is made that values are still in use).
+ *
+ * Values should never be removed to that list, merely abandonned with
+ * a comment.
+ */
+__enum_decl(ipc_info_object_type_t, natural_t, {
+	IPC_OTYPE_NONE                  = 0,
+	IPC_OTYPE_THREAD_CONTROL        = 1,
+	IPC_OTYPE_TASK_CONTROL          = 2,
+	IPC_OTYPE_HOST                  = 3,
+	IPC_OTYPE_HOST_PRIV             = 4,
+	IPC_OTYPE_PROCESSOR             = 5,
+	IPC_OTYPE_PROCESSOR_SET         = 6,
+	IPC_OTYPE_PROCESSOR_SET_NAME    = 7,
+	IPC_OTYPE_TIMER                 = 8,
+	IPC_OTYPE_PORT_SUBST_ONCE       = 9,  /* obsolete: no instances */
+	IPC_OTYPE_MIG                   = 10, /* obsolete: no instances */
+	IPC_OTYPE_MEMORY_OBJECT         = 11, /* no port instances      */
+	IPC_OTYPE_XMM_PAGER             = 12, /* obsolete: no instances */
+	IPC_OTYPE_XMM_KERNEL            = 13, /* obsolete: no instances */
+	IPC_OTYPE_XMM_REPLY             = 14, /* obsolete: no instances */
+	IPC_OTYPE_UND_REPLY             = 15,
+	IPC_OTYPE_HOST_NOTIFY           = 16, /* obsolete: no instances */
+	IPC_OTYPE_HOST_SECURITY         = 17, /* obsolete: no instances */
+	IPC_OTYPE_LEDGER                = 18, /* obsolete: no instances */
+	IPC_OTYPE_MAIN_DEVICE           = 19,
+	IPC_OTYPE_TASK_NAME             = 20,
+	IPC_OTYPE_SUBSYSTEM             = 21, /* obsolete: no instances */
+	IPC_OTYPE_IO_DONE_QUEUE         = 22, /* obsolete: no instances */
+	IPC_OTYPE_SEMAPHORE             = 23,
+	IPC_OTYPE_LOCK_SET              = 24, /* obsolete: no instances */
+	IPC_OTYPE_CLOCK                 = 25,
+	IPC_OTYPE_CLOCK_CTRL            = 26, /* obsolete: no instances */
+	IPC_OTYPE_IOKIT_IDENT           = 27,
+	IPC_OTYPE_NAMED_ENTRY           = 28,
+	IPC_OTYPE_IOKIT_CONNECT         = 29,
+	IPC_OTYPE_IOKIT_OBJECT          = 30,
+	IPC_OTYPE_UPL                   = 31, /* obsolete: no instances */
+	IPC_OTYPE_MEM_OBJ_CONTROL       = 32, /* obsolete: no instances */
+	IPC_OTYPE_AU_SESSIONPORT        = 33,
+	IPC_OTYPE_FILEPORT              = 34,
+	IPC_OTYPE_LABELH                = 35, /* obsolete: no instances */
+	IPC_OTYPE_TASK_RESUME           = 36,
+	IPC_OTYPE_VOUCHER               = 37,
+	IPC_OTYPE_VOUCHER_ATTR_CONTROL  = 38, /* obsolete: no instances */
+	IPC_OTYPE_WORK_INTERVAL         = 39,
+	IPC_OTYPE_UX_HANDLER            = 40,
+	IPC_OTYPE_UEXT_OBJECT           = 41,
+	IPC_OTYPE_ARCADE_REG            = 42,
+	IPC_OTYPE_EVENTLINK             = 43,
+	IPC_OTYPE_TASK_INSPECT          = 44,
+	IPC_OTYPE_TASK_READ             = 45,
+	IPC_OTYPE_THREAD_INSPECT        = 46,
+	IPC_OTYPE_THREAD_READ           = 47,
+	IPC_OTYPE_SUID_CRED             = 48, /* obsolete: no instances */
+	IPC_OTYPE_HYPERVISOR            = 49,
+	IPC_OTYPE_TASK_ID_TOKEN         = 50,
+	IPC_OTYPE_TASK_FATAL            = 51,
+	IPC_OTYPE_KCDATA                = 52,
+	IPC_OTYPE_EXCLAVES_RESOURCE     = 53,
+
+	/* catchall */
+	IPC_OTYPE_UNKNOWN               = ~0u,
+});
+
 /*
  *	Remember to update the mig type definitions
  *	in mach_debug_types.defs when adding/removing fields.

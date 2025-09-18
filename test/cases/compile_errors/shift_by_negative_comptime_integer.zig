@@ -4,7 +4,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:20: error: shift by negative amount '-1'

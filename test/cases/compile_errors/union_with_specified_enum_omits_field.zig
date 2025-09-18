@@ -12,8 +12,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:17: error: enum field(s) missing in union
 // :4:5: note: field 'C' missing, declared here

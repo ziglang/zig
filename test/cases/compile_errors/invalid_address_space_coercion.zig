@@ -7,7 +7,6 @@ pub fn main() void {
 
 // error
 // output_mode=Exe
-// backend=stage2,llvm
 // target=x86_64-linux,x86_64-macos
 //
 // :2:12: error: expected type '*i32', found '*addrspace(.gs) i32'

@@ -7,8 +7,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:10: error: duplicate switch value
 // :4:10: note: previous value here

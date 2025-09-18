@@ -25,8 +25,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :16:20: error: attempt to use null value
 // :24:20: error: attempt to unwrap error: Foo

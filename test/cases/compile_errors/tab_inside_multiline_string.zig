@@ -7,7 +7,5 @@ export fn entry() void {
     _ = foo;
 }
 // error
-// backend=stage2
-// target=native
 //
 // :4:11: error: string literal contains invalid byte: '\t'

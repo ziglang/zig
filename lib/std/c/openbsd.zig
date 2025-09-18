@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
+const caddr_t = std.c.caddr_t;
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const passwd = std.c.passwd;
@@ -12,6 +13,8 @@ const pid_t = std.c.pid_t;
 comptime {
     assert(builtin.os.tag == .openbsd); // Prevent access of std.c symbols on wrong OS.
 }
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;
 
 pub const pthread_spinlock_t = extern struct {
     inner: ?*anyopaque = null,
@@ -350,4 +353,140 @@ pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
     .sparc64 => 1 << 13,
     .mips64 => 1 << 14,
     else => 1 << 12,
+};
+
+// https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/netinet/in.h#L283
+pub const IP = struct {
+    pub const OPTIONS = 1;
+    pub const HDRINCL = 2;
+    pub const TOS = 3;
+    pub const TTL = 4;
+    pub const RECVOPTS = 5;
+    pub const RECVRETOPTS = 6;
+    pub const RECVDSTADDR = 7;
+    pub const RETOPTS = 8;
+    pub const MULTICAST_IF = 9;
+    pub const MULTICAST_TTL = 10;
+    pub const MULTICAST_LOOP = 11;
+    pub const ADD_MEMBERSHIP = 12;
+    pub const DROP_MEMBERSHIP = 13;
+    pub const PORTRANGE = 19;
+    pub const AUTH_LEVEL = 20;
+    pub const ESP_TRANS_LEVEL = 21;
+    pub const ESP_NETWORK_LEVEL = 22;
+    pub const IPSEC_LOCAL_ID = 23;
+    pub const IPSEC_REMOTE_ID = 24;
+    pub const IPSEC_LOCAL_CRED = 25;
+    pub const IPSEC_REMOTE_CRED = 26;
+    pub const IPSEC_LOCAL_AUTH = 27;
+    pub const IPSEC_REMOTE_AUTH = 28;
+    pub const IPCOMP_LEVEL = 29;
+    pub const RECVIF = 30;
+    pub const RECVTTL = 31;
+    pub const MINTTL = 32;
+    pub const RECVDSTPORT = 33;
+    pub const PIPEX = 34;
+    pub const RECVRTABLE = 35;
+    pub const IPSECFLOWINFO = 36;
+    pub const IPDEFTTL = 37;
+    pub const SENDSRCADDR = RECVDSTADDR;
+    pub const RTABLE = 0x1021;
+    pub const DEFAULT_MULTICAST_TTL = 1;
+    pub const DEFAULT_MULTICAST_LOOP = 1;
+    pub const MIN_MEMBERSHIPS = 15;
+    pub const MAX_MEMBERSHIPS = 4095;
+    pub const PORTRANGE_DEFAULT = 0;
+    pub const PORTRANGE_HIGH = 1;
+    pub const PORTRANGE_LOW = 2;
+};
+
+// https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/netinet6/in6.h#L284
+pub const IPV6 = struct {
+    pub const UNICAST_HOPS = 4;
+    pub const MULTICAST_IF = 9;
+    pub const MULTICAST_HOPS = 10;
+    pub const MULTICAST_LOOP = 11;
+    pub const JOIN_GROUP = 12;
+    pub const LEAVE_GROUP = 13;
+    pub const PORTRANGE = 14;
+    pub const CHECKSUM = 26;
+    pub const V6ONLY = 27;
+    pub const RTHDRDSTOPTS = 35;
+    pub const RECVPKTINFO = 36;
+    pub const RECVHOPLIMIT = 37;
+    pub const RECVRTHDR = 38;
+    pub const RECVHOPOPTS = 39;
+    pub const RECVDSTOPTS = 40;
+    pub const USE_MIN_MTU = 42;
+    pub const RECVPATHMTU = 43;
+    pub const PATHMTU = 44;
+    pub const PKTINFO = 46;
+    pub const HOPLIMIT = 47;
+    pub const NEXTHOP = 48;
+    pub const HOPOPTS = 49;
+    pub const DSTOPTS = 50;
+    pub const RTHDR = 51;
+    pub const AUTH_LEVEL = 53;
+    pub const ESP_TRANS_LEVEL = 54;
+    pub const ESP_NETWORK_LEVEL = 55;
+    pub const RECVTCLASS = 57;
+    pub const AUTOFLOWLABEL = 59;
+    pub const IPCOMP_LEVEL = 60;
+    pub const TCLASS = 61;
+    pub const DONTFRAG = 62;
+    pub const PIPEX = 63;
+    pub const RECVDSTPORT = 64;
+    pub const MINHOPCOUNT = 65;
+    pub const RTABLE = 0x1021;
+    pub const RTHDR_LOOSE = 0;
+    pub const RTHDR_TYPE_0 = 0;
+    pub const DEFAULT_MULTICAST_HOPS = 1;
+    pub const DEFAULT_MULTICAST_LOOP = 1;
+    pub const PORTRANGE_DEFAULT = 0;
+    pub const PORTRANGE_HIGH = 1;
+    pub const PORTRANGE_LOW = 2;
+};
+
+// https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/netinet/ip.h#L73
+pub const IPTOS = struct {
+    pub const LOWDELAY = 0x10;
+    pub const THROUGHPUT = 0x08;
+    pub const RELIABILITY = 0x04;
+    pub const CE = 0x01;
+    pub const ECT = 0x02;
+    pub const PREC_NETCONTROL = 0xe0;
+    pub const PREC_INTERNETCONTROL = 0xc0;
+    pub const PREC_CRITIC_ECP = 0xa0;
+    pub const PREC_FLASHOVERRIDE = 0x80;
+    pub const PREC_FLASH = 0x60;
+    pub const PREC_IMMEDIATE = 0x40;
+    pub const PREC_PRIORITY = 0x20;
+    pub const PREC_ROUTINE = 0x00;
+    pub const DSCP_CS0 = 0x00;
+    pub const DSCP_LE = 0x04;
+    pub const DSCP_CS1 = 0x20;
+    pub const DSCP_AF11 = 0x28;
+    pub const DSCP_AF12 = 0x30;
+    pub const DSCP_AF13 = 0x38;
+    pub const DSCP_CS2 = 0x40;
+    pub const DSCP_AF21 = 0x48;
+    pub const DSCP_AF22 = 0x50;
+    pub const DSCP_AF23 = 0x58;
+    pub const DSCP_CS3 = 0x60;
+    pub const DSCP_AF31 = 0x68;
+    pub const DSCP_AF32 = 0x70;
+    pub const DSCP_AF33 = 0x78;
+    pub const DSCP_CS4 = 0x80;
+    pub const DSCP_AF41 = 0x88;
+    pub const DSCP_AF42 = 0x90;
+    pub const DSCP_AF43 = 0x98;
+    pub const DSCP_CS5 = 0xa0;
+    pub const DSCP_EF = 0xb8;
+    pub const DSCP_CS6 = 0xc0;
+    pub const DSCP_CS7 = 0xe0;
+    pub const ECN_NOTECT = 0x00;
+    pub const ECN_ECT1 = 0x01;
+    pub const ECN_ECT0 = 0x02;
+    pub const ECN_CE = 0x03;
+    pub const ECN_MASK = 0x03;
 };

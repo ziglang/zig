@@ -12,8 +12,6 @@ export fn entry3() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:28: error: parameter of opaque type 'tmp.FooType' not allowed
 // :1:17: note: opaque declared here

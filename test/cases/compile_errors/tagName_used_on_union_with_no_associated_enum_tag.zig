@@ -8,8 +8,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:9: error: union 'tmp.FloatInt' is untagged
 // :1:25: note: union declared here

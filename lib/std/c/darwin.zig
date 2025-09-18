@@ -4,6 +4,7 @@ const native_arch = builtin.target.cpu.arch;
 const assert = std.debug.assert;
 const AF = std.c.AF;
 const PROT = std.c.PROT;
+const caddr_t = std.c.caddr_t;
 const fd_t = std.c.fd_t;
 const iovec_const = std.posix.iovec_const;
 const mode_t = std.c.mode_t;
@@ -1318,8 +1319,6 @@ pub const PT = enum(c_int) {
     _,
 };
 
-pub const caddr_t = ?[*]u8;
-
 pub extern "c" fn ptrace(request: PT, pid: pid_t, addr: caddr_t, data: c_int) c_int;
 
 pub const POSIX_SPAWN = packed struct(c_short) {
@@ -1723,4 +1722,166 @@ pub const MSG = struct {
     pub const NOSIGNAL = 0x80000;
     /// Inherit upcall in sock_accept
     pub const USEUPCALL = 0x80000000;
+};
+
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet/in.h#L454
+pub const IP = struct {
+    pub const OPTIONS = 1;
+    pub const HDRINCL = 2;
+    pub const TOS = 3;
+    pub const TTL = 4;
+    pub const RECVOPTS = 5;
+    pub const RECVRETOPTS = 6;
+    pub const RECVDSTADDR = 7;
+    pub const RETOPTS = 8;
+    pub const MULTICAST_IF = 9;
+    pub const MULTICAST_TTL = 10;
+    pub const MULTICAST_LOOP = 11;
+    pub const ADD_MEMBERSHIP = 12;
+    pub const DROP_MEMBERSHIP = 13;
+    pub const MULTICAST_VIF = 14;
+    pub const RSVP_ON = 15;
+    pub const RSVP_OFF = 16;
+    pub const RSVP_VIF_ON = 17;
+    pub const RSVP_VIF_OFF = 18;
+    pub const PORTRANGE = 19;
+    pub const RECVIF = 20;
+    pub const IPSEC_POLICY = 21;
+    pub const FAITH = 22;
+    pub const STRIPHDR = 23;
+    pub const RECVTTL = 24;
+    pub const BOUND_IF = 25;
+    pub const PKTINFO = 26;
+    pub const RECVPKTINFO = PKTINFO;
+    pub const RECVTOS = 27;
+    pub const DONTFRAG = 28;
+    pub const FW_ADD = 40;
+    pub const FW_DEL = 41;
+    pub const FW_FLUSH = 42;
+    pub const FW_ZERO = 43;
+    pub const FW_GET = 44;
+    pub const FW_RESETLOG = 45;
+    pub const OLD_FW_ADD = 50;
+    pub const OLD_FW_DEL = 51;
+    pub const OLD_FW_FLUSH = 52;
+    pub const OLD_FW_ZERO = 53;
+    pub const OLD_FW_GET = 54;
+    pub const OLD_FW_RESETLOG = 56;
+    pub const DUMMYNET_CONFIGURE = 60;
+    pub const DUMMYNET_DEL = 61;
+    pub const DUMMYNET_FLUSH = 62;
+    pub const DUMMYNET_GET = 64;
+    pub const TRAFFIC_MGT_BACKGROUND = 65;
+    pub const MULTICAST_IFINDEX = 66;
+    pub const ADD_SOURCE_MEMBERSHIP = 70;
+    pub const DROP_SOURCE_MEMBERSHIP = 71;
+    pub const BLOCK_SOURCE = 72;
+    pub const UNBLOCK_SOURCE = 73;
+    pub const MSFILTER = 74;
+    // Same namespace, but these are arguments rather than option names
+    pub const DEFAULT_MULTICAST_TTL = 1;
+    pub const DEFAULT_MULTICAST_LOOP = 1;
+    pub const MIN_MEMBERSHIPS = 31;
+    pub const MAX_MEMBERSHIPS = 4095;
+    pub const MAX_GROUP_SRC_FILTER = 512;
+    pub const MAX_SOCK_SRC_FILTER = 128;
+    pub const MAX_SOCK_MUTE_FILTER = 128;
+    pub const PORTRANGE_DEFAULT = 0;
+    pub const PORTRANGE_HIGH = 1;
+    pub const PORTRANGE_LOW = 2;
+};
+
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet6/in6.h#L521
+pub const IPV6 = struct {
+    pub const UNICAST_HOPS = 4;
+    pub const MULTICAST_IF = 9;
+    pub const MULTICAST_HOPS = 10;
+    pub const MULTICAST_LOOP = 11;
+    pub const JOIN_GROUP = 12;
+    pub const LEAVE_GROUP = 13;
+    pub const PORTRANGE = 14;
+    pub const @"2292PKTINFO" = 19;
+    pub const @"2292HOPLIMIT" = 20;
+    pub const @"2292NEXTHOP" = 21;
+    pub const @"2292HOPOPTS" = 22;
+    pub const @"2292DSTOPTS" = 23;
+    pub const @"2292RTHDR" = 24;
+    pub const @"2292PKTOPTIONS" = 25;
+    pub const CHECKSUM = 26;
+    pub const V6ONLY = 27;
+    pub const BINDV6ONLY = V6ONLY;
+    pub const IPSEC_POLICY = 28;
+    pub const FAITH = 29;
+    pub const FW_ADD = 30;
+    pub const FW_DEL = 31;
+    pub const FW_FLUSH = 32;
+    pub const FW_ZERO = 33;
+    pub const FW_GET = 34;
+    pub const RECVTCLASS = 35;
+    pub const TCLASS = 36;
+    pub const RTHDRDSTOPTS = 57;
+    pub const RECVPKTINFO = 61;
+    pub const RECVHOPLIMIT = 37;
+    pub const RECVRTHDR = 38;
+    pub const RECVHOPOPTS = 39;
+    pub const RECVDSTOPTS = 40;
+    pub const RECVRTHDRDSTOPTS = 41;
+    pub const USE_MIN_MTU = 42;
+    pub const RECVPATHMTU = 43;
+    pub const PATHMTU = 44;
+    pub const REACHCONF = 45;
+    pub const @"3542PKTINFO" = 46;
+    pub const @"3542HOPLIMIT" = 47;
+    pub const @"3542NEXTHOP" = 48;
+    pub const @"3542HOPOPTS" = 49;
+    pub const @"3542DSTOPTS" = 50;
+    pub const @"3542RTHDR" = 51;
+    pub const PKTINFO = @"3542PKTINFO";
+    pub const HOPLIMIT = @"3542HOPLIMIT";
+    pub const NEXTHOP = @"3542NEXTHOP";
+    pub const HOPOPTS = @"3542HOPOPTS";
+    pub const DSTOPTS = @"3542DSTOPTS";
+    pub const RTHDR = @"3542RTHDR";
+    pub const AUTOFLOWLABEL = 59;
+    pub const DONTFRAG = 62;
+    pub const PREFER_TEMPADDR = 63;
+    pub const MSFILTER = 74;
+    pub const BOUND_IF = 125;
+    // Same namespace, but these are arguments rather than option names
+    pub const RTHDR_LOOSE = 0;
+    pub const RTHDR_STRICT = 1;
+    pub const RTHDR_TYPE_0 = 0;
+    pub const DEFAULT_MULTICAST_HOPS = 1;
+    pub const DEFAULT_MULTICAST_LOOP = 1;
+    pub const MIN_MEMBERSHIPS = 31;
+    pub const MAX_MEMBERSHIPS = 4095;
+    pub const MAX_GROUP_SRC_FILTER = 512;
+    pub const MAX_SOCK_SRC_FILTER = 128;
+    pub const PORTRANGE_DEFAULT = 0;
+    pub const PORTRANGE_HIGH = 1;
+    pub const PORTRANGE_LOW = 2;
+};
+
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet/ip.h#L129
+pub const IPTOS = struct {
+    pub const LOWDELAY = 0x10;
+    pub const THROUGHPUT = 0x08;
+    pub const RELIABILITY = 0x04;
+    pub const MINCOST = 0x02;
+    pub const CE = 0x01;
+    pub const ECT = 0x02;
+    pub const DSCP_SHIFT = 2;
+    pub const ECN_NOTECT = 0x00;
+    pub const ECN_ECT1 = 0x01;
+    pub const ECN_ECT0 = 0x02;
+    pub const ECN_CE = 0x03;
+    pub const ECN_MASK = 0x03;
+    pub const PREC_NETCONTROL = 0xe0;
+    pub const PREC_INTERNETCONTROL = 0xc0;
+    pub const PREC_CRITIC_ECP = 0xa0;
+    pub const PREC_FLASHOVERRIDE = 0x80;
+    pub const PREC_FLASH = 0x60;
+    pub const PREC_IMMEDIATE = 0x40;
+    pub const PREC_PRIORITY = 0x20;
+    pub const PREC_ROUTINE = 0x00;
 };

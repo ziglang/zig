@@ -9,7 +9,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:13: error: union 'tmp.Foo' depends on itself

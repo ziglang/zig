@@ -152,28 +152,12 @@ typedef mach_port_t                     *mach_port_array_t;
  *	and reused too quickly [to catch right/reference counting bugs].
  *	The dividing line between the constituent parts is exposed so
  *	that efficient "mach_port_name_t to data structure pointer"
- *	conversion implementation can be made.  But it is possible
- *	for user-level code to assign their own names to Mach ports.
- *	These are not required to participate in this algorithm.  So
- *	care should be taken before "assuming" this model.
- *
+ *	conversion implementation can be made.
  */
-
-#ifndef NO_PORT_GEN
 
 #define MACH_PORT_INDEX(name)           ((name) >> 8)
 #define MACH_PORT_GEN(name)             (((name) & 0xff) << 24)
-#define MACH_PORT_MAKE(index, gen)      \
-	        (((index) << 8) | (gen) >> 24)
-
-#else   /* NO_PORT_GEN */
-
-#define MACH_PORT_INDEX(name)           (name)
-#define MACH_PORT_GEN(name)             (0)
-#define MACH_PORT_MAKE(index, gen)      (index)
-
-#endif  /* NO_PORT_GEN */
-
+#define MACH_PORT_MAKE(index, gen)      (((index) << 8) | ((gen) >> 24))
 
 /*
  *  These are the different rights a task may have for a port.
@@ -281,7 +265,7 @@ typedef struct mach_port_limits {
 #define MACH_PORT_STATUS_FLAG_REVIVE            0x10
 #define MACH_PORT_STATUS_FLAG_TASKPTR           0x20
 #define MACH_PORT_STATUS_FLAG_GUARD_IMMOVABLE_RECEIVE 0x40
-#define MACH_PORT_STATUS_FLAG_NO_GRANT          0x80
+#define MACH_PORT_STATUS_FLAG_NO_GRANT          0x80 /* Obsolete */
 
 typedef struct mach_port_info_ext {
 	mach_port_status_t      mpie_status;
@@ -345,35 +329,94 @@ typedef struct mach_service_port_info {
 typedef struct mach_service_port_info * mach_service_port_info_t;
 
 /*
+ * Platform binaries are not allowed to send OOL port array to any port.
+ *
+ * MACH_MSG_OOL_PORTS_DESCRIPTOR are allowed to be sent ONLY to receive
+ * rights that are explicitly allow to receive that descriptor.
+ *
+ * Such ports have a dedicated port type, and are created using the
+ * MPO_CONNECTION_PORT_WITH_PORT_ARRAY flag.
+ *
+ * Creation of such ports requires the binary to have the following entitlement.
+ */
+#define MACH_PORT_CONNECTION_PORT_WITH_PORT_ARRAY "com.apple.developer.allow-connection-port-with-port-array"
+
+/* Allows 1p process to create provisional reply port (to be rename to weak reply port) */
+#define MACH_PORT_PROVISIONAL_REPLY_ENTITLEMENT "com.apple.private.allow-weak-reply-port"
+
+/*
  * Flags for mach_port_options (used for
  * invocation of mach_port_construct).
  * Indicates attributes to be set for the newly
  * allocated port.
  */
-#define MPO_CONTEXT_AS_GUARD               0x01    /* Add guard to the port */
-#define MPO_QLIMIT                         0x02    /* Set qlimit for the port msg queue */
-#define MPO_TEMPOWNER                      0x04    /* Set the tempowner bit of the port */
-#define MPO_IMPORTANCE_RECEIVER            0x08    /* Mark the port as importance receiver */
-#define MPO_INSERT_SEND_RIGHT              0x10    /* Insert a send right for the port */
-#define MPO_STRICT                         0x20    /* Apply strict guarding for port */
-#define MPO_DENAP_RECEIVER                 0x40    /* Mark the port as App de-nap receiver */
-#define MPO_IMMOVABLE_RECEIVE              0x80    /* Mark the port as immovable; protected by the guard context */
-#define MPO_FILTER_MSG                     0x100   /* Allow message filtering */
-#define MPO_TG_BLOCK_TRACKING              0x200   /* Track blocking relationship for thread group during sync IPC */
-#define MPO_SERVICE_PORT                   0x400   /* Create a service port with the given name; should be used only by launchd */
-#define MPO_CONNECTION_PORT                0x800   /* Derive new peer connection port from a given service port */
-#define MPO_REPLY_PORT                     0x1000  /* Designate port as a reply port. */
-#define MPO_ENFORCE_REPLY_PORT_SEMANTICS   0x2000  /* When talking to this port, local port of mach msg needs to follow reply port semantics.*/
-#define MPO_PROVISIONAL_REPLY_PORT         0x4000  /* Designate port as a provisional reply port. */
-#define MPO_EXCEPTION_PORT                 0x8000  /* Used for hardened exceptions - immovable */
 
+/* MPO options flags */
+#define MPO_CONTEXT_AS_GUARD                 0x01    /* Add guard to the port */
+#define MPO_QLIMIT                           0x02    /* Set qlimit for the port msg queue */
+#define MPO_TEMPOWNER                        0x04    /* Set the tempowner bit of the port */
+#define MPO_IMPORTANCE_RECEIVER              0x08    /* Mark the port as importance receiver */
+#define MPO_INSERT_SEND_RIGHT                0x10    /* Insert a send right for the port */
+#define MPO_STRICT                           0x20    /* Apply strict guarding for port */
+#define MPO_DENAP_RECEIVER                   0x40    /* Mark the port as App de-nap receiver */
+#define MPO_IMMOVABLE_RECEIVE                0x80    /* Mark the port as immovable; protected by the guard context */
+#define MPO_FILTER_MSG                       0x100   /* Allow message filtering */
+#define MPO_TG_BLOCK_TRACKING                0x200   /* Track blocking relationship for thread group during sync IPC */
+#define MPO_ENFORCE_REPLY_PORT_SEMANTICS     0x2000  /* When talking to this port, local port of mach msg needs to follow reply port semantics.*/
+/* This service port has requested security hardening */
+#define MPO_STRICT_SERVICE_PORT         (MPO_SERVICE_PORT | MPO_ENFORCE_REPLY_PORT_SEMANTICS)
+
+#define MPO_OPTIONS_MASK               \
+    (MPO_CONTEXT_AS_GUARD |            \
+    MPO_QLIMIT |                       \
+    MPO_TEMPOWNER |                    \
+    MPO_IMPORTANCE_RECEIVER |          \
+    MPO_INSERT_SEND_RIGHT |            \
+    MPO_STRICT |                       \
+    MPO_DENAP_RECEIVER |               \
+    MPO_IMMOVABLE_RECEIVE |            \
+    MPO_FILTER_MSG |                   \
+    MPO_TG_BLOCK_TRACKING |            \
+    MPO_ENFORCE_REPLY_PORT_SEMANTICS)
+
+/* MPO port type flags */
+#define MPO_MAKE_PORT_TYPE(a, b)   (((a & 0x7) << 14) | ((b & 0x7) << 10))
+#define MPO_PORT_TYPE_MASK          MPO_MAKE_PORT_TYPE(0x7, 0x7) /* 0x1dc00 */
+/* These need to be defined for libxpc and other clients who `#ifdef` */
+	#define MPO_PORT                            MPO_PORT
+	#define MPO_SERVICE_PORT                    MPO_SERVICE_PORT
+	#define MPO_CONNECTION_PORT                 MPO_CONNECTION_PORT
+	#define MPO_REPLY_PORT                      MPO_REPLY_PORT
+	#define MPO_PROVISIONAL_REPLY_PORT          MPO_PROVISIONAL_REPLY_PORT
+	#define MPO_EXCEPTION_PORT                  MPO_EXCEPTION_PORT
+	#define MPO_CONNECTION_PORT_WITH_PORT_ARRAY MPO_CONNECTION_PORT_WITH_PORT_ARRAY
+__options_decl(mpo_flags_t, uint32_t, {
+	/* Your classic IOT_PORT, an uninteresting message queue */
+	MPO_PORT                            = MPO_MAKE_PORT_TYPE(0, 0),  /* 0x0 */
+	/* Create a service port with the given name; should be used only by launchd */
+	MPO_SERVICE_PORT                    = MPO_MAKE_PORT_TYPE(0, 1),  /* 0x400 */
+	/* Derive new peer connection port from a given service port */
+	MPO_CONNECTION_PORT                 = MPO_MAKE_PORT_TYPE(0, 2),  /* 0x800 */
+	/* Designate port as a reply port */
+	MPO_REPLY_PORT                      = MPO_MAKE_PORT_TYPE(0, 4),  /* 0x1000 */
+	/* Designate port as a provisional (fake) reply port */
+	MPO_PROVISIONAL_REPLY_PORT          = MPO_MAKE_PORT_TYPE(1, 0),  /* 0x4000 */
+	/* Used for hardened exceptions - immovable */
+	MPO_EXCEPTION_PORT                  = MPO_MAKE_PORT_TYPE(2, 0),  /* 0x8000 */
+	/* Can receive OOL port array descriptors */
+	MPO_CONNECTION_PORT_WITH_PORT_ARRAY = MPO_MAKE_PORT_TYPE(4, 0),  /* 0x10000 */
+});
+#define MPO_UNUSED_BITS         ~(MPO_OPTIONS_MASK | MPO_PORT_TYPE_MASK)
+
+/* Denotes an anonymous service */
+#define MPO_ANONYMOUS_SERVICE   (MACH_PORT_DEAD - 1)
 
 /*
  * Structure to define optional attributes for a newly
  * constructed port.
  */
 typedef struct mach_port_options {
-	uint32_t                flags;          /* Flags defining attributes for port */
+	uint32_t                flags;
 	mach_port_limits_t      mpl;            /* Message queue limit for port */
 	union {
 		uint64_t                   reserved[2];           /* Reserved */
@@ -405,6 +448,7 @@ typedef mach_port_options_t *mach_port_options_ptr_t;
  *       but are truly an enum, please add new values in the "holes".
  */
 enum mach_port_guard_exception_codes {
+	kGUARD_EXC_NONE                         = 0,        /* never sent */
 	kGUARD_EXC_DESTROY                      = 1,
 	kGUARD_EXC_MOD_REFS                     = 2,
 	kGUARD_EXC_INVALID_OPTIONS              = 3,
@@ -413,9 +457,14 @@ enum mach_port_guard_exception_codes {
 	kGUARD_EXC_EXCEPTION_BEHAVIOR_ENFORCE   = 6,
 	kGUARD_EXC_SERVICE_PORT_VIOLATION_FATAL = 7,        /* unused, for future sp defense enablement */
 	kGUARD_EXC_UNGUARDED                    = 8,
+	kGUARD_EXC_KOBJECT_REPLY_PORT_SEMANTICS = 9,
+	kGUARD_EXC_REQUIRE_REPLY_PORT_SEMANTICS = 10,
 	kGUARD_EXC_INCORRECT_GUARD              = 16,
 	kGUARD_EXC_IMMOVABLE                    = 32,
 	kGUARD_EXC_STRICT_REPLY                 = 64,
+	kGUARD_EXC_INVALID_NOTIFICATION_REQ     = 65,
+	kGUARD_EXC_INVALID_MPO_ENTITLEMENT      = 66,
+	kGUARD_EXC_DESCRIPTOR_VIOLATION         = 67,
 	kGUARD_EXC_MSG_FILTERED                 = 128,
 	/* start of [optionally] non-fatal guards */
 	kGUARD_EXC_INVALID_RIGHT                = 256,
@@ -434,40 +483,75 @@ enum mach_port_guard_exception_codes {
 	kGUARD_EXC_RCV_GUARDED_DESC             = 0x00100000,     /* for development only */
 	kGUARD_EXC_SERVICE_PORT_VIOLATION_NON_FATAL = 0x00100001, /* unused, for future sp defense enablement */
 	kGUARD_EXC_PROVISIONAL_REPLY_PORT       = 0x00100002,
+	kGUARD_EXC_OOL_PORT_ARRAY_CREATION      = 0x00100003, /* unused */
+	kGUARD_EXC_MOVE_PROVISIONAL_REPLY_PORT  = 0x00100004,
+	kGUARD_EXC_REPLY_PORT_SINGLE_SO_RIGHT   = 0x00100005,
 	kGUARD_EXC_MOD_REFS_NON_FATAL           = 1u << 21,
 	kGUARD_EXC_IMMOVABLE_NON_FATAL          = 1u << 22,
-	kGUARD_EXC_REQUIRE_REPLY_PORT_SEMANTICS = 1u << 23,
 };
 
 #define MAX_FATAL_kGUARD_EXC_CODE               kGUARD_EXC_MSG_FILTERED
 #define MAX_OPTIONAL_kGUARD_EXC_CODE            kGUARD_EXC_RCV_INVALID_NAME
 
+
 /*
  * Mach port guard flags.
  */
-#define MPG_FLAGS_NONE                             (0x00ull)
+#define MPG_FLAGS_NONE                             0x00
 
 /*
  * These flags are used as bits in the subcode of kGUARD_EXC_STRICT_REPLY exceptions.
  */
-#define MPG_FLAGS_STRICT_REPLY_INVALID_REPLY_DISP  (0x01ull << 56)
-#define MPG_FLAGS_STRICT_REPLY_INVALID_REPLY_PORT  (0x02ull << 56)
-#define MPG_FLAGS_STRICT_REPLY_INVALID_VOUCHER     (0x04ull << 56)
-#define MPG_FLAGS_STRICT_REPLY_NO_BANK_ATTR        (0x08ull << 56)
-#define MPG_FLAGS_STRICT_REPLY_MISMATCHED_PERSONA  (0x10ull << 56)
-#define MPG_FLAGS_STRICT_REPLY_MASK                (0xffull << 56)
+#define MPG_FLAGS_STRICT_REPLY_INVALID_VOUCHER     0x04
+#define MPG_FLAGS_STRICT_REPLY_MISMATCHED_PERSONA  0x10
 
 /*
  * These flags are used as bits in the subcode of kGUARD_EXC_MOD_REFS exceptions.
  */
-#define MPG_FLAGS_MOD_REFS_PINNED_DEALLOC          (0x01ull << 56)
-#define MPG_FLAGS_MOD_REFS_PINNED_DESTROY          (0x02ull << 56)
-#define MPG_FLAGS_MOD_REFS_PINNED_COPYIN           (0x04ull << 56)
+#define MPG_FLAGS_MOD_REFS_PINNED_DEALLOC          0x01
+#define MPG_FLAGS_MOD_REFS_PINNED_DESTROY          0x02
+#define MPG_FLAGS_MOD_REFS_PINNED_COPYIN           0x03
 
 /*
- * These flags are used as bits in the subcode of kGUARD_EXC_IMMOVABLE exceptions.
+ * These flags are used as bits in the subcode of kGUARD_EXC_INVALID_RIGHT exceptions.
  */
-#define MPG_FLAGS_IMMOVABLE_PINNED                 (0x01ull << 56)
+#define MPG_FLAGS_INVALID_RIGHT_RECV               0x01    /* does not have receive right */
+#define MPG_FLAGS_INVALID_RIGHT_DELTA              0x02    /* ipc_right_delta() */
+#define MPG_FLAGS_INVALID_RIGHT_DESTRUCT           0x03    /* ipc_right_destruct() */
+#define MPG_FLAGS_INVALID_RIGHT_COPYIN             0x04    /* ipc_right_copyin() */
+#define MPG_FLAGS_INVALID_RIGHT_DEALLOC            0x05    /* ipc_right_dealloc() */
+#define MPG_FLAGS_INVALID_RIGHT_DEALLOC_KERNEL     0x06    /* mach_port_deallocate_kernel() */
+#define MPG_FLAGS_INVALID_RIGHT_TRANSLATE_PORT     0x07    /* port in ipc_object_translate_port_pset() */
+#define MPG_FLAGS_INVALID_RIGHT_TRANSLATE_PSET     0x08    /* pset in ipc_object_translate_port_pset() */
+
+/*
+ * These flags are used as bits in the subcode of kGUARD_EXC_INVALID_VALUE exceptions.
+ */
+#define MPG_FLAGS_INVALID_VALUE_PEEK               0x01    /* mach_port_peek() */
+#define MPG_FLAGS_INVALID_VALUE_DELTA              0x02    /* ipc_right_delta() */
+#define MPG_FLAGS_INVALID_VALUE_DESTRUCT           0x03    /* ipc_right_destruct() */
+
+/*
+ * These flags are used as bits in the subcode of kGUARD_EXC_KERN_FAILURE exceptions.
+ */
+#define MPG_FLAGS_KERN_FAILURE_TASK                0x01    /* task other than launchd arm pd on service ports */
+#define MPG_FLAGS_KERN_FAILURE_NOTIFY_TYPE         0x02    /* not using IOT_NOTIFICATION_PORT for pd notification */
+#define MPG_FLAGS_KERN_FAILURE_NOTIFY_RECV         0x03    /* notification port not owned by launchd */
+#define MPG_FLAGS_KERN_FAILURE_MULTI_NOTI          0x04    /* register multiple pd notification */
+
+/*
+ * These flags are used as bits in the subcode of kGUARD_EXC_SEND_INVALID_RIGHT exceptions.
+ */
+#define MPG_FLAGS_SEND_INVALID_RIGHT_PORT          0x01    /* ipc_kmsg_copyin_port_descriptor() */
+#define MPG_FLAGS_SEND_INVALID_RIGHT_OOL_PORT      0x02    /* ipc_kmsg_copyin_ool_ports_descriptor() */
+#define MPG_FLAGS_SEND_INVALID_RIGHT_GUARDED       0x03    /* ipc_kmsg_copyin_guarded_port_descriptor */
+
+/*
+ * These flags are used as bits in the subcode of kGUARD_EXC_INVALID_OPTIONS exceptions.
+ */
+#define MPG_FLAGS_INVALID_OPTIONS_OOL_DISP         0x01    /* ipc_kmsg_copyin_ool_ports_descriptor() */
+#define MPG_FLAGS_INVALID_OPTIONS_OOL_ARRAYS       0x02    /* ipc_validate_kmsg_header_from_user() */
+#define MPG_FLAGS_INVALID_OPTIONS_OOL_RIGHT        0x03    /* ipc_validate_kmsg_header_from_user() */
 
 /*
  * Flags for mach_port_guard_with_flags. These flags extend

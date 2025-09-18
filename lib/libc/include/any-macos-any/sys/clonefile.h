@@ -30,10 +30,11 @@
 #define _SYS_CLONEFILE_H_
 
 /* Options for clonefile calls */
-#define CLONE_NOFOLLOW      0x0001     /* Don't follow symbolic links */
-#define CLONE_NOOWNERCOPY   0x0002     /* Don't copy ownership information from source */
-#define CLONE_ACL           0x0004     /* Copy access control lists from source */
-#define CLONE_NOFOLLOW_ANY  0x0008     /* Don't follow any symbolic links in the path */
+#define CLONE_NOFOLLOW        0x0001     /* Don't follow symbolic links */
+#define CLONE_NOOWNERCOPY     0x0002     /* Don't copy ownership information from source */
+#define CLONE_ACL             0x0004     /* Copy access control lists from source */
+#define CLONE_NOFOLLOW_ANY    0x0008     /* Don't follow any symbolic links in the path */
+#define CLONE_RESOLVE_BENEATH 0x0010     /* path must reside in the hierarchy beneath the starting directory */
 
 
 #include <sys/cdefs.h>

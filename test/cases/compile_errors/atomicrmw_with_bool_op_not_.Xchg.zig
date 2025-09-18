@@ -4,7 +4,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:31: error: @atomicRmw with bool only allowed with .Xchg

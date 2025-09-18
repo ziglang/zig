@@ -4,7 +4,5 @@ export fn f1() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: '_' used as an identifier without @"_" syntax

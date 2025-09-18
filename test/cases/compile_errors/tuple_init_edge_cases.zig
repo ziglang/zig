@@ -66,8 +66,6 @@ pub export fn entry6() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :18:14: error: missing tuple field with index 1
 // :25:14: error: missing tuple field with index 1

@@ -4,7 +4,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:8: error: unable to infer variable type

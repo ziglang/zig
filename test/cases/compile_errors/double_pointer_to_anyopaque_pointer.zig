@@ -23,8 +23,6 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:35: error: expected type '*const anyopaque', found '*const *const usize'
 // :4:35: note: cannot implicitly cast double pointer '*const *const usize' to anyopaque pointer '*const anyopaque'

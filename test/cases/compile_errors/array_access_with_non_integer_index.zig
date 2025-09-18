@@ -12,8 +12,6 @@ export fn g() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:11: error: expected type 'usize', found 'bool'
 // :10:15: error: expected type 'usize', found 'bool'

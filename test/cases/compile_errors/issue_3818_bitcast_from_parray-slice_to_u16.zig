@@ -10,8 +10,6 @@ export fn foo2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:37: error: cannot @bitCast from '*[2]u8'
 // :3:37: note: use @intFromPtr to cast to 'u16'

@@ -4,7 +4,5 @@ export fn entry() i32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:1: error: threadlocal variable cannot be constant

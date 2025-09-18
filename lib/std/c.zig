@@ -3991,6 +3991,17 @@ pub const W = switch (native_os) {
     },
     else => void,
 };
+pub const accept_filter_arg = switch (native_os) {
+    // https://github.com/freebsd/freebsd-src/blob/2024887abc7d1b931e00fbb0697658e98adf048d/sys/sys/socket.h#L205
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L164
+    // https://github.com/NetBSD/src/blob/cad5c68a8524927f65e22ad651de3905382be6e0/sys/sys/socket.h#L188
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L504
+    .freebsd, .dragonfly, .netbsd, .macos, .driverkit, .ios, .tvos, .watchos, .visionos => extern struct {
+        name: [16]u8,
+        arg: [240]u8,
+    },
+    else => void,
+};
 pub const clock_t = switch (native_os) {
     .linux => linux.clock_t,
     .emscripten => emscripten.clock_t,
@@ -4076,11 +4087,71 @@ pub const ifreq = switch (native_os) {
     },
     else => void,
 };
+pub const in_pktinfo = switch (native_os) {
+    .linux => linux.in_pktinfo,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/netinet/in.h#L1084
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L1132
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet/in.h#L696
+    .solaris, .illumos, .driverkit, .ios, .macos, .tvos, .watchos, .visionos => extern struct {
+        ifindex: u32,
+        spec_dst: u32,
+        addr: u32,
+    },
+    else => void,
+};
+pub const in6_pktinfo = switch (native_os) {
+    .linux => linux.in6_pktinfo,
+    // https://github.com/freebsd/freebsd-src/blob/9bfbc6826f72eb385bf52f4cde8080bccf7e3ebd/sys/netinet6/in6.h#L547
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/netinet6/in6.h#L575
+    // https://github.com/NetBSD/src/blob/80bf25a5691072d4755e84567ccbdf0729370dea/sys/netinet6/in6.h#L468
+    // https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/netinet6/in6.h#L365
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/netinet/in.h#L1093
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L114IP1
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet6/in6.h#L737
+    // https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/netinet6/in6.h#L63
+    // https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/sys/socket.h#L122
+    .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos, .driverkit, .ios, .macos, .tvos, .watchos, .visionos, .haiku, .serenity => extern struct {
+        addr: [16]u8,
+        ifindex: u32,
+    },
+    else => void,
+};
 pub const itimerspec = switch (native_os) {
     .linux => linux.itimerspec,
     .haiku => extern struct {
         interval: timespec,
         value: timespec,
+    },
+    else => void,
+};
+pub const linger = switch (native_os) {
+    .linux => linux.linger,
+    // https://github.com/freebsd/freebsd-src/blob/46347b3619757e3d683a87ca03efaf2ae242335f/sys/sys/socket.h#L200
+    .freebsd,
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L158
+    .dragonfly,
+    // https://github.com/NetBSD/src/blob/80bf25a5691072d4755e84567ccbdf0729370dea/sys/sys/socket.h#L183
+    .netbsd,
+    // https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/sys/socket.h#L126
+    .openbsd,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/socket.h#L214
+    .solaris,
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/sys/socket.h#L250
+    .illumos,
+    // https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/sys/socket.h#L87
+    .haiku,
+    // https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/sys/socket.h#L122
+    .serenity,
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L498
+    .driverkit,
+    .ios,
+    .macos,
+    .tvos,
+    .watchos,
+    .visionos,
+    => extern struct {
+        onoff: i32, // non-zero to linger on close
+        linger: i32, // time to linger in seconds
     },
     else => void,
 };
@@ -6388,7 +6459,7 @@ pub const IPPROTO = switch (native_os) {
         /// dummy for IP
         pub const IP = 0;
         /// IP6 hop-by-hop options
-        pub const HOPOPTS = IP;
+        pub const HOPOPTS = IPPROTO.IP;
         /// control message protocol
         pub const ICMP = 1;
         /// group mgmt protocol
@@ -6468,6 +6539,39 @@ pub const IPPROTO = switch (native_os) {
         pub const ICMPV6 = 58;
         pub const RAW = 255;
     },
+    else => void,
+};
+pub const IP = switch (native_os) {
+    .linux => linux.IP,
+    .freebsd => freebsd.IP,
+    .dragonfly => dragonfly.IP,
+    .netbsd => netbsd.IP,
+    .openbsd => openbsd.IP,
+    .solaris, .illumos => solaris.IP,
+    .haiku => haiku.IP,
+    .serenity => serenity.IP,
+    else => void,
+};
+pub const IPV6 = switch (native_os) {
+    .linux => linux.IPV6,
+    .freebsd => freebsd.IPV6,
+    .dragonfly => dragonfly.IPV6,
+    .netbsd => netbsd.IPV6,
+    .openbsd => openbsd.IPV6,
+    .solaris, .illumos => solaris.IPV6,
+    .haiku => haiku.IPV6,
+    .serenity => serenity.IPV6,
+    else => void,
+};
+pub const IPTOS = switch (native_os) {
+    .linux => linux.IPTOS,
+    .freebsd => freebsd.IPTOS,
+    .dragonfly => dragonfly.IPTOS,
+    .netbsd => netbsd.IPTOS,
+    .openbsd => openbsd.IPTOS,
+    .solaris, .illumos => solaris.IPTOS,
+    .haiku => haiku.IPTOS,
+    .serenity => serenity.IPTOS,
     else => void,
 };
 pub const SOL = switch (native_os) {
@@ -6741,6 +6845,62 @@ pub const SOMAXCONN = switch (native_os) {
     .freebsd, .dragonfly, .netbsd, .openbsd, .driverkit, .macos, .ios, .tvos, .watchos, .visionos => 128,
     else => void,
 };
+pub const SCM = switch (native_os) {
+    .linux, .emscripten => linux.SCM,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/socket.h#L172
+    // https://github.com/illumos/illumos-gate/blob/489f6310fe8952e87fc1dce8af87990fcfd90f18/usr/src/uts/common/sys/socket.h#L196
+    .solaris, .illumos => struct {
+        pub const RIGHTS = 0x1010;
+        pub const UCRED = 0x1012;
+        pub const TIMESTAMP = SO.TIMESTAMP;
+    },
+    // https://github.com/haiku/haiku/blob/e3d01e53a25446d5ba4999d0ff6dff29a2418657/headers/posix/sys/socket.h#L156
+    .haiku => struct {
+        pub const RIGHTS = 1;
+    },
+    // https://github.com/SerenityOS/serenity/blob/c6618f36bf0949bd76177f202659b1f3079e0792/Kernel/API/POSIX/sys/socket.h#L171
+    .serenity => struct {
+        pub const TIMESTAMP = 0;
+        pub const RIGHTS = 1;
+    },
+    // https://github.com/freebsd/freebsd-src/blob/614e9b33bf5594d9d09b5d296afa4f3aa6971823/sys/sys/socket.h#L593
+    .freebsd => struct {
+        pub const RIGHTS = 1;
+        pub const TIMESTAMP = 2;
+        pub const CREDS = 3;
+        pub const BINTIME = 4;
+        pub const REALTIME = 5;
+        pub const MONOTONIC = 6;
+        pub const TIME_INFO = 7;
+        pub const CREDS2 = 8;
+    },
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L520
+    .dragonfly => struct {
+        pub const RIGHTS = 1;
+        pub const TIMESTAMP = 2;
+        pub const CREDS = 3;
+    },
+    // https://github.com/NetBSD/src/blob/3311177ea898ab8322292ba0e48faa9b2e834cb6/sys/sys/socket.h#L578
+    .netbsd => struct {
+        pub const RIGHTS = 0x01;
+        pub const TIMESTAMP = 0x08;
+        pub const CREDS = 0x10;
+    },
+    // https://github.com/openbsd/src/blob/1b1dd04c9634112eb763374379af99a68ace4328/sys/sys/socket.h#L566
+    .openbsd => struct {
+        pub const RIGHTS = 0x01;
+        pub const TIMESTAMP = 0x04;
+    },
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L1114
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => struct {
+        pub const RIGHTS = 1;
+        pub const TIMESTAMP = 2;
+        pub const CREDS = 3;
+        pub const TIMESTAMP_MONOTONIC = 4;
+    },
+    else => void,
+};
+
 pub const IFNAMESIZE = switch (native_os) {
     .linux => linux.IFNAMESIZE,
     .emscripten => emscripten.IFNAMESIZE,
@@ -10856,6 +11016,18 @@ pub const pthread_threadid_np = switch (native_os) {
     else => {},
 };
 
+pub const caddr_t = ?[*]u8;
+
+pub const ptrace = switch (native_os) {
+    .linux, .serenity => private.ptrace,
+    .macos, .ios, .tvos, .watchos, .visionos => darwin.ptrace,
+    .dragonfly => dragonfly.ptrace,
+    .freebsd => freebsd.ptrace,
+    .netbsd => netbsd.ptrace,
+    .openbsd => openbsd.ptrace,
+    else => {},
+};
+
 pub extern "c" fn sem_init(sem: *sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *sem_t) c_int;
 pub extern "c" fn sem_open(name: [*:0]const u8, flag: c_int, mode: mode_t, value: c_uint) *sem_t;
@@ -11052,7 +11224,6 @@ pub const GETUSTACK = solaris.GETUSTACK;
 pub const PORT_ALERT = solaris.PORT_ALERT;
 pub const PORT_SOURCE = solaris.PORT_SOURCE;
 pub const POSIX_FADV = solaris.POSIX_FADV;
-pub const SCM = solaris.SCM;
 pub const SETCONTEXT = solaris.SETCONTEXT;
 pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
@@ -11305,7 +11476,6 @@ pub const pthread_attr_get_qos_class_np = darwin.pthread_attr_get_qos_class_np;
 pub const pthread_attr_set_qos_class_np = darwin.pthread_attr_set_qos_class_np;
 pub const pthread_get_qos_class_np = darwin.pthread_get_qos_class_np;
 pub const pthread_set_qos_class_self_np = darwin.pthread_set_qos_class_self_np;
-pub const ptrace = darwin.ptrace;
 pub const qos_class_t = darwin.qos_class_t;
 pub const task_flavor_t = darwin.task_flavor_t;
 pub const task_for_pid = darwin.task_for_pid;
@@ -11341,7 +11511,6 @@ pub const vm_region_submap_info_64 = darwin.vm_region_submap_info_64;
 pub const vm_region_submap_short_info_64 = darwin.vm_region_submap_short_info_64;
 pub const vm_region_top_info = darwin.vm_region_top_info;
 
-pub const caddr_t = darwin.caddr_t;
 pub const exception_behavior_array_t = darwin.exception_behavior_array_t;
 pub const exception_behavior_t = darwin.exception_behavior_t;
 pub const exception_data_t = darwin.exception_data_t;
@@ -11465,6 +11634,9 @@ const private = struct {
     extern "c" fn munlock(addr: *align(page_size) const anyopaque, len: usize) c_int;
     extern "c" fn mlockall(flags: MCL) c_int;
     extern "c" fn munlockall() c_int;
+
+    // linux and https://github.com/SerenityOS/serenity/blob/502caef9a40bccc7459f9835f2174a601106299a/Userland/Libraries/LibC/sys/ptrace.cpp
+    extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: ?*anyopaque) c_long;
 
     /// macos modernized symbols.
     /// x86_64 links to $INODE64 suffix for 64-bit support.

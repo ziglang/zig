@@ -4,7 +4,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:13: error: initializing array with struct syntax

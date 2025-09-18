@@ -16,8 +16,6 @@ export fn entry4() u8 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:26: error: expected signed integer type, found 'u32'
 // :7:26: error: expected unsigned integer type, found 'i32'

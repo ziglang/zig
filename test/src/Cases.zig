@@ -26,8 +26,9 @@ pub const DepModule = struct {
 };
 
 pub const Backend = enum {
-    stage1,
-    stage2,
+    /// Test does not care which backend is used; compiler gets to pick the default.
+    auto,
+    selfhosted,
     llvm,
 };
 
@@ -75,7 +76,7 @@ pub const Case = struct {
     emit_h: bool = false,
     is_test: bool = false,
     expect_exact: bool = false,
-    backend: Backend = .stage2,
+    backend: Backend = .auto,
     link_libc: bool = false,
     pic: ?bool = null,
     pie: ?bool = null,
@@ -271,26 +272,6 @@ pub fn addC(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Ca
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
 
-pub fn addCompareOutput(
-    ctx: *Cases,
-    name: []const u8,
-    src: [:0]const u8,
-    expected_stdout: []const u8,
-) void {
-    ctx.addExe(name, .{}).addCompareOutput(src, expected_stdout);
-}
-
-/// Adds a test case that compiles the Zig source given in `src`, executes
-/// it, runs it, and tests the output against `expected_stdout`
-pub fn compareOutput(
-    ctx: *Cases,
-    name: []const u8,
-    src: [:0]const u8,
-    expected_stdout: []const u8,
-) void {
-    return ctx.addCompareOutput(name, src, expected_stdout);
-}
-
 pub fn addTransform(
     ctx: *Cases,
     name: []const u8,
@@ -443,13 +424,13 @@ fn addFromDirInner(
             const resolved_target = b.resolveTargetQuery(target_query);
             const target = &resolved_target.result;
             for (backends) |backend| {
-                if (backend == .stage2 and
+                if (backend == .selfhosted and
                     target.cpu.arch != .aarch64 and target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64 and target.cpu.arch != .spirv64)
                 {
                     // Other backends don't support new liveness format
                     continue;
                 }
-                if (backend == .stage2 and target.os.tag == .macos and
+                if (backend == .selfhosted and target.os.tag == .macos and
                     target.cpu.arch == .x86_64 and builtin.cpu.arch == .aarch64)
                 {
                     // Rosetta has issues with ZLD
@@ -638,7 +619,15 @@ pub fn lowerToBuildSteps(
         if (options.skip_macos and case.target.query.os_tag == .macos) continue;
         if (options.skip_linux and case.target.query.os_tag == .linux) continue;
 
-        const would_use_llvm = @import("../tests.zig").wouldUseLlvm(case.backend == .llvm, case.target.query, case.optimize_mode);
+        const would_use_llvm = @import("../tests.zig").wouldUseLlvm(
+            switch (case.backend) {
+                .auto => null,
+                .selfhosted => false,
+                .llvm => true,
+            },
+            case.target.query,
+            case.optimize_mode,
+        );
         if (options.skip_llvm and would_use_llvm) continue;
 
         const triple_txt = case.target.query.zigTriple(b.allocator) catch @panic("OOM");
@@ -707,8 +696,8 @@ pub fn lowerToBuildSteps(
         if (case.pie) |pie| artifact.pie = pie;
 
         switch (case.backend) {
-            .stage1 => continue,
-            .stage2 => {
+            .auto => {},
+            .selfhosted => {
                 artifact.use_llvm = false;
                 artifact.use_lld = false;
             },
@@ -787,7 +776,7 @@ const TestManifestConfigDefaults = struct {
     /// Asserts if the key doesn't exist - yep, it's an oversight alright.
     fn get(@"type": TestManifest.Type, key: []const u8) []const u8 {
         if (std.mem.eql(u8, key, "backend")) {
-            return "stage2";
+            return "auto";
         } else if (std.mem.eql(u8, key, "target")) {
             if (@"type" == .@"error" or @"type" == .translate_c or @"type" == .run_translated_c) {
                 return "native";
@@ -844,7 +833,7 @@ const TestManifestConfigDefaults = struct {
 /// (see https://github.com/ziglang/zig/issues/11288)
 ///
 /// error
-/// backend=stage1,stage2
+/// backend=selfhosted,llvm
 /// output_mode=exe
 ///
 /// :3:19: error: foo

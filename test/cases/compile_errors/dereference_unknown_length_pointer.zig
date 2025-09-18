@@ -3,7 +3,5 @@ export fn entry(x: [*]i32) i32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:13: error: index syntax required for unknown-length pointer type '[*]i32'

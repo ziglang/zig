@@ -8,6 +8,5 @@ export fn foo() void {
 // the original bug leading to this test occurred only with the LLVM backend.
 
 // error
-// backend=stage2,llvm
 //
 // :2:33: error: expected type 'u32', found '*const [11:0]u8'

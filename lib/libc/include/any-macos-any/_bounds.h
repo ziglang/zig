@@ -42,6 +42,8 @@
 #define _LIBC_SINGLE_BY_DEFAULT()	__ptrcheck_abi_assume_single()
 #define _LIBC_PTRCHECK_REPLACED(R)  __ptrcheck_unavailable_r(R)
 
+#define _LIBC_FORGE_PTR(P, S) __unsafe_forge_bidi_indexable(__typeof__(*P) *, P, S)
+
 #else /* _LIBC_ANNOTATE_BOUNDS */
 
 #define _LIBC_COUNT(x)
@@ -57,6 +59,8 @@
 
 #define _LIBC_SINGLE_BY_DEFAULT()
 #define _LIBC_PTRCHECK_REPLACED(R)
+
+#define _LIBC_FORGE_PTR(P, S) (P)
 
 #endif /* _LIBC_ANNOTATE_BOUNDS */
 

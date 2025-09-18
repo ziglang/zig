@@ -75,7 +75,10 @@ pub const HOST_NAME_MAX = system.HOST_NAME_MAX;
 pub const HW = system.HW;
 pub const IFNAMESIZE = system.IFNAMESIZE;
 pub const IOV_MAX = system.IOV_MAX;
+pub const IP = system.IP;
+pub const IPV6 = system.IPV6;
 pub const IPPROTO = system.IPPROTO;
+pub const IPTOS = system.IPTOS;
 pub const KERN = system.KERN;
 pub const Kevent = system.Kevent;
 pub const MADV = system.MADV;
@@ -101,6 +104,7 @@ pub const RR = system.RR;
 pub const S = system.S;
 pub const SA = system.SA;
 pub const SC = system.SC;
+pub const SCM = system.SCM;
 pub const SEEK = system.SEEK;
 pub const SHUT = system.SHUT;
 pub const SIG = system.SIG;
@@ -133,7 +137,10 @@ pub const fd_t = system.fd_t;
 pub const file_obj = system.file_obj;
 pub const gid_t = system.gid_t;
 pub const ifreq = system.ifreq;
+pub const in_pktinfo = system.in_pktinfo;
+pub const in6_pktinfo = system.in6_pktinfo;
 pub const ino_t = system.ino_t;
+pub const linger = system.linger;
 pub const mcontext_t = system.mcontext_t;
 pub const mode_t = system.mode_t;
 pub const msghdr = system.msghdr;
@@ -7000,7 +7007,7 @@ pub const SetSidError = error{
 pub fn setsid() SetSidError!pid_t {
     const rc = system.setsid();
     switch (errno(rc)) {
-        .SUCCESS => return rc,
+        .SUCCESS => return @intCast(rc),
         .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
@@ -7377,18 +7384,33 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!system.itimerspec {
 }
 
 pub const PtraceError = error{
+    DeadLock,
     DeviceBusy,
     InputOutput,
+    NameTooLong,
+    OperationNotSupported,
+    OutOfMemory,
     ProcessNotFound,
     PermissionDenied,
 } || UnexpectedError;
 
-pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!void {
-    if (native_os == .windows or native_os == .wasi)
-        @compileError("Unsupported OS");
-
+pub fn ptrace(request: u32, pid: pid_t, addr: usize, data: usize) PtraceError!void {
     return switch (native_os) {
-        .linux => switch (errno(linux.ptrace(request, pid, addr, signal, 0))) {
+        .windows,
+        .wasi,
+        .emscripten,
+        .haiku,
+        .solaris,
+        .illumos,
+        .plan9,
+        => @compileError("ptrace unsupported by target OS"),
+
+        .linux => switch (errno(if (builtin.link_libc) std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @ptrFromInt(data),
+        ) else linux.ptrace(request, pid, addr, data, 0))) {
             .SUCCESS => {},
             .SRCH => error.ProcessNotFound,
             .FAULT => unreachable,
@@ -7400,10 +7422,10 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
         },
 
         .macos, .ios, .tvos, .watchos, .visionos => switch (errno(std.c.ptrace(
-            @intCast(request),
+            @enumFromInt(request),
             pid,
             @ptrFromInt(addr),
-            @intCast(signal),
+            @intCast(data),
         ))) {
             .SUCCESS => {},
             .SRCH => error.ProcessNotFound,
@@ -7413,7 +7435,12 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
             else => |err| return unexpectedErrno(err),
         },
 
-        else => switch (errno(system.ptrace(request, pid, addr, signal))) {
+        .dragonfly => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
             .SUCCESS => {},
             .SRCH => error.ProcessNotFound,
             .INVAL => unreachable,
@@ -7421,6 +7448,54 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
             .BUSY => error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         },
+
+        .freebsd => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            .NOENT, .NOMEM => error.OutOfMemory,
+            .NAMETOOLONG => error.NameTooLong,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        .netbsd => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            .DEADLK => error.DeadLock,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        .openbsd => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            .NOTSUP => error.OperationNotSupported,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        else => @compileError("std.posix.ptrace unimplemented for target OS"),
     };
 }
 
