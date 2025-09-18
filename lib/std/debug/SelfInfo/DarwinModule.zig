@@ -203,7 +203,7 @@ fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO
                 .fun_size => {
                     state = .ensym;
                     if (last_sym.strx != 0) {
-                        const name = std.mem.sliceTo(strings[sym.n_strx..], 0);
+                        const name = std.mem.sliceTo(strings[last_sym.strx..], 0);
                         const gop = symbol_names.getOrPutAssumeCapacity(name);
                         if (!gop.found_existing) {
                             assert(gop.index == symbols.items.len);
