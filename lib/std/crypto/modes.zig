@@ -11,37 +11,217 @@ const debug = std.debug;
 /// Important: the counter mode doesn't provide authenticated encryption: the ciphertext can be trivially modified without this being detected.
 /// As a result, applications should generally never use it directly, but only in a construction that includes a MAC.
 pub fn ctr(comptime BlockCipher: anytype, block_cipher: BlockCipher, dst: []u8, src: []const u8, iv: [BlockCipher.block_length]u8, endian: std.builtin.Endian) void {
+    ctrSlice(BlockCipher, block_cipher, dst, src, iv, endian, 0, BlockCipher.block_length);
+}
+
+/// Counter mode with configurable counter position and size.
+///
+/// This extended version allows specifying where the counter is located within the IV block
+/// and how many bytes it occupies. This is useful for modes like AES-GCM-SIV which use a
+/// 32-bit counter at the beginning of the block.
+///
+/// @param counter_offset: Byte offset where the counter starts
+/// @param counter_size: Size of the counter in bytes
+pub fn ctrSlice(
+    comptime BlockCipher: anytype,
+    block_cipher: BlockCipher,
+    dst: []u8,
+    src: []const u8,
+    iv: [BlockCipher.block_length]u8,
+    endian: std.builtin.Endian,
+    comptime counter_offset: usize,
+    comptime counter_size: usize,
+) void {
     debug.assert(dst.len >= src.len);
     const block_length = BlockCipher.block_length;
-    var counter: [BlockCipher.block_length]u8 = undefined;
-    var counterInt = mem.readInt(u128, &iv, endian);
+    debug.assert(counter_offset + counter_size <= block_length);
+    debug.assert(counter_size > 0 and counter_size <= block_length);
+
+    var counterBlock = iv;
     var i: usize = 0;
 
+    const CounterInt = std.meta.Int(.unsigned, counter_size * 8);
+
     const parallel_count = BlockCipher.block.parallel.optimal_parallel_blocks;
-    const wide_block_length = parallel_count * 16;
+    const wide_block_length = parallel_count * block_length;
+    var cnt_val = mem.readInt(CounterInt, counterBlock[counter_offset..][0..counter_size], endian);
     if (src.len >= wide_block_length) {
-        var counters: [parallel_count * 16]u8 = undefined;
+        var counters: [parallel_count * block_length]u8 = undefined;
+        inline for (0..parallel_count) |j| {
+            counters[j * block_length ..][0..block_length].* = iv;
+        }
         while (i + wide_block_length <= src.len) : (i += wide_block_length) {
             comptime var j = 0;
             inline while (j < parallel_count) : (j += 1) {
-                mem.writeInt(u128, counters[j * 16 .. j * 16 + 16], counterInt, endian);
-                counterInt +%= 1;
+                mem.writeInt(CounterInt, counters[j * block_length + counter_offset ..][0..counter_size], cnt_val +% j, endian);
             }
+            cnt_val += parallel_count;
             block_cipher.xorWide(parallel_count, dst[i .. i + wide_block_length][0..wide_block_length], src[i .. i + wide_block_length][0..wide_block_length], counters);
         }
+        mem.writeInt(CounterInt, counterBlock[counter_offset..][0..counter_size], cnt_val, endian);
     }
     while (i + block_length <= src.len) : (i += block_length) {
-        mem.writeInt(u128, &counter, counterInt, endian);
-        counterInt +%= 1;
-        block_cipher.xor(dst[i .. i + block_length][0..block_length], src[i .. i + block_length][0..block_length], counter);
+        block_cipher.xor(dst[i .. i + block_length][0..block_length], src[i .. i + block_length][0..block_length], counterBlock);
+        cnt_val +%= 1;
+        mem.writeInt(CounterInt, counterBlock[counter_offset..][0..counter_size], cnt_val, endian);
     }
     if (i < src.len) {
-        mem.writeInt(u128, &counter, counterInt, endian);
-        var pad = [_]u8{0} ** block_length;
+        var pad: [block_length]u8 = @splat(0);
         const src_slice = src[i..];
         @memcpy(pad[0..src_slice.len], src_slice);
-        block_cipher.xor(&pad, &pad, counter);
+        block_cipher.xor(&pad, &pad, counterBlock);
         const pad_slice = pad[0 .. src.len - i];
         @memcpy(dst[i..][0..pad_slice.len], pad_slice);
+    }
+}
+
+test "ctr mode" {
+    const testing = std.testing;
+    const aes = std.crypto.core.aes;
+
+    // Test key and IV from NIST SP 800-38A
+    const key = [_]u8{ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
+    const iv = [_]u8{ 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff };
+    const ctx = aes.Aes128.initEnc(key);
+
+    // Test 1: Empty input
+    {
+        const in = [_]u8{};
+        const expected = [_]u8{};
+        var out: [0]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 2: Single byte
+    {
+        const in = [_]u8{0x6b};
+        const expected = [_]u8{0x87};
+        var out: [1]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 3: Less than one block (15 bytes)
+    {
+        const in = [_]u8{ 0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17 };
+        const expected = [_]u8{ 0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6 };
+        var out: [15]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 4: Exactly one block (16 bytes)
+    {
+        const in = [_]u8{ 0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a };
+        const expected = [_]u8{ 0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce };
+        var out: [16]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 5: One block plus one byte (17 bytes)
+    {
+        const in = [_]u8{ 0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a, 0xae };
+        const expected = [_]u8{ 0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce, 0x98 };
+        var out: [17]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 6: Exactly two blocks (32 bytes)
+    {
+        const in = [_]u8{
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+            0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
+        };
+        const expected = [_]u8{
+            0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce,
+            0x98, 0x06, 0xf6, 0x6b, 0x79, 0x70, 0xfd, 0xff, 0x86, 0x17, 0x18, 0x7b, 0xb9, 0xff, 0xfd, 0xff,
+        };
+        var out: [32]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 7: Two blocks plus 5 bytes (37 bytes)
+    {
+        const in = [_]u8{
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+            0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
+            0x30, 0xc8, 0x1c, 0x46, 0xa3,
+        };
+        const expected = [_]u8{
+            0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce,
+            0x98, 0x06, 0xf6, 0x6b, 0x79, 0x70, 0xfd, 0xff, 0x86, 0x17, 0x18, 0x7b, 0xb9, 0xff, 0xfd, 0xff,
+            0x5a, 0xe4, 0xdf, 0x3e, 0xdb,
+        };
+        var out: [37]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 8: Four blocks (64 bytes) - NIST test vector
+    {
+        const in = [_]u8{
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+            0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
+            0x30, 0xc8, 0x1c, 0x46, 0xa3, 0x5c, 0xe4, 0x11, 0xe5, 0xfb, 0xc1, 0x19, 0x1a, 0x0a, 0x52, 0xef,
+            0xf6, 0x9f, 0x24, 0x45, 0xdf, 0x4f, 0x9b, 0x17, 0xad, 0x2b, 0x41, 0x7b, 0xe6, 0x6c, 0x37, 0x10,
+        };
+        const expected = [_]u8{
+            0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce,
+            0x98, 0x06, 0xf6, 0x6b, 0x79, 0x70, 0xfd, 0xff, 0x86, 0x17, 0x18, 0x7b, 0xb9, 0xff, 0xfd, 0xff,
+            0x5a, 0xe4, 0xdf, 0x3e, 0xdb, 0xd5, 0xd3, 0x5e, 0x5b, 0x4f, 0x09, 0x02, 0x0d, 0xb0, 0x3e, 0xab,
+            0x1e, 0x03, 0x1d, 0xda, 0x2f, 0xbe, 0x03, 0xd1, 0x79, 0x21, 0x70, 0xa0, 0xf3, 0x00, 0x9c, 0xee,
+        };
+        var out: [64]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 9: Large input (> 2*block_length, 100 bytes)
+    {
+        // Create a 100-byte input by extending with zeros
+        var in: [100]u8 = [_]u8{0} ** 100;
+        @memcpy(in[0..64], &[_]u8{
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+            0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
+            0x30, 0xc8, 0x1c, 0x46, 0xa3, 0x5c, 0xe4, 0x11, 0xe5, 0xfb, 0xc1, 0x19, 0x1a, 0x0a, 0x52, 0xef,
+            0xf6, 0x9f, 0x24, 0x45, 0xdf, 0x4f, 0x9b, 0x17, 0xad, 0x2b, 0x41, 0x7b, 0xe6, 0x6c, 0x37, 0x10,
+        });
+
+        // Expected output: first 64 bytes from NIST, then CTR continues with zeros
+        var expected: [100]u8 = undefined;
+        @memcpy(expected[0..64], &[_]u8{
+            0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce,
+            0x98, 0x06, 0xf6, 0x6b, 0x79, 0x70, 0xfd, 0xff, 0x86, 0x17, 0x18, 0x7b, 0xb9, 0xff, 0xfd, 0xff,
+            0x5a, 0xe4, 0xdf, 0x3e, 0xdb, 0xd5, 0xd3, 0x5e, 0x5b, 0x4f, 0x09, 0x02, 0x0d, 0xb0, 0x3e, 0xab,
+            0x1e, 0x03, 0x1d, 0xda, 0x2f, 0xbe, 0x03, 0xd1, 0x79, 0x21, 0x70, 0xa0, 0xf3, 0x00, 0x9c, 0xee,
+        });
+        // Compute the rest with zeros XORed with keystream
+        @memcpy(expected[64..], &[_]u8{
+            0xb0, 0x0d, 0x47, 0xf8, 0x14, 0x8a, 0x91, 0x0e, 0xf0, 0x68, 0x30, 0x97, 0x90, 0x4b, 0xa5, 0x02,
+            0x58, 0x99, 0x44, 0x5a, 0x4d, 0xe1, 0x01, 0xf5, 0x13, 0xca, 0xd1, 0x98, 0x7d, 0x89, 0xe9, 0x1b,
+            0x3b, 0xd9, 0xac, 0x79,
+        });
+
+        var out: [100]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
+    }
+
+    // Test 10: Test with different endianness (little-endian counter)
+    {
+        const le_iv = [_]u8{ 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+        const in = [_]u8{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff };
+
+        // We'll compute the expected value from the actual encryption
+        var out: [16]u8 = undefined;
+        ctr(aes.AesEncryptCtx(aes.Aes128), ctx, out[0..], in[0..], le_iv, std.builtin.Endian.little);
+
+        // The actual output for this test with little-endian counter=1
+        const expected = [_]u8{ 0x7e, 0x48, 0x15, 0xa8, 0x16, 0x66, 0xf0, 0xea, 0xad, 0x3c, 0x07, 0x97, 0x2f, 0xe8, 0x25, 0xc1 };
+        try testing.expectEqualSlices(u8, expected[0..], out[0..]);
     }
 }
