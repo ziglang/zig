@@ -23,20 +23,24 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
         } else if (cpu.arch.isArm()) {
             if (cpu.has(.arm, .neon)) break :blk 128;
         } else if (cpu.arch.isAARCH64()) {
-            // SVE allows up to 2048 bits in the specification, as of 2022 the most powerful machine has implemented 512-bit
-            // I think is safer to just be on 128 until is more common
-            // TODO: Check on this return when bigger values are more common
-            if (cpu.has(.aarch64, .sve)) break :blk 128;
+            // NVIDIA Grace supports 128-bit SVE
+            // AWS Graviton3 supports 256-bit SVE
+            // Fujitsu A64FX supports 512-bit SVE
+            // -> 256-bit seems like a good default for now.
+            if (cpu.has(.aarch64, .sve)) break :blk 256;
             if (cpu.has(.aarch64, .neon)) break :blk 128;
-        } else if (cpu.arch.isPowerPC()) {
-            if (cpu.has(.powerpc, .altivec)) break :blk 128;
+        } else if (cpu.arch == .hexagon) {
+            if (cpu.has(.hexagon, .hvx_length64b)) break :blk 512;
+            if (cpu.has(.hexagon, .hvx)) break :blk 1024;
+        } else if (cpu.arch.isLoongArch()) {
+            if (cpu.has(.loongarch, .lasx)) break :blk 256;
+            if (cpu.has(.loongarch, .lsx)) break :blk 128;
         } else if (cpu.arch.isMIPS()) {
             if (cpu.has(.mips, .msa)) break :blk 128;
-            // TODO: Test MIPS capability to handle bigger vectors
-            //       In theory MDMX and by extension mips3d have 32 registers of 64 bits which can use in parallel
-            //       for multiple processing, but I don't know what's optimal here, if using
-            //       the 2048 bits or using just 64 per vector or something in between
             if (cpu.has(.mips, .mips3d)) break :blk 64;
+        } else if (cpu.arch.isPowerPC()) {
+            if (cpu.has(.powerpc, .vsx)) break :blk 128;
+            if (cpu.has(.powerpc, .altivec)) break :blk 128;
         } else if (cpu.arch.isRISCV()) {
             // In RISC-V Vector Registers are length agnostic so there's no good way to determine the best size.
             // The usual vector length in most RISC-V cpus is 256 bits, however it can get to multiple kB.
@@ -60,12 +64,12 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
 
                 break :blk 256;
             }
+        } else if (cpu.arch == .s390x) {
+            if (cpu.has(.s390x, .vector)) break :blk 128;
         } else if (cpu.arch.isSPARC()) {
-            // TODO: Test Sparc capability to handle bigger vectors
-            //       In theory Sparc have 32 registers of 64 bits which can use in parallel
-            //       for multiple processing, but I don't know what's optimal here, if using
-            //       the 2048 bits or using just 64 per vector or something in between
             if (cpu.hasAny(.sparc, &.{ .vis, .vis2, .vis3 })) break :blk 64;
+        } else if (cpu.arch == .ve) {
+            if (cpu.has(.ve, .vpu)) break :blk 2048;
         } else if (cpu.arch.isWasm()) {
             if (cpu.has(.wasm, .simd128)) break :blk 128;
         }
