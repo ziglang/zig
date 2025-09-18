@@ -324,7 +324,7 @@ pub const UnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!void {
+pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
     return unwindFrameInner(module, gpa, di, context) catch |err| switch (err) {
         error.InvalidDebugInfo,
         error.MissingDebugInfo,
@@ -340,7 +340,7 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
         => return error.InvalidDebugInfo,
     };
 }
-fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !void {
+fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
     if (di.unwind == null) di.unwind = module.loadUnwindInfo();
     const unwind = &di.unwind.?;
 
@@ -640,7 +640,13 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
         else => comptime unreachable, // unimplemented
     };
 
-    context.pc = std.debug.stripInstructionPtrAuthCode(new_ip) -| 1;
+    const ret_addr = std.debug.stripInstructionPtrAuthCode(new_ip);
+
+    // Like `DwarfUnwindContext.unwindFrame`, adjust our next lookup pc in case the `call` was this
+    // function's last instruction making `ret_addr` one byte past its end.
+    context.pc = ret_addr -| 1;
+
+    return ret_addr;
 }
 pub const DebugInfo = struct {
     unwind: ?Unwind,
