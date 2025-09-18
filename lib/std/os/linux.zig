@@ -4338,6 +4338,12 @@ pub const SO = if (is_mips) struct {
 };
 
 pub const SCM = struct {
+    // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=f777d1112ee597d7f7dd3ca232220873a34ad0c8#n178
+    pub const RIGHTS = 1;
+    pub const CREDENTIALS = 2;
+    pub const SECURITY = 3;
+    pub const PIDFD = 4;
+
     pub const WIFI_STATUS = SO.WIFI_STATUS;
     pub const TIMESTAMPING_OPT_STATS = 54;
     pub const TIMESTAMPING_PKTINFO = 58;
@@ -4519,6 +4525,52 @@ pub const IPV6 = struct {
     pub const UNICAST_IF = 76;
     pub const RECVFRAGSIZE = 77;
     pub const FREEBIND = 78;
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/ip.h?id=64e844505bc08cde3f346f193cbbbab0096fef54#n24
+pub const IPTOS = struct {
+    pub const TOS_MASK = 0x1e;
+    pub fn TOS(t: anytype) @TypeOf(t) {
+        return t & TOS_MASK;
+    }
+
+    pub const MINCOST = 0x02;
+    pub const RELIABILITY = 0x04;
+    pub const THROUGHPUT = 0x08;
+    pub const LOWDELAY = 0x10;
+
+    pub const PREC_MASK = 0xe0;
+    pub fn PREC(t: anytype) @TypeOf(t) {
+        return t & PREC_MASK;
+    }
+
+    pub const PREC_ROUTINE = 0x00;
+    pub const PREC_PRIORITY = 0x20;
+    pub const PREC_IMMEDIATE = 0x40;
+    pub const PREC_FLASH = 0x60;
+    pub const PREC_FLASHOVERRIDE = 0x80;
+    pub const PREC_CRITIC_ECP = 0xa0;
+    pub const PREC_INTERNETCONTROL = 0xc0;
+    pub const PREC_NETCONTROL = 0xe0;
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=b1e904999542ad6764eafa54545f1c55776006d1#n43
+pub const linger = extern struct {
+    onoff: i32, // non-zero to linger on close
+    linger: i32, // time to linger in seconds
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/in.h?id=64e844505bc08cde3f346f193cbbbab0096fef54#n250
+pub const in_pktinfo = extern struct {
+    ifindex: i32,
+    spec_dst: u32,
+    addr: u32,
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/ipv6.h?id=f24987ef6959a7efaf79bffd265522c3df18d431#n22
+pub const in6_pktinfo = extern struct {
+    addr: [16]u8,
+    ifindex: i32,
 };
 
 /// IEEE 802.3 Ethernet magic constants. The frame sizes omit the preamble
