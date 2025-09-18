@@ -3914,15 +3914,17 @@ pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu)
             explicit_align
         else
             field_ty.abiAlignment(zcu);
-        const field_size = field_ty.abiSize(zcu);
-        if (field_size > payload_size) {
-            payload_size = field_size;
-            biggest_field = @intCast(field_index);
-        }
-        if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
-            most_aligned_field = @intCast(field_index);
-            most_aligned_field_align = field_align;
-            most_aligned_field_size = field_size;
+        if (field_ty.hasRuntimeBits(zcu)) {
+            const field_size = field_ty.abiSize(zcu);
+            if (field_size > payload_size) {
+                payload_size = field_size;
+                biggest_field = @intCast(field_index);
+            }
+            if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
+                most_aligned_field = @intCast(field_index);
+                most_aligned_field_align = field_align;
+                most_aligned_field_size = field_size;
+            }
         }
         payload_align = payload_align.max(field_align);
     }
