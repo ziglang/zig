@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
+const caddr_t = std.c.caddr_t;
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const passwd = std.c.passwd;
@@ -12,6 +13,8 @@ const pid_t = std.c.pid_t;
 comptime {
     assert(builtin.os.tag == .openbsd); // Prevent access of std.c symbols on wrong OS.
 }
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;
 
 pub const pthread_spinlock_t = extern struct {
     inner: ?*anyopaque = null,

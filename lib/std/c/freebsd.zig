@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const PATH_MAX = std.c.PATH_MAX;
 const blkcnt_t = std.c.blkcnt_t;
 const blksize_t = std.c.blksize_t;
+const caddr_t = std.c.caddr_t;
 const dev_t = std.c.dev_t;
 const fd_t = std.c.fd_t;
 const gid_t = std.c.gid_t;
@@ -24,6 +25,8 @@ const clockid_t = std.c.clockid_t;
 comptime {
     assert(builtin.os.tag == .freebsd); // Prevent access of std.c symbols on wrong OS.
 }
+
+pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
 pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*off_t, fd_out: fd_t, off_out: ?*off_t, len: usize, flags: u32) usize;
