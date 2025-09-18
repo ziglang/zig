@@ -214,6 +214,9 @@
         .tsan = .{
             .path = "tsan",
         },
+        .posix = .{
+            .path = "posix",
+        },
     },
     .paths = .{
         "build.zig",
