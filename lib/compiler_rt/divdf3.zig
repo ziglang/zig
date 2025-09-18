@@ -122,12 +122,12 @@ inline fn div(a: f64, b: f64) f64 {
     // with each iteration, so after three iterations, we have about 28 binary
     // digits of accuracy.
     var correction32: u32 = undefined;
-    correction32 = @truncate(~(@as(u64, recip32) *% q31b >> 32) +% 1);
-    recip32 = @truncate(@as(u64, recip32) *% correction32 >> 31);
-    correction32 = @truncate(~(@as(u64, recip32) *% q31b >> 32) +% 1);
-    recip32 = @truncate(@as(u64, recip32) *% correction32 >> 31);
-    correction32 = @truncate(~(@as(u64, recip32) *% q31b >> 32) +% 1);
-    recip32 = @truncate(@as(u64, recip32) *% correction32 >> 31);
+    correction32 = @truncate(~((@as(u64, recip32) *% q31b) >> 32) +% 1);
+    recip32 = @truncate((@as(u64, recip32) *% correction32) >> 31);
+    correction32 = @truncate(~((@as(u64, recip32) *% q31b) >> 32) +% 1);
+    recip32 = @truncate((@as(u64, recip32) *% correction32) >> 31);
+    correction32 = @truncate(~((@as(u64, recip32) *% q31b) >> 32) +% 1);
+    recip32 = @truncate((@as(u64, recip32) *% correction32) >> 31);
 
     // recip32 might have overflowed to exactly zero in the preceding
     // computation if the high word of b is exactly 1.0.  This would sabotage
@@ -140,10 +140,10 @@ inline fn div(a: f64, b: f64) f64 {
     const q63blo: u32 = @truncate(bSignificand << 11);
     var correction: u64 = undefined;
     var reciprocal: u64 = undefined;
-    correction = ~(@as(u64, recip32) *% q31b +% (@as(u64, recip32) *% q63blo >> 32)) +% 1;
+    correction = ~(@as(u64, recip32) *% q31b +% ((@as(u64, recip32) *% q63blo) >> 32)) +% 1;
     const cHi: u32 = @truncate(correction >> 32);
     const cLo: u32 = @truncate(correction);
-    reciprocal = @as(u64, recip32) *% cHi +% (@as(u64, recip32) *% cLo >> 32);
+    reciprocal = @as(u64, recip32) *% cHi +% ((@as(u64, recip32) *% cLo) >> 32);
 
     // We already adjusted the 32-bit estimate, now we need to adjust the final
     // 64-bit reciprocal estimate downward to ensure that it is strictly smaller
