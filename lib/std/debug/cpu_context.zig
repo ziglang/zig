@@ -316,7 +316,7 @@ pub const X86_64 = struct {
             \\movq %%r15, 0x78(%%rdi)
             \\leaq (%%rip), %%rax
             \\movq %%rax, 0x80(%%rdi)
-            \\movq 0x00(%%rdi), %%rax  // restore saved rax
+            \\movq 0x00(%%rdi), %%rax
             :
             : [gprs] "{rdi}" (&ctx.gprs.values),
             : .{ .memory = true });
@@ -431,7 +431,7 @@ pub const Aarch64 = extern struct {
             \\str x1, [x0, #0x0f8]
             \\adr x1, .
             \\str x1, [x0, #0x100]
-            \\ldr x1, [x0, #0x008] // restore saved x1
+            \\ldr x1, [x0, #0x008]
             :
             : [gprs] "{x0}" (&ctx),
             : .{ .memory = true });

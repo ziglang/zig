@@ -756,7 +756,13 @@ const StackIterator = union(enum) {
             // Use `di_first` here so we report the PC in the context before unwinding any further.
             return .{ .di_first = .init(context_ptr) };
         }
-        if (SelfInfo.supports_unwinding and cpu_context.Native != noreturn) {
+        // Workaround the C backend being unable to use inline assembly on MSVC by disabling the
+        // call to `current`. This effectively constrains stack trace collection and dumping to FP
+        // unwinding when building with CBE for MSVC.
+        if (!(builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) and
+            SelfInfo.supports_unwinding and
+            cpu_context.Native != noreturn)
+        {
             // We don't need `di_first` here, because our PC is in `std.debug`; we're only interested
             // in our caller's frame and above.
             return .{ .di = .init(&.current()) };
