@@ -36,6 +36,10 @@ pub const aead = struct {
         pub const Aes256Ocb = @import("crypto/aes_ocb.zig").Aes256Ocb;
     };
 
+    pub const ascon = struct {
+        pub const AsconAead128 = @import("crypto/ascon.zig").AsconAead128;
+    };
+
     pub const chacha_poly = struct {
         pub const ChaCha20Poly1305 = @import("crypto/chacha20.zig").ChaCha20Poly1305;
         pub const ChaCha12Poly1305 = @import("crypto/chacha20.zig").ChaCha12Poly1305;
@@ -115,6 +119,12 @@ pub const ecc = struct {
 
 /// Hash functions.
 pub const hash = struct {
+    pub const ascon = struct {
+        const variants = @import("crypto/ascon.zig");
+        pub const AsconHash256 = variants.AsconHash256;
+        pub const AsconXof128 = variants.AsconXof128;
+        pub const AsconCxof128 = variants.AsconCxof128;
+    };
     pub const blake2 = @import("crypto/blake2.zig");
     pub const Blake3 = @import("crypto/blake3.zig").Blake3;
     pub const Md5 = @import("crypto/md5.zig").Md5;
@@ -243,6 +253,8 @@ pub const SideChannelsMitigations = enum {
 pub const default_side_channels_mitigations = .medium;
 
 test {
+    _ = aead.ascon.AsconAead128;
+
     _ = aead.aegis.Aegis128L;
     _ = aead.aegis.Aegis256;
 
@@ -281,6 +293,7 @@ test {
     _ = ecc.Ristretto255;
     _ = ecc.Secp256k1;
 
+    _ = hash.ascon;
     _ = hash.blake2;
     _ = hash.Blake3;
     _ = hash.Md5;
