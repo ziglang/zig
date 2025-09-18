@@ -607,26 +607,212 @@ test "@intCast on vector" {
 
     const S = struct {
         fn doTheTest() !void {
-            // Upcast (implicit, equivalent to @intCast)
-            var up0: @Vector(2, u8) = [_]u8{ 0x55, 0xaa };
-            _ = &up0;
-            const up1: @Vector(2, u16) = up0;
-            const up2: @Vector(2, u32) = up0;
-            const up3: @Vector(2, u64) = up0;
-            // Downcast (safety-checked)
-            var down0 = up3;
-            _ = &down0;
-            const down1: @Vector(2, u32) = @intCast(down0);
-            const down2: @Vector(2, u16) = @intCast(down0);
-            const down3: @Vector(2, u8) = @intCast(down0);
+            {
+                // Upcast (implicit, equivalent to @intCast)
+                var up0: @Vector(2, u8) = .{ 0x55, 0xaa };
+                _ = &up0;
+                const up1: @Vector(2, u16) = up0;
+                const up2: @Vector(2, u32) = up0;
+                const up3: @Vector(2, u64) = up0;
 
-            try expect(mem.eql(u16, &@as([2]u16, up1), &[2]u16{ 0x55, 0xaa }));
-            try expect(mem.eql(u32, &@as([2]u32, up2), &[2]u32{ 0x55, 0xaa }));
-            try expect(mem.eql(u64, &@as([2]u64, up3), &[2]u64{ 0x55, 0xaa }));
+                try expect(mem.eql(u16, &@as([2]u16, up1), &[2]u16{ 0x55, 0xaa }));
+                try expect(mem.eql(u32, &@as([2]u32, up2), &[2]u32{ 0x55, 0xaa }));
+                try expect(mem.eql(u64, &@as([2]u64, up3), &[2]u64{ 0x55, 0xaa }));
 
-            try expect(mem.eql(u32, &@as([2]u32, down1), &[2]u32{ 0x55, 0xaa }));
-            try expect(mem.eql(u16, &@as([2]u16, down2), &[2]u16{ 0x55, 0xaa }));
-            try expect(mem.eql(u8, &@as([2]u8, down3), &[2]u8{ 0x55, 0xaa }));
+                {
+                    // Downcast (safety-checked)
+                    const down2: @Vector(2, u32) = @intCast(up3);
+                    const down1: @Vector(2, u16) = @intCast(up3);
+                    const down0: @Vector(2, u8) = @intCast(up3);
+
+                    try expect(mem.eql(u32, &@as([2]u32, down2), &[2]u32{ 0x55, 0xaa }));
+                    try expect(mem.eql(u16, &@as([2]u16, down1), &[2]u16{ 0x55, 0xaa }));
+                    try expect(mem.eql(u8, &@as([2]u8, down0), &[2]u8{ 0x55, 0xaa }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down1: @Vector(2, u16) = @intCast(up2);
+                    const down0: @Vector(2, u8) = @intCast(up2);
+
+                    try expect(mem.eql(u16, &@as([2]u16, down1), &[2]u16{ 0x55, 0xaa }));
+                    try expect(mem.eql(u8, &@as([2]u8, down0), &[2]u8{ 0x55, 0xaa }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down0: @Vector(2, u8) = @intCast(up1);
+
+                    try expect(mem.eql(u8, &@as([2]u8, down0), &[2]u8{ 0x55, 0xaa }));
+                }
+            }
+            {
+                // Upcast (implicit, equivalent to @intCast)
+                var up0: @Vector(4, u8) = .{ 0x00, 0x55, 0xaa, 0xff };
+                _ = &up0;
+                const up1: @Vector(4, u16) = up0;
+                const up2: @Vector(4, u32) = up0;
+                const up3: @Vector(4, u64) = up0;
+
+                try expect(mem.eql(u16, &@as([4]u16, up1), &[4]u16{ 0x00, 0x55, 0xaa, 0xff }));
+                try expect(mem.eql(u32, &@as([4]u32, up2), &[4]u32{ 0x00, 0x55, 0xaa, 0xff }));
+                try expect(mem.eql(u64, &@as([4]u64, up3), &[4]u64{ 0x00, 0x55, 0xaa, 0xff }));
+
+                {
+                    // Downcast (safety-checked)
+                    const down2: @Vector(4, u32) = @intCast(up3);
+                    const down1: @Vector(4, u16) = @intCast(up3);
+                    const down0: @Vector(4, u8) = @intCast(up3);
+
+                    try expect(mem.eql(u32, &@as([4]u32, down2), &[4]u32{ 0x00, 0x55, 0xaa, 0xff }));
+                    try expect(mem.eql(u16, &@as([4]u16, down1), &[4]u16{ 0x00, 0x55, 0xaa, 0xff }));
+                    try expect(mem.eql(u8, &@as([4]u8, down0), &[4]u8{ 0x00, 0x55, 0xaa, 0xff }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down1: @Vector(4, u16) = @intCast(up2);
+                    const down0: @Vector(4, u8) = @intCast(up2);
+
+                    try expect(mem.eql(u16, &@as([4]u16, down1), &[4]u16{ 0x00, 0x55, 0xaa, 0xff }));
+                    try expect(mem.eql(u8, &@as([4]u8, down0), &[4]u8{ 0x00, 0x55, 0xaa, 0xff }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down0: @Vector(4, u8) = @intCast(up1);
+
+                    try expect(mem.eql(u8, &@as([4]u8, down0), &[4]u8{ 0x00, 0x55, 0xaa, 0xff }));
+                }
+            }
+            {
+                // Upcast (implicit, equivalent to @intCast)
+                var up0: @Vector(8, u8) = .{
+                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                };
+                _ = &up0;
+                const up1: @Vector(8, u16) = up0;
+                const up2: @Vector(8, u32) = up0;
+                const up3: @Vector(8, u64) = up0;
+
+                try expect(mem.eql(u16, &@as([8]u16, up1), &[8]u16{
+                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                }));
+                try expect(mem.eql(u32, &@as([8]u32, up2), &[8]u32{
+                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                }));
+                try expect(mem.eql(u64, &@as([8]u64, up3), &[8]u64{
+                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                }));
+
+                {
+                    // Downcast (safety-checked)
+                    const down2: @Vector(8, u32) = @intCast(up3);
+                    const down1: @Vector(8, u16) = @intCast(up3);
+                    const down0: @Vector(8, u8) = @intCast(up3);
+
+                    try expect(mem.eql(u32, &@as([8]u32, down2), &[8]u32{
+                        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                    }));
+                    try expect(mem.eql(u16, &@as([8]u16, down1), &[8]u16{
+                        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                    }));
+                    try expect(mem.eql(u8, &@as([8]u8, down0), &[8]u8{
+                        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                    }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down1: @Vector(8, u16) = @intCast(up2);
+                    const down0: @Vector(8, u8) = @intCast(up2);
+
+                    try expect(mem.eql(u16, &@as([8]u16, down1), &[8]u16{
+                        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                    }));
+                    try expect(mem.eql(u8, &@as([8]u8, down0), &[8]u8{
+                        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                    }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down0: @Vector(8, u8) = @intCast(up1);
+
+                    try expect(mem.eql(u8, &@as([8]u8, down0), &[8]u8{
+                        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                    }));
+                }
+            }
+            {
+                // Upcast (implicit, equivalent to @intCast)
+                var up0: @Vector(16, u8) = .{
+                    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                    0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                };
+                _ = &up0;
+                const up1: @Vector(16, u16) = up0;
+                const up2: @Vector(16, u32) = up0;
+                const up3: @Vector(16, u64) = up0;
+
+                try expect(mem.eql(u16, &@as([16]u16, up1), &[16]u16{
+                    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                    0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                }));
+                try expect(mem.eql(u32, &@as([16]u32, up2), &[16]u32{
+                    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                    0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                }));
+                try expect(mem.eql(u64, &@as([16]u64, up3), &[16]u64{
+                    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                    0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                }));
+
+                {
+                    // Downcast (safety-checked)
+                    const down2: @Vector(16, u32) = @intCast(up3);
+                    const down1: @Vector(16, u16) = @intCast(up3);
+                    const down0: @Vector(16, u8) = @intCast(up3);
+
+                    try expect(mem.eql(u32, &@as([16]u32, down2), &[16]u32{
+                        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                    }));
+                    try expect(mem.eql(u16, &@as([16]u16, down1), &[16]u16{
+                        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                    }));
+                    try expect(mem.eql(u8, &@as([16]u8, down0), &[16]u8{
+                        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                    }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down1: @Vector(16, u16) = @intCast(up2);
+                    const down0: @Vector(16, u8) = @intCast(up2);
+
+                    try expect(mem.eql(u16, &@as([16]u16, down1), &[16]u16{
+                        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                    }));
+                    try expect(mem.eql(u8, &@as([16]u8, down0), &[16]u8{
+                        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                    }));
+                }
+
+                {
+                    // Downcast (safety-checked)
+                    const down0: @Vector(16, u8) = @intCast(up1);
+
+                    try expect(mem.eql(u8, &@as([16]u8, down0), &[16]u8{
+                        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                    }));
+                }
+            }
         }
     };
 
