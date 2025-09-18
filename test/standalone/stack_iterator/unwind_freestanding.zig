@@ -3,7 +3,7 @@
 const std = @import("std");
 
 noinline fn frame3(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
-    expected[0] = @returnAddress() - 1;
+    expected[0] = @returnAddress();
     return std.debug.captureCurrentStackTrace(.{
         .first_address = @returnAddress(),
         .allow_unsafe_unwind = true,
@@ -11,12 +11,12 @@ noinline fn frame3(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTr
 }
 
 noinline fn frame2(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
-    expected[1] = @returnAddress() - 1;
+    expected[1] = @returnAddress();
     return frame3(expected, addr_buf);
 }
 
 noinline fn frame1(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
-    expected[2] = @returnAddress() - 1;
+    expected[2] = @returnAddress();
 
     // Use a stack frame that is too big to encode in __unwind_info's stack-immediate encoding
     // to exercise the stack-indirect encoding path
@@ -27,7 +27,7 @@ noinline fn frame1(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTr
 }
 
 noinline fn frame0(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
-    expected[3] = @returnAddress() - 1;
+    expected[3] = @returnAddress();
     return frame1(expected, addr_buf);
 }
 

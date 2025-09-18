@@ -373,7 +373,7 @@ pub const UnwindContext = struct {
         return ctx.cur.getRegs().bp;
     }
 };
-pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !void {
+pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
     _ = module;
     _ = gpa;
     _ = di;
@@ -403,9 +403,12 @@ pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo,
     const tib = &windows.teb().NtTib;
     if (next_regs.sp < @intFromPtr(tib.StackLimit) or next_regs.sp > @intFromPtr(tib.StackBase)) {
         context.pc = 0;
-    } else {
-        context.pc = next_regs.ip -| 1;
+        return 0;
     }
+    // Like `DwarfUnwindContext.unwindFrame`, adjust our next lookup pc in case the `call` was this
+    // function's last instruction making `next_regs.ip` one byte past its end.
+    context.pc = next_regs.ip -| 1;
+    return next_regs.ip;
 }
 
 const WindowsModule = @This();
