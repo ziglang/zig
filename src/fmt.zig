@@ -156,7 +156,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     if (input_files.items.len == 0) {
-        fatal("expected at least one source file argument", .{});
+        fatal("expected at least one file or directory argument", .{});
     }
 
     var stdout_buffer: [4096]u8 = undefined;
