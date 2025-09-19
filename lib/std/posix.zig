@@ -497,7 +497,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
         return error.OperationNotSupported;
 
     var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-    const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{pathfd}) catch unreachable;
+    const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/fd/{d}", .{pathfd}, 0) catch unreachable;
     while (true) {
         const res = system.chmod(proc_path, mode);
         switch (errno(res)) {
