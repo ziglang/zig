@@ -346,7 +346,7 @@ pub fn deinit(di: *Dwarf, gpa: Allocator) void {
     di.* = undefined;
 }
 
-pub fn getSymbolName(di: *Dwarf, address: u64) ?[]const u8 {
+pub fn getSymbolName(di: *const Dwarf, address: u64) ?[]const u8 {
     // Iterate the function list backwards so that we see child DIEs before their parents. This is
     // important because `DW_TAG_inlined_subroutine` DIEs will have a range which is a sub-range of
     // their caller, and we want to return the callee's name, not the caller's.

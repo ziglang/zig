@@ -252,6 +252,15 @@ fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO
     };
 }
 pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, address: usize) Error!std.debug.Symbol {
+    // We need the lock for a few things:
+    // * loading the Mach-O module
+    // * loading the referenced object file
+    // * scanning the DWARF of that object file
+    // * building the line number table of that object file
+    // That's enough that it doesn't really seem worth scoping the lock more tightly than the whole function..
+    di.mutex.lock();
+    defer di.mutex.unlock();
+
     if (di.loaded_macho == null) di.loaded_macho = module.loadMachO(gpa) catch |err| switch (err) {
         error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory, error.Unexpected => |e| return e,
         else => return error.ReadFailed,
@@ -341,8 +350,12 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
     };
 }
 fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
-    if (di.unwind == null) di.unwind = module.loadUnwindInfo();
-    const unwind = &di.unwind.?;
+    const unwind: *const DebugInfo.Unwind = u: {
+        di.mutex.lock();
+        defer di.mutex.unlock();
+        if (di.unwind == null) di.unwind = module.loadUnwindInfo();
+        break :u &di.unwind.?;
+    };
 
     const unwind_info = unwind.unwind_info orelse return error.MissingDebugInfo;
     if (unwind_info.len < @sizeOf(macho.unwind_info_section_header)) return error.InvalidDebugInfo;
@@ -649,10 +662,17 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
     return ret_addr;
 }
 pub const DebugInfo = struct {
+    /// Held while checking and/or populating `unwind` or `loaded_macho`.
+    /// Once a field is populated and the pointer `&di.loaded_macho.?` or `&di.unwind.?` has been
+    /// gotten, the lock is released; i.e. it is not held while *using* the loaded info.
+    mutex: std.Thread.Mutex,
+
     unwind: ?Unwind,
     loaded_macho: ?LoadedMachO,
 
     pub const init: DebugInfo = .{
+        .mutex = .{},
+
         .unwind = null,
         .loaded_macho = null,
     };
