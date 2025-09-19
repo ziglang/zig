@@ -27502,7 +27502,12 @@ fn structFieldVal(
                 if ((try sema.typeHasOnePossibleValue(field_ty))) |opv| {
                     return Air.internedToRef(opv.toIntern());
                 }
-                return Air.internedToRef((try struct_val.fieldValue(pt, field_index)).toIntern());
+                const field_value = try struct_val.fieldValue(pt, field_index);
+                // Check if the field itself is undefined
+                if (field_value.isUndef(zcu) and block.isComptime()) {
+                    return sema.failWithUseOfUndef(block, field_name_src, null);
+                }
+                return Air.internedToRef(field_value.toIntern());
             }
 
             try field_ty.resolveLayout(pt);
