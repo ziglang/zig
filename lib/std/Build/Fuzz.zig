@@ -252,9 +252,8 @@ pub fn sendUpdate(
     const seen_pcs = cov_header.seenBits();
     const n_runs = @atomicLoad(usize, &cov_header.n_runs, .monotonic);
     const unique_runs = @atomicLoad(usize, &cov_header.unique_runs, .monotonic);
-    if (prev.unique_runs != unique_runs) {
-        // There has been an update.
-        if (prev.unique_runs == 0) {
+    {
+        if (unique_runs != 0 and prev.unique_runs == 0) {
             // We need to send initial context.
             const header: abi.SourceIndexHeader = .{
                 .directories_len = @intCast(coverage_map.coverage.directories.entries.len),
