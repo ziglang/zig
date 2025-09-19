@@ -4534,7 +4534,8 @@ pub fn doNotOptimizeAway(val: anytype) void {
             } else doNotOptimizeAway(&val);
         },
         .float => {
-            if ((t.float.bits == 32 or t.float.bits == 64) and builtin.zig_backend != .stage2_c) {
+            // https://github.com/llvm/llvm-project/issues/159200
+            if ((t.float.bits == 32 or t.float.bits == 64) and builtin.zig_backend != .stage2_c and !builtin.cpu.arch.isLoongArch()) {
                 asm volatile (""
                     :
                     : [_] "rm" (val),

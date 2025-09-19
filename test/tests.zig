@@ -419,8 +419,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
         .{
             .target = .{
@@ -429,8 +427,6 @@ const test_targets = blk: {
                 .abi = .musl,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
         .{
             .target = .{
@@ -440,8 +436,6 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
             .extra_target = true,
         },
         .{
@@ -451,8 +445,6 @@ const test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
 
         .{
@@ -1901,6 +1893,7 @@ pub fn addStandaloneTests(
     enable_macos_sdk: bool,
     enable_ios_sdk: bool,
     enable_symlinks_windows: bool,
+    skip_translate_c: bool,
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
     if (compilerHasPackageManager(b)) {
@@ -1913,6 +1906,7 @@ pub fn addStandaloneTests(
             .simple_skip_release_safe = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSafe) == null,
             .simple_skip_release_fast = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseFast) == null,
             .simple_skip_release_small = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSmall) == null,
+            .skip_translate_c = skip_translate_c,
         });
         const test_cases_dep_step = test_cases_dep.builder.default_step;
         test_cases_dep_step.name = b.dupe(test_cases_dep_name);

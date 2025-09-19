@@ -576,6 +576,7 @@ pub fn build(b: *std.Build) !void {
         enable_macos_sdk,
         enable_ios_sdk,
         enable_symlinks_windows,
+        skip_translate_c,
     ));
     test_step.dependOn(tests.addCAbiTests(b, .{
         .test_target_filters = test_target_filters,

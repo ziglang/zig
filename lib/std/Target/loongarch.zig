@@ -159,11 +159,6 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const generic: CpuModel = .{
-        .name = "generic",
-        .llvm_name = "generic",
-        .features = featureSet(&[_]Feature{}),
-    };
     pub const generic_la32: CpuModel = .{
         .name = "generic_la32",
         .llvm_name = "generic-la32",
@@ -191,6 +186,30 @@ pub const cpu = struct {
             .ual,
         }),
     };
+    pub const la64v1_0: CpuModel = .{
+        .name = "la64v1_0",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .lsx,
+            .ual,
+        }),
+    };
+    pub const la64v1_1: CpuModel = .{
+        .name = "la64v1_1",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .div32,
+            .frecipe,
+            .lam_bh,
+            .lamcas,
+            .ld_seq_sa,
+            .lsx,
+            .scq,
+            .ual,
+        }),
+    };
     pub const la664: CpuModel = .{
         .name = "la664",
         .llvm_name = "la664",
@@ -205,15 +224,6 @@ pub const cpu = struct {
             .ld_seq_sa,
             .lvz,
             .scq,
-            .ual,
-        }),
-    };
-    pub const loongarch64: CpuModel = .{
-        .name = "loongarch64",
-        .llvm_name = "loongarch64",
-        .features = featureSet(&[_]Feature{
-            .@"64bit",
-            .d,
             .ual,
         }),
     };

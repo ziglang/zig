@@ -986,6 +986,36 @@ const targets = [_]ArchTarget{
             .name = "LoongArch",
             .td_name = "LoongArch",
         },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "la64v1_0",
+                .features = &.{
+                    "64bit",
+                    "lsx",
+                    "ual",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "la64v1_1",
+                .features = &.{
+                    "64bit",
+                    "div32",
+                    "frecipe",
+                    "lam_bh",
+                    "lamcas",
+                    "ld_seq_sa",
+                    "lsx",
+                    "scq",
+                    "ual",
+                },
+            },
+        },
+        .omit_cpus = &.{
+            "generic",
+            "loongarch64",
+        },
     },
     .{
         .zig_name = "m68k",
