@@ -24876,23 +24876,26 @@ fn analyzeMinMax(
             if (vector_len) |len| {
                 // Vector case; apply `opFunc` to each element.
                 if (elems_populated) {
+                    const coerced_operand_val = Value.fromInterned((try sema.coerce(block, intermediate_ty, Air.internedToRef(operand_val.toIntern()), operand_src)).toInterned().?);
                     for (elems, 0..@intCast(len)) |*elem, elem_idx| {
-                        const new_elem = try operand_val.elemValue(pt, elem_idx);
-                        elem.* = opFunc(.fromInterned(elem.*), new_elem, zcu).toIntern();
+                        elem.* = opFunc(.fromInterned(elem.*), try coerced_operand_val.elemValue(pt, elem_idx), zcu).toIntern();
                     }
                 } else {
                     elems_populated = true;
+                    const coerced_operand_val = Value.fromInterned((try sema.coerce(block, intermediate_ty, Air.internedToRef(operand_val.toIntern()), operand_src)).toInterned().?);
                     for (elems, 0..@intCast(len)) |*elem_out, elem_idx| {
-                        elem_out.* = (try operand_val.elemValue(pt, elem_idx)).toIntern();
+                        elem_out.* = (try coerced_operand_val.elemValue(pt, elem_idx)).toIntern();
                     }
                 }
             } else {
                 // Scalar case; just apply `opFunc`.
                 if (elems_populated) {
-                    elems[0] = opFunc(.fromInterned(elems[0]), operand_val, zcu).toIntern();
+                    const coerced_operand_val = Value.fromInterned((try sema.coerce(block, intermediate_scalar_ty, Air.internedToRef(operand_val.toIntern()), operand_src)).toInterned().?);
+                    elems[0] = opFunc(.fromInterned(elems[0]), coerced_operand_val, zcu).toIntern();
                 } else {
                     elems_populated = true;
-                    elems[0] = operand_val.toIntern();
+                    const coerced_operand_val = Value.fromInterned((try sema.coerce(block, intermediate_scalar_ty, Air.internedToRef(operand_val.toIntern()), operand_src)).toInterned().?);
+                    elems[0] = coerced_operand_val.toIntern();
                 }
             }
         }
@@ -24913,17 +24916,7 @@ fn analyzeMinMax(
         };
         _ = runtime_src;
         // The result is runtime-known.
-        // Coerce each element to the intermediate scalar type, unless there were no comptime-known operands.
         if (!elems_populated) break :ct null;
-        for (elems) |*elem| {
-            if (Value.fromInterned(elem.*).isUndef(zcu)) {
-                elem.* = (try pt.undefValue(intermediate_scalar_ty)).toIntern();
-            } else {
-                // This coercion will always succeed, because `intermediate_scalar_ty` can definitely hold all operands.
-                const coerced_ref = try sema.coerce(block, intermediate_scalar_ty, Air.internedToRef(elem.*), .unneeded);
-                elem.* = coerced_ref.toInterned().?;
-            }
-        }
         break :ct if (vector_len != null)
             try pt.aggregateValue(intermediate_ty, elems)
         else
