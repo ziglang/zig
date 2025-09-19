@@ -2385,6 +2385,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
                     // https://github.com/llvm/llvm-project/issues/153314
                     "-Wno-unterminated-string-initialization",
+
+                    // In both Zig and C it is legal to return a pointer to a
+                    // local. The C backend lowers such thing directly, so the
+                    // corresponding warning in C must be disabled.
+                    "-Wno-return-stack-address",
                 },
             });
             compile_c.addIncludePath(b.path("lib")); // for zig.h
