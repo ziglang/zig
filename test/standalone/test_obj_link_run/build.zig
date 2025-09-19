@@ -9,8 +9,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     if (is_windows) {
-        test_obj.linkSystemLibrary("ntdll");
-        test_obj.linkSystemLibrary("kernel32");
+        test_obj.root_module.linkSystemLibrary("ntdll", .{});
+        test_obj.root_module.linkSystemLibrary("kernel32", .{});
     }
 
     const test_exe_mod = b.createModule(.{

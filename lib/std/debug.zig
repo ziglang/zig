@@ -248,21 +248,21 @@ pub fn getSelfDebugInfo() !*SelfInfo {
 pub fn dumpHex(bytes: []const u8) void {
     const bw = lockStderrWriter(&.{});
     defer unlockStderrWriter();
-    const ttyconf = tty.detectConfig(.stderr());
-    dumpHexFallible(bw, ttyconf, bytes) catch {};
+    const tty_config: std.Io.tty.Config = .detect(.stderr());
+    dumpHexFallible(bw, tty_config, bytes) catch {};
 }
 
 /// Prints a hexadecimal view of the bytes, returning any error that occurs.
-pub fn dumpHexFallible(bw: *Writer, ttyconf: tty.Config, bytes: []const u8) !void {
+pub fn dumpHexFallible(bw: *Writer, tty_config: tty.Config, bytes: []const u8) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
         const address = (@intFromPtr(bytes.ptr) + 0x10 * (std.math.divCeil(usize, chunks.index orelse bytes.len, 16) catch unreachable)) - 0x10;
-        try ttyconf.setColor(bw, .dim);
+        try tty_config.setColor(bw, .dim);
         // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
         // Also, make sure all lines are aligned by padding the address.
         try bw.print("{x:0>[1]}  ", .{ address, @sizeOf(usize) * 2 });
-        try ttyconf.setColor(bw, .reset);
+        try tty_config.setColor(bw, .reset);
 
         // 2. Print the bytes.
         for (window, 0..) |byte, index| {
@@ -282,7 +282,7 @@ pub fn dumpHexFallible(bw: *Writer, ttyconf: tty.Config, bytes: []const u8) !voi
                 try bw.writeByte(byte);
             } else {
                 // Related: https://github.com/ziglang/zig/issues/7600
-                if (ttyconf == .windows_api) {
+                if (tty_config == .windows_api) {
                     try bw.writeByte('.');
                     continue;
                 }
@@ -344,7 +344,7 @@ pub fn dumpCurrentStackTraceToWriter(start_addr: ?usize, writer: *Writer) !void 
         try writer.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         return;
     };
-    writeCurrentStackTrace(writer, debug_info, tty.detectConfig(.stderr()), start_addr) catch |err| {
+    writeCurrentStackTrace(writer, debug_info, .detect(.stderr()), start_addr) catch |err| {
         try writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
         return;
     };
@@ -429,7 +429,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        const tty_config = tty.detectConfig(.stderr());
+        const tty_config: std.Io.tty.Config = .detect(.stderr());
         if (native_os == .windows) {
             // On x86_64 and aarch64, the stack will be unwound using RtlVirtualUnwind using the context
             // provided by the exception handler. On x86, RtlVirtualUnwind doesn't exist. Instead, a new backtrace
@@ -535,7 +535,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, debug_info, tty.detectConfig(.stderr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, debug_info, .detect(.stderr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -1602,7 +1602,7 @@ test "manage resources correctly" {
     var discarding: Writer.Discarding = .init(&.{});
     var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, &discarding.writer, showMyTrace(), tty.detectConfig(.stderr()));
+    try printSourceAtAddress(&di, &discarding.writer, showMyTrace(), .detect(.stderr()));
 }
 
 noinline fn showMyTrace() usize {
@@ -1668,7 +1668,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = tty.detectConfig(.stderr());
+            const tty_config: std.Io.tty.Config = .detect(.stderr());
             const stderr = lockStderrWriter(&.{});
             defer unlockStderrWriter();
             const end = @min(t.index, size);
