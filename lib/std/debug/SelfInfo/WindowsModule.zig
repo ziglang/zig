@@ -9,14 +9,14 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) std.debug.Sel
     if (lookupInCache(cache, address)) |m| return m;
     {
         // Check a new module hasn't been loaded
+        cache.rwlock.lock();
+        defer cache.rwlock.unlock();
         cache.modules.clearRetainingCapacity();
-
         const handle = windows.kernel32.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE | windows.TH32CS_SNAPMODULE32, 0);
         if (handle == windows.INVALID_HANDLE_VALUE) {
             return windows.unexpectedError(windows.GetLastError());
         }
         defer windows.CloseHandle(handle);
-
         var entry: windows.MODULEENTRY32 = undefined;
         entry.dwSize = @sizeOf(windows.MODULEENTRY32);
         if (windows.kernel32.Module32First(handle, &entry) != 0) {
@@ -30,12 +30,18 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) std.debug.Sel
     return error.MissingDebugInfo;
 }
 pub fn getSymbolAtAddress(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, address: usize) std.debug.SelfInfo.Error!std.debug.Symbol {
+    // The `Pdb` API doesn't really allow us *any* thread-safe access, and the `Dwarf` API isn't
+    // great for it either; just lock the whole thing.
+    di.mutex.lock();
+    defer di.mutex.unlock();
+
     if (!di.loaded) module.loadDebugInfo(gpa, di) catch |err| switch (err) {
         error.OutOfMemory, error.InvalidDebugInfo, error.MissingDebugInfo, error.Unexpected => |e| return e,
         error.FileNotFound => return error.MissingDebugInfo,
         error.UnknownPDBVersion => return error.UnsupportedDebugInfo,
         else => return error.ReadFailed,
     };
+
     // Translate the runtime address into a virtual address into the module
     const vaddr = address - module.base_address;
 
@@ -50,7 +56,9 @@ pub fn getSymbolAtAddress(module: *const WindowsModule, gpa: Allocator, di: *Deb
 
     return error.MissingDebugInfo;
 }
-fn lookupInCache(cache: *const LookupCache, address: usize) ?WindowsModule {
+fn lookupInCache(cache: *LookupCache, address: usize) ?WindowsModule {
+    cache.rwlock.lockShared();
+    defer cache.rwlock.unlockShared();
     for (cache.modules.items) |*entry| {
         const base_address = @intFromPtr(entry.modBaseAddr);
         if (address >= base_address and address < base_address + entry.modBaseSize) {
@@ -182,13 +190,19 @@ fn loadDebugInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo) !
     di.loaded = true;
 }
 pub const LookupCache = struct {
+    rwlock: std.Thread.RwLock,
     modules: std.ArrayListUnmanaged(windows.MODULEENTRY32),
-    pub const init: LookupCache = .{ .modules = .empty };
+    pub const init: LookupCache = .{
+        .rwlock = .{},
+        .modules = .empty,
+    };
     pub fn deinit(lc: *LookupCache, gpa: Allocator) void {
         lc.modules.deinit(gpa);
     }
 };
 pub const DebugInfo = struct {
+    mutex: std.Thread.Mutex,
+
     loaded: bool,
 
     coff_image_base: u64,
@@ -205,6 +219,7 @@ pub const DebugInfo = struct {
     coff_section_headers: []coff.SectionHeader,
 
     pub const init: DebugInfo = .{
+        .mutex = .{},
         .loaded = false,
         .coff_image_base = undefined,
         .mapped_file = null,

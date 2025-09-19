@@ -18,7 +18,21 @@ const root = @import("root");
 
 const SelfInfo = @This();
 
-modules: if (target_supported) std.AutoArrayHashMapUnmanaged(usize, Module.DebugInfo) else void,
+/// Locks access to `modules`. However, does *not* lock the `Module.DebugInfo`, nor `lookup_cache`
+/// the implementation is responsible for locking as needed in its exposed methods.
+///
+/// TODO: to allow `SelfInfo` to work on freestanding, we currently just don't use this mutex there.
+/// That's a bad solution, but a better one depends on the standard library's general support for
+/// "bring your own OS" being improved.
+modules_mutex: switch (builtin.os.tag) {
+    else => std.Thread.Mutex,
+    .freestanding, .other => struct {
+        fn lock(_: @This()) void {}
+        fn unlock(_: @This()) void {}
+    },
+},
+/// Value is allocated into gpa to give it a stable pointer.
+modules: if (target_supported) std.AutoArrayHashMapUnmanaged(usize, *Module.DebugInfo) else void,
 lookup_cache: if (target_supported) Module.LookupCache else void,
 
 pub const Error = error{
@@ -43,12 +57,16 @@ pub const supports_unwinding: bool = target_supported and Module.supports_unwind
 pub const UnwindContext = if (supports_unwinding) Module.UnwindContext;
 
 pub const init: SelfInfo = .{
+    .modules_mutex = .{},
     .modules = .empty,
     .lookup_cache = if (Module.LookupCache != void) .init,
 };
 
 pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
-    for (self.modules.values()) |*di| di.deinit(gpa);
+    for (self.modules.values()) |di| {
+        di.deinit(gpa);
+        gpa.destroy(di);
+    }
     self.modules.deinit(gpa);
     if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
 }
@@ -56,21 +74,35 @@ pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
 pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!usize {
     comptime assert(supports_unwinding);
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
-    const gop = try self.modules.getOrPut(gpa, module.key());
-    self.modules.lockPointers();
-    defer self.modules.unlockPointers();
-    if (!gop.found_existing) gop.value_ptr.* = .init;
-    return module.unwindFrame(gpa, gop.value_ptr, context);
+    const di: *Module.DebugInfo = di: {
+        self.modules_mutex.lock();
+        defer self.modules_mutex.unlock();
+        const gop = try self.modules.getOrPut(gpa, module.key());
+        if (gop.found_existing) break :di gop.value_ptr.*;
+        errdefer _ = self.modules.pop().?;
+        const di = try gpa.create(Module.DebugInfo);
+        di.* = .init;
+        gop.value_ptr.* = di;
+        break :di di;
+    };
+    return module.unwindFrame(gpa, di, context);
 }
 
 pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) Error!std.debug.Symbol {
     comptime assert(target_supported);
     const module: Module = try .lookup(&self.lookup_cache, gpa, address);
-    const gop = try self.modules.getOrPut(gpa, module.key());
-    self.modules.lockPointers();
-    defer self.modules.unlockPointers();
-    if (!gop.found_existing) gop.value_ptr.* = .init;
-    return module.getSymbolAtAddress(gpa, gop.value_ptr, address);
+    const di: *Module.DebugInfo = di: {
+        self.modules_mutex.lock();
+        defer self.modules_mutex.unlock();
+        const gop = try self.modules.getOrPut(gpa, module.key());
+        if (gop.found_existing) break :di gop.value_ptr.*;
+        errdefer _ = self.modules.pop().?;
+        const di = try gpa.create(Module.DebugInfo);
+        di.* = .init;
+        gop.value_ptr.* = di;
+        break :di di;
+    };
+    return module.getSymbolAtAddress(gpa, di, address);
 }
 
 pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) Error![]const u8 {
@@ -87,6 +119,9 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 /// module, i.e. a shared library or executable image, but could be anything. For instance, it would
 /// be valid to consider the entire application one module, or on the other hand to consider each
 /// object file a module.
+///
+/// Because different threads can collect stack traces concurrently, the implementation must be able
+/// to tolerate concurrent calls to any method it implements.
 ///
 /// This type must must expose the following declarations:
 ///

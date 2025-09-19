@@ -7,16 +7,26 @@ gnu_eh_frame: ?[]const u8,
 pub const LookupCache = void;
 
 pub const DebugInfo = struct {
+    /// Held while checking and/or populating `loaded_elf`/`scanned_dwarf`/`unwind`.
+    /// Once data is populated and a pointer to the field has been gotten, the lock
+    /// is released; i.e. it is not held while *using* the loaded debug info.
+    mutex: std.Thread.Mutex,
+
     loaded_elf: ?ElfFile,
     scanned_dwarf: bool,
     unwind: [2]?Dwarf.Unwind,
     pub const init: DebugInfo = .{
+        .mutex = .{},
         .loaded_elf = null,
         .scanned_dwarf = false,
         .unwind = @splat(null),
     };
     pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
         if (di.loaded_elf) |*loaded_elf| loaded_elf.deinit(gpa);
+        for (di.unwind) |*opt_unwind| {
+            const unwind = &(opt_unwind orelse continue);
+            unwind.deinit(gpa);
+        }
     }
 };
 
@@ -145,34 +155,41 @@ fn loadElf(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void 
     }
 }
 pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, address: usize) Error!std.debug.Symbol {
-    if (di.loaded_elf == null) try module.loadElf(gpa, di);
     const vaddr = address - module.load_offset;
-    if (di.loaded_elf.?.dwarf) |*dwarf| {
-        if (!di.scanned_dwarf) {
-            dwarf.open(gpa, native_endian) catch |err| switch (err) {
+    {
+        di.mutex.lock();
+        defer di.mutex.unlock();
+        if (di.loaded_elf == null) try module.loadElf(gpa, di);
+        const loaded_elf = &di.loaded_elf.?;
+        // We need the lock if using DWARF, as we might scan the DWARF or build a line number table.
+        if (loaded_elf.dwarf) |*dwarf| {
+            if (!di.scanned_dwarf) {
+                dwarf.open(gpa, native_endian) catch |err| switch (err) {
+                    error.InvalidDebugInfo,
+                    error.MissingDebugInfo,
+                    error.OutOfMemory,
+                    => |e| return e,
+                    error.EndOfStream,
+                    error.Overflow,
+                    error.ReadFailed,
+                    error.StreamTooLong,
+                    => return error.InvalidDebugInfo,
+                };
+                di.scanned_dwarf = true;
+            }
+            return dwarf.getSymbol(gpa, native_endian, vaddr) catch |err| switch (err) {
                 error.InvalidDebugInfo,
                 error.MissingDebugInfo,
                 error.OutOfMemory,
                 => |e| return e,
+                error.ReadFailed,
                 error.EndOfStream,
                 error.Overflow,
-                error.ReadFailed,
                 error.StreamTooLong,
                 => return error.InvalidDebugInfo,
             };
-            di.scanned_dwarf = true;
         }
-        return dwarf.getSymbol(gpa, native_endian, vaddr) catch |err| switch (err) {
-            error.InvalidDebugInfo,
-            error.MissingDebugInfo,
-            error.OutOfMemory,
-            => |e| return e,
-            error.ReadFailed,
-            error.EndOfStream,
-            error.Overflow,
-            error.StreamTooLong,
-            => return error.InvalidDebugInfo,
-        };
+        // Otherwise, we're just going to scan the symtab, which we don't need the lock for; fall out of this block.
     }
     // When there's no DWARF available, fall back to searching the symtab.
     return di.loaded_elf.?.searchSymtab(gpa, vaddr) catch |err| switch (err) {
@@ -231,9 +248,14 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
     }
 }
 pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
-    if (di.unwind[0] == null) try module.loadUnwindInfo(gpa, di);
-    std.debug.assert(di.unwind[0] != null);
-    for (&di.unwind) |*opt_unwind| {
+    const unwinds: *const [2]?Dwarf.Unwind = u: {
+        di.mutex.lock();
+        defer di.mutex.unlock();
+        if (di.unwind[0] == null) try module.loadUnwindInfo(gpa, di);
+        std.debug.assert(di.unwind[0] != null);
+        break :u &di.unwind;
+    };
+    for (unwinds) |*opt_unwind| {
         const unwind = &(opt_unwind.* orelse break);
         return context.unwindFrame(gpa, unwind, module.load_offset, null) catch |err| switch (err) {
             error.MissingDebugInfo => continue, // try the next one

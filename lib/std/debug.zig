@@ -238,7 +238,6 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend bw.print(fmt, args) catch return;
 }
 
-/// TODO multithreaded awareness
 /// Marked `inline` to propagate a comptime-known error to callers.
 pub inline fn getSelfDebugInfo() !*SelfInfo {
     if (!SelfInfo.target_supported) return error.UnsupportedTarget;
@@ -1169,7 +1168,8 @@ test printLineFromFile {
     }
 }
 
-/// TODO multithreaded awareness
+/// The returned allocator should be thread-safe if the compilation is multi-threaded, because
+/// multiple threads could capture and/or print stack traces simultaneously.
 fn getDebugInfoAllocator() Allocator {
     // Allow overriding the debug info allocator by exposing `root.debug.getDebugInfoAllocator`.
     if (@hasDecl(root, "debug") and @hasDecl(root.debug, "getDebugInfoAllocator")) {
@@ -1177,10 +1177,10 @@ fn getDebugInfoAllocator() Allocator {
     }
     // Otherwise, use a global arena backed by the page allocator
     const S = struct {
-        var arena: ?std.heap.ArenaAllocator = null;
+        var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+        var ts_arena: std.heap.ThreadSafeAllocator = .{ .child_allocator = arena.allocator() };
     };
-    if (S.arena == null) S.arena = .init(std.heap.page_allocator);
-    return S.arena.?.allocator();
+    return S.ts_arena.allocator();
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
