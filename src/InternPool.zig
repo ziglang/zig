@@ -6424,14 +6424,25 @@ pub const Alignment = enum(u6) {
         return n + 1;
     }
 
-    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
-
-    pub fn toLlvm(this: @This()) LlvmBuilderAlignment {
-        return @enumFromInt(@intFromEnum(this));
+    pub fn toStdMem(a: Alignment) std.mem.Alignment {
+        assert(a != .none);
+        return @enumFromInt(@intFromEnum(a));
     }
 
-    pub fn fromLlvm(other: LlvmBuilderAlignment) @This() {
-        return @enumFromInt(@intFromEnum(other));
+    pub fn fromStdMem(a: std.mem.Alignment) Alignment {
+        const r: Alignment = @enumFromInt(@intFromEnum(a));
+        assert(r != .none);
+        return r;
+    }
+
+    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
+
+    pub fn toLlvm(a: Alignment) LlvmBuilderAlignment {
+        return @enumFromInt(@intFromEnum(a));
+    }
+
+    pub fn fromLlvm(a: LlvmBuilderAlignment) Alignment {
+        return @enumFromInt(@intFromEnum(a));
     }
 };
 
@@ -6914,10 +6925,7 @@ pub fn deactivate(ip: *const InternPool) void {
 
 /// For debugger access only.
 const debug_state = struct {
-    const enable = switch (builtin.zig_backend) {
-        else => false,
-        .stage2_x86_64 => !builtin.strip_debug_info,
-    };
+    const enable = false;
     const enable_checks = enable and !builtin.single_threaded;
     threadlocal var intern_pool: ?*const InternPool = null;
 };

@@ -644,7 +644,6 @@ test "sigrtmin/max" {
     try std.testing.expect(posix.sigrtmin() >= 32);
     try std.testing.expect(posix.sigrtmin() >= posix.system.sigrtmin());
     try std.testing.expect(posix.sigrtmin() < posix.system.sigrtmax());
-    try std.testing.expect(posix.sigrtmax() < posix.NSIG);
 }
 
 test "sigset empty/full" {

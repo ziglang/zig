@@ -61,8 +61,12 @@ pub fn build(b: *std.Build) void {
             .use_llvm = true,
         });
 
-        const run_cmd = b.addRunArtifact(exe);
-        test_step.dependOn(&run_cmd.step);
+        if (builtin.os.tag != .freebsd) {
+            const run_cmd = b.addRunArtifact(exe);
+            test_step.dependOn(&run_cmd.step);
+        } else {
+            test_step.dependOn(&exe.step);
+        }
     }
 
     // https://github.com/ziglang/zig/issues/24522

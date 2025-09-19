@@ -172,7 +172,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             // a new buffer and doing our own copy. With a realloc() call,
             // the allocator implementation would pointlessly copy our
             // extra capacity.
-            const new_capacity = Aligned(T, alignment).growCapacity(self.capacity, new_len);
+            const new_capacity = Aligned(T, alignment).growCapacity(new_len);
             const old_memory = self.allocatedSlice();
             if (self.allocator.remap(old_memory, new_capacity)) |new_memory| {
                 self.items.ptr = new_memory.ptr;
@@ -408,7 +408,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             // Protects growing unnecessarily since better_capacity will be larger.
             if (self.capacity >= new_capacity) return;
 
-            const better_capacity = Aligned(T, alignment).growCapacity(self.capacity, new_capacity);
+            const better_capacity = Aligned(T, alignment).growCapacity(new_capacity);
             return self.ensureTotalCapacityPrecise(better_capacity);
         }
 
@@ -1160,7 +1160,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.ensureTotalCapacityPrecise(gpa, growCapacity(self.capacity, new_capacity));
+            return self.ensureTotalCapacityPrecise(gpa, growCapacity(new_capacity));
         }
 
         /// If the current capacity is less than `new_capacity`, this function will
@@ -1359,17 +1359,12 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return self.getLast();
         }
 
-        const init_capacity = @as(comptime_int, @max(1, std.atomic.cache_line / @sizeOf(T)));
+        const init_capacity: comptime_int = @max(1, std.atomic.cache_line / @sizeOf(T));
 
         /// Called when memory growth is necessary. Returns a capacity larger than
         /// minimum that grows super-linearly.
-        pub fn growCapacity(current: usize, minimum: usize) usize {
-            var new = current;
-            while (true) {
-                new +|= new / 2 + init_capacity;
-                if (new >= minimum)
-                    return new;
-            }
+        pub fn growCapacity(minimum: usize) usize {
+            return minimum +| (minimum / 2 + init_capacity);
         }
     };
 }

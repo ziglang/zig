@@ -42,9 +42,13 @@ pub const Message = struct {
         /// The remaining bytes is the file path relative to that prefix.
         /// The prefixes are hard-coded in Compilation.create (cwd, zig lib dir, local cache dir)
         file_system_inputs,
-        /// Body is a u64le that indicates the file path within the cache used
-        /// to store coverage information. The integer is a hash of the PCs
-        /// stored within that file.
+        /// Body is:
+        /// - a u64le that indicates the file path within the cache used
+        ///   to store coverage information. The integer is a hash of the PCs
+        ///   stored within that file.
+        /// - u64le of total runs accumulated
+        /// - u64le of unique runs accumulated
+        /// - u64le of coverage accumulated
         coverage_id,
         /// Body is a u64le that indicates the function pointer virtual memory
         /// address of the fuzz unit test. This is used to provide a starting
@@ -141,8 +145,14 @@ pub fn receiveMessage(s: *Server) !InMessage.Header {
     return s.in.takeStruct(InMessage.Header, .little);
 }
 
+pub fn receiveBody_u8(s: *Server) !u8 {
+    return s.in.takeInt(u8, .little);
+}
 pub fn receiveBody_u32(s: *Server) !u32 {
     return s.in.takeInt(u32, .little);
+}
+pub fn receiveBody_u64(s: *Server) !u64 {
+    return s.in.takeInt(u64, .little);
 }
 
 pub fn serveStringMessage(s: *Server, tag: OutMessage.Tag, msg: []const u8) !void {
@@ -160,11 +170,24 @@ pub fn serveMessageHeader(s: *const Server, header: OutMessage.Header) !void {
 }
 
 pub fn serveU64Message(s: *const Server, tag: OutMessage.Tag, int: u64) !void {
+    assert(tag != .coverage_id);
     try serveMessageHeader(s, .{
         .tag = tag,
         .bytes_len = @sizeOf(u64),
     });
     try s.out.writeInt(u64, int, .little);
+    try s.out.flush();
+}
+
+pub fn serveCoverageIdMessage(s: *const Server, id: u64, runs: u64, unique: u64, cov: u64) !void {
+    try serveMessageHeader(s, .{
+        .tag = .coverage_id,
+        .bytes_len = @sizeOf(u64) + @sizeOf(u64) + @sizeOf(u64) + @sizeOf(u64),
+    });
+    try s.out.writeInt(u64, id, .little);
+    try s.out.writeInt(u64, runs, .little);
+    try s.out.writeInt(u64, unique, .little);
+    try s.out.writeInt(u64, cov, .little);
     try s.out.flush();
 }
 

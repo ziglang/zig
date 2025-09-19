@@ -442,48 +442,48 @@ pub fn isInvisible(codepoint: u21) bool {
 }
 
 /// Checks for identifier characters which resemble non-identifier characters
-pub fn homoglyph(codepoint: u21) ?u21 {
+pub fn homoglyph(codepoint: u21) ?[]const u8 {
     assert(codepoint > 0x7F);
     return switch (codepoint) {
-        0x01c3 => '!', // LATIN LETTER RETROFLEX CLICK
-        0x037e => ';', // GREEK QUESTION MARK
-        0x2212 => '-', // MINUS SIGN
-        0x2215 => '/', // DIVISION SLASH
-        0x2216 => '\\', // SET MINUS
-        0x2217 => '*', // ASTERISK OPERATOR
-        0x2223 => '|', // DIVIDES
-        0x2227 => '^', // LOGICAL AND
-        0x2236 => ':', // RATIO
-        0x223c => '~', // TILDE OPERATOR
-        0xa789 => ':', // MODIFIER LETTER COLON
-        0xff01 => '!', // FULLWIDTH EXCLAMATION MARK
-        0xff03 => '#', // FULLWIDTH NUMBER SIGN
-        0xff04 => '$', // FULLWIDTH DOLLAR SIGN
-        0xff05 => '%', // FULLWIDTH PERCENT SIGN
-        0xff06 => '&', // FULLWIDTH AMPERSAND
-        0xff08 => '(', // FULLWIDTH LEFT PARENTHESIS
-        0xff09 => ')', // FULLWIDTH RIGHT PARENTHESIS
-        0xff0a => '*', // FULLWIDTH ASTERISK
-        0xff0b => '+', // FULLWIDTH ASTERISK
-        0xff0c => ',', // FULLWIDTH COMMA
-        0xff0d => '-', // FULLWIDTH HYPHEN-MINUS
-        0xff0e => '.', // FULLWIDTH FULL STOP
-        0xff0f => '/', // FULLWIDTH SOLIDUS
-        0xff1a => ':', // FULLWIDTH COLON
-        0xff1b => ';', // FULLWIDTH SEMICOLON
-        0xff1c => '<', // FULLWIDTH LESS-THAN SIGN
-        0xff1d => '=', // FULLWIDTH EQUALS SIGN
-        0xff1e => '>', // FULLWIDTH GREATER-THAN SIGN
-        0xff1f => '?', // FULLWIDTH QUESTION MARK
-        0xff20 => '@', // FULLWIDTH COMMERCIAL AT
-        0xff3b => '[', // FULLWIDTH LEFT SQUARE BRACKET
-        0xff3c => '\\', // FULLWIDTH REVERSE SOLIDUS
-        0xff3d => ']', // FULLWIDTH RIGHT SQUARE BRACKET
-        0xff3e => '^', // FULLWIDTH CIRCUMFLEX ACCENT
-        0xff5b => '{', // FULLWIDTH LEFT CURLY BRACKET
-        0xff5c => '|', // FULLWIDTH VERTICAL LINE
-        0xff5d => '}', // FULLWIDTH RIGHT CURLY BRACKET
-        0xff5e => '~', // FULLWIDTH TILDE
+        0x01c3 => "!", // LATIN LETTER RETROFLEX CLICK
+        0x037e => ";", // GREEK QUESTION MARK
+        0x2212 => "-", // MINUS SIGN
+        0x2215 => "/", // DIVISION SLASH
+        0x2216 => "\\", // SET MINUS
+        0x2217 => "*", // ASTERISK OPERATOR
+        0x2223 => "|", // DIVIDES
+        0x2227 => "^", // LOGICAL AND
+        0x2236 => ":", // RATIO
+        0x223c => "~", // TILDE OPERATOR
+        0xa789 => ":", // MODIFIER LETTER COLON
+        0xff01 => "!", // FULLWIDTH EXCLAMATION MARK
+        0xff03 => "#", // FULLWIDTH NUMBER SIGN
+        0xff04 => "$", // FULLWIDTH DOLLAR SIGN
+        0xff05 => "%", // FULLWIDTH PERCENT SIGN
+        0xff06 => "&", // FULLWIDTH AMPERSAND
+        0xff08 => "(", // FULLWIDTH LEFT PARENTHESIS
+        0xff09 => ")", // FULLWIDTH RIGHT PARENTHESIS
+        0xff0a => "*", // FULLWIDTH ASTERISK
+        0xff0b => "+", // FULLWIDTH ASTERISK
+        0xff0c => ",", // FULLWIDTH COMMA
+        0xff0d => "-", // FULLWIDTH HYPHEN-MINUS
+        0xff0e => ".", // FULLWIDTH FULL STOP
+        0xff0f => "/", // FULLWIDTH SOLIDUS
+        0xff1a => ":", // FULLWIDTH COLON
+        0xff1b => ";", // FULLWIDTH SEMICOLON
+        0xff1c => "<", // FULLWIDTH LESS-THAN SIGN
+        0xff1d => "=", // FULLWIDTH EQUALS SIGN
+        0xff1e => ">", // FULLWIDTH GREATER-THAN SIGN
+        0xff1f => "?", // FULLWIDTH QUESTION MARK
+        0xff20 => "@", // FULLWIDTH COMMERCIAL AT
+        0xff3b => "[", // FULLWIDTH LEFT SQUARE BRACKET
+        0xff3c => "\\", // FULLWIDTH REVERSE SOLIDUS
+        0xff3d => "]", // FULLWIDTH RIGHT SQUARE BRACKET
+        0xff3e => "^", // FULLWIDTH CIRCUMFLEX ACCENT
+        0xff5b => "{", // FULLWIDTH LEFT CURLY BRACKET
+        0xff5c => "|", // FULLWIDTH VERTICAL LINE
+        0xff5d => "}", // FULLWIDTH RIGHT CURLY BRACKET
+        0xff5e => "~", // FULLWIDTH TILDE
         else => null,
     };
 }

@@ -9,7 +9,6 @@ pub fn build(b: *std.Build) void {
     const enable_macos_sdk = b.option(bool, "enable_macos_sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse enable_ios_sdk;
     const enable_symlinks_windows = b.option(bool, "enable_symlinks_windows", "Run tests requiring presence of symlinks on Windows") orelse false;
     const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
-    const skip_translate_c = b.option(bool, "skip_translate_c", "Test suite skips translate-c tests") orelse false;
 
     const simple_skip_debug = b.option(bool, "simple_skip_debug", "Simple tests skip debug builds") orelse false;
     const simple_skip_release_safe = b.option(bool, "simple_skip_release_safe", "Simple tests skip release-safe builds") orelse false;
@@ -21,7 +20,6 @@ pub fn build(b: *std.Build) void {
         .skip_release_safe = simple_skip_release_safe,
         .skip_release_fast = simple_skip_release_fast,
         .skip_release_small = simple_skip_release_small,
-        .skip_translate_c = skip_translate_c,
     });
     const simple_dep_step = simple_dep.builder.default_step;
     simple_dep_step.name = "standalone_test_cases.simple";
@@ -99,12 +97,9 @@ pub fn build(b: *std.Build) void {
                     pkg.build_zig.requires_macos_sdk;
                 const requires_symlinks = @hasDecl(pkg.build_zig, "requires_symlinks") and
                     pkg.build_zig.requires_symlinks;
-                const requires_translate_c = @hasDecl(pkg.build_zig, "requires_translate_c") and
-                    pkg.build_zig.requires_translate_c;
                 if ((requires_symlinks and omit_symlinks) or
                     (requires_macos_sdk and !enable_macos_sdk) or
-                    (requires_ios_sdk and !enable_ios_sdk) or
-                    (requires_translate_c and skip_translate_c))
+                    (requires_ios_sdk and !enable_ios_sdk))
                 {
                     continue :add_dep_steps;
                 }

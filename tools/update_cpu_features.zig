@@ -1737,10 +1737,11 @@ fn processOneTarget(job: Job) void {
         const collate_progress = progress_node.start("collating LLVM data", 0);
 
         // So far, LLVM only has a few aliases for the same CPU.
-        var cpu_aliases = std.StringHashMap(std.SegmentedList(struct {
+        const Alias = struct {
             llvm: []const u8,
             zig: []const u8,
-        }, 4)).init(arena);
+        };
+        var cpu_aliases = std.StringHashMap(std.ArrayList(*Alias)).init(arena);
 
         {
             var it = root_map.iterator();
@@ -1756,12 +1757,16 @@ fn processOneTarget(job: Job) void {
 
                     const gop = try cpu_aliases.getOrPut(try llvmNameToZigName(arena, llvm_name));
 
-                    if (!gop.found_existing) gop.value_ptr.* = .{};
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = .empty;
+                    }
 
-                    try gop.value_ptr.append(arena, .{
+                    const alias = try arena.create(Alias);
+                    alias.* = .{
                         .llvm = llvm_alias,
                         .zig = try llvmNameToZigName(arena, llvm_alias),
-                    });
+                    };
+                    try gop.value_ptr.append(arena, alias);
                 }
             }
         }
@@ -1918,9 +1923,7 @@ fn processOneTarget(job: Job) void {
                     });
 
                     if (cpu_aliases.get(zig_name)) |aliases| {
-                        var alias_it = aliases.constIterator(0);
-
-                        alias_it: while (alias_it.next()) |alias| {
+                        alias_it: for (aliases.items) |alias| {
                             for (target.omit_cpus) |omit_cpu_name| {
                                 if (mem.eql(u8, omit_cpu_name, alias.llvm)) continue :alias_it;
                             }

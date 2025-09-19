@@ -56,9 +56,7 @@ stage3-release/bin/zig build test \
   -Dskip-non-native \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib" \
-  -Dno-langref \
-  -Dskip-translate-c
+  --zig-lib-dir "$PWD/../lib"
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

@@ -2,6 +2,9 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     _ = build_opts;
     const elf_step = b.step("test-elf", "Run ELF tests");
 
+    // https://github.com/ziglang/zig/issues/25323
+    if (builtin.os.tag == .freebsd) return elf_step;
+
     const default_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
         .os_tag = .linux,
@@ -4285,6 +4288,7 @@ const addStaticLibrary = link.addStaticLibrary;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const Build = std.Build;
 const BuildOptions = link.BuildOptions;
