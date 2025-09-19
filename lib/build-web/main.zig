@@ -94,6 +94,7 @@ export fn message_end() void {
 
         .time_report_generic_result => return time_report.genericResultMessage(msg_bytes) catch @panic("OOM"),
         .time_report_compile_result => return time_report.compileResultMessage(msg_bytes) catch @panic("OOM"),
+        .time_report_run_test_result => return time_report.runTestResultMessage(msg_bytes) catch @panic("OOM"),
     }
 }
 
