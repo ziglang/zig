@@ -5,9 +5,29 @@
 //! index from the DER-encoded subject name to the index of the containing
 //! certificate within `bytes`.
 
+source: Source,
+
 /// The key is the contents slice of the subject.
 map: std.HashMapUnmanaged(der.Element.Slice, u32, MapContext, std.hash_map.default_max_load_percentage) = .empty,
 bytes: std.ArrayListUnmanaged(u8) = .empty,
+
+pub const default: Bundle = .{
+    .source = .system,
+};
+
+pub const Source = union(enum) {
+    system,
+    file: []const u8,
+    bytes: []const u8,
+};
+
+pub fn init(allocator: Allocator, source: Source) !Bundle {
+    var bundle: Bundle = .{
+        .source = source,
+    };
+    try bundle.rescan(allocator);
+    return bundle;
+}
 
 pub const VerifyError = Certificate.Parsed.VerifyError || error{
     CertificateIssuerNotFound,
@@ -57,18 +77,22 @@ pub const RescanError = RescanLinuxError || RescanMacError || RescanWithPathErro
 /// For operating systems that do not have standard CA installations to be
 /// found, this function clears the set of certificates.
 pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
-    switch (builtin.os.tag) {
-        .linux => return rescanLinux(cb, gpa),
-        .macos => return rescanMac(cb, gpa),
-        .freebsd, .openbsd => return rescanWithPath(cb, gpa, "/etc/ssl/cert.pem"),
-        .netbsd => return rescanWithPath(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
-        .dragonfly => return rescanWithPath(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
-        .solaris, .illumos => return rescanWithPath(cb, gpa, "/etc/ssl/cacert.pem"),
-        .haiku => return rescanWithPath(cb, gpa, "/boot/system/data/ssl/CARootCertificates.pem"),
-        // https://github.com/SerenityOS/serenity/blob/222acc9d389bc6b490d4c39539761b043a4bfcb0/Ports/ca-certificates/package.sh#L19
-        .serenity => return rescanWithPath(cb, gpa, "/etc/ssl/certs/ca-certificates.crt"),
-        .windows => return rescanWindows(cb, gpa),
-        else => {},
+    switch (cb.source) {
+        .system => switch (builtin.os.tag) {
+            .linux => return rescanLinux(cb, gpa),
+            .macos => return rescanMac(cb, gpa),
+            .freebsd, .openbsd => return rescanWithPath(cb, gpa, "/etc/ssl/cert.pem"),
+            .netbsd => return rescanWithPath(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
+            .dragonfly => return rescanWithPath(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
+            .solaris, .illumos => return rescanWithPath(cb, gpa, "/etc/ssl/cacert.pem"),
+            .haiku => return rescanWithPath(cb, gpa, "/boot/system/data/ssl/CARootCertificates.pem"),
+            // https://github.com/SerenityOS/serenity/blob/222acc9d389bc6b490d4c39539761b043a4bfcb0/Ports/ca-certificates/package.sh#L19
+            .serenity => return rescanWithPath(cb, gpa, "/etc/ssl/certs/ca-certificates.crt"),
+            .windows => return rescanWindows(cb, gpa),
+            else => {},
+        },
+        .file => |path| return rescanWithPath(cb, gpa, path),
+        .bytes => |buffer| return rescanWithBytes(cb, gpa, buffer),
     }
 }
 
@@ -155,6 +179,13 @@ fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
+fn rescanWithBytes(cb: *Bundle, gpa: Allocator, buffer: []const u8) AddCertsFromBytesError!void {
+    cb.bytes.clearRetainingCapacity();
+    cb.map.clearRetainingCapacity();
+    try addCertsFromBytes(cb, gpa, buffer);
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
+}
+
 pub const AddCertsFromDirPathError = fs.File.OpenError || AddCertsFromDirError;
 
 pub fn addCertsFromDirPath(
@@ -220,29 +251,44 @@ pub fn addCertsFromFilePath(
 pub const AddCertsFromFileError = Allocator.Error ||
     fs.File.GetSeekPosError ||
     fs.File.ReadError ||
-    ParseCertError ||
-    std.base64.Error ||
-    error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
+    AddCertsFromBytesError;
 
 pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
-    const size = try file.getEndPos();
+    const size = std.math.cast(usize, try file.getEndPos()) orelse
+        return error.CertificateAuthorityBundleTooBig;
 
-    // We borrow `bytes` as a temporary buffer for the base64-encoded data.
-    // This is possible by computing the decoded length and reserving the space
-    // for the decoded bytes first.
-    const decoded_size_upper_bound = size / 4 * 3;
+    // We borrow `bytes` as a temporary buffer for both the decoded certificate
+    // data and the encoded data from `file`. This is possible by placing the
+    // file data after the decoded data filled by addCertsFromBytes.
+    const decoded_size_upper_bound = try std.base64.standard.Decoder.calcSizeUpperBound(size);
     const needed_capacity = std.math.cast(u32, decoded_size_upper_bound + size) orelse
         return error.CertificateAuthorityBundleTooBig;
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
+
     const end_reserved: u32 = @intCast(cb.bytes.items.len + decoded_size_upper_bound);
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
     const end_index = try file.readAll(buffer);
     const encoded_bytes = buffer[0..end_index];
 
+    return cb.addCertsFromBytes(gpa, encoded_bytes);
+}
+
+pub const AddCertsFromBytesError = Allocator.Error ||
+    ParseCertError ||
+    std.base64.Error ||
+    error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
+
+pub fn addCertsFromBytes(cb: *Bundle, gpa: Allocator, encoded_bytes: []const u8) AddCertsFromBytesError!void {
     const begin_marker = "-----BEGIN CERTIFICATE-----";
     const end_marker = "-----END CERTIFICATE-----";
 
     const now_sec = std.time.timestamp();
+
+    // We borrow `bytes` as a temporary buffer for the decoded certificate data.
+    const decoded_size_upper_bound = try std.base64.standard.Decoder.calcSizeUpperBound(encoded_bytes.len);
+    const needed_capacity = std.math.cast(u32, decoded_size_upper_bound) orelse
+        return error.CertificateAuthorityBundleTooBig;
+    try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
 
     var start_index: usize = 0;
     while (mem.indexOfPos(u8, encoded_bytes, start_index, begin_marker)) |begin_marker_start| {
@@ -318,11 +364,56 @@ const MapContext = struct {
     }
 };
 
-test "scan for OS-provided certificates" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+test "load certificate bundle" {
+    // load from a file
 
-    var bundle: Bundle = .{};
-    defer bundle.deinit(std.testing.allocator);
+    {
+        var tmp_dir = std.testing.tmpDir(.{});
+        defer tmp_dir.cleanup();
+        var dir = tmp_dir.dir;
 
-    try bundle.rescan(std.testing.allocator);
+        try dir.writeFile(.{ .sub_path = "cacert.pem", .data = cacert_pem });
+        const cacert_path = try dir.realpathAlloc(std.testing.allocator, "cacert.pem");
+        defer std.testing.allocator.free(cacert_path);
+
+        var bundle: Bundle = try .init(std.testing.allocator, .{
+            .file = cacert_path,
+        });
+        defer bundle.deinit(std.testing.allocator);
+    }
+
+    // load from a byte buffer
+
+    {
+        var bundle: Bundle = try .init(std.testing.allocator, .{
+            .bytes = cacert_pem,
+        });
+        defer bundle.deinit(std.testing.allocator);
+    }
+
+    // load from the system
+
+    {
+        if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+        var bundle: Bundle = try .init(std.testing.allocator, .system);
+        defer bundle.deinit(std.testing.allocator);
+    }
 }
+
+// go run github.com/jsha/minica@v1.1.0 -domains localhost
+const cacert_pem =
+    \\-----BEGIN CERTIFICATE-----
+    \\MIIB/DCCAYKgAwIBAgIIYcxXcUcpGuYwCgYIKoZIzj0EAwMwIDEeMBwGA1UEAxMV
+    \\bWluaWNhIHJvb3QgY2EgNjFjYzU3MCAXDTI1MDkxNzAzNDAyNVoYDzIxMjUwOTE3
+    \\MDM0MDI1WjAgMR4wHAYDVQQDExVtaW5pY2Egcm9vdCBjYSA2MWNjNTcwdjAQBgcq
+    \\hkjOPQIBBgUrgQQAIgNiAARubFYDHoLNmM68GulcjVxxGxmqpNvosnDHpbBbU3wq
+    \\pzwYN5FXK2QdSy3MBHvNfyu2VZVYiNGyaIWz66vOh0f6dVPLXlo1ghRvMwnaP+qy
+    \\Xj8dWcedNoT2mxybVwxLOiKjgYYwgYMwDgYDVR0PAQH/BAQDAgKEMB0GA1UdJQQW
+    \\MBQGCCsGAQUFBwMBBggrBgEFBQcDAjASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1Ud
+    \\DgQWBBSmzZRaHagE1f+5ADaaNlpYLmyV/jAfBgNVHSMEGDAWgBSmzZRaHagE1f+5
+    \\ADaaNlpYLmyV/jAKBggqhkjOPQQDAwNoADBlAjEA9kXs6mZXpu1MQz0GKv0aHEdo
+    \\swy3hE/7Y/UDy/bo71G3Qss1AjsS/flvfMNPIOecAjAx1wFTjdXS58CB02dTNXRv
+    \\BPPkWAiU7avvE1RsEQU2fvudhnoiVa8PDs0TJODFiR4=
+    \\-----END CERTIFICATE-----
+;
