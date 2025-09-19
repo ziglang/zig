@@ -1,8 +1,7 @@
 const std = @import("../std.zig");
 
-/// When decompressing, the output buffer is used as the history window, so
-/// less than this may result in failure to decompress streams that were
-/// compressed with a larger window.
+/// When compressing and decompressing, the provided buffer is used as the
+/// history window, so it must be at least this size.
 pub const max_window_len = history_len * 2;
 
 pub const history_len = 32768;
@@ -14,10 +13,6 @@ pub const Compress = @import("flate/Compress.zig");
 /// Inflate is the decoding process that consumes a Deflate bitstream and
 /// produces the original full-size data.
 pub const Decompress = @import("flate/Decompress.zig");
-
-/// Compression without Lempel-Ziv match searching. Faster compression, less
-/// memory requirements but bigger compressed sizes.
-pub const HuffmanEncoder = @import("flate/HuffmanEncoder.zig");
 
 /// Container of the deflate bit stream body. Container adds header before
 /// deflate bit stream and footer after. It can bi gzip, zlib or raw (no header,
@@ -112,28 +107,24 @@ pub const Container = enum {
             switch (h.*) {
                 .raw => {},
                 .gzip => |*gzip| {
-                    gzip.update(buf);
-                    gzip.count +%= buf.len;
+                    gzip.crc.update(buf);
+                    gzip.count +%= @truncate(buf.len);
                 },
                 .zlib => |*zlib| {
                     zlib.update(buf);
                 },
-                inline .gzip, .zlib => |*x| x.update(buf),
             }
         }
 
         pub fn writeFooter(hasher: *Hasher, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-            var bits: [4]u8 = undefined;
             switch (hasher.*) {
                 .gzip => |*gzip| {
                     // GZIP 8 bytes footer
                     //  - 4 bytes, CRC32 (CRC-32)
-                    //  - 4 bytes, ISIZE (Input SIZE) - size of the original (uncompressed) input data modulo 2^32
-                    std.mem.writeInt(u32, &bits, gzip.final(), .little);
-                    try writer.writeAll(&bits);
-
-                    std.mem.writeInt(u32, &bits, gzip.bytes_read, .little);
-                    try writer.writeAll(&bits);
+                    //  - 4 bytes, ISIZE (Input SIZE) - size of the original
+                    //  (uncompressed) input data modulo 2^32
+                    try writer.writeInt(u32, gzip.crc.final(), .little);
+                    try writer.writeInt(u32, gzip.count, .little);
                 },
                 .zlib => |*zlib| {
                     // ZLIB (RFC 1950) is big-endian, unlike GZIP (RFC 1952).
@@ -141,8 +132,7 @@ pub const Container = enum {
                     // Checksum value of the uncompressed data (excluding any
                     // dictionary data) computed according to Adler-32
                     // algorithm.
-                    std.mem.writeInt(u32, &bits, zlib.final, .big);
-                    try writer.writeAll(&bits);
+                    try writer.writeInt(u32, zlib.adler, .big);
                 },
                 .raw => {},
             }
@@ -174,7 +164,6 @@ pub const Container = enum {
 };
 
 test {
-    _ = HuffmanEncoder;
     _ = Compress;
     _ = Decompress;
 }
