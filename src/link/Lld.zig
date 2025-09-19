@@ -286,7 +286,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     const comp = base.comp;
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
-    const full_out_path_z = try arena.dupeZ(u8, full_out_path);
+    const full_out_path_z = try arena.dupeSentinel(u8, full_out_path, 0);
     const opt_zcu = comp.zcu;
 
     const zcu_obj_path: ?Cache.Path = if (opt_zcu != null) p: {
@@ -325,7 +325,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         object_files.appendAssumeCapacity(try key.status.success.object_path.toStringZ(arena));
     }
     for (comp.win32_resource_table.keys()) |key| {
-        object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
+        object_files.appendAssumeCapacity(try arena.dupeSentinel(u8, key.status.success.res_path, 0));
     }
     if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
     if (compiler_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));

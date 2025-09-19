@@ -46,7 +46,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
         .haiku => {
             var dir_path_buf: [std.fs.max_path_bytes]u8 = undefined;
             const rc = std.c.find_directory(.B_USER_SETTINGS_DIRECTORY, -1, true, &dir_path_buf, dir_path_buf.len);
-            const settings_dir = try allocator.dupeZ(u8, mem.sliceTo(&dir_path_buf, 0));
+            const settings_dir = try allocator.dupeSentinel(u8, mem.sliceTo(&dir_path_buf, 0), 0);
             defer allocator.free(settings_dir);
             switch (rc) {
                 0 => return fs.path.join(allocator, &[_][]const u8{ settings_dir, appname }),

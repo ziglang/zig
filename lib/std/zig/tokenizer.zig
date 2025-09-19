@@ -1723,7 +1723,7 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
 
 fn testPropertiesUpheld(context: void, source: []const u8) anyerror!void {
     _ = context;
-    const source0 = try std.testing.allocator.dupeZ(u8, source);
+    const source0 = try std.testing.allocator.dupeSentinel(u8, source, 0);
     defer std.testing.allocator.free(source0);
     var tokenizer = Tokenizer.init(source0);
     var tokenization_failed = false;

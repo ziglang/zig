@@ -4711,7 +4711,7 @@ test isAligned {
 }
 
 test "freeing empty string with null-terminated sentinel" {
-    const empty_string = try testing.allocator.dupeZ(u8, "");
+    const empty_string = try testing.allocator.dupeSentinel(u8, "", 0);
     testing.allocator.free(empty_string);
 }
 

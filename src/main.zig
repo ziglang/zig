@@ -4495,7 +4495,7 @@ fn runOrTestHotSwap(
             const arena = arena_allocator.allocator();
 
             const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.items.len, null);
-            for (argv.items, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+            for (argv.items, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
             const pid = try PosixSpawn.spawn(argv.items[0], null, attr, argv_buf, std.c.environ);
             return pid;
@@ -4623,10 +4623,10 @@ fn cmdTranslateC(
                 new_argv_with_sentinel[clang_args_len] = null;
                 const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
                 for (argv.items, 0..) |arg, i| {
-                    new_argv[i] = try arena.dupeZ(u8, arg);
+                    new_argv[i] = try arena.dupeSentinel(u8, arg, 0);
                 }
                 for (c_source_file.extra_flags, 0..) |arg, i| {
-                    new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
+                    new_argv[argv.items.len + i] = try arena.dupeSentinel(u8, arg, 0);
                 }
 
                 const c_headers_dir_path_z = try comp.dirs.zig_lib.joinZ(arena, &.{"include"});
@@ -5741,7 +5741,7 @@ extern "c" fn ZigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn argsCopyZ(alloc: Allocator, args: []const []const u8) ![:null]?[*:0]u8 {
     var argv = try alloc.allocSentinel(?[*:0]u8, args.len, null);
     for (args, 0..) |arg, i| {
-        argv[i] = try alloc.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
+        argv[i] = try alloc.dupeSentinel(u8, arg, 0); // TODO If there was an argsAllocZ we could avoid this allocation.
     }
     return argv;
 }
@@ -6463,7 +6463,7 @@ fn cmdDumpLlvmInts(
     if (!build_options.have_llvm)
         fatal("compiler does not use LLVM; cannot dump LLVM integer sizes", .{});
 
-    const triple = try arena.dupeZ(u8, args[0]);
+    const triple = try arena.dupeSentinel(u8, args[0], 0);
 
     const llvm = @import("codegen/llvm/bindings.zig");
 

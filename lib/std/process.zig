@@ -1721,7 +1721,7 @@ pub fn execve(
     const arena = arena_allocator.allocator();
 
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, argv.len, null);
-    for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
     const envp = m: {
         if (env_map) |m| {
@@ -1999,7 +1999,7 @@ pub fn createEnvironFromExisting(
             },
             .nothing => {},
         };
-        envp_buf[i] = try arena.dupeZ(u8, mem.span(line));
+        envp_buf[i] = try arena.dupeSentinel(u8, mem.span(line), 0);
         i += 1;
     }
 

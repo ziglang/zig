@@ -58,7 +58,7 @@ pub fn parse(
                 if (value.len == 0) {
                     @field(self, field.name) = null;
                 } else {
-                    found_keys[i].allocated = try allocator.dupeZ(u8, value);
+                    found_keys[i].allocated = try allocator.dupeSentinel(u8, value, 0);
                     @field(self, field.name) = found_keys[i].allocated;
                 }
                 break;
@@ -197,16 +197,16 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
     } else if (is_haiku) {
         try self.findNativeIncludeDirPosix(args);
         try self.findNativeGccDirHaiku(args);
-        self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
+        self.crt_dir = try args.allocator.dupeSentinel(u8, "/system/develop/lib", 0);
     } else if (builtin.target.os.tag.isSolarish()) {
         // There is only one libc, and its headers/libraries are always in the same spot.
-        self.include_dir = try args.allocator.dupeZ(u8, "/usr/include");
-        self.sys_include_dir = try args.allocator.dupeZ(u8, "/usr/include");
-        self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib/64");
+        self.include_dir = try args.allocator.dupeSentinel(u8, "/usr/include", 0);
+        self.sys_include_dir = try args.allocator.dupeSentinel(u8, "/usr/include", 0);
+        self.crt_dir = try args.allocator.dupeSentinel(u8, "/usr/lib/64", 0);
     } else if (std.process.can_spawn) {
         try self.findNativeIncludeDirPosix(args);
         switch (builtin.target.os.tag) {
-            .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib"),
+            .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try args.allocator.dupeSentinel(u8, "/usr/lib", 0),
             .linux => try self.findNativeCrtDirPosix(args),
             else => {},
         }
@@ -330,7 +330,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
 
         if (self.include_dir == null) {
             if (search_dir.accessZ(include_dir_example_file, .{})) |_| {
-                self.include_dir = try allocator.dupeZ(u8, search_path);
+                self.include_dir = try allocator.dupeSentinel(u8, search_path, 0);
             } else |err| switch (err) {
                 error.FileNotFound => {},
                 else => return error.FileSystem,
@@ -339,7 +339,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
 
         if (self.sys_include_dir == null) {
             if (search_dir.accessZ(sys_include_dir_example_file, .{})) |_| {
-                self.sys_include_dir = try allocator.dupeZ(u8, search_path);
+                self.sys_include_dir = try allocator.dupeSentinel(u8, search_path, 0);
             } else |err| switch (err) {
                 error.FileNotFound => {},
                 else => return error.FileSystem,
@@ -622,10 +622,10 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     // So we detect failure by checking if the output matches exactly the input.
     if (std.mem.eql(u8, line, args.search_basename)) return error.LibCRuntimeNotFound;
     switch (args.want_dirname) {
-        .full_path => return allocator.dupeZ(u8, line),
+        .full_path => return allocator.dupeSentinel(u8, line, 0),
         .only_dir => {
             const dirname = fs.path.dirname(line) orelse return error.LibCRuntimeNotFound;
-            return allocator.dupeZ(u8, dirname);
+            return allocator.dupeSentinel(u8, dirname, 0);
         },
     }
 }
