@@ -1,27 +1,19 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const debug = std.debug;
-const testing = std.testing;
+const fatal = std.process.fatal;
 
-noinline fn frame3(expected: *[4]usize, unwound: *[4]usize) void {
+noinline fn frame3(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
     expected[0] = @returnAddress();
-
-    var context: debug.ThreadContext = undefined;
-    testing.expect(debug.getContext(&context)) catch @panic("failed to getContext");
-
-    const debug_info = debug.getSelfDebugInfo() catch @panic("failed to openSelfDebugInfo");
-    var it = debug.StackIterator.initWithContext(expected[0], debug_info, &context, @frameAddress()) catch @panic("failed to initWithContext");
-    defer it.deinit();
-
-    for (unwound) |*addr| {
-        if (it.next()) |return_address| addr.* = return_address;
-    }
+    return std.debug.captureCurrentStackTrace(.{
+        .first_address = @returnAddress(),
+        .allow_unsafe_unwind = true,
+    }, addr_buf);
 }
 
-noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
+noinline fn frame2(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
     // Exercise different __unwind_info / DWARF CFI encodings by forcing some registers to be restored
     if (builtin.target.ofmt != .c) {
-        switch (builtin.cpu.arch) {
+        switch (builtin.target.cpu.arch) {
             .x86 => {
                 if (builtin.omit_frame_pointer) {
                     asm volatile (
@@ -67,10 +59,10 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
     }
 
     expected[1] = @returnAddress();
-    frame3(expected, unwound);
+    return frame3(expected, addr_buf);
 }
 
-noinline fn frame1(expected: *[4]usize, unwound: *[4]usize) void {
+noinline fn frame1(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
     expected[2] = @returnAddress();
 
     // Use a stack frame that is too big to encode in __unwind_info's stack-immediate encoding
@@ -78,22 +70,32 @@ noinline fn frame1(expected: *[4]usize, unwound: *[4]usize) void {
     var pad: [std.math.maxInt(u8) * @sizeOf(usize) + 1]u8 = undefined;
     _ = std.mem.doNotOptimizeAway(&pad);
 
-    frame2(expected, unwound);
+    return frame2(expected, addr_buf);
 }
 
-noinline fn frame0(expected: *[4]usize, unwound: *[4]usize) void {
+noinline fn frame0(expected: *[4]usize, addr_buf: *[4]usize) std.builtin.StackTrace {
     expected[3] = @returnAddress();
-    frame1(expected, unwound);
+    return frame1(expected, addr_buf);
 }
 
-pub fn main() !void {
-    // Disabled until the DWARF unwinder bugs on .aarch64 are solved
-    if (builtin.omit_frame_pointer and comptime builtin.target.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) return;
-
-    if (!std.debug.have_ucontext or !std.debug.have_getcontext) return;
+pub fn main() void {
+    if (std.debug.cpu_context.Native == noreturn and builtin.omit_frame_pointer) {
+        // Stack unwinding is impossible.
+        return;
+    }
 
     var expected: [4]usize = undefined;
-    var unwound: [4]usize = undefined;
-    frame0(&expected, &unwound);
-    try testing.expectEqual(expected, unwound);
+    var addr_buf: [4]usize = undefined;
+    const trace = frame0(&expected, &addr_buf);
+    // There may be *more* than 4 frames (due to the caller of `main`); that's okay.
+    if (trace.index < 4) {
+        fatal("expected at least 4 frames, got '{d}':\n{f}", .{ trace.index, &trace });
+    }
+    if (!std.mem.eql(usize, trace.instruction_addresses, &expected)) {
+        const expected_trace: std.builtin.StackTrace = .{
+            .index = 4,
+            .instruction_addresses = &expected,
+        };
+        fatal("expected trace:\n{f}\nactual trace:\n{f}", .{ &expected_trace, &trace });
+    }
 }

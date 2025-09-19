@@ -273,6 +273,3 @@ pub const mcontext_t = extern struct {
     __regs2: [18]u32,
     __regs3: [16]f64,
 };
-
-/// TODO
-pub const getcontext = {};

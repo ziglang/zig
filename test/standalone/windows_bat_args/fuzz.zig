@@ -3,14 +3,14 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 pub fn main() anyerror!void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer if (gpa.deinit() == .leak) @panic("found memory leaks");
-    const allocator = gpa.allocator();
+    var debug_alloc_inst: std.heap.DebugAllocator(.{}) = .init;
+    defer std.debug.assert(debug_alloc_inst.deinit() == .ok);
+    const gpa = debug_alloc_inst.allocator();
 
-    var it = try std.process.argsWithAllocator(allocator);
+    var it = try std.process.argsWithAllocator(gpa);
     defer it.deinit();
     _ = it.next() orelse unreachable; // skip binary name
-    const child_exe_path = it.next() orelse unreachable;
+    const child_exe_path_orig = it.next() orelse unreachable;
 
     const iterations: u64 = iterations: {
         const arg = it.next() orelse "0";
@@ -42,58 +42,63 @@ pub fn main() anyerror!void {
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};
 
-    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 128);
-    defer buf.deinit();
-    try buf.appendSlice("@echo off\n");
-    try buf.append('"');
-    try buf.appendSlice(child_exe_path);
-    try buf.append('"');
+    // `child_exe_path_orig` might be relative; make it relative to our new cwd.
+    const child_exe_path = try std.fs.path.resolve(gpa, &.{ "..\\..\\..", child_exe_path_orig });
+    defer gpa.free(child_exe_path);
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(gpa);
+    try buf.print(gpa,
+        \\@echo off
+        \\"{s}"
+    , .{child_exe_path});
+    // Trailing newline intentionally omitted above so we can add args.
     const preamble_len = buf.items.len;
 
-    try buf.appendSlice(" %*");
+    try buf.appendSlice(gpa, " %*");
     try tmp.dir.writeFile(.{ .sub_path = "args1.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
-    try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
+    try buf.appendSlice(gpa, " %1 %2 %3 %4 %5 %6 %7 %8 %9");
     try tmp.dir.writeFile(.{ .sub_path = "args2.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
-    try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
+    try buf.appendSlice(gpa, " \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
     try tmp.dir.writeFile(.{ .sub_path = "args3.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     var i: u64 = 0;
     while (iterations == 0 or i < iterations) {
-        const rand_arg = try randomArg(allocator, rand);
-        defer allocator.free(rand_arg);
+        const rand_arg = try randomArg(gpa, rand);
+        defer gpa.free(rand_arg);
 
-        try testExec(allocator, &.{rand_arg}, null);
+        try testExec(gpa, &.{rand_arg}, null);
 
         i += 1;
     }
 }
 
-fn testExec(allocator: std.mem.Allocator, args: []const []const u8, env: ?*std.process.EnvMap) !void {
-    try testExecBat(allocator, "args1.bat", args, env);
-    try testExecBat(allocator, "args2.bat", args, env);
-    try testExecBat(allocator, "args3.bat", args, env);
+fn testExec(gpa: std.mem.Allocator, args: []const []const u8, env: ?*std.process.EnvMap) !void {
+    try testExecBat(gpa, "args1.bat", args, env);
+    try testExecBat(gpa, "args2.bat", args, env);
+    try testExecBat(gpa, "args3.bat", args, env);
 }
 
-fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []const u8, env: ?*std.process.EnvMap) !void {
-    var argv = try std.array_list.Managed([]const u8).initCapacity(allocator, 1 + args.len);
-    defer argv.deinit();
-    argv.appendAssumeCapacity(bat);
-    argv.appendSliceAssumeCapacity(args);
+fn testExecBat(gpa: std.mem.Allocator, bat: []const u8, args: []const []const u8, env: ?*std.process.EnvMap) !void {
+    const argv = try gpa.alloc([]const u8, 1 + args.len);
+    defer gpa.free(argv);
+    argv[0] = bat;
+    @memcpy(argv[1..], args);
 
     const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
 
     const result = try std.process.Child.run(.{
-        .allocator = allocator,
+        .allocator = gpa,
         .env_map = env,
-        .argv = argv.items,
+        .argv = argv,
     });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
+    defer gpa.free(result.stdout);
+    defer gpa.free(result.stderr);
 
     try std.testing.expectEqualStrings("", result.stderr);
     var it = std.mem.splitScalar(u8, result.stdout, '\x00');
@@ -109,7 +114,7 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
     }
 }
 
-fn randomArg(allocator: Allocator, rand: std.Random) ![]const u8 {
+fn randomArg(gpa: Allocator, rand: std.Random) ![]const u8 {
     const Choice = enum {
         backslash,
         quote,
@@ -121,8 +126,8 @@ fn randomArg(allocator: Allocator, rand: std.Random) ![]const u8 {
     };
 
     const choices = rand.uintAtMostBiased(u16, 256);
-    var buf = try std.array_list.Managed(u8).initCapacity(allocator, choices);
-    errdefer buf.deinit();
+    var buf: std.ArrayList(u8) = try .initCapacity(gpa, choices);
+    errdefer buf.deinit(gpa);
 
     var last_codepoint: u21 = 0;
     for (0..choices) |_| {
@@ -149,12 +154,12 @@ fn randomArg(allocator: Allocator, rand: std.Random) ![]const u8 {
                 continue;
             }
         }
-        try buf.ensureUnusedCapacity(4);
+        try buf.ensureUnusedCapacity(gpa, 4);
         const unused_slice = buf.unusedCapacitySlice();
         const len = std.unicode.wtf8Encode(codepoint, unused_slice) catch unreachable;
         buf.items.len += len;
         last_codepoint = codepoint;
     }
 
-    return buf.toOwnedSlice();
+    return buf.toOwnedSlice(gpa);
 }

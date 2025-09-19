@@ -1083,26 +1083,27 @@ pub const Coff = struct {
     age: u32 = undefined,
 
     // The lifetime of `data` must be longer than the lifetime of the returned Coff
-    pub fn init(data: []const u8, is_loaded: bool) !Coff {
+    pub fn init(data: []const u8, is_loaded: bool) error{ EndOfStream, MissingPEHeader }!Coff {
         const pe_pointer_offset = 0x3C;
         const pe_magic = "PE\x00\x00";
 
-        var reader: std.Io.Reader = .fixed(data);
-        reader.seek = pe_pointer_offset;
-        const coff_header_offset = try reader.takeInt(u32, .little);
-        reader.seek = coff_header_offset;
-        const is_image = mem.eql(u8, pe_magic, try reader.takeArray(4));
+        if (data.len < pe_pointer_offset + 4) return error.EndOfStream;
+        const header_offset = mem.readInt(u32, data[pe_pointer_offset..][0..4], .little);
+        if (data.len < header_offset + 4) return error.EndOfStream;
+        const is_image = mem.eql(u8, data[header_offset..][0..4], pe_magic);
 
-        var coff = @This(){
+        const coff: Coff = .{
             .data = data,
             .is_image = is_image,
             .is_loaded = is_loaded,
-            .coff_header_offset = coff_header_offset,
+            .coff_header_offset = o: {
+                if (is_image) break :o header_offset + 4;
+                break :o header_offset;
+            },
         };
 
         // Do some basic validation upfront
         if (is_image) {
-            coff.coff_header_offset = coff.coff_header_offset + 4;
             const coff_header = coff.getCoffHeader();
             if (coff_header.size_of_optional_header == 0) return error.MissingPEHeader;
         }

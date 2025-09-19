@@ -344,6 +344,3 @@ pub const Elf_Symndx = u32;
 
 /// TODO
 pub const ucontext_t = void;
-
-/// TODO
-pub const getcontext = {};

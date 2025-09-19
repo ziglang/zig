@@ -192,21 +192,21 @@ pub const File = union(enum) {
         assert(file == .object or file == .zig_object);
 
         for (file.getSymbols(), file.getNlists(), 0..) |*sym, nlist, i| {
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
+            if (!nlist.n_type.bits.ext) continue;
+            if (nlist.n_type.bits.type != .undf) continue;
 
             if (file.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
 
             const is_import = switch (macho_file.undefined_treatment) {
                 .@"error" => false,
-                .warn, .suppress => nlist.weakRef(),
+                .warn, .suppress => nlist.n_desc.weak_ref,
                 .dynamic_lookup => true,
             };
             if (is_import) {
                 sym.value = 0;
                 sym.atom_ref = .{ .index = 0, .file = 0 };
                 sym.flags.weak = false;
-                sym.flags.weak_ref = nlist.weakRef();
+                sym.flags.weak_ref = nlist.n_desc.weak_ref;
                 sym.flags.import = is_import;
                 sym.visibility = .global;
 
@@ -223,13 +223,13 @@ pub const File = union(enum) {
         assert(file == .object or file == .zig_object);
 
         for (file.getSymbols(), file.getNlists(), 0..) |*sym, nlist, i| {
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
+            if (!nlist.n_type.bits.ext) continue;
+            if (nlist.n_type.bits.type != .undf) continue;
             if (file.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
 
             sym.value = 0;
             sym.atom_ref = .{ .index = 0, .file = 0 };
-            sym.flags.weak_ref = nlist.weakRef();
+            sym.flags.weak_ref = nlist.n_desc.weak_ref;
             sym.flags.import = true;
             sym.visibility = .global;
 
@@ -247,7 +247,7 @@ pub const File = union(enum) {
         for (file.getSymbols(), file.getNlists(), 0..) |sym, nlist, i| {
             if (sym.visibility != .global) continue;
             if (sym.flags.weak) continue;
-            if (nlist.undf()) continue;
+            if (nlist.n_type.bits.type == .undf) continue;
             const ref = file.getSymbolRef(@intCast(i), macho_file);
             const ref_file = ref.getFile(macho_file) orelse continue;
             if (ref_file.getIndex() == file.getIndex()) continue;

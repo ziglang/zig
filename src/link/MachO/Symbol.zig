@@ -36,7 +36,7 @@ pub fn isLocal(symbol: Symbol) bool {
 pub fn isSymbolStab(symbol: Symbol, macho_file: *MachO) bool {
     const file = symbol.getFile(macho_file) orelse return false;
     return switch (file) {
-        .object => symbol.getNlist(macho_file).stab(),
+        .object => symbol.getNlist(macho_file).n_type.bits.is_stab != 0,
         else => false,
     };
 }
@@ -233,35 +233,49 @@ pub inline fn setExtra(symbol: Symbol, extra: Extra, macho_file: *MachO) void {
 
 pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) void {
     if (symbol.isLocal()) {
-        out.n_type = if (symbol.flags.abs) macho.N_ABS else macho.N_SECT;
+        out.n_type = .{ .bits = .{
+            .ext = false,
+            .type = if (symbol.flags.abs) .abs else .sect,
+            .pext = false,
+            .is_stab = 0,
+        } };
         out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.getOutputSectionIndex(macho_file) + 1);
-        out.n_desc = 0;
+        out.n_desc = @bitCast(@as(u16, 0));
         out.n_value = symbol.getAddress(.{ .stubs = false }, macho_file);
 
         switch (symbol.visibility) {
-            .hidden => out.n_type |= macho.N_PEXT,
+            .hidden => out.n_type.bits.pext = true,
             else => {},
         }
     } else if (symbol.flags.@"export") {
         assert(symbol.visibility == .global);
-        out.n_type = macho.N_EXT;
-        out.n_type |= if (symbol.flags.abs) macho.N_ABS else macho.N_SECT;
+        out.n_type = .{ .bits = .{
+            .ext = true,
+            .type = if (symbol.flags.abs) .abs else .sect,
+            .pext = false,
+            .is_stab = 0,
+        } };
         out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.getOutputSectionIndex(macho_file) + 1);
         out.n_value = symbol.getAddress(.{ .stubs = false }, macho_file);
-        out.n_desc = 0;
+        out.n_desc = @bitCast(@as(u16, 0));
 
         if (symbol.flags.weak) {
-            out.n_desc |= macho.N_WEAK_DEF;
+            out.n_desc.weak_def_or_ref_to_weak = true;
         }
         if (symbol.flags.dyn_ref) {
-            out.n_desc |= macho.REFERENCED_DYNAMICALLY;
+            out.n_desc.referenced_dynamically = true;
         }
     } else {
         assert(symbol.visibility == .global);
-        out.n_type = macho.N_EXT;
+        out.n_type = .{ .bits = .{
+            .ext = true,
+            .type = .undf,
+            .pext = false,
+            .is_stab = 0,
+        } };
         out.n_sect = 0;
         out.n_value = 0;
-        out.n_desc = 0;
+        out.n_desc = @bitCast(@as(u16, 0));
 
         // TODO:
         // const ord: u16 = if (macho_file.options.namespace == .flat)
@@ -274,14 +288,14 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
             ord
         else
             macho.BIND_SPECIAL_DYLIB_SELF;
-        out.n_desc = macho.N_SYMBOL_RESOLVER * ord;
+        out.n_desc = @bitCast(macho.N_SYMBOL_RESOLVER * ord);
 
         if (symbol.flags.weak) {
-            out.n_desc |= macho.N_WEAK_DEF;
+            out.n_desc.weak_def_or_ref_to_weak = true;
         }
 
         if (symbol.weakRef(macho_file)) {
-            out.n_desc |= macho.N_WEAK_REF;
+            out.n_desc.weak_ref = true;
         }
     }
 }

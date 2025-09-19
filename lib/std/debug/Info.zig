@@ -9,7 +9,7 @@
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
-const Dwarf = std.debug.Dwarf;
+const ElfFile = std.debug.ElfFile;
 const assert = std.debug.assert;
 const Coverage = std.debug.Coverage;
 const SourceLocation = std.debug.Coverage.SourceLocation;
@@ -17,27 +17,35 @@ const SourceLocation = std.debug.Coverage.SourceLocation;
 const Info = @This();
 
 /// Sorted by key, ascending.
-address_map: std.AutoArrayHashMapUnmanaged(u64, Dwarf.ElfModule),
+address_map: std.AutoArrayHashMapUnmanaged(u64, ElfFile),
 /// Externally managed, outlives this `Info` instance.
 coverage: *Coverage,
 
-pub const LoadError = Dwarf.ElfModule.LoadError;
+pub const LoadError = std.fs.File.OpenError || ElfFile.LoadError || std.debug.Dwarf.ScanError || error{MissingDebugInfo};
 
 pub fn load(gpa: Allocator, path: Path, coverage: *Coverage) LoadError!Info {
-    var sections: Dwarf.SectionArray = Dwarf.null_section_array;
-    var elf_module = try Dwarf.ElfModule.loadPath(gpa, path, null, null, &sections, null);
-    try elf_module.dwarf.populateRanges(gpa);
+    var file = try path.root_dir.handle.openFile(path.sub_path, .{});
+    defer file.close();
+
+    var elf_file: ElfFile = try .load(gpa, file, null, &.none);
+    errdefer elf_file.deinit(gpa);
+
+    if (elf_file.dwarf == null) return error.MissingDebugInfo;
+    try elf_file.dwarf.?.open(gpa, elf_file.endian);
+    try elf_file.dwarf.?.populateRanges(gpa, elf_file.endian);
+
     var info: Info = .{
         .address_map = .{},
         .coverage = coverage,
     };
-    try info.address_map.put(gpa, elf_module.base_address, elf_module);
+    try info.address_map.put(gpa, 0, elf_file);
+    errdefer comptime unreachable; // elf_file is owned by the map now
     return info;
 }
 
 pub fn deinit(info: *Info, gpa: Allocator) void {
-    for (info.address_map.values()) |*elf_module| {
-        elf_module.dwarf.deinit(gpa);
+    for (info.address_map.values()) |*elf_file| {
+        elf_file.dwarf.?.deinit(gpa);
     }
     info.address_map.deinit(gpa);
     info.* = undefined;
@@ -57,6 +65,6 @@ pub fn resolveAddresses(
 ) ResolveAddressesError!void {
     assert(sorted_pc_addrs.len == output.len);
     if (info.address_map.entries.len != 1) @panic("TODO");
-    const elf_module = &info.address_map.values()[0];
-    return info.coverage.resolveAddressesDwarf(gpa, sorted_pc_addrs, output, &elf_module.dwarf);
+    const elf_file = &info.address_map.values()[0];
+    return info.coverage.resolveAddressesDwarf(gpa, elf_file.endian, sorted_pc_addrs, output, &elf_file.dwarf.?);
 }

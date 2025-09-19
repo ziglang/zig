@@ -1,27 +1,34 @@
-pub const PE = struct {
-    pub const absptr = 0x00;
+pub const PE = packed struct(u8) {
+    type: Type,
+    rel: Rel,
+    /// Undocumented GCC extension
+    indirect: bool = false,
 
-    pub const size_mask = 0x7;
-    pub const sign_mask = 0x8;
-    pub const type_mask = size_mask | sign_mask;
+    /// This is a special encoding which does not correspond to named `type`/`rel` values.
+    pub const omit: PE = @bitCast(@as(u8, 0xFF));
 
-    pub const uleb128 = 0x01;
-    pub const udata2 = 0x02;
-    pub const udata4 = 0x03;
-    pub const udata8 = 0x04;
-    pub const sleb128 = 0x09;
-    pub const sdata2 = 0x0A;
-    pub const sdata4 = 0x0B;
-    pub const sdata8 = 0x0C;
+    pub const Type = enum(u4) {
+        absptr = 0x0,
+        uleb128 = 0x1,
+        udata2 = 0x2,
+        udata4 = 0x3,
+        udata8 = 0x4,
+        sleb128 = 0x9,
+        sdata2 = 0xA,
+        sdata4 = 0xB,
+        sdata8 = 0xC,
+        _,
+    };
 
-    pub const rel_mask = 0x70;
-    pub const pcrel = 0x10;
-    pub const textrel = 0x20;
-    pub const datarel = 0x30;
-    pub const funcrel = 0x40;
-    pub const aligned = 0x50;
-
-    pub const indirect = 0x80;
-
-    pub const omit = 0xff;
+    /// The specification considers this a `u4`, but the GCC `indirect` field extension conflicts
+    /// with that, so we consider it a `u3` instead.
+    pub const Rel = enum(u3) {
+        abs = 0x0,
+        pcrel = 0x1,
+        textrel = 0x2,
+        datarel = 0x3,
+        funcrel = 0x4,
+        aligned = 0x5,
+        _,
+    };
 };

@@ -234,7 +234,14 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
     return offset;
 }
 
+fn haveEhFrameHdrSearchTable(elf_file: *Elf) bool {
+    // Seach table generation is not implemented for the ZigObject. Also, it would be wasteful to
+    // re-do this work on every single incremental update.
+    return elf_file.zigObjectPtr() == null;
+}
+
 pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
+    if (!haveEhFrameHdrSearchTable(elf_file)) return 8;
     var count: usize = 0;
     for (elf_file.objects.items) |index| {
         for (elf_file.file(index).?.object.fdes.items) |fde| {
@@ -242,7 +249,7 @@ pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
             count += 1;
         }
     }
-    return eh_frame_hdr_header_size + count * 8;
+    return 12 + count * 8;
 }
 
 pub fn calcEhFrameRelocs(elf_file: *Elf) usize {
@@ -455,75 +462,76 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.array_list.Managed(elf.El
 }
 
 pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
+    const endian = elf_file.getTarget().cpu.arch.endian();
+    const have_table = haveEhFrameHdrSearchTable(elf_file);
 
     try writer.writeByte(1); // version
-    try writer.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4);
-    try writer.writeByte(DW_EH_PE.udata4);
-    try writer.writeByte(DW_EH_PE.datarel | DW_EH_PE.sdata4);
+    try writer.writeByte(@bitCast(@as(DW_EH_PE, .{ .type = .sdata4, .rel = .pcrel }))); // eh_frame_ptr_enc
+    if (have_table) {
+        try writer.writeByte(@bitCast(@as(DW_EH_PE, .{ .type = .udata4, .rel = .abs }))); // fde_count_enc
+        try writer.writeByte(@bitCast(@as(DW_EH_PE, .{ .type = .sdata4, .rel = .datarel }))); // table_enc
+    } else {
+        try writer.writeByte(@bitCast(DW_EH_PE.omit)); // fde_count_enc
+        try writer.writeByte(@bitCast(DW_EH_PE.omit)); // table_enc
+    }
 
     const shdrs = elf_file.sections.items(.shdr);
     const eh_frame_shdr = shdrs[elf_file.section_indexes.eh_frame.?];
     const eh_frame_hdr_shdr = shdrs[elf_file.section_indexes.eh_frame_hdr.?];
-    const num_fdes = @as(u32, @intCast(@divExact(eh_frame_hdr_shdr.sh_size - eh_frame_hdr_header_size, 8)));
-    const existing_size = existing_size: {
-        const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
-        const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
-        break :existing_size sym.atom(elf_file).?.size;
-    };
+    // eh_frame_ptr
     try writer.writeInt(
         u32,
         @as(u32, @bitCast(@as(
             i32,
-            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr + existing_size)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
+            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
         ))),
         .little,
     );
-    try writer.writeInt(u32, num_fdes, .little);
 
+    if (!have_table) return;
+
+    const gpa = elf_file.base.comp.gpa;
+
+    // This must be an `extern struct` because we will write the bytes directly to the file.
     const Entry = extern struct {
-        init_addr: u32,
-        fde_addr: u32,
-
-        pub fn lessThan(ctx: void, lhs: @This(), rhs: @This()) bool {
-            _ = ctx;
-            return lhs.init_addr < rhs.init_addr;
+        first_pc_rel: i32,
+        fde_addr_rel: i32,
+        fn lessThan(_: void, lhs: @This(), rhs: @This()) bool {
+            return lhs.first_pc_rel < rhs.first_pc_rel;
         }
     };
+    // The number of entries was already computed by `calcEhFrameHdrSize`.
+    const num_fdes: u32 = @intCast(@divExact(eh_frame_hdr_shdr.sh_size - 12, 8));
+    try writer.writeInt(u32, num_fdes, endian);
 
-    var entries = std.array_list.Managed(Entry).init(gpa);
-    defer entries.deinit();
-    try entries.ensureTotalCapacityPrecise(num_fdes);
-
-    for (elf_file.objects.items) |index| {
-        const object = elf_file.file(index).?.object;
+    var entries: std.ArrayList(Entry) = try .initCapacity(gpa, num_fdes);
+    defer entries.deinit(gpa);
+    for (elf_file.objects.items) |file_index| {
+        const object = elf_file.file(file_index).?.object;
         for (object.fdes.items) |fde| {
             if (!fde.alive) continue;
-
             const relocs = fde.relocs(object);
-            assert(relocs.len > 0); // Should this be an error? Things are completely broken anyhow if this trips...
+            // Should `relocs.len == 0` be an error? Things are completely broken anyhow in that case...
             const rel = relocs[0];
             const ref = object.resolveSymbol(rel.r_sym(), elf_file);
             const sym = elf_file.symbol(ref).?;
-            const P = @as(i64, @intCast(fde.address(elf_file)));
-            const S = @as(i64, @intCast(sym.address(.{}, elf_file)));
-            const A = rel.r_addend;
+            const fde_addr_abs: i64 = @intCast(fde.address(elf_file));
+            const fde_addr_rel: i64 = fde_addr_abs - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr));
+            const first_pc_abs: i64 = @as(i64, @intCast(sym.address(.{}, elf_file))) + rel.r_addend;
+            const first_pc_rel: i64 = first_pc_abs - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr));
             entries.appendAssumeCapacity(.{
-                .init_addr = @bitCast(@as(i32, @truncate(S + A - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr))))),
-                .fde_addr = @as(
-                    u32,
-                    @bitCast(@as(i32, @truncate(P - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr))))),
-                ),
+                .first_pc_rel = @truncate(first_pc_rel),
+                .fde_addr_rel = @truncate(fde_addr_rel),
             });
         }
     }
-
+    assert(entries.items.len == num_fdes);
     std.mem.sort(Entry, entries.items, {}, Entry.lessThan);
-    try writer.writeSliceEndian(Entry, entries.items, .little);
+    if (endian != builtin.cpu.arch.endian()) {
+        std.mem.byteSwapAllElements(Entry, entries.items);
+    }
+    try writer.writeAll(@ptrCast(entries.items));
 }
-
-const eh_frame_hdr_header_size: usize = 12;
 
 const x86_64 = struct {
     fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
@@ -587,3 +595,5 @@ const DW_EH_PE = std.dwarf.EH.PE;
 const Elf = @import("../Elf.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
+
+const builtin = @import("builtin");
