@@ -204,7 +204,7 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
     } else unwinds: {
         // There is no `.eh_frame_hdr` section. There may still be an `.eh_frame` or `.debug_frame`
         // section, but we'll have to load the binary to get at it.
-        try module.loadElf(gpa, di);
+        if (di.loaded_elf == null) try module.loadElf(gpa, di);
         const opt_debug_frame = &di.loaded_elf.?.debug_frame;
         const opt_eh_frame = &di.loaded_elf.?.eh_frame;
         var i: usize = 0;
