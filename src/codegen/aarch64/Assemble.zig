@@ -42,8 +42,11 @@ fn zonCast(comptime Result: type, zon_value: anytype, symbols: anytype) Result {
         .@"struct" => |zon_struct| switch (@typeInfo(Result)) {
             .pointer => |result_pointer| {
                 comptime assert(result_pointer.size == .slice and result_pointer.is_const);
-                var elems: [zon_value.len]result_pointer.child = undefined;
-                inline for (&elems, zon_value) |*elem, zon_elem| elem.* = zonCast(result_pointer.child, zon_elem, symbols);
+                const elems = comptime blk: {
+                    var temp_elems: [zon_value.len]result_pointer.child = undefined;
+                    for (&temp_elems, zon_value) |*elem, zon_elem| elem.* = zonCast(result_pointer.child, zon_elem, symbols);
+                    break :blk temp_elems;
+                };
                 return &elems;
             },
             .@"struct" => |result_struct| {
