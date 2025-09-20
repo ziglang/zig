@@ -222,7 +222,7 @@ pub const CityHash64 = struct {
             const c: u8 = str[str.len - 1];
             const y: u32 = @as(u32, @intCast(a)) +% (@as(u32, @intCast(b)) << 8);
             const z: u32 = @as(u32, @truncate(str.len)) +% (@as(u32, @intCast(c)) << 2);
-            return shiftmix(@as(u64, @intCast(y)) *% k2 ^ @as(u64, @intCast(z)) *% k0) *% k2;
+            return shiftmix((@as(u64, @intCast(y)) *% k2) ^ (@as(u64, @intCast(z)) *% k0)) *% k2;
         }
         return k2;
     }

@@ -752,7 +752,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 
         if (comptime isPowerOfTwo(@typeInfo(T).int.bits)) {
             const ar: Log2Int(T) = @intCast(@mod(r, @typeInfo(T).int.bits));
-            return x << ar | x >> 1 +% ~ar;
+            return x << ar | x >> (1 +% ~ar);
         } else {
             const ar = @mod(r, @typeInfo(T).int.bits);
             return shl(T, x, ar) | shr(T, x, @typeInfo(T).int.bits - ar);

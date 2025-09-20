@@ -90,8 +90,8 @@ fn bitSlice(
     value: anytype,
     comptime high: comptime_int,
     comptime low: comptime_int,
-) std.math.IntFittingRange(0, 1 << high - low) {
-    return @truncate((value >> low) & (1 << (high - low + 1)) - 1);
+) std.math.IntFittingRange(0, 1 << (high - low)) {
+    return @truncate((value >> low) & ((1 << (high - low + 1)) - 1));
 }
 
 pub const Eflags = packed struct(u32) {

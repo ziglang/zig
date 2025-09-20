@@ -693,7 +693,7 @@ pub const PermissionsUnix = struct {
     /// Returns `true` if the chosen class has the selected permission.
     /// This method is only available on Unix platforms.
     pub fn unixHas(self: Self, class: Class, permission: Permission) bool {
-        const mask = @as(Mode, @intFromEnum(permission)) << @as(u3, @intFromEnum(class)) * 3;
+        const mask = @as(Mode, @intFromEnum(permission)) << (@as(u3, @intFromEnum(class)) * 3);
         return self.mode & mask != 0;
     }
 
