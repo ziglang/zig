@@ -1,8 +1,6 @@
 pub const Foo = enum(c_int) {
     A = Foo.B,
     C = D,
-
-    pub const B = 0;
 };
 export fn entry() void {
     const s: Foo = Foo.E;

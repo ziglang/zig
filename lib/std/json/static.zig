@@ -389,7 +389,7 @@ pub fn innerParse(
             switch (try source.peekNextTokenType()) {
                 .array_begin => {
                     // Typical array.
-                    return internalParseArray(T, arrayInfo.child, arrayInfo.len, allocator, source, options);
+                    return internalParseArray(T, arrayInfo.child, allocator, source, options);
                 },
                 .string => {
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
@@ -440,10 +440,11 @@ pub fn innerParse(
             }
         },
 
-        .vector => |vecInfo| {
+        .vector => |vector_info| {
             switch (try source.peekNextTokenType()) {
                 .array_begin => {
-                    return internalParseArray(T, vecInfo.child, vecInfo.len, allocator, source, options);
+                    const A = [vector_info.len]vector_info.child;
+                    return try internalParseArray(A, vector_info.child, allocator, source, options);
                 },
                 else => return error.UnexpectedToken,
             }
@@ -519,7 +520,6 @@ pub fn innerParse(
 fn internalParseArray(
     comptime T: type,
     comptime Child: type,
-    comptime len: comptime_int,
     allocator: Allocator,
     source: anytype,
     options: ParseOptions,
@@ -527,9 +527,8 @@ fn internalParseArray(
     assert(.array_begin == try source.next());
 
     var r: T = undefined;
-    var i: usize = 0;
-    while (i < len) : (i += 1) {
-        r[i] = try innerParse(Child, allocator, source, options);
+    for (&r) |*elem| {
+        elem.* = try innerParse(Child, allocator, source, options);
     }
 
     if (.array_end != try source.next()) return error.UnexpectedToken;
@@ -569,12 +568,12 @@ pub fn innerParseFromValue(
                     if (@round(f) != f) return error.InvalidNumber;
                     if (f > @as(@TypeOf(f), @floatFromInt(std.math.maxInt(T)))) return error.Overflow;
                     if (f < @as(@TypeOf(f), @floatFromInt(std.math.minInt(T)))) return error.Overflow;
-                    return @as(T, @intFromFloat(f));
+                    return @intFromFloat(f);
                 },
                 .integer => |i| {
                     if (i > std.math.maxInt(T)) return error.Overflow;
                     if (i < std.math.minInt(T)) return error.Overflow;
-                    return @as(T, @intCast(i));
+                    return @intCast(i);
                 },
                 .number_string, .string => |s| {
                     return sliceToInt(T, s);

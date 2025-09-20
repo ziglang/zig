@@ -12,4 +12,4 @@ fn loadv(ptr: anytype) i31 {
 
 // error
 //
-// :10:15: error: unable to determine vector element index of type '*align(16:0:4:?) i31'
+// :5:22: error: vector index not comptime known

@@ -1370,19 +1370,12 @@ pub fn printValue(
         },
         .array => {
             if (!is_any) @compileError("cannot format array without a specifier (i.e. {s} or {any})");
-            if (max_depth == 0) return w.writeAll("{ ... }");
-            try w.writeAll("{ ");
-            for (value, 0..) |elem, i| {
-                try w.printValue(fmt, options, elem, max_depth - 1);
-                if (i < value.len - 1) {
-                    try w.writeAll(", ");
-                }
-            }
-            try w.writeAll(" }");
+            return printArray(w, fmt, options, &value, max_depth);
         },
-        .vector => {
+        .vector => |vector| {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return printVector(w, fmt, options, value, max_depth);
+            const array: [vector.len]vector.child = value;
+            return printArray(w, fmt, options, &array, max_depth);
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
@@ -1436,12 +1429,25 @@ pub fn printVector(
     value: anytype,
     max_depth: usize,
 ) Error!void {
-    const len = @typeInfo(@TypeOf(value)).vector.len;
+    const vector = @typeInfo(@TypeOf(value)).vector;
+    const array: [vector.len]vector.child = value;
+    return printArray(w, fmt, options, &array, max_depth);
+}
+
+pub fn printArray(
+    w: *Writer,
+    comptime fmt: []const u8,
+    options: std.fmt.Options,
+    ptr_to_array: anytype,
+    max_depth: usize,
+) Error!void {
     if (max_depth == 0) return w.writeAll("{ ... }");
     try w.writeAll("{ ");
-    inline for (0..len) |i| {
-        try w.printValue(fmt, options, value[i], max_depth - 1);
-        if (i < len - 1) try w.writeAll(", ");
+    for (ptr_to_array, 0..) |elem, i| {
+        try w.printValue(fmt, options, elem, max_depth - 1);
+        if (i < ptr_to_array.len - 1) {
+            try w.writeAll(", ");
+        }
     }
     try w.writeAll(" }");
 }

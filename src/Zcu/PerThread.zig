@@ -700,7 +700,7 @@ fn analyzeMemoizedState(pt: Zcu.PerThread, stage: InternPool.MemoizedStateStage)
 
     const unit: AnalUnit = .wrap(.{ .memoized_state = stage });
 
-    try zcu.analysis_in_progress.put(gpa, unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, unit, {});
     defer assert(zcu.analysis_in_progress.swapRemove(unit));
 
     // Before we begin, collect:
@@ -864,7 +864,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
     const file = zcu.fileByIndex(inst_resolved.file);
     const zir = file.zir.?;
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
     defer assert(zcu.analysis_in_progress.swapRemove(anal_unit));
 
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
@@ -957,6 +957,8 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
     const nav = ip.getNav(nav_id);
 
     log.debug("ensureNavValUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
+
+    assert(!zcu.analysis_in_progress.contains(anal_unit));
 
     // Determine whether or not this `Nav`'s value is outdated. This also includes checking if the
     // status is `.unresolved`, which indicates that the value is outdated because it has *never*
@@ -1090,9 +1092,18 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     const inst_resolved = old_nav.analysis.?.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
     const zir = file.zir.?;
+    const zir_decl = zir.getDeclaration(inst_resolved.inst);
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
     errdefer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
+
+    // If there's no type body, we are also resolving the type here.
+    if (zir_decl.type_body == null) {
+        try zcu.analysis_in_progress.putNoClobber(gpa, .wrap(.{ .nav_ty = nav_id }), {});
+    }
+    errdefer if (zir_decl.type_body == null) {
+        _ = zcu.analysis_in_progress.swapRemove(.wrap(.{ .nav_ty = nav_id }));
+    };
 
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
@@ -1132,8 +1143,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         .type_name_ctx = old_nav.fqn,
     };
     defer block.instructions.deinit(gpa);
-
-    const zir_decl = zir.getDeclaration(inst_resolved.inst);
 
     const ty_src = block.src(.{ .node_offset_var_decl_ty = .zero });
     const init_src = block.src(.{ .node_offset_var_decl_init = .zero });
@@ -1305,6 +1314,9 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
 
     // Mark the unit as completed before evaluating the export!
     assert(zcu.analysis_in_progress.swapRemove(anal_unit));
+    if (zir_decl.type_body == null) {
+        assert(zcu.analysis_in_progress.swapRemove(.wrap(.{ .nav_ty = nav_id })));
+    }
 
     if (zir_decl.linkage == .@"export") {
         const export_src = block.src(.{ .token_offset = @enumFromInt(@intFromBool(zir_decl.is_pub)) });
@@ -1346,6 +1358,8 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
     const nav = ip.getNav(nav_id);
 
     log.debug("ensureNavTypeUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
+
+    assert(!zcu.analysis_in_progress.contains(anal_unit));
 
     const type_resolved_by_value: bool = from_val: {
         const analysis = nav.analysis orelse break :from_val false;
@@ -1463,8 +1477,8 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     const file = zcu.fileByIndex(inst_resolved.file);
     const zir = file.zir.?;
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
-    defer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
+    defer assert(zcu.analysis_in_progress.swapRemove(anal_unit));
 
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
     const type_body = zir_decl.type_body.?;
@@ -1586,6 +1600,8 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, func_index: InternPool.Index) Z
     const anal_unit: AnalUnit = .wrap(.{ .func = func_index });
 
     log.debug("ensureFuncBodyUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
+
+    assert(!zcu.analysis_in_progress.contains(anal_unit));
 
     const func = zcu.funcInfo(func_index);
 
@@ -2781,7 +2797,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     const file = zcu.fileByIndex(inst_info.file);
     const zir = file.zir.?;
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
     errdefer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
 
     func.setAnalyzed(ip);

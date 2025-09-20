@@ -394,7 +394,6 @@ test "vector @splat" {
 }
 
 test "load vector elements via comptime index" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -415,7 +414,6 @@ test "load vector elements via comptime index" {
 }
 
 test "store vector elements via comptime index" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -434,49 +432,6 @@ test "store vector elements via comptime index" {
         }
         fn storev(ptr: anytype, x: i32) void {
             ptr.* = x;
-        }
-    };
-
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "load vector elements via runtime index" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        fn doTheTest() !void {
-            var v: @Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
-            _ = &v;
-            var i: u32 = 0;
-            try expect(v[i] == 1);
-            i += 1;
-            try expect(v[i] == 2);
-            i += 1;
-            try expect(v[i] == 3);
-        }
-    };
-
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "store vector elements via runtime index" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        fn doTheTest() !void {
-            var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
-            var i: u32 = 2;
-            v[i] = 1;
-            try expect(v[1] == 5);
-            try expect(v[2] == 1);
-            i += 1;
-            v[i] = -364;
-            try expect(-364 == v[3]);
         }
     };
 
@@ -567,20 +522,20 @@ test "vector division operators" {
             };
             if (!is_signed_int) {
                 const d0 = x / y;
-                for (@as([4]T, d0), 0..) |v, i| {
+                inline for (@as([4]T, d0), 0..) |v, i| {
                     try expect(x[i] / y[i] == v);
                 }
             }
             const d1 = @divExact(x, y);
-            for (@as([4]T, d1), 0..) |v, i| {
+            inline for (@as([4]T, d1), 0..) |v, i| {
                 try expect(@divExact(x[i], y[i]) == v);
             }
             const d2 = @divFloor(x, y);
-            for (@as([4]T, d2), 0..) |v, i| {
+            inline for (@as([4]T, d2), 0..) |v, i| {
                 try expect(@divFloor(x[i], y[i]) == v);
             }
             const d3 = @divTrunc(x, y);
-            for (@as([4]T, d3), 0..) |v, i| {
+            inline for (@as([4]T, d3), 0..) |v, i| {
                 try expect(@divTrunc(x[i], y[i]) == v);
             }
         }
@@ -592,16 +547,16 @@ test "vector division operators" {
             };
             if (!is_signed_int and @typeInfo(T) != .float) {
                 const r0 = x % y;
-                for (@as([4]T, r0), 0..) |v, i| {
+                inline for (@as([4]T, r0), 0..) |v, i| {
                     try expect(x[i] % y[i] == v);
                 }
             }
             const r1 = @mod(x, y);
-            for (@as([4]T, r1), 0..) |v, i| {
+            inline for (@as([4]T, r1), 0..) |v, i| {
                 try expect(@mod(x[i], y[i]) == v);
             }
             const r2 = @rem(x, y);
-            for (@as([4]T, r2), 0..) |v, i| {
+            inline for (@as([4]T, r2), 0..) |v, i| {
                 try expect(@rem(x[i], y[i]) == v);
             }
         }
@@ -651,10 +606,15 @@ test "vector bitwise not operator" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
+    if (builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/24061
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn doTheTestNot(comptime T: type, x: @Vector(4, T)) !void {
             const y = ~x;
-            for (@as([4]T, y), 0..) |v, i| {
+            inline for (@as([4]T, y), 0..) |v, i| {
                 try expect(~x[i] == v);
             }
         }
@@ -685,10 +645,15 @@ test "vector boolean not operator" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
+    if (builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/24061
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn doTheTestNot(comptime T: type, x: @Vector(4, T)) !void {
             const y = !x;
-            for (@as([4]T, y), 0..) |v, i| {
+            inline for (@as([4]T, y), 0..) |v, i| {
                 try expect(!x[i] == v);
             }
         }
@@ -1359,7 +1324,6 @@ test "alignment of vectors" {
 }
 
 test "loading the second vector from a slice of vectors" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1450,6 +1414,7 @@ test "zero multiplicand" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const zeros = @Vector(2, u32){ 0.0, 0.0 };
     var ones = @Vector(2, u32){ 1.0, 1.0 };
@@ -1530,8 +1495,7 @@ test "store packed vector element" {
 
     var v = @Vector(4, u1){ 1, 1, 1, 1 };
     try expectEqual(@Vector(4, u1){ 1, 1, 1, 1 }, v);
-    var index: usize = 0;
-    _ = &index;
+    const index: usize = 0;
     v[index] = 0;
     try expectEqual(@Vector(4, u1){ 0, 1, 1, 1 }, v);
 }
