@@ -819,6 +819,25 @@ test "error union of noreturn used with catch" {
     try expect(err == error.OtherFailure);
 }
 
+test "error union of noreturn used with catch + switch" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    NoReturn.a = 64;
+    const caught: bool = NoReturn.loop() catch |err| switch (err) {
+        error.GenericFailure => true,
+    };
+    try expect(caught);
+
+    NoReturn.a = 64;
+    const err = NoReturn.loop() catch |err| switch (err) {
+        else => |e| e,
+    };
+    try expect(err == error.GenericFailure);
+}
+
 test "alignment of wrapping an error union payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
