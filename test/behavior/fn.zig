@@ -742,3 +742,30 @@ test "coerce generic function making generic parameter concrete" {
     const result = coerced({}, 123);
     try expect(result == 123);
 }
+
+test "return undefined pointer from function, directly and by expired local" {
+    const S = struct {
+        var global: i32 = 1;
+
+        fn returnGlobalPointer() *i32 {
+            return &global;
+        }
+
+        fn returnUndefPointer() *i32 {
+            return undefined;
+        }
+
+        /// Semantically equivalent to `returnUndefPointer`.
+        fn returnStackPointer() *i32 {
+            var stack_allocation: i32 = 1234;
+            return &stack_allocation;
+        }
+    };
+
+    const ok_ptr = S.returnGlobalPointer();
+    try expect(ok_ptr.* == 1);
+    const bad_ptr_1 = S.returnStackPointer();
+    _ = bad_ptr_1; // dereferencing this would be illegal behavior
+    const bad_ptr_2 = S.returnStackPointer();
+    _ = bad_ptr_2; // dereferencing this would be illegal behavior
+}
