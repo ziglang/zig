@@ -591,7 +591,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     // Therefore, we do all the allocation for the execve() before the fork().
     // This means we must do the null-termination of argv and env vars here.
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
-    for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
     const prog_fileno = 3;
     comptime assert(@max(posix.STDIN_FILENO, posix.STDOUT_FILENO, posix.STDERR_FILENO) + 1 == prog_fileno);

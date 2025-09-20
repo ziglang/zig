@@ -1933,7 +1933,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
     const comp: *Compilation = comp: {
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
-        const root_name = try arena.dupeZ(u8, options.root_name);
+        const root_name = try arena.dupeSentinel(u8, options.root_name, 0);
 
         // The "any" values provided by resolved config only account for
         // explicitly-provided settings. We now make them additionally account
@@ -5706,7 +5706,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
                 new_argv_with_sentinel[argv.items.len] = null;
                 const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
                 for (argv.items, 0..) |arg, i| {
-                    new_argv[i] = try arena.dupeZ(u8, arg);
+                    new_argv[i] = try arena.dupeSentinel(u8, arg, 0);
                 }
 
                 const c_headers_dir_path_z = try comp.dirs.zig_lib.joinZ(arena, &.{"include"});

@@ -345,7 +345,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
     const llvm_bindings = @import("../codegen/llvm/bindings.zig");
-    const def_final_path_z = try arena.dupeZ(u8, def_final_path);
+    const def_final_path_z = try arena.dupeSentinel(u8, def_final_path, 0);
     const lib_final_path_z = try comp.dirs.global_cache.joinZ(arena, &.{lib_final_path});
     if (llvm_bindings.WriteImportLibrary(
         def_final_path_z.ptr,

@@ -132,7 +132,7 @@ pub inline fn __builtin_strlen(s: [*c]const u8) usize {
     return std.mem.sliceTo(s, 0).len;
 }
 pub inline fn __builtin_strcmp(s1: [*c]const u8, s2: [*c]const u8) c_int {
-    return switch (std.mem.orderZ(u8, s1, s2)) {
+    return switch (std.mem.orderSentinel(u8, 0, s1, s2)) {
         .lt => -1,
         .eq => 0,
         .gt => 1,
