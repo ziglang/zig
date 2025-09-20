@@ -2045,6 +2045,10 @@ pub inline fn isMuslLibC(target: *const Target) bool {
     return target.os.tag == .linux and target.abi.isMusl();
 }
 
+pub inline fn isBionicLibC(target: *const Target) bool {
+    return target.os.tag == .linux and target.abi.isAndroid();
+}
+
 pub inline fn isDarwinLibC(target: *const Target) bool {
     return switch (target.abi) {
         .none, .macabi, .simulator => target.os.tag.isDarwin(),

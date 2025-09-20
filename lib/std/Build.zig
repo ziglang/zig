@@ -2650,7 +2650,7 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
     }
     return .{
         .query = query,
-        .result = std.zig.system.resolveTargetQuery(query) catch
+        .result = std.zig.system.resolveTargetQuery(query, b.allocator) catch
             @panic("unable to resolve target query"),
     };
 }

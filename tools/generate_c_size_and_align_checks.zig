@@ -40,7 +40,7 @@ pub fn main() !void {
     }
 
     const query = try std.Target.Query.parse(.{ .arch_os_abi = args[1] });
-    const target = try std.zig.system.resolveTargetQuery(query);
+    const target = try std.zig.system.resolveTargetQuery(query, gpa);
 
     var buffer: [2000]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);

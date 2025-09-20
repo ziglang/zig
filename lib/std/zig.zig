@@ -619,8 +619,8 @@ pub fn putAstErrorsIntoBundle(
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
 }
 
-pub fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
-    return std.zig.system.resolveTargetQuery(target_query) catch |err|
+pub fn resolveTargetQueryOrFatal(target_query: std.Target.Query, gpa: Allocator) std.Target {
+    return std.zig.system.resolveTargetQuery(target_query, gpa) catch |err|
         std.process.fatal("unable to resolve target: {s}", .{@errorName(err)});
 }
 
