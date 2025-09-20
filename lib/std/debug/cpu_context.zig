@@ -225,8 +225,9 @@ pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
 }
 
 pub const X86 = struct {
-    /// The first 8 registers here intentionally match the order of registers pushed
-    /// by PUSHA, which is also the order used by the DWARF register mappings.
+    /// The first 8 registers here intentionally match the order of registers in the x86 instruction
+    /// encoding. This order is inherited by the PUSHA instruction and the DWARF register mappings,
+    /// among other things.
     pub const Gpr = enum {
         // zig fmt: off
         eax, ecx, edx, ebx,
@@ -283,7 +284,9 @@ pub const X86 = struct {
 };
 
 pub const X86_64 = struct {
-    /// MLUGG TODO: explain this order. why does DWARF have this?
+    /// The order here intentionally matches the order of the DWARF register mappings. It's unclear
+    /// where those mappings actually originated from---the ordering of the first 4 registers seems
+    /// quite unusual---but it is currently convenient for us to match DWARF.
     pub const Gpr = enum {
         // zig fmt: off
         rax, rdx, rcx, rbx,
