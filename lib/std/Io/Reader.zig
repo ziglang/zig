@@ -432,10 +432,11 @@ pub fn defaultReadVec(r: *Reader, data: [][]u8) Error!usize {
         .vtable = &.{ .drain = Writer.fixedDrain },
     };
     const limit: Limit = .limited(writer.buffer.len - writer.end);
-    r.end += r.vtable.stream(r, &writer, limit) catch |err| switch (err) {
+    const n = r.vtable.stream(r, &writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         else => |e| return e,
     };
+    r.end += n;
     return 0;
 }
 
