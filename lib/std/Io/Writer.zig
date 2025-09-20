@@ -2661,7 +2661,7 @@ pub const Allocating = struct {
     pub fn ensureTotalCapacity(a: *Allocating, new_capacity: usize) Allocator.Error!void {
         // Protects growing unnecessarily since better_capacity will be larger.
         if (a.writer.buffer.len >= new_capacity) return;
-        const better_capacity = ArrayList(u8).growCapacity(a.writer.buffer.len, new_capacity);
+        const better_capacity = ArrayList(u8).growCapacity(new_capacity);
         return ensureTotalCapacityPrecise(a, better_capacity);
     }
 

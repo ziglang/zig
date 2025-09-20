@@ -457,24 +457,19 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.setCapacity(gpa, growCapacity(self.capacity, new_capacity));
+            return self.setCapacity(gpa, growCapacity(new_capacity));
         }
 
-        const init_capacity = init: {
-            var max = 1;
-            for (fields) |field| max = @as(comptime_int, @max(max, @sizeOf(field.type)));
-            break :init @as(comptime_int, @max(1, std.atomic.cache_line / max));
+        const init_capacity: comptime_int = init: {
+            var max: comptime_int = 1;
+            for (fields) |field| max = @max(max, @sizeOf(field.type));
+            break :init @max(1, std.atomic.cache_line / max);
         };
 
-        /// Called when memory growth is necessary. Returns a capacity larger than
-        /// minimum that grows super-linearly.
-        fn growCapacity(current: usize, minimum: usize) usize {
-            var new = current;
-            while (true) {
-                new +|= new / 2 + init_capacity;
-                if (new >= minimum)
-                    return new;
-            }
+        /// Given a lower bound of required memory capacity, returns a larger value
+        /// with super-linear growth.
+        pub fn growCapacity(minimum: usize) usize {
+            return minimum +| (minimum / 2 + init_capacity);
         }
 
         /// Modify the array so that it can hold at least `additional_count` **more** items.
