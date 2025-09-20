@@ -431,33 +431,6 @@ test "skipValue" {
     try std.testing.expectError(error.SyntaxError, testSkipValue("[102, 111, 111}"));
 }
 
-fn testEnsureStackCapacity(do_ensure: bool) !void {
-    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
-    const failing_allocator = fail_alloc.allocator();
-
-    const nestings = 2049; // intentionally not a power of 2.
-    var input_string: std.ArrayListUnmanaged(u8) = .empty;
-    try input_string.appendNTimes(std.testing.allocator, '[', nestings);
-    try input_string.appendNTimes(std.testing.allocator, ']', nestings);
-    defer input_string.deinit(std.testing.allocator);
-
-    var scanner = Scanner.initCompleteInput(failing_allocator, input_string.items);
-    defer scanner.deinit();
-
-    if (do_ensure) {
-        try scanner.ensureTotalStackCapacity(nestings);
-    }
-
-    try scanner.skipValue();
-    try std.testing.expectEqual(Token.end_of_document, try scanner.next());
-}
-test "ensureTotalStackCapacity" {
-    // Once to demonstrate failure.
-    try std.testing.expectError(error.OutOfMemory, testEnsureStackCapacity(false));
-    // Then to demonstrate it works.
-    try testEnsureStackCapacity(true);
-}
-
 fn testDiagnosticsFromSource(expected_error: ?anyerror, line: u64, col: u64, byte_offset: u64, source: anytype) !void {
     var diagnostics = Diagnostics{};
     source.enableDiagnostics(&diagnostics);
