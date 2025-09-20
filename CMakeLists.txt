@@ -583,6 +583,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
+    src/link/Elf2.zig
     src/link/Goff.zig
     src/link/LdScript.zig
     src/link/Lld.zig
@@ -612,6 +613,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
+    src/link/MappedFile.zig
     src/link/Queue.zig
     src/link/StringTable.zig
     src/link/Wasm.zig

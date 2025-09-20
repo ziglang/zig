@@ -784,22 +784,26 @@ pub fn updateFunc(
     const sym_index = try self.getOrCreateMetadataForNav(macho_file, func.owner_nav);
     self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-    try codegen.emitFunction(
+    codegen.emitFunction(
         &macho_file.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
+        sym_index,
         mir,
-        &code_buffer,
+        &aw.writer,
         if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
-    );
-    const code = code_buffer.items;
+    ) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    const code = aw.written();
 
     const sect_index = try self.getNavOutputSection(macho_file, zcu, func.owner_nav, code);
     const old_rva, const old_alignment = blk: {
@@ -895,21 +899,24 @@ pub fn updateNav(
         const sym_index = try self.getOrCreateMetadataForNav(macho_file, nav_index);
         self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
 
-        var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-        defer code_buffer.deinit(zcu.gpa);
+        var aw: std.Io.Writer.Allocating = .init(zcu.gpa);
+        defer aw.deinit();
 
         var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
         defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-        try codegen.generateSymbol(
+        codegen.generateSymbol(
             &macho_file.base,
             pt,
             zcu.navSrcLoc(nav_index),
             Value.fromInterned(nav_init),
-            &code_buffer,
+            &aw.writer,
             .{ .atom_index = sym_index },
-        );
-        const code = code_buffer.items;
+        ) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
+        const code = aw.written();
 
         const sect_index = try self.getNavOutputSection(macho_file, zcu, nav_index, code);
         if (isThreadlocal(macho_file, nav_index))
@@ -1198,21 +1205,24 @@ fn lowerConst(
 ) !codegen.SymbolResult {
     const gpa = macho_file.base.comp.gpa;
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const name_str = try self.addString(gpa, name);
     const sym_index = try self.newSymbolWithAtom(gpa, name_str, macho_file);
 
-    try codegen.generateSymbol(
+    codegen.generateSymbol(
         &macho_file.base,
         pt,
         src_loc,
         val,
-        &code_buffer,
+        &aw.writer,
         .{ .atom_index = sym_index },
-    );
-    const code = code_buffer.items;
+    ) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    const code = aw.written();
 
     const sym = &self.symbols.items[sym_index];
     sym.out_n_sect = output_section_index;
@@ -1349,8 +1359,8 @@ fn updateLazySymbol(
     const gpa = zcu.gpa;
 
     var required_alignment: Atom.Alignment = .none;
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const name_str = blk: {
         const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
@@ -1368,11 +1378,11 @@ fn updateLazySymbol(
         src,
         lazy_sym,
         &required_alignment,
-        &code_buffer,
+        &aw.writer,
         .none,
         .{ .atom_index = symbol_index },
     );
-    const code = code_buffer.items;
+    const code = aw.written();
 
     const output_section_index = switch (lazy_sym.kind) {
         .code => macho_file.zig_text_sect_index.?,

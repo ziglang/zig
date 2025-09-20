@@ -6424,14 +6424,25 @@ pub const Alignment = enum(u6) {
         return n + 1;
     }
 
-    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
-
-    pub fn toLlvm(this: @This()) LlvmBuilderAlignment {
-        return @enumFromInt(@intFromEnum(this));
+    pub fn toStdMem(a: Alignment) std.mem.Alignment {
+        assert(a != .none);
+        return @enumFromInt(@intFromEnum(a));
     }
 
-    pub fn fromLlvm(other: LlvmBuilderAlignment) @This() {
-        return @enumFromInt(@intFromEnum(other));
+    pub fn fromStdMem(a: std.mem.Alignment) Alignment {
+        const r: Alignment = @enumFromInt(@intFromEnum(a));
+        assert(r != .none);
+        return r;
+    }
+
+    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
+
+    pub fn toLlvm(a: Alignment) LlvmBuilderAlignment {
+        return @enumFromInt(@intFromEnum(a));
+    }
+
+    pub fn fromLlvm(a: LlvmBuilderAlignment) Alignment {
+        return @enumFromInt(@intFromEnum(a));
     }
 };
 

@@ -3032,7 +3032,7 @@ fn zirStructDecl(
     });
     errdefer pt.destroyNamespace(new_namespace_index);
 
-    if (pt.zcu.comp.incremental) {
+    if (pt.zcu.comp.config.incremental) {
         try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = tracked_inst });
     }
 
@@ -3430,7 +3430,7 @@ fn zirUnionDecl(
     });
     errdefer pt.destroyNamespace(new_namespace_index);
 
-    if (pt.zcu.comp.incremental) {
+    if (pt.zcu.comp.config.incremental) {
         try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = tracked_inst });
     }
 
@@ -6217,7 +6217,6 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             if (ptr_info.byte_offset != 0) {
                 return sema.fail(block, ptr_src, "TODO: export pointer in middle of value", .{});
             }
-            if (options.linkage == .internal) return;
             const export_ty = Value.fromInterned(uav.val).typeOf(zcu);
             if (!try sema.validateExternType(export_ty, .other)) {
                 return sema.failWithOwnedErrorMsg(block, msg: {
@@ -6255,9 +6254,6 @@ pub fn analyzeExport(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-
-    if (options.linkage == .internal)
-        return;
 
     try sema.ensureNavResolved(block, src, orig_nav_index, .fully);
 
@@ -7709,7 +7705,7 @@ fn analyzeCall(
         // TODO: comptime call memoization is currently not supported under incremental compilation
         // since dependencies are not marked on callers. If we want to keep this around (we should
         // check that it's worthwhile first!), each memoized call needs an `AnalUnit`.
-        if (zcu.comp.incremental) break :m false;
+        if (zcu.comp.config.incremental) break :m false;
         if (!block.isComptime()) break :m false;
         for (args) |a| {
             const val = (try sema.resolveValue(a)).?;
@@ -31159,7 +31155,7 @@ fn addReferenceEntry(
         .func => |f| assert(ip.unwrapCoercedFunc(f) == f), // for `.{ .func = f }`, `f` must be uncoerced
         else => {},
     }
-    if (!zcu.comp.incremental and zcu.comp.reference_trace == 0) return;
+    if (!zcu.comp.config.incremental and zcu.comp.reference_trace == 0) return;
     const gop = try sema.references.getOrPut(sema.gpa, referenced_unit);
     if (gop.found_existing) return;
     try zcu.addUnitReference(sema.owner, referenced_unit, src, inline_frame: {
@@ -31176,7 +31172,7 @@ pub fn addTypeReferenceEntry(
     referenced_type: InternPool.Index,
 ) !void {
     const zcu = sema.pt.zcu;
-    if (!zcu.comp.incremental and zcu.comp.reference_trace == 0) return;
+    if (!zcu.comp.config.incremental and zcu.comp.reference_trace == 0) return;
     const gop = try sema.type_references.getOrPut(sema.gpa, referenced_type);
     if (gop.found_existing) return;
     try zcu.addTypeReference(sema.owner, referenced_type, src);
@@ -36839,7 +36835,7 @@ fn isKnownZigType(sema: *Sema, ref: Air.Inst.Ref, tag: std.builtin.TypeId) bool 
 
 pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
     const pt = sema.pt;
-    if (!pt.zcu.comp.incremental) return;
+    if (!pt.zcu.comp.config.incremental) return;
 
     const gop = try sema.dependencies.getOrPut(sema.gpa, dependee);
     if (gop.found_existing) return;

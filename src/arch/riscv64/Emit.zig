@@ -3,7 +3,7 @@
 bin_file: *link.File,
 lower: Lower,
 debug_output: link.File.DebugInfoOutput,
-code: *std.ArrayListUnmanaged(u8),
+w: *std.Io.Writer,
 
 prev_di_line: u32,
 prev_di_column: u32,
@@ -13,7 +13,7 @@ prev_di_pc: usize,
 code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
 relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
-pub const Error = Lower.Error || error{
+pub const Error = Lower.Error || std.Io.Writer.Error || error{
     EmitFail,
 };
 
@@ -25,13 +25,13 @@ pub fn emitMir(emit: *Emit) Error!void {
         try emit.code_offset_mapping.putNoClobber(
             emit.lower.allocator,
             mir_index,
-            @intCast(emit.code.items.len),
+            @intCast(emit.w.end),
         );
         const lowered = try emit.lower.lowerMir(mir_index, .{ .allow_frame_locs = true });
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
-            const start_offset: u32 = @intCast(emit.code.items.len);
-            std.mem.writeInt(u32, try emit.code.addManyAsArray(gpa, 4), lowered_inst.toU32(), .little);
+            const start_offset: u32 = @intCast(emit.w.end);
+            try emit.w.writeInt(u32, lowered_inst.toU32(), .little);
 
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
@@ -175,7 +175,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
             return emit.fail("relocation target not found!", .{});
 
         const disp = @as(i32, @intCast(target)) - @as(i32, @intCast(reloc.source));
-        const code: *[4]u8 = emit.code.items[reloc.source + reloc.offset ..][0..4];
+        const code = emit.w.buffered()[reloc.source + reloc.offset ..][0..4];
 
         switch (reloc.fmt) {
             .J => riscv_util.writeInstJ(code, @bitCast(disp)),
@@ -187,7 +187,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
 
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
     const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
-    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    const delta_pc: usize = emit.w.end - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dw| {
@@ -196,7 +196,7 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
             try dw.advancePCAndLine(delta_line, delta_pc);
             emit.prev_di_line = line;
             emit.prev_di_column = column;
-            emit.prev_di_pc = emit.code.items.len;
+            emit.prev_di_pc = emit.w.end;
         },
         .none => {},
     }
