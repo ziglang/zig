@@ -85,16 +85,17 @@ pub fn prepend(list: *SinglyLinkedList, new_node: *Node) void {
     list.first = new_node;
 }
 
-pub fn remove(list: *SinglyLinkedList, node: *Node) void {
-    if (list.first == node) {
-        list.first = node.next;
-    } else {
-        var current_elm = list.first.?;
-        while (current_elm.next != node) {
-            current_elm = current_elm.next.?;
-        }
-        current_elm.next = node.next;
+pub fn remove(list: *SinglyLinkedList, node: *Node) bool {
+    var current_node = list.first.?;
+    while (current_node.next != null and current_node.next != node) {
+        current_node = current_node.next;
     }
+
+    if (current_node.next) |next_node| {
+        current_node.next = next_node.next;
+        return true;
+    }
+    return false;
 }
 
 /// Remove and return the first node in the list.
@@ -152,6 +153,8 @@ test "basics" {
 
     _ = list.popFirst(); // {2, 3, 4, 5}
     _ = list.remove(&five.node); // {2, 3, 4}
+    try testing.expectEqual(true, list.remove(&five.node)); // {2, 3, 4}
+    try testing.expectEqual(false, list.remove(&five.node)); // Doesn't crash
     _ = two.node.removeNext(); // {2, 4}
 
     try testing.expect(@as(*L, @fieldParentPtr("node", list.first.?)).data == 2);
