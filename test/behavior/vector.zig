@@ -606,6 +606,11 @@ test "vector bitwise not operator" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
+    if (builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/24061
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn doTheTestNot(comptime T: type, x: @Vector(4, T)) !void {
             const y = ~x;
@@ -639,6 +644,11 @@ test "vector boolean not operator" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    if (builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/24061
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         fn doTheTestNot(comptime T: type, x: @Vector(4, T)) !void {
