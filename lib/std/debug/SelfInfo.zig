@@ -243,6 +243,15 @@ pub const DwarfUnwindContext = struct {
         return ptr.*;
     }
 
+    /// The default rule is typically equivalent to `.undefined`, but ABIs may define it differently.
+    fn defaultRuleBehavior(register: u8) enum { undefined, same_value } {
+        if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 28) {
+            // The default rule for callee-saved registers on AArch64 acts like the `.same_value` rule
+            return .same_value;
+        }
+        return .undefined;
+    }
+
     /// Resolves the register rule and places the result into `out` (see regBytes). Returns `true`
     /// iff the rule was undefined. This is *not* the same as `col.rule == .undefined`, because the
     /// default rule may be undefined.
@@ -256,17 +265,18 @@ pub const DwarfUnwindContext = struct {
         switch (col.rule) {
             .default => {
                 const register = col.register orelse return error.InvalidRegister;
-                // The default type is usually undefined, but can be overriden by ABI authors.
-                // See the doc comment on `Dwarf.Unwind.VirtualMachine.RegisterRule.default`.
-                if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 28) {
-                    // Callee-saved registers are initialized as if they had the .same_value rule
-                    const src = try context.cpu_context.dwarfRegisterBytes(register);
-                    if (src.len != out.len) return error.RegisterSizeMismatch;
-                    @memcpy(out, src);
-                    return false;
+                switch (defaultRuleBehavior(register)) {
+                    .undefined => {
+                        @memset(out, undefined);
+                        return true;
+                    },
+                    .same_value => {
+                        const src = try context.cpu_context.dwarfRegisterBytes(register);
+                        if (src.len != out.len) return error.RegisterSizeMismatch;
+                        @memcpy(out, src);
+                        return false;
+                    },
                 }
-                @memset(out, undefined);
-                return true;
             },
             .undefined => {
                 @memset(out, undefined);
@@ -449,7 +459,9 @@ pub const DwarfUnwindContext = struct {
 
         expression_context.cfa = context.cfa;
 
-        var has_return_address = true;
+        // If the rule for the return address register is 'undefined', that indicates there is no
+        // return address, i.e. this is the end of the stack.
+        var explicit_has_return_address: ?bool = null;
 
         // Create a copy of the CPU context, to which we will apply the new rules.
         var new_cpu_context = context.cpu_context;
@@ -462,10 +474,17 @@ pub const DwarfUnwindContext = struct {
                 const dest = try new_cpu_context.dwarfRegisterBytes(register);
                 const rule_undef = try context.resolveRegisterRule(gpa, column, expression_context, dest);
                 if (register == cie.return_address_register) {
-                    has_return_address = !rule_undef;
+                    explicit_has_return_address = !rule_undef;
                 }
             }
         }
+
+        // If the return address register did not have an explicitly specified rules then it uses
+        // the default rule, which is usually equivalent to '.undefined', i.e. end-of-stack.
+        const has_return_address = explicit_has_return_address orelse switch (defaultRuleBehavior(cie.return_address_register)) {
+            .undefined => false,
+            .same_value => return error.InvalidDebugInfo, // this doesn't make sense, we would get stuck in an infinite loop
+        };
 
         const return_address: usize = if (has_return_address) pc: {
             const raw_ptr = try regNative(&new_cpu_context, cie.return_address_register);
