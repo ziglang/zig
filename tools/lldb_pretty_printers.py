@@ -206,33 +206,6 @@ class zig_TaggedUnion_SynthProvider:
 
 # Define Zig Standard Library
 
-class std_SegmentedList_SynthProvider:
-    def __init__(self, value, _=None): self.value = value
-    def update(self):
-        try:
-            self.prealloc_segment = self.value.GetChildMemberWithName('prealloc_segment')
-            self.dynamic_segments = zig_Slice_SynthProvider(self.value.GetChildMemberWithName('dynamic_segments'))
-            self.dynamic_segments.update()
-            self.len = self.value.GetChildMemberWithName('len').unsigned
-        except: pass
-    def has_children(self): return True
-    def num_children(self): return self.len
-    def get_child_index(self, name):
-        try: return int(name.removeprefix('[').removesuffix(']'))
-        except: return -1
-    def get_child_at_index(self, index):
-        try:
-            if index not in range(self.len): return None
-            prealloc_item_count = len(self.prealloc_segment)
-            if index < prealloc_item_count: return self.prealloc_segment.child[index]
-            prealloc_exp = prealloc_item_count.bit_length() - 1
-            shelf_index = log2_int(index + 1) if prealloc_item_count == 0 else log2_int(index + prealloc_item_count) - prealloc_exp - 1
-            shelf = self.dynamic_segments.get_child_at_index(shelf_index)
-            box_index = (index + 1) - (1 << shelf_index) if prealloc_item_count == 0 else index + prealloc_item_count - (1 << ((prealloc_exp + 1) + shelf_index))
-            elem_type = shelf.type.GetPointeeType()
-            return shelf.CreateChildAtOffset('[%d]' % index, box_index * elem_type.size, elem_type)
-        except: return None
-
 class std_MultiArrayList_SynthProvider:
     def __init__(self, value, _=None): self.value = value
     def update(self):
@@ -936,7 +909,6 @@ def __lldb_init_module(debugger, _=None):
 
     # Initialize Zig Standard Library
     add(debugger, category='zig.std', type='mem.Allocator', summary='${var.ptr}')
-    add(debugger, category='zig.std', regex=True, type='^segmented_list\\.SegmentedList\\(.*\\)$', identifier='std_SegmentedList', synth=True, expand=True, summary='len=${var.len}')
     add(debugger, category='zig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)$', identifier='std_MultiArrayList', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
     add(debugger, category='zig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)\\.Slice$', identifier='std_MultiArrayList_Slice', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
     add(debugger, category='zig.std', regex=True, type=MultiArrayList_Entry('.*'), identifier='std_Entry', synth=True, inline_children=True, summary=True)
