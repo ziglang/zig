@@ -10,11 +10,12 @@ pub fn main() anyerror!void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    if (args.len <= 1) printUsageAndExit(args[0]);
-
-    const zig_src_root = args[1];
-    if (mem.startsWith(u8, zig_src_root, "-")) printUsageAndExit(args[0]);
+    const args = try std.cli.parse(struct {
+        positional: struct {
+            @"/path/git/zig": [:0]const u8,
+        },
+    }, arena, .{});
+    const zig_src_root = args.positional.@"/path/git/zig";
 
     var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
@@ -187,16 +188,4 @@ pub fn main() anyerror!void {
 
     try code_writer.flush();
     try test_writer.flush();
-}
-
-fn printUsageAndExit(arg0: []const u8) noreturn {
-    printUsage(std.debug.lockStderrWriter(&.{}), arg0) catch std.process.exit(2);
-    std.process.exit(1);
-}
-
-fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
-    return w.print(
-        \\Usage: {s} /path/git/zig
-        \\
-    , .{arg0});
 }
