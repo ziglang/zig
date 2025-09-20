@@ -3,10 +3,6 @@
 const impl = @import("crc/impl.zig");
 
 pub const Crc = impl.Crc;
-pub const Polynomial = impl.Polynomial;
-pub const Crc32WithPoly = impl.Crc32WithPoly;
-pub const Crc32SmallWithPoly = impl.Crc32SmallWithPoly;
-
 pub const Crc32 = Crc32IsoHdlc;
 
 test {
