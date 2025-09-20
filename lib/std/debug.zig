@@ -571,12 +571,19 @@ pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) 
     var it = StackIterator.init(options.context) catch return empty_trace;
     defer it.deinit();
     if (!it.stratOk(options.allow_unsafe_unwind)) return empty_trace;
+    var total_frames: usize = 0;
     var frame_idx: usize = 0;
     var wait_for = options.first_address;
     while (true) switch (it.next()) {
         .switch_to_fp => if (!it.stratOk(options.allow_unsafe_unwind)) break,
         .end => break,
         .frame => |ret_addr| {
+            if (total_frames > 10_000) {
+                // Limit the number of frames in case of (e.g.) broken debug information which is
+                // getting unwinding stuck in a loop.
+                break;
+            }
+            total_frames += 1;
             if (wait_for) |target| {
                 if (ret_addr != target) continue;
                 wait_for = null;
@@ -624,6 +631,7 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
         tty_config.setColor(writer, .reset) catch {};
         return;
     }
+    var total_frames: usize = 0;
     var wait_for = options.first_address;
     var printed_any_frame = false;
     while (true) switch (it.next()) {
@@ -657,6 +665,16 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
         },
         .end => break,
         .frame => |ret_addr| {
+            if (total_frames > 10_000) {
+                tty_config.setColor(writer, .dim) catch {};
+                try writer.print(
+                    "Stopping trace after {d} frames (large frame count may indicate broken debug info)\n",
+                    .{total_frames},
+                );
+                tty_config.setColor(writer, .reset) catch {};
+                return;
+            }
+            total_frames += 1;
             if (wait_for) |target| {
                 if (ret_addr != target) continue;
                 wait_for = null;
