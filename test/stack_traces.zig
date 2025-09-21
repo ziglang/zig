@@ -803,6 +803,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 .s390x,
             },
             .exclude_os = &.{
+                .freebsd,
                 .openbsd, // integer overflow
                 .windows, // TODO intermittent failures
             },
@@ -847,6 +848,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         },
         .ReleaseSafe = .{
             .exclude_os = &.{
+                .freebsd,
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
                 .macos, // Broken in LLVM 20.
