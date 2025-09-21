@@ -376,10 +376,10 @@ const APackedStruct = packed struct {
 };
 
 test "packed struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = APackedStruct{
         .x = 1,
@@ -744,11 +744,11 @@ const S0 = struct {
 var g_foo: S0 = S0.init();
 
 test "packed struct with fp fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = packed struct {
         data0: f32,
@@ -1924,7 +1924,6 @@ test "runtime value in nested initializer passed as pointer to function" {
 }
 
 test "struct field default value is a call" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -2153,4 +2152,27 @@ test "align 1 struct parameter dereferenced and returned" {
         .big => try expect(s.a == 0x02030405),
         .little => try expect(s.a == 0x05040302),
     }
+}
+
+test "avoid unused field function body compile error" {
+    const Case = struct {
+        const This = @This();
+
+        const S = struct {
+            a: usize = 1,
+            b: fn () void = This.functionThatDoesNotCompile,
+        };
+
+        const s: S = .{};
+
+        fn entry() usize {
+            return s.a;
+        }
+
+        pub fn functionThatDoesNotCompile() void {
+            @compileError("told you so");
+        }
+    };
+
+    try expect(Case.entry() == 1);
 }

@@ -1661,6 +1661,11 @@ test "Thread.getCurrentId" {
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
+    if (builtin.cpu.arch == .thumbeb) {
+        // https://github.com/ziglang/zig/issues/24061
+        return error.SkipZigTest;
+    }
+
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});
     try testTls();
