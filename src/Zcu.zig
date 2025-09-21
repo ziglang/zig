@@ -3912,7 +3912,12 @@ pub fn atomicPtrAlignment(
         else => false,
     }) {
         assert(ty.isAbiInt(zcu));
-        const bit_count = ty.intInfo(zcu).bits;
+        const bit_count = if (ty.zigTypeTag(zcu) == .@"struct") blk: {
+            const struct_type = zcu.intern_pool.loadStructType(ty.toIntern());
+            const backing_int = struct_type.backingIntTypeUnordered(&zcu.intern_pool);
+            if (backing_int == .none) return error.BadType;
+            break :blk Type.fromInterned(backing_int).intInfo(zcu).bits;
+        } else ty.intInfo(zcu).bits;
         if (bit_count > max_atomic_bits) {
             diags.* = .{
                 .bits = bit_count,
