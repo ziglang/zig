@@ -31,6 +31,7 @@ pub const wasi = @import("fs/wasi.zig");
 pub const realpath = posix.realpath;
 pub const realpathZ = posix.realpathZ;
 pub const realpathW = posix.realpathW;
+pub const realpathW2 = posix.realpathW2;
 
 pub const getAppDataDir = @import("fs/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirError;
@@ -642,11 +643,19 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // If ImagePathName is a symlink, then it will contain the path of the
             // symlink, not the path that the symlink points to. We want the path
             // that the symlink points to, though, so we need to get the realpath.
-            const pathname_w = try windows.wToPrefixedFileW(null, image_path_name);
-            return std.fs.cwd().realpathW(pathname_w.span(), out_buffer) catch |err| switch (err) {
+            var pathname_w = try windows.wToPrefixedFileW(null, image_path_name);
+
+            const wide_slice = std.fs.cwd().realpathW2(pathname_w.span(), &pathname_w.data) catch |err| switch (err) {
                 error.InvalidWtf8 => unreachable,
                 else => |e| return e,
             };
+
+            const len = std.unicode.calcWtf8Len(wide_slice);
+            if (len > out_buffer.len)
+                return error.NameTooLong;
+
+            const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+            return out_buffer[0..end_index];
         },
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
