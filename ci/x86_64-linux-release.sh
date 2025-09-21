@@ -65,6 +65,7 @@ stage3-release/bin/zig build test docs \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
+  -Dskip-freebsd \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
