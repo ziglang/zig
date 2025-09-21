@@ -141,8 +141,9 @@ pub fn blockContext(
     context: anytype,
 ) void {
     // Implementation ported from https://github.com/BonzaiThePenguin/WikiSort/blob/master/WikiSort.c
+    const ContextType = @TypeOf(context);
     const Context = struct {
-        sub_ctx: @TypeOf(context),
+        sub_ctx: ContextType,
 
         pub const lessThan = if (builtin.mode == .Debug) lessThanChecked else lessThanUnchecked;
 
@@ -161,7 +162,7 @@ pub fn blockContext(
             return ctx.sub_ctx.swap(i, j);
         }
 
-        pub const rotate = if (std.meta.hasFn(@TypeOf(context), "rotate")) innerRotate else naiveRotate;
+        pub const rotate = if (std.meta.hasFn(ContextType, "rotate")) innerRotate else naiveRotate;
 
         fn innerRotate(ctx: @This(), A: Range, amount: usize) void {
             ctx.sub_ctx.rotate(A.start, A.end, amount);
