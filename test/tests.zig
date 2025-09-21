@@ -2451,8 +2451,9 @@ pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: Opt
         else => return true,
     }
     const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
+    const os_tag = query.os_tag orelse builtin.os.tag;
     switch (cpu_arch) {
-        .x86_64 => if (std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true,
+        .x86_64 => if (os_tag.isBSD() or std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true,
         .spirv32, .spirv64 => return false,
         else => return true,
     }
