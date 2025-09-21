@@ -2153,3 +2153,26 @@ test "align 1 struct parameter dereferenced and returned" {
         .little => try expect(s.a == 0x05040302),
     }
 }
+
+test "avoid unused field function body compile error" {
+    const Case = struct {
+        const This = @This();
+
+        const S = struct {
+            a: usize = 1,
+            b: fn () void = This.functionThatDoesNotCompile,
+        };
+
+        const s: S = .{};
+
+        fn entry() usize {
+            return s.a;
+        }
+
+        pub fn functionThatDoesNotCompile() void {
+            @compileError("told you so");
+        }
+    };
+
+    try expect(Case.entry() == 1);
+}
