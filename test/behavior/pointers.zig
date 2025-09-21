@@ -778,3 +778,11 @@ test "pointers to elements of many-ptr to zero-bit type" {
 
     try expect(a == b);
 }
+
+test "comptime C pointer to optional pointer" {
+    const opt: ?*u8 = @ptrFromInt(0x1000);
+    const outer_ptr: [*c]const ?*u8 = &opt;
+    const inner_ptr = &outer_ptr.*.?;
+    comptime assert(@TypeOf(inner_ptr) == [*c]const *u8);
+    comptime assert(@intFromPtr(inner_ptr.*) == 0x1000);
+}
