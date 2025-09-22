@@ -542,7 +542,7 @@ pub const ResolvConf = struct {
             error.NotDir,
             error.AccessDenied,
             => {
-                try addNumeric(&rc, "127.0.0.1", 53);
+                try addNumeric(&rc, io, "127.0.0.1", 53);
                 return rc;
             },
 
@@ -552,7 +552,7 @@ pub const ResolvConf = struct {
 
         var line_buf: [512]u8 = undefined;
         var file_reader = file.reader(io, &line_buf);
-        parse(&rc, &file_reader.interface) catch |err| switch (err) {
+        parse(&rc, io, &file_reader.interface) catch |err| switch (err) {
             error.ReadFailed => return file_reader.err.?,
             else => |e| return e,
         };
@@ -562,7 +562,7 @@ pub const ResolvConf = struct {
     const Directive = enum { options, nameserver, domain, search };
     const Option = enum { ndots, attempts, timeout };
 
-    fn parse(rc: *ResolvConf, reader: *Io.Reader) !void {
+    fn parse(rc: *ResolvConf, io: Io, reader: *Io.Reader) !void {
         while (reader.takeSentinel('\n')) |line_with_comment| {
             const line = line: {
                 var split = std.mem.splitScalar(u8, line_with_comment, '#');
@@ -588,7 +588,7 @@ pub const ResolvConf = struct {
                 },
                 .nameserver => {
                     const ip_txt = line_it.next() orelse continue;
-                    try addNumeric(rc, ip_txt, 53);
+                    try addNumeric(rc, io, ip_txt, 53);
                 },
                 .domain, .search => {
                     const rest = line_it.rest();
@@ -602,13 +602,13 @@ pub const ResolvConf = struct {
         }
 
         if (rc.nameservers_len == 0) {
-            try addNumeric(rc, "127.0.0.1", 53);
+            try addNumeric(rc, io, "127.0.0.1", 53);
         }
     }
 
-    fn addNumeric(rc: *ResolvConf, name: []const u8, port: u16) !void {
+    fn addNumeric(rc: *ResolvConf, io: Io, name: []const u8, port: u16) !void {
         assert(rc.nameservers_len < rc.nameservers_buffer.len);
-        rc.nameservers_buffer[rc.nameservers_len] = try .parse(name, port);
+        rc.nameservers_buffer[rc.nameservers_len] = try .resolve(io, name, port);
         rc.nameservers_len += 1;
     }
 
