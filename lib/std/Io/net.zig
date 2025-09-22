@@ -26,10 +26,12 @@ pub const IpAddress = union(enum) {
     pub const Family = @typeInfo(IpAddress).@"union".tag_type.?;
 
     /// Parse the given IP address string into an `IpAddress` value.
+    ///
+    /// This is a pure function but it cannot handle IPv6 addresses that have
+    /// scope ids ("%foo" at the end). To also handle those, `resolve` must be
+    /// called instead.
     pub fn parse(name: []const u8, port: u16) !IpAddress {
-        if (Ip4Address.parse(name, port)) |ip4| {
-            return .{ .ip4 = ip4 };
-        } else |err| switch (err) {
+        if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
             error.Overflow,
             error.InvalidEnd,
             error.InvalidCharacter,
@@ -38,26 +40,41 @@ pub const IpAddress = union(enum) {
             => {},
         }
 
-        if (Ip6Address.parse(name, port)) |ip6| {
-            return .{ .ip6 = ip6 };
-        } else |err| switch (err) {
+        return parseIp6(name, port);
+    }
+
+    pub fn parseIp4(text: []const u8, port: u16) Ip4Address.ParseError!IpAddress {
+        return .{ .ip4 = try Ip4Address.parse(text, port) };
+    }
+
+    /// This is a pure function but it cannot handle IPv6 addresses that have
+    /// scope ids ("%foo" at the end). To also handle those, `resolveIp6` must be
+    /// called instead.
+    pub fn parseIp6(text: []const u8, port: u16) Ip6Address.ParseError!IpAddress {
+        return .{ .ip6 = try Ip6Address.parse(text, port) };
+    }
+
+    /// This function requires an `Io` parameter because it must query the operating
+    /// system to convert interface name to index. For example, in
+    /// "fe80::e0e:76ff:fed4:cf22%eno1", "eno1" must be resolved to an index by
+    /// creating a socket and then using an `ioctl` syscall.
+    ///
+    /// For a pure function that cannot handle scopes, see `parse`.
+    pub fn resolve(io: Io, text: []const u8, port: u16) !IpAddress {
+        if (parseIp4(text, port)) |ip4| return ip4 else |err| switch (err) {
             error.Overflow,
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
-            error.InvalidIpv4Mapping,
+            error.NonCanonical,
             => {},
         }
 
-        return error.InvalidIpAddressFormat;
+        return resolveIp6(io, text, port);
     }
 
-    pub fn parseIp6(buffer: []const u8, port: u16) Ip6Address.ParseError!IpAddress {
-        return .{ .ip6 = try Ip6Address.parse(buffer, port) };
-    }
-
-    pub fn parseIp4(buffer: []const u8, port: u16) Ip4Address.ParseError!IpAddress {
-        return .{ .ip4 = try Ip4Address.parse(buffer, port) };
+    pub fn resolveIp6(io: Io, text: []const u8, port: u16) Ip6Address.ResolveError!IpAddress {
+        return .{ .ip6 = try Ip6Address.resolve(io, text, port) };
     }
 
     /// Returns the port in native endian.
@@ -74,6 +91,19 @@ pub const IpAddress = union(enum) {
         }
     }
 
+    /// Includes the optional scope ("%foo" at the end) in IPv6 addresses.
+    ///
+    /// See `format` for an alternative that omits scopes and does
+    /// not require an `Io` parameter.
+    pub fn formatResolved(a: IpAddress, io: Io, w: *Io.Writer) Ip6Address.FormatError!void {
+        switch (a) {
+            .ip4 => |x| return x.format(w),
+            .ip6 => |x| return x.formatResolved(io, w),
+        }
+    }
+
+    /// See `formatResolved` for an alternative that additionally prints the optional
+    /// scope at the end of IPv6 addresses and requires an `Io` parameter.
     pub fn format(a: IpAddress, w: *Io.Writer) Io.Writer.Error!void {
         switch (a) {
             inline .ip4, .ip6 => |x| return x.format(w),
@@ -99,11 +129,12 @@ pub const IpAddress = union(enum) {
     }
 };
 
+/// An IPv4 address in binary memory layout.
 pub const Ip4Address = struct {
     bytes: [4]u8,
     port: u16,
 
-    pub fn localhost(port: u16) Ip4Address {
+    pub fn loopback(port: u16) Ip4Address {
         return .{
             .bytes = .{ 127, 0, 0, 1 },
             .port = port,
@@ -162,21 +193,14 @@ pub const Ip4Address = struct {
     }
 };
 
+/// An IPv6 address in binary memory layout.
 pub const Ip6Address = struct {
     /// Native endian
     port: u16,
     /// Big endian
     bytes: [16]u8,
-    flowinfo: u32 = 0,
-    scope_id: u32 = 0,
-
-    pub const ParseError = error{
-        Overflow,
-        InvalidCharacter,
-        InvalidEnd,
-        InvalidIpv4Mapping,
-        Incomplete,
-    };
+    flow: u32 = 0,
+    interface: Interface = .none,
 
     pub const Policy = struct {
         addr: [16]u8,
@@ -186,192 +210,205 @@ pub const Ip6Address = struct {
         label: u8,
     };
 
-    pub fn localhost(port: u16) Ip6Address {
+    pub fn loopback(port: u16) Ip6Address {
         return .{
             .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
             .port = port,
         };
     }
 
-    pub fn parse(buffer: []const u8, port: u16) ParseError!Ip6Address {
-        var result: Ip6Address = .{
-            .port = port,
-            .bytes = undefined,
+    /// An IPv6 address but with `Interface` as a name rather than index.
+    pub const Unresolved = struct {
+        /// Big endian
+        bytes: [16]u8,
+        interface_name: ?Interface.Name,
+
+        pub const Parsed = union(enum) {
+            success: Unresolved,
+            invalid_byte: usize,
+            unexpected_end,
         };
-        var ip_slice: *[16]u8 = &result.bytes;
 
-        var tail: [16]u8 = undefined;
-
-        var x: u16 = 0;
-        var saw_any_digits = false;
-        var index: u8 = 0;
-        var scope_id = false;
-        var abbrv = false;
-        for (buffer, 0..) |c, i| {
-            if (scope_id) {
-                if (c >= '0' and c <= '9') {
-                    const digit = c - '0';
-                    {
-                        const ov = @mulWithOverflow(result.scope_id, 10);
-                        if (ov[1] != 0) return error.Overflow;
-                        result.scope_id = ov[0];
-                    }
-                    {
-                        const ov = @addWithOverflow(result.scope_id, digit);
-                        if (ov[1] != 0) return error.Overflow;
-                        result.scope_id = ov[0];
-                    }
-                } else {
-                    return error.InvalidCharacter;
-                }
-            } else if (c == ':') {
-                if (!saw_any_digits) {
-                    if (abbrv) return error.InvalidCharacter; // ':::'
-                    if (i != 0) abbrv = true;
-                    @memset(ip_slice[index..], 0);
-                    ip_slice = tail[0..];
-                    index = 0;
-                    continue;
-                }
-                if (index == 14) {
-                    return error.InvalidEnd;
-                }
-                ip_slice[index] = @as(u8, @truncate(x >> 8));
-                index += 1;
-                ip_slice[index] = @as(u8, @truncate(x));
-                index += 1;
-
-                x = 0;
-                saw_any_digits = false;
-            } else if (c == '%') {
-                if (!saw_any_digits) {
-                    return error.InvalidCharacter;
-                }
-                scope_id = true;
-                saw_any_digits = false;
-            } else if (c == '.') {
-                if (!abbrv or ip_slice[0] != 0xff or ip_slice[1] != 0xff) {
-                    // must start with '::ffff:'
-                    return error.InvalidIpv4Mapping;
-                }
-                const start_index = std.mem.lastIndexOfScalar(u8, buffer[0..i], ':').? + 1;
-                const addr = (Ip4Address.parse(buffer[start_index..], 0) catch {
-                    return error.InvalidIpv4Mapping;
-                }).bytes;
-                ip_slice = result.bytes[0..];
-                ip_slice[10] = 0xff;
-                ip_slice[11] = 0xff;
-
-                ip_slice[12] = addr[0];
-                ip_slice[13] = addr[1];
-                ip_slice[14] = addr[2];
-                ip_slice[15] = addr[3];
-                return result;
-            } else {
-                const digit = try std.fmt.charToDigit(c, 16);
-                {
-                    const ov = @mulWithOverflow(x, 16);
-                    if (ov[1] != 0) return error.Overflow;
-                    x = ov[0];
-                }
-                {
-                    const ov = @addWithOverflow(x, digit);
-                    if (ov[1] != 0) return error.Overflow;
-                    x = ov[0];
-                }
-                saw_any_digits = true;
+        pub fn parse(buffer: []const u8) Parsed {
+            if (buffer.len < 2) return .unexpected_end;
+            var parts: [8]u16 = @splat(0);
+            var parts_i: usize = 0;
+            var i: usize = 0;
+            var digit_i: usize = 0;
+            const State = union(enum) { digit, colon, end };
+            state: switch (State.digit) {
+                .digit => c: switch (buffer[i]) {
+                    'a'...'f' => |c| {
+                        const digit = c - 'a';
+                        parts[parts_i] = parts[parts_i] * 16 + digit;
+                        if (digit_i == 3) {
+                            digit_i = 0;
+                            parts_i += 1;
+                            i += 1;
+                            if (parts.len - parts_i == 0) continue :state .end;
+                            continue :state .colon;
+                        }
+                        digit_i += 1;
+                        if (buffer.len - i == 0) return .unexpected_end;
+                        i += 1;
+                        continue :c buffer[i];
+                    },
+                    'A'...'F' => |c| continue :c c + ('a' - 'A'),
+                    '0'...'9' => |c| continue :c c + ('a' - '0'),
+                    ':' => @panic("TODO"),
+                    else => return .{ .invalid_byte = i },
+                },
+                .colon => @panic("TODO"),
+                .end => @panic("TODO"),
             }
         }
 
-        if (!saw_any_digits and !abbrv) {
-            return error.Incomplete;
-        }
-        if (!abbrv and index < 14) {
-            return error.Incomplete;
+        pub const FromAddressError = Interface.NameError;
+
+        pub fn fromAddress(a: *const Ip6Address, io: Io) FromAddressError!Unresolved {
+            if (a.interface.isNone()) return .{
+                .bytes = a.bytes,
+                .interface_name = null,
+            };
+            return .{
+                .bytes = a.bytes,
+                .interface_name = try a.interface.name(io),
+            };
         }
 
-        if (index == 14) {
-            ip_slice[14] = @as(u8, @truncate(x >> 8));
-            ip_slice[15] = @as(u8, @truncate(x));
-            return result;
-        } else {
-            ip_slice[index] = @as(u8, @truncate(x >> 8));
-            index += 1;
-            ip_slice[index] = @as(u8, @truncate(x));
-            index += 1;
-            @memcpy(result.bytes[16 - index ..][0..index], ip_slice[0..index]);
-            return result;
+        pub fn format(u: *const Unresolved, w: *Io.Writer) Io.Writer.Error!void {
+            const bytes = &u.bytes;
+            if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
+                try w.print("::ffff:{d}.{d}.{d}.{d}", .{ bytes[12], bytes[13], bytes[14], bytes[15] });
+            } else {
+                const parts: [8]u16 = .{
+                    std.mem.readInt(u16, bytes[0..2], .big),
+                    std.mem.readInt(u16, bytes[2..4], .big),
+                    std.mem.readInt(u16, bytes[4..6], .big),
+                    std.mem.readInt(u16, bytes[6..8], .big),
+                    std.mem.readInt(u16, bytes[8..10], .big),
+                    std.mem.readInt(u16, bytes[10..12], .big),
+                    std.mem.readInt(u16, bytes[12..14], .big),
+                    std.mem.readInt(u16, bytes[14..16], .big),
+                };
+
+                // Find the longest zero run
+                var longest_start: usize = 8;
+                var longest_len: usize = 0;
+                var current_start: usize = 0;
+                var current_len: usize = 0;
+
+                for (parts, 0..) |part, i| {
+                    if (part == 0) {
+                        if (current_len == 0) {
+                            current_start = i;
+                        }
+                        current_len += 1;
+                        if (current_len > longest_len) {
+                            longest_start = current_start;
+                            longest_len = current_len;
+                        }
+                    } else {
+                        current_len = 0;
+                    }
+                }
+
+                // Only compress if the longest zero run is 2 or more
+                if (longest_len < 2) {
+                    longest_start = 8;
+                    longest_len = 0;
+                }
+
+                try w.writeAll("[");
+                var i: usize = 0;
+                var abbrv = false;
+                while (i < parts.len) : (i += 1) {
+                    if (i == longest_start) {
+                        // Emit "::" for the longest zero run
+                        if (!abbrv) {
+                            try w.writeAll(if (i == 0) "::" else ":");
+                            abbrv = true;
+                        }
+                        i += longest_len - 1; // Skip the compressed range
+                        continue;
+                    }
+                    if (abbrv) {
+                        abbrv = false;
+                    }
+                    try w.print("{x}", .{parts[i]});
+                    if (i != parts.len - 1) {
+                        try w.writeAll(":");
+                    }
+                }
+            }
+            if (u.interface_name) |n| try w.print("%{s}", .{n.toSlice()});
         }
+    };
+
+    pub const ParseError = error{
+        /// If this is returned, more detailed diagnostics can be obtained by
+        /// calling `Ip6Address.Parsed.init`.
+        ParseFailed,
+        /// If this is returned, the IPv6 address had a scope id on it ("%foo"
+        /// at the end) which requires calling `resolve`.
+        UnresolvedScope,
+    };
+
+    /// This is a pure function but it cannot handle IPv6 addresses that have
+    /// scope ids ("%foo" at the end). To also handle those, `resolve` must be
+    /// called instead.
+    pub fn parse(buffer: []const u8, port: u16) ParseError!Ip6Address {
+        switch (Unresolved.parse(buffer)) {
+            .success => |p| return .{
+                .bytes = p.bytes,
+                .port = port,
+                .interface = if (p.interface_name != null) return error.UnresolvedScope else .none,
+            },
+            else => return error.ParseFailed,
+        }
+        return .{ .ip6 = try Ip6Address.parse(buffer, port) };
     }
 
-    pub fn format(a: Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
-        const bytes = &a.bytes;
-        if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
-            try w.print("[::ffff:{d}.{d}.{d}.{d}]:{d}", .{
-                bytes[12], bytes[13], bytes[14], bytes[15], a.port,
-            });
-            return;
-        }
-        const parts: [8]u16 = .{
-            std.mem.readInt(u16, bytes[0..2], .big),
-            std.mem.readInt(u16, bytes[2..4], .big),
-            std.mem.readInt(u16, bytes[4..6], .big),
-            std.mem.readInt(u16, bytes[6..8], .big),
-            std.mem.readInt(u16, bytes[8..10], .big),
-            std.mem.readInt(u16, bytes[10..12], .big),
-            std.mem.readInt(u16, bytes[12..14], .big),
-            std.mem.readInt(u16, bytes[14..16], .big),
+    pub const ResolveError = error{
+        /// If this is returned, more detailed diagnostics can be obtained by
+        /// calling the `Parsed.init` function.
+        ParseFailed,
+    } || Interface.Name.ResolveError;
+
+    /// This function requires an `Io` parameter because it must query the operating
+    /// system to convert interface name to index. For example, in
+    /// "fe80::e0e:76ff:fed4:cf22%eno1", "eno1" must be resolved to an index by
+    /// creating a socket and then using an `ioctl` syscall.
+    pub fn resolve(io: Io, buffer: []const u8, port: u16) ResolveError!Ip6Address {
+        return switch (Unresolved.parse(buffer)) {
+            .success => |p| return .{
+                .bytes = p.bytes,
+                .port = port,
+                .interface = if (p.interface_name) |n| try n.resolve(io) else .none,
+            },
+            else => return error.ParseFailed,
         };
+    }
 
-        // Find the longest zero run
-        var longest_start: usize = 8;
-        var longest_len: usize = 0;
-        var current_start: usize = 0;
-        var current_len: usize = 0;
+    pub const FormatError = Io.Writer.Error || Unresolved.FromAddressError;
 
-        for (parts, 0..) |part, i| {
-            if (part == 0) {
-                if (current_len == 0) {
-                    current_start = i;
-                }
-                current_len += 1;
-                if (current_len > longest_len) {
-                    longest_start = current_start;
-                    longest_len = current_len;
-                }
-            } else {
-                current_len = 0;
-            }
-        }
+    /// Includes the optional scope ("%foo" at the end).
+    ///
+    /// See `format` for an alternative that omits scopes and does
+    /// not require an `Io` parameter.
+    pub fn formatResolved(a: Ip6Address, io: Io, w: *Io.Writer) FormatError!void {
+        const u: Unresolved = try .fromAddress(io);
+        try w.print("[{f}]:{d}", .{ u, a.port });
+    }
 
-        // Only compress if the longest zero run is 2 or more
-        if (longest_len < 2) {
-            longest_start = 8;
-            longest_len = 0;
-        }
-
-        try w.writeAll("[");
-        var i: usize = 0;
-        var abbrv = false;
-        while (i < parts.len) : (i += 1) {
-            if (i == longest_start) {
-                // Emit "::" for the longest zero run
-                if (!abbrv) {
-                    try w.writeAll(if (i == 0) "::" else ":");
-                    abbrv = true;
-                }
-                i += longest_len - 1; // Skip the compressed range
-                continue;
-            }
-            if (abbrv) {
-                abbrv = false;
-            }
-            try w.print("{x}", .{parts[i]});
-            if (i != parts.len - 1) {
-                try w.writeAll(":");
-            }
-        }
-        try w.print("]:{d}", .{a.port});
+    /// See `formatResolved` for an alternative that additionally prints the optional
+    /// scope at the end of addresses and requires an `Io` parameter.
+    pub fn format(a: Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
+        const u: Unresolved = .{
+            .bytes = a.bytes,
+            .interface_name = null,
+        };
+        try w.print("[{f}]:{d}", .{ u, a.port });
     }
 
     pub fn eql(a: Ip6Address, b: Ip6Address) bool {
@@ -471,11 +508,64 @@ pub const Ip6Address = struct {
     };
 };
 
+pub const Interface = struct {
+    /// Value 0 indicates `none`.
+    index: u32,
+
+    pub const none: Interface = .{ .index = 0 };
+
+    pub const Name = struct {
+        bytes: [max_len:0]u8,
+
+        pub const max_len = std.posix.IFNAMESIZE - 1;
+
+        pub fn toSlice(n: *const Name) []const u8 {
+            return std.mem.sliceTo(&n.bytes, 0);
+        }
+
+        pub fn fromSlice(bytes: []const u8) error{NameTooLong}!Name {
+            if (bytes.len > max_len) return error.NameTooLong;
+            var result: Name = undefined;
+            @memcpy(result.bytes[0..bytes.len], bytes);
+            result.bytes[bytes.len] = 0;
+            return result;
+        }
+
+        pub const ResolveError = error{
+            InterfaceNotFound,
+            AccessDenied,
+            SystemResources,
+        } || Io.UnexpectedError || Io.Cancelable;
+
+        /// Corresponds to "if_nametoindex" in libc.
+        pub fn resolve(n: []const u8, io: Io) ResolveError!Interface {
+            return io.vtable.netInterfaceNameResolve(io.userdata, n);
+        }
+    };
+
+    pub const NameError = Io.UnexpectedError || Io.Cancelable;
+
+    /// Asserts not `none`.
+    ///
+    /// Corresponds to "if_indextoname" in libc.
+    pub fn name(i: Interface, io: Io) NameError!Name {
+        assert(i.index != 0);
+        return io.vtable.netInterfaceName(io.userdata, i);
+    }
+
+    pub fn isNone(i: Interface) bool {
+        return i.index == 0;
+    }
+};
+
+/// An open socket connection with a network protocol that guarantees
+/// sequencing, delivery, and prevents repetition. Typically TCP or UNIX domain
+/// socket.
 pub const Stream = struct {
-    /// Underlying platform-defined type which may or may not be
-    /// interchangeable with a file system file descriptor.
     handle: Handle,
 
+    /// Underlying platform-defined type which may or may not be
+    /// interchangeable with a file system file descriptor.
     pub const Handle = switch (native_os) {
         .windows => std.windows.ws2_32.SOCKET,
         else => std.posix.fd_t,
@@ -582,17 +672,6 @@ pub const Server = struct {
         return io.vtable.accept(io, s);
     }
 };
-
-pub const InterfaceIndexError = error{
-    InterfaceNotFound,
-    AccessDenied,
-    SystemResources,
-} || Io.UnexpectedError || Io.Cancelable;
-
-/// Otherwise known as "if_nametoindex".
-pub fn interfaceIndex(io: Io, name: []const u8) InterfaceIndexError!u32 {
-    return io.vtable.netInterfaceIndex(io.userdata, name);
-}
 
 test {
     _ = HostName;
