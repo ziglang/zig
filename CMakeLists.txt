@@ -155,7 +155,8 @@ if(ZIG_STATIC_ZSTD)
         list(REMOVE_ITEM LLVM_LIBRARIES "-lzstd")
     endif()
 
-    find_library(ZSTD NAMES libzstd.a libzstdstatic.a zstd NAMES_PER_DIR)
+    find_library(ZSTD NAMES libzstd.a libzstdstatic.a zstd NAMES_PER_DIR
+        PATHS /usr/lib64 /usr/lib/x86_64-linux-gnu)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
