@@ -266,8 +266,10 @@ pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, con
 }
 pub const UnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 pub const supports_unwinding: bool = s: {
+    // Notably, we are yet to support unwinding on ARM. There, unwinding is not done through
+    // `.eh_frame`, but instead with the `.ARM.exidx` section, which has a different format.
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
-        .linux => &.{ .x86, .x86_64, .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be },
+        .linux => &.{ .x86, .x86_64, .aarch64, .aarch64_be },
         .netbsd => &.{ .x86, .x86_64, .aarch64, .aarch64_be },
         .freebsd => &.{ .x86_64, .aarch64, .aarch64_be },
         .openbsd => &.{.x86_64},
