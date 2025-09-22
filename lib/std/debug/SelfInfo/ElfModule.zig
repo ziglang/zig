@@ -23,8 +23,8 @@ pub const DebugInfo = struct {
     };
     pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
         if (di.loaded_elf) |*loaded_elf| loaded_elf.deinit(gpa);
-        for (di.unwind) |*opt_unwind| {
-            const unwind = &(opt_unwind orelse continue);
+        for (&di.unwind) |*opt_unwind| {
+            const unwind = &(opt_unwind.* orelse continue);
             unwind.deinit(gpa);
         }
     }
