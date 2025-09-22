@@ -538,7 +538,7 @@ pub const Interface = struct {
         } || Io.UnexpectedError || Io.Cancelable;
 
         /// Corresponds to "if_nametoindex" in libc.
-        pub fn resolve(n: []const u8, io: Io) ResolveError!Interface {
+        pub fn resolve(n: *const Name, io: Io) ResolveError!Interface {
             return io.vtable.netInterfaceNameResolve(io.userdata, n);
         }
     };
