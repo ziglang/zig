@@ -758,7 +758,8 @@ test "return undefined pointer from function, directly and by expired local" {
         /// Semantically equivalent to `returnUndefPointer`.
         fn returnStackPointer() *i32 {
             var stack_allocation: i32 = 1234;
-            return &stack_allocation;
+            const ptr = &stack_allocation; // defeats ast-check detection
+            return ptr;
         }
     };
 
