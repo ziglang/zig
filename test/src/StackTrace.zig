@@ -62,8 +62,12 @@ fn addCaseTarget(
 
     // On aarch64-macos, FP unwinding is blessed by Apple to always be reliable, and std.debug knows this.
     const fp_unwind_is_safe = target.result.cpu.arch == .aarch64 and target.result.os.tag.isDarwin();
-    // On x86-windows, only FP unwinding is available.
-    const supports_unwind_tables = target.result.os.tag != .windows or target.result.cpu.arch != .x86;
+    const supports_unwind_tables = switch (target.result.os.tag) {
+        // x86-windows just has no way to do stack unwinding other then using frame pointers.
+        .windows => target.result.cpu.arch != .x86,
+        // We do not yet implement support for the AArch32 exception table section `.ARM.exidx`.
+        else => !target.result.cpu.arch.isArm(),
+    };
 
     const use_llvm_vals: []const bool = if (both_backends) &.{ true, false } else &.{true};
     const pie_vals: []const ?bool = if (both_pie) &.{ true, false } else &.{null};
