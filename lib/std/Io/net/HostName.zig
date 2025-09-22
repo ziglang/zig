@@ -105,11 +105,11 @@ pub fn lookup(host_name: HostName, io: Io, options: LookupOptions) LookupError!L
             {
                 var i: usize = 0;
                 if (options.family != .ip6) {
-                    options.addresses_buffer[i] = .{ .ip4 = .localhost(options.port) };
+                    options.addresses_buffer[i] = .{ .ip4 = .loopback(options.port) };
                     i += 1;
                 }
                 if (options.family != .ip4) {
-                    options.addresses_buffer[i] = .{ .ip6 = .localhost(options.port) };
+                    options.addresses_buffer[i] = .{ .ip6 = .loopback(options.port) };
                     i += 1;
                 }
                 const canon_name = "localhost";
@@ -166,7 +166,7 @@ fn sortLookupResults(options: LookupOptions, result: LookupResult) !LookupResult
             switch (a) {
                 .ip6 => |ip6| {
                     da6.bytes = ip6.bytes;
-                    da6.scope_id = ip6.scope_id;
+                    da6.interface = ip6.interface;
                 },
                 .ip4 => |ip4| {
                     da6.bytes[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;

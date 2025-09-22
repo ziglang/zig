@@ -135,7 +135,8 @@ pub fn io(pool: *Pool) Io {
                 else => netWritePosix,
             },
             .netClose = netClose,
-            .netInterfaceIndex = netInterfaceIndex,
+            .netInterfaceNameResolve = netInterfaceNameResolve,
+            .netInterfaceName = netInterfaceName,
         },
     };
 }
@@ -1123,16 +1124,11 @@ fn netClose(userdata: ?*anyopaque, stream: Io.net.Stream) void {
     return net_stream.close();
 }
 
-fn netInterfaceIndex(userdata: ?*anyopaque, name: []const u8) Io.net.InterfaceIndexError!u32 {
+fn netInterfaceNameResolve(userdata: ?*anyopaque, name: Io.net.Interface.Name) Io.net.Interface.Name.ResolveError!Io.net.Interface {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
     if (native_os == .linux) {
-        if (name.len >= posix.IFNAMESIZE) return error.InterfaceNotFound;
-        var ifr: posix.ifreq = undefined;
-        @memcpy(ifr.ifrn.name[0..name.len], name);
-        ifr.ifrn.name[name.len] = 0;
-
         const rc = posix.system.socket(posix.AF.UNIX, posix.SOCK.DGRAM | posix.SOCK.CLOEXEC, 0);
         const sock_fd: posix.fd_t = switch (posix.errno(rc)) {
             .SUCCESS => @intCast(rc),
@@ -1145,10 +1141,15 @@ fn netInterfaceIndex(userdata: ?*anyopaque, name: []const u8) Io.net.InterfaceIn
         };
         defer posix.close(sock_fd);
 
+        var ifr: posix.ifreq = .{
+            .ifrn = .{ .name = @bitCast(name.bytes) },
+            .ifru = undefined,
+        };
+
         while (true) {
             try pool.checkCancel();
             switch (posix.errno(posix.system.ioctl(sock_fd, posix.SIOCGIFINDEX, @intFromPtr(&ifr)))) {
-                .SUCCESS => return @bitCast(ifr.ifru.ivalue),
+                .SUCCESS => return .{ .index = @bitCast(ifr.ifru.ivalue) },
                 .INVAL => |err| return badErrno(err), // Bad parameters.
                 .NOTTY => |err| return badErrno(err),
                 .NXIO => |err| return badErrno(err),
@@ -1162,28 +1163,39 @@ fn netInterfaceIndex(userdata: ?*anyopaque, name: []const u8) Io.net.InterfaceIn
         }
     }
 
-    if (native_os.isDarwin()) {
-        if (name.len >= posix.IFNAMESIZE) return error.InterfaceNotFound;
-        var if_name: [posix.IFNAMESIZE:0]u8 = undefined;
-        @memcpy(if_name[0..name.len], name);
-        if_name[name.len] = 0;
-        const if_slice = if_name[0..name.len :0];
-        const index = std.c.if_nametoindex(if_slice);
+    if (native_os == .windows) {
+        const index = std.os.windows.ws2_32.if_nametoindex(&name.bytes);
         if (index == 0) return error.InterfaceNotFound;
-        return @bitCast(index);
+        return .{ .index = index };
+    }
+
+    if (builtin.link_libc) {
+        const index = std.c.if_nametoindex(&name.bytes);
+        if (index == 0) return error.InterfaceNotFound;
+        return .{ .index = @bitCast(index) };
+    }
+
+    @panic("unimplemented");
+}
+
+fn netInterfaceName(userdata: ?*anyopaque, interface: Io.net.Interface) Io.net.Interface.NameError!Io.net.Interface.Name {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    if (native_os == .linux) {
+        _ = interface;
+        @panic("TODO");
     }
 
     if (native_os == .windows) {
-        if (name.len >= posix.IFNAMESIZE) return error.InterfaceNotFound;
-        var interface_name: [posix.IFNAMESIZE:0]u8 = undefined;
-        @memcpy(interface_name[0..name.len], name);
-        interface_name[name.len] = 0;
-        const index = std.os.windows.ws2_32.if_nametoindex(@as([*:0]const u8, &interface_name));
-        if (index == 0) return error.InterfaceNotFound;
-        return index;
+        @panic("TODO");
     }
 
-    @compileError("std.net.if_nametoindex unimplemented for this OS");
+    if (builtin.link_libc) {
+        @panic("TODO");
+    }
+
+    @panic("unimplemented");
 }
 
 const PosixAddress = extern union {
@@ -1231,8 +1243,8 @@ fn address6FromPosix(in6: *posix.sockaddr.in6) Io.net.Ip6Address {
     return .{
         .port = std.mem.bigToNative(u16, in6.port),
         .bytes = in6.addr,
-        .flowinfo = in6.flowinfo,
-        .scope_id = in6.scope_id,
+        .flow = in6.flowinfo,
+        .interface = .{ .index = in6.scope_id },
     };
 }
 
@@ -1246,9 +1258,9 @@ fn address4ToPosix(a: Io.net.Ip4Address) posix.sockaddr.in {
 fn address6ToPosix(a: Io.net.Ip6Address) posix.sockaddr.in6 {
     return .{
         .port = std.mem.nativeToBig(u16, a.port),
-        .flowinfo = a.flowinfo,
+        .flowinfo = a.flow,
         .addr = a.bytes,
-        .scope_id = a.scope_id,
+        .scope_id = a.interface.index,
     };
 }
 
