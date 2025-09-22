@@ -146,7 +146,7 @@ pub const Node = extern struct {
 
         pub fn hasMoved(ni: Node.Index, mf: *const MappedFile) bool {
             var parent_ni = ni;
-            while (parent_ni != .none) {
+            while (parent_ni != Node.Index.root) {
                 const parent = parent_ni.get(mf);
                 if (parent.flags.moved) return true;
                 parent_ni = parent.parent;
@@ -164,7 +164,7 @@ pub const Node = extern struct {
         }
         fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
             var parent_ni = ni;
-            while (parent_ni != .none) {
+            while (parent_ni != Node.Index.root) {
                 const parent_node = parent_ni.get(mf);
                 if (parent_node.flags.moved) return;
                 parent_ni = parent_node.parent;
@@ -550,9 +550,9 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     const new_size = node.flags.alignment.forward(@intCast(requested_size));
     // Resize the entire file
     if (ni == Node.Index.root) {
+        try mf.ensureCapacityForSetLocation(gpa);
         try mf.file.setEndPos(new_size);
         try mf.ensureTotalCapacity(@intCast(new_size));
-        try mf.ensureCapacityForSetLocation(gpa);
         ni.setLocationAssumeCapacity(mf, old_offset, new_size);
         return;
     }
@@ -585,56 +585,56 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
                 continue;
             }
             const range_file_offset = ni.fileLocation(mf, false).offset + old_size;
-            retry: while (true) {
-                switch (linux.E.init(linux.fallocate(
-                    mf.file.handle,
-                    linux.FALLOC.FL_INSERT_RANGE,
-                    @intCast(range_file_offset),
-                    @intCast(range_size),
-                ))) {
-                    .SUCCESS => {
-                        var enclosing_ni = ni;
-                        while (enclosing_ni != .none) {
-                            try mf.ensureCapacityForSetLocation(gpa);
-                            const enclosing = enclosing_ni.get(mf);
-                            const enclosing_offset, const enclosing_size =
-                                enclosing.location().resolve(mf);
-                            enclosing_ni.setLocationAssumeCapacity(
-                                mf,
-                                enclosing_offset,
-                                enclosing_size + range_size,
-                            );
-                            var after_ni = enclosing.next;
-                            while (after_ni != .none) {
-                                try mf.ensureCapacityForSetLocation(gpa);
-                                const after = after_ni.get(mf);
-                                const after_offset, const after_size = after.location().resolve(mf);
-                                after_ni.setLocationAssumeCapacity(
-                                    mf,
-                                    range_size + after_offset,
-                                    after_size,
-                                );
-                                after_ni = after.next;
-                            }
-                            enclosing_ni = enclosing.parent;
+            while (true) switch (linux.E.init(linux.fallocate(
+                mf.file.handle,
+                linux.FALLOC.FL_INSERT_RANGE,
+                @intCast(range_file_offset),
+                @intCast(range_size),
+            ))) {
+                .SUCCESS => {
+                    var enclosing_ni = ni;
+                    while (true) {
+                        try mf.ensureCapacityForSetLocation(gpa);
+                        const enclosing = enclosing_ni.get(mf);
+                        const enclosing_offset, const old_enclosing_size =
+                            enclosing.location().resolve(mf);
+                        const new_enclosing_size = old_enclosing_size + range_size;
+                        enclosing_ni.setLocationAssumeCapacity(mf, enclosing_offset, new_enclosing_size);
+                        if (enclosing_ni == Node.Index.root) {
+                            assert(enclosing_offset == 0);
+                            try mf.ensureTotalCapacity(@intCast(new_enclosing_size));
+                            break;
                         }
-                        return;
-                    },
-                    .INTR => continue :retry,
-                    .BADF, .FBIG, .INVAL => unreachable,
-                    .IO => return error.InputOutput,
-                    .NODEV => return error.NotFile,
-                    .NOSPC => return error.NoSpaceLeft,
-                    .NOSYS, .OPNOTSUPP => {
-                        mf.flags.fallocate_insert_range_unsupported = true;
-                        break :insert_range;
-                    },
-                    .PERM => return error.PermissionDenied,
-                    .SPIPE => return error.Unseekable,
-                    .TXTBSY => return error.FileBusy,
-                    else => |e| return std.posix.unexpectedErrno(e),
-                }
-            }
+                        var after_ni = enclosing.next;
+                        while (after_ni != .none) {
+                            try mf.ensureCapacityForSetLocation(gpa);
+                            const after = after_ni.get(mf);
+                            const after_offset, const after_size = after.location().resolve(mf);
+                            after_ni.setLocationAssumeCapacity(
+                                mf,
+                                range_size + after_offset,
+                                after_size,
+                            );
+                            after_ni = after.next;
+                        }
+                        enclosing_ni = enclosing.parent;
+                    }
+                    return;
+                },
+                .INTR => continue,
+                .BADF, .FBIG, .INVAL => unreachable,
+                .IO => return error.InputOutput,
+                .NODEV => return error.NotFile,
+                .NOSPC => return error.NoSpaceLeft,
+                .NOSYS, .OPNOTSUPP => {
+                    mf.flags.fallocate_insert_range_unsupported = true;
+                    break :insert_range;
+                },
+                .PERM => return error.PermissionDenied,
+                .SPIPE => return error.Unseekable,
+                .TXTBSY => return error.FileBusy,
+                else => |e| return std.posix.unexpectedErrno(e),
+            };
         }
         switch (node.next) {
             .none => {
@@ -728,7 +728,6 @@ fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
     // delete the copy of this node at the old location
     if (is_linux and !mf.flags.fallocate_punch_hole_unsupported and
         size >= mf.flags.block_size.toByteUnits() * 2 - 1) while (true)
-    {
         switch (linux.E.init(linux.fallocate(
             mf.file.handle,
             linux.FALLOC.FL_PUNCH_HOLE | linux.FALLOC.FL_KEEP_SIZE,
@@ -749,8 +748,7 @@ fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
             .SPIPE => return error.Unseekable,
             .TXTBSY => return error.FileBusy,
             else => |e| return std.posix.unexpectedErrno(e),
-        }
-    };
+        };
     @memset(mf.contents[@intCast(old_file_offset)..][0..@intCast(size)], 0);
 }
 
