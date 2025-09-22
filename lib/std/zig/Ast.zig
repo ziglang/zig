@@ -160,10 +160,21 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         if (token.tag == .eof) break;
     }
 
+    var tokens_slice = tokens.toOwnedSlice();
+    errdefer tokens_slice.deinit(gpa);
+    return parseTokens(gpa, source, tokens_slice, mode);
+}
+
+pub fn parseTokens(
+    gpa: Allocator,
+    source: [:0]const u8,
+    tokens: Ast.TokenList.Slice,
+    mode: Mode,
+) Allocator.Error!Ast {
     var parser: Parse = .{
         .source = source,
         .gpa = gpa,
-        .tokens = tokens.slice(),
+        .tokens = tokens,
         .errors = .{},
         .nodes = .{},
         .extra_data = .{},
@@ -194,7 +205,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     return Ast{
         .source = source,
         .mode = mode,
-        .tokens = tokens.toOwnedSlice(),
+        .tokens = tokens,
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = extra_data,
         .errors = errors,

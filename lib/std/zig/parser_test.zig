@@ -6466,14 +6466,9 @@ test "fuzz ast parse" {
     try std.testing.fuzz({}, fuzzTestOneParse, .{});
 }
 
-fn fuzzTestOneParse(_: void, input: []const u8) !void {
-    // The first byte holds if zig / zon
-    if (input.len == 0) return;
-    const mode: std.zig.Ast.Mode = if (input[0] & 1 == 0) .zig else .zon;
-    const bytes = input[1..];
-
+fn fuzzTestOneParse(_: void, smith: *std.testing.Smith) !void {
+    const mode = smith.value(std.zig.Ast.Mode);
+    var tokens: std.zig.TokenSmith = .gen(smith);
     var fba: std.heap.FixedBufferAllocator = .init(&fixed_buffer_mem);
-    const allocator = fba.allocator();
-    const source = allocator.dupeZ(u8, bytes) catch return;
-    _ = std.zig.Ast.parse(allocator, source, mode) catch return;
+    _ = std.zig.Ast.parseTokens(fba.allocator(), tokens.source(), tokens.list(), mode) catch return;
 }
