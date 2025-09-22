@@ -3545,7 +3545,10 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
         parent_ptr_info.packed_offset.host_size,
         parent_ptr_info.packed_offset.bit_offset + bit_offset,
     } else .{
-        @intCast(struct_ty.abiSize(zcu)),
+        switch (zcu.comp.getZigBackend()) {
+            else => (running_bits + 7) / 8,
+            .stage2_x86_64 => @intCast(struct_ty.abiSize(zcu)),
+        },
         bit_offset,
     };
 
