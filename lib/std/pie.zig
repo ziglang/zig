@@ -177,7 +177,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ jg 2f
                 \\ 1: .quad _DYNAMIC - .
                 \\ 2:
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=a" (-> [*]const elf.Dyn),
             ),
             // The compiler does not necessarily have any obligation to load the `l7` register (pointing
             // to the GOT), so do it ourselves just in case.
