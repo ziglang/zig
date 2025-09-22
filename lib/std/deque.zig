@@ -332,53 +332,137 @@ test "fuzz against ArrayList oracle" {
     try std.testing.fuzz({}, fuzzAgainstArrayList, .{});
 }
 
-test "dumb fuzz against ArrayList oracle" {
+const FuzzAllocator = struct {
+    smith: *std.testing.Smith,
+    bufs: [2][256 * 4]u8 align(4),
+    used_bitmap: u2,
+    used_len: [2]usize,
+
+    pub fn init(smith: *std.testing.Smith) FuzzAllocator {
+        return .{
+            .smith = smith,
+            .bufs = undefined,
+            .used_len = undefined,
+            .used_bitmap = 0,
+        };
+    }
+
+    pub fn allocator(f: *FuzzAllocator) std.mem.Allocator {
+        return .{
+            .ptr = f,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .remap = remap,
+                .free = free,
+            },
+        };
+    }
+
+    pub fn allocCount(f: *FuzzAllocator) u2 {
+        return @popCount(f.used_bitmap);
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, a: std.mem.Alignment, _: usize) ?[*]u8 {
+        const f: *FuzzAllocator = @ptrCast(@alignCast(ctx));
+        assert(a == .@"4");
+        assert(len % 4 == 0);
+
+        const slot: u1 = @intCast(@ctz(~f.used_bitmap));
+        const buf: []u8 = &f.bufs[slot];
+        if (len > buf.len) return null;
+        f.used_bitmap |= @as(u2, 1) << slot;
+        f.used_len[slot] = len;
+        return buf.ptr;
+    }
+
+    fn memSlot(f: *FuzzAllocator, mem: []u8) u1 {
+        const slot: u1 = if (&mem[0] == &f.bufs[0][0])
+            0
+        else if (&mem[0] == &f.bufs[1][0])
+            1
+        else
+            unreachable;
+        assert((f.used_bitmap >> slot) & 1 == 1);
+        assert(mem.len == f.used_len[slot]);
+        return slot;
+    }
+
+    fn resize(ctx: *anyopaque, mem: []u8, a: std.mem.Alignment, new_len: usize, _: usize) bool {
+        const f: *FuzzAllocator = @ptrCast(@alignCast(ctx));
+        assert(a == .@"4");
+        assert(f.allocCount() == 1);
+
+        const slot = f.memSlot(mem);
+        if (new_len > f.bufs[slot].len or f.smith.value(bool)) return false;
+        f.used_len[slot] = new_len;
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, mem: []u8, a: std.mem.Alignment, new_len: usize, _: usize) ?[*]u8 {
+        const f: *FuzzAllocator = @ptrCast(@alignCast(ctx));
+        assert(a == .@"4");
+        assert(f.allocCount() == 1);
+
+        const slot = f.memSlot(mem);
+        if (new_len > f.bufs[slot].len or f.smith.value(bool)) return null;
+
+        if (f.smith.value(bool)) {
+            f.used_len[slot] = new_len;
+            // remap in place
+            return mem.ptr;
+        } else {
+            // moving remap
+            const new_slot = ~slot;
+            f.used_bitmap = ~f.used_bitmap;
+            f.used_len[new_slot] = new_len;
+
+            const new_buf = &f.bufs[new_slot];
+            @memcpy(new_buf[0..mem.len], mem);
+            return new_buf.ptr;
+        }
+    }
+
+    fn free(ctx: *anyopaque, mem: []u8, a: std.mem.Alignment, _: usize) void {
+        const f: *FuzzAllocator = @ptrCast(@alignCast(ctx));
+        assert(a == .@"4");
+        f.used_bitmap ^= @as(u2, 1) << f.memSlot(mem);
+    }
+};
+
+fn fuzzAgainstArrayList(_: void, smith: *std.testing.Smith) anyerror!void {
     const testing = std.testing;
-    const gpa = testing.allocator;
 
-    const input = try gpa.alloc(u8, 1024);
-    defer gpa.free(input);
-
-    var prng = std.Random.DefaultPrng.init(testing.random_seed);
-    prng.random().bytes(input);
-
-    try fuzzAgainstArrayList({}, input);
-}
-
-fn fuzzAgainstArrayList(_: void, input: []const u8) anyerror!void {
-    const testing = std.testing;
-    const gpa = testing.allocator;
+    var q_gpa_inst: FuzzAllocator = .init(smith);
+    var l_gpa_buf: [q_gpa_inst.bufs[0].len]u8 align(4) = undefined;
+    var l_gpa_inst: std.heap.FixedBufferAllocator = .init(&l_gpa_buf);
+    const q_gpa = q_gpa_inst.allocator();
+    const l_gpa = l_gpa_inst.allocator();
 
     var q: Deque(u32) = .empty;
-    defer q.deinit(gpa);
     var l: std.ArrayList(u32) = .empty;
-    defer l.deinit(gpa);
 
-    if (input.len < 2) return;
-
-    var prng = std.Random.DefaultPrng.init(input[0]);
-    const random = prng.random();
-
-    const Action = enum {
+    const Action = enum(u8) {
+        grow,
         push_back,
         push_front,
         pop_back,
         pop_front,
-        grow,
-        /// Sentinel to avoid hardcoding the cast below
-        max,
     };
-    for (input[1..]) |byte| {
-        switch (@as(Action, @enumFromInt(byte % (@intFromEnum(Action.max))))) {
+
+    while (!smith.eosWeightedSimple(15, 1)) {
+        const baseline = testing.Smith.baselineWeights(Action);
+        const grow_weight: testing.Smith.Weight = .value(Action, .grow, 3);
+        switch (smith.valueWeighted(Action, baseline ++ .{grow_weight})) {
             .push_back => {
-                const item = random.int(u8);
+                const item = smith.value(u32);
                 try testing.expectEqual(
                     l.appendBounded(item),
                     q.pushBackBounded(item),
                 );
             },
             .push_front => {
-                const item = random.int(u8);
+                const item = smith.value(u32);
                 try testing.expectEqual(
                     l.insertBounded(0, item),
                     q.pushFrontBounded(item),
@@ -397,11 +481,10 @@ fn fuzzAgainstArrayList(_: void, input: []const u8) anyerror!void {
             // ensureTotalCapacityPrecise(), which is the most complex part
             // of the Deque implementation.
             .grow => {
-                const growth = random.int(u3);
-                try l.ensureTotalCapacityPrecise(gpa, l.items.len + growth);
-                try q.ensureTotalCapacityPrecise(gpa, q.len + growth);
+                const growth = smith.value(u3);
+                try l.ensureTotalCapacityPrecise(l_gpa, l.items.len + growth);
+                try q.ensureTotalCapacityPrecise(q_gpa, q.len + growth);
             },
-            .max => unreachable,
         }
         try testing.expectEqual(l.getLastOrNull(), q.back());
         try testing.expectEqual(
@@ -417,5 +500,8 @@ fn fuzzAgainstArrayList(_: void, input: []const u8) anyerror!void {
             }
             try testing.expectEqual(null, it.next());
         }
+        try testing.expectEqual(@intFromBool(q.buffer.len != 0), q_gpa_inst.allocCount());
     }
+    q.deinit(q_gpa);
+    try testing.expectEqual(0, q_gpa_inst.allocCount());
 }

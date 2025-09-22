@@ -2,9 +2,7 @@ const std = @import("std");
 const abi = std.Build.abi.fuzz;
 const native_endian = @import("builtin").cpu.arch.endian();
 
-fn testOne(in: abi.Slice) callconv(.c) void {
-    std.debug.assertReadable(in.toSlice());
-}
+fn testOne() callconv(.c) void {}
 
 pub fn main() !void {
     var debug_gpa_ctx: std.heap.DebugAllocator(.{}) = .init;
@@ -24,7 +22,7 @@ pub fn main() !void {
     defer cache_dir.close();
 
     abi.fuzzer_init(.fromSlice(cache_dir_path));
-    abi.fuzzer_init_test(testOne, .fromSlice("test"));
+    abi.fuzzer_set_test(testOne, .fromSlice("test"));
     abi.fuzzer_new_input(.fromSlice(""));
     abi.fuzzer_new_input(.fromSlice("hello"));
 

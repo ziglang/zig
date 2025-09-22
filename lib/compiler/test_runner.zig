@@ -370,7 +370,7 @@ var fuzz_amount_or_instance: u64 = undefined;
 
 pub fn fuzz(
     context: anytype,
-    comptime testOne: fn (context: @TypeOf(context), []const u8) anyerror!void,
+    comptime testOne: fn (context: @TypeOf(context), *std.testing.Smith) anyerror!void,
     options: testing.FuzzInputOptions,
 ) anyerror!void {
     // Prevent this function from confusing the fuzzer by omitting its own code
@@ -397,12 +397,12 @@ pub fn fuzz(
     const global = struct {
         var ctx: @TypeOf(context) = undefined;
 
-        fn test_one(input: fuzz_abi.Slice) callconv(.c) void {
+        fn test_one() callconv(.c) void {
             @disableInstrumentation();
             testing.allocator_instance = .{};
             defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
             log_err_count = 0;
-            testOne(ctx, input.toSlice()) catch |err| switch (err) {
+            testOne(ctx, @constCast(&testing.Smith{ .in = null })) catch |err| switch (err) {
                 error.SkipZigTest => return,
                 else => {
                     std.debug.lockStdErr();
@@ -422,13 +422,11 @@ pub fn fuzz(
         const prev_allocator_state = testing.allocator_instance;
         testing.allocator_instance = .{};
         defer testing.allocator_instance = prev_allocator_state;
-
         global.ctx = context;
-        fuzz_abi.fuzzer_init_test(&global.test_one, .fromSlice(builtin.test_functions[fuzz_test_index].name));
 
+        fuzz_abi.fuzzer_set_test(&global.test_one, .fromSlice(builtin.test_functions[fuzz_test_index].name));
         for (options.corpus) |elem|
             fuzz_abi.fuzzer_new_input(.fromSlice(elem));
-
         fuzz_abi.fuzzer_main(fuzz_mode, fuzz_amount_or_instance);
         return;
     }
@@ -436,10 +434,12 @@ pub fn fuzz(
     // When the unit test executable is not built in fuzz mode, only run the
     // provided corpus.
     for (options.corpus) |input| {
-        try testOne(context, input);
+        var smith: testing.Smith = .{ .in = input };
+        try testOne(context, &smith);
     }
 
     // In case there is no provided corpus, also use an empty
     // string as a smoke test.
-    try testOne(context, "");
+    var smith: testing.Smith = .{ .in = "" };
+    try testOne(context, &smith);
 }
