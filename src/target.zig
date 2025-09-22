@@ -245,7 +245,7 @@ pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat) bool {
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
     if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
-        if (target.os.tag == .netbsd or target.os.tag == .openbsd) {
+        if (target.os.tag.isBSD()) {
             // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
             return false;
         }

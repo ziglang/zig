@@ -5,14 +5,12 @@
 set -x
 set -e
 
-ARCH="$(uname -m)"
-TARGET="$ARCH-linux-musl"
+ARCH="x86_64"
+TARGET="$ARCH-freebsd-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.16.0-dev.104+689461e31"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.16.0-dev.312+164c598cd"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
-
-export PATH="$HOME/deps/wasmtime-v29.0.0-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-10.1.0/bin:$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -24,12 +22,6 @@ git fetch --tags
 # fill up space on the hard drive for no reason.
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
-
-# Test building from source without LLVM.
-cc -o bootstrap bootstrap.c
-./bootstrap
-./zig2 build -Dno-lib
-./zig-out/bin/zig test test/behavior.zig
 
 mkdir build-release
 cd build-release
@@ -45,7 +37,10 @@ cmake .. \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
   -DZIG_NO_LIB=ON \
-  -GNinja
+  -GNinja \
+  -DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE \
+  -DCMAKE_CXX_LINKER_DEPFILE_SUPPORTED=FALSE
+# https://github.com/ziglang/zig/issues/22213
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
@@ -54,22 +49,16 @@ unset CXX
 
 ninja install
 
-# simultaneously test building self-hosted without LLVM and with 32-bit arm
-stage3-release/bin/zig build \
-  -Dtarget=arm-linux-musleabihf \
-  -Dno-lib
-
 stage3-release/bin/zig build test docs \
-  --maxrss 21000000000 \
-  -Dlldb=$HOME/deps/lldb-zig/Release-e0a42bb34/bin/lldb \
-  -fqemu \
-  -fwasmtime \
+  --maxrss 32212254720 \
   -Dstatic-llvm \
-  -Dskip-freebsd \
-  -Dtarget=native-native-musl \
+  -Dskip-linux \
+  -Dskip-netbsd \
+  -Dskip-windows \
+  -Dskip-macos \
+  -Dtarget=native-native-none \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib" \
-  -Denable-superhtml
+  --zig-lib-dir "$PWD/../lib"
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
@@ -86,35 +75,3 @@ stage3-release/bin/zig build \
 echo "If the following command fails, it means nondeterminism has been"
 echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
 diff stage3-release/bin/zig stage4-release/bin/zig
-
-# Ensure that updating the wasm binary from this commit will result in a viable build.
-stage3-release/bin/zig build update-zig1
-
-mkdir ../build-new
-cd ../build-new
-
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
-
-cmake .. \
-  -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DZIG_TARGET_TRIPLE="$TARGET" \
-  -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -DZIG_NO_LIB=ON \
-  -GNinja
-
-unset CC
-unset CXX
-
-ninja install
-
-stage3/bin/zig test ../test/behavior.zig
-stage3/bin/zig build -p stage4 \
-  -Dstatic-llvm \
-  -Dtarget=native-native-musl \
-  -Dno-lib \
-  --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
-stage4/bin/zig test ../test/behavior.zig
