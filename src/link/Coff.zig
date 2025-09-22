@@ -125,11 +125,11 @@ const UavTable = std.AutoHashMapUnmanaged(InternPool.Index, AvMetadata);
 const RelocTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 const BaseRelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 
-const default_file_alignment: u16 = 0x200;
-const default_size_of_stack_reserve: u32 = 0x1000000;
-const default_size_of_stack_commit: u32 = 0x1000;
-const default_size_of_heap_reserve: u32 = 0x100000;
-const default_size_of_heap_commit: u32 = 0x1000;
+pub const default_file_alignment: u16 = 0x200;
+pub const default_size_of_stack_reserve: u32 = 0x1000000;
+pub const default_size_of_stack_commit: u32 = 0x1000;
+pub const default_size_of_heap_reserve: u32 = 0x100000;
+pub const default_size_of_heap_commit: u32 = 0x1000;
 
 const Section = struct {
     header: coff_util.SectionHeader,
@@ -334,51 +334,51 @@ pub fn createEmpty(
     if (coff.text_section_index == null) {
         const file_size: u32 = @intCast(options.program_code_size_hint);
         coff.text_section_index = try coff.allocateSection(".text", file_size, .{
-            .CNT_CODE = 1,
-            .MEM_EXECUTE = 1,
-            .MEM_READ = 1,
+            .CNT_CODE = true,
+            .MEM_EXECUTE = true,
+            .MEM_READ = true,
         });
     }
 
     if (coff.got_section_index == null) {
         const file_size = @as(u32, @intCast(options.symbol_count_hint)) * coff.ptr_width.size();
         coff.got_section_index = try coff.allocateSection(".got", file_size, .{
-            .CNT_INITIALIZED_DATA = 1,
-            .MEM_READ = 1,
+            .CNT_INITIALIZED_DATA = true,
+            .MEM_READ = true,
         });
     }
 
     if (coff.rdata_section_index == null) {
         const file_size: u32 = coff.page_size;
         coff.rdata_section_index = try coff.allocateSection(".rdata", file_size, .{
-            .CNT_INITIALIZED_DATA = 1,
-            .MEM_READ = 1,
+            .CNT_INITIALIZED_DATA = true,
+            .MEM_READ = true,
         });
     }
 
     if (coff.data_section_index == null) {
         const file_size: u32 = coff.page_size;
         coff.data_section_index = try coff.allocateSection(".data", file_size, .{
-            .CNT_INITIALIZED_DATA = 1,
-            .MEM_READ = 1,
-            .MEM_WRITE = 1,
+            .CNT_INITIALIZED_DATA = true,
+            .MEM_READ = true,
+            .MEM_WRITE = true,
         });
     }
 
     if (coff.idata_section_index == null) {
         const file_size = @as(u32, @intCast(options.symbol_count_hint)) * coff.ptr_width.size();
         coff.idata_section_index = try coff.allocateSection(".idata", file_size, .{
-            .CNT_INITIALIZED_DATA = 1,
-            .MEM_READ = 1,
+            .CNT_INITIALIZED_DATA = true,
+            .MEM_READ = true,
         });
     }
 
     if (coff.reloc_section_index == null) {
         const file_size = @as(u32, @intCast(options.symbol_count_hint)) * @sizeOf(coff_util.BaseRelocation);
         coff.reloc_section_index = try coff.allocateSection(".reloc", file_size, .{
-            .CNT_INITIALIZED_DATA = 1,
-            .MEM_DISCARDABLE = 1,
-            .MEM_READ = 1,
+            .CNT_INITIALIZED_DATA = true,
+            .MEM_DISCARDABLE = true,
+            .MEM_READ = true,
         });
     }
 
@@ -477,7 +477,7 @@ pub fn deinit(coff: *Coff) void {
     coff.base_relocs.deinit(gpa);
 }
 
-fn allocateSection(coff: *Coff, name: []const u8, size: u32, flags: coff_util.SectionHeaderFlags) !u16 {
+fn allocateSection(coff: *Coff, name: []const u8, size: u32, flags: coff_util.SectionHeader.Flags) !u16 {
     const index = @as(u16, @intCast(coff.sections.slice().len));
     const off = coff.findFreeSpace(size, default_file_alignment);
     // Memory is always allocated in sequence
@@ -836,7 +836,7 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8, resolve_relocs: bo
                 try debugMem(gpa, handle, pvaddr, mem_code);
             }
 
-            if (section.header.flags.MEM_WRITE == 0) {
+            if (!section.header.flags.MEM_WRITE) {
                 writeMemProtected(handle, pvaddr, mem_code) catch |err| {
                     log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
                 };
@@ -2227,21 +2227,21 @@ fn writeHeader(coff: *Coff) !void {
     mem.writeInt(u32, buffer.writer.buffer[0x3c..][0..4], msdos_stub.len, .little);
 
     writer.writeAll("PE\x00\x00") catch unreachable;
-    var flags = coff_util.CoffHeaderFlags{
-        .EXECUTABLE_IMAGE = 1,
-        .DEBUG_STRIPPED = 1, // TODO
+    var flags: coff_util.Header.Flags = .{
+        .EXECUTABLE_IMAGE = true,
+        .DEBUG_STRIPPED = true, // TODO
     };
     switch (coff.ptr_width) {
-        .p32 => flags.@"32BIT_MACHINE" = 1,
-        .p64 => flags.LARGE_ADDRESS_AWARE = 1,
+        .p32 => flags.@"32BIT_MACHINE" = true,
+        .p64 => flags.LARGE_ADDRESS_AWARE = true,
     }
     if (coff.base.comp.config.output_mode == .Lib and coff.base.comp.config.link_mode == .dynamic) {
-        flags.DLL = 1;
+        flags.DLL = true;
     }
 
     const timestamp = if (coff.repro) 0 else std.time.timestamp();
     const size_of_optional_header = @as(u16, @intCast(coff.getOptionalHeaderSize() + coff.getDataDirectoryHeadersSize()));
-    var coff_header = coff_util.CoffHeader{
+    var coff_header: coff_util.Header = .{
         .machine = target.toCoffMachine(),
         .number_of_sections = @as(u16, @intCast(coff.sections.slice().len)), // TODO what if we prune a section
         .time_date_stamp = @as(u32, @truncate(@as(u64, @bitCast(timestamp)))),
@@ -2254,10 +2254,10 @@ fn writeHeader(coff: *Coff) !void {
     writer.writeAll(mem.asBytes(&coff_header)) catch unreachable;
 
     const dll_flags: coff_util.DllFlags = .{
-        .HIGH_ENTROPY_VA = 1, // TODO do we want to permit non-PIE builds at all?
-        .DYNAMIC_BASE = 1,
-        .TERMINAL_SERVER_AWARE = 1, // We are not a legacy app
-        .NX_COMPAT = 1, // We are compatible with Data Execution Prevention
+        .HIGH_ENTROPY_VA = true, // TODO do we want to permit non-PIE builds at all?
+        .DYNAMIC_BASE = true,
+        .TERMINAL_SERVER_AWARE = true, // We are not a legacy app
+        .NX_COMPAT = true, // We are compatible with Data Execution Prevention
     };
     const subsystem: coff_util.Subsystem = .WINDOWS_CUI;
     const size_of_image: u32 = coff.getSizeOfImage();
@@ -2269,13 +2269,13 @@ fn writeHeader(coff: *Coff) !void {
     var size_of_initialized_data: u32 = 0;
     var size_of_uninitialized_data: u32 = 0;
     for (coff.sections.items(.header)) |header| {
-        if (header.flags.CNT_CODE == 1) {
+        if (header.flags.CNT_CODE) {
             size_of_code += header.size_of_raw_data;
         }
-        if (header.flags.CNT_INITIALIZED_DATA == 1) {
+        if (header.flags.CNT_INITIALIZED_DATA) {
             size_of_initialized_data += header.size_of_raw_data;
         }
-        if (header.flags.CNT_UNINITIALIZED_DATA == 1) {
+        if (header.flags.CNT_UNINITIALIZED_DATA) {
             size_of_uninitialized_data += header.size_of_raw_data;
         }
     }
@@ -2283,7 +2283,7 @@ fn writeHeader(coff: *Coff) !void {
     switch (coff.ptr_width) {
         .p32 => {
             var opt_header = coff_util.OptionalHeaderPE32{
-                .magic = coff_util.IMAGE_NT_OPTIONAL_HDR32_MAGIC,
+                .magic = .PE32,
                 .major_linker_version = 0,
                 .minor_linker_version = 0,
                 .size_of_code = size_of_code,
@@ -2318,7 +2318,7 @@ fn writeHeader(coff: *Coff) !void {
         },
         .p64 => {
             var opt_header = coff_util.OptionalHeaderPE64{
-                .magic = coff_util.IMAGE_NT_OPTIONAL_HDR64_MAGIC,
+                .magic = .@"PE32+",
                 .major_linker_version = 0,
                 .minor_linker_version = 0,
                 .size_of_code = size_of_code,
@@ -2422,7 +2422,7 @@ fn allocatedVirtualSize(coff: *Coff, start: u32) u32 {
 
 fn getSizeOfHeaders(coff: Coff) u32 {
     const msdos_hdr_size = msdos_stub.len + 4;
-    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff_util.CoffHeader) + coff.getOptionalHeaderSize() +
+    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff_util.Header) + coff.getOptionalHeaderSize() +
         coff.getDataDirectoryHeadersSize() + coff.getSectionHeadersSize()));
 }
 
@@ -2443,7 +2443,7 @@ fn getSectionHeadersSize(coff: Coff) u32 {
 
 fn getDataDirectoryHeadersOffset(coff: Coff) u32 {
     const msdos_hdr_size = msdos_stub.len + 4;
-    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff_util.CoffHeader) + coff.getOptionalHeaderSize()));
+    return @as(u32, @intCast(msdos_hdr_size + @sizeOf(coff_util.Header) + coff.getOptionalHeaderSize()));
 }
 
 fn getSectionHeadersOffset(coff: Coff) u32 {
@@ -3116,7 +3116,7 @@ fn pwriteAll(coff: *Coff, bytes: []const u8, offset: u64) error{LinkFailure}!voi
 /// A "page" is 512 bytes.
 /// A "long" is 4 bytes.
 /// A "word" is 2 bytes.
-const msdos_stub: [120]u8 = .{
+pub const msdos_stub: [120]u8 = .{
     'M', 'Z', // Magic number. Stands for Mark Zbikowski (designer of the MS-DOS executable format).
     0x78, 0x00, // Number of bytes in the last page. This matches the size of this entire MS-DOS stub.
     0x01, 0x00, // Number of pages.

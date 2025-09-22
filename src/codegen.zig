@@ -993,6 +993,8 @@ pub fn genNavRef(
             },
             .link_once => unreachable,
         }
+    } else if (lf.cast(.coff2)) |coff| {
+        return .{ .sym_index = @intFromEnum(try coff.navSymbol(zcu, nav_index)) };
     } else {
         const msg = try ErrorMsg.create(zcu.gpa, src_loc, "TODO genNavRef for target {}", .{target});
         return .{ .fail = msg };

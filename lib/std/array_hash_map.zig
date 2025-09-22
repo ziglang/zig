@@ -50,7 +50,7 @@ pub fn eqlString(a: []const u8, b: []const u8) bool {
 }
 
 pub fn hashString(s: []const u8) u32 {
-    return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
+    return @truncate(std.hash.Wyhash.hash(0, s));
 }
 
 /// Deprecated in favor of `ArrayHashMapWithAllocator` (no code changes needed)
