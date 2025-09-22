@@ -1124,7 +1124,10 @@ fn netClose(userdata: ?*anyopaque, stream: Io.net.Stream) void {
     return net_stream.close();
 }
 
-fn netInterfaceNameResolve(userdata: ?*anyopaque, name: Io.net.Interface.Name) Io.net.Interface.Name.ResolveError!Io.net.Interface {
+fn netInterfaceNameResolve(
+    userdata: ?*anyopaque,
+    name: *const Io.net.Interface.Name,
+) Io.net.Interface.Name.ResolveError!Io.net.Interface {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
