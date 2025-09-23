@@ -383,6 +383,8 @@ const ResultInfo = struct {
         assignment,
         /// No specific operator in particular.
         none,
+        /// The expression is operand to address-of which is the operand to a return expression.
+        return_addrof,
     };
 };
 
@@ -955,7 +957,14 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 _ = try gz.addUnTok(.validate_ref_ty, res_ty_inst, tree.firstToken(node));
                 break :rl .{ .ref_coerced_ty = res_ty_inst };
             } else .ref;
-            const result = try expr(gz, scope, .{ .rl = operand_rl }, tree.nodeData(node).node);
+            const operand_node = tree.nodeData(node).node;
+            const result = try expr(gz, scope, .{
+                .rl = operand_rl,
+                .ctx = switch (ri.ctx) {
+                    .@"return" => .return_addrof,
+                    else => .none,
+                },
+            }, operand_node);
             return rvalue(gz, ri, result, node);
         },
         .optional_type => {
@@ -8420,13 +8429,19 @@ fn localVarRef(
                     local_ptr.used = .fromToken(ident_token);
                 }
 
-                // Can't close over a runtime variable
-                if (num_namespaces_out != 0 and !local_ptr.maybe_comptime and !gz.is_typeof) {
-                    const ident_name = try astgen.identifierTokenString(ident_token);
-                    return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
-                        try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
-                        try astgen.errNoteNode(capturing_namespace.node, "crosses namespace boundary here", .{}),
-                    });
+                if (!local_ptr.maybe_comptime and !gz.is_typeof) {
+                    if (num_namespaces_out != 0) {
+                        const ident_name = try astgen.identifierTokenString(ident_token);
+                        return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
+                            try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
+                            try astgen.errNoteNode(capturing_namespace.node, "crosses namespace boundary here", .{}),
+                        });
+                    } else if (ri.ctx == .return_addrof) {
+                        const ident_name = try astgen.identifierTokenString(ident_token);
+                        return astgen.failNodeNotes(ident, "returning address of expired local variable '{s}'", .{ident_name}, &.{
+                            try astgen.errNoteTok(local_ptr.token_src, "declared runtime-known here", .{}),
+                        });
+                    }
                 }
 
                 switch (ri.rl) {
