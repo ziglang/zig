@@ -30,8 +30,8 @@ pub const IpAddress = union(enum) {
     /// This is a pure function but it cannot handle IPv6 addresses that have
     /// scope ids ("%foo" at the end). To also handle those, `resolve` must be
     /// called instead.
-    pub fn parse(name: []const u8, port: u16) !IpAddress {
-        if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
+    pub fn parse(text: []const u8, port: u16) !IpAddress {
+        if (parseIp4(text, port)) |ip4| return ip4 else |err| switch (err) {
             error.Overflow,
             error.InvalidEnd,
             error.InvalidCharacter,
@@ -40,7 +40,7 @@ pub const IpAddress = union(enum) {
             => {},
         }
 
-        return parseIp6(name, port);
+        return parseIp6(text, port);
     }
 
     pub fn parseIp4(text: []const u8, port: u16) Ip4Address.ParseError!IpAddress {
@@ -227,39 +227,102 @@ pub const Ip6Address = struct {
             success: Unresolved,
             invalid_byte: usize,
             unexpected_end,
+            junk_after_end: usize,
+            interface_name_oversized: usize,
         };
 
-        pub fn parse(buffer: []const u8) Parsed {
-            if (buffer.len < 2) return .unexpected_end;
+        pub fn parse(text: []const u8) Parsed {
+            if (text.len < 2) return .unexpected_end;
+            // Has to be u16 elements to handle 3-digit hex numbers from compression.
             var parts: [8]u16 = @splat(0);
-            var parts_i: usize = 0;
-            var i: usize = 0;
-            var digit_i: usize = 0;
-            const State = union(enum) { digit, colon, end };
+            var parts_i: u8 = 0;
+            var text_i: u8 = 0;
+            var digit_i: u8 = 0;
+            var compress_start: ?u8 = null;
+            var interface_name_text: ?[]const u8 = null;
+            const State = union(enum) { digit, end };
             state: switch (State.digit) {
-                .digit => c: switch (buffer[i]) {
+                .digit => c: switch (text[text_i]) {
                     'a'...'f' => |c| {
-                        const digit = c - 'a';
+                        const digit = c - 'a' + 10;
                         parts[parts_i] = parts[parts_i] * 16 + digit;
-                        if (digit_i == 3) {
-                            digit_i = 0;
-                            parts_i += 1;
-                            i += 1;
-                            if (parts.len - parts_i == 0) continue :state .end;
-                            continue :state .colon;
-                        }
+                        if (digit_i == 4) return .{ .invalid_byte = text_i };
                         digit_i += 1;
-                        if (buffer.len - i == 0) return .unexpected_end;
-                        i += 1;
-                        continue :c buffer[i];
+                        text_i += 1;
+                        if (text.len - text_i == 0) {
+                            parts_i += 1;
+                            continue :state .end;
+                        }
+                        continue :c text[text_i];
                     },
-                    'A'...'F' => |c| continue :c c + ('a' - 'A'),
-                    '0'...'9' => |c| continue :c c + ('a' - '0'),
-                    ':' => @panic("TODO"),
-                    else => return .{ .invalid_byte = i },
+                    'A'...'F' => |c| continue :c c - 'A' + 'a',
+                    '0'...'9' => |c| {
+                        const digit = c - '0';
+                        parts[parts_i] = parts[parts_i] * 16 + digit;
+                        if (digit_i == 4) return .{ .invalid_byte = text_i };
+                        digit_i += 1;
+                        text_i += 1;
+                        if (text.len - text_i == 0) {
+                            parts_i += 1;
+                            continue :state .end;
+                        }
+                        continue :c text[text_i];
+                    },
+                    ':' => {
+                        if (digit_i == 0) {
+                            if (compress_start != null) return .{ .invalid_byte = text_i };
+                            if (text_i == 0) {
+                                text_i += 1;
+                                if (text[text_i] != ':') return .{ .invalid_byte = text_i };
+                                assert(parts_i == 0);
+                            }
+                            text_i += 1;
+                            if (text.len - text_i == 0) return .unexpected_end;
+                            compress_start = parts_i;
+                            continue :c text[text_i];
+                        } else {
+                            parts_i += 1;
+                            if (parts.len - parts_i == 0) continue :state .end;
+                            digit_i = 0;
+                            text_i += 1;
+                            if (text.len - text_i == 0) return .unexpected_end;
+                            continue :c text[text_i];
+                        }
+                    },
+                    '%' => {
+                        if (digit_i == 0) return .{ .invalid_byte = text_i };
+                        parts_i += 1;
+                        text_i += 1;
+                        const name = text[text_i..];
+                        if (name.len > Interface.Name.max_len) return .{ .interface_name_oversized = text_i };
+                        interface_name_text = name;
+                        text_i = @intCast(text.len);
+                        continue :state .end;
+                    },
+                    else => return .{ .invalid_byte = text_i },
                 },
-                .colon => @panic("TODO"),
-                .end => @panic("TODO"),
+                .end => {
+                    if (text.len - text_i != 0) return .{ .junk_after_end = text_i };
+                    const remaining = parts.len - parts_i;
+                    if (compress_start) |s| {
+                        const src = parts[s..parts_i];
+                        @memmove(parts[parts.len - src.len ..], src);
+                        @memset(parts[s..][0..remaining], 0);
+                    } else {
+                        if (remaining != 0) return .unexpected_end;
+                    }
+
+                    // Workaround that can be removed when this proposal is
+                    // implemented https://github.com/ziglang/zig/issues/19755
+                    if ((comptime @import("builtin").cpu.arch.endian()) != .big) {
+                        for (&parts) |*part| part.* = @byteSwap(part.*);
+                    }
+
+                    return .{ .success = .{
+                        .bytes = @bitCast(parts),
+                        .interface_name = if (interface_name_text) |t| .fromSliceUnchecked(t) else null,
+                    } };
+                },
             }
         }
 
@@ -319,7 +382,6 @@ pub const Ip6Address = struct {
                     longest_len = 0;
                 }
 
-                try w.writeAll("[");
                 var i: usize = 0;
                 var abbrv = false;
                 while (i < parts.len) : (i += 1) {
@@ -525,6 +587,12 @@ pub const Interface = struct {
 
         pub fn fromSlice(bytes: []const u8) error{NameTooLong}!Name {
             if (bytes.len > max_len) return error.NameTooLong;
+            return .fromSliceUnchecked(bytes);
+        }
+
+        /// Asserts bytes.len fits in `max_len`.
+        pub fn fromSliceUnchecked(bytes: []const u8) Name {
+            assert(bytes.len <= max_len);
             var result: Name = undefined;
             @memcpy(result.bytes[0..bytes.len], bytes);
             result.bytes[bytes.len] = 0;
@@ -672,6 +740,24 @@ pub const Server = struct {
         return io.vtable.accept(io, s);
     }
 };
+
+test "parsing IPv6 addresses" {
+    try testIp6Parse("fe80::e0e:76ff:fed4:cf22%eno1");
+    try testIp6Parse("2001:db8::1");
+}
+
+fn testIp6Parse(text: []const u8) !void {
+    const ua = switch (Ip6Address.Unresolved.parse(text)) {
+        .success => |p| p,
+        else => |x| {
+            std.debug.print("failed to parse \"{s}\": {any}\n", .{ text, x });
+            return error.TestFailed;
+        },
+    };
+    var buffer: [100]u8 = undefined;
+    const result = try std.fmt.bufPrint(&buffer, "{f}", .{ua});
+    try std.testing.expectEqualStrings(text, result);
+}
 
 test {
     _ = HostName;
