@@ -3633,10 +3633,12 @@ test indexOfMinMax {
 }
 
 /// Exchanges contents of two memory locations.
-pub fn swap(comptime T: type, a: *T, b: *T) void {
-    const tmp = a.*;
-    a.* = b.*;
-    b.* = tmp;
+pub fn swap(comptime T: type, noalias a: *T, noalias b: *T) void {
+    for (asBytes(a), asBytes(b)) |*x, *y| {
+        const tmp = x.*;
+        x.* = y.*;
+        y.* = tmp;
+    }
 }
 
 inline fn reverseVector(comptime N: usize, comptime T: type, a: []T) [N]T {
