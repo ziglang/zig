@@ -28,7 +28,7 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
     break :b .init;
 };
 
-pub var io_instance: std.Io.ThreadPool = undefined;
+pub var io_instance: std.Io.Threaded = undefined;
 pub const io = io_instance.io();
 
 /// TODO https://github.com/ziglang/zig/issues/5738
