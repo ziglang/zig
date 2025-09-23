@@ -8,6 +8,8 @@ pub const HostName = @import("net/HostName.zig");
 
 pub const ListenError = std.net.Address.ListenError || Io.Cancelable;
 
+pub const BindError = std.net.Address.BindError || Io.Cancelable;
+
 pub const ListenOptions = struct {
     /// How many connections the kernel will accept on the application's behalf.
     /// If more than this many connections pool in the kernel, clients will start
@@ -17,6 +19,13 @@ pub const ListenOptions = struct {
     /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
     reuse_address: bool = false,
     force_nonblocking: bool = false,
+};
+
+pub const BindOptions = struct {
+    /// The socket is restricted to sending and receiving IPv6 packets only.
+    /// In this case, an IPv4 and an IPv6 application can bind to a single port
+    /// at the same time.
+    ip6_only: bool = false,
 };
 
 pub const IpAddress = union(enum) {
@@ -123,9 +132,20 @@ pub const IpAddress = union(enum) {
         };
     }
 
-    /// The returned `Server` has an open `stream`.
+    /// Waits for a TCP connection. When using this API, `bind` does not need
+    /// to be called. The returned `Server` has an open `stream`.
     pub fn listen(address: IpAddress, io: Io, options: ListenOptions) ListenError!Server {
         return io.vtable.listen(io.userdata, address, options);
+    }
+
+    /// Associates an address with a `Socket` which can be used to receive UDP
+    /// packets and other kinds of non-streaming messages. See `listen` for a
+    /// streaming alternative.
+    ///
+    /// One bound `Socket` can be used to receive messages from multiple
+    /// different addresses.
+    pub fn bind(address: IpAddress, io: Io, options: BindOptions) BindError!Socket {
+        return io.vtable.bind(io.userdata, address, options);
     }
 };
 
@@ -137,6 +157,13 @@ pub const Ip4Address = struct {
     pub fn loopback(port: u16) Ip4Address {
         return .{
             .bytes = .{ 127, 0, 0, 1 },
+            .port = port,
+        };
+    }
+
+    pub fn unspecified(port: u16) Ip4Address {
+        return .{
+            .bytes = .{ 0, 0, 0, 0 },
             .port = port,
         };
     }
@@ -214,6 +241,31 @@ pub const Ip6Address = struct {
         return .{
             .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
             .port = port,
+        };
+    }
+
+    pub fn unspecified(port: u16) Ip6Address {
+        return .{
+            .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+            .port = port,
+        };
+    }
+
+    /// Constructs an IPv4-mapped IPv6 address.
+    pub fn fromIp4(ip4: Ip4Address) Ip6Address {
+        const b = &ip4.bytes;
+        return .{
+            .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, b[0], b[1], b[2], b[3] },
+            .port = ip4.port,
+        };
+    }
+
+    /// Given an `IpAddress`, converts it to an `Ip6Address` directly, or via
+    /// constructing an IPv4-mapped IPv6 address.
+    pub fn fromAny(addr: IpAddress) Ip6Address {
+        return switch (addr) {
+            .ip4 => |ip4| fromIp4(ip4),
+            .ip6 => |ip6| ip6,
         };
     }
 
@@ -626,11 +678,11 @@ pub const Interface = struct {
     }
 };
 
-/// An open socket connection with a network protocol that guarantees
-/// sequencing, delivery, and prevents repetition. Typically TCP or UNIX domain
-/// socket.
-pub const Stream = struct {
+/// An open port with unspecified protocol.
+pub const Socket = struct {
     handle: Handle,
+    /// Contains the resolved ephemeral port number if requested.
+    bind_address: IpAddress,
 
     /// Underlying platform-defined type which may or may not be
     /// interchangeable with a file system file descriptor.
@@ -639,8 +691,19 @@ pub const Stream = struct {
         else => std.posix.fd_t,
     };
 
+    pub fn close(s: Socket, io: Io) void {
+        return io.vtable.netClose(io.userdata, s);
+    }
+};
+
+/// An open socket connection with a network protocol that guarantees
+/// sequencing, delivery, and prevents repetition. Typically TCP or UNIX domain
+/// socket.
+pub const Stream = struct {
+    socket: Socket,
+
     pub fn close(s: Stream, io: Io) void {
-        return io.vtable.close(io.userdata, s);
+        return io.vtable.netClose(io.userdata, s.socket);
     }
 
     pub const Reader = struct {
@@ -719,8 +782,7 @@ pub const Stream = struct {
 };
 
 pub const Server = struct {
-    listen_address: IpAddress,
-    stream: Stream,
+    socket: Socket,
 
     pub const Connection = struct {
         stream: Stream,
@@ -728,7 +790,7 @@ pub const Server = struct {
     };
 
     pub fn deinit(s: *Server, io: Io) void {
-        s.stream.close(io);
+        s.socket.close(io);
         s.* = undefined;
     }
 
