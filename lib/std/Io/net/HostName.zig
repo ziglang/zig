@@ -218,6 +218,11 @@ fn lookupDnsSearch(host_name: HostName, io: Io, options: LookupOptions) !LookupR
     return lookupDns(io, lookup_canon_name, &rc, options);
 }
 
+const DnsReply = struct {
+    buf: [512]u8,
+    len: usize,
+};
+
 fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, options: LookupOptions) !LookupResult {
     const family_records: [2]struct { af: IpAddress.Family, rr: u8 } = .{
         .{ .af = .ip6, .rr = std.posix.RR.A },
@@ -225,21 +230,21 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
     };
     var query_buffers: [2][280]u8 = undefined;
     var queries_buffer: [2][]const u8 = undefined;
-    var answer_buffers: [2][512]u8 = undefined;
-    var answers_buffer: [2][]u8 = .{ &answer_buffers[0], &answer_buffers[1] };
     var nq: usize = 0;
 
     for (family_records) |fr| {
         if (options.family != fr.af) {
-            const len = writeResolutionQuery(&query_buffers[nq], 0, lookup_canon_name, 1, fr.rr);
+            const entropy = std.crypto.random.array(u8, 2);
+            const len = writeResolutionQuery(&query_buffers[nq], 0, lookup_canon_name, 1, fr.rr, entropy);
             queries_buffer[nq] = query_buffers[nq][0..len];
             nq += 1;
         }
     }
 
     const queries = queries_buffer[0..nq];
-    const replies = answers_buffer[0..nq];
-    try rc.sendMessage(io, queries, replies);
+    var replies_buffer: [2]DnsReply = undefined;
+    var replies: Io.Queue(DnsReply) = .init(&replies_buffer);
+    try rc.sendMessage(io, queries, &replies);
 
     for (replies) |reply| {
         if (reply.len < 4 or (reply[3] & 15) == 2) return error.TemporaryNameServerFailure;
@@ -391,7 +396,7 @@ fn copyCanon(canonical_name_buffer: *[max_len]u8, name: []const u8) HostName {
 }
 
 /// Writes DNS resolution query packet data to `w`; at most 280 bytes.
-fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u8) usize {
+fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u8, entropy: [2]u8) usize {
     // This implementation is ported from musl libc.
     // A more idiomatic "ziggy" implementation would be welcome.
     var name = dname;
@@ -400,7 +405,8 @@ fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u
     const n = 17 + name.len + @intFromBool(name.len != 0);
 
     // Construct query template - ID will be filled later
-    @memset(q[0..n], 0);
+    q[0..2].* = entropy;
+    @memset(q[2..n], 0);
     q[2] = @as(u8, op) * 8 + 1;
     q[5] = 1;
     @memcpy(q[13..][0..name.len], name);
@@ -416,8 +422,6 @@ fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u
     }
     q[i + 1] = ty;
     q[i + 3] = class;
-
-    std.crypto.random.bytes(q[0..2]);
     return n;
 }
 
@@ -519,11 +523,13 @@ pub fn connectTcp(host_name: HostName, io: Io, port: u16) ConnectTcpError!Stream
 pub const ResolvConf = struct {
     attempts: u32,
     ndots: u32,
-    timeout: u32,
-    nameservers_buffer: [3]IpAddress,
+    timeout: Io.Duration,
+    nameservers_buffer: [max_nameservers]IpAddress,
     nameservers_len: usize,
     search_buffer: [max_len]u8,
     search_len: usize,
+
+    pub const max_nameservers = 3;
 
     /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
     fn init(io: Io) !ResolvConf {
@@ -620,13 +626,61 @@ pub const ResolvConf = struct {
         rc: *const ResolvConf,
         io: Io,
         queries: []const []const u8,
-        answers: [][]u8,
+        replies: *Io.Queue(DnsReply),
     ) !void {
-        _ = rc;
-        _ = io;
-        _ = queries;
-        _ = answers;
-        @panic("TODO");
+        var ip4_mapped: [ResolvConf.max_nameservers]IpAddress = undefined;
+        var any_ip6 = false;
+        for (rc.nameservers(), &ip4_mapped) |*ns, *m| {
+            m.* = .{ .ip6 = .fromAny(ns.*) };
+            any_ip6 = any_ip6 or ns.* == .ip6;
+        }
+
+        const socket = s: {
+            if (any_ip6) ip6: {
+                const ip6_addr: IpAddress = .{ .ip6 = .unspecified(0) };
+                const socket = ip6_addr.bind(io, .{ .ip6_only = true }) catch |err| switch (err) {
+                    error.AddressFamilyNotSupported => break :ip6,
+                };
+                break :s socket;
+            }
+            any_ip6 = false;
+            const ip4_addr: IpAddress = .{ .ip4 = .unspecified(0) };
+            const socket = try ip4_addr.bind(io, .{});
+            break :s socket;
+        };
+        defer socket.close();
+
+        const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
+
+        var group: Io.Group = .{};
+        defer group.cancel();
+
+        for (queries) |query| {
+            for (mapped_nameservers) |*ns| {
+                group.async(sendOneMessage, .{ io, query, ns });
+            }
+        }
+
+        const deadline: Io.Deadline = .fromDuration(rc.timeout);
+
+        for (0..queries.len) |_| {
+            const msg = socket.receiveDeadline(deadline) catch |err| switch (err) {
+                error.Timeout => return error.Timeout,
+                error.Canceled => return error.Canceled,
+                else => continue,
+            };
+            _ = msg;
+            _ = replies;
+            @panic("TODO check msg for dns reply and put into replies queue");
+        }
+    }
+
+    fn sendOneMessage(
+        io: Io,
+        query: []const u8,
+        ns: *const IpAddress,
+    ) void {
+        io.vtable.netSend(io.userdata, ns.*, &.{query}) catch |err| switch (err) {};
     }
 };
 
