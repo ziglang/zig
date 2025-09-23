@@ -612,7 +612,7 @@ pub const ResolvConf = struct {
         rc.nameservers_len += 1;
     }
 
-    fn nameservers(rc: *const ResolvConf) []IpAddress {
+    fn nameservers(rc: *const ResolvConf) []const IpAddress {
         return rc.nameservers_buffer[0..rc.nameservers_len];
     }
 
@@ -651,6 +651,6 @@ test ResolvConf {
         .attempts = 2,
     };
 
-    try rc.parse(&reader);
-    try std.testing.expect(false);
+    try rc.parse(std.testing.io, &reader);
+    try std.testing.expectEqual(3, rc.nameservers().len);
 }
