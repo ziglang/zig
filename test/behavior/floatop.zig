@@ -398,6 +398,8 @@ test "@sqrt f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt == .coff) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+
     if (builtin.os.tag == .freebsd) {
         // TODO https://github.com/ziglang/zig/issues/10875
         return error.SkipZigTest;
