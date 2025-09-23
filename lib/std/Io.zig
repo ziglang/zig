@@ -664,10 +664,12 @@ pub const VTable = struct {
     sleep: *const fn (?*anyopaque, clockid: std.posix.clockid_t, deadline: Deadline) SleepError!void,
 
     listen: *const fn (?*anyopaque, address: net.IpAddress, options: net.ListenOptions) net.ListenError!net.Server,
+    bind: *const fn (?*anyopaque, address: net.IpAddress, options: net.BindOptions) net.BindError!net.Socket,
     accept: *const fn (?*anyopaque, server: *net.Server) net.Server.AcceptError!net.Server.Connection,
+    netSend: *const fn (?*anyopaque, address: net.IpAddress, data: []const []const u8) net.SendError!void,
     netRead: *const fn (?*anyopaque, src: net.Stream, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Stream, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
-    netClose: *const fn (?*anyopaque, stream: net.Stream) void,
+    netClose: *const fn (?*anyopaque, socket: net.Socket) void,
     netInterfaceNameResolve: *const fn (?*anyopaque, *const net.Interface.Name) net.Interface.Name.ResolveError!net.Interface,
     netInterfaceName: *const fn (?*anyopaque, net.Interface) net.Interface.NameError!net.Interface.Name,
 };
