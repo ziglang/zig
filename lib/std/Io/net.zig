@@ -276,9 +276,9 @@ pub const Ip6Address = struct {
                                 if (text[text_i] != ':') return .{ .invalid_byte = text_i };
                                 assert(parts_i == 0);
                             }
-                            text_i += 1;
-                            if (text.len - text_i == 0) return .unexpected_end;
                             compress_start = parts_i;
+                            text_i += 1;
+                            if (text.len - text_i == 0) continue :state .end;
                             continue :c text[text_i];
                         } else {
                             parts_i += 1;
@@ -744,19 +744,30 @@ pub const Server = struct {
 test "parsing IPv6 addresses" {
     try testIp6Parse("fe80::e0e:76ff:fed4:cf22%eno1");
     try testIp6Parse("2001:db8::1");
+    try testIp6ParseTransform("2001:db8::1", "2001:0db8:0000:0000:0000:0000:0000:0001");
+    try testIp6Parse("::1");
+    try testIp6Parse("::");
+    try testIp6Parse("fe80::1");
+    try testIp6Parse("fe80::abcd:ef12%3");
+    try testIp6Parse("ff02::");
+    try testIp6Parse("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
 }
 
-fn testIp6Parse(text: []const u8) !void {
-    const ua = switch (Ip6Address.Unresolved.parse(text)) {
+fn testIp6Parse(input: []const u8) !void {
+    return testIp6ParseTransform(input, input);
+}
+
+fn testIp6ParseTransform(expected: []const u8, input: []const u8) !void {
+    const ua = switch (Ip6Address.Unresolved.parse(input)) {
         .success => |p| p,
         else => |x| {
-            std.debug.print("failed to parse \"{s}\": {any}\n", .{ text, x });
+            std.debug.print("failed to parse \"{s}\": {any}\n", .{ input, x });
             return error.TestFailed;
         },
     };
     var buffer: [100]u8 = undefined;
     const result = try std.fmt.bufPrint(&buffer, "{f}", .{ua});
-    try std.testing.expectEqualStrings(text, result);
+    try std.testing.expectEqualStrings(expected, result);
 }
 
 test {
