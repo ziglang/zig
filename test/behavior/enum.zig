@@ -1065,6 +1065,25 @@ test "tag name with signed enum values" {
     try expect(mem.eql(u8, @tagName(b), "bravo"));
 }
 
+test "tag name with large enum values" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const Kdf = enum(u128) {
+        aes_kdf = 0xea4f8ac1080d74bf60448a629af3d9c9,
+        argon2d = 0x0c0ae303a4a9f7914b44298cdf6d63ef,
+        argon2id = 0xe6a1f0c63efc3db27347db56198b299e,
+    };
+    var kdf: Kdf = .aes_kdf;
+    try expect(mem.eql(u8, @tagName(kdf), "aes_kdf"));
+    var argon2d_value: u128 = undefined;
+    argon2d_value = @intFromEnum(Kdf.argon2d);
+    kdf = @enumFromInt(argon2d_value);
+    try expect(mem.eql(u8, @tagName(kdf), "argon2d"));
+    kdf = .argon2id;
+    try expect(mem.eql(u8, @tagName(kdf), "argon2id"));
+}
+
 test "@tagName in callconv(.c) function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
