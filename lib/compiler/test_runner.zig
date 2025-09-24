@@ -2,6 +2,7 @@
 const builtin = @import("builtin");
 
 const std = @import("std");
+const fatal = std.process.fatal;
 const testing = std.testing;
 const assert = std.debug.assert;
 const fuzz_abi = std.Build.abi.fuzz;
@@ -62,13 +63,13 @@ pub fn main() void {
     }
 
     if (listen) {
-        return mainServer() catch @panic("internal test runner failure");
+        return mainServer(opt_cache_dir) catch @panic("internal test runner failure");
     } else {
         return mainTerminal();
     }
 }
 
-fn mainServer() !void {
+fn mainServer(opt_cache_dir: ?[]const u8) !void {
     @disableInstrumentation();
     var stdin_reader = std.fs.File.stdin().readerStreaming(&stdin_buffer);
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
@@ -78,9 +79,66 @@ fn mainServer() !void {
         .zig_version = builtin.zig_version_string,
     });
 
-    if (builtin.fuzz) {
+    if (builtin.fuzz) blk: {
+        const cache_dir = opt_cache_dir.?;
         const coverage_id = fuzz_abi.fuzzer_coverage_id();
-        try server.serveU64Message(.coverage_id, coverage_id);
+        const coverage_file_path: std.Build.Cache.Path = .{
+            .root_dir = .{
+                .path = cache_dir,
+                .handle = std.fs.cwd().openDir(cache_dir, .{}) catch |err| {
+                    if (err == error.FileNotFound) {
+                        try server.serveCoverageIdMessage(coverage_id, 0, 0, 0);
+                        break :blk;
+                    }
+
+                    fatal("failed to access cache dir '{s}': {s}", .{
+                        cache_dir, @errorName(err),
+                    });
+                },
+            },
+            .sub_path = "v/" ++ std.fmt.hex(coverage_id),
+        };
+
+        var coverage_file = coverage_file_path.root_dir.handle.openFile(coverage_file_path.sub_path, .{}) catch |err| {
+            if (err == error.FileNotFound) {
+                try server.serveCoverageIdMessage(coverage_id, 0, 0, 0);
+                break :blk;
+            }
+
+            fatal("failed to load coverage file '{f}': {s}", .{
+                coverage_file_path, @errorName(err),
+            });
+        };
+        defer coverage_file.close();
+
+        var rbuf: [0x1000]u8 = undefined;
+        var r = coverage_file.reader(&rbuf);
+
+        var header: fuzz_abi.SeenPcsHeader = undefined;
+        r.interface.readSliceAll(std.mem.asBytes(&header)) catch |err| {
+            fatal("failed to read from coverage file '{f}': {s}", .{
+                coverage_file_path, @errorName(err),
+            });
+        };
+
+        if (header.pcs_len == 0) {
+            fatal("corrupted coverage file '{f}': pcs_len was zero", .{
+                coverage_file_path,
+            });
+        }
+
+        var seen_count: usize = 0;
+        const chunk_count = fuzz_abi.SeenPcsHeader.seenElemsLen(header.pcs_len);
+        for (0..chunk_count) |_| {
+            const seen = r.interface.takeInt(usize, .little) catch |err| {
+                fatal("failed to read from coverage file '{f}': {s}", .{
+                    coverage_file_path, @errorName(err),
+                });
+            };
+            seen_count += @popCount(seen);
+        }
+
+        try server.serveCoverageIdMessage(coverage_id, header.n_runs, header.unique_runs, seen_count);
     }
 
     while (true) {
@@ -158,6 +216,9 @@ fn mainServer() !void {
                 if (!builtin.fuzz) unreachable;
 
                 const index = try server.receiveBody_u32();
+                const mode: fuzz_abi.LimitKind = @enumFromInt(try server.receiveBody_u8());
+                const amount_or_instance = try server.receiveBody_u64();
+
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
 
@@ -165,6 +226,8 @@ fn mainServer() !void {
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
                 fuzz_test_index = index;
+                fuzz_mode = mode;
+                fuzz_amount_or_instance = amount_or_instance;
 
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => return,
@@ -178,6 +241,8 @@ fn mainServer() !void {
                 };
                 if (!is_fuzz_test) @panic("missed call to std.testing.fuzz");
                 if (log_err_count != 0) @panic("error logs detected");
+                assert(mode != .forever);
+                std.process.exit(0);
             },
 
             else => {
@@ -343,6 +408,8 @@ pub fn mainSimple() anyerror!void {
 
 var is_fuzz_test: bool = undefined;
 var fuzz_test_index: u32 = undefined;
+var fuzz_mode: fuzz_abi.LimitKind = undefined;
+var fuzz_amount_or_instance: u64 = undefined;
 
 pub fn fuzz(
     context: anytype,
@@ -401,9 +468,11 @@ pub fn fuzz(
 
         global.ctx = context;
         fuzz_abi.fuzzer_init_test(&global.test_one, .fromSlice(builtin.test_functions[fuzz_test_index].name));
+
         for (options.corpus) |elem|
             fuzz_abi.fuzzer_new_input(.fromSlice(elem));
-        fuzz_abi.fuzzer_main();
+
+        fuzz_abi.fuzzer_main(fuzz_mode, fuzz_amount_or_instance);
         return;
     }
 

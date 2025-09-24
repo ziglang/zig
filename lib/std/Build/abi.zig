@@ -143,7 +143,7 @@ pub const fuzz = struct {
     pub extern fn fuzzer_coverage_id() u64;
     pub extern fn fuzzer_init_test(test_one: TestOne, unit_test_name: Slice) void;
     pub extern fn fuzzer_new_input(bytes: Slice) void;
-    pub extern fn fuzzer_main() void;
+    pub extern fn fuzzer_main(limit_kind: LimitKind, amount: u64) void;
 
     pub const Slice = extern struct {
         ptr: [*]const u8,
@@ -157,6 +157,8 @@ pub const fuzz = struct {
             return .{ .ptr = s.ptr, .len = s.len };
         }
     };
+
+    pub const LimitKind = enum(u8) { forever, iterations };
 
     /// libfuzzer uses this and its usize is the one that counts. To match the ABI,
     /// make the ints be the size of the target used with libfuzzer.

@@ -600,9 +600,10 @@ export fn fuzzer_new_input(bytes: abi.Slice) void {
 }
 
 /// fuzzer_init_test must be called first
-export fn fuzzer_main() void {
-    while (true) {
-        fuzzer.cycle();
+export fn fuzzer_main(limit_kind: abi.LimitKind, amount: u64) void {
+    switch (limit_kind) {
+        .forever => while (true) fuzzer.cycle(),
+        .iterations => for (0..amount -| 1) |_| fuzzer.cycle(),
     }
 }
 

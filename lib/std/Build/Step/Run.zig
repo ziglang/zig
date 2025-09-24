@@ -1662,12 +1662,24 @@ fn evalZigTest(
     // If this is `true`, we avoid ever entering the polling loop below, because the stdin pipe has
     // somehow already closed; instead, we go straight to capturing stderr in case it has anything
     // useful.
-    const first_write_failed = if (fuzz_context) |fuzz| failed: {
-        sendRunTestMessage(child.stdin.?, .start_fuzzing, fuzz.unit_test_index) catch |err| {
-            try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
-            break :failed true;
-        };
-        break :failed false;
+    const first_write_failed = if (fuzz_context) |fctx| failed: {
+        switch (fctx.fuzz.mode) {
+            .forever => {
+                const instance_id = 0; // will be used by mutiprocess forever fuzzing
+                sendRunFuzzTestMessage(child.stdin.?, fctx.unit_test_index, .forever, instance_id) catch |err| {
+                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+                    break :failed true;
+                };
+                break :failed false;
+            },
+            .limit => |limit| {
+                sendRunFuzzTestMessage(child.stdin.?, fctx.unit_test_index, .iterations, limit.amount) catch |err| {
+                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+                    break :failed true;
+                };
+                break :failed false;
+            },
+        }
     } else failed: {
         run.fuzz_tests.clearRetainingCapacity();
         sendMessage(child.stdin.?, .query_test_metadata) catch |err| {
@@ -1778,13 +1790,18 @@ fn evalZigTest(
             },
             .coverage_id => {
                 const fuzz = fuzz_context.?.fuzz;
-                const msg_ptr: *align(1) const u64 = @ptrCast(body);
-                coverage_id = msg_ptr.*;
+                const msg_ptr: *align(1) const [4]u64 = @ptrCast(body);
+                coverage_id = msg_ptr[0];
                 {
                     fuzz.queue_mutex.lock();
                     defer fuzz.queue_mutex.unlock();
-                    try fuzz.msg_queue.append(fuzz.ws.gpa, .{ .coverage = .{
+                    try fuzz.msg_queue.append(fuzz.gpa, .{ .coverage = .{
                         .id = coverage_id.?,
+                        .cumulative = .{
+                            .runs = msg_ptr[1],
+                            .unique = msg_ptr[2],
+                            .coverage = msg_ptr[3],
+                        },
                         .run = run,
                     } });
                     fuzz.queue_cond.signal();
@@ -1797,7 +1814,7 @@ fn evalZigTest(
                 {
                     fuzz.queue_mutex.lock();
                     defer fuzz.queue_mutex.unlock();
-                    try fuzz.msg_queue.append(fuzz.ws.gpa, .{ .entry_point = .{
+                    try fuzz.msg_queue.append(fuzz.gpa, .{ .entry_point = .{
                         .addr = addr,
                         .coverage_id = coverage_id.?,
                     } });
@@ -1897,6 +1914,22 @@ fn sendRunTestMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag, index:
         .bytes_len = 4,
     };
     const full_msg = std.mem.asBytes(&header) ++ std.mem.asBytes(&index);
+    try file.writeAll(full_msg);
+}
+
+fn sendRunFuzzTestMessage(
+    file: std.fs.File,
+    index: u32,
+    kind: std.Build.abi.fuzz.LimitKind,
+    amount_or_instance: u64,
+) !void {
+    const header: std.zig.Client.Message.Header = .{
+        .tag = .start_fuzzing,
+        .bytes_len = 4 + 1 + 8,
+    };
+    const full_msg = std.mem.asBytes(&header) ++ std.mem.asBytes(&index) ++
+        std.mem.asBytes(&kind) ++ std.mem.asBytes(&amount_or_instance);
+
     try file.writeAll(full_msg);
 }
 
