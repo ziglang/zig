@@ -231,9 +231,12 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
-pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat) bool {
+pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.CompilerBackend) bool {
     return switch (ofmt) {
-        .elf => true,
+        .elf => switch (backend) {
+            .stage2_x86_64 => true,
+            else => false,
+        },
         else => false,
     };
 }
