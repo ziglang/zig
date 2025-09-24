@@ -1638,10 +1638,10 @@ fn buildOutputType(
                             linker_z_relro = true;
                         } else if (mem.eql(u8, z_arg, "norelro")) {
                             linker_z_relro = false;
-                        } else if (mem.chompPrefix(u8, z_arg, "common-page-size=")) |rest| {
-                            linker_z_common_page_size = parseIntSuffix(rest, 0);
-                        } else if (mem.chompPrefix(u8, z_arg, "max-page-size=")) |rest| {
-                            linker_z_max_page_size = parseIntSuffix(rest, 0);
+                        } else if (prefixedIntArg(z_arg, "common-page-size=")) |int| {
+                            linker_z_common_page_size = int;
+                        } else if (prefixedIntArg(z_arg, "max-page-size=")) |int| {
+                            linker_z_max_page_size = int;
                         } else {
                             fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
@@ -1662,14 +1662,14 @@ fn buildOutputType(
                         linker_import_table = true;
                     } else if (mem.eql(u8, arg, "--export-table")) {
                         linker_export_table = true;
-                    } else if (mem.chompPrefix(u8, arg, "--initial-memory=")) |rest| {
-                        linker_initial_memory = parseIntSuffix(rest, 0);
-                    } else if (mem.chompPrefix(u8, arg, "--max-memory=")) |rest| {
-                        linker_max_memory = parseIntSuffix(rest, 0);
+                    } else if (prefixedIntArg(arg, "--initial-memory=")) |int| {
+                        linker_initial_memory = int;
+                    } else if (prefixedIntArg(arg, "--max-memory=")) |int| {
+                        linker_max_memory = int;
                     } else if (mem.eql(u8, arg, "--shared-memory")) {
                         create_module.opts.shared_memory = true;
-                    } else if (mem.chompPrefix(u8, arg, "--global-base=")) |rest| {
-                        linker_global_base = parseIntSuffix(rest, 0);
+                    } else if (prefixedIntArg(arg, "--global-base=")) |int| {
+                        linker_global_base = int;
                     } else if (mem.chompPrefix(u8, arg, "--export=")) |rest| {
                         try linker_export_symbol_names.append(arena, rest);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
@@ -2555,10 +2555,10 @@ fn buildOutputType(
                         linker_z_relro = false;
                     } else if (mem.chompPrefix(u8, z_arg, "stack-size=")) |rest| {
                         stack_size = parseStackSize(rest);
-                    } else if (mem.chompPrefix(u8, z_arg, "common-page-size=")) |rest| {
-                        linker_z_common_page_size = parseIntSuffix(rest, 0);
-                    } else if (mem.chompPrefix(u8, z_arg, "max-page-size=")) |rest| {
-                        linker_z_max_page_size = parseIntSuffix(rest, 0);
+                    } else if (prefixedIntArg(z_arg, "common-page-size=")) |int| {
+                        linker_z_common_page_size = int;
+                    } else if (prefixedIntArg(z_arg, "max-page-size=")) |int| {
+                        linker_z_max_page_size = int;
                     } else {
                         fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
@@ -6617,10 +6617,9 @@ fn eatIntPrefix(arg: []const u8, base: u8) []const u8 {
     return arg;
 }
 
-fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
-    return std.fmt.parseUnsigned(u64, arg[prefix_len..], 0) catch |err| {
-        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
-    };
+fn prefixedIntArg(arg: []const u8, prefix: []const u8) ?u64 {
+    const number = mem.chompPrefix(u8, arg, prefix) orelse return null;
+    return std.fmt.parseUnsigned(u64, number, 0) catch |err| fatal("unable to parse '{s}': {t}", .{ arg, err });
 }
 
 fn warnAboutForeignBinaries(
