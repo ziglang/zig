@@ -1810,6 +1810,67 @@ test "walker" {
     try testing.expectEqual(expected_paths.kvs.len, num_walked);
 }
 
+test "selective walker, skip entries that start with ." {
+    var tmp = tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const paths_to_create: []const []const u8 = &.{
+        "dir1/foo/.git/ignored",
+        ".hidden/bar",
+        "a/b/c",
+        "a/baz",
+    };
+
+    // iteration order of walker is undefined, so need lookup maps to check against
+
+    const expected_paths = std.StaticStringMap(void).initComptime(.{
+        .{"dir1"},
+        .{"dir1" ++ fs.path.sep_str ++ "foo"},
+        .{"a"},
+        .{"a" ++ fs.path.sep_str ++ "b"},
+        .{"a" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c"},
+        .{"a" ++ fs.path.sep_str ++ "baz"},
+    });
+
+    const expected_basenames = std.StaticStringMap(void).initComptime(.{
+        .{"dir1"},
+        .{"foo"},
+        .{"a"},
+        .{"b"},
+        .{"c"},
+        .{"baz"},
+    });
+
+    for (paths_to_create) |path| {
+        try tmp.dir.makePath(path);
+    }
+
+    var walker = try tmp.dir.walkSelectively(testing.allocator);
+    defer walker.deinit();
+
+    var num_walked: usize = 0;
+    while (try walker.next()) |entry| {
+        if (entry.basename[0] == '.') continue;
+        if (entry.kind == .directory) {
+            try walker.enter(entry);
+        }
+
+        testing.expect(expected_basenames.has(entry.basename)) catch |err| {
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
+            return err;
+        };
+        testing.expect(expected_paths.has(entry.path)) catch |err| {
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+        // make sure that the entry.dir is the containing dir
+        var entry_dir = try entry.dir.openDir(entry.basename, .{});
+        defer entry_dir.close();
+        num_walked += 1;
+    }
+    try testing.expectEqual(expected_paths.kvs.len, num_walked);
+}
+
 test "walker without fully iterating" {
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
