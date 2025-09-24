@@ -232,11 +232,19 @@ pub fn clone() callconv(.naked) usize {
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ sc
-        :
-        : [number] "{r0}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .memory = true, .cr0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true });
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
+            \\ li 0, %[number]
+            \\ sc
+            :
+            : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
+        ),
+        else => _ = asm volatile (
+            \\ sc
+            :
+            : [number] "{r0}" (@intFromEnum(SYS.rt_sigreturn)),
+        ),
+    }
 }
 
 pub const F = struct {
