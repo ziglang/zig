@@ -52,6 +52,8 @@ term: ?(SpawnError!Term),
 argv: []const []const u8,
 
 /// Leave as null to use the current env map using the supplied allocator.
+/// Required if unable to access the current env map (e.g. building a library on
+/// some platforms).
 env_map: ?*const EnvMap,
 
 stdin_behavior: StdIo,
@@ -414,6 +416,8 @@ pub fn run(args: struct {
     argv: []const []const u8,
     cwd: ?[]const u8 = null,
     cwd_dir: ?fs.Dir = null,
+    /// Required if unable to access the current env map (e.g. building a
+    /// library on some platforms).
     env_map: ?*const EnvMap = null,
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: Arg0Expand = .no_expand,
@@ -614,7 +618,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             })).ptr;
         } else {
             // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
+            @panic("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
         }
     };
 
