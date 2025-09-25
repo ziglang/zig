@@ -139,9 +139,6 @@
         .c_embed_path = .{
             .path = "c_embed_path",
         },
-        .pie = .{
-            .path = "pie",
-        },
         .issue_12706 = .{
             .path = "issue_12706",
         },
