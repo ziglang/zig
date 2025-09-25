@@ -1017,7 +1017,7 @@ fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
                             return indexOfSentinel(array_info.child, end, ptr);
                         }
                     }
-                    return indexOfScalar(array_info.child, ptr, end) orelse array_info.len;
+                    return findScalar(array_info.child, ptr, end) orelse array_info.len;
                 },
                 else => {},
             },
@@ -1042,7 +1042,7 @@ fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
                         return indexOfSentinel(ptr_info.child, s, ptr);
                     }
                 }
-                return indexOfScalar(ptr_info.child, ptr, end) orelse ptr.len;
+                return findScalar(ptr_info.child, ptr, end) orelse ptr.len;
             },
         },
         else => {},
@@ -1229,7 +1229,7 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 /// Remove a set of values from the beginning of a slice.
 pub fn trimStart(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
-    while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
+    while (begin < slice.len and findScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
     return slice[begin..];
 }
 
@@ -1243,7 +1243,7 @@ pub const trimLeft = trimStart;
 /// Remove a set of values from the end of a slice.
 pub fn trimEnd(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var end: usize = slice.len;
-    while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+    while (end > 0 and findScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
     return slice[0..end];
 }
 
@@ -1258,8 +1258,8 @@ pub const trimRight = trimEnd;
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
     var end: usize = slice.len;
-    while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
-    while (end > begin and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+    while (begin < end and findScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
+    while (end > begin and findScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
     return slice[begin..end];
 }
 
@@ -3145,15 +3145,15 @@ test cutSuffix {
     try testing.expectEqual(null, cutSuffix(u8, "foobar", "baz"));
 }
 
-/// Returns slice of `haystack` before and after `needle`, or `null` if not
-/// found.
+/// Returns slice of `haystack` before and after first occurrence of `needle`,
+/// or `null` if not found.
 ///
 /// See also:
 /// * `cutScalar`
 /// * `split`
 /// * `tokenizeAny`
 pub fn cut(comptime T: type, haystack: []const T, needle: []const T) ?struct { []const T, []const T } {
-    const index = indexOf(T, haystack, needle) orelse return null;
+    const index = find(T, haystack, needle) orelse return null;
     return .{ haystack[0..index], haystack[index + needle.len ..] };
 }
 
@@ -3164,15 +3164,33 @@ test cut {
     try testing.expectEqualStrings(" c", after);
 }
 
-/// Returns slice of `haystack` before and after `needle`, or `null` if not
-/// found.
+/// Returns slice of `haystack` before and after last occurrence of `needle`,
+/// or `null` if not found.
+///
+/// See also:
+/// * `cut`
+/// * `cutScalarLast`
+pub fn cutLast(comptime T: type, haystack: []const T, needle: []const T) ?struct { []const T, []const T } {
+    const index = findLast(T, haystack, needle) orelse return null;
+    return .{ haystack[0..index], haystack[index + needle.len ..] };
+}
+
+test cutLast {
+    try testing.expectEqual(null, cutLast(u8, "a b c", "B"));
+    const before, const after = cutLast(u8, "a be c be d", "be") orelse return error.TestFailed;
+    try testing.expectEqualStrings("a be c ", before);
+    try testing.expectEqualStrings(" d", after);
+}
+
+/// Returns slice of `haystack` before and after first occurrence `needle`, or
+/// `null` if not found.
 ///
 /// See also:
 /// * `cut`
 /// * `splitScalar`
 /// * `tokenizeScalar`
 pub fn cutScalar(comptime T: type, haystack: []const T, needle: T) ?struct { []const T, []const T } {
-    const index = indexOfScalar(T, haystack, needle) orelse return null;
+    const index = findScalar(T, haystack, needle) orelse return null;
     return .{ haystack[0..index], haystack[index + 1 ..] };
 }
 
@@ -3181,6 +3199,25 @@ test cutScalar {
     const before, const after = cutScalar(u8, "a b c", 'b') orelse return error.TestFailed;
     try testing.expectEqualStrings("a ", before);
     try testing.expectEqualStrings(" c", after);
+}
+
+/// Returns slice of `haystack` before and after last occurrence of `needle`,
+/// or `null` if not found.
+///
+/// See also:
+/// * `cut`
+/// * `splitScalar`
+/// * `tokenizeScalar`
+pub fn cutScalarLast(comptime T: type, haystack: []const T, needle: T) ?struct { []const T, []const T } {
+    const index = findScalarLast(T, haystack, needle) orelse return null;
+    return .{ haystack[0..index], haystack[index + 1 ..] };
+}
+
+test cutScalarLast {
+    try testing.expectEqual(null, cutScalarLast(u8, "a b c", 'B'));
+    const before, const after = cutScalarLast(u8, "a b c b d", 'b') orelse return error.TestFailed;
+    try testing.expectEqualStrings("a b c ", before);
+    try testing.expectEqualStrings(" d", after);
 }
 
 /// Delimiter type for tokenization and splitting operations.

@@ -1057,9 +1057,8 @@ fn buildOutputType(
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
                     } else if (mem.eql(u8, arg, "--dep")) {
-                        var it = mem.splitScalar(u8, args_iter.nextOrFatal(), '=');
-                        const key = it.first();
-                        const value = if (it.peek() != null) it.rest() else key;
+                        const next_arg = args_iter.nextOrFatal();
+                        const key, const value = mem.cutScalar(u8, next_arg, '=') orelse .{ next_arg, next_arg };
                         if (mem.eql(u8, key, "std") and !mem.eql(u8, value, "std")) {
                             fatal("unable to import as '{s}': conflicts with builtin module", .{
                                 key,
