@@ -109,25 +109,37 @@ pub fn main() !void {
 
     {
         // Also add all new def and def.in files.
-        var walker = try src_crt_dir.walk(arena);
+        var walker = try src_crt_dir.walkSelectively(arena);
         defer walker.deinit();
 
         var fail = false;
 
         while (try walker.next()) |entry| {
-            if (entry.kind != .file) continue;
+            switch (entry.kind) {
+                .directory => {
+                    switch (walker.depth()) {
+                        1 => for (def_dirs) |p| {
+                            if (std.mem.eql(u8, entry.basename, p)) {
+                                try walker.enter(entry);
+                                continue;
+                            }
+                        },
+                        else => {
+                            // The top-level directory was already validated
+                            try walker.enter(entry);
+                            continue;
+                        },
+                    }
+                },
+                .file => {},
+                else => continue,
+            }
 
             const ok_ext = for (def_exts) |ext| {
                 if (std.mem.endsWith(u8, entry.path, ext)) break true;
             } else false;
 
             if (!ok_ext) continue;
-
-            const ok_prefix = for (def_dirs) |p| {
-                if (std.mem.startsWith(u8, entry.path, p)) break true;
-            } else false;
-
-            if (!ok_prefix) continue;
 
             const blacklisted = for (blacklisted_defs) |item| {
                 if (std.mem.eql(u8, entry.basename, item)) break true;
