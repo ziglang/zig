@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const requires_translate_c = true;
-
 // To run executables linked against a specific glibc version, the
 // run-time glibc version needs to be new enough.  Check the host's glibc
 // version.  Note that this does not allow for translation/vm/emulation

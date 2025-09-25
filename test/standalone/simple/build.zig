@@ -9,7 +9,6 @@ pub fn build(b: *std.Build) void {
     const skip_release_safe = b.option(bool, "skip_release_safe", "Skip release-safe builds") orelse false;
     const skip_release_fast = b.option(bool, "skip_release_fast", "Skip release-fast builds") orelse false;
     const skip_release_small = b.option(bool, "skip_release_small", "Skip release-small builds") orelse false;
-    const skip_translate_c = b.option(bool, "skip_translate_c", "Test suite skips translate-c tests") orelse false;
 
     var optimize_modes_buf: [4]std.builtin.OptimizeMode = undefined;
     var optimize_modes_len: usize = 0;
@@ -37,7 +36,6 @@ pub fn build(b: *std.Build) void {
             if (case.os_filter) |os_tag| {
                 if (os_tag != builtin.os.tag) continue;
             }
-            if (case.uses_translate_c and skip_translate_c) continue;
 
             const resolved_target = b.resolveTargetQuery(case.target);
 
@@ -84,7 +82,6 @@ const Case = struct {
     is_exe: bool = true,
     /// Run only on this OS.
     os_filter: ?std.Target.Os.Tag = null,
-    uses_translate_c: bool = false,
 };
 
 const cases = [_]Case{
@@ -96,7 +93,6 @@ const cases = [_]Case{
         .src_path = "hello_world/hello_libc.zig",
         .link_libc = true,
         .all_modes = true,
-        .uses_translate_c = true,
     },
     .{
         .src_path = "cat/main.zig",
@@ -112,10 +108,7 @@ const cases = [_]Case{
             .os_tag = .freestanding,
         },
     },
-    .{
-        .src_path = "issue_12471/main.zig",
-        .uses_translate_c = true,
-    },
+    .{ .src_path = "issue_12471/main.zig" },
     .{ .src_path = "guess_number/main.zig" },
     .{ .src_path = "main_return_error/error_u8.zig" },
     .{ .src_path = "main_return_error/error_u8_non_zero.zig" },
