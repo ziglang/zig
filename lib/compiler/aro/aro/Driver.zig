@@ -541,7 +541,7 @@ pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalEr
 }
 
 pub fn renderErrors(d: *Driver) void {
-    Diagnostics.render(d.comp, d.detectConfig(std.fs.File.stderr()));
+    Diagnostics.render(d.comp, d.detectConfig(.stderr()));
 }
 
 pub fn detectConfig(d: *Driver, file: std.fs.File) std.Io.tty.Config {

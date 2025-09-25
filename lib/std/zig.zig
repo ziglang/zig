@@ -53,7 +53,7 @@ pub const Color = enum {
 
     pub fn get_tty_conf(color: Color) std.Io.tty.Config {
         return switch (color) {
-            .auto => std.Io.tty.detectConfig(std.fs.File.stderr()),
+            .auto => .detect(.stderr()),
             .on => .escape_codes,
             .off => .no_color,
         };
