@@ -15,6 +15,8 @@ pub const Style = union(enum) {
     cmake: std.Build.LazyPath,
     /// Start with input file and replace occurrences of names with their values.
     custom: std.Build.LazyPath,
+    /// Start with input file like custom, and output a nasm .asm file.
+    custom_nasm: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
     blank,
     /// Start with nothing, like blank, and output a nasm .asm file.
@@ -22,7 +24,7 @@ pub const Style = union(enum) {
 
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
-            .autoconf_undef, .autoconf_at, .cmake, .custom => |s| return s,
+            .autoconf_undef, .autoconf_at, .cmake, .custom, .custom_nasm => |s| return s,
             .blank, .nasm => return null,
         }
     }
@@ -240,10 +242,20 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             try render_nasm(bw, config_header.values);
         },
         .custom => |file_source| {
-            try bw.writeAll(asm_generated_line);
+            try bw.writeAll(c_generated_line);
             const src_path = file_source.getPath2(b, step);
             const contents = std.fs.cwd().readFileAlloc(src_path, arena, .limited(config_header.max_bytes)) catch |err| {
                 return step.fail("unable to read custom input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
+            try render_custom(step, contents, bw, config_header.values);
+        },
+        .custom_nasm => |file_source| {
+            try bw.writeAll(asm_generated_line);
+            const src_path = file_source.getPath2(b, step);
+            const contents = std.fs.cwd().readFileAlloc(src_path, arena, .limited(config_header.max_bytes)) catch |err| {
+                return step.fail("unable to read custom NASM input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
             };
