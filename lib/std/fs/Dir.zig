@@ -732,6 +732,10 @@ pub const SelectiveWalker = struct {
         });
     }
 
+    pub fn depth(self: *SelectiveWalker) usize {
+        return self.stack.items.len;
+    }
+
     pub fn deinit(self: *SelectiveWalker) void {
         self.name_buffer.deinit(self.allocator);
         self.stack.deinit(self.allocator);
