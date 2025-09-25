@@ -92,6 +92,7 @@ pub fn appendAroArgs(arena: Allocator, argv: *std.ArrayList([]const u8), options
         "-E",
         "--comments",
         "-fuse-line-directives",
+        "-fgnuc-version=4.2.1",
         "--target=x86_64-windows-msvc",
         "--emulate=msvc",
         "-nostdinc",
