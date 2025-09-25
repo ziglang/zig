@@ -156,7 +156,7 @@ pub fn main() !void {
                 try stdout.flush();
             }
 
-            preprocess.preprocess(&comp, &preprocessed_buf.writer, argv.items, maybe_dependencies_list) catch |err| switch (err) {
+            preprocess.preprocess(&comp, &preprocessed_buf.writer, argv.items, maybe_dependencies) catch |err| switch (err) {
                 error.GeneratedSourceError => {
                     try error_handler.emitAroDiagnostics(allocator, "failed during preprocessor setup (this is always a bug)", &comp);
                     std.process.exit(1);

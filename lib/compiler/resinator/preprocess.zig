@@ -37,7 +37,7 @@ pub fn preprocess(
         error.FatalError => return error.GeneratedSourceError,
         else => |e| return e,
     };
-    const user_macros = comp.addSourceFromBuffer("<command line>", macro_buf.written()) catch |err| switch (err) {
+    const user_macros = comp.addSourceFromBuffer("<command line>", macro_buf.items) catch |err| switch (err) {
         error.FatalError => return error.GeneratedSourceError,
         else => |e| return e,
     };
