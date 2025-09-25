@@ -71,7 +71,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("functional/wcsstr.c", true, .{});
     cases.addLibcTestCase("functional/wcstol.c", true, .{});
 
-    cases.addLibcTestCase("regression/daemon-failure.c", false, .{});
+    // cases.addLibcTestCase("regression/daemon-failure.c", false, .{}); - unexpected ENOMEM with high FD limit
     cases.addLibcTestCase("regression/dn_expand-empty.c", false, .{});
     cases.addLibcTestCase("regression/dn_expand-ptr-0.c", false, .{});
     cases.addLibcTestCase("regression/execle-env.c", false, .{});
