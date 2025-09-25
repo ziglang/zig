@@ -118,11 +118,9 @@ pub fn main() !void {
             switch (entry.kind) {
                 .directory => {
                     switch (walker.depth()) {
-                        1 => for (def_dirs) |p| {
-                            if (std.mem.eql(u8, entry.basename, p)) {
-                                try walker.enter(entry);
-                                continue;
-                            }
+                        1 => if (def_dirs.get(entry.basename)) {
+                            try walker.enter(entry);
+                            continue;
                         },
                         else => {
                             // The top-level directory was already validated
@@ -174,14 +172,14 @@ const def_exts = [_][]const u8{
     ".def.in",
 };
 
-const def_dirs = [_][]const u8{
-    "lib32" ++ std.fs.path.sep_str,
-    "lib64" ++ std.fs.path.sep_str,
-    "libarm32" ++ std.fs.path.sep_str,
-    "libarm64" ++ std.fs.path.sep_str,
-    "lib-common" ++ std.fs.path.sep_str,
-    "def-include" ++ std.fs.path.sep_str,
-};
+const def_dirs = std.StaticStringMap(void).initComptime(.{
+    .{"lib32"},
+    .{"lib64"},
+    .{"libarm32"},
+    .{"libarm64"},
+    .{"lib-common"},
+    .{"def-include"},
+});
 
 const blacklisted_defs = [_][]const u8{
     "crtdll.def.in",
