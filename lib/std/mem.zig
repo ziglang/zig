@@ -3080,23 +3080,23 @@ test endsWith {
 }
 
 /// If `slice` starts with `prefix`, returns the rest of `slice` starting at `prefix.len`.
-pub fn chompPrefix(comptime T: type, slice: []const T, prefix: []const T) ?[]const T {
+pub fn cutPrefix(comptime T: type, slice: []const T, prefix: []const T) ?[]const T {
     return if (startsWith(T, slice, prefix)) slice[prefix.len..] else null;
 }
 
-test chompPrefix {
-    try testing.expectEqualStrings("foo", chompPrefix(u8, "--example=foo", "--example=").?);
-    try testing.expectEqual(null, chompPrefix(u8, "--example=foo", "-example="));
+test cutPrefix {
+    try testing.expectEqualStrings("foo", cutPrefix(u8, "--example=foo", "--example=").?);
+    try testing.expectEqual(null, cutPrefix(u8, "--example=foo", "-example="));
 }
 
 /// If `slice` ends with `suffix`, returns `slice` from beginning to start of `suffix`.
-pub fn chompSuffix(comptime T: type, slice: []const T, suffix: []const T) ?[]const T {
+pub fn cutSuffix(comptime T: type, slice: []const T, suffix: []const T) ?[]const T {
     return if (endsWith(T, slice, suffix)) slice[0 .. slice.len - suffix.len] else null;
 }
 
-test chompSuffix {
-    try testing.expectEqualStrings("foo", chompSuffix(u8, "foobar", "bar").?);
-    try testing.expectEqual(null, chompSuffix(u8, "foobar", "baz"));
+test cutSuffix {
+    try testing.expectEqualStrings("foo", cutSuffix(u8, "foobar", "bar").?);
+    try testing.expectEqual(null, cutSuffix(u8, "foobar", "baz"));
 }
 
 /// Delimiter type for tokenization and splitting operations.

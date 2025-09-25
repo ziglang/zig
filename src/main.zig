@@ -1037,7 +1037,7 @@ fn buildOutputType(
 
             var file_ext: ?Compilation.FileExt = null;
             args_loop: while (args_iter.next()) |arg| {
-                if (mem.chompPrefix(u8, arg, "@")) |resp_file_path| {
+                if (mem.cutPrefix(u8, arg, "@")) |resp_file_path| {
                     // This is a "compiler response file". We must parse the file and treat its
                     // contents as command line parameters.
                     args_iter.resp_file = initArgIteratorResponseFile(arena, resp_file_path) catch |err| {
@@ -1076,7 +1076,7 @@ fn buildOutputType(
                             .key = key,
                             .value = value,
                         });
-                    } else if (mem.chompPrefix(u8, arg, "-M")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-M")) |rest| {
                         var it = mem.splitScalar(u8, rest, '=');
                         const mod_name = it.first();
                         const root_src_orig = if (it.peek() != null) it.rest() else null;
@@ -1110,7 +1110,7 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "-rcincludes")) {
                         rc_includes = parseRcIncludes(args_iter.nextOrFatal());
-                    } else if (mem.chompPrefix(u8, arg, "-rcincludes=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-rcincludes=")) |rest| {
                         rc_includes = parseRcIncludes(rest);
                     } else if (mem.eql(u8, arg, "-rcflags")) {
                         extra_rcflags.shrinkRetainingCapacity(0);
@@ -1132,7 +1132,7 @@ fn buildOutputType(
                         color = std.meta.stringToEnum(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                         };
-                    } else if (mem.chompPrefix(u8, arg, "-j")) |str| {
+                    } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
                         const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
                             fatal("unable to parse jobs count '{s}': {s}", .{
                                 str, @errorName(err),
@@ -1146,7 +1146,7 @@ fn buildOutputType(
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(args_iter.nextOrFatal());
-                    } else if (mem.chompPrefix(u8, arg, "-fentry=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-fentry=")) |rest| {
                         entry = .{ .named = rest };
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
@@ -1174,7 +1174,7 @@ fn buildOutputType(
                         try create_module.frameworks.put(arena, args_iter.nextOrFatal(), .{ .needed = true });
                     } else if (mem.eql(u8, arg, "-install_name")) {
                         install_name = args_iter.nextOrFatal();
-                    } else if (mem.chompPrefix(u8, arg, "--compress-debug-sections=")) |param| {
+                    } else if (mem.cutPrefix(u8, arg, "--compress-debug-sections=")) |param| {
                         linker_compress_debug_sections = std.meta.stringToEnum(link.File.Lld.Elf.CompressDebugSections, param) orelse {
                             fatal("expected --compress-debug-sections=[none|zlib|zstd], found '{s}'", .{param});
                         };
@@ -1272,7 +1272,7 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.chompPrefix(u8, arg, "--embed-dir=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "--embed-dir=")) |rest| {
                         try cssan.addIncludePath(arena, &cc_argv, .embed_dir, arg, rest, true);
                     } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(arena, &cc_argv, .isystem, arg, args_iter.nextOrFatal(), false);
@@ -1300,13 +1300,13 @@ fn buildOutputType(
                         target_mcpu = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-mcmodel")) {
                         mod_opts.code_model = parseCodeModel(args_iter.nextOrFatal());
-                    } else if (mem.chompPrefix(u8, arg, "-mcmodel=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-mcmodel=")) |rest| {
                         mod_opts.code_model = parseCodeModel(rest);
-                    } else if (mem.chompPrefix(u8, arg, "-ofmt=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-ofmt=")) |rest| {
                         create_module.object_format = rest;
-                    } else if (mem.chompPrefix(u8, arg, "-mcpu=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-mcpu=")) |rest| {
                         target_mcpu = rest;
-                    } else if (mem.chompPrefix(u8, arg, "-O")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-O")) |rest| {
                         mod_opts.optimize_mode = parseOptimizeMode(rest);
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                         create_module.dynamic_linker = args_iter.nextOrFatal();
@@ -1405,7 +1405,7 @@ fn buildOutputType(
                         create_module.opts.pie = false;
                     } else if (mem.eql(u8, arg, "-flto")) {
                         create_module.opts.lto = .full;
-                    } else if (mem.chompPrefix(u8, arg, "-flto=")) |mode| {
+                    } else if (mem.cutPrefix(u8, arg, "-flto=")) |mode| {
                         if (mem.eql(u8, mode, "full")) {
                             create_module.opts.lto = .full;
                         } else if (mem.eql(u8, mode, "thin")) {
@@ -1439,7 +1439,7 @@ fn buildOutputType(
                         mod_opts.omit_frame_pointer = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
                         mod_opts.sanitize_c = .full;
-                    } else if (mem.chompPrefix(u8, arg, "-fsanitize-c=")) |mode| {
+                    } else if (mem.cutPrefix(u8, arg, "-fsanitize-c=")) |mode| {
                         if (mem.eql(u8, mode, "trap")) {
                             mod_opts.sanitize_c = .trap;
                         } else if (mem.eql(u8, mode, "full")) {
@@ -1487,7 +1487,7 @@ fn buildOutputType(
                         create_module.opts.san_cov_trace_pc_guard = false;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         reference_trace = 256;
-                    } else if (mem.chompPrefix(u8, arg, "-freference-trace=")) |num| {
+                    } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                         reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
                             fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
                         };
@@ -1501,50 +1501,50 @@ fn buildOutputType(
                         create_module.opts.rdynamic = true;
                     } else if (mem.eql(u8, arg, "-fsoname")) {
                         soname = .yes_default_value;
-                    } else if (mem.chompPrefix(u8, arg, "-fsoname=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-fsoname=")) |rest| {
                         soname = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-soname")) {
                         soname = .no;
                     } else if (mem.eql(u8, arg, "-femit-bin")) {
                         emit_bin = .yes_default_path;
-                    } else if (mem.chompPrefix(u8, arg, "-femit-bin=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-femit-bin=")) |rest| {
                         emit_bin = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-bin")) {
                         emit_bin = .no;
                     } else if (mem.eql(u8, arg, "-femit-h")) {
                         emit_h = .yes_default_path;
-                    } else if (mem.chompPrefix(u8, arg, "-femit-h=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-femit-h=")) |rest| {
                         emit_h = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-h")) {
                         emit_h = .no;
                     } else if (mem.eql(u8, arg, "-femit-asm")) {
                         emit_asm = .yes_default_path;
-                    } else if (mem.chompPrefix(u8, arg, "-femit-asm=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-femit-asm=")) |rest| {
                         emit_asm = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-asm")) {
                         emit_asm = .no;
                     } else if (mem.eql(u8, arg, "-femit-llvm-ir")) {
                         emit_llvm_ir = .yes_default_path;
-                    } else if (mem.chompPrefix(u8, arg, "-femit-llvm-ir=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-femit-llvm-ir=")) |rest| {
                         emit_llvm_ir = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-llvm-ir")) {
                         emit_llvm_ir = .no;
                     } else if (mem.eql(u8, arg, "-femit-llvm-bc")) {
                         emit_llvm_bc = .yes_default_path;
-                    } else if (mem.chompPrefix(u8, arg, "-femit-llvm-bc=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-femit-llvm-bc=")) |rest| {
                         emit_llvm_bc = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-llvm-bc")) {
                         emit_llvm_bc = .no;
                     } else if (mem.eql(u8, arg, "-femit-docs")) {
                         emit_docs = .yes_default_path;
-                    } else if (mem.chompPrefix(u8, arg, "-femit-docs=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-femit-docs=")) |rest| {
                         emit_docs = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-docs")) {
                         emit_docs = .no;
                     } else if (mem.eql(u8, arg, "-femit-implib")) {
                         emit_implib = .yes_default_path;
                         emit_implib_arg_provided = true;
-                    } else if (mem.chompPrefix(u8, arg, "-femit-implib=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-femit-implib=")) |rest| {
                         emit_implib = .{ .yes = rest };
                         emit_implib_arg_provided = true;
                     } else if (mem.eql(u8, arg, "-fno-emit-implib")) {
@@ -1595,7 +1595,7 @@ fn buildOutputType(
                         mod_opts.no_builtin = false;
                     } else if (mem.eql(u8, arg, "-fno-builtin")) {
                         mod_opts.no_builtin = true;
-                    } else if (mem.chompPrefix(u8, arg, "-fopt-bisect-limit=")) |next_arg| {
+                    } else if (mem.cutPrefix(u8, arg, "-fopt-bisect-limit=")) |next_arg| {
                         llvm_opt_bisect_limit = std.fmt.parseInt(c_int, next_arg, 0) catch |err|
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
@@ -1670,7 +1670,7 @@ fn buildOutputType(
                         create_module.opts.shared_memory = true;
                     } else if (prefixedIntArg(arg, "--global-base=")) |int| {
                         linker_global_base = int;
-                    } else if (mem.chompPrefix(u8, arg, "--export=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "--export=")) |rest| {
                         try linker_export_symbol_names.append(arena, rest);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
@@ -1680,7 +1680,7 @@ fn buildOutputType(
                         linker_gc_sections = false;
                     } else if (mem.eql(u8, arg, "--build-id")) {
                         build_id = .fast;
-                    } else if (mem.chompPrefix(u8, arg, "--build-id=")) |style| {
+                    } else if (mem.cutPrefix(u8, arg, "--build-id=")) |style| {
                         build_id = std.zig.BuildId.parse(style) catch |err| {
                             fatal("unable to parse --build-id style '{s}': {s}", .{
                                 style, @errorName(err),
@@ -1704,21 +1704,21 @@ fn buildOutputType(
                         verbose_generic_instances = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                         verbose_llvm_ir = "-";
-                    } else if (mem.chompPrefix(u8, arg, "--verbose-llvm-ir=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-ir=")) |rest| {
                         verbose_llvm_ir = rest;
-                    } else if (mem.chompPrefix(u8, arg, "--verbose-llvm-bc=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-bc=")) |rest| {
                         verbose_llvm_bc = rest;
                     } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                         verbose_cimport = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                         verbose_llvm_cpu_features = true;
-                    } else if (mem.chompPrefix(u8, arg, "-T")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-T")) |rest| {
                         linker_script = rest;
-                    } else if (mem.chompPrefix(u8, arg, "-L")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-L")) |rest| {
                         try create_module.lib_dir_args.append(arena, rest);
-                    } else if (mem.chompPrefix(u8, arg, "-F")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-F")) |rest| {
                         try create_module.framework_dirs.append(arena, rest);
-                    } else if (mem.chompPrefix(u8, arg, "-l")) |name| {
+                    } else if (mem.cutPrefix(u8, arg, "-l")) |name| {
                         // We don't know whether this library is part of libc
                         // or libc++ until we resolve the target, so we append
                         // to the list for now.
@@ -1732,7 +1732,7 @@ fn buildOutputType(
                                 .allow_so_scripts = allow_so_scripts,
                             },
                         } });
-                    } else if (mem.chompPrefix(u8, arg, "-needed-l")) |name| {
+                    } else if (mem.cutPrefix(u8, arg, "-needed-l")) |name| {
                         try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                             .name = name,
                             .query = .{
@@ -1743,7 +1743,7 @@ fn buildOutputType(
                                 .allow_so_scripts = allow_so_scripts,
                             },
                         } });
-                    } else if (mem.chompPrefix(u8, arg, "-weak-l")) |name| {
+                    } else if (mem.cutPrefix(u8, arg, "-weak-l")) |name| {
                         try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                             .name = name,
                             .query = .{
@@ -1756,9 +1756,9 @@ fn buildOutputType(
                         } });
                     } else if (mem.startsWith(u8, arg, "-D")) {
                         try cc_argv.append(arena, arg);
-                    } else if (mem.chompPrefix(u8, arg, "-I")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-I")) |rest| {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, rest, true);
-                    } else if (mem.chompPrefix(u8, arg, "-x")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-x")) |rest| {
                         const lang = if (rest.len == 0) args_iter.nextOrFatal() else rest;
                         if (mem.eql(u8, lang, "none")) {
                             file_ext = null;
@@ -1767,7 +1767,7 @@ fn buildOutputType(
                         } else {
                             fatal("language not recognized: '{s}'", .{lang});
                         }
-                    } else if (mem.chompPrefix(u8, arg, "-mexec-model=")) |rest| {
+                    } else if (mem.cutPrefix(u8, arg, "-mexec-model=")) |rest| {
                         create_module.opts.wasi_exec_model = parseWasiExecModel(rest);
                     } else if (mem.eql(u8, arg, "-municode")) {
                         mingw_unicode_entry_point = true;
@@ -2446,7 +2446,7 @@ fn buildOutputType(
                     linker_enable_new_dtags = false;
                 } else if (mem.eql(u8, arg, "-O")) {
                     linker_optimization = linker_args_it.nextOrFatal();
-                } else if (mem.chompPrefix(u8, arg, "-O")) |rest| {
+                } else if (mem.cutPrefix(u8, arg, "-O")) |rest| {
                     linker_optimization = rest;
                 } else if (mem.eql(u8, arg, "-pagezero_size")) {
                     const next_arg = linker_args_it.nextOrFatal();
@@ -2529,7 +2529,7 @@ fn buildOutputType(
                     linker_compress_debug_sections = std.meta.stringToEnum(link.File.Lld.Elf.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
-                } else if (mem.chompPrefix(u8, arg, "-z")) |z_rest| {
+                } else if (mem.cutPrefix(u8, arg, "-z")) |z_rest| {
                     const z_arg = if (z_rest.len == 0) linker_args_it.nextOrFatal() else z_rest;
                     if (mem.eql(u8, z_arg, "nodelete")) {
                         linker_z_nodelete = true;
@@ -2553,7 +2553,7 @@ fn buildOutputType(
                         linker_z_relro = true;
                     } else if (mem.eql(u8, z_arg, "norelro")) {
                         linker_z_relro = false;
-                    } else if (mem.chompPrefix(u8, z_arg, "stack-size=")) |rest| {
+                    } else if (mem.cutPrefix(u8, z_arg, "stack-size=")) |rest| {
                         stack_size = parseStackSize(rest);
                     } else if (prefixedIntArg(z_arg, "common-page-size=")) |int| {
                         linker_z_common_page_size = int;
@@ -2672,7 +2672,7 @@ fn buildOutputType(
                             .allow_so_scripts = allow_so_scripts,
                         },
                     } });
-                } else if (mem.chompPrefix(u8, arg, "-weak-l")) |rest| {
+                } else if (mem.cutPrefix(u8, arg, "-weak-l")) |rest| {
                     try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                         .name = rest,
                         .query = .{
@@ -3769,7 +3769,7 @@ fn createModule(
                 try mcpu_buffer.appendSlice(cli_mod.target_mcpu orelse "baseline");
 
                 for (create_module.llvm_m_args.items) |llvm_m_arg| {
-                    if (mem.chompPrefix(u8, llvm_m_arg, "mno-")) |llvm_name| {
+                    if (mem.cutPrefix(u8, llvm_m_arg, "mno-")) |llvm_name| {
                         const zig_name = llvm_to_zig_name.get(llvm_name) orelse {
                             fatal("target architecture {s} has no LLVM CPU feature named '{s}'", .{
                                 @tagName(cpu_arch), llvm_name,
@@ -3777,7 +3777,7 @@ fn createModule(
                         };
                         try mcpu_buffer.append('-');
                         try mcpu_buffer.appendSlice(zig_name);
-                    } else if (mem.chompPrefix(u8, llvm_m_arg, "m")) |llvm_name| {
+                    } else if (mem.cutPrefix(u8, llvm_m_arg, "m")) |llvm_name| {
                         const zig_name = llvm_to_zig_name.get(llvm_name) orelse {
                             fatal("target architecture {s} has no LLVM CPU feature named '{s}'", .{
                                 @tagName(cpu_arch), llvm_name,
@@ -4964,7 +4964,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     reference_trace = 256;
                 } else if (mem.eql(u8, arg, "--fetch")) {
                     fetch_only = true;
-                } else if (mem.chompPrefix(u8, arg, "--fetch=")) |sub_arg| {
+                } else if (mem.cutPrefix(u8, arg, "--fetch=")) |sub_arg| {
                     fetch_only = true;
                     fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
                         fatal("expected [needed|all] after '--fetch=', found '{s}'", .{
@@ -4976,7 +4976,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     system_pkg_dir_path = args[i];
                     try child_argv.append("--system");
                     continue;
-                } else if (mem.chompPrefix(u8, arg, "-freference-trace=")) |num| {
+                } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                     reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
                         fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
                     };
@@ -5026,9 +5026,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     verbose_generic_instances = true;
                 } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                     verbose_llvm_ir = "-";
-                } else if (mem.chompPrefix(u8, arg, "--verbose-llvm-ir=")) |rest| {
+                } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-ir=")) |rest| {
                     verbose_llvm_ir = rest;
-                } else if (mem.chompPrefix(u8, arg, "--verbose-llvm-bc=")) |rest| {
+                } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-bc=")) |rest| {
                     verbose_llvm_bc = rest;
                 } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                     verbose_cimport = true;
@@ -5042,7 +5042,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     };
                     try child_argv.appendSlice(&.{ arg, args[i] });
                     continue;
-                } else if (mem.chompPrefix(u8, arg, "-j")) |str| {
+                } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
                     const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
                         fatal("unable to parse jobs count '{s}': {s}", .{
                             str, @errorName(err),
@@ -6618,7 +6618,7 @@ fn eatIntPrefix(arg: []const u8, base: u8) []const u8 {
 }
 
 fn prefixedIntArg(arg: []const u8, prefix: []const u8) ?u64 {
-    const number = mem.chompPrefix(u8, arg, prefix) orelse return null;
+    const number = mem.cutPrefix(u8, arg, prefix) orelse return null;
     return std.fmt.parseUnsigned(u64, number, 0) catch |err| fatal("unable to parse '{s}': {t}", .{ arg, err });
 }
 
@@ -6946,11 +6946,11 @@ fn cmdFetch(
                     debug_hash = true;
                 } else if (mem.eql(u8, arg, "--save")) {
                     save = .{ .yes = null };
-                } else if (mem.chompPrefix(u8, arg, "--save=")) |rest| {
+                } else if (mem.cutPrefix(u8, arg, "--save=")) |rest| {
                     save = .{ .yes = rest };
                 } else if (mem.eql(u8, arg, "--save-exact")) {
                     save = .{ .exact = null };
-                } else if (mem.chompPrefix(u8, arg, "--save-exact=")) |rest| {
+                } else if (mem.cutPrefix(u8, arg, "--save-exact=")) |rest| {
                     save = .{ .exact = rest };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
