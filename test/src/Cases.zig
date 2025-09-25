@@ -599,7 +599,7 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     options: CaseTestOptions,
 ) void {
-    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
+    const host = std.zig.system.resolveTargetQuery(.{}, b.allocator) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
     const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
@@ -1115,14 +1115,6 @@ const TestManifest = struct {
         }
     }
 };
-
-fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
-    return .{
-        .query = query,
-        .target = std.zig.system.resolveTargetQuery(query) catch
-            @panic("unable to resolve target query"),
-    };
-}
 
 fn knownFileExtension(filename: []const u8) bool {
     // List taken from `Compilation.classifyFileExt` in the compiler.

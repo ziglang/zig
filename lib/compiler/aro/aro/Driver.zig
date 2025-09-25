@@ -407,7 +407,7 @@ pub fn parseArgs(
                     try d.comp.addDiagnostic(.{ .tag = .cli_invalid_target, .extra = .{ .str = arg } }, &.{});
                     continue;
                 };
-                const target = std.zig.system.resolveTargetQuery(query) catch |e| {
+                const target = std.zig.system.resolveTargetQuery(query, d.comp.gpa) catch |e| {
                     return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
                 };
                 d.comp.target = target;

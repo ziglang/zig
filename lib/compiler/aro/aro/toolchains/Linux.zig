@@ -423,7 +423,7 @@ test Linux {
 
     const raw_triple = "x86_64-linux-gnu";
     const target_query = try std.Target.Query.parse(.{ .arch_os_abi = raw_triple });
-    comp.target = try std.zig.system.resolveTargetQuery(target_query);
+    comp.target = try std.zig.system.resolveTargetQuery(target_query, arena);
     comp.langopts.setEmulatedCompiler(.gcc);
 
     var driver: Driver = .{ .comp = &comp };

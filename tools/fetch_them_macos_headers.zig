@@ -86,7 +86,7 @@ pub fn main() anyerror!void {
     }
 
     const sysroot_path = sysroot orelse blk: {
-        const target = try std.zig.system.resolveTargetQuery(.{});
+        const target = try std.zig.system.resolveTargetQuery(.{}, gpa);
         break :blk std.zig.system.darwin.getSdk(allocator, &target) orelse
             fatal("no SDK found; you can provide one explicitly with '--sysroot' flag", .{});
     };
