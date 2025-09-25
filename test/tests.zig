@@ -2409,7 +2409,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     continue;
                 }
                 if (test_target.link_libc == false) {
-                    compile_c_exe.subsystem = .Console;
+                    compile_c_exe.subsystem = .console;
                     compile_c.linkSystemLibrary("kernel32", .{});
                     compile_c.linkSystemLibrary("ntdll", .{});
                 }

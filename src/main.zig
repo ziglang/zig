@@ -898,7 +898,7 @@ fn buildOutputType(
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
-    var subsystem: ?std.Target.SubSystem = null;
+    var subsystem: ?std.zig.Subsystem = null;
     var major_subsystem_version: ?u16 = null;
     var minor_subsystem_version: ?u16 = null;
     var mingw_unicode_entry_point: bool = false;
@@ -1145,7 +1145,7 @@ fn buildOutputType(
                         }
                         n_jobs = num;
                     } else if (mem.eql(u8, arg, "--subsystem")) {
-                        subsystem = try parseSubSystem(args_iter.nextOrFatal());
+                        subsystem = try parseSubsystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(args_iter.nextOrFatal());
                     } else if (mem.startsWith(u8, arg, "-fentry=")) {
@@ -2434,7 +2434,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-rpath") or mem.eql(u8, arg, "--rpath") or mem.eql(u8, arg, "-R")) {
                     try create_module.rpath_list.append(arena, linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--subsystem")) {
-                    subsystem = try parseSubSystem(linker_args_it.nextOrFatal());
+                    subsystem = try parseSubsystem(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "-I") or
                     mem.eql(u8, arg, "--dynamic-linker") or
                     mem.eql(u8, arg, "-dynamic-linker"))
@@ -2760,7 +2760,7 @@ fn buildOutputType(
                     try symbol_wrap_set.put(arena, next_arg, {});
                 } else if (mem.startsWith(u8, arg, "/subsystem:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
-                    subsystem = try parseSubSystem(split_it.first());
+                    subsystem = try parseSubsystem(split_it.first());
                 } else if (mem.startsWith(u8, arg, "/implib:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     emit_implib = .{ .yes = split_it.first() };
@@ -6752,26 +6752,10 @@ fn warnAboutForeignBinaries(
     }
 }
 
-fn parseSubSystem(next_arg: []const u8) !std.Target.SubSystem {
-    if (mem.eql(u8, next_arg, "console")) {
-        return .Console;
-    } else if (mem.eql(u8, next_arg, "windows")) {
-        return .Windows;
-    } else if (mem.eql(u8, next_arg, "posix")) {
-        return .Posix;
-    } else if (mem.eql(u8, next_arg, "native")) {
-        return .Native;
-    } else if (mem.eql(u8, next_arg, "efi_application")) {
-        return .EfiApplication;
-    } else if (mem.eql(u8, next_arg, "efi_boot_service_driver")) {
-        return .EfiBootServiceDriver;
-    } else if (mem.eql(u8, next_arg, "efi_rom")) {
-        return .EfiRom;
-    } else if (mem.eql(u8, next_arg, "efi_runtime_driver")) {
-        return .EfiRuntimeDriver;
-    } else {
+fn parseSubsystem(arg: []const u8) !std.zig.Subsystem {
+    return std.meta.stringToEnum(std.zig.Subsystem, arg) orelse
         fatal("invalid: --subsystem: '{s}'. Options are:\n{s}", .{
-            next_arg,
+            arg,
             \\  console
             \\  windows
             \\  posix
@@ -6782,7 +6766,6 @@ fn parseSubSystem(next_arg: []const u8) !std.Target.SubSystem {
             \\  efi_runtime_driver
             \\
         });
-    }
 }
 
 /// Model a header searchlist as a group.
