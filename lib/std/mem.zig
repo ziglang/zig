@@ -3099,6 +3099,44 @@ test cutSuffix {
     try testing.expectEqual(null, cutSuffix(u8, "foobar", "baz"));
 }
 
+/// Returns slice of `haystack` before and after `needle`, or `null` if not
+/// found.
+///
+/// See also:
+/// * `cutScalar`
+/// * `split`
+/// * `tokenizeAny`
+pub fn cut(comptime T: type, haystack: []const T, needle: []const T) ?struct { []const T, []const T } {
+    const index = indexOf(T, haystack, needle) orelse return null;
+    return .{ haystack[0..index], haystack[index + needle.len ..] };
+}
+
+test cut {
+    try testing.expectEqual(null, cut(u8, "a b c", "B"));
+    const before, const after = cut(u8, "a be c", "be") orelse return error.TestFailed;
+    try testing.expectEqualStrings("a ", before);
+    try testing.expectEqualStrings(" c", after);
+}
+
+/// Returns slice of `haystack` before and after `needle`, or `null` if not
+/// found.
+///
+/// See also:
+/// * `cut`
+/// * `splitScalar`
+/// * `tokenizeScalar`
+pub fn cutScalar(comptime T: type, haystack: []const T, needle: T) ?struct { []const T, []const T } {
+    const index = indexOfScalar(T, haystack, needle) orelse return null;
+    return .{ haystack[0..index], haystack[index + 1 ..] };
+}
+
+test cutScalar {
+    try testing.expectEqual(null, cutScalar(u8, "a b c", 'B'));
+    const before, const after = cutScalar(u8, "a b c", 'b') orelse return error.TestFailed;
+    try testing.expectEqualStrings("a ", before);
+    try testing.expectEqualStrings(" c", after);
+}
+
 /// Delimiter type for tokenization and splitting operations.
 pub const DelimiterType = enum { sequence, any, scalar };
 

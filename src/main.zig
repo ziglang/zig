@@ -1077,9 +1077,7 @@ fn buildOutputType(
                             .value = value,
                         });
                     } else if (mem.cutPrefix(u8, arg, "-M")) |rest| {
-                        var it = mem.splitScalar(u8, rest, '=');
-                        const mod_name = it.first();
-                        const root_src_orig = if (it.peek() != null) it.rest() else null;
+                        const mod_name, const root_src_orig = mem.cutScalar(u8, rest, '=') orelse .{ rest, null };
                         try handleModArg(
                             arena,
                             mod_name,
@@ -1343,9 +1341,7 @@ fn buildOutputType(
                         } else {
                             dev.check(.network_listen);
                             // example: --listen 127.0.0.1:9000
-                            var it = std.mem.splitScalar(u8, next_arg, ':');
-                            const host = it.next().?;
-                            const port_text = it.next() orelse "14735";
+                            const host, const port_text = mem.cutScalar(u8, next_arg, ':') orelse .{ next_arg, "14735" };
                             const port = std.fmt.parseInt(u16, port_text, 10) catch |err|
                                 fatal("invalid port number: '{s}': {s}", .{ port_text, @errorName(err) });
                             listen = .{ .ip4 = std.net.Ip4Address.parse(host, port) catch |err|
