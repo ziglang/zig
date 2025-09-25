@@ -118,7 +118,7 @@ pub fn main() !void {
             switch (entry.kind) {
                 .directory => {
                     switch (walker.depth()) {
-                        1 => if (def_dirs.get(entry.basename)) {
+                        1 => if (def_dirs.has(entry.basename)) {
                             try walker.enter(entry);
                             continue;
                         },
