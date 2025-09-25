@@ -490,6 +490,7 @@ pub const mach_header = std.macho.mach_header;
 pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
+pub extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, ...) c_int;
 
 pub const exception_data_type_t = integer_t;
 pub const exception_data_t = ?*mach_exception_data_type_t;

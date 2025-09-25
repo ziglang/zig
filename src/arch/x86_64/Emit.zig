@@ -6,7 +6,7 @@ pt: Zcu.PerThread,
 pic: bool,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
-code: *std.ArrayListUnmanaged(u8),
+w: *std.Io.Writer,
 
 prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
@@ -18,7 +18,8 @@ table_relocs: std.ArrayListUnmanaged(TableReloc),
 
 pub const Error = Lower.Error || error{
     EmitFail,
-} || link.File.UpdateDebugInfoError;
+    NotFile,
+} || std.posix.MMapError || std.posix.MRemapError || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
     const comp = emit.bin_file.comp;
@@ -29,12 +30,12 @@ pub fn emitMir(emit: *Emit) Error!void {
     var local_index: usize = 0;
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
-        emit.code_offset_mapping.items[mir_index] = @intCast(emit.code.items.len);
+        emit.code_offset_mapping.items[mir_index] = @intCast(emit.w.end);
         const lowered = try emit.lower.lowerMir(mir_index);
         var lowered_relocs = lowered.relocs;
         lowered_inst: for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             if (lowered_inst.prefix == .directive) {
-                const start_offset: u32 = @intCast(emit.code.items.len);
+                const start_offset: u32 = @intCast(emit.w.end);
                 switch (emit.debug_output) {
                     .dwarf => |dwarf| switch (lowered_inst.encoding.mnemonic) {
                         .@".cfi_def_cfa" => try dwarf.genDebugFrame(start_offset, .{ .def_cfa = .{
@@ -164,6 +165,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .index = if (emit.bin_file.cast(.elf)) |elf_file|
                             elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, emit.pt, lazy_sym) catch |err|
                                 return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
+                        else if (emit.bin_file.cast(.elf2)) |elf|
+                            @intFromEnum(try elf.lazySymbol(lazy_sym))
                         else if (emit.bin_file.cast(.macho)) |macho_file|
                             macho_file.getZigObject().?.getOrCreateMetadataForLazySymbol(macho_file, emit.pt, lazy_sym) catch |err|
                                 return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
@@ -180,12 +183,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .extern_func => |extern_func| .{
                         .index = if (emit.bin_file.cast(.elf)) |elf_file|
                             try elf_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
-                        else if (emit.bin_file.cast(.macho)) |macho_file|
+                        else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
+                            .name = extern_func.toSlice(&emit.lower.mir).?,
+                            .type = .FUNC,
+                        })) else if (emit.bin_file.cast(.macho)) |macho_file|
                             try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
                         else if (emit.bin_file.cast(.coff)) |coff_file|
                             try coff_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, "compiler_rt")
                         else
-                            return emit.fail("external symbols unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
+                            return emit.fail("external symbol unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
                         .is_extern = true,
                         .type = .symbol,
                     },
@@ -205,7 +211,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         },
                         else => {},
                     }
-                    if (emit.bin_file.cast(.elf)) |_| {
+                    if (emit.bin_file.cast(.elf) != null or emit.bin_file.cast(.elf2) != null) {
                         if (!emit.pic) switch (lowered_inst.encoding.mnemonic) {
                             .lea => try emit.encodeInst(try .new(.none, .mov, &.{
                                 lowered_inst.ops[0],
@@ -315,7 +321,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 },
                 .branch, .tls => unreachable,
                 .tlv => {
-                    if (emit.bin_file.cast(.elf)) |elf_file| {
+                    if (emit.bin_file.cast(.elf) != null or emit.bin_file.cast(.elf2) != null) {
                         // TODO handle extern TLS vars, i.e., emit GD model
                         if (emit.pic) switch (lowered_inst.encoding.mnemonic) {
                             .lea, .mov => {
@@ -337,7 +343,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 }, emit.lower.target), &.{.{
                                     .op_index = 0,
                                     .target = .{
-                                        .index = try elf_file.getGlobalSymbol("__tls_get_addr", null),
+                                        .index = if (emit.bin_file.cast(.elf)) |elf_file|
+                                            try elf_file.getGlobalSymbol("__tls_get_addr", null)
+                                        else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
+                                            .name = "__tls_get_addr",
+                                            .type = .FUNC,
+                                        })) else unreachable,
                                         .is_extern = true,
                                         .type = .branch,
                                     },
@@ -441,7 +452,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgEnterBlock (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.enterBlock(emit.code.items.len);
+                            try dwarf.enterBlock(emit.w.end);
                         },
                         .none => {},
                     },
@@ -450,7 +461,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgLeaveBlock (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.leaveBlock(emit.code.items.len);
+                            try dwarf.leaveBlock(emit.w.end);
                         },
                         .none => {},
                     },
@@ -459,7 +470,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgEnterInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.enterInlineFunc(mir_inst.data.ip_index, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
+                            try dwarf.enterInlineFunc(mir_inst.data.ip_index, emit.w.end, emit.prev_di_loc.line, emit.prev_di_loc.column);
                         },
                         .none => {},
                     },
@@ -468,7 +479,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgLeaveInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.leaveInlineFunc(mir_inst.data.ip_index, emit.code.items.len);
+                            try dwarf.leaveInlineFunc(mir_inst.data.ip_index, emit.w.end);
                         },
                         .none => {},
                     },
@@ -634,7 +645,7 @@ pub fn emitMir(emit: *Emit) Error!void {
     for (emit.relocs.items) |reloc| {
         const target = emit.code_offset_mapping.items[reloc.target];
         const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.inst_offset + reloc.inst_length)) + reloc.target_offset;
-        const inst_bytes = emit.code.items[reloc.inst_offset..][0..reloc.inst_length];
+        const inst_bytes = emit.w.buffered()[reloc.inst_offset..][0..reloc.inst_length];
         switch (reloc.source_length) {
             else => unreachable,
             inline 1, 4 => |source_length| std.mem.writeInt(
@@ -646,12 +657,12 @@ pub fn emitMir(emit: *Emit) Error!void {
         }
     }
     if (emit.lower.mir.table.len > 0) {
+        const ptr_size = @divExact(emit.lower.target.ptrBitWidth(), 8);
+        var table_offset = std.mem.alignForward(u32, @intCast(emit.w.end), ptr_size);
         if (emit.bin_file.cast(.elf)) |elf_file| {
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
 
-            const ptr_size = @divExact(emit.lower.target.ptrBitWidth(), 8);
-            var table_offset = std.mem.alignForward(u32, @intCast(emit.code.items.len), ptr_size);
             for (emit.table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
                 .r_offset = table_reloc.source_offset,
                 .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"32"),
@@ -665,7 +676,26 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }, zo);
                 table_offset += ptr_size;
             }
-            try emit.code.appendNTimes(gpa, 0, table_offset - emit.code.items.len);
+            try emit.w.splatByteAll(0, table_offset - emit.w.end);
+        } else if (emit.bin_file.cast(.elf2)) |elf| {
+            for (emit.table_relocs.items) |table_reloc| try elf.addReloc(
+                @enumFromInt(emit.atom_index),
+                table_reloc.source_offset,
+                @enumFromInt(emit.atom_index),
+                @as(i64, table_offset) + table_reloc.target_offset,
+                .{ .x86_64 = .@"32" },
+            );
+            for (emit.lower.mir.table) |entry| {
+                try elf.addReloc(
+                    @enumFromInt(emit.atom_index),
+                    table_offset,
+                    @enumFromInt(emit.atom_index),
+                    emit.code_offset_mapping.items[entry],
+                    .{ .x86_64 = .@"64" },
+                );
+                table_offset += ptr_size;
+            }
+            try emit.w.splatByteAll(0, table_offset - emit.w.end);
         } else unreachable;
     }
 }
@@ -696,16 +726,12 @@ const RelocInfo = struct {
 fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocInfo) Error!void {
     const comp = emit.bin_file.comp;
     const gpa = comp.gpa;
-    const start_offset: u32 = @intCast(emit.code.items.len);
-    {
-        var aw: std.Io.Writer.Allocating = .fromArrayList(gpa, emit.code);
-        defer emit.code.* = aw.toArrayList();
-        lowered_inst.encode(&aw.writer, .{}) catch |err| switch (err) {
-            error.WriteFailed => return error.OutOfMemory,
-            else => |e| return e,
-        };
-    }
-    const end_offset: u32 = @intCast(emit.code.items.len);
+    const start_offset: u32 = @intCast(emit.w.end);
+    lowered_inst.encode(emit.w, .{}) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    const end_offset: u32 = @intCast(emit.w.end);
     for (reloc_info) |reloc| switch (reloc.target.type) {
         .inst => {
             const inst_length: u4 = @intCast(end_offset - start_offset);
@@ -769,7 +795,13 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
                     .symbolnum = @intCast(reloc.target.index),
                 },
             });
-        } else if (emit.bin_file.cast(.coff)) |coff_file| {
+        } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
+            @enumFromInt(emit.atom_index),
+            end_offset - 4,
+            @enumFromInt(reloc.target.index),
+            reloc.off,
+            .{ .x86_64 = .@"32" },
+        ) else if (emit.bin_file.cast(.coff)) |coff_file| {
             const atom_index = coff_file.getAtomIndexForSymbol(
                 .{ .sym_index = emit.atom_index, .file = null },
             ).?;
@@ -794,7 +826,13 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
                 .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
                 .r_addend = reloc.off - 4,
             }, zo);
-        } else if (emit.bin_file.cast(.macho)) |macho_file| {
+        } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
+            @enumFromInt(emit.atom_index),
+            end_offset - 4,
+            @enumFromInt(reloc.target.index),
+            reloc.off - 4,
+            .{ .x86_64 = .PC32 },
+        ) else if (emit.bin_file.cast(.macho)) |macho_file| {
             const zo = macho_file.getZigObject().?;
             const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
             try atom.addReloc(macho_file, .{
@@ -849,7 +887,13 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
                 .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
                 .r_addend = reloc.off,
             }, zo);
-        } else if (emit.bin_file.cast(.macho)) |macho_file| {
+        } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
+            @enumFromInt(emit.atom_index),
+            end_offset - 4,
+            @enumFromInt(reloc.target.index),
+            reloc.off,
+            .{ .x86_64 = .TPOFF32 },
+        ) else if (emit.bin_file.cast(.macho)) |macho_file| {
             const zo = macho_file.getZigObject().?;
             const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
             try atom.addReloc(macho_file, .{
@@ -908,7 +952,7 @@ const Loc = struct {
 
 fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
     const delta_line = @as(i33, loc.line) - @as(i33, emit.prev_di_loc.line);
-    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    const delta_pc: usize = emit.w.end - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dwarf| {
@@ -916,7 +960,7 @@ fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
             if (loc.column != emit.prev_di_loc.column) try dwarf.setColumn(loc.column);
             try dwarf.advancePCAndLine(delta_line, delta_pc);
             emit.prev_di_loc = loc;
-            emit.prev_di_pc = emit.code.items.len;
+            emit.prev_di_pc = emit.w.end;
         },
         .none => {},
     }

@@ -45,7 +45,7 @@ fn addCaseInner(self: *StackTrace, config: Config, use_llvm: bool) void {
 fn shouldTestNonLlvm(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.ofmt) {
-            .elf => true,
+            .elf => !target.os.tag.isBSD(),
             else => false,
         },
         else => false,
@@ -93,7 +93,7 @@ fn addExpect(
 
     const check_run = b.addRunArtifact(self.check_exe);
     check_run.setName(annotated_case_name);
-    check_run.addFileArg(run.captureStdErr());
+    check_run.addFileArg(run.captureStdErr(.{}));
     check_run.addArgs(&.{
         @tagName(optimize_mode),
     });

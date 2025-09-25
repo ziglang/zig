@@ -3514,22 +3514,17 @@ pub fn arrayBase(ty: Type, zcu: *const Zcu) struct { Type, u64 } {
     return .{ cur_ty, cur_len };
 }
 
-pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx: u32, pt: Zcu.PerThread) union(enum) {
-    /// The result is a bit-pointer with the same value and a new packed offset.
-    bit_ptr: InternPool.Key.PtrType.PackedOffset,
-    /// The result is a standard pointer.
-    byte_ptr: struct {
-        /// The byte offset of the field pointer from the parent pointer value.
-        offset: u64,
-        /// The alignment of the field pointer type.
-        alignment: InternPool.Alignment,
-    },
-} {
+/// Returns a bit-pointer with the same value and a new packed offset.
+pub fn packedStructFieldPtrInfo(
+    struct_ty: Type,
+    parent_ptr_ty: Type,
+    field_idx: u32,
+    pt: Zcu.PerThread,
+) InternPool.Key.PtrType.PackedOffset {
     comptime assert(Type.packed_struct_layout_version == 2);
 
     const zcu = pt.zcu;
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    const field_ty = struct_ty.fieldType(field_idx, zcu);
 
     var bit_offset: u16 = 0;
     var running_bits: u16 = 0;
@@ -3552,28 +3547,10 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
         bit_offset,
     };
 
-    // If the field happens to be byte-aligned, simplify the pointer type.
-    // We can only do this if the pointee's bit size matches its ABI byte size,
-    // so that loads and stores do not interfere with surrounding packed bits.
-    //
-    // TODO: we do not attempt this with big-endian targets yet because of nested
-    // structs and floats. I need to double-check the desired behavior for big endian
-    // targets before adding the necessary complications to this code. This will not
-    // cause miscompilations; it only means the field pointer uses bit masking when it
-    // might not be strictly necessary.
-    if (res_bit_offset % 8 == 0 and field_ty.bitSize(zcu) == field_ty.abiSize(zcu) * 8 and zcu.getTarget().cpu.arch.endian() == .little) {
-        const byte_offset = res_bit_offset / 8;
-        const new_align = Alignment.fromLog2Units(@ctz(byte_offset | parent_ptr_ty.ptrAlignment(zcu).toByteUnits().?));
-        return .{ .byte_ptr = .{
-            .offset = byte_offset,
-            .alignment = new_align,
-        } };
-    }
-
-    return .{ .bit_ptr = .{
+    return .{
         .host_size = res_host_size,
         .bit_offset = res_bit_offset,
-    } };
+    };
 }
 
 pub fn resolveLayout(ty: Type, pt: Zcu.PerThread) SemaError!void {

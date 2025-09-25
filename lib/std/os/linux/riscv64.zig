@@ -142,7 +142,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
         \\ ecall
         :
         : [number] "{x17}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .memory = true });
+    );
 }
 
 pub const F = struct {

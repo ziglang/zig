@@ -23,7 +23,7 @@ pub fn format(val: Value, writer: *std.Io.Writer) !void {
 
 /// This is a debug function. In order to print values in a meaningful way
 /// we also need access to the type.
-pub fn dump(start_val: Value, w: std.Io.Writer) std.Io.Writer.Error!void {
+pub fn dump(start_val: Value, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("(interned: {})", .{start_val.toIntern()});
 }
 
@@ -2149,15 +2149,18 @@ pub fn makeBool(x: bool) Value {
     return if (x) .true else .false;
 }
 
-/// `parent_ptr` must be a single-pointer to some optional.
+/// `parent_ptr` must be a single-pointer or C pointer to some optional.
+///
 /// Returns a pointer to the payload of the optional.
+///
 /// May perform type resolution.
 pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const opt_ty = parent_ptr_ty.childType(zcu);
+    const ptr_size = parent_ptr_ty.ptrSize(zcu);
 
-    assert(parent_ptr_ty.ptrSize(zcu) == .one);
+    assert(ptr_size == .one or ptr_size == .c);
     assert(opt_ty.zigTypeTag(zcu) == .optional);
 
     const result_ty = try pt.ptrTypeSema(info: {
@@ -2212,9 +2215,12 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     } }));
 }
 
-/// `parent_ptr` must be a single-pointer to a struct, union, or slice.
+/// `parent_ptr` must be a single-pointer or c pointer to a struct, union, or slice.
+///
 /// Returns a pointer to the aggregate field at the specified index.
+///
 /// For slices, uses `slice_ptr_index` and `slice_len_index`.
+///
 /// May perform type resolution.
 pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
@@ -2222,7 +2228,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const aggregate_ty = parent_ptr_ty.childType(zcu);
 
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    assert(parent_ptr_info.flags.size == .one);
+    assert(parent_ptr_info.flags.size == .one or parent_ptr_info.flags.size == .c);
 
     // Exiting this `switch` indicates that the `field` pointer representation should be used.
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
@@ -2249,32 +2255,18 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
                     });
                     return parent_ptr.getOffsetPtr(byte_off, result_ty, pt);
                 },
-                .@"packed" => switch (aggregate_ty.packedStructFieldPtrInfo(parent_ptr_ty, field_idx, pt)) {
-                    .bit_ptr => |packed_offset| {
-                        const result_ty = try pt.ptrType(info: {
-                            var new = parent_ptr_info;
-                            new.packed_offset = packed_offset;
-                            new.child = field_ty.toIntern();
-                            if (new.flags.alignment == .none) {
-                                new.flags.alignment = try aggregate_ty.abiAlignmentSema(pt);
-                            }
-                            break :info new;
-                        });
-                        return pt.getCoerced(parent_ptr, result_ty);
-                    },
-                    .byte_ptr => |ptr_info| {
-                        const result_ty = try pt.ptrTypeSema(info: {
-                            var new = parent_ptr_info;
-                            new.child = field_ty.toIntern();
-                            new.packed_offset = .{
-                                .host_size = 0,
-                                .bit_offset = 0,
-                            };
-                            new.flags.alignment = ptr_info.alignment;
-                            break :info new;
-                        });
-                        return parent_ptr.getOffsetPtr(ptr_info.offset, result_ty, pt);
-                    },
+                .@"packed" => {
+                    const packed_offset = aggregate_ty.packedStructFieldPtrInfo(parent_ptr_ty, field_idx, pt);
+                    const result_ty = try pt.ptrType(info: {
+                        var new = parent_ptr_info;
+                        new.packed_offset = packed_offset;
+                        new.child = field_ty.toIntern();
+                        if (new.flags.alignment == .none) {
+                            new.flags.alignment = try aggregate_ty.abiAlignmentSema(pt);
+                        }
+                        break :info new;
+                    });
+                    return pt.getCoerced(parent_ptr, result_ty);
                 },
             }
         },

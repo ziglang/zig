@@ -166,19 +166,25 @@ pub const Inst = struct {
         mod,
         /// Same as `mod` with optimized float mode.
         mod_optimized,
-        /// Add an offset to a pointer, returning a new pointer.
-        /// The offset is in element type units, not bytes.
-        /// Wrapping is illegal behavior.
-        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
-        /// The pointer may be a slice.
-        /// Uses the `ty_pl` field. Payload is `Bin`.
+        /// Add an offset, in element type units, to a pointer, returning a new
+        /// pointer. Element type may not be zero bits.
+        ///
+        /// Wrapping is illegal behavior. If the newly computed address is
+        /// outside the provenance of the operand, the result is undefined.
+        ///
+        /// Uses the `ty_pl` field. Payload is `Bin`. The lhs is the pointer,
+        /// rhs is the offset. Result type is the same as lhs. The operand may
+        /// be a slice.
         ptr_add,
-        /// Subtract an offset from a pointer, returning a new pointer.
-        /// The offset is in element type units, not bytes.
-        /// Wrapping is illegal behavior.
-        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
-        /// The pointer may be a slice.
-        /// Uses the `ty_pl` field. Payload is `Bin`.
+        /// Subtract an offset, in element type units, from a pointer,
+        /// returning a new pointer. Element type may not be zero bits.
+        ///
+        /// Wrapping is illegal behavior. If the newly computed address is
+        /// outside the provenance of the operand, the result is undefined.
+        ///
+        /// Uses the `ty_pl` field. Payload is `Bin`. The lhs is the pointer,
+        /// rhs is the offset. Result type is the same as lhs. The operand may
+        /// be a slice.
         ptr_sub,
         /// Given two operands which can be floats, integers, or vectors, returns the
         /// greater of the operands. For vectors it operates element-wise.

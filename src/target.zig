@@ -231,6 +231,16 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
+pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.CompilerBackend) bool {
+    return switch (ofmt) {
+        .elf => switch (backend) {
+            .stage2_x86_64 => true,
+            else => false,
+        },
+        else => false,
+    };
+}
+
 /// The set of targets that our own self-hosted backends have robust support for.
 /// Used to select between LLVM backend and self-hosted backend when compiling in
 /// debug mode. A given target should only return true here if it is passing greater
@@ -238,7 +248,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
     if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
-        if (target.os.tag == .netbsd or target.os.tag == .openbsd) {
+        if (target.os.tag.isBSD()) {
             // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
             return false;
         }

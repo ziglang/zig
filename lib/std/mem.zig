@@ -3633,10 +3633,34 @@ test indexOfMinMax {
 }
 
 /// Exchanges contents of two memory locations.
-pub fn swap(comptime T: type, a: *T, b: *T) void {
-    const tmp = a.*;
-    a.* = b.*;
-    b.* = tmp;
+pub fn swap(comptime T: type, noalias a: *T, noalias b: *T) void {
+    if (@inComptime()) {
+        // In comptime, accessing bytes of values with no defined layout is a compile error.
+        const tmp = a.*;
+        a.* = b.*;
+        b.* = tmp;
+    } else {
+        // Swapping in streaming nature from start to end instead of swapping
+        // everything in one step allows easier optimizations and less stack usage.
+        const a_bytes: []align(@alignOf(T)) u8 = @ptrCast(a);
+        const b_bytes: []align(@alignOf(T)) u8 = @ptrCast(b);
+        for (a_bytes, b_bytes) |*ab, *bb| {
+            const tmp = ab.*;
+            ab.* = bb.*;
+            bb.* = tmp;
+        }
+    }
+}
+
+test "swap works at comptime with types with no defined layout" {
+    comptime {
+        const T = struct { val: u64 };
+        var a: T = .{ .val = 0 };
+        var b: T = .{ .val = 1 };
+        swap(T, &a, &b);
+        try testing.expectEqual(T{ .val = 1 }, a);
+        try testing.expectEqual(T{ .val = 0 }, b);
+    }
 }
 
 inline fn reverseVector(comptime N: usize, comptime T: type, a: []T) [N]T {

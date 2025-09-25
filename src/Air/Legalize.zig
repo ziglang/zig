@@ -2682,12 +2682,10 @@ const Block = struct {
             },
             .@"packed" => switch (agg_ty.zigTypeTag(zcu)) {
                 else => unreachable,
-                .@"struct" => switch (agg_ty.packedStructFieldPtrInfo(agg_ptr_ty, @intCast(field_index), pt)) {
-                    .bit_ptr => |packed_offset| {
-                        field_ptr_info.packed_offset = packed_offset;
-                        break :field_ptr_align agg_ptr_align;
-                    },
-                    .byte_ptr => |ptr_info| ptr_info.alignment,
+                .@"struct" => {
+                    const packed_offset = agg_ty.packedStructFieldPtrInfo(agg_ptr_ty, @intCast(field_index), pt);
+                    field_ptr_info.packed_offset = packed_offset;
+                    break :field_ptr_align agg_ptr_align;
                 },
                 .@"union" => {
                     field_ptr_info.packed_offset = .{

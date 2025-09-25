@@ -254,7 +254,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
         \\ syscall
         :
         : [number] "{$2}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
+    );
 }
 
 pub const F = struct {
