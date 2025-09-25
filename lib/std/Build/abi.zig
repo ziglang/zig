@@ -140,7 +140,7 @@ pub const Rebuild = extern struct {
 pub const fuzz = struct {
     pub const TestOne = *const fn (Slice) callconv(.c) void;
     pub extern fn fuzzer_init(cache_dir_path: Slice) void;
-    pub extern fn fuzzer_coverage_id() u64;
+    pub extern fn fuzzer_coverage() Coverage;
     pub extern fn fuzzer_init_test(test_one: TestOne, unit_test_name: Slice) void;
     pub extern fn fuzzer_new_input(bytes: Slice) void;
     pub extern fn fuzzer_main(limit_kind: LimitKind, amount: u64) void;
@@ -252,6 +252,16 @@ pub const fuzz = struct {
         pub fn init(locs_len: u24) EntryPointHeader {
             return .{ .locs_len_raw = @bitCast(locs_len) };
         }
+    };
+
+    /// Sent by lib/fuzzer to test_runner to obtain information about the
+    /// active memory mapped input file and cumulative stats about previous
+    /// fuzzing runs.
+    pub const Coverage = extern struct {
+        id: u64,
+        runs: u64,
+        unique: u64,
+        seen: u64,
     };
 };
 

@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const fatal = std.process.fatal;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
@@ -105,6 +106,7 @@ const Executable = struct {
         const coverage_file_len = @sizeOf(abi.SeenPcsHeader) +
             pc_bitset_usizes * @sizeOf(usize) +
             pcs.len * @sizeOf(usize);
+
         if (populate) {
             defer coverage_file.lock(.shared) catch |e| panic(
                 "failed to demote lock for coverage file '{s}': {t}",
@@ -581,8 +583,21 @@ export fn fuzzer_init(cache_dir_path: abi.Slice) void {
 }
 
 /// Invalid until `fuzzer_init` is called.
-export fn fuzzer_coverage_id() u64 {
-    return exec.pc_digest;
+export fn fuzzer_coverage() abi.Coverage {
+    const coverage_id = exec.pc_digest;
+    const header: *const abi.SeenPcsHeader = @ptrCast(@volatileCast(exec.shared_seen_pcs.items.ptr));
+
+    var seen_count: usize = 0;
+    for (header.seenBits()) |chunk| {
+        seen_count += @popCount(chunk);
+    }
+
+    return .{
+        .id = coverage_id,
+        .runs = header.n_runs,
+        .unique = header.unique_runs,
+        .seen = seen_count,
+    };
 }
 
 /// fuzzer_init must be called beforehand

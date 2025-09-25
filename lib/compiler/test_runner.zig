@@ -56,20 +56,21 @@ pub fn main() void {
         }
     }
 
-    fba.reset();
     if (builtin.fuzz) {
         const cache_dir = opt_cache_dir orelse @panic("missing --cache-dir=[path] argument");
         fuzz_abi.fuzzer_init(.fromSlice(cache_dir));
     }
 
+    fba.reset();
+
     if (listen) {
-        return mainServer(opt_cache_dir) catch @panic("internal test runner failure");
+        return mainServer() catch @panic("internal test runner failure");
     } else {
         return mainTerminal();
     }
 }
 
-fn mainServer(opt_cache_dir: ?[]const u8) !void {
+fn mainServer() !void {
     @disableInstrumentation();
     var stdin_reader = std.fs.File.stdin().readerStreaming(&stdin_buffer);
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
@@ -79,66 +80,14 @@ fn mainServer(opt_cache_dir: ?[]const u8) !void {
         .zig_version = builtin.zig_version_string,
     });
 
-    if (builtin.fuzz) blk: {
-        const cache_dir = opt_cache_dir.?;
-        const coverage_id = fuzz_abi.fuzzer_coverage_id();
-        const coverage_file_path: std.Build.Cache.Path = .{
-            .root_dir = .{
-                .path = cache_dir,
-                .handle = std.fs.cwd().openDir(cache_dir, .{}) catch |err| {
-                    if (err == error.FileNotFound) {
-                        try server.serveCoverageIdMessage(coverage_id, 0, 0, 0);
-                        break :blk;
-                    }
-
-                    fatal("failed to access cache dir '{s}': {s}", .{
-                        cache_dir, @errorName(err),
-                    });
-                },
-            },
-            .sub_path = "v/" ++ std.fmt.hex(coverage_id),
-        };
-
-        var coverage_file = coverage_file_path.root_dir.handle.openFile(coverage_file_path.sub_path, .{}) catch |err| {
-            if (err == error.FileNotFound) {
-                try server.serveCoverageIdMessage(coverage_id, 0, 0, 0);
-                break :blk;
-            }
-
-            fatal("failed to load coverage file '{f}': {s}", .{
-                coverage_file_path, @errorName(err),
-            });
-        };
-        defer coverage_file.close();
-
-        var rbuf: [0x1000]u8 = undefined;
-        var r = coverage_file.reader(&rbuf);
-
-        var header: fuzz_abi.SeenPcsHeader = undefined;
-        r.interface.readSliceAll(std.mem.asBytes(&header)) catch |err| {
-            fatal("failed to read from coverage file '{f}': {s}", .{
-                coverage_file_path, @errorName(err),
-            });
-        };
-
-        if (header.pcs_len == 0) {
-            fatal("corrupted coverage file '{f}': pcs_len was zero", .{
-                coverage_file_path,
-            });
-        }
-
-        var seen_count: usize = 0;
-        const chunk_count = fuzz_abi.SeenPcsHeader.seenElemsLen(header.pcs_len);
-        for (0..chunk_count) |_| {
-            const seen = r.interface.takeInt(usize, .little) catch |err| {
-                fatal("failed to read from coverage file '{f}': {s}", .{
-                    coverage_file_path, @errorName(err),
-                });
-            };
-            seen_count += @popCount(seen);
-        }
-
-        try server.serveCoverageIdMessage(coverage_id, header.n_runs, header.unique_runs, seen_count);
+    if (builtin.fuzz) {
+        const coverage = fuzz_abi.fuzzer_coverage();
+        try server.serveCoverageIdMessage(
+            coverage.id,
+            coverage.runs,
+            coverage.unique,
+            coverage.seen,
+        );
     }
 
     while (true) {
@@ -235,7 +184,7 @@ fn mainServer(opt_cache_dir: ?[]const u8) !void {
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace.*);
                         }
-                        std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                        std.debug.print("failed with error.{t}\n", .{err});
                         std.process.exit(1);
                     },
                 };
@@ -305,11 +254,11 @@ fn mainTerminal() void {
             else => {
                 fail_count += 1;
                 if (have_tty) {
-                    std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
-                        i + 1, test_fn_list.len, test_fn.name, @errorName(err),
+                    std.debug.print("{d}/{d} {s}...FAIL ({t})\n", .{
+                        i + 1, test_fn_list.len, test_fn.name, err,
                     });
                 } else {
-                    std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                    std.debug.print("FAIL ({t})\n", .{err});
                 }
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
@@ -450,7 +399,7 @@ pub fn fuzz(
                 else => {
                     std.debug.lockStdErr();
                     if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
-                    std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                    std.debug.print("failed with error.{t}\n", .{err});
                     std.process.exit(1);
                 },
             };

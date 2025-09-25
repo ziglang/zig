@@ -280,21 +280,21 @@ pub fn main() !void {
                 }
             } else if (mem.startsWith(u8, arg, "--fuzz=")) {
                 const value = arg["--fuzz=".len..];
-                if (value.len == 0) fatal("missing argument to --fuzz\n", .{});
+                if (value.len == 0) fatal("missing argument to --fuzz", .{});
 
                 const unit: u8 = value[value.len - 1];
-                const digits = switch (value[value.len - 1]) {
+                const digits = switch (unit) {
                     '0'...'9' => value,
                     'K', 'M', 'G' => value[0 .. value.len - 1],
                     else => fatal(
-                        "invalid argument to --fuzz, expected a positive number optionally suffixed by one of: [KMG]\n",
+                        "invalid argument to --fuzz, expected a positive number optionally suffixed by one of: [KMG]",
                         .{},
                     ),
                 };
 
                 const amount = std.fmt.parseInt(u64, digits, 10) catch {
                     fatal(
-                        "invalid argument to --fuzz, expected a positive number optionally suffixed by one of: [KMG]\n",
+                        "invalid argument to --fuzz, expected a positive number optionally suffixed by one of: [KMG]",
                         .{},
                     );
                 };
@@ -305,7 +305,7 @@ pub fn main() !void {
                     'K' => 1000,
                     'M' => 1_000_000,
                     'G' => 1_000_000_000,
-                }) catch fatal("fuzzing limit amount overflows u64\n", .{});
+                }) catch fatal("fuzzing limit amount overflows u64", .{});
 
                 fuzz = .{
                     .limit = .{
@@ -520,7 +520,11 @@ pub fn main() !void {
         };
 
         if (run.web_server) |*web_server| {
-            if (fuzz) |mode| assert(mode == .forever);
+            if (fuzz) |mode| if (mode != .forever) fatal(
+                "error: limited fuzzing is not implemented yet for --webui",
+                .{},
+            );
+
             web_server.finishBuild(.{ .fuzz = fuzz != null });
         }
 

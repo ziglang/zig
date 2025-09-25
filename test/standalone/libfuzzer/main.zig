@@ -24,7 +24,7 @@ pub fn main() !void {
     abi.fuzzer_new_input(.fromSlice(""));
     abi.fuzzer_new_input(.fromSlice("hello"));
 
-    const pc_digest = abi.fuzzer_coverage_id();
+    const pc_digest = abi.fuzzer_coverage().id;
     const coverage_file_path = "v/" ++ std.fmt.hex(pc_digest);
     const coverage_file = try cache_dir.openFile(coverage_file_path, .{});
     defer coverage_file.close();
