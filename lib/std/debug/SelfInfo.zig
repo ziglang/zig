@@ -792,10 +792,7 @@ pub const Module = switch (native_os) {
             _ = allocator;
             _ = address;
 
-            return switch (self.debug_data) {
-                .dwarf => |*dwarf| dwarf,
-                else => null,
-            };
+            if (self.dwarf) |*dwarf| return dwarf else null;
         }
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => Dwarf.ElfModule,
