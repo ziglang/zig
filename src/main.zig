@@ -204,17 +204,6 @@ pub fn main() anyerror!void {
     return mainArgs(gpa, arena, args);
 }
 
-/// Check that LLVM and Clang have been linked properly so that they are using the same
-/// libc++ and can safely share objects with pointers to static variables in libc++
-fn verifyLibcxxCorrectlyLinked() void {
-    if (build_options.have_llvm and ZigClangIsLLVMUsingSeparateLibcxx()) {
-        fatal(
-            \\Zig was built/linked incorrectly: LLVM and Clang have separate copies of libc++
-            \\       If you are dynamically linking LLVM, make sure you dynamically link libc++ too
-        , .{});
-    }
-}
-
 fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const tr = tracy.trace(@src());
     defer tr.end();
@@ -350,13 +339,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
         try fs.File.stdout().writeAll(build_options.version ++ "\n");
-        // Check libc++ linkage to make sure Zig was built correctly, but only
-        // for "env" and "version" to avoid affecting the startup time for
-        // build-critical commands (check takes about ~10 μs)
-        return verifyLibcxxCorrectlyLinked();
+        return;
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
-        verifyLibcxxCorrectlyLinked();
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         try @import("print_env.zig").cmdEnv(
             arena,
@@ -4551,179 +4536,64 @@ fn cmdTranslateC(
     prog_node: std.Progress.Node,
 ) !void {
     dev.check(.translate_c_command);
+    _ = file_system_inputs;
+    _ = fancy_output;
 
-    const color: Color = .auto;
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
-    const translated_zig_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{comp.root_name});
+    var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
+    defer zig_cache_tmp_dir.close();
 
-    var man: Cache.Manifest = comp.obtainCObjectCacheManifest(comp.root_mod);
-    man.want_shared_lock = false;
-    defer man.deinit();
-
-    man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    man.hash.add(comp.config.c_frontend);
-    Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
-        fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
+    const ext = Compilation.classifyFileExt(c_source_file.src_path);
+    const out_dep_path: ?[]const u8 = blk: {
+        if (comp.disable_c_depfile) break :blk null;
+        const c_src_basename = fs.path.basename(c_source_file.src_path);
+        const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
+        const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
+        break :blk out_dep_path;
     };
 
-    if (fancy_output) |p| p.cache_hit = true;
-    const bin_digest, const hex_digest = if (try man.hit()) digest: {
-        if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
-        const bin_digest = man.finalBin();
-        const hex_digest = Cache.binToHex(bin_digest);
-        break :digest .{ bin_digest, hex_digest };
-    } else digest: {
-        if (fancy_output) |p| p.cache_hit = false;
-        var argv = std.array_list.Managed([]const u8).init(arena);
-        switch (comp.config.c_frontend) {
-            .aro => {},
-            .clang => {
-                // argv[0] is program name, actual args start at [1]
-                try argv.append(@tagName(comp.config.c_frontend));
-            },
-        }
+    var argv = std.array_list.Managed([]const u8).init(arena);
+    try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
+    try argv.append(c_source_file.src_path);
+    if (comp.verbose_cc) Compilation.dump_argv(argv.items);
 
-        var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
-        defer zig_cache_tmp_dir.close();
+    try translateC(comp.gpa, arena, argv.items, prog_node, null);
 
-        const ext = Compilation.classifyFileExt(c_source_file.src_path);
-        const out_dep_path: ?[]const u8 = blk: {
-            if (comp.config.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
-                break :blk null;
-
-            const c_src_basename = fs.path.basename(c_source_file.src_path);
-            const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
-            const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
-            break :blk out_dep_path;
+    if (out_dep_path) |dep_file_path| {
+        const dep_basename = fs.path.basename(dep_file_path);
+        // Add the files depended on to the cache system.
+        //man.addDepFilePost(zig_cache_tmp_dir, dep_basename) catch |err| switch (err) {
+        //    error.FileNotFound => {
+        //        // Clang didn't emit the dep file; nothing to add to the manifest.
+        //        break :add_deps;
+        //    },
+        //    else => |e| return e,
+        //};
+        // Just to save disk space, we delete the file because it is never needed again.
+        zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+            warn("failed to delete '{s}': {t}", .{ dep_file_path, err });
         };
-
-        // TODO
-        if (comp.config.c_frontend != .aro)
-            try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
-        try argv.append(c_source_file.src_path);
-
-        if (comp.verbose_cc) {
-            Compilation.dump_argv(argv.items);
-        }
-
-        const Result = union(enum) {
-            success: []const u8,
-            error_bundle: std.zig.ErrorBundle,
-        };
-
-        const result: Result = switch (comp.config.c_frontend) {
-            .aro => f: {
-                var stdout: []u8 = undefined;
-                try jitCmd(comp.gpa, arena, argv.items, .{
-                    .cmd_name = "aro_translate_c",
-                    .root_src_path = "aro_translate_c.zig",
-                    .depend_on_aro = true,
-                    .capture = &stdout,
-                    .progress_node = prog_node,
-                });
-                break :f .{ .success = stdout };
-            },
-            .clang => f: {
-                if (!build_options.have_llvm) unreachable;
-                const translate_c = @import("translate_c.zig");
-
-                // Convert to null terminated args.
-                const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
-                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
-                new_argv_with_sentinel[clang_args_len] = null;
-                const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
-                for (argv.items, 0..) |arg, i| {
-                    new_argv[i] = try arena.dupeZ(u8, arg);
-                }
-                for (c_source_file.extra_flags, 0..) |arg, i| {
-                    new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
-                }
-
-                const c_headers_dir_path_z = try comp.dirs.zig_lib.joinZ(arena, &.{"include"});
-                var errors = std.zig.ErrorBundle.empty;
-                var tree = translate_c.translate(
-                    comp.gpa,
-                    new_argv.ptr,
-                    new_argv.ptr + new_argv.len,
-                    &errors,
-                    c_headers_dir_path_z,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
-                };
-                defer tree.deinit(comp.gpa);
-                break :f .{ .success = try tree.renderAlloc(arena) };
-            },
-        };
-
-        if (out_dep_path) |dep_file_path| add_deps: {
-            const dep_basename = fs.path.basename(dep_file_path);
-            // Add the files depended on to the cache system.
-            man.addDepFilePost(zig_cache_tmp_dir, dep_basename) catch |err| switch (err) {
-                error.FileNotFound => {
-                    // Clang didn't emit the dep file; nothing to add to the manifest.
-                    break :add_deps;
-                },
-                else => |e| return e,
-            };
-            // Just to save disk space, we delete the file because it is never needed again.
-            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
-            };
-        }
-
-        const formatted = switch (result) {
-            .success => |formatted| formatted,
-            .error_bundle => |eb| {
-                if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
-                if (fancy_output) |p| {
-                    p.errors = eb;
-                    return;
-                } else {
-                    eb.renderToStdErr(color.renderOptions());
-                    process.exit(1);
-                }
-            },
-        };
-
-        const bin_digest = man.finalBin();
-        const hex_digest = Cache.binToHex(bin_digest);
-
-        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &hex_digest });
-
-        var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
-        defer o_dir.close();
-
-        var zig_file = try o_dir.createFile(translated_zig_basename, .{});
-        defer zig_file.close();
-
-        try zig_file.writeAll(formatted);
-
-        man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
-
-        if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
-
-        break :digest .{ bin_digest, hex_digest };
-    };
-
-    if (fancy_output) |p| {
-        p.digest = bin_digest;
-        p.errors = std.zig.ErrorBundle.empty;
-    } else {
-        const out_zig_path = try fs.path.join(arena, &.{ "o", &hex_digest, translated_zig_basename });
-        const zig_file = comp.dirs.local_cache.handle.openFile(out_zig_path, .{}) catch |err| {
-            const path = comp.dirs.local_cache.path orelse ".";
-            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ path, fs.path.sep_str, out_zig_path, @errorName(err) });
-        };
-        defer zig_file.close();
-        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
-        var file_reader = zig_file.reader(&.{});
-        _ = try stdout_writer.interface.sendFileAll(&file_reader, .unlimited);
-        try stdout_writer.interface.flush();
-        return cleanExit();
     }
+
+    return cleanExit();
+}
+
+pub fn translateC(
+    gpa: Allocator,
+    arena: Allocator,
+    argv: []const []const u8,
+    prog_node: std.Progress.Node,
+    capture: ?*[]u8,
+) !void {
+    try jitCmd(gpa, arena, argv, .{
+        .cmd_name = "translate-c",
+        .root_src_path = "translate-c/main.zig",
+        .depend_on_aro = true,
+        .progress_node = prog_node,
+        .capture = capture,
+    });
 }
 
 const usage_init =
@@ -5682,12 +5552,13 @@ fn jitCmd(
     child_argv.appendSliceAssumeCapacity(args);
 
     if (process.can_execv and options.capture == null) {
+        if (EnvVar.ZIG_DEBUG_CMD.isSet()) {
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            std.debug.print("{s}\n", .{cmd});
+        }
         const err = process.execv(gpa, child_argv.items);
         const cmd = try std.mem.join(arena, " ", child_argv.items);
-        fatal("the following command failed to execve with '{s}':\n{s}", .{
-            @errorName(err),
-            cmd,
-        });
+        fatal("the following command failed to execve with '{t}':\n{s}", .{ err, cmd });
     }
 
     if (!process.can_spawn) {

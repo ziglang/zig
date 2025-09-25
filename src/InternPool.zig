@@ -6925,10 +6925,7 @@ pub fn deactivate(ip: *const InternPool) void {
 
 /// For debugger access only.
 const debug_state = struct {
-    const enable = switch (builtin.zig_backend) {
-        else => false,
-        .stage2_x86_64 => !builtin.strip_debug_info,
-    };
+    const enable = false;
     const enable_checks = enable and !builtin.single_threaded;
     threadlocal var intern_pool: ?*const InternPool = null;
 };

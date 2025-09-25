@@ -90,8 +90,6 @@ pub fn build(b: *std.Build) !void {
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
-    const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
-    const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse skip_translate_c;
     const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
     const skip_netbsd = b.option(bool, "skip-netbsd", "Main test suite skips targets with netbsd OS") orelse false;
     const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
@@ -416,7 +414,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(check_fmt);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, target, .{
+    try tests.addCases(b, test_cases_step, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .skip_compile_errors = skip_compile_errors,
@@ -428,9 +426,6 @@ pub fn build(b: *std.Build) !void {
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-    }, .{
-        .skip_translate_c = skip_translate_c,
-        .skip_run_translated_c = skip_run_translated_c,
     }, .{
         .enable_llvm = enable_llvm,
         .llvm_has_m68k = llvm_has_m68k,
@@ -464,28 +459,6 @@ pub fn build(b: *std.Build) !void {
         // 3888779264 was observed on an x86_64-linux-gnu host.
         .max_rss = 4000000000,
     }));
-
-    if (!skip_translate_c) {
-        test_modules_step.dependOn(tests.addModuleTests(b, .{
-            .test_filters = test_filters,
-            .test_target_filters = test_target_filters,
-            .test_extra_targets = test_extra_targets,
-            .root_src = "test/c_import.zig",
-            .name = "c-import",
-            .desc = "Run the @cImport tests",
-            .optimize_modes = optimization_modes,
-            .include_paths = &.{"test/c_import"},
-            .skip_single_threaded = true,
-            .skip_non_native = skip_non_native,
-            .skip_freebsd = skip_freebsd,
-            .skip_netbsd = skip_netbsd,
-            .skip_windows = skip_windows,
-            .skip_macos = skip_macos,
-            .skip_linux = skip_linux,
-            .skip_llvm = skip_llvm,
-            .skip_libc = skip_libc,
-        }));
-    }
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
@@ -577,7 +550,6 @@ pub fn build(b: *std.Build) !void {
         enable_macos_sdk,
         enable_ios_sdk,
         enable_symlinks_windows,
-        skip_translate_c,
     ));
     test_step.dependOn(tests.addCAbiTests(b, .{
         .test_target_filters = test_target_filters,
@@ -732,13 +704,7 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
         .root_source_file = b.path("lib/compiler/aro/aro.zig"),
     });
 
-    const aro_translate_c_mod = b.createModule(.{
-        .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
-    });
-
-    aro_translate_c_mod.addImport("aro", aro_mod);
     compiler_mod.addImport("aro", aro_mod);
-    compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
 
     return compiler_mod;
 }
@@ -1158,7 +1124,6 @@ fn toNativePathSep(b: *std.Build, s: []const u8) []u8 {
 const zig_cpp_sources = [_][]const u8{
     // These are planned to stay even when we are self-hosted.
     "src/zig_llvm.cpp",
-    "src/zig_clang.cpp",
     "src/zig_llvm-ar.cpp",
     "src/zig_clang_driver.cpp",
     "src/zig_clang_cc1_main.cpp",

@@ -5655,115 +5655,60 @@ pub const CImportResult = struct {
 };
 
 /// Caller owns returned memory.
-pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module) !CImportResult {
+pub fn cImport(
+    comp: *Compilation,
+    c_src: []const u8,
+    owner_mod: *Package.Module,
+    prog_node: std.Progress.Node,
+) !CImportResult {
     dev.check(.translate_c_command);
 
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
-
-    const cimport_zig_basename = "cimport.zig";
+    const cimport_basename = "cimport.h";
+    const translated_basename = "cimport.zig";
 
     var man = comp.obtainCObjectCacheManifest(owner_mod);
     defer man.deinit();
 
-    man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
+    man.hash.add(@as(u16, 0x7dd9)); // Random number to distinguish translate-c from compiling C objects
     man.hash.addBytes(c_src);
-    man.hash.add(comp.config.c_frontend);
 
-    // If the previous invocation resulted in clang errors, we will see a hit
-    // here with 0 files in the manifest, in which case it is actually a miss.
-    // We need to "unhit" in this case, to keep the digests matching.
-    const prev_hash_state = man.hash.peekBin();
-    const actual_hit = hit: {
-        _ = try man.hit();
-        if (man.files.entries.len == 0) {
-            man.unhit(prev_hash_state, 0);
-            break :hit false;
-        }
-        break :hit true;
-    };
-    const digest = if (!actual_hit) digest: {
+    const digest, const is_hit = if (try man.hit()) .{ man.finalBin(), true } else digest: {
         var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const tmp_digest = man.hash.peek();
-        const tmp_dir_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
-        var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{});
-        defer zig_cache_tmp_dir.close();
-        const cimport_basename = "cimport.h";
-        const out_h_path = try comp.dirs.local_cache.join(arena, &[_][]const u8{
-            tmp_dir_sub_path, cimport_basename,
-        });
+        const tmp_basename = std.fmt.hex(std.crypto.random.int(u64));
+        const tmp_sub_path = "tmp" ++ fs.path.sep_str ++ tmp_basename;
+        const cache_dir = comp.dirs.local_cache.handle;
+        const out_h_sub_path = tmp_sub_path ++ fs.path.sep_str ++ cimport_basename;
+
+        try cache_dir.makePath(tmp_sub_path);
+
+        const out_h_path = try comp.dirs.local_cache.join(arena, &.{out_h_sub_path});
+        const translated_path = try comp.dirs.local_cache.join(arena, &.{ tmp_sub_path, translated_basename });
         const out_dep_path = try std.fmt.allocPrint(arena, "{s}.d", .{out_h_path});
 
-        try zig_cache_tmp_dir.writeFile(.{ .sub_path = cimport_basename, .data = c_src });
-        if (comp.verbose_cimport) {
-            log.info("C import source: {s}", .{out_h_path});
-        }
+        if (comp.verbose_cimport) log.info("writing C import source to {s}", .{out_h_path});
+        try cache_dir.writeFile(.{ .sub_path = out_h_sub_path, .data = c_src });
 
         var argv = std.array_list.Managed([]const u8).init(comp.gpa);
         defer argv.deinit();
-
-        try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
         try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path, owner_mod);
+        try argv.appendSlice(&.{ out_h_path, "-o", translated_path });
 
-        try argv.append(out_h_path);
+        if (comp.verbose_cc) dump_argv(argv.items);
+        var stdout: []u8 = undefined;
+        try @import("main.zig").translateC(comp.gpa, arena, argv.items, prog_node, &stdout);
+        if (comp.verbose_cimport and stdout.len != 0) log.info("unexpected stdout: {s}", .{stdout});
 
-        if (comp.verbose_cc) {
-            dump_argv(argv.items);
-        }
-        var tree = switch (comp.config.c_frontend) {
-            .aro => tree: {
-                if (true) @panic("TODO");
-                break :tree undefined;
-            },
-            .clang => tree: {
-                if (!build_options.have_llvm) unreachable;
-                const translate_c = @import("translate_c.zig");
-
-                // Convert to null terminated args.
-                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
-                new_argv_with_sentinel[argv.items.len] = null;
-                const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
-                for (argv.items, 0..) |arg, i| {
-                    new_argv[i] = try arena.dupeZ(u8, arg);
-                }
-
-                const c_headers_dir_path_z = try comp.dirs.zig_lib.joinZ(arena, &.{"include"});
-                var errors = std.zig.ErrorBundle.empty;
-                errdefer errors.deinit(comp.gpa);
-                break :tree translate_c.translate(
-                    comp.gpa,
-                    new_argv.ptr,
-                    new_argv.ptr + new_argv.len,
-                    &errors,
-                    c_headers_dir_path_z,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.SemanticAnalyzeFail => {
-                        return CImportResult{
-                            .digest = undefined,
-                            .cache_hit = actual_hit,
-                            .errors = errors,
-                        };
-                    },
-                };
-            },
-        };
-        defer tree.deinit(comp.gpa);
-
-        if (comp.verbose_cimport) {
-            log.info("C import .d file: {s}", .{out_dep_path});
-        }
-
-        const dep_basename = fs.path.basename(out_dep_path);
-        try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        const dep_sub_path = out_h_sub_path ++ ".d";
+        if (comp.verbose_cimport) log.info("processing dep file at {s}", .{dep_sub_path});
+        try man.addDepFilePost(cache_dir, dep_sub_path);
         switch (comp.cache_use) {
             .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
                 whole.cache_manifest_mutex.lock();
                 defer whole.cache_manifest_mutex.unlock();
-                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+                try whole_cache_manifest.addDepFilePost(cache_dir, dep_sub_path);
             },
             .incremental, .none => {},
         }
@@ -5771,19 +5716,12 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         const bin_digest = man.finalBin();
         const hex_digest = Cache.binToHex(bin_digest);
         const o_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
-        var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
-        defer o_dir.close();
 
-        var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
-        defer out_zig_file.close();
+        if (comp.verbose_cimport) log.info("renaming {s} to {s}", .{ tmp_sub_path, o_sub_path });
+        try renameTmpIntoCache(comp.dirs.local_cache, tmp_sub_path, o_sub_path);
 
-        const formatted = try tree.renderAlloc(comp.gpa);
-        defer comp.gpa.free(formatted);
-
-        try out_zig_file.writeAll(formatted);
-
-        break :digest bin_digest;
-    } else man.finalBin();
+        break :digest .{ bin_digest, false };
+    };
 
     if (man.have_exclusive_lock) {
         // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
@@ -5795,9 +5733,9 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         };
     }
 
-    return CImportResult{
+    return .{
         .digest = digest,
-        .cache_hit = actual_hit,
+        .cache_hit = is_hit,
         .errors = std.zig.ErrorBundle.empty,
     };
 }
@@ -6747,51 +6685,63 @@ pub fn addTranslateCCArgs(
     out_dep_path: ?[]const u8,
     owner_mod: *Package.Module,
 ) !void {
+    const target = &owner_mod.resolved_target.result;
+
     try argv.appendSlice(&.{ "-x", "c" });
-    try comp.addCCArgs(arena, argv, ext, out_dep_path, owner_mod);
-    // This gives us access to preprocessing entities, presumably at the cost of performance.
-    try argv.appendSlice(&.{ "-Xclang", "-detailed-preprocessing-record" });
+
+    const resource_path = try comp.dirs.zig_lib.join(arena, &.{"compiler/aro/include"});
+    try argv.appendSlice(&.{ "-isystem", resource_path });
+
+    try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, owner_mod, .aro);
+
+    try argv.appendSlice(&[_][]const u8{ "-target", try target.zigTriple(arena) });
+
+    const mcpu = mcpu: {
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
+        defer buf.deinit(comp.gpa);
+
+        try buf.print(comp.gpa, "-mcpu={s}", .{target.cpu.model.name});
+
+        // TODO better serialization https://github.com/ziglang/zig/issues/4584
+        const all_features_list = target.cpu.arch.allFeaturesList();
+        try argv.ensureUnusedCapacity(all_features_list.len * 4);
+        for (all_features_list, 0..) |feature, index_usize| {
+            const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
+            const is_enabled = target.cpu.features.isEnabled(index);
+
+            const plus_or_minus = "-+"[@intFromBool(is_enabled)];
+            try buf.print(comp.gpa, "{c}{s}", .{ plus_or_minus, feature.name });
+        }
+        break :mcpu try buf.toOwnedSlice(arena);
+    };
+    try argv.append(mcpu);
+
+    try argv.appendSlice(comp.global_cc_argv);
+    try argv.appendSlice(owner_mod.cc_argv);
 }
 
 /// Add common C compiler args between translate-c and C object compilation.
-pub fn addCCArgs(
+fn addCommonCCArgs(
     comp: *const Compilation,
     arena: Allocator,
     argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     mod: *Package.Module,
+    c_frontend: Config.CFrontend,
 ) !void {
     const target = &mod.resolved_target.result;
+    const is_clang = c_frontend == .clang;
 
-    // As of Clang 16.x, it will by default read extra flags from /etc/clang.
-    // I'm sure the person who implemented this means well, but they have a lot
-    // to learn about abstractions and where the appropriate boundaries between
-    // them are. The road to hell is paved with good intentions. Fortunately it
-    // can be disabled.
-    try argv.append("--no-default-config");
-
-    // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
-    // we want Clang to infer it, and in normal mode we always want it off, which will be true since
-    // clang will detect stderr as a pipe rather than a terminal.
-    if (!comp.clang_passthrough_mode and ext.clangSupportsDiagnostics()) {
-        // Make stderr more easily parseable.
-        try argv.append("-fno-caret-diagnostics");
+    if (target_util.supports_fpic(target)) {
+        // PIE needs to go before PIC because Clang interprets `-fno-PIE` to imply `-fno-PIC`, which
+        // we don't necessarily want.
+        try argv.append(if (comp.config.pie) "-fPIE" else "-fno-PIE");
+        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
     }
-
-    // We never want clang to invoke the system assembler for anything. So we would want
-    // this option always enabled. However, it only matters for some targets. To avoid
-    // "unused parameter" warnings, and to keep CLI spam to a minimum, we only put this
-    // flag on the command line if it is necessary.
-    if (target_util.clangMightShellOutForAssembly(target)) {
-        try argv.append("-integrated-as");
-    }
-
-    const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
-    try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (target.os.tag) {
-        .ios, .macos, .tvos, .watchos => |os| {
+        .ios, .macos, .tvos, .watchos => |os| if (is_clang) {
             try argv.ensureUnusedCapacity(2);
             // Pass the proper -m<os>-version-min argument for darwin.
             const ver = target.os.version_range.semver.min;
@@ -6813,78 +6763,6 @@ pub fn addCCArgs(
             argv.appendAssumeCapacity("-Wno-overriding-option");
         },
         else => {},
-    }
-
-    const xclang_flag = switch (ext) {
-        .assembly, .assembly_with_cpp => "-Xclangas",
-        else => "-Xclang",
-    };
-
-    if (target_util.clangSupportsTargetCpuArg(target)) {
-        if (target.cpu.model.llvm_name) |llvm_name| {
-            try argv.appendSlice(&[_][]const u8{
-                xclang_flag, "-target-cpu", xclang_flag, llvm_name,
-            });
-        }
-    }
-
-    // It would be really nice if there was a more compact way to communicate this info to Clang.
-    const all_features_list = target.cpu.arch.allFeaturesList();
-    try argv.ensureUnusedCapacity(all_features_list.len * 4);
-    for (all_features_list, 0..) |feature, index_usize| {
-        const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-        const is_enabled = target.cpu.features.isEnabled(index);
-
-        if (feature.llvm_name) |llvm_name| {
-            // We communicate float ABI to Clang through the dedicated options.
-            if (std.mem.startsWith(u8, llvm_name, "soft-float") or
-                std.mem.startsWith(u8, llvm_name, "hard-float"))
-                continue;
-
-            // Ignore these until we figure out how to handle the concept of omitting features.
-            // See https://github.com/ziglang/zig/issues/23539
-            if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
-
-            argv.appendSliceAssumeCapacity(&[_][]const u8{ xclang_flag, "-target-feature", xclang_flag });
-            const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-            const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
-            argv.appendAssumeCapacity(arg);
-        }
-    }
-
-    if (target.cpu.arch.isThumb()) {
-        try argv.append(switch (ext) {
-            .assembly, .assembly_with_cpp => "-Wa,-mthumb",
-            else => "-mthumb",
-        });
-    }
-
-    if (target_util.llvmMachineAbi(target)) |mabi| {
-        // Clang's integrated Arm assembler doesn't support `-mabi` yet...
-        // Clang's FreeBSD driver doesn't support `-mabi` on PPC64 (ELFv2 is used anyway).
-        if (!(target.cpu.arch.isArm() and (ext == .assembly or ext == .assembly_with_cpp)) and
-            !(target.cpu.arch.isPowerPC64() and target.os.tag == .freebsd))
-        {
-            try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
-        }
-    }
-
-    // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
-    if (target_util.clangSupportsFloatAbiArg(target)) {
-        const fabi = @tagName(target.abi.float());
-
-        try argv.append(switch (target.cpu.arch) {
-            // For whatever reason, Clang doesn't support `-mfloat-abi` for s390x.
-            .s390x => try std.fmt.allocPrint(arena, "-m{s}-float", .{fabi}),
-            else => try std.fmt.allocPrint(arena, "-mfloat-abi={s}", .{fabi}),
-        });
-    }
-
-    if (target_util.supports_fpic(target)) {
-        // PIE needs to go before PIC because Clang interprets `-fno-PIE` to imply `-fno-PIC`, which
-        // we don't necessarily want.
-        try argv.append(if (comp.config.pie) "-fPIE" else "-fno-PIE");
-        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
     }
 
     if (comp.mingw_unicode_entry_point) {
@@ -6922,45 +6800,6 @@ pub fn addCCArgs(
     // Non-preprocessed assembly files don't support these flags.
     if (ext != .assembly) {
         try argv.append(if (target.os.tag == .freestanding) "-ffreestanding" else "-fhosted");
-
-        if (target_util.clangSupportsNoImplicitFloatArg(target) and target.abi.float() == .soft) {
-            try argv.append("-mno-implicit-float");
-        }
-
-        if (target_util.hasRedZone(target)) {
-            try argv.append(if (mod.red_zone) "-mred-zone" else "-mno-red-zone");
-        }
-
-        try argv.append(if (mod.omit_frame_pointer) "-fomit-frame-pointer" else "-fno-omit-frame-pointer");
-
-        const ssp_buf_size = mod.stack_protector;
-        if (ssp_buf_size != 0) {
-            try argv.appendSlice(&[_][]const u8{
-                "-fstack-protector-strong",
-                "--param",
-                try std.fmt.allocPrint(arena, "ssp-buffer-size={d}", .{ssp_buf_size}),
-            });
-        } else {
-            try argv.append("-fno-stack-protector");
-        }
-
-        try argv.append(if (mod.no_builtin) "-fno-builtin" else "-fbuiltin");
-
-        try argv.append(if (comp.function_sections) "-ffunction-sections" else "-fno-function-sections");
-        try argv.append(if (comp.data_sections) "-fdata-sections" else "-fno-data-sections");
-
-        switch (mod.unwind_tables) {
-            .none => {
-                try argv.append("-fno-unwind-tables");
-                try argv.append("-fno-asynchronous-unwind-tables");
-            },
-            .sync => {
-                // Need to override Clang's convoluted default logic.
-                try argv.append("-fno-asynchronous-unwind-tables");
-                try argv.append("-funwind-tables");
-            },
-            .async => try argv.append("-fasynchronous-unwind-tables"),
-        }
 
         try argv.append("-nostdinc");
 
@@ -7085,90 +6924,18 @@ pub fn addCCArgs(
         .mm,
         .hmm,
         => {
-            try argv.append("-fno-spell-checking");
+            if (is_clang) {
+                try argv.append("-fno-spell-checking");
 
-            if (target.os.tag == .windows and target.abi.isGnu()) {
-                // windows.h has files such as pshpack1.h which do #pragma packing,
-                // triggering a clang warning. So for this target, we disable this warning.
-                try argv.append("-Wno-pragma-pack");
+                if (target.os.tag == .windows and target.abi.isGnu()) {
+                    // windows.h has files such as pshpack1.h which do #pragma packing,
+                    // triggering a clang warning. So for this target, we disable this warning.
+                    try argv.append("-Wno-pragma-pack");
+                }
             }
 
             if (mod.optimize_mode != .Debug) {
                 try argv.append("-Werror=date-time");
-            }
-        },
-        else => {},
-    }
-
-    // Only assembly files support these flags.
-    switch (ext) {
-        .assembly,
-        .assembly_with_cpp,
-        => {
-            // The Clang assembler does not accept the list of CPU features like the
-            // compiler frontend does. Therefore we must hard-code the -m flags for
-            // all CPU features here.
-            switch (target.cpu.arch) {
-                .riscv32, .riscv32be, .riscv64, .riscv64be => {
-                    const RvArchFeat = struct { char: u8, feat: std.Target.riscv.Feature };
-                    const letters = [_]RvArchFeat{
-                        .{ .char = 'm', .feat = .m },
-                        .{ .char = 'a', .feat = .a },
-                        .{ .char = 'f', .feat = .f },
-                        .{ .char = 'd', .feat = .d },
-                        .{ .char = 'c', .feat = .c },
-                    };
-                    const prefix: []const u8 = if (target.cpu.arch == .riscv64) "rv64" else "rv32";
-                    const prefix_len = 4;
-                    assert(prefix.len == prefix_len);
-                    var march_buf: [prefix_len + letters.len + 1]u8 = undefined;
-                    var march_index: usize = prefix_len;
-                    @memcpy(march_buf[0..prefix.len], prefix);
-
-                    if (target.cpu.has(.riscv, .e)) {
-                        march_buf[march_index] = 'e';
-                    } else {
-                        march_buf[march_index] = 'i';
-                    }
-                    march_index += 1;
-
-                    for (letters) |letter| {
-                        if (target.cpu.has(.riscv, letter.feat)) {
-                            march_buf[march_index] = letter.char;
-                            march_index += 1;
-                        }
-                    }
-
-                    const march_arg = try std.fmt.allocPrint(arena, "-march={s}", .{
-                        march_buf[0..march_index],
-                    });
-                    try argv.append(march_arg);
-
-                    if (target.cpu.has(.riscv, .relax)) {
-                        try argv.append("-mrelax");
-                    } else {
-                        try argv.append("-mno-relax");
-                    }
-                    if (target.cpu.has(.riscv, .save_restore)) {
-                        try argv.append("-msave-restore");
-                    } else {
-                        try argv.append("-mno-save-restore");
-                    }
-                },
-                .mips, .mipsel, .mips64, .mips64el => {
-                    if (target.cpu.model.llvm_name) |llvm_name| {
-                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
-                    }
-                },
-                else => {
-                    // TODO
-                },
-            }
-
-            if (target_util.clangAssemblerSupportsMcpuArg(target)) {
-                if (target.cpu.model.llvm_name) |llvm_name| {
-                    try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{llvm_name}));
-                }
             }
         },
         else => {},
@@ -7191,7 +6958,7 @@ pub fn addCCArgs(
                 try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mod.code_model)}));
             }
 
-            {
+            if (is_clang) {
                 var san_arg: std.ArrayListUnmanaged(u8) = .empty;
                 const prefix = "-fsanitize=";
                 if (mod.sanitize_c != .off) {
@@ -7268,6 +7035,243 @@ pub fn addCCArgs(
                 .ReleaseSmall => {
                     try argv.append("-Os");
                 },
+            }
+        },
+        else => {},
+    }
+}
+
+/// Add common C compiler args and Clang specific args.
+pub fn addCCArgs(
+    comp: *const Compilation,
+    arena: Allocator,
+    argv: *std.array_list.Managed([]const u8),
+    ext: FileExt,
+    out_dep_path: ?[]const u8,
+    mod: *Package.Module,
+) !void {
+    const target = &mod.resolved_target.result;
+
+    // As of Clang 16.x, it will by default read extra flags from /etc/clang.
+    // I'm sure the person who implemented this means well, but they have a lot
+    // to learn about abstractions and where the appropriate boundaries between
+    // them are. The road to hell is paved with good intentions. Fortunately it
+    // can be disabled.
+    try argv.append("--no-default-config");
+
+    // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
+    // we want Clang to infer it, and in normal mode we always want it off, which will be true since
+    // clang will detect stderr as a pipe rather than a terminal.
+    if (!comp.clang_passthrough_mode and ext.clangSupportsDiagnostics()) {
+        // Make stderr more easily parseable.
+        try argv.append("-fno-caret-diagnostics");
+    }
+
+    // We never want clang to invoke the system assembler for anything. So we would want
+    // this option always enabled. However, it only matters for some targets. To avoid
+    // "unused parameter" warnings, and to keep CLI spam to a minimum, we only put this
+    // flag on the command line if it is necessary.
+    if (target_util.clangMightShellOutForAssembly(target)) {
+        try argv.append("-integrated-as");
+    }
+
+    const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
+    try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
+
+    if (target.cpu.arch.isThumb()) {
+        try argv.append(switch (ext) {
+            .assembly, .assembly_with_cpp => "-Wa,-mthumb",
+            else => "-mthumb",
+        });
+    }
+
+    if (target_util.llvmMachineAbi(target)) |mabi| {
+        // Clang's integrated Arm assembler doesn't support `-mabi` yet...
+        // Clang's FreeBSD driver doesn't support `-mabi` on PPC64 (ELFv2 is used anyway).
+        if (!(target.cpu.arch.isArm() and (ext == .assembly or ext == .assembly_with_cpp)) and
+            !(target.cpu.arch.isPowerPC64() and target.os.tag == .freebsd))
+        {
+            try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+        }
+    }
+
+    // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
+    if (target_util.clangSupportsFloatAbiArg(target)) {
+        const fabi = @tagName(target.abi.float());
+
+        try argv.append(switch (target.cpu.arch) {
+            // For whatever reason, Clang doesn't support `-mfloat-abi` for s390x.
+            .s390x => try std.fmt.allocPrint(arena, "-m{s}-float", .{fabi}),
+            else => try std.fmt.allocPrint(arena, "-mfloat-abi={s}", .{fabi}),
+        });
+    }
+
+    try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, mod, comp.config.c_frontend);
+
+    // Only assembly files support these flags.
+    switch (ext) {
+        .assembly,
+        .assembly_with_cpp,
+        => {
+            // The Clang assembler does not accept the list of CPU features like the
+            // compiler frontend does. Therefore we must hard-code the -m flags for
+            // all CPU features here.
+            switch (target.cpu.arch) {
+                .riscv32, .riscv32be, .riscv64, .riscv64be => {
+                    const RvArchFeat = struct { char: u8, feat: std.Target.riscv.Feature };
+                    const letters = [_]RvArchFeat{
+                        .{ .char = 'm', .feat = .m },
+                        .{ .char = 'a', .feat = .a },
+                        .{ .char = 'f', .feat = .f },
+                        .{ .char = 'd', .feat = .d },
+                        .{ .char = 'c', .feat = .c },
+                    };
+                    const prefix: []const u8 = if (target.cpu.arch == .riscv64) "rv64" else "rv32";
+                    const prefix_len = 4;
+                    assert(prefix.len == prefix_len);
+                    var march_buf: [prefix_len + letters.len + 1]u8 = undefined;
+                    var march_index: usize = prefix_len;
+                    @memcpy(march_buf[0..prefix.len], prefix);
+
+                    if (target.cpu.has(.riscv, .e)) {
+                        march_buf[march_index] = 'e';
+                    } else {
+                        march_buf[march_index] = 'i';
+                    }
+                    march_index += 1;
+
+                    for (letters) |letter| {
+                        if (target.cpu.has(.riscv, letter.feat)) {
+                            march_buf[march_index] = letter.char;
+                            march_index += 1;
+                        }
+                    }
+
+                    const march_arg = try std.fmt.allocPrint(arena, "-march={s}", .{
+                        march_buf[0..march_index],
+                    });
+                    try argv.append(march_arg);
+
+                    if (target.cpu.has(.riscv, .relax)) {
+                        try argv.append("-mrelax");
+                    } else {
+                        try argv.append("-mno-relax");
+                    }
+                    if (target.cpu.has(.riscv, .save_restore)) {
+                        try argv.append("-msave-restore");
+                    } else {
+                        try argv.append("-mno-save-restore");
+                    }
+                },
+                .mips, .mipsel, .mips64, .mips64el => {
+                    if (target.cpu.model.llvm_name) |llvm_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
+                    }
+                },
+                else => {
+                    // TODO
+                },
+            }
+
+            if (target_util.clangAssemblerSupportsMcpuArg(target)) {
+                if (target.cpu.model.llvm_name) |llvm_name| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{llvm_name}));
+                }
+            }
+        },
+        else => {},
+    }
+
+    // Non-preprocessed assembly files don't support these flags.
+    if (ext != .assembly) {
+        if (target_util.clangSupportsNoImplicitFloatArg(target) and target.abi.float() == .soft) {
+            try argv.append("-mno-implicit-float");
+        }
+
+        if (target_util.hasRedZone(target)) {
+            try argv.append(if (mod.red_zone) "-mred-zone" else "-mno-red-zone");
+        }
+
+        try argv.append(if (mod.omit_frame_pointer) "-fomit-frame-pointer" else "-fno-omit-frame-pointer");
+
+        const ssp_buf_size = mod.stack_protector;
+        if (ssp_buf_size != 0) {
+            try argv.appendSlice(&[_][]const u8{
+                "-fstack-protector-strong",
+                "--param",
+                try std.fmt.allocPrint(arena, "ssp-buffer-size={d}", .{ssp_buf_size}),
+            });
+        } else {
+            try argv.append("-fno-stack-protector");
+        }
+
+        try argv.append(if (mod.no_builtin) "-fno-builtin" else "-fbuiltin");
+
+        try argv.append(if (comp.function_sections) "-ffunction-sections" else "-fno-function-sections");
+        try argv.append(if (comp.data_sections) "-fdata-sections" else "-fno-data-sections");
+
+        switch (mod.unwind_tables) {
+            .none => {
+                try argv.append("-fno-unwind-tables");
+                try argv.append("-fno-asynchronous-unwind-tables");
+            },
+            .sync => {
+                // Need to override Clang's convoluted default logic.
+                try argv.append("-fno-asynchronous-unwind-tables");
+                try argv.append("-funwind-tables");
+            },
+            .async => try argv.append("-fasynchronous-unwind-tables"),
+        }
+    }
+
+    // Only compiled files support these flags.
+    switch (ext) {
+        .c,
+        .h,
+        .cpp,
+        .hpp,
+        .m,
+        .hm,
+        .mm,
+        .hmm,
+        .ll,
+        .bc,
+        => {
+            const xclang_flag = switch (ext) {
+                .assembly, .assembly_with_cpp => "-Xclangas",
+                else => "-Xclang",
+            };
+
+            if (target_util.clangSupportsTargetCpuArg(target)) {
+                if (target.cpu.model.llvm_name) |llvm_name| {
+                    try argv.appendSlice(&[_][]const u8{
+                        xclang_flag, "-target-cpu", xclang_flag, llvm_name,
+                    });
+                }
+            }
+
+            // It would be really nice if there was a more compact way to communicate this info to Clang.
+            const all_features_list = target.cpu.arch.allFeaturesList();
+            try argv.ensureUnusedCapacity(all_features_list.len * 4);
+            for (all_features_list, 0..) |feature, index_usize| {
+                const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
+                const is_enabled = target.cpu.features.isEnabled(index);
+
+                if (feature.llvm_name) |llvm_name| {
+                    // We communicate float ABI to Clang through the dedicated options.
+                    if (std.mem.startsWith(u8, llvm_name, "soft-float") or
+                        std.mem.startsWith(u8, llvm_name, "hard-float"))
+                        continue;
+
+                    // Ignore these until we figure out how to handle the concept of omitting features.
+                    // See https://github.com/ziglang/zig/issues/23539
+                    if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
+
+                    argv.appendSliceAssumeCapacity(&[_][]const u8{ xclang_flag, "-target-feature", xclang_flag });
+                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
+                    const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
+                    argv.appendAssumeCapacity(arg);
+                }
             }
         },
         else => {},
