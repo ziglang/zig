@@ -1009,7 +1009,7 @@ fn readCoffDebugInfo(gpa: Allocator, coff_obj: *coff.Coff) !Module {
             di.dwarf = dwarf;
         }
 
-        const raw_path = try coff_obj.getPdbPath() orelse return di;
+        const raw_path = (coff_obj.getPdbPath() catch return error.InvalidDebugInfo) orelse return di;
         const path = blk: {
             if (fs.path.isAbsolute(raw_path)) {
                 break :blk raw_path;
