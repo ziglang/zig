@@ -1823,13 +1823,13 @@ test "selective walker, skip entries that start with ." {
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
-    const expected_paths = std.StaticStringMap(void).initComptime(.{
-        .{"dir1"},
-        .{"dir1" ++ fs.path.sep_str ++ "foo"},
-        .{"a"},
-        .{"a" ++ fs.path.sep_str ++ "b"},
-        .{"a" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c"},
-        .{"a" ++ fs.path.sep_str ++ "baz"},
+    const expected_paths = std.StaticStringMap(usize).initComptime(.{
+        .{ "dir1", 1 },
+        .{ "dir1" ++ fs.path.sep_str ++ "foo", 2 },
+        .{ "a", 1 },
+        .{ "a" ++ fs.path.sep_str ++ "b", 2 },
+        .{ "a" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c", 3 },
+        .{ "a" ++ fs.path.sep_str ++ "baz", 2 },
     });
 
     const expected_basenames = std.StaticStringMap(void).initComptime(.{
@@ -1861,6 +1861,11 @@ test "selective walker, skip entries that start with ." {
         };
         testing.expect(expected_paths.has(entry.path)) catch |err| {
             std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+
+        testing.expectEqual(expected_paths.get(entry.path).?, walker.depth()) catch |err| {
+            std.debug.print("path reported unexpected depth: {f}, {d}", .{ std.ascii.hexEscape(entry.path, .lower), walker.depth() });
             return err;
         };
         // make sure that the entry.dir is the containing dir
