@@ -630,29 +630,22 @@ const cpu_targets = struct {
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-
     const allocator = arena.allocator();
-    const args = try std.process.argsAlloc(allocator);
 
     var stdout_buffer: [4000]u8 = undefined;
     var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
 
-    if (args.len <= 1) printUsageAndExit(args[0]);
+    const args = try std.cli.parse(struct {
+        pub const description = "Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.";
+        positional: struct {
+            @"/path/to/llvm-tblgen": [:0]const u8,
+            @"/path/to/git/llvm/llvm-project": [:0]const u8,
+        },
+    }, allocator, .{});
 
-    if (std.mem.eql(u8, args[1], "--help")) {
-        printUsage(stdout, args[0]) catch std.process.exit(2);
-        stdout.flush() catch std.process.exit(2);
-        std.process.exit(0);
-    }
-
-    if (args.len < 3) printUsageAndExit(args[0]);
-
-    const llvm_tblgen_exe = args[1];
-    if (std.mem.startsWith(u8, llvm_tblgen_exe, "-")) printUsageAndExit(args[0]);
-
-    const llvm_src_root = args[2];
-    if (std.mem.startsWith(u8, llvm_src_root, "-")) printUsageAndExit(args[0]);
+    const llvm_tblgen_exe = args.positional.@"/path/to/llvm-tblgen";
+    const llvm_src_root = args.positional.@"/path/to/git/llvm/llvm-project";
 
     var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(allocator);
 
@@ -958,19 +951,4 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
     const a_key = a.get("!name").?.string;
     const b_key = b.get("!name").?.string;
     return std.mem.lessThan(u8, a_key, b_key);
-}
-
-fn printUsageAndExit(arg0: []const u8) noreturn {
-    printUsage(std.debug.lockStderrWriter(&.{}), arg0) catch std.process.exit(2);
-    std.process.exit(1);
-}
-
-fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
-    try w.print(
-        \\Usage: {s} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
-        \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
-        \\
-        \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.
-        \\
-    , .{arg0});
 }

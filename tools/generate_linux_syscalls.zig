@@ -11,6 +11,16 @@
 //!
 //! Everything after `name` is ignored for the purposes of this tool.
 
+const Args = struct {
+    pub const description =
+        \\Generates the list of Linux syscalls for each supported cpu arch, using the Linux development tree.
+        \\Prints to stdout Zig code which you can use to replace the file lib/std/os/linux/syscalls.zig.
+    ;
+    positional: struct {
+        @"/path/to/linux": [:0]const u8,
+    },
+};
+
 const std = @import("std");
 const Io = std.Io;
 const mem = std.mem;
@@ -175,12 +185,8 @@ pub fn main() !void {
     defer arena.deinit();
     const gpa = arena.allocator();
 
-    const args = try std.process.argsAlloc(gpa);
-    if (args.len < 2 or mem.eql(u8, args[1], "--help")) {
-        usage(std.debug.lockStderrWriter(&.{}), args[0]) catch std.process.exit(2);
-        std.process.exit(1);
-    }
-    const linux_path = args[1];
+    const args = try std.cli.parse(Args, gpa, .{});
+    const linux_path = args.positional.@"/path/to/linux";
 
     var stdout_buffer: [2048]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
@@ -246,15 +252,4 @@ pub fn main() !void {
     }
 
     try Io.Writer.flush(stdout);
-}
-
-fn usage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
-    try w.print(
-        \\Usage: {s} /path/to/zig /path/to/linux
-        \\Alternative Usage: zig run /path/to/git/zig/tools/generate_linux_syscalls.zig -- /path/to/zig /path/to/linux
-        \\
-        \\Generates the list of Linux syscalls for each supported cpu arch, using the Linux development tree.
-        \\Prints to stdout Zig code which you can use to replace the file lib/std/os/linux/syscalls.zig.
-        \\
-    , .{arg0});
 }

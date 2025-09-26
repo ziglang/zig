@@ -58,12 +58,20 @@ const allocator = arena.allocator();
 pub fn main() !void {
     defer arena.deinit();
 
-    const args = try std.process.argsAlloc(allocator);
-    if (args.len != 3) {
-        usageAndExit(args[0], 1);
-    }
+    const args = try std.cli.parse(struct {
+        pub const description =
+            \\Generates Zig bindings for SPIR-V specifications found in the SPIRV-Headers
+            \\repository. The result, printed to stdout, should be used to update
+            \\files in src/codegen/spirv. Don't forget to format the output.
+        ;
+        positional: struct {
+            pub const @"path/to/SPIRV-Headers_help" = "should point to a clone of https://github.com/KhronosGroup/SPIRV-Headers/";
+            @"path/to/SPIRV-Headers": [:0]const u8,
+            @"path/to/zig/src/codegen/spirv/extinst.zig.grammar.json": [:0]const u8,
+        },
+    }, allocator, .{});
 
-    const json_path = try std.fs.path.join(allocator, &.{ args[1], "include/spirv/unified1/" });
+    const json_path = try std.fs.path.join(allocator, &.{ args.positional.@"path/to/SPIRV-Headers", "include/spirv/unified1/" });
     const dir = try std.fs.cwd().openDir(json_path, .{ .iterate = true });
 
     const core_spec = try readRegistry(CoreRegistry, dir, "spirv.core.grammar.json");
@@ -80,7 +88,7 @@ pub fn main() !void {
         try readExtRegistry(&exts, dir, entry.name);
     }
 
-    try readExtRegistry(&exts, std.fs.cwd(), args[2]);
+    try readExtRegistry(&exts, std.fs.cwd(), args.positional.@"path/to/zig/src/codegen/spirv/extinst.zig.grammar.json");
 
     var allocating: std.Io.Writer.Allocating = .init(allocator);
     defer allocating.deinit();
@@ -928,20 +936,4 @@ fn parseHexInt(text: []const u8) !u31 {
     if (!std.mem.startsWith(u8, text, prefix))
         return error.InvalidHexInt;
     return try std.fmt.parseInt(u31, text[prefix.len..], 16);
-}
-
-fn usageAndExit(arg0: []const u8, code: u8) noreturn {
-    const stderr = std.debug.lockStderrWriter(&.{});
-    stderr.print(
-        \\Usage: {s} <SPIRV-Headers repository path> <path/to/zig/src/codegen/spirv/extinst.zig.grammar.json>
-        \\
-        \\Generates Zig bindings for SPIR-V specifications found in the SPIRV-Headers
-        \\repository. The result, printed to stdout, should be used to update
-        \\files in src/codegen/spirv. Don't forget to format the output.
-        \\
-        \\<SPIRV-Headers repository path> should point to a clone of
-        \\https://github.com/KhronosGroup/SPIRV-Headers/
-        \\
-    , .{arg0}) catch std.process.exit(1);
-    std.process.exit(code);
 }
