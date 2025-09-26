@@ -539,8 +539,8 @@ const usage_build_generic =
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
-    \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
-    \\  -fno-error-tracing        Disable error tracing in Debug and ReleaseSafe mode
+    \\  -ferror-tracing           Enable error tracing in release builds
+    \\  -fno-error-tracing        Disable error tracing in debug builds
     \\  -fsingle-threaded         Code assumes there is only one thread
     \\  -fno-single-threaded      Code may not assume there is only one thread
     \\  -fstrip                   Omit debug symbols
