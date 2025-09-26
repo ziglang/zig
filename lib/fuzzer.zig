@@ -512,7 +512,7 @@ const Fuzzer = struct {
             self.corpus_pos = 0;
 
         const rng = self.rng.random();
-        while (true) {
+        const m = while (true) {
             const m = self.mutations.items[rng.uintLessThanBiased(usize, self.mutations.items.len)];
             if (!m.mutate(
                 rng,
@@ -524,53 +524,53 @@ const Fuzzer = struct {
                 inst.const_vals8.items,
                 inst.const_vals16.items,
             )) continue;
+            break m;
+        };
 
-            self.run();
-            if (inst.isFresh()) {
-                @branchHint(.unlikely);
+        self.run();
 
-                const header = mem.bytesAsValue(
-                    abi.SeenPcsHeader,
-                    exec.shared_seen_pcs.items[0..@sizeOf(abi.SeenPcsHeader)],
-                );
-                _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
+        if (inst.isFresh()) {
+            @branchHint(.unlikely);
 
-                inst.setFresh();
-                self.minimizeInput();
-                inst.updateSeen();
+            const header = mem.bytesAsValue(
+                abi.SeenPcsHeader,
+                exec.shared_seen_pcs.items[0..@sizeOf(abi.SeenPcsHeader)],
+            );
+            _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
 
-                // An empty-input has always been tried, so if an empty input is fresh then the
-                // test has to be non-deterministic. This has to be checked as duplicate empty
-                // entries are not allowed.
-                if (self.input.items.len - 8 == 0) {
-                    std.log.warn("non-deterministic test (empty input produces different hits)", .{});
-                    _ = @atomicRmw(usize, &header.unique_runs, .Sub, 1, .monotonic);
-                    return;
-                }
+            inst.setFresh();
+            self.minimizeInput();
+            inst.updateSeen();
 
-                const arena = self.arena_ctx.allocator();
-                const bytes = arena.dupe(u8, @volatileCast(self.input.items[8..])) catch @panic("OOM");
-
-                self.corpus.append(gpa, bytes) catch @panic("OOM");
-                self.mutations.appendNTimes(gpa, m, 6) catch @panic("OOM");
-
-                // Write new corpus to cache
-                var name_buf: [@sizeOf(usize) * 2]u8 = undefined;
-                self.corpus_dir.writeFile(.{
-                    .sub_path = std.fmt.bufPrint(
-                        &name_buf,
-                        "{x}",
-                        .{self.corpus_dir_idx},
-                    ) catch unreachable,
-                    .data = bytes,
-                }) catch |e| panic(
-                    "failed to write corpus file '{x}': {t}",
-                    .{ self.corpus_dir_idx, e },
-                );
-                self.corpus_dir_idx += 1;
+            // An empty-input has always been tried, so if an empty input is fresh then the
+            // test has to be non-deterministic. This has to be checked as duplicate empty
+            // entries are not allowed.
+            if (self.input.items.len - 8 == 0) {
+                std.log.warn("non-deterministic test (empty input produces different hits)", .{});
+                _ = @atomicRmw(usize, &header.unique_runs, .Sub, 1, .monotonic);
+                return;
             }
 
-            break;
+            const arena = self.arena_ctx.allocator();
+            const bytes = arena.dupe(u8, @volatileCast(self.input.items[8..])) catch @panic("OOM");
+
+            self.corpus.append(gpa, bytes) catch @panic("OOM");
+            self.mutations.appendNTimes(gpa, m, 6) catch @panic("OOM");
+
+            // Write new corpus to cache
+            var name_buf: [@sizeOf(usize) * 2]u8 = undefined;
+            self.corpus_dir.writeFile(.{
+                .sub_path = std.fmt.bufPrint(
+                    &name_buf,
+                    "{x}",
+                    .{self.corpus_dir_idx},
+                ) catch unreachable,
+                .data = bytes,
+            }) catch |e| panic(
+                "failed to write corpus file '{x}': {t}",
+                .{ self.corpus_dir_idx, e },
+            );
+            self.corpus_dir_idx += 1;
         }
     }
 };
@@ -618,7 +618,7 @@ export fn fuzzer_new_input(bytes: abi.Slice) void {
 export fn fuzzer_main(limit_kind: abi.LimitKind, amount: u64) void {
     switch (limit_kind) {
         .forever => while (true) fuzzer.cycle(),
-        .iterations => for (0..amount -| 1) |_| fuzzer.cycle(),
+        .iterations => for (0..amount) |_| fuzzer.cycle(),
     }
 }
 
