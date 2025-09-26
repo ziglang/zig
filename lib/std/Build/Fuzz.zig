@@ -257,7 +257,12 @@ pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
 pub const Previous = struct {
     unique_runs: usize,
     entry_points: usize,
-    pub const init: Previous = .{ .unique_runs = 0, .entry_points = 0 };
+    sent_source_index: bool,
+    pub const init: Previous = .{
+        .unique_runs = 0,
+        .entry_points = 0,
+        .sent_source_index = false,
+    };
 };
 pub fn sendUpdate(
     fuzz: *Fuzz,
@@ -280,7 +285,8 @@ pub fn sendUpdate(
     const n_runs = @atomicLoad(usize, &cov_header.n_runs, .monotonic);
     const unique_runs = @atomicLoad(usize, &cov_header.unique_runs, .monotonic);
     {
-        if (unique_runs != 0 and prev.unique_runs == 0) {
+        if (!prev.sent_source_index) {
+            prev.sent_source_index = true;
             // We need to send initial context.
             const header: abi.SourceIndexHeader = .{
                 .directories_len = @intCast(coverage_map.coverage.directories.entries.len),
