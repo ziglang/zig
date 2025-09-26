@@ -678,6 +678,7 @@ pub const Session = struct {
             .object_format = .sha1,
             .arena = arena,
         };
+        errdefer session.location.deinit();
         var capability_iterator: CapabilityIterator = undefined;
         try session.getCapabilities(&capability_iterator, response_buffer);
         defer capability_iterator.deinit();
@@ -703,6 +704,7 @@ pub const Session = struct {
     /// An owned `std.Uri` representing the location of the server (base URI).
     const Location = struct {
         uri: std.Uri,
+        arena: Allocator,
 
         fn init(arena: Allocator, uri: std.Uri) !Location {
             const scheme = try arena.dupe(u8, uri.scheme);
@@ -720,6 +722,7 @@ pub const Session = struct {
             });
             // The query and fragment are not used as part of the base server URI.
             return .{
+                .arena = arena,
                 .uri = .{
                     .scheme = scheme,
                     .user = if (user) |s| .{ .percent_encoded = s } else null,
@@ -729,6 +732,23 @@ pub const Session = struct {
                     .path = .{ .percent_encoded = path },
                 },
             };
+        }
+
+        fn deinit(location: *Location) void {
+            location.arena.free(location.uri.scheme);
+            if (location.uri.user) |user| {
+                location.arena.free(user.percent_encoded);
+            }
+
+            if (location.uri.password) |password| {
+                location.arena.free(password.percent_encoded);
+            }
+
+            if (location.uri.host) |host| {
+                location.arena.free(host.percent_encoded);
+            }
+
+            location.arena.free(location.uri.path.percent_encoded);
         }
     };
 
@@ -993,6 +1013,7 @@ pub const Session = struct {
         }
         {
             const object_format_packet = try std.fmt.allocPrint(arena, "object-format={s}\n", .{@tagName(session.object_format)});
+            defer arena.free(object_format_packet);
             try Packet.write(.{ .data = object_format_packet }, &body);
         }
         try Packet.write(.delimiter, &body);
@@ -1033,6 +1054,7 @@ pub const Session = struct {
         if (response.head.status != .ok) return error.ProtocolError;
 
         const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+        errdefer arena.free(decompress_buffer);
         const reader = response.readerDecompressing(response_buffer, &fs.decompress, decompress_buffer);
         // We are not interested in any of the sections of the returned fetch
         // data other than the packfile section, since we aren't doing anything
