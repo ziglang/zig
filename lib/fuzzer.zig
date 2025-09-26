@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const fatal = std.process.fatal;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
@@ -105,6 +106,7 @@ const Executable = struct {
         const coverage_file_len = @sizeOf(abi.SeenPcsHeader) +
             pc_bitset_usizes * @sizeOf(usize) +
             pcs.len * @sizeOf(usize);
+
         if (populate) {
             defer coverage_file.lock(.shared) catch |e| panic(
                 "failed to demote lock for coverage file '{s}': {t}",
@@ -510,7 +512,7 @@ const Fuzzer = struct {
             self.corpus_pos = 0;
 
         const rng = self.rng.random();
-        while (true) {
+        const m = while (true) {
             const m = self.mutations.items[rng.uintLessThanBiased(usize, self.mutations.items.len)];
             if (!m.mutate(
                 rng,
@@ -522,53 +524,53 @@ const Fuzzer = struct {
                 inst.const_vals8.items,
                 inst.const_vals16.items,
             )) continue;
+            break m;
+        };
 
-            self.run();
-            if (inst.isFresh()) {
-                @branchHint(.unlikely);
+        self.run();
 
-                const header = mem.bytesAsValue(
-                    abi.SeenPcsHeader,
-                    exec.shared_seen_pcs.items[0..@sizeOf(abi.SeenPcsHeader)],
-                );
-                _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
+        if (inst.isFresh()) {
+            @branchHint(.unlikely);
 
-                inst.setFresh();
-                self.minimizeInput();
-                inst.updateSeen();
+            const header = mem.bytesAsValue(
+                abi.SeenPcsHeader,
+                exec.shared_seen_pcs.items[0..@sizeOf(abi.SeenPcsHeader)],
+            );
+            _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
 
-                // An empty-input has always been tried, so if an empty input is fresh then the
-                // test has to be non-deterministic. This has to be checked as duplicate empty
-                // entries are not allowed.
-                if (self.input.items.len - 8 == 0) {
-                    std.log.warn("non-deterministic test (empty input produces different hits)", .{});
-                    _ = @atomicRmw(usize, &header.unique_runs, .Sub, 1, .monotonic);
-                    return;
-                }
+            inst.setFresh();
+            self.minimizeInput();
+            inst.updateSeen();
 
-                const arena = self.arena_ctx.allocator();
-                const bytes = arena.dupe(u8, @volatileCast(self.input.items[8..])) catch @panic("OOM");
-
-                self.corpus.append(gpa, bytes) catch @panic("OOM");
-                self.mutations.appendNTimes(gpa, m, 6) catch @panic("OOM");
-
-                // Write new corpus to cache
-                var name_buf: [@sizeOf(usize) * 2]u8 = undefined;
-                self.corpus_dir.writeFile(.{
-                    .sub_path = std.fmt.bufPrint(
-                        &name_buf,
-                        "{x}",
-                        .{self.corpus_dir_idx},
-                    ) catch unreachable,
-                    .data = bytes,
-                }) catch |e| panic(
-                    "failed to write corpus file '{x}': {t}",
-                    .{ self.corpus_dir_idx, e },
-                );
-                self.corpus_dir_idx += 1;
+            // An empty-input has always been tried, so if an empty input is fresh then the
+            // test has to be non-deterministic. This has to be checked as duplicate empty
+            // entries are not allowed.
+            if (self.input.items.len - 8 == 0) {
+                std.log.warn("non-deterministic test (empty input produces different hits)", .{});
+                _ = @atomicRmw(usize, &header.unique_runs, .Sub, 1, .monotonic);
+                return;
             }
 
-            break;
+            const arena = self.arena_ctx.allocator();
+            const bytes = arena.dupe(u8, @volatileCast(self.input.items[8..])) catch @panic("OOM");
+
+            self.corpus.append(gpa, bytes) catch @panic("OOM");
+            self.mutations.appendNTimes(gpa, m, 6) catch @panic("OOM");
+
+            // Write new corpus to cache
+            var name_buf: [@sizeOf(usize) * 2]u8 = undefined;
+            self.corpus_dir.writeFile(.{
+                .sub_path = std.fmt.bufPrint(
+                    &name_buf,
+                    "{x}",
+                    .{self.corpus_dir_idx},
+                ) catch unreachable,
+                .data = bytes,
+            }) catch |e| panic(
+                "failed to write corpus file '{x}': {t}",
+                .{ self.corpus_dir_idx, e },
+            );
+            self.corpus_dir_idx += 1;
         }
     }
 };
@@ -581,8 +583,21 @@ export fn fuzzer_init(cache_dir_path: abi.Slice) void {
 }
 
 /// Invalid until `fuzzer_init` is called.
-export fn fuzzer_coverage_id() u64 {
-    return exec.pc_digest;
+export fn fuzzer_coverage() abi.Coverage {
+    const coverage_id = exec.pc_digest;
+    const header: *const abi.SeenPcsHeader = @ptrCast(@volatileCast(exec.shared_seen_pcs.items.ptr));
+
+    var seen_count: usize = 0;
+    for (header.seenBits()) |chunk| {
+        seen_count += @popCount(chunk);
+    }
+
+    return .{
+        .id = coverage_id,
+        .runs = header.n_runs,
+        .unique = header.unique_runs,
+        .seen = seen_count,
+    };
 }
 
 /// fuzzer_init must be called beforehand
@@ -600,9 +615,10 @@ export fn fuzzer_new_input(bytes: abi.Slice) void {
 }
 
 /// fuzzer_init_test must be called first
-export fn fuzzer_main() void {
-    while (true) {
-        fuzzer.cycle();
+export fn fuzzer_main(limit_kind: abi.LimitKind, amount: u64) void {
+    switch (limit_kind) {
+        .forever => while (true) fuzzer.cycle(),
+        .iterations => for (0..amount) |_| fuzzer.cycle(),
     }
 }
 

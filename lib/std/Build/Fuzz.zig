@@ -8,17 +8,22 @@ const Allocator = std.mem.Allocator;
 const log = std.log;
 const Coverage = std.debug.Coverage;
 const abi = Build.abi.fuzz;
+const tty = std.Io.tty;
 
 const Fuzz = @This();
 const build_runner = @import("root");
 
-ws: *Build.WebServer,
+gpa: Allocator,
+mode: Mode,
 
-/// Allocated into `ws.gpa`.
+/// Allocated into `gpa`.
 run_steps: []const *Step.Run,
 
 wait_group: std.Thread.WaitGroup,
+root_prog_node: std.Progress.Node,
 prog_node: std.Progress.Node,
+thread_pool: *std.Thread.Pool,
+ttyconf: tty.Config,
 
 /// Protects `coverage_files`.
 coverage_mutex: std.Thread.Mutex,
@@ -28,9 +33,23 @@ queue_mutex: std.Thread.Mutex,
 queue_cond: std.Thread.Condition,
 msg_queue: std.ArrayListUnmanaged(Msg),
 
+pub const Mode = union(enum) {
+    forever: struct { ws: *Build.WebServer },
+    limit: Limited,
+
+    pub const Limited = struct {
+        amount: u64,
+    };
+};
+
 const Msg = union(enum) {
     coverage: struct {
         id: u64,
+        cumulative: struct {
+            runs: u64,
+            unique: u64,
+            coverage: u64,
+        },
         run: *Step.Run,
     },
     entry_point: struct {
@@ -54,23 +73,28 @@ const CoverageMap = struct {
     }
 };
 
-pub fn init(ws: *Build.WebServer) Allocator.Error!Fuzz {
-    const gpa = ws.gpa;
-
+pub fn init(
+    gpa: Allocator,
+    thread_pool: *std.Thread.Pool,
+    all_steps: []const *Build.Step,
+    root_prog_node: std.Progress.Node,
+    ttyconf: tty.Config,
+    mode: Mode,
+) Allocator.Error!Fuzz {
     const run_steps: []const *Step.Run = steps: {
         var steps: std.ArrayListUnmanaged(*Step.Run) = .empty;
         defer steps.deinit(gpa);
-        const rebuild_node = ws.root_prog_node.start("Rebuilding Unit Tests", 0);
+        const rebuild_node = root_prog_node.start("Rebuilding Unit Tests", 0);
         defer rebuild_node.end();
         var rebuild_wg: std.Thread.WaitGroup = .{};
         defer rebuild_wg.wait();
 
-        for (ws.all_steps) |step| {
+        for (all_steps) |step| {
             const run = step.cast(Step.Run) orelse continue;
             if (run.producer == null) continue;
             if (run.fuzz_tests.items.len == 0) continue;
             try steps.append(gpa, run);
-            ws.thread_pool.spawnWg(&rebuild_wg, rebuildTestsWorkerRun, .{ run, gpa, ws.ttyconf, rebuild_node });
+            thread_pool.spawnWg(&rebuild_wg, rebuildTestsWorkerRun, .{ run, gpa, ttyconf, rebuild_node });
         }
 
         if (steps.items.len == 0) fatal("no fuzz tests found", .{});
@@ -86,9 +110,13 @@ pub fn init(ws: *Build.WebServer) Allocator.Error!Fuzz {
     }
 
     return .{
-        .ws = ws,
+        .gpa = gpa,
+        .mode = mode,
         .run_steps = run_steps,
         .wait_group = .{},
+        .thread_pool = thread_pool,
+        .ttyconf = ttyconf,
+        .root_prog_node = root_prog_node,
         .prog_node = .none,
         .coverage_files = .empty,
         .coverage_mutex = .{},
@@ -99,32 +127,31 @@ pub fn init(ws: *Build.WebServer) Allocator.Error!Fuzz {
 }
 
 pub fn start(fuzz: *Fuzz) void {
-    const ws = fuzz.ws;
-    fuzz.prog_node = ws.root_prog_node.start("Fuzzing", fuzz.run_steps.len);
+    fuzz.prog_node = fuzz.root_prog_node.start("Fuzzing", fuzz.run_steps.len);
 
-    // For polling messages and sending updates to subscribers.
-    fuzz.wait_group.start();
-    _ = std.Thread.spawn(.{}, coverageRun, .{fuzz}) catch |err| {
-        fuzz.wait_group.finish();
-        fatal("unable to spawn coverage thread: {s}", .{@errorName(err)});
-    };
+    if (fuzz.mode == .forever) {
+        // For polling messages and sending updates to subscribers.
+        fuzz.wait_group.start();
+        _ = std.Thread.spawn(.{}, coverageRun, .{fuzz}) catch |err| {
+            fuzz.wait_group.finish();
+            fatal("unable to spawn coverage thread: {s}", .{@errorName(err)});
+        };
+    }
 
     for (fuzz.run_steps) |run| {
         for (run.fuzz_tests.items) |unit_test_index| {
             assert(run.rebuilt_executable != null);
-            ws.thread_pool.spawnWg(&fuzz.wait_group, fuzzWorkerRun, .{
+            fuzz.thread_pool.spawnWg(&fuzz.wait_group, fuzzWorkerRun, .{
                 fuzz, run, unit_test_index,
             });
         }
     }
 }
-pub fn deinit(fuzz: *Fuzz) void {
-    if (true) @panic("TODO: terminate the fuzzer processes");
-    fuzz.wait_group.wait();
-    fuzz.prog_node.end();
 
-    const gpa = fuzz.ws.gpa;
-    gpa.free(fuzz.run_steps);
+pub fn deinit(fuzz: *Fuzz) void {
+    if (!fuzz.wait_group.isDone()) @panic("TODO: terminate the fuzzer processes");
+    fuzz.prog_node.end();
+    fuzz.gpa.free(fuzz.run_steps);
 }
 
 fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, ttyconf: std.Io.tty.Config, parent_prog_node: std.Progress.Node) void {
@@ -177,7 +204,7 @@ fn fuzzWorkerRun(
             var buf: [256]u8 = undefined;
             const w = std.debug.lockStderrWriter(&buf);
             defer std.debug.unlockStderrWriter();
-            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = fuzz.ws.ttyconf }, w, false) catch {};
+            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = fuzz.ttyconf }, w, false) catch {};
             return;
         },
         else => {
@@ -190,20 +217,20 @@ fn fuzzWorkerRun(
 }
 
 pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
-    const gpa = fuzz.ws.gpa;
+    assert(fuzz.mode == .forever);
 
-    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    var arena_state: std.heap.ArenaAllocator = .init(fuzz.gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
     const DedupTable = std.ArrayHashMapUnmanaged(Build.Cache.Path, void, Build.Cache.Path.TableAdapter, false);
     var dedup_table: DedupTable = .empty;
-    defer dedup_table.deinit(gpa);
+    defer dedup_table.deinit(fuzz.gpa);
 
     for (fuzz.run_steps) |run_step| {
         const compile_inputs = run_step.producer.?.step.inputs.table;
         for (compile_inputs.keys(), compile_inputs.values()) |dir_path, *file_list| {
-            try dedup_table.ensureUnusedCapacity(gpa, file_list.items.len);
+            try dedup_table.ensureUnusedCapacity(fuzz.gpa, file_list.items.len);
             for (file_list.items) |sub_path| {
                 if (!std.mem.endsWith(u8, sub_path, ".zig")) continue;
                 const joined_path = try dir_path.join(arena, sub_path);
@@ -224,13 +251,18 @@ pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
         }
     };
     std.mem.sortUnstable(Build.Cache.Path, deduped_paths, SortContext{}, SortContext.lessThan);
-    return fuzz.ws.serveTarFile(req, deduped_paths);
+    return fuzz.mode.forever.ws.serveTarFile(req, deduped_paths);
 }
 
 pub const Previous = struct {
     unique_runs: usize,
     entry_points: usize,
-    pub const init: Previous = .{ .unique_runs = 0, .entry_points = 0 };
+    sent_source_index: bool,
+    pub const init: Previous = .{
+        .unique_runs = 0,
+        .entry_points = 0,
+        .sent_source_index = false,
+    };
 };
 pub fn sendUpdate(
     fuzz: *Fuzz,
@@ -253,7 +285,8 @@ pub fn sendUpdate(
     const n_runs = @atomicLoad(usize, &cov_header.n_runs, .monotonic);
     const unique_runs = @atomicLoad(usize, &cov_header.unique_runs, .monotonic);
     {
-        if (unique_runs != 0 and prev.unique_runs == 0) {
+        if (!prev.sent_source_index) {
+            prev.sent_source_index = true;
             // We need to send initial context.
             const header: abi.SourceIndexHeader = .{
                 .directories_len = @intCast(coverage_map.coverage.directories.entries.len),
@@ -319,13 +352,13 @@ fn coverageRun(fuzz: *Fuzz) void {
     }
 }
 fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutOfMemory, AlreadyReported }!void {
-    const ws = fuzz.ws;
-    const gpa = ws.gpa;
+    assert(fuzz.mode == .forever);
+    const ws = fuzz.mode.forever.ws;
 
     fuzz.coverage_mutex.lock();
     defer fuzz.coverage_mutex.unlock();
 
-    const gop = try fuzz.coverage_files.getOrPut(gpa, coverage_id);
+    const gop = try fuzz.coverage_files.getOrPut(fuzz.gpa, coverage_id);
     if (gop.found_existing) {
         // We are fuzzing the same executable with multiple threads.
         // Perhaps the same unit test; perhaps a different one. In any
@@ -343,16 +376,16 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
         .entry_points = .{},
         .start_timestamp = ws.now(),
     };
-    errdefer gop.value_ptr.coverage.deinit(gpa);
+    errdefer gop.value_ptr.coverage.deinit(fuzz.gpa);
 
     const rebuilt_exe_path = run_step.rebuilt_executable.?;
-    var debug_info = std.debug.Info.load(gpa, rebuilt_exe_path, &gop.value_ptr.coverage) catch |err| {
+    var debug_info = std.debug.Info.load(fuzz.gpa, rebuilt_exe_path, &gop.value_ptr.coverage) catch |err| {
         log.err("step '{s}': failed to load debug information for '{f}': {s}", .{
             run_step.step.name, rebuilt_exe_path, @errorName(err),
         });
         return error.AlreadyReported;
     };
-    defer debug_info.deinit(gpa);
+    defer debug_info.deinit(fuzz.gpa);
 
     const coverage_file_path: Build.Cache.Path = .{
         .root_dir = run_step.step.owner.cache_root,
@@ -386,14 +419,14 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
 
     const header: *const abi.SeenPcsHeader = @ptrCast(mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
     const pcs = header.pcAddrs();
-    const source_locations = try gpa.alloc(Coverage.SourceLocation, pcs.len);
-    errdefer gpa.free(source_locations);
+    const source_locations = try fuzz.gpa.alloc(Coverage.SourceLocation, pcs.len);
+    errdefer fuzz.gpa.free(source_locations);
 
     // Unfortunately the PCs array that LLVM gives us from the 8-bit PC
     // counters feature is not sorted.
     var sorted_pcs: std.MultiArrayList(struct { pc: u64, index: u32, sl: Coverage.SourceLocation }) = .{};
-    defer sorted_pcs.deinit(gpa);
-    try sorted_pcs.resize(gpa, pcs.len);
+    defer sorted_pcs.deinit(fuzz.gpa);
+    try sorted_pcs.resize(fuzz.gpa, pcs.len);
     @memcpy(sorted_pcs.items(.pc), pcs);
     for (sorted_pcs.items(.index), 0..) |*v, i| v.* = @intCast(i);
     sorted_pcs.sortUnstable(struct {
@@ -404,7 +437,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
         }
     }{ .addrs = sorted_pcs.items(.pc) });
 
-    debug_info.resolveAddresses(gpa, sorted_pcs.items(.pc), sorted_pcs.items(.sl)) catch |err| {
+    debug_info.resolveAddresses(fuzz.gpa, sorted_pcs.items(.pc), sorted_pcs.items(.sl)) catch |err| {
         log.err("failed to resolve addresses to source locations: {s}", .{@errorName(err)});
         return error.AlreadyReported;
     };
@@ -414,6 +447,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
 
     ws.notifyUpdate();
 }
+
 fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReported, OutOfMemory }!void {
     fuzz.coverage_mutex.lock();
     defer fuzz.coverage_mutex.unlock();
@@ -445,5 +479,89 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
             addr, file_name, sl.line, sl.column, index, pcs[index - 1], pcs[index + 1],
         });
     }
-    try coverage_map.entry_points.append(fuzz.ws.gpa, @intCast(index));
+    try coverage_map.entry_points.append(fuzz.gpa, @intCast(index));
+}
+
+pub fn waitAndPrintReport(fuzz: *Fuzz) void {
+    assert(fuzz.mode == .limit);
+
+    fuzz.wait_group.wait();
+    fuzz.wait_group.reset();
+
+    std.debug.print("======= FUZZING REPORT =======\n", .{});
+    for (fuzz.msg_queue.items) |msg| {
+        if (msg != .coverage) continue;
+
+        const cov = msg.coverage;
+        const coverage_file_path: std.Build.Cache.Path = .{
+            .root_dir = cov.run.step.owner.cache_root,
+            .sub_path = "v/" ++ std.fmt.hex(cov.id),
+        };
+        var coverage_file = coverage_file_path.root_dir.handle.openFile(coverage_file_path.sub_path, .{}) catch |err| {
+            fatal("step '{s}': failed to load coverage file '{f}': {s}", .{
+                cov.run.step.name, coverage_file_path, @errorName(err),
+            });
+        };
+        defer coverage_file.close();
+
+        const fuzz_abi = std.Build.abi.fuzz;
+        var rbuf: [0x1000]u8 = undefined;
+        var r = coverage_file.reader(&rbuf);
+
+        var header: fuzz_abi.SeenPcsHeader = undefined;
+        r.interface.readSliceAll(std.mem.asBytes(&header)) catch |err| {
+            fatal("step '{s}': failed to read from coverage file '{f}': {s}", .{
+                cov.run.step.name, coverage_file_path, @errorName(err),
+            });
+        };
+
+        if (header.pcs_len == 0) {
+            fatal("step '{s}': corrupted coverage file '{f}': pcs_len was zero", .{
+                cov.run.step.name, coverage_file_path,
+            });
+        }
+
+        var seen_count: usize = 0;
+        const chunk_count = fuzz_abi.SeenPcsHeader.seenElemsLen(header.pcs_len);
+        for (0..chunk_count) |_| {
+            const seen = r.interface.takeInt(usize, .little) catch |err| {
+                fatal("step '{s}': failed to read from coverage file '{f}': {s}", .{
+                    cov.run.step.name, coverage_file_path, @errorName(err),
+                });
+            };
+            seen_count += @popCount(seen);
+        }
+
+        const seen_f: f64 = @floatFromInt(seen_count);
+        const total_f: f64 = @floatFromInt(header.pcs_len);
+        const ratio = seen_f / total_f;
+        std.debug.print(
+            \\Step: {s}
+            \\Fuzz test: "{s}" ({x})
+            \\Runs: {} -> {}
+            \\Unique runs: {} -> {}
+            \\Coverage: {}/{} -> {}/{} ({:.02}%)
+            \\
+        , .{
+            cov.run.step.name,
+            cov.run.cached_test_metadata.?.testName(cov.run.fuzz_tests.items[0]),
+            cov.id,
+            cov.cumulative.runs,
+            header.n_runs,
+            cov.cumulative.unique,
+            header.unique_runs,
+            cov.cumulative.coverage,
+            header.pcs_len,
+            seen_count,
+            header.pcs_len,
+            ratio * 100,
+        });
+
+        std.debug.print("------------------------------\n", .{});
+    }
+    std.debug.print(
+        \\Values are accumulated across multiple runs when preserving the cache.
+        \\==============================
+        \\
+    , .{});
 }

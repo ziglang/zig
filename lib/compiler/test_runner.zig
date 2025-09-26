@@ -2,6 +2,7 @@
 const builtin = @import("builtin");
 
 const std = @import("std");
+const fatal = std.process.fatal;
 const testing = std.testing;
 const assert = std.debug.assert;
 const fuzz_abi = std.Build.abi.fuzz;
@@ -55,11 +56,12 @@ pub fn main() void {
         }
     }
 
-    fba.reset();
     if (builtin.fuzz) {
         const cache_dir = opt_cache_dir orelse @panic("missing --cache-dir=[path] argument");
         fuzz_abi.fuzzer_init(.fromSlice(cache_dir));
     }
+
+    fba.reset();
 
     if (listen) {
         return mainServer() catch @panic("internal test runner failure");
@@ -79,8 +81,13 @@ fn mainServer() !void {
     });
 
     if (builtin.fuzz) {
-        const coverage_id = fuzz_abi.fuzzer_coverage_id();
-        try server.serveU64Message(.coverage_id, coverage_id);
+        const coverage = fuzz_abi.fuzzer_coverage();
+        try server.serveCoverageIdMessage(
+            coverage.id,
+            coverage.runs,
+            coverage.unique,
+            coverage.seen,
+        );
     }
 
     while (true) {
@@ -158,6 +165,9 @@ fn mainServer() !void {
                 if (!builtin.fuzz) unreachable;
 
                 const index = try server.receiveBody_u32();
+                const mode: fuzz_abi.LimitKind = @enumFromInt(try server.receiveBody_u8());
+                const amount_or_instance = try server.receiveBody_u64();
+
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
 
@@ -165,6 +175,8 @@ fn mainServer() !void {
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
                 fuzz_test_index = index;
+                fuzz_mode = mode;
+                fuzz_amount_or_instance = amount_or_instance;
 
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => return,
@@ -172,12 +184,14 @@ fn mainServer() !void {
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace.*);
                         }
-                        std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                        std.debug.print("failed with error.{t}\n", .{err});
                         std.process.exit(1);
                     },
                 };
                 if (!is_fuzz_test) @panic("missed call to std.testing.fuzz");
                 if (log_err_count != 0) @panic("error logs detected");
+                assert(mode != .forever);
+                std.process.exit(0);
             },
 
             else => {
@@ -240,11 +254,11 @@ fn mainTerminal() void {
             else => {
                 fail_count += 1;
                 if (have_tty) {
-                    std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
-                        i + 1, test_fn_list.len, test_fn.name, @errorName(err),
+                    std.debug.print("{d}/{d} {s}...FAIL ({t})\n", .{
+                        i + 1, test_fn_list.len, test_fn.name, err,
                     });
                 } else {
-                    std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                    std.debug.print("FAIL ({t})\n", .{err});
                 }
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
@@ -343,6 +357,8 @@ pub fn mainSimple() anyerror!void {
 
 var is_fuzz_test: bool = undefined;
 var fuzz_test_index: u32 = undefined;
+var fuzz_mode: fuzz_abi.LimitKind = undefined;
+var fuzz_amount_or_instance: u64 = undefined;
 
 pub fn fuzz(
     context: anytype,
@@ -383,7 +399,7 @@ pub fn fuzz(
                 else => {
                     std.debug.lockStdErr();
                     if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
-                    std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                    std.debug.print("failed with error.{t}\n", .{err});
                     std.process.exit(1);
                 },
             };
@@ -401,9 +417,11 @@ pub fn fuzz(
 
         global.ctx = context;
         fuzz_abi.fuzzer_init_test(&global.test_one, .fromSlice(builtin.test_functions[fuzz_test_index].name));
+
         for (options.corpus) |elem|
             fuzz_abi.fuzzer_new_input(.fromSlice(elem));
-        fuzz_abi.fuzzer_main();
+
+        fuzz_abi.fuzzer_main(fuzz_mode, fuzz_amount_or_instance);
         return;
     }
 

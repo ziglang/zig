@@ -8120,7 +8120,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
     if (comp.debug_compiler_runtime_libs) {
-        return comp.root_mod.optimize_mode;
+        return .Debug;
     }
     const target = &comp.root_mod.resolved_target.result;
     switch (comp.root_mod.optimize_mode) {
