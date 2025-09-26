@@ -946,7 +946,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     },
     .s390x => VaListS390x,
     .x86_64 => switch (builtin.os.tag) {
-        .windows => switch (builtin.zig_backend) {
+        .uefi, .windows => switch (builtin.zig_backend) {
             else => *u8,
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
