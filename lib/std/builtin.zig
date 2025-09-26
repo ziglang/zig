@@ -846,6 +846,12 @@ pub const VaListAarch64 = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListArm = extern struct {
+    __ap: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaListHexagon = extern struct {
     __gpr: c_long,
     __fpr: c_long,
@@ -899,10 +905,7 @@ pub const VaList = switch (builtin.cpu.arch) {
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
     },
-    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .visionos => *u8,
-        else => *anyopaque,
-    },
+    .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .amdgcn => *u8,
     .avr => *anyopaque,
     .bpfel, .bpfeb => *anyopaque,
