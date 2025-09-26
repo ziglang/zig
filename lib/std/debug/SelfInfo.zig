@@ -207,6 +207,36 @@ pub const DwarfUnwindContext = struct {
     vm: Dwarf.Unwind.VirtualMachine,
     stack_machine: Dwarf.expression.StackMachine(.{ .call_frame_context = true }),
 
+    pub const Cache = struct {
+        /// TODO: to allow `DwarfUnwindContext` to work on freestanding, we currently just don't use
+        /// this mutex there. That's a bad solution, but a better one depends on the standard
+        /// library's general support for "bring your own OS" being improved.
+        mutex: switch (builtin.os.tag) {
+            else => std.Thread.Mutex,
+            .freestanding, .other => struct {
+                fn lock(_: @This()) void {}
+                fn unlock(_: @This()) void {}
+            },
+        },
+        buf: [num_slots]Slot,
+        const num_slots = 2048;
+        const Slot = struct {
+            const max_regs = 32;
+            pc: usize,
+            cie: *const Dwarf.Unwind.CommonInformationEntry,
+            cfa_rule: Dwarf.Unwind.VirtualMachine.CfaRule,
+            rules_regs: [max_regs]u16,
+            rules: [max_regs]Dwarf.Unwind.VirtualMachine.RegisterRule,
+            num_rules: u8,
+        };
+        /// This is a function rather than a declaration to avoid lowering a very large struct value
+        /// into the binary when most of it is `undefined`.
+        pub fn init(c: *Cache) void {
+            c.mutex = .{};
+            for (&c.buf) |*slot| slot.pc = 0;
+        }
+    };
+
     pub fn init(cpu_context: *const CpuContext) DwarfUnwindContext {
         comptime assert(supports_unwinding);
 
@@ -243,126 +273,30 @@ pub const DwarfUnwindContext = struct {
         return ptr.*;
     }
 
-    /// The default rule is typically equivalent to `.undefined`, but ABIs may define it differently.
-    fn defaultRuleBehavior(register: u8) enum { undefined, same_value } {
-        if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 28) {
-            // The default rule for callee-saved registers on AArch64 acts like the `.same_value` rule
-            return .same_value;
-        }
-        return .undefined;
-    }
-
-    /// Resolves the register rule and places the result into `out` (see regBytes). Returns `true`
-    /// iff the rule was undefined. This is *not* the same as `col.rule == .undefined`, because the
-    /// default rule may be undefined.
-    pub fn resolveRegisterRule(
-        context: *DwarfUnwindContext,
-        gpa: Allocator,
-        col: Dwarf.Unwind.VirtualMachine.Column,
-        expression_context: std.debug.Dwarf.expression.Context,
-        out: []u8,
-    ) !bool {
-        switch (col.rule) {
-            .default => {
-                const register = col.register orelse return error.InvalidRegister;
-                switch (defaultRuleBehavior(register)) {
-                    .undefined => {
-                        @memset(out, undefined);
-                        return true;
-                    },
-                    .same_value => {
-                        const src = try context.cpu_context.dwarfRegisterBytes(register);
-                        if (src.len != out.len) return error.RegisterSizeMismatch;
-                        @memcpy(out, src);
-                        return false;
-                    },
-                }
-            },
-            .undefined => {
-                @memset(out, undefined);
-                return true;
-            },
-            .same_value => {
-                // TODO: This copy could be eliminated if callers always copy the state then call this function to update it
-                const register = col.register orelse return error.InvalidRegister;
-                const src = try context.cpu_context.dwarfRegisterBytes(register);
-                if (src.len != out.len) return error.RegisterSizeMismatch;
-                @memcpy(out, src);
-                return false;
-            },
-            .offset => |offset| {
-                const cfa = context.cfa orelse return error.InvalidCFA;
-                const addr = try applyOffset(cfa, offset);
-                const ptr: *const usize = @ptrFromInt(addr);
-                mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
-                return false;
-            },
-            .val_offset => |offset| {
-                const cfa = context.cfa orelse return error.InvalidCFA;
-                mem.writeInt(usize, out[0..@sizeOf(usize)], try applyOffset(cfa, offset), native_endian);
-                return false;
-            },
-            .register => |register| {
-                const src = try context.cpu_context.dwarfRegisterBytes(register);
-                if (src.len != out.len) return error.RegisterSizeMismatch;
-                @memcpy(out, src);
-                return false;
-            },
-            .expression => |expression| {
-                context.stack_machine.reset();
-                const value = try context.stack_machine.run(
-                    expression,
-                    gpa,
-                    expression_context,
-                    context.cfa.?,
-                ) orelse return error.NoExpressionValue;
-                const addr = switch (value) {
-                    .generic => |addr| addr,
-                    else => return error.InvalidExpressionValue,
-                };
-                const ptr: *usize = @ptrFromInt(addr);
-                mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
-                return false;
-            },
-            .val_expression => |expression| {
-                context.stack_machine.reset();
-                const value = try context.stack_machine.run(
-                    expression,
-                    gpa,
-                    expression_context,
-                    context.cfa.?,
-                ) orelse return error.NoExpressionValue;
-                const val_raw = switch (value) {
-                    .generic => |raw| raw,
-                    else => return error.InvalidExpressionValue,
-                };
-                mem.writeInt(usize, out[0..@sizeOf(usize)], val_raw, native_endian);
-                return false;
-            },
-            .architectural => return error.UnimplementedRegisterRule,
-        }
-    }
-
     /// Unwind a stack frame using DWARF unwinding info, updating the register context.
     ///
     /// If `.eh_frame_hdr` is available and complete, it will be used to binary search for the FDE.
     /// Otherwise, a linear scan of `.eh_frame` and `.debug_frame` is done to find the FDE. The latter
     /// may require lazily loading the data in those sections.
     ///
-    /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
+    /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when using macOS'
+    /// `__unwind_info` section.
     pub fn unwindFrame(
         context: *DwarfUnwindContext,
+        cache: *Cache,
         gpa: Allocator,
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
         explicit_fde_offset: ?usize,
     ) Error!usize {
-        return unwindFrameInner(context, gpa, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
-            error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
+        return unwindFrameInner(context, cache, gpa, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
+            error.InvalidDebugInfo,
+            error.MissingDebugInfo,
+            error.UnsupportedDebugInfo,
+            error.OutOfMemory,
+            => |e| return e,
 
-            error.UnimplementedRegisterRule,
             error.UnsupportedAddrSize,
-            error.UnsupportedDwarfVersion,
             error.UnimplementedUserOpcode,
             error.UnimplementedExpressionCall,
             error.UnimplementedOpcode,
@@ -394,12 +328,12 @@ pub const DwarfUnwindContext = struct {
             error.InvalidExpressionValue,
             error.NoExpressionValue,
             error.RegisterSizeMismatch,
-            error.InvalidCFA,
             => return error.InvalidDebugInfo,
         };
     }
     fn unwindFrameInner(
         context: *DwarfUnwindContext,
+        cache: *Cache,
         gpa: Allocator,
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
@@ -411,57 +345,85 @@ pub const DwarfUnwindContext = struct {
 
         const pc_vaddr = context.pc - load_offset;
 
-        const fde_offset = explicit_fde_offset orelse try unwind.lookupPc(
-            pc_vaddr,
-            @sizeOf(usize),
-            native_endian,
-        ) orelse return error.MissingDebugInfo;
-        const format, const cie, const fde = try unwind.getFde(fde_offset, @sizeOf(usize), native_endian);
+        const cache_slot: Cache.Slot = slot: {
+            const slot_idx = std.hash.int(pc_vaddr) % Cache.num_slots;
 
-        // Check if the FDE *actually* includes the pc (`lookupPc` can return false positives).
-        if (pc_vaddr < fde.pc_begin or pc_vaddr >= fde.pc_begin + fde.pc_range) {
-            return error.MissingDebugInfo;
-        }
+            {
+                cache.mutex.lock();
+                defer cache.mutex.unlock();
+                if (cache.buf[slot_idx].pc == pc_vaddr) break :slot cache.buf[slot_idx];
+            }
 
-        // Do not set `compile_unit` because the spec states that CFIs
-        // may not reference other debug sections anyway.
-        var expression_context: Dwarf.expression.Context = .{
-            .format = format,
-            .cpu_context = &context.cpu_context,
-            .cfa = context.cfa,
+            const fde_offset = explicit_fde_offset orelse try unwind.lookupPc(
+                pc_vaddr,
+                @sizeOf(usize),
+                native_endian,
+            ) orelse return error.MissingDebugInfo;
+            const cie, const fde = try unwind.getFde(fde_offset, native_endian);
+
+            // Check if the FDE *actually* includes the pc (`lookupPc` can return false positives).
+            if (pc_vaddr < fde.pc_begin or pc_vaddr >= fde.pc_begin + fde.pc_range) {
+                return error.MissingDebugInfo;
+            }
+
+            context.vm.reset();
+
+            const row = try context.vm.runTo(gpa, pc_vaddr, cie, &fde, @sizeOf(usize), native_endian);
+
+            if (row.columns.len > Cache.Slot.max_regs) return error.UnsupportedDebugInfo;
+
+            var slot: Cache.Slot = .{
+                .pc = pc_vaddr,
+                .cie = cie,
+                .cfa_rule = row.cfa,
+                .rules_regs = undefined,
+                .rules = undefined,
+                .num_rules = 0,
+            };
+            for (context.vm.rowColumns(&row)) |col| {
+                const i = slot.num_rules;
+                slot.rules_regs[i] = col.register;
+                slot.rules[i] = col.rule;
+                slot.num_rules += 1;
+            }
+
+            {
+                cache.mutex.lock();
+                defer cache.mutex.unlock();
+                cache.buf[slot_idx] = slot;
+            }
+
+            break :slot slot;
         };
 
-        context.vm.reset();
+        const format = cache_slot.cie.format;
+        const return_address_register = cache_slot.cie.return_address_register;
 
-        const row = try context.vm.runTo(gpa, pc_vaddr, cie, fde, @sizeOf(usize), native_endian);
-        context.cfa = switch (row.cfa.rule) {
-            .val_offset => |offset| blk: {
-                const register = row.cfa.register orelse return error.InvalidCFARule;
-                const value = (try regNative(&context.cpu_context, register)).*;
-                break :blk try applyOffset(value, offset);
+        context.cfa = switch (cache_slot.cfa_rule) {
+            .none => return error.InvalidCFARule,
+            .reg_off => |ro| cfa: {
+                const ptr = try regNative(&context.cpu_context, ro.register);
+                break :cfa try applyOffset(ptr.*, ro.offset);
             },
-            .expression => |expr| blk: {
+            .expression => |expr| cfa: {
                 context.stack_machine.reset();
-                const value = try context.stack_machine.run(
-                    expr,
-                    gpa,
-                    expression_context,
-                    context.cfa,
-                );
-
-                if (value) |v| {
-                    if (v != .generic) return error.InvalidExpressionValue;
-                    break :blk v.generic;
-                } else return error.NoExpressionValue;
+                const value = try context.stack_machine.run(expr, gpa, .{
+                    .format = format,
+                    .cpu_context = &context.cpu_context,
+                }, context.cfa) orelse return error.NoExpressionValue;
+                switch (value) {
+                    .generic => |g| break :cfa g,
+                    else => return error.InvalidExpressionValue,
+                }
             },
-            else => return error.InvalidCFARule,
         };
 
-        expression_context.cfa = context.cfa;
-
-        // If the rule for the return address register is 'undefined', that indicates there is no
-        // return address, i.e. this is the end of the stack.
-        var explicit_has_return_address: ?bool = null;
+        // If unspecified, we'll use the default rule for the return address register, which is
+        // typically equivalent to `.undefined` (meaning there is no return address), but may be
+        // overriden by ABIs.
+        var has_return_address: bool = builtin.cpu.arch.isAARCH64() and
+            return_address_register >= 19 and
+            return_address_register <= 28;
 
         // Create a copy of the CPU context, to which we will apply the new rules.
         var new_cpu_context = context.cpu_context;
@@ -469,25 +431,78 @@ pub const DwarfUnwindContext = struct {
         // On all implemented architectures, the CFA is defined as being the previous frame's SP
         (try regNative(&new_cpu_context, sp_reg_num)).* = context.cfa.?;
 
-        for (context.vm.rowColumns(row)) |column| {
-            if (column.register) |register| {
-                const dest = try new_cpu_context.dwarfRegisterBytes(register);
-                const rule_undef = try context.resolveRegisterRule(gpa, column, expression_context, dest);
-                if (register == cie.return_address_register) {
-                    explicit_has_return_address = !rule_undef;
-                }
+        const rules_len = cache_slot.num_rules;
+        for (cache_slot.rules_regs[0..rules_len], cache_slot.rules[0..rules_len]) |register, rule| {
+            const new_val: union(enum) {
+                same,
+                undefined,
+                val: usize,
+                bytes: []const u8,
+            } = switch (rule) {
+                .default => val: {
+                    // The default rule is typically equivalent to `.undefined`, but ABIs may override it.
+                    if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 28) {
+                        break :val .same;
+                    }
+                    break :val .undefined;
+                },
+                .undefined => .undefined,
+                .same_value => .same,
+                .offset => |offset| val: {
+                    const ptr: *const usize = @ptrFromInt(try applyOffset(context.cfa.?, offset));
+                    break :val .{ .val = ptr.* };
+                },
+                .val_offset => |offset| .{ .val = try applyOffset(context.cfa.?, offset) },
+                .register => |r| .{ .bytes = try context.cpu_context.dwarfRegisterBytes(r) },
+                .expression => |expr| val: {
+                    context.stack_machine.reset();
+                    const value = try context.stack_machine.run(expr, gpa, .{
+                        .format = format,
+                        .cpu_context = &context.cpu_context,
+                    }, context.cfa.?) orelse return error.NoExpressionValue;
+                    const ptr: *const usize = switch (value) {
+                        .generic => |addr| @ptrFromInt(addr),
+                        else => return error.InvalidExpressionValue,
+                    };
+                    break :val .{ .val = ptr.* };
+                },
+                .val_expression => |expr| val: {
+                    context.stack_machine.reset();
+                    const value = try context.stack_machine.run(expr, gpa, .{
+                        .format = format,
+                        .cpu_context = &context.cpu_context,
+                    }, context.cfa.?) orelse return error.NoExpressionValue;
+                    switch (value) {
+                        .generic => |val| break :val .{ .val = val },
+                        else => return error.InvalidExpressionValue,
+                    }
+                },
+            };
+            switch (new_val) {
+                .same => {},
+                .undefined => {
+                    const dest = try new_cpu_context.dwarfRegisterBytes(@intCast(register));
+                    @memset(dest, undefined);
+                },
+                .val => |val| {
+                    const dest = try new_cpu_context.dwarfRegisterBytes(@intCast(register));
+                    if (dest.len != @sizeOf(usize)) return error.RegisterSizeMismatch;
+                    const dest_ptr: *align(1) usize = @ptrCast(dest);
+                    dest_ptr.* = val;
+                },
+                .bytes => |src| {
+                    const dest = try new_cpu_context.dwarfRegisterBytes(@intCast(register));
+                    if (dest.len != src.len) return error.RegisterSizeMismatch;
+                    @memcpy(dest, src);
+                },
+            }
+            if (register == return_address_register) {
+                has_return_address = new_val != .undefined;
             }
         }
 
-        // If the return address register did not have an explicitly specified rules then it uses
-        // the default rule, which is usually equivalent to '.undefined', i.e. end-of-stack.
-        const has_return_address = explicit_has_return_address orelse switch (defaultRuleBehavior(cie.return_address_register)) {
-            .undefined => false,
-            .same_value => return error.InvalidDebugInfo, // this doesn't make sense, we would get stuck in an infinite loop
-        };
-
         const return_address: usize = if (has_return_address) pc: {
-            const raw_ptr = try regNative(&new_cpu_context, cie.return_address_register);
+            const raw_ptr = try regNative(&new_cpu_context, return_address_register);
             break :pc stripInstructionPtrAuthCode(raw_ptr.*);
         } else 0;
 
@@ -501,7 +516,7 @@ pub const DwarfUnwindContext = struct {
         // "return address" we have is the instruction which triggered the signal (if the signal
         // handler returned, the instruction would be re-run). Compensate for this by incrementing
         // the address in that case.
-        const adjusted_ret_addr = if (cie.is_signal_frame) return_address +| 1 else return_address;
+        const adjusted_ret_addr = if (cache_slot.cie.is_signal_frame) return_address +| 1 else return_address;
 
         // We also want to do that same subtraction here to get the PC for the next frame's FDE.
         // This is because if the callee was noreturn, then the function call might be the caller's

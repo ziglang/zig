@@ -20,7 +20,7 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) Error!DarwinM
         },
     }
 }
-fn loadUnwindInfo(module: *const DarwinModule) DebugInfo.Unwind {
+fn loadUnwindInfo(module: *const DarwinModule, gpa: Allocator, out: *DebugInfo) !void {
     const header: *std.macho.mach_header = @ptrFromInt(module.text_base);
 
     var it: macho.LoadCommandIterator = .{
@@ -36,21 +36,57 @@ fn loadUnwindInfo(module: *const DarwinModule) DebugInfo.Unwind {
 
     const vmaddr_slide = module.text_base - text_vmaddr;
 
-    var unwind_info: ?[]const u8 = null;
-    var eh_frame: ?[]const u8 = null;
+    var opt_unwind_info: ?[]const u8 = null;
+    var opt_eh_frame: ?[]const u8 = null;
     for (sections) |sect| {
         if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
             const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(vmaddr_slide + sect.addr)));
-            unwind_info = sect_ptr[0..@intCast(sect.size)];
+            opt_unwind_info = sect_ptr[0..@intCast(sect.size)];
         } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
             const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(vmaddr_slide + sect.addr)));
-            eh_frame = sect_ptr[0..@intCast(sect.size)];
+            opt_eh_frame = sect_ptr[0..@intCast(sect.size)];
         }
     }
-    return .{
+    const eh_frame = opt_eh_frame orelse {
+        out.unwind = .{
+            .vmaddr_slide = vmaddr_slide,
+            .unwind_info = opt_unwind_info,
+            .dwarf = null,
+            .dwarf_cache = undefined,
+        };
+        return;
+    };
+    var dwarf: Dwarf.Unwind = .initSection(.eh_frame, @intFromPtr(eh_frame.ptr) - vmaddr_slide, eh_frame);
+    errdefer dwarf.deinit(gpa);
+    // We don't need lookups, so this call is just for scanning CIEs.
+    dwarf.prepare(gpa, @sizeOf(usize), native_endian, false) catch |err| switch (err) {
+        error.ReadFailed => unreachable, // it's all fixed buffers
+        error.InvalidDebugInfo,
+        error.MissingDebugInfo,
+        error.OutOfMemory,
+        => |e| return e,
+        error.EndOfStream,
+        error.Overflow,
+        error.StreamTooLong,
+        error.InvalidOperand,
+        error.InvalidOpcode,
+        error.InvalidOperation,
+        => return error.InvalidDebugInfo,
+        error.UnsupportedAddrSize,
+        error.UnsupportedDwarfVersion,
+        error.UnimplementedUserOpcode,
+        => return error.UnsupportedDebugInfo,
+    };
+
+    const dwarf_cache = try gpa.create(UnwindContext.Cache);
+    errdefer gpa.destroy(dwarf_cache);
+    dwarf_cache.init();
+
+    out.unwind = .{
         .vmaddr_slide = vmaddr_slide,
-        .unwind_info = unwind_info,
-        .eh_frame = eh_frame,
+        .unwind_info = opt_unwind_info,
+        .dwarf = dwarf,
+        .dwarf_cache = dwarf_cache,
     };
 }
 fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO {
@@ -350,10 +386,10 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
     };
 }
 fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
-    const unwind: *const DebugInfo.Unwind = u: {
+    const unwind: *DebugInfo.Unwind = u: {
         di.mutex.lock();
         defer di.mutex.unlock();
-        if (di.unwind == null) di.unwind = module.loadUnwindInfo();
+        if (di.unwind == null) try module.loadUnwindInfo(gpa, di);
         break :u &di.unwind.?;
     };
 
@@ -580,14 +616,8 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
                 break :ip new_ip;
             },
             .DWARF => {
-                const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
-                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - unwind.vmaddr_slide;
-                return context.unwindFrame(
-                    gpa,
-                    &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
-                    unwind.vmaddr_slide,
-                    @intCast(encoding.value.x86_64.dwarf),
-                );
+                const dwarf = &(unwind.dwarf orelse return error.MissingDebugInfo);
+                return context.unwindFrame(unwind.dwarf_cache, gpa, dwarf, unwind.vmaddr_slide, encoding.value.x86_64.dwarf);
             },
         },
         .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
@@ -600,14 +630,8 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
                 break :ip new_ip;
             },
             .DWARF => {
-                const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
-                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - unwind.vmaddr_slide;
-                return context.unwindFrame(
-                    gpa,
-                    &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
-                    unwind.vmaddr_slide,
-                    @intCast(encoding.value.x86_64.dwarf),
-                );
+                const dwarf = &(unwind.dwarf orelse return error.MissingDebugInfo);
+                return context.unwindFrame(unwind.dwarf_cache, gpa, dwarf, unwind.vmaddr_slide, encoding.value.arm64.dwarf);
             },
             .FRAME => ip: {
                 const frame = encoding.value.arm64.frame;
@@ -691,12 +715,15 @@ pub const DebugInfo = struct {
     }
 
     const Unwind = struct {
-        /// The slide applied to the following sections. So, `unwind_info.ptr` is this many bytes
-        /// higher than the vmaddr of `__unwind_info`, and likewise for `__eh_frame`.
+        /// The slide applied to the `__unwind_info` and `__eh_frame` sections.
+        /// So, `unwind_info.ptr` is this many bytes higher than the section's vmaddr.
         vmaddr_slide: u64,
-        // Backed by the in-memory sections mapped by the loader
+        /// Backed by the in-memory section mapped by the loader.
         unwind_info: ?[]const u8,
-        eh_frame: ?[]const u8,
+        /// Backed by the in-memory `__eh_frame` section mapped by the loader.
+        dwarf: ?Dwarf.Unwind,
+        /// This is `undefined` if `dwarf == null`.
+        dwarf_cache: *UnwindContext.Cache,
     };
 
     const LoadedMachO = struct {

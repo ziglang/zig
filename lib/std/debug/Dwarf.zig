@@ -27,7 +27,6 @@ const Reader = std.Io.Reader;
 const Dwarf = @This();
 
 pub const expression = @import("Dwarf/expression.zig");
-pub const call_frame = @import("Dwarf/call_frame.zig");
 pub const Unwind = @import("Dwarf/Unwind.zig");
 
 /// Useful to temporarily enable while working on this file.

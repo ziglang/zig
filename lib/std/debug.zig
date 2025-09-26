@@ -572,9 +572,12 @@ pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) 
     defer it.deinit();
     if (!it.stratOk(options.allow_unsafe_unwind)) return empty_trace;
     var total_frames: usize = 0;
-    var frame_idx: usize = 0;
+    var index: usize = 0;
     var wait_for = options.first_address;
-    while (true) switch (it.next()) {
+    // Ideally, we would iterate the whole stack so that the `index` in the returned trace was
+    // indicative of how many frames were skipped. However, this has a significant runtime cost
+    // in some cases, so at least for now, we don't do that.
+    while (index < addr_buf.len) switch (it.next()) {
         .switch_to_fp => if (!it.stratOk(options.allow_unsafe_unwind)) break,
         .end => break,
         .frame => |ret_addr| {
@@ -588,13 +591,13 @@ pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) 
                 if (ret_addr != target) continue;
                 wait_for = null;
             }
-            if (frame_idx < addr_buf.len) addr_buf[frame_idx] = ret_addr;
-            frame_idx += 1;
+            addr_buf[index] = ret_addr;
+            index += 1;
         },
     };
     return .{
-        .index = frame_idx,
-        .instruction_addresses = addr_buf[0..@min(frame_idx, addr_buf.len)],
+        .index = index,
+        .instruction_addresses = addr_buf[0..index],
     };
 }
 /// Write the current stack trace to `writer`, annotated with source locations.
