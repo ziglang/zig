@@ -3,8 +3,22 @@ name: []const u8,
 build_id: ?[]const u8,
 gnu_eh_frame: ?[]const u8,
 
-/// No cache needed, because `dl_iterate_phdr` is already fast.
-pub const LookupCache = void;
+pub const LookupCache = struct {
+    rwlock: std.Thread.RwLock,
+    ranges: std.ArrayList(Range),
+    const Range = struct {
+        start: usize,
+        len: usize,
+        mod: ElfModule,
+    };
+    pub const init: LookupCache = .{
+        .rwlock = .{},
+        .ranges = .empty,
+    };
+    pub fn deinit(lc: *LookupCache, gpa: Allocator) void {
+        lc.ranges.deinit(gpa);
+    }
+};
 
 pub const DebugInfo = struct {
     /// Held while checking and/or populating `loaded_elf`/`scanned_dwarf`/`unwind`.
@@ -14,18 +28,24 @@ pub const DebugInfo = struct {
 
     loaded_elf: ?ElfFile,
     scanned_dwarf: bool,
-    unwind: [2]?Dwarf.Unwind,
+    unwind: if (supports_unwinding) [2]?Dwarf.Unwind else void,
+    unwind_cache: if (supports_unwinding) *UnwindContext.Cache else void,
+
     pub const init: DebugInfo = .{
         .mutex = .{},
         .loaded_elf = null,
         .scanned_dwarf = false,
-        .unwind = @splat(null),
+        .unwind = if (supports_unwinding) @splat(null),
+        .unwind_cache = undefined,
     };
     pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
         if (di.loaded_elf) |*loaded_elf| loaded_elf.deinit(gpa);
-        for (&di.unwind) |*opt_unwind| {
-            const unwind = &(opt_unwind.* orelse continue);
-            unwind.deinit(gpa);
+        if (supports_unwinding) {
+            if (di.unwind[0] != null) gpa.destroy(di.unwind_cache);
+            for (&di.unwind) |*opt_unwind| {
+                const unwind = &(opt_unwind.* orelse continue);
+                unwind.deinit(gpa);
+            }
         }
     }
 };
@@ -34,74 +54,83 @@ pub fn key(m: ElfModule) usize {
     return m.load_offset;
 }
 pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) Error!ElfModule {
-    _ = cache;
-    _ = gpa;
-    const DlIterContext = struct {
-        /// input
-        address: usize,
-        /// output
-        module: ElfModule,
+    if (lookupInCache(cache, address)) |m| return m;
 
-        fn callback(info: *std.posix.dl_phdr_info, size: usize, context: *@This()) !void {
-            _ = size;
-            // The base address is too high
-            if (context.address < info.addr)
-                return;
+    {
+        // Check a new module hasn't been loaded
+        cache.rwlock.lock();
+        defer cache.rwlock.unlock();
+        const DlIterContext = struct {
+            ranges: *std.ArrayList(LookupCache.Range),
+            gpa: Allocator,
 
-            const phdrs = info.phdr[0..info.phnum];
-            for (phdrs) |*phdr| {
-                if (phdr.p_type != elf.PT_LOAD) continue;
+            fn callback(info: *std.posix.dl_phdr_info, size: usize, context: *@This()) !void {
+                _ = size;
 
-                // Overflowing addition is used to handle the case of VSDOs having a p_vaddr = 0xffffffffff700000
-                const seg_start = info.addr +% phdr.p_vaddr;
-                const seg_end = seg_start + phdr.p_memsz;
-                if (context.address >= seg_start and context.address < seg_end) {
-                    context.module = .{
-                        .load_offset = info.addr,
-                        // Android libc uses NULL instead of "" to mark the main program
-                        .name = mem.sliceTo(info.name, 0) orelse "",
-                        .build_id = null,
-                        .gnu_eh_frame = null,
-                    };
-                    break;
+                var mod: ElfModule = .{
+                    .load_offset = info.addr,
+                    // Android libc uses NULL instead of "" to mark the main program
+                    .name = mem.sliceTo(info.name, 0) orelse "",
+                    .build_id = null,
+                    .gnu_eh_frame = null,
+                };
+
+                // Populate `build_id` and `gnu_eh_frame`
+                for (info.phdr[0..info.phnum]) |phdr| {
+                    switch (phdr.p_type) {
+                        elf.PT_NOTE => {
+                            // Look for .note.gnu.build-id
+                            const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
+                            var r: std.Io.Reader = .fixed(segment_ptr[0..phdr.p_memsz]);
+                            const name_size = r.takeInt(u32, native_endian) catch continue;
+                            const desc_size = r.takeInt(u32, native_endian) catch continue;
+                            const note_type = r.takeInt(u32, native_endian) catch continue;
+                            const name = r.take(name_size) catch continue;
+                            if (note_type != elf.NT_GNU_BUILD_ID) continue;
+                            if (!mem.eql(u8, name, "GNU\x00")) continue;
+                            const desc = r.take(desc_size) catch continue;
+                            mod.build_id = desc;
+                        },
+                        elf.PT_GNU_EH_FRAME => {
+                            const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
+                            mod.gnu_eh_frame = segment_ptr[0..phdr.p_memsz];
+                        },
+                        else => {},
+                    }
                 }
-            } else return;
 
-            for (info.phdr[0..info.phnum]) |phdr| {
-                switch (phdr.p_type) {
-                    elf.PT_NOTE => {
-                        // Look for .note.gnu.build-id
-                        const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
-                        var r: std.Io.Reader = .fixed(segment_ptr[0..phdr.p_memsz]);
-                        const name_size = r.takeInt(u32, native_endian) catch continue;
-                        const desc_size = r.takeInt(u32, native_endian) catch continue;
-                        const note_type = r.takeInt(u32, native_endian) catch continue;
-                        const name = r.take(name_size) catch continue;
-                        if (note_type != elf.NT_GNU_BUILD_ID) continue;
-                        if (!mem.eql(u8, name, "GNU\x00")) continue;
-                        const desc = r.take(desc_size) catch continue;
-                        context.module.build_id = desc;
-                    },
-                    elf.PT_GNU_EH_FRAME => {
-                        const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
-                        context.module.gnu_eh_frame = segment_ptr[0..phdr.p_memsz];
-                    },
-                    else => {},
+                // Now that `mod` is populated, create the ranges
+                for (info.phdr[0..info.phnum]) |phdr| {
+                    if (phdr.p_type != elf.PT_LOAD) continue;
+                    try context.ranges.append(context.gpa, .{
+                        // Overflowing addition handles VSDOs having p_vaddr = 0xffffffffff700000
+                        .start = info.addr +% phdr.p_vaddr,
+                        .len = phdr.p_memsz,
+                        .mod = mod,
+                    });
                 }
             }
+        };
+        cache.ranges.clearRetainingCapacity();
+        var ctx: DlIterContext = .{
+            .ranges = &cache.ranges,
+            .gpa = gpa,
+        };
+        try std.posix.dl_iterate_phdr(&ctx, error{OutOfMemory}, DlIterContext.callback);
+    }
 
-            // Stop the iteration
-            return error.Found;
-        }
-    };
-    var ctx: DlIterContext = .{
-        .address = address,
-        .module = undefined,
-    };
-    std.posix.dl_iterate_phdr(&ctx, error{Found}, DlIterContext.callback) catch |err| switch (err) {
-        error.Found => return ctx.module,
-    };
+    if (lookupInCache(cache, address)) |m| return m;
     return error.MissingDebugInfo;
+}
+fn lookupInCache(cache: *LookupCache, address: usize) ?ElfModule {
+    cache.rwlock.lockShared();
+    defer cache.rwlock.unlockShared();
+    for (cache.ranges.items) |*range| {
+        if (address >= range.start and address < range.start + range.len) {
+            return range.mod;
+        }
+    }
+    return null;
 }
 fn loadElf(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
     std.debug.assert(di.loaded_elf == null);
@@ -199,11 +228,23 @@ pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugIn
     };
 }
 fn prepareUnwindLookup(unwind: *Dwarf.Unwind, gpa: Allocator) Error!void {
-    unwind.prepareLookup(gpa, @sizeOf(usize), native_endian) catch |err| switch (err) {
+    unwind.prepare(gpa, @sizeOf(usize), native_endian, true) catch |err| switch (err) {
         error.ReadFailed => unreachable, // it's all fixed buffers
-        error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
-        error.EndOfStream, error.Overflow, error.StreamTooLong => return error.InvalidDebugInfo,
-        error.UnsupportedAddrSize, error.UnsupportedDwarfVersion => return error.UnsupportedDebugInfo,
+        error.InvalidDebugInfo,
+        error.MissingDebugInfo,
+        error.OutOfMemory,
+        => |e| return e,
+        error.EndOfStream,
+        error.Overflow,
+        error.StreamTooLong,
+        error.InvalidOperand,
+        error.InvalidOpcode,
+        error.InvalidOperation,
+        => return error.InvalidDebugInfo,
+        error.UnsupportedAddrSize,
+        error.UnsupportedDwarfVersion,
+        error.UnimplementedUserOpcode,
+        => return error.UnsupportedDebugInfo,
     };
 }
 fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
@@ -240,12 +281,18 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
     };
     errdefer for (unwinds) |*u| u.deinit(gpa);
     for (unwinds) |*u| try prepareUnwindLookup(u, gpa);
+
+    const unwind_cache = try gpa.create(UnwindContext.Cache);
+    errdefer gpa.destroy(unwind_cache);
+    unwind_cache.init();
+
     switch (unwinds.len) {
         0 => unreachable,
         1 => di.unwind = .{ unwinds[0], null },
         2 => di.unwind = .{ unwinds[0], unwinds[1] },
         else => unreachable,
     }
+    di.unwind_cache = unwind_cache;
 }
 pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
     const unwinds: *const [2]?Dwarf.Unwind = u: {
@@ -257,7 +304,7 @@ pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, con
     };
     for (unwinds) |*opt_unwind| {
         const unwind = &(opt_unwind.* orelse break);
-        return context.unwindFrame(gpa, unwind, module.load_offset, null) catch |err| switch (err) {
+        return context.unwindFrame(di.unwind_cache, gpa, unwind, module.load_offset, null) catch |err| switch (err) {
             error.MissingDebugInfo => continue, // try the next one
             else => |e| return e,
         };

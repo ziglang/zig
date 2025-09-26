@@ -10,7 +10,7 @@
 //! The typical usage of `Unwind` is as follows:
 //!
 //! * Initialize with `initEhFrameHdr` or `initSection`, depending on the available data
-//! * Call `prepareLookup` to construct a search table if necessary
+//! * Call `prepare` to scan CIEs and, if necessary, construct a search table
 //! * Call `lookupPc` to find the section offset of the FDE corresponding to a PC
 //! * Call `getFde` to load the corresponding FDE and CIE
 //! * Check that the PC does indeed fall in that range (`lookupPc` may return a false positive)
@@ -18,7 +18,7 @@
 //!
 //! In some cases, such as when using the "compact unwind" data in Mach-O binaries, the FDE offsets
 //! may already be known. In that case, no call to `lookupPc` is necessary, which means the call to
-//! `prepareLookup` can also be omitted.
+//! `prepare` can be optimized to only scan CIEs.
 
 pub const VirtualMachine = @import("Unwind/VirtualMachine.zig");
 
@@ -45,7 +45,7 @@ frame_section: struct {
 
 /// A structure allowing fast lookups of the FDE corresponding to a particular PC. We use a binary
 /// search table for the lookup; essentially, a list of all FDEs ordered by PC range. `null` means
-/// the lookup data is not yet populated, so `prepareLookup` must be called before `lookupPc`.
+/// the lookup data is not yet populated, so `prepare` must be called before `lookupPc`.
 lookup: ?union(enum) {
     /// The `.eh_frame_hdr` section contains a pre-computed search table which we can use.
     eh_frame_hdr: struct {
@@ -57,6 +57,12 @@ lookup: ?union(enum) {
     /// Allocated into `gpa` and freed by `deinit`.
     sorted_fdes: []SortedFdeEntry,
 },
+
+/// Initially empty; populated by `prepare`.
+cie_list: std.MultiArrayList(struct {
+    offset: u64,
+    cie: CommonInformationEntry,
+}),
 
 const SortedFdeEntry = struct {
     /// This FDE's value of `pc_begin`.
@@ -83,6 +89,7 @@ pub fn initEhFrameHdr(header: EhFrameHeader, section_vaddr: u64, section_bytes_p
             .vaddr = section_vaddr,
             .table = table,
         } } else null,
+        .cie_list = .empty,
     };
 }
 
@@ -98,16 +105,21 @@ pub fn initSection(section: Section, section_vaddr: u64, section_bytes: []const 
             .vaddr = section_vaddr,
         },
         .lookup = null,
+        .cie_list = .empty,
     };
 }
 
-/// Technically, it is only necessary to call this if `prepareLookup` has previously been called,
-/// since no other function here allocates resources.
 pub fn deinit(unwind: *Unwind, gpa: Allocator) void {
     if (unwind.lookup) |lookup| switch (lookup) {
         .eh_frame_hdr => {},
         .sorted_fdes => |fdes| gpa.free(fdes),
     };
+    for (unwind.cie_list.items(.cie)) |*cie| {
+        if (cie.last_row) |*lr| {
+            gpa.free(lr.cols);
+        }
+    }
+    unwind.cie_list.deinit(gpa);
 }
 
 /// Decoded version of the `.eh_frame_hdr` section.
@@ -236,7 +248,6 @@ const EntryHeader = union(enum) {
         bytes_len: u64,
     },
     fde: struct {
-        format: Format,
         /// Offset into the section of the corresponding CIE, *including* its entry header.
         cie_offset: u64,
         /// Remaining bytes in the FDE. These are parseable by `FrameDescriptionEntry.parse`.
@@ -290,7 +301,6 @@ const EntryHeader = union(enum) {
             .debug_frame => cie_ptr_or_id,
         };
         return .{ .fde = .{
-            .format = unit_header.format,
             .cie_offset = cie_offset,
             .bytes_len = remaining_bytes,
         } };
@@ -299,6 +309,7 @@ const EntryHeader = union(enum) {
 
 pub const CommonInformationEntry = struct {
     version: u8,
+    format: Format,
 
     /// In version 4, CIEs can specify the address size used in the CIE and associated FDEs.
     /// This value must be used *only* to parse associated FDEs in `FrameDescriptionEntry.parse`.
@@ -318,6 +329,12 @@ pub const CommonInformationEntry = struct {
 
     initial_instructions: []const u8,
 
+    last_row: ?struct {
+        offset: u64,
+        cfa: VirtualMachine.CfaRule,
+        cols: []VirtualMachine.Column,
+    },
+
     pub const AugmentationKind = enum { none, gcc_eh, lsb_z };
 
     /// This function expects to read the CIE starting with the version field.
@@ -326,6 +343,7 @@ pub const CommonInformationEntry = struct {
     /// `length_offset` specifies the offset of this CIE's length field in the
     /// .eh_frame / .debug_frame section.
     fn parse(
+        format: Format,
         cie_bytes: []const u8,
         section: Section,
         default_addr_size_bytes: u8,
@@ -384,6 +402,7 @@ pub const CommonInformationEntry = struct {
         };
 
         return .{
+            .format = format,
             .version = version,
             .addr_size_bytes = addr_size_bytes,
             .segment_selector_size = segment_selector_size,
@@ -394,6 +413,7 @@ pub const CommonInformationEntry = struct {
             .is_signal_frame = is_signal_frame,
             .augmentation_kind = aug_kind,
             .initial_instructions = r.buffered(),
+            .last_row = null,
         };
     }
 };
@@ -411,7 +431,7 @@ pub const FrameDescriptionEntry = struct {
         /// module's `.eh_frame` section, this will equal `fde_bytes.ptr`.
         fde_vaddr: u64,
         fde_bytes: []const u8,
-        cie: CommonInformationEntry,
+        cie: *const CommonInformationEntry,
         endian: Endian,
     ) !FrameDescriptionEntry {
         if (cie.segment_selector_size != 0) return error.UnsupportedAddrSize;
@@ -446,11 +466,18 @@ pub const FrameDescriptionEntry = struct {
     }
 };
 
-/// Builds the PC FDE lookup table if it is not already built. It is required to call this function
-/// at least once before calling `lookupPc`. Once this function is called, memory has been allocated
-/// and so `deinit` (matching this `gpa`) is required to free it.
-pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endian: Endian) !void {
-    if (unwind.lookup != null) return;
+/// Builds the CIE list and FDE lookup table if they are not already built. It is required to call
+/// this function at least once before calling `lookupPc` or `getFde`. If only `getFde` is needed,
+/// then `need_lookup` can be set to `false` to make this function more efficient.
+pub fn prepare(
+    unwind: *Unwind,
+    gpa: Allocator,
+    addr_size_bytes: u8,
+    endian: Endian,
+    need_lookup: bool,
+) !void {
+    if (unwind.cie_list.len > 0 and (!need_lookup or unwind.lookup != null)) return;
+    unwind.cie_list.clearRetainingCapacity();
 
     const section = unwind.frame_section;
 
@@ -462,21 +489,28 @@ pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endia
         const entry_offset = r.seek;
         switch (try EntryHeader.read(&r, entry_offset, section.id, endian)) {
             .cie => |cie_info| {
-                // Ignore CIEs for now; we'll parse them when we read a corresponding FDE
-                try r.discardAll(cast(usize, cie_info.bytes_len) orelse return error.EndOfStream);
+                // We will pre-populate a list of CIEs for efficiency: this avoids work re-parsing
+                // them every time we look up an FDE. It also lets us cache the result of evaluating
+                // the CIE's initial CFI instructions, which is useful because in the vast majority
+                // of cases those instructions will be needed to reach the PC we are unwinding to.
+                const bytes_len = cast(usize, cie_info.bytes_len) orelse return error.EndOfStream;
+                const idx = unwind.cie_list.len;
+                try unwind.cie_list.append(gpa, .{
+                    .offset = entry_offset,
+                    .cie = try .parse(cie_info.format, try r.take(bytes_len), section.id, addr_size_bytes),
+                });
+                errdefer _ = unwind.cie_list.pop().?;
+                try VirtualMachine.populateCieLastRow(gpa, &unwind.cie_list.items(.cie)[idx], addr_size_bytes, endian);
                 continue;
             },
             .fde => |fde_info| {
-                if (fde_info.cie_offset > section.bytes.len) return error.EndOfStream;
-                var cie_r: Reader = .fixed(section.bytes[@intCast(fde_info.cie_offset)..]);
-                const cie_info = switch (try EntryHeader.read(&cie_r, fde_info.cie_offset, section.id, endian)) {
-                    .cie => |cie_info| cie_info,
-                    .fde, .terminator => return bad(), // this is meant to be a CIE
-                };
-                const cie_bytes_len = cast(usize, cie_info.bytes_len) orelse return error.EndOfStream;
-                const fde_bytes_len = cast(usize, fde_info.bytes_len) orelse return error.EndOfStream;
-                const cie: CommonInformationEntry = try .parse(try cie_r.take(cie_bytes_len), section.id, addr_size_bytes);
-                const fde: FrameDescriptionEntry = try .parse(section.vaddr + r.seek, try r.take(fde_bytes_len), cie, endian);
+                const bytes_len = cast(usize, fde_info.bytes_len) orelse return error.EndOfStream;
+                if (!need_lookup) {
+                    try r.discardAll(bytes_len);
+                    continue;
+                }
+                const cie = unwind.findCie(fde_info.cie_offset) orelse return error.InvalidDebugInfo;
+                const fde: FrameDescriptionEntry = try .parse(section.vaddr + r.seek, try r.take(bytes_len), cie, endian);
                 try fde_list.append(gpa, .{
                     .pc_begin = fde.pc_begin,
                     .fde_offset = entry_offset,
@@ -502,12 +536,30 @@ pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endia
     unwind.lookup = .{ .sorted_fdes = final_fdes };
 }
 
+fn findCie(unwind: *const Unwind, offset: u64) ?*const CommonInformationEntry {
+    const offsets = unwind.cie_list.items(.offset);
+    if (offsets.len == 0) return null;
+    var start: usize = 0;
+    var len: usize = offsets.len;
+    while (len > 1) {
+        const mid = len / 2;
+        if (offset < offsets[start + mid]) {
+            len = mid;
+        } else {
+            start += mid;
+            len -= mid;
+        }
+    }
+    if (offsets[start] != offset) return null;
+    return &unwind.cie_list.items(.cie)[start];
+}
+
 /// Given a program counter value, returns the offset of the corresponding FDE, or `null` if no
 /// matching FDE was found. The returned offset can be passed to `getFde` to load the data
 /// associated with the FDE.
 ///
-/// Before calling this function, `prepareLookup` must return successfully at least once, to ensure
-/// that `unwind.lookup` is populated.
+/// Before calling this function, `prepare` must return successfully at least once, to ensure that
+/// `unwind.lookup` is populated.
 ///
 /// The return value may be a false positive. After loading the FDE with `loadFde`, the caller must
 /// validate that `pc` is indeed in its range -- if it is not, then no FDE matches `pc`.
@@ -524,20 +576,25 @@ pub fn lookupPc(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian: End
         },
         .sorted_fdes => |sorted_fdes| sorted_fdes,
     };
-    const first_bad_idx = std.sort.partitionPoint(SortedFdeEntry, sorted_fdes, pc, struct {
-        fn canIncludePc(target_pc: u64, entry: SortedFdeEntry) bool {
-            return target_pc >= entry.pc_begin; // i.e. does 'entry_pc..<last pc>' include 'target_pc'
+    if (sorted_fdes.len == 0) return null;
+    var start: usize = 0;
+    var len: usize = sorted_fdes.len;
+    while (len > 1) {
+        const half = len / 2;
+        if (pc < sorted_fdes[start + half].pc_begin) {
+            len = half;
+        } else {
+            start += half;
+            len -= half;
         }
-    }.canIncludePc);
-    // `first_bad_idx` is the index of the first FDE whose `pc_begin` is too high to include `pc`.
-    // So if any FDE matches, it'll be the one at `first_bad_idx - 1` (maybe false positive).
-    if (first_bad_idx == 0) return null;
-    return sorted_fdes[first_bad_idx - 1].fde_offset;
+    }
+    // If any FDE matches, it'll be the one at `start` (maybe false positive).
+    return sorted_fdes[start].fde_offset;
 }
 
 /// Get the FDE at a given offset, as well as its associated CIE. This offset typically comes from
 /// `lookupPc`. The CFI instructions within can be evaluated with `VirtualMachine`.
-pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endian: Endian) !struct { Format, CommonInformationEntry, FrameDescriptionEntry } {
+pub fn getFde(unwind: *const Unwind, fde_offset: u64, endian: Endian) !struct { *const CommonInformationEntry, FrameDescriptionEntry } {
     const section = unwind.frame_section;
 
     if (fde_offset > section.bytes.len) return error.EndOfStream;
@@ -547,19 +604,7 @@ pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endia
         .cie, .terminator => return bad(), // This is meant to be an FDE
     };
 
-    const cie_offset = fde_info.cie_offset;
-    if (cie_offset > section.bytes.len) return error.EndOfStream;
-    var cie_reader: Reader = .fixed(section.bytes[@intCast(cie_offset)..]);
-    const cie_info = switch (try EntryHeader.read(&cie_reader, cie_offset, section.id, endian)) {
-        .cie => |info| info,
-        .fde, .terminator => return bad(), // This is meant to be a CIE
-    };
-
-    const cie: CommonInformationEntry = try .parse(
-        try cie_reader.take(cast(usize, cie_info.bytes_len) orelse return error.EndOfStream),
-        section.id,
-        addr_size_bytes,
-    );
+    const cie = unwind.findCie(fde_info.cie_offset) orelse return error.InvalidDebugInfo;
     const fde: FrameDescriptionEntry = try .parse(
         section.vaddr + fde_offset + fde_reader.seek,
         try fde_reader.take(cast(usize, fde_info.bytes_len) orelse return error.EndOfStream),
@@ -567,7 +612,7 @@ pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endia
         endian,
     );
 
-    return .{ cie_info.format, cie, fde };
+    return .{ cie, fde };
 }
 
 const EhPointerContext = struct {
