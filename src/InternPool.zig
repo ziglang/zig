@@ -1100,7 +1100,7 @@ const Local = struct {
         @sizeOf(u64) => List(struct { u64 }),
         else => @compileError("unsupported host"),
     };
-    const Strings = List(struct { u32 });
+    const Strings = List(struct { u32, u32 });
     const StringBytes = List(struct { u8 });
     const TrackedInsts = List(struct { TrackedInst.MaybeLost });
     const Maps = List(struct { FieldMap });
@@ -1800,6 +1800,7 @@ pub const String = enum(u32) {
             return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 | unwrapped.index);
         }
     };
+
     fn unwrap(string: String, ip: *const InternPool) Unwrapped {
         return .{
             .tid = @enumFromInt(@intFromEnum(string) >> ip.tid_shift_32 & ip.getTidMask()),
@@ -1867,12 +1868,16 @@ pub const NullTerminatedString = enum(u32) {
     }
 
     pub fn toSlice(string: NullTerminatedString, ip: *const InternPool) [:0]const u8 {
-        const overlong_slice = string.toString().toOverlongSlice(ip);
-        return overlong_slice[0..std.mem.indexOfScalar(u8, overlong_slice, 0).? :0];
+        const unwrapped = string.toString().unwrap(ip);
+        const local = ip.getLocalShared(unwrapped.tid);
+        const offset, const len = local.strings.view().get(unwrapped.index);
+        return local.string_bytes.view().items(.@"0")[offset..][0..len :0];
     }
 
     pub fn length(string: NullTerminatedString, ip: *const InternPool) u32 {
-        return @intCast(string.toSlice(ip).len);
+        const unwrapped = string.toString().unwrap(ip);
+        const local = ip.getLocalShared(unwrapped.tid);
+        return @intCast(local.strings.view().items(.@"1")[unwrapped.index]);
     }
 
     pub fn eqlSlice(string: NullTerminatedString, slice: []const u8, ip: *const InternPool) bool {
@@ -1914,6 +1919,7 @@ pub const NullTerminatedString = enum(u32) {
         ip: *const InternPool,
         id: bool,
     };
+
     fn format(data: FormatData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const slice = data.string.toSlice(data.ip);
         if (!data.id) {
@@ -11783,10 +11789,10 @@ pub fn getOrPutString(
     slice: []const u8,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
-    const strings = ip.getLocal(tid).getMutableStringBytes(gpa);
-    try strings.ensureUnusedCapacity(slice.len + 1);
-    strings.appendSliceAssumeCapacity(.{slice});
-    strings.appendAssumeCapacity(.{0});
+    const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+    try string_bytes.ensureUnusedCapacity(slice.len + 1);
+    string_bytes.appendSliceAssumeCapacity(.{slice});
+    string_bytes.appendAssumeCapacity(.{0});
     return ip.getOrPutTrailingString(gpa, tid, @intCast(slice.len + 1), embedded_nulls);
 }
 
@@ -11801,8 +11807,8 @@ pub fn getOrPutStringFmt(
     // ensure that references to strings in args do not get invalidated
     const format_z = format ++ .{0};
     const len: u32 = @intCast(std.fmt.count(format_z, args));
-    const strings = ip.getLocal(tid).getMutableStringBytes(gpa);
-    const slice = try strings.addManyAsSlice(len);
+    const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+    const slice = try string_bytes.addManyAsSlice(len);
     assert((std.fmt.bufPrint(slice[0], format_z, args) catch unreachable).len == len);
     return ip.getOrPutTrailingString(gpa, tid, len, embedded_nulls);
 }
@@ -11829,7 +11835,8 @@ pub fn getOrPutTrailingString(
     const strings = ip.getLocal(tid).getMutableStrings(gpa);
     const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
     const start: u32 = @intCast(string_bytes.mutate.len - len);
-    if (len > 0 and string_bytes.view().items(.@"0")[string_bytes.mutate.len - 1] == 0) {
+    const last_byte_is_null = len > 0 and string_bytes.view().items(.@"0")[string_bytes.mutate.len - 1] == 0;
+    if (last_byte_is_null) {
         string_bytes.mutate.len -= 1;
     } else {
         try string_bytes.ensureUnusedCapacity(1);
@@ -11838,11 +11845,11 @@ pub fn getOrPutTrailingString(
     const key: []const u8 = string_bytes.view().items(.@"0")[start..];
     const value: embedded_nulls.StringType() =
         @enumFromInt(@intFromEnum((String.Unwrapped{ .tid = tid, .index = @intCast(strings.view().len) }).wrap(ip)));
-    const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
+    const null_index = std.mem.indexOfScalar(u8, key, 0);
     switch (embedded_nulls) {
-        .no_embedded_nulls => assert(!has_embedded_null),
-        .maybe_embedded_nulls => if (has_embedded_null) {
-            strings.appendAssumeCapacity(.{start});
+        .no_embedded_nulls => assert(null_index == null),
+        .maybe_embedded_nulls => if (null_index) |index| {
+            strings.appendAssumeCapacity(.{start, @intCast(index)});
             string_bytes.appendAssumeCapacity(.{0});
             return value;
         },
@@ -11883,7 +11890,7 @@ pub fn getOrPutTrailingString(
     defer shard.mutate.string_map.len += 1;
     const map_header = map.header().*;
     if (shard.mutate.string_map.len < map_header.capacity * 3 / 5) {
-        strings.appendAssumeCapacity(.{start});
+        strings.appendAssumeCapacity(.{start, len - @intFromBool(last_byte_is_null)});
         string_bytes.appendAssumeCapacity(.{0});
         const entry = &map.entries[map_index];
         entry.hash = hash;
@@ -11926,7 +11933,7 @@ pub fn getOrPutTrailingString(
         map_index &= new_map_mask;
         if (map.entries[map_index].value == .none) break;
     }
-    strings.appendAssumeCapacity(.{start});
+    strings.appendAssumeCapacity(.{start, len - @intFromBool(last_byte_is_null)});
     string_bytes.appendAssumeCapacity(.{0});
     map.entries[map_index] = .{
         .value = @enumFromInt(@intFromEnum(value)),
