@@ -59,7 +59,7 @@ fn loadUnwindInfo(module: *const DarwinModule, gpa: Allocator, out: *DebugInfo) 
     var dwarf: Dwarf.Unwind = .initSection(.eh_frame, @intFromPtr(eh_frame.ptr) - vmaddr_slide, eh_frame);
     errdefer dwarf.deinit(gpa);
     // We don't need lookups, so this call is just for scanning CIEs.
-    dwarf.prepare(gpa, @sizeOf(usize), native_endian, false) catch |err| switch (err) {
+    dwarf.prepare(gpa, @sizeOf(usize), native_endian, false, true) catch |err| switch (err) {
         error.ReadFailed => unreachable, // it's all fixed buffers
         error.InvalidDebugInfo,
         error.MissingDebugInfo,
