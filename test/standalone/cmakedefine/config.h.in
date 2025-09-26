@@ -94,6 +94,9 @@
 // test10
 // @noval@@stringval@@trueval@@zeroval@
 
+// empty key, removed
+// ${}
+
 // no substition
 // ${noval}
 
