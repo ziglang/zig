@@ -81,7 +81,7 @@ fn addTestRun(
     args: []const []const u8,
 ) void {
     const run = test_step.owner.addRunArtifact(exe);
-    run.addDirectoryArg(dirname);
+    run.addPathArg(dirname);
     run.addArgs(args);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
