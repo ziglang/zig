@@ -941,7 +941,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .visionos, .aix => *u8,
+        .aix => *u8,
         else => VaListPowerPc,
     },
     .s390x => VaListS390x,
