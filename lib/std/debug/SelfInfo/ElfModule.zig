@@ -228,7 +228,7 @@ pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugIn
     };
 }
 fn prepareUnwindLookup(unwind: *Dwarf.Unwind, gpa: Allocator) Error!void {
-    unwind.prepare(gpa, @sizeOf(usize), native_endian, true) catch |err| switch (err) {
+    unwind.prepare(gpa, @sizeOf(usize), native_endian, true, false) catch |err| switch (err) {
         error.ReadFailed => unreachable, // it's all fixed buffers
         error.InvalidDebugInfo,
         error.MissingDebugInfo,

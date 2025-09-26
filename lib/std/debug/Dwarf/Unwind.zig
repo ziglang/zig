@@ -475,9 +475,14 @@ pub fn prepare(
     addr_size_bytes: u8,
     endian: Endian,
     need_lookup: bool,
+    /// The `__eh_frame` section in Mach-O binaries deviates from the standard `.eh_frame` section
+    /// in one way which this function needs to be aware of.
+    is_macho: bool,
 ) !void {
     if (unwind.cie_list.len > 0 and (!need_lookup or unwind.lookup != null)) return;
     unwind.cie_list.clearRetainingCapacity();
+
+    if (is_macho) assert(unwind.lookup == null or unwind.lookup.? != .eh_frame_hdr);
 
     const section = unwind.frame_section;
 
@@ -519,10 +524,11 @@ pub fn prepare(
             .terminator => break true,
         }
     } else false;
-    switch (section.id) {
-        .eh_frame => if (!saw_terminator) return bad(), // `.eh_frame` indicates the end of the CIE/FDE list with a sentinel entry
-        .debug_frame => if (saw_terminator) return bad(), // `.debug_frame` uses the section bounds and does not specify a sentinel entry
-    }
+    const expect_terminator = switch (section.id) {
+        .eh_frame => !is_macho, // `.eh_frame` indicates the end of the CIE/FDE list with a sentinel entry, though macOS omits this
+        .debug_frame => false, // `.debug_frame` uses the section bounds and does not specify a sentinel entry
+    };
+    if (saw_terminator != expect_terminator) return bad();
 
     std.mem.sortUnstable(SortedFdeEntry, fde_list.items, {}, struct {
         fn lessThan(ctx: void, a: SortedFdeEntry, b: SortedFdeEntry) bool {
