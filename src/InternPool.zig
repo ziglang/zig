@@ -1061,6 +1061,7 @@ const Local = struct {
         extra: ListMutate,
         limbs: ListMutate,
         strings: ListMutate,
+        string_bytes: ListMutate,
         tracked_insts: ListMutate,
         files: ListMutate,
         maps: ListMutate,
@@ -1075,6 +1076,7 @@ const Local = struct {
         extra: Extra,
         limbs: Limbs,
         strings: Strings,
+        string_bytes: StringBytes,
         tracked_insts: TrackedInsts,
         files: List(File),
         maps: Maps,
@@ -1098,7 +1100,8 @@ const Local = struct {
         @sizeOf(u64) => List(struct { u64 }),
         else => @compileError("unsupported host"),
     };
-    const Strings = List(struct { u8 });
+    const Strings = List(struct { u32 });
+    const StringBytes = List(struct { u8 });
     const TrackedInsts = List(struct { TrackedInst.MaybeLost });
     const Maps = List(struct { FieldMap });
     const Navs = List(Nav.Repr);
@@ -1428,17 +1431,31 @@ const Local = struct {
         };
     }
 
-    /// In order to store references to strings in fewer bytes, we copy all
-    /// string bytes into here. String bytes can be null. It is up to whomever
-    /// is referencing the data here whether they want to store both index and length,
-    /// thus allowing null bytes, or store only index, and use null-termination. The
-    /// `strings` array is agnostic to either usage.
+    /// For a given pair of `s: String, ip: *const InternPool`, `s.unwrap(ip).index`
+    /// refers to an index into this array. The corresponding value is an offset into
+    /// `string_bytes`. This allows for up to `@bitSizeOf(String) - ip.tid_shift_32`
+    /// unique to be stored and up to 4 GiB of string bytes to be stored, although this
+    /// last part could change in the future depending on future needs.
     pub fn getMutableStrings(local: *Local, gpa: Allocator) Strings.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
             .mutate = &local.mutate.strings,
             .list = &local.shared.strings,
+        };
+    }
+
+    /// In order to store references to strings in fewer bytes, we copy all
+    /// string bytes into here. String bytes can be null. It is up to whomever
+    /// is referencing the data here whether they want to store both index and length,
+    /// thus allowing null bytes, or store only index, and use null-termination. The
+    /// `string_bytes` array is agnostic to either usage.
+    pub fn getMutableStringBytes(local: *Local, gpa: Allocator) StringBytes.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.string_bytes,
+            .list = &local.shared.string_bytes,
         };
     }
 
@@ -1792,8 +1809,10 @@ pub const String = enum(u32) {
 
     fn toOverlongSlice(string: String, ip: *const InternPool) []const u8 {
         const unwrapped_string = string.unwrap(ip);
-        const strings = ip.getLocalShared(unwrapped_string.tid).strings.acquire();
-        return strings.view().items(.@"0")[unwrapped_string.index..];
+        const local = ip.getLocalShared(unwrapped_string.tid);
+        const strings = local.strings;
+        const string_bytes = ip.getLocalShared(unwrapped_string.tid).string_bytes.acquire();
+        return string_bytes.view().items(.@"0")[strings.view().items(.@"0")[unwrapped_string.index]..];
     }
 
     const debug_state = InternPool.debug_state;
@@ -6795,6 +6814,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = .empty,
             .limbs = .empty,
             .strings = .empty,
+            .string_bytes = .empty,
             .tracked_insts = .empty,
             .files = .empty,
             .maps = .empty,
@@ -6810,6 +6830,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = .empty,
             .limbs = .empty,
             .strings = .empty,
+            .string_bytes = .empty,
             .tracked_insts = .empty,
             .files = .empty,
             .maps = .empty,
@@ -8523,7 +8544,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             }
 
             if (child == .u8_type) bytes: {
-                const strings = ip.getLocal(tid).getMutableStrings(gpa);
+                const strings = ip.getLocal(tid).getMutableStringBytes(gpa);
                 const start = strings.mutate.len;
                 try strings.ensureUnusedCapacity(@intCast(len_including_sentinel + 1));
                 try extra.ensureUnusedCapacity(@typeInfo(Bytes).@"struct".fields.len);
@@ -11762,7 +11783,7 @@ pub fn getOrPutString(
     slice: []const u8,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
-    const strings = ip.getLocal(tid).getMutableStrings(gpa);
+    const strings = ip.getLocal(tid).getMutableStringBytes(gpa);
     try strings.ensureUnusedCapacity(slice.len + 1);
     strings.appendSliceAssumeCapacity(.{slice});
     strings.appendAssumeCapacity(.{0});
@@ -11780,7 +11801,7 @@ pub fn getOrPutStringFmt(
     // ensure that references to strings in args do not get invalidated
     const format_z = format ++ .{0};
     const len: u32 = @intCast(std.fmt.count(format_z, args));
-    const strings = ip.getLocal(tid).getMutableStrings(gpa);
+    const strings = ip.getLocal(tid).getMutableStringBytes(gpa);
     const slice = try strings.addManyAsSlice(len);
     assert((std.fmt.bufPrint(slice[0], format_z, args) catch unreachable).len == len);
     return ip.getOrPutTrailingString(gpa, tid, len, embedded_nulls);
@@ -11806,20 +11827,23 @@ pub fn getOrPutTrailingString(
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
     const strings = ip.getLocal(tid).getMutableStrings(gpa);
-    const start: u32 = @intCast(strings.mutate.len - len);
-    if (len > 0 and strings.view().items(.@"0")[strings.mutate.len - 1] == 0) {
-        strings.mutate.len -= 1;
+    const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+    const start: u32 = @intCast(string_bytes.mutate.len - len);
+    if (len > 0 and string_bytes.view().items(.@"0")[string_bytes.mutate.len - 1] == 0) {
+        string_bytes.mutate.len -= 1;
     } else {
-        try strings.ensureUnusedCapacity(1);
+        try string_bytes.ensureUnusedCapacity(1);
     }
-    const key: []const u8 = strings.view().items(.@"0")[start..];
+    try strings.ensureUnusedCapacity(1);
+    const key: []const u8 = string_bytes.view().items(.@"0")[start..];
     const value: embedded_nulls.StringType() =
-        @enumFromInt(@intFromEnum((String.Unwrapped{ .tid = tid, .index = start }).wrap(ip)));
+        @enumFromInt(@intFromEnum((String.Unwrapped{ .tid = tid, .index = @intCast(strings.view().len) }).wrap(ip)));
     const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
     switch (embedded_nulls) {
         .no_embedded_nulls => assert(!has_embedded_null),
         .maybe_embedded_nulls => if (has_embedded_null) {
-            strings.appendAssumeCapacity(.{0});
+            strings.appendAssumeCapacity(.{start});
+            string_bytes.appendAssumeCapacity(.{0});
             return value;
         },
     }
@@ -11837,7 +11861,7 @@ pub fn getOrPutTrailingString(
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
         if (!index.eqlSlice(key, ip)) continue;
-        strings.shrinkRetainingCapacity(start);
+        string_bytes.shrinkRetainingCapacity(start);
         return @enumFromInt(@intFromEnum(index));
     }
     shard.mutate.string_map.mutex.lock();
@@ -11853,13 +11877,14 @@ pub fn getOrPutTrailingString(
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
         if (!index.eqlSlice(key, ip)) continue;
-        strings.shrinkRetainingCapacity(start);
+        string_bytes.shrinkRetainingCapacity(start);
         return @enumFromInt(@intFromEnum(index));
     }
     defer shard.mutate.string_map.len += 1;
     const map_header = map.header().*;
     if (shard.mutate.string_map.len < map_header.capacity * 3 / 5) {
-        strings.appendAssumeCapacity(.{0});
+        strings.appendAssumeCapacity(.{start});
+        string_bytes.appendAssumeCapacity(.{0});
         const entry = &map.entries[map_index];
         entry.hash = hash;
         entry.release(@enumFromInt(@intFromEnum(value)));
@@ -11901,7 +11926,8 @@ pub fn getOrPutTrailingString(
         map_index &= new_map_mask;
         if (map.entries[map_index].value == .none) break;
     }
-    strings.appendAssumeCapacity(.{0});
+    strings.appendAssumeCapacity(.{start});
+    string_bytes.appendAssumeCapacity(.{0});
     map.entries[map_index] = .{
         .value = @enumFromInt(@intFromEnum(value)),
         .hash = hash,
