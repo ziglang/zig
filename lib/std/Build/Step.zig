@@ -60,7 +60,7 @@ test_results: TestResults,
 
 /// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
-debug_stack_trace: []usize,
+debug_stack_trace: std.builtin.StackTrace,
 
 pub const TestResults = struct {
     fail_count: u32 = 0,
@@ -220,16 +220,9 @@ pub fn init(options: StepOptions) Step {
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
-            if (!std.debug.sys_can_stack_trace) break :blk &.{};
-            const addresses = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
-            @memset(addresses, 0);
+            const addr_buf = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
             const first_ret_addr = options.first_ret_addr orelse @returnAddress();
-            var stack_trace = std.builtin.StackTrace{
-                .instruction_addresses = addresses,
-                .index = 0,
-            };
-            std.debug.captureStackTrace(first_ret_addr, &stack_trace);
-            break :blk addresses;
+            break :blk std.debug.captureCurrentStackTrace(.{ .first_address = first_ret_addr }, addr_buf);
         },
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
@@ -282,18 +275,6 @@ pub fn dependOn(step: *Step, other: *Step) void {
     step.dependencies.append(other) catch @panic("OOM");
 }
 
-pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
-    var len: usize = 0;
-    while (len < s.debug_stack_trace.len and s.debug_stack_trace[len] != 0) {
-        len += 1;
-    }
-
-    return if (len == 0) null else .{
-        .instruction_addresses = s.debug_stack_trace,
-        .index = len,
-    };
-}
-
 fn makeNoOp(step: *Step, options: MakeOptions) anyerror!void {
     _ = options;
 
@@ -315,18 +296,9 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 
 /// For debugging purposes, prints identifying information about this Step.
 pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void {
-    const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-        w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
-            @errorName(err),
-        }) catch {};
-        return;
-    };
-    if (step.getStackTrace()) |stack_trace| {
+    if (step.debug_stack_trace.instruction_addresses.len > 0) {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(stack_trace, w, debug_info, tty_config) catch |err| {
-            w.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
-            return;
-        };
+        std.debug.writeStackTrace(&step.debug_stack_trace, w, tty_config) catch {};
     } else {
         const field = "debug_stack_frames_count";
         comptime assert(@hasField(Build, field));

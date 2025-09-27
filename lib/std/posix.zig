@@ -47,7 +47,6 @@ else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
     else => struct {
-        pub const ucontext_t = void;
         pub const pid_t = void;
         pub const pollfd = void;
         pub const fd_t = void;
@@ -141,7 +140,6 @@ pub const in_pktinfo = system.in_pktinfo;
 pub const in6_pktinfo = system.in6_pktinfo;
 pub const ino_t = system.ino_t;
 pub const linger = system.linger;
-pub const mcontext_t = system.mcontext_t;
 pub const mode_t = system.mode_t;
 pub const msghdr = system.msghdr;
 pub const msghdr_const = system.msghdr_const;
@@ -170,7 +168,6 @@ pub const timespec = system.timespec;
 pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
-pub const ucontext_t = system.ucontext_t;
 pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
@@ -692,7 +689,7 @@ pub fn abort() noreturn {
     // even when linking libc on Windows we use our own abort implementation.
     // See https://github.com/ziglang/zig/issues/2071 for more details.
     if (native_os == .windows) {
-        if (builtin.mode == .Debug) {
+        if (builtin.mode == .Debug and windows.peb().BeingDebugged != 0) {
             @breakpoint();
         }
         windows.kernel32.ExitProcess(3);
@@ -7590,7 +7587,7 @@ pub const UnexpectedError = error{
 pub fn unexpectedErrno(err: E) UnexpectedError {
     if (unexpected_error_tracing) {
         std.debug.print("unexpected errno: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(.{});
     }
     return error.Unexpected;
 }

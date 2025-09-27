@@ -530,7 +530,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
                     @call(.auto, f, args) catch |err| {
                         std.debug.print("error: {s}\n", .{@errorName(err)});
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
                     };
 

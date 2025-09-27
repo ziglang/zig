@@ -80,28 +80,32 @@ pub fn syscall6(
     arg5: usize,
     arg6: usize,
 ) usize {
-    // arg5/arg6 are passed via memory as we're out of registers if ebp is used as frame pointer, or
-    // if we're compiling with PIC. We push arg5/arg6 on the stack before changing ebp/esp as the
-    // compiler may reference arg5/arg6 as an offset relative to ebp/esp.
+    // arg6 can't be passed to asm in a register because ebp might be reserved as the frame pointer
+    // and there are no more GPRs available; so we'll need a memory operand for it. Adding that
+    // memory operand means that on PIC we might need a reference to the GOT, which in turn needs
+    // *its* own GPR, so we need to pass another arg in memory too! This is surprisingly hard to get
+    // right, because we can't touch esp or ebp until we're done with the memory input (as that
+    // input could be relative to esp or ebp).
+    const args56: [2]usize = .{ arg5, arg6 };
     return asm volatile (
-        \\ push %[arg5]
-        \\ push %[arg6]
-        \\ push %%edi
+        \\ push %[args56]
         \\ push %%ebp
-        \\ mov  12(%%esp), %%edi
-        \\ mov  8(%%esp), %%ebp
+        \\ mov 4(%%esp), %%ebp
+        \\ mov %%edi, 4(%%esp)
+        \\ // The saved %edi and %ebp are on the stack, and %ebp points to `args56`.
+        \\ // Prepare the last two args, syscall, then pop the saved %ebp and %edi.
+        \\ mov (%%ebp), %%edi
+        \\ mov 4(%%ebp), %%ebp
         \\ int  $0x80
         \\ pop  %%ebp
         \\ pop  %%edi
-        \\ add  $8, %%esp
         : [ret] "={eax}" (-> usize),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
           [arg4] "{esi}" (arg4),
-          [arg5] "rm" (arg5),
-          [arg6] "rm" (arg6),
+          [args56] "rm" (&args56),
         : .{ .memory = true });
 }
 
@@ -431,18 +435,4 @@ pub fn getContextInternal() callconv(.naked) usize {
           [sigmask_offset] "i" (@offsetOf(ucontext_t, "sigmask")),
           [sigset_size] "i" (linux.NSIG / 8),
         : .{ .cc = true, .memory = true, .eax = true, .ecx = true, .edx = true });
-}
-
-pub inline fn getcontext(context: *ucontext_t) usize {
-    // This method is used so that getContextInternal can control
-    // its prologue in order to read ESP from a constant offset.
-    // An aligned stack is not needed for getContextInternal.
-    var clobber_edx: usize = undefined;
-    return asm volatile (
-        \\ calll %[getContextInternal:P]
-        : [_] "={eax}" (-> usize),
-          [_] "={edx}" (clobber_edx),
-        : [_] "{edx}" (context),
-          [getContextInternal] "X" (&getContextInternal),
-        : .{ .cc = true, .memory = true, .ecx = true });
 }

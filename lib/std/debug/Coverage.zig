@@ -145,6 +145,7 @@ pub const ResolveAddressesDwarfError = Dwarf.ScanError;
 pub fn resolveAddressesDwarf(
     cov: *Coverage,
     gpa: Allocator,
+    endian: std.builtin.Endian,
     /// Asserts the addresses are in ascending order.
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
@@ -184,7 +185,7 @@ pub fn resolveAddressesDwarf(
             if (cu.src_loc_cache == null) {
                 cov.mutex.unlock();
                 defer cov.mutex.lock();
-                d.populateSrcLocCache(gpa, cu) catch |err| switch (err) {
+                d.populateSrcLocCache(gpa, endian, cu) catch |err| switch (err) {
                     error.MissingDebugInfo, error.InvalidDebugInfo => {
                         out.* = SourceLocation.invalid;
                         continue :next_pc;
