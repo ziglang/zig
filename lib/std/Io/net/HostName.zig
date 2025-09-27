@@ -653,7 +653,7 @@ pub const ResolvConf = struct {
 
         const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
 
-        var group: Io.Group = .{};
+        var group: Io.Group = .init;
         defer group.cancel();
 
         for (queries) |query| {
@@ -702,7 +702,7 @@ test ResolvConf {
         .search_buffer = undefined,
         .search_len = 0,
         .ndots = 1,
-        .timeout = 5,
+        .timeout = .seconds(5),
         .attempts = 2,
     };
 
