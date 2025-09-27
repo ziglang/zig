@@ -375,11 +375,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
         else => {},
     }
     return switch (zigBackend(target, false)) {
-        .stage2_aarch64 => .yes,
-        .stage2_x86_64 => switch (target.ofmt) {
-            .elf, .macho => .yes,
-            else => .llvm_only,
-        },
+        .stage2_aarch64, .stage2_x86_64 => .yes,
         else => .llvm_only,
     };
 }
