@@ -139,7 +139,7 @@ pub fn io(el: *EventLoop) Io {
         .userdata = el,
         .vtable = &.{
             .async = async,
-            .asyncConcurrent = asyncConcurrent,
+            .concurrent = concurrent,
             .await = await,
             .asyncDetached = asyncDetached,
             .select = select,
@@ -878,13 +878,13 @@ fn async(
     context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) ?*std.Io.AnyFuture {
-    return asyncConcurrent(userdata, result.len, result_alignment, context, context_alignment, start) catch {
+    return concurrent(userdata, result.len, result_alignment, context, context_alignment, start) catch {
         start(context.ptr, result.ptr);
         return null;
     };
 }
 
-fn asyncConcurrent(
+fn concurrent(
     userdata: ?*anyopaque,
     result_len: usize,
     result_alignment: Alignment,

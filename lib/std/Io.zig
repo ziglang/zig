@@ -583,7 +583,7 @@ pub const VTable = struct {
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) ?*AnyFuture,
     /// Thread-safe.
-    asyncConcurrent: *const fn (
+    concurrent: *const fn (
         /// Corresponds to `Io.userdata`.
         userdata: ?*anyopaque,
         result_len: usize,
@@ -1095,7 +1095,7 @@ pub fn Queue(Elem: type) type {
 /// not guaranteed to be available until `await` is called.
 ///
 /// `function` *may* be called immediately, before `async` returns. This has
-/// weaker guarantees than `asyncConcurrent`, making more portable and
+/// weaker guarantees than `concurrent`, making more portable and
 /// reusable.
 ///
 /// See also:
@@ -1133,7 +1133,7 @@ pub fn async(
 /// This has stronger guarantee than `async`, placing restrictions on what kind
 /// of `Io` implementations are supported. By calling `async` instead, one
 /// allows, for example, stackful single-threaded blocking I/O.
-pub fn asyncConcurrent(
+pub fn concurrent(
     io: Io,
     function: anytype,
     args: std.meta.ArgsTuple(@TypeOf(function)),
@@ -1148,7 +1148,7 @@ pub fn asyncConcurrent(
         }
     };
     var future: Future(Result) = undefined;
-    future.any_future = try io.vtable.asyncConcurrent(
+    future.any_future = try io.vtable.concurrent(
         io.userdata,
         @sizeOf(Result),
         .of(Result),
@@ -1166,7 +1166,7 @@ pub fn asyncConcurrent(
 ///
 /// See also:
 /// * `async`
-/// * `asyncConcurrent`
+/// * `concurrent`
 pub fn asyncDetached(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
     const Args = @TypeOf(args);
     const TypeErased = struct {
