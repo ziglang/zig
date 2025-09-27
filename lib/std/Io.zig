@@ -593,18 +593,6 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) error{OutOfMemory}!*AnyFuture,
-    /// Executes `start` asynchronously in a manner such that it cleans itself
-    /// up. This mode does not support results, await, or cancel.
-    ///
-    /// Thread-safe.
-    asyncDetached: *const fn (
-        /// Corresponds to `Io.userdata`.
-        userdata: ?*anyopaque,
-        /// Copied and then passed to `start`.
-        context: []const u8,
-        context_alignment: std.mem.Alignment,
-        start: *const fn (context: *const anyopaque) void,
-    ) void,
     /// This function is only called when `async` returns a non-null value.
     ///
     /// Thread-safe.
@@ -638,6 +626,23 @@ pub const VTable = struct {
     ///
     /// Thread-safe.
     cancelRequested: *const fn (?*anyopaque) bool,
+
+    /// Executes `start` asynchronously in a manner such that it cleans itself
+    /// up. This mode does not support results, await, or cancel.
+    ///
+    /// Thread-safe.
+    groupAsync: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        /// Owner of the spawned async task.
+        group: *Group,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (context: *const anyopaque) void,
+    ) void,
+    groupWait: *const fn (?*anyopaque, *Group) void,
+    groupCancel: *const fn (?*anyopaque, *Group) void,
 
     /// Blocks until one of the futures from the list has a result ready, such
     /// that awaiting it will not block. Returns that index.
@@ -750,6 +755,45 @@ pub fn Future(Result: type) type {
         }
     };
 }
+
+pub const Group = struct {
+    state: usize,
+    context: ?*anyopaque,
+
+    pub const init: Group = .{ .state = 0, .context = null };
+
+    /// Calls `function` with `args` asynchronously. The resource spawned is
+    /// owned by the group.
+    ///
+    /// `function` *may* be called immediately, before `async` returns.
+    ///
+    /// After this is called, `wait` must be called before the group is
+    /// deinitialized.
+    ///
+    /// See also:
+    /// * `async`
+    /// * `concurrent`
+    pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
+        const Args = @TypeOf(args);
+        const TypeErased = struct {
+            fn start(context: *const anyopaque) void {
+                const args_casted: *const Args = @ptrCast(@alignCast(context));
+                @call(.auto, function, args_casted.*);
+            }
+        };
+        io.vtable.groupAsync(io.userdata, g, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+    }
+
+    /// Idempotent.
+    pub fn wait(g: *Group, io: Io) void {
+        io.vtable.groupWait(io.userdata, g);
+    }
+
+    /// Idempotent.
+    pub fn cancel(g: *Group, io: Io) void {
+        io.vtable.groupCancel(io.userdata, g);
+    }
+};
 
 pub const Mutex = if (true) struct {
     state: State,
@@ -1099,7 +1143,7 @@ pub fn Queue(Elem: type) type {
 /// reusable.
 ///
 /// See also:
-/// * `asyncDetached`
+/// * `Group`
 pub fn async(
     io: Io,
     function: anytype,
@@ -1157,25 +1201,6 @@ pub fn concurrent(
         TypeErased.start,
     );
     return future;
-}
-
-/// Calls `function` with `args` asynchronously. The resource cleans itself up
-/// when the function returns. Does not support await, cancel, or a return value.
-///
-/// `function` *may* be called immediately, before `async` returns.
-///
-/// See also:
-/// * `async`
-/// * `concurrent`
-pub fn asyncDetached(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
-    const Args = @TypeOf(args);
-    const TypeErased = struct {
-        fn start(context: *const anyopaque) void {
-            const args_casted: *const Args = @ptrCast(@alignCast(context));
-            @call(.auto, function, args_casted.*);
-        }
-    };
-    io.vtable.asyncDetached(io.userdata, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
 }
 
 pub fn cancelRequested(io: Io) bool {
