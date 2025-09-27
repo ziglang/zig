@@ -9,12 +9,14 @@ pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
         comptime_int => std.math.IntFittingRange(@min(a, b), @max(a, b)),
         else => |T| T,
     };
+
     if (@typeInfo(N) != .int or @typeInfo(N).int.signedness != .unsigned) {
-        @compileError("`a` and `b` must be usigned integers");
+        @compileError("`a` and `b` must be unsigned integers");
     }
 
     // using an optimised form of Stein's algorithm:
     // https://en.wikipedia.org/wiki/Binary_GCD_algorithm
+
     std.debug.assert(a != 0 or b != 0);
 
     if (a == 0) return b;
@@ -26,25 +28,27 @@ pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
     const xz = @ctz(x);
     const yz = @ctz(y);
     const shift = @min(xz, yz);
-    x >>= @intCast(xz);
-    y >>= @intCast(yz);
+    x = @shrExact(x, @intCast(xz));
+    y = @shrExact(y, @intCast(yz));
 
-    var diff = y -% x;
-    while (diff != 0) : (diff = y -% x) {
-        // ctz is invariant under negation, we
-        // put it here to ease data dependencies,
-        // makes the CPU happy.
-        const zeros = @ctz(diff);
-        if (x > y) diff = -%diff;
-        y = @min(x, y);
-        x = diff >> @intCast(zeros);
+    var y_minus_x = y -% x;
+    while (y_minus_x != 0) : (y_minus_x = y -% x) {
+        const copy_x = x;
+        const zeros = @ctz(y_minus_x);
+        const carry = x < y;
+        x -%= y;
+        if (carry) {
+            x = y_minus_x;
+            y = copy_x;
+        }
+        x = @shrExact(x, @intCast(zeros));
     }
-    return y << @intCast(shift);
+
+    return @shlExact(y, @intCast(shift));
 }
 
 test gcd {
     const expectEqual = std.testing.expectEqual;
-
     try expectEqual(gcd(0, 5), 5);
     try expectEqual(gcd(5, 0), 5);
     try expectEqual(gcd(8, 12), 4);
