@@ -1169,15 +1169,6 @@ const test_targets = blk: {
             .link_libc = true,
             .extra_target = true,
         },
-        .{
-            .target = .{
-                .cpu_arch = .x86_64,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-            .use_lld = false,
-        },
 
         // macOS Targets
 
