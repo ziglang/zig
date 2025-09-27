@@ -146,7 +146,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
                 .pc = uc.mcontext.ss.pc,
             },
             .netbsd => .{
-                .x = uc.mcontext.gregs[0..31],
+                .x = uc.mcontext.gregs[0..31].*,
                 .sp = uc.mcontext.gregs[31],
                 .pc = uc.mcontext.gregs[32],
             },
