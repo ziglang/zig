@@ -2254,39 +2254,69 @@ pub const S = switch (native_os) {
         }
     },
     .dragonfly => struct {
+        pub const IFMT = 0o170000;
+
+        pub const IFIFO = 0o010000;
+        pub const IFCHR = 0o020000;
+        pub const IFDIR = 0o040000;
+        pub const IFBLK = 0o060000;
+        pub const IFREG = 0o100000;
+        pub const IFLNK = 0o120000;
+        pub const IFSOCK = 0o140000;
+        pub const IFWHT = 0o160000;
+
+        pub const ISUID = 0o4000;
+        pub const ISGID = 0o2000;
+        pub const ISVTX = 0o1000;
+        pub const IRWXU = 0o700;
+        pub const IRUSR = 0o400;
+        pub const IWUSR = 0o200;
+        pub const IXUSR = 0o100;
+        pub const IRWXG = 0o070;
+        pub const IRGRP = 0o040;
+        pub const IWGRP = 0o020;
+        pub const IXGRP = 0o010;
+        pub const IRWXO = 0o007;
+        pub const IROTH = 0o004;
+        pub const IWOTH = 0o002;
+        pub const IXOTH = 0o001;
+
         pub const IREAD = IRUSR;
         pub const IEXEC = IXUSR;
         pub const IWRITE = IWUSR;
-        pub const IXOTH = 1;
-        pub const IWOTH = 2;
-        pub const IROTH = 4;
-        pub const IRWXO = 7;
-        pub const IXGRP = 8;
-        pub const IWGRP = 16;
-        pub const IRGRP = 32;
-        pub const IRWXG = 56;
-        pub const IXUSR = 64;
-        pub const IWUSR = 128;
-        pub const IRUSR = 256;
-        pub const IRWXU = 448;
         pub const ISTXT = 512;
         pub const BLKSIZE = 512;
-        pub const ISVTX = 512;
-        pub const ISGID = 1024;
-        pub const ISUID = 2048;
-        pub const IFIFO = 4096;
-        pub const IFCHR = 8192;
-        pub const IFDIR = 16384;
-        pub const IFBLK = 24576;
-        pub const IFREG = 32768;
-        pub const IFDB = 36864;
-        pub const IFLNK = 40960;
-        pub const IFSOCK = 49152;
-        pub const IFWHT = 57344;
-        pub const IFMT = 61440;
+
+        pub fn ISFIFO(m: u32) bool {
+            return m & IFMT == IFIFO;
+        }
 
         pub fn ISCHR(m: u32) bool {
             return m & IFMT == IFCHR;
+        }
+
+        pub fn ISDIR(m: u32) bool {
+            return m & IFMT == IFDIR;
+        }
+
+        pub fn ISBLK(m: u32) bool {
+            return m & IFMT == IFBLK;
+        }
+
+        pub fn ISREG(m: u32) bool {
+            return m & IFMT == IFREG;
+        }
+
+        pub fn ISLNK(m: u32) bool {
+            return m & IFMT == IFLNK;
+        }
+
+        pub fn ISSOCK(m: u32) bool {
+            return m & IFMT == IFSOCK;
+        }
+
+        pub fn IWHT(m: u32) bool {
+            return m & IFMT == IFWHT;
         }
     },
     .haiku => struct {
