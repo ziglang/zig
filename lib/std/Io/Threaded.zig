@@ -8,7 +8,6 @@ const windows = std.os.windows;
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const WaitGroup = std.Thread.WaitGroup;
 const posix = std.posix;
 const Io = std.Io;
 
@@ -101,10 +100,12 @@ pub fn io(pool: *Pool) Io {
             .async = async,
             .concurrent = concurrent,
             .await = await,
-            .asyncDetached = asyncDetached,
             .cancel = cancel,
             .cancelRequested = cancelRequested,
             .select = select,
+            .groupAsync = groupAsync,
+            .groupWait = groupWait,
+            .groupCancel = groupCancel,
 
             .mutexLock = mutexLock,
             .mutexUnlock = mutexUnlock,
@@ -279,7 +280,7 @@ fn async(
         .func = start,
         .context_offset = context_offset,
         .result_offset = result_offset,
-        .reset_event = .{},
+        .reset_event = .unset,
         .cancel_tid = 0,
         .select_condition = null,
         .runnable = .{
@@ -347,7 +348,7 @@ fn concurrent(
         .func = start,
         .context_offset = context_offset,
         .result_offset = result_offset,
-        .reset_event = .{},
+        .reset_event = .unset,
         .cancel_tid = 0,
         .select_condition = null,
         .runnable = .{
@@ -385,41 +386,47 @@ fn concurrent(
     return @ptrCast(closure);
 }
 
-const DetachedClosure = struct {
+const GroupClosure = struct {
     pool: *Pool,
+    group: *Io.Group,
     func: *const fn (context: *anyopaque) void,
     runnable: Runnable,
     context_alignment: std.mem.Alignment,
     context_len: usize,
 
     fn start(runnable: *Runnable) void {
-        const closure: *DetachedClosure = @alignCast(@fieldParentPtr("runnable", runnable));
+        const closure: *GroupClosure = @alignCast(@fieldParentPtr("runnable", runnable));
         closure.func(closure.contextPointer());
+        const group = closure.group;
         const gpa = closure.pool.allocator;
         free(closure, gpa);
+        const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
+        const reset_event: *std.Thread.ResetEvent = @ptrCast(&group.context);
+        std.Thread.WaitGroup.finishStateless(group_state, reset_event);
     }
 
-    fn free(closure: *DetachedClosure, gpa: Allocator) void {
-        const base: [*]align(@alignOf(DetachedClosure)) u8 = @ptrCast(closure);
+    fn free(closure: *GroupClosure, gpa: Allocator) void {
+        const base: [*]align(@alignOf(GroupClosure)) u8 = @ptrCast(closure);
         gpa.free(base[0..contextEnd(closure.context_alignment, closure.context_len)]);
     }
 
     fn contextOffset(context_alignment: std.mem.Alignment) usize {
-        return context_alignment.forward(@sizeOf(DetachedClosure));
+        return context_alignment.forward(@sizeOf(GroupClosure));
     }
 
     fn contextEnd(context_alignment: std.mem.Alignment, context_len: usize) usize {
         return contextOffset(context_alignment) + context_len;
     }
 
-    fn contextPointer(closure: *DetachedClosure) [*]u8 {
+    fn contextPointer(closure: *GroupClosure) [*]u8 {
         const base: [*]u8 = @ptrCast(closure);
         return base + contextOffset(closure.context_alignment);
     }
 };
 
-fn asyncDetached(
+fn groupAsync(
     userdata: ?*anyopaque,
+    group: *Io.Group,
     context: []const u8,
     context_alignment: std.mem.Alignment,
     start: *const fn (context: *const anyopaque) void,
@@ -428,17 +435,18 @@ fn asyncDetached(
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     const cpu_count = pool.cpu_count catch 1;
     const gpa = pool.allocator;
-    const n = DetachedClosure.contextEnd(context_alignment, context.len);
-    const closure: *DetachedClosure = @ptrCast(@alignCast(gpa.alignedAlloc(u8, .of(DetachedClosure), n) catch {
+    const n = GroupClosure.contextEnd(context_alignment, context.len);
+    const closure: *GroupClosure = @ptrCast(@alignCast(gpa.alignedAlloc(u8, .of(GroupClosure), n) catch {
         return start(context.ptr);
     }));
     closure.* = .{
         .pool = pool,
+        .group = group,
         .func = start,
         .context_alignment = context_alignment,
         .context_len = context.len,
         .runnable = .{
-            .start = DetachedClosure.start,
+            .start = GroupClosure.start,
             .is_parallel = false,
         },
     };
@@ -466,8 +474,28 @@ fn asyncDetached(
         pool.threads.appendAssumeCapacity(thread);
     }
 
+    const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
+    std.Thread.WaitGroup.startStateless(group_state);
+
     pool.mutex.unlock();
     pool.cond.signal();
+}
+
+fn groupWait(userdata: ?*anyopaque, group: *Io.Group) void {
+    if (builtin.single_threaded) return;
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    _ = pool;
+    const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
+    const reset_event: *std.Thread.ResetEvent = @ptrCast(&group.context);
+    std.Thread.WaitGroup.waitStateless(group_state, reset_event);
+}
+
+fn groupCancel(userdata: ?*anyopaque, group: *Io.Group) void {
+    if (builtin.single_threaded) return;
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    _ = pool;
+    _ = group;
+    @panic("TODO threaded group cancel");
 }
 
 fn await(
@@ -968,7 +996,7 @@ fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
 
-    var reset_event: std.Thread.ResetEvent = .{};
+    var reset_event: std.Thread.ResetEvent = .unset;
 
     for (futures, 0..) |future, i| {
         const closure: *AsyncClosure = @ptrCast(@alignCast(future));
