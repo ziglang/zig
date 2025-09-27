@@ -539,7 +539,7 @@ pub const ResolvConf = struct {
             .search_buffer = undefined,
             .search_len = 0,
             .ndots = 1,
-            .timeout = 5,
+            .timeout = .seconds(5),
             .attempts = 2,
         };
 
@@ -589,7 +589,7 @@ pub const ResolvConf = struct {
                     switch (std.meta.stringToEnum(Option, name) orelse continue) {
                         .ndots => rc.ndots = @min(value, 15),
                         .attempts => rc.attempts = @min(value, 10),
-                        .timeout => rc.timeout = @min(value, 60),
+                        .timeout => rc.timeout = .seconds(@min(value, 60)),
                     }
                 },
                 .nameserver => {
@@ -638,14 +638,15 @@ pub const ResolvConf = struct {
         const socket = s: {
             if (any_ip6) ip6: {
                 const ip6_addr: IpAddress = .{ .ip6 = .unspecified(0) };
-                const socket = ip6_addr.bind(io, .{ .ip6_only = true }) catch |err| switch (err) {
-                    error.AddressFamilyNotSupported => break :ip6,
+                const socket = ip6_addr.bind(io, .{ .ip6_only = true, .mode = .dgram }) catch |err| switch (err) {
+                    error.AddressFamilyUnsupported => break :ip6,
+                    else => |e| return e,
                 };
                 break :s socket;
             }
             any_ip6 = false;
             const ip4_addr: IpAddress = .{ .ip4 = .unspecified(0) };
-            const socket = try ip4_addr.bind(io, .{});
+            const socket = try ip4_addr.bind(io, .{ .mode = .dgram });
             break :s socket;
         };
         defer socket.close();

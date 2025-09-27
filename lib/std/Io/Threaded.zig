@@ -124,8 +124,19 @@ pub fn io(pool: *Pool) Io {
             .now = now,
             .sleep = sleep,
 
-            .listen = listen,
-            .accept = accept,
+            .listen = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                else => listenPosix,
+            },
+            .accept = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                else => acceptPosix,
+            },
+            .ipBind = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                else => ipBindPosix,
+            },
+            .netClose = netClose,
             .netRead = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
                 else => netReadPosix,
@@ -134,7 +145,8 @@ pub fn io(pool: *Pool) Io {
                 .windows => @panic("TODO"),
                 else => netWritePosix,
             },
-            .netClose = netClose,
+            .netSend = netSend,
+            .netReceive = netReceive,
             .netInterfaceNameResolve = netInterfaceNameResolve,
             .netInterfaceName = netInterfaceName,
         },
@@ -460,7 +472,7 @@ fn asyncDetached(
 
 fn await(
     userdata: ?*anyopaque,
-    any_future: *std.Io.AnyFuture,
+    any_future: *Io.AnyFuture,
     result: []u8,
     result_alignment: std.mem.Alignment,
 ) void {
@@ -984,57 +996,226 @@ fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
     return result.?;
 }
 
-fn listen(userdata: ?*anyopaque, address: Io.net.IpAddress, options: Io.net.ListenOptions) Io.net.ListenError!Io.net.Server {
+fn listenPosix(
+    userdata: ?*anyopaque,
+    address: Io.net.IpAddress,
+    options: Io.net.IpAddress.ListenOptions,
+) Io.net.IpAddress.ListenError!Io.net.Server {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
-
-    const nonblock: u32 = if (options.force_nonblocking) posix.SOCK.NONBLOCK else 0;
-    const sock_flags = posix.SOCK.STREAM | posix.SOCK.CLOEXEC | nonblock;
-    const proto: u32 = posix.IPPROTO.TCP;
-    const family = posixAddressFamily(address);
-    const sockfd = try posix.socket(family, sock_flags, proto);
-    const stream: std.net.Stream = .{ .handle = sockfd };
-    errdefer stream.close();
+    const family = posixAddressFamily(&address);
+    const protocol: u32 = posix.IPPROTO.TCP;
+    const socket_fd = while (true) {
+        try pool.checkCancel();
+        const flags: u32 = posix.SOCK.STREAM | if (socket_flags_unsupported) 0 else posix.SOCK.CLOEXEC;
+        const socket_rc = posix.system.socket(family, flags, protocol);
+        switch (posix.errno(socket_rc)) {
+            .SUCCESS => {
+                const fd: posix.fd_t = @intCast(socket_rc);
+                errdefer posix.close(fd);
+                if (socket_flags_unsupported) while (true) {
+                    try pool.checkCancel();
+                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, posix.FD_CLOEXEC))) {
+                        .SUCCESS => break,
+                        .INTR => continue,
+                        else => |err| return posix.unexpectedErrno(err),
+                    }
+                };
+                break fd;
+            },
+            .INTR => continue,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+    errdefer posix.close(socket_fd);
 
     if (options.reuse_address) {
-        try posix.setsockopt(
-            sockfd,
-            posix.SOL.SOCKET,
-            posix.SO.REUSEADDR,
-            &std.mem.toBytes(@as(c_int, 1)),
-        );
-        if (@hasDecl(posix.SO, "REUSEPORT") and family != posix.AF.UNIX) {
-            try posix.setsockopt(
-                sockfd,
-                posix.SOL.SOCKET,
-                posix.SO.REUSEPORT,
-                &std.mem.toBytes(@as(c_int, 1)),
-            );
-        }
+        try setSocketOption(pool, socket_fd, posix.SOL.SOCKET, posix.SO.REUSEADDR, 1);
+        if (@hasDecl(posix.SO, "REUSEPORT"))
+            try setSocketOption(pool, socket_fd, posix.SOL.SOCKET, posix.SO.REUSEPORT, 1);
     }
 
     var storage: PosixAddress = undefined;
     var socklen = addressToPosix(address, &storage);
-    try posix.bind(sockfd, &storage.any, socklen);
-    try posix.listen(sockfd, options.kernel_backlog);
-    try posix.getsockname(sockfd, &storage.any, &socklen);
+    try posixBind(pool, socket_fd, &storage.any, socklen);
+
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.listen(socket_fd, options.kernel_backlog))) {
+            .SUCCESS => break,
+            .ADDRINUSE => return error.AddressInUse,
+            .BADF => |err| return errnoBug(err),
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+
+    try posixGetSockName(pool, socket_fd, &storage.any, &socklen);
     return .{
-        .listen_address = addressFromPosix(&storage),
-        .stream = .{ .handle = stream.handle },
+        .socket = .{
+            .handle = socket_fd,
+            .address = addressFromPosix(&storage),
+        },
     };
 }
 
-fn accept(userdata: ?*anyopaque, server: *Io.net.Server) Io.net.Server.AcceptError!Io.net.Server.Connection {
+fn posixBind(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.bind(socket_fd, addr, addr_len))) {
+            .SUCCESS => break,
+            .INTR => continue,
+            .ADDRINUSE => return error.AddressInUse,
+            .BADF => |err| return errnoBug(err), // always a race condition if this error is returned
+            .INVAL => |err| return errnoBug(err), // invalid parameters
+            .NOTSOCK => |err| return errnoBug(err), // invalid `sockfd`
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .ADDRNOTAVAIL => return error.AddressUnavailable,
+            .FAULT => |err| return errnoBug(err), // invalid `addr` pointer
+            .NOMEM => return error.SystemResources,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn posixGetSockName(pool: *Pool, socket_fd: posix.fd_t, addr: *posix.sockaddr, addr_len: *posix.socklen_t) !void {
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.getsockname(socket_fd, addr, addr_len))) {
+            .SUCCESS => break,
+            .INTR => continue,
+            .BADF => |err| return errnoBug(err), // always a race condition
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => |err| return errnoBug(err), // invalid parameters
+            .NOTSOCK => |err| return errnoBug(err), // always a race condition
+            .NOBUFS => return error.SystemResources,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn setSocketOption(pool: *Pool, fd: posix.fd_t, level: i32, opt_name: u32, option: u32) !void {
+    const o: []const u8 = @ptrCast(&option);
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.setsockopt(fd, level, opt_name, o.ptr, @intCast(o.len)))) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => |err| return errnoBug(err), // always a race condition
+            .NOTSOCK => |err| return errnoBug(err), // always a race condition
+            .INVAL => |err| return errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn ipBindPosix(
+    userdata: ?*anyopaque,
+    address: Io.net.IpAddress,
+    options: Io.net.IpAddress.BindOptions,
+) Io.net.IpAddress.BindError!Io.net.Socket {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
+    const mode = posixSocketMode(options.mode);
+    const family = posixAddressFamily(&address);
+    const protocol = posixProtocol(options.protocol);
+    const socket_fd = while (true) {
+        try pool.checkCancel();
+        const flags: u32 = mode | if (socket_flags_unsupported) 0 else posix.SOCK.CLOEXEC;
+        const socket_rc = posix.system.socket(family, flags, protocol);
+        switch (posix.errno(socket_rc)) {
+            .SUCCESS => {
+                const fd: posix.fd_t = @intCast(socket_rc);
+                errdefer posix.close(fd);
+                if (socket_flags_unsupported) while (true) {
+                    try pool.checkCancel();
+                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, posix.FD_CLOEXEC))) {
+                        .SUCCESS => break,
+                        .INTR => continue,
+                        else => |err| return posix.unexpectedErrno(err),
+                    }
+                };
+                break fd;
+            },
+            .INTR => continue,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .INVAL => return error.ProtocolUnsupportedBySystem,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .PROTONOSUPPORT => return error.ProtocolUnsupportedByAddressFamily,
+            .PROTOTYPE => return error.SocketModeUnsupported,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+
+    if (options.ip6_only) {
+        try setSocketOption(pool, socket_fd, posix.IPPROTO.IPV6, posix.IPV6.V6ONLY, 0);
+    }
 
     var storage: PosixAddress = undefined;
-    var addr_len: posix.socklen_t = @sizeOf(PosixAddress);
-    const fd = try posix.accept(server.stream.handle, &storage.any, &addr_len, posix.SOCK.CLOEXEC);
+    var socklen = addressToPosix(address, &storage);
+    try posixBind(pool, socket_fd, &storage.any, socklen);
+    try posixGetSockName(pool, socket_fd, &storage.any, &socklen);
     return .{
-        .stream = .{ .handle = fd },
+        .handle = socket_fd,
         .address = addressFromPosix(&storage),
     };
+}
+
+const socket_flags_unsupported = builtin.os.tag.isDarwin() or native_os == .haiku; // 💩💩
+const have_accept4 = !socket_flags_unsupported;
+
+fn acceptPosix(userdata: ?*anyopaque, server: *Io.net.Server) Io.net.Server.AcceptError!Io.net.Stream {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const listen_fd = server.socket.handle;
+    var storage: PosixAddress = undefined;
+    var addr_len: posix.socklen_t = @sizeOf(PosixAddress);
+    const fd = while (true) {
+        try pool.checkCancel();
+        const rc = if (have_accept4)
+            posix.system.accept4(listen_fd, &storage.any, &addr_len, posix.SOCK.CLOEXEC)
+        else
+            posix.system.accept(listen_fd, &storage.any, &addr_len);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                const fd: posix.fd_t = @intCast(rc);
+                errdefer posix.close(fd);
+                if (!have_accept4) while (true) {
+                    try pool.checkCancel();
+                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, posix.FD_CLOEXEC))) {
+                        .SUCCESS => break,
+                        .INTR => continue,
+                        else => |err| return posix.unexpectedErrno(err),
+                    }
+                };
+                break fd;
+            },
+            .INTR => continue,
+            .AGAIN => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // always a race condition
+            .CONNABORTED => return error.ConnectionAborted,
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => return error.SocketNotListening,
+            .NOTSOCK => |err| return errnoBug(err),
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .OPNOTSUPP => |err| return errnoBug(err),
+            .PROTO => return error.ProtocolFailure,
+            .PERM => return error.BlockedByFirewall,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+    return .{ .socket = .{
+        .handle = fd,
+        .address = addressFromPosix(&storage),
+    } };
 }
 
 fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.net.Stream.Reader.Error!usize {
@@ -1052,9 +1233,39 @@ fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.n
     }
     const dest = iovecs_buffer[0..i];
     assert(dest[0].len > 0);
-    const n = try posix.readv(stream.handle, dest);
+    const n = try posix.readv(stream.socket.handle, dest);
     if (n == 0) return error.EndOfStream;
     return n;
+}
+
+fn netSend(
+    userdata: ?*anyopaque,
+    handle: Io.net.Socket.Handle,
+    address: Io.net.IpAddress,
+    data: []const u8,
+) Io.net.Socket.SendError!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    _ = handle;
+    _ = address;
+    _ = data;
+    @panic("TODO");
+}
+
+fn netReceive(
+    userdata: ?*anyopaque,
+    handle: Io.net.Socket.Handle,
+    address: Io.net.IpAddress,
+    buffer: []u8,
+) Io.net.Socket.ReceiveError!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    _ = handle;
+    _ = address;
+    _ = buffer;
+    @panic("TODO");
 }
 
 fn netWritePosix(
@@ -1106,7 +1317,7 @@ fn netWritePosix(
         },
     };
     const flags = posix.MSG.NOSIGNAL;
-    return posix.sendmsg(stream.handle, &msg, flags);
+    return posix.sendmsg(stream.socket.handle, &msg, flags);
 }
 
 fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
@@ -1117,11 +1328,13 @@ fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), 
     i.* += 1;
 }
 
-fn netClose(userdata: ?*anyopaque, stream: Io.net.Stream) void {
+fn netClose(userdata: ?*anyopaque, handle: Io.net.Socket.Handle) void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
-    const net_stream: std.net.Stream = .{ .handle = stream.handle };
-    return net_stream.close();
+    switch (native_os) {
+        .windows => windows.closesocket(handle) catch recoverableOsBugDetected(),
+        else => posix.close(handle),
+    }
 }
 
 fn netInterfaceNameResolve(
@@ -1153,13 +1366,13 @@ fn netInterfaceNameResolve(
             try pool.checkCancel();
             switch (posix.errno(posix.system.ioctl(sock_fd, posix.SIOCGIFINDEX, @intFromPtr(&ifr)))) {
                 .SUCCESS => return .{ .index = @bitCast(ifr.ifru.ivalue) },
-                .INVAL => |err| return badErrno(err), // Bad parameters.
-                .NOTTY => |err| return badErrno(err),
-                .NXIO => |err| return badErrno(err),
-                .BADF => |err| return badErrno(err), // Always a race condition.
-                .FAULT => |err| return badErrno(err), // Bad pointer parameter.
+                .INVAL => |err| return errnoBug(err), // Bad parameters.
+                .NOTTY => |err| return errnoBug(err),
+                .NXIO => |err| return errnoBug(err),
+                .BADF => |err| return errnoBug(err), // Always a race condition.
+                .FAULT => |err| return errnoBug(err), // Bad pointer parameter.
                 .INTR => continue,
-                .IO => |err| return badErrno(err), // sock_fd is not a file descriptor
+                .IO => |err| return errnoBug(err), // sock_fd is not a file descriptor
                 .NODEV => return error.InterfaceNotFound,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1207,8 +1420,8 @@ const PosixAddress = extern union {
     in6: posix.sockaddr.in6,
 };
 
-fn posixAddressFamily(a: Io.net.IpAddress) posix.sa_family_t {
-    return switch (a) {
+fn posixAddressFamily(a: *const Io.net.IpAddress) posix.sa_family_t {
+    return switch (a.*) {
         .ip4 => posix.AF.INET,
         .ip6 => posix.AF.INET6,
     };
@@ -1267,9 +1480,27 @@ fn address6ToPosix(a: Io.net.Ip6Address) posix.sockaddr.in6 {
     };
 }
 
-fn badErrno(err: posix.E) Io.UnexpectedError {
+fn errnoBug(err: posix.E) Io.UnexpectedError {
     switch (builtin.mode) {
         .Debug => std.debug.panic("programmer bug caused syscall error: {t}", .{err}),
         else => return error.Unexpected,
     }
+}
+
+fn posixSocketMode(mode: Io.net.Socket.Mode) u32 {
+    return switch (mode) {
+        .stream => posix.SOCK.STREAM,
+        .dgram => posix.SOCK.DGRAM,
+        .seqpacket => posix.SOCK.SEQPACKET,
+        .raw => posix.SOCK.RAW,
+        .rdm => posix.SOCK.RDM,
+    };
+}
+
+fn posixProtocol(protocol: ?Io.net.Protocol) u32 {
+    return @intFromEnum(protocol orelse return 0);
+}
+
+fn recoverableOsBugDetected() void {
+    if (builtin.mode == .Debug) unreachable;
 }
