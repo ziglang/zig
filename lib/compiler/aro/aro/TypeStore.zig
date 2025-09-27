@@ -2046,27 +2046,69 @@ fn generateNsConstantStringType(ts: *TypeStore, comp: *Compilation) !QualType {
 }
 
 fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
-    const Kind = enum { aarch64_va_list, x86_64_va_list };
+    const Kind = enum {
+        aarch64_va_list,
+        arm_va_list,
+        hexagon_va_list,
+        powerpc_va_list,
+        s390x_va_list,
+        x86_64_va_list,
+        xtensa_va_list,
+    };
     const kind: Kind = switch (comp.target.cpu.arch) {
+        .amdgcn,
+        .msp430,
+        .nvptx,
+        .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .x86,
+        => return .char_pointer,
+        .arc,
+        .avr,
+        .bpfel,
+        .bpfeb,
+        .csky,
+        .lanai,
+        .loongarch32,
+        .loongarch64,
+        .m68k,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .riscv32,
+        .riscv32be,
+        .riscv64,
+        .riscv64be,
+        .sparc,
+        .sparc64,
+        .spirv32,
+        .spirv64,
+        .ve,
+        .wasm32,
+        .wasm64,
+        .xcore,
+        => return .void_pointer,
         .aarch64, .aarch64_be => switch (comp.target.os.tag) {
-            .windows => return .char_pointer,
-            .ios, .macos, .tvos, .watchos => return .char_pointer,
+            .driverkit, .ios, .macos, .tvos, .visionos, .watchos, .windows => return .char_pointer,
             else => .aarch64_va_list,
         },
-        .arm, .armeb, .thumb, .thumbeb => switch (comp.target.os.tag) {
-            .ios, .macos, .tvos, .watchos, .visionos => return .char_pointer,
-            else => return .void_pointer,
+        .arm, .armeb, .thumb, .thumbeb => .arm_va_list,
+        .hexagon => if (comp.target.abi.isMusl())
+            .hexagon_va_list
+        else
+            return .char_pointer,
+        .powerpc, .powerpcle => switch (comp.target.os.tag) {
+            .aix => return .char_pointer,
+            else => .powerpc_va_list,
         },
-        .sparc, .wasm32, .wasm64, .bpfel, .bpfeb, .riscv32, .riscv64, .avr, .spirv32, .spirv64 => return .void_pointer,
-        .powerpc => switch (comp.target.os.tag) {
-            .ios, .macos, .tvos, .watchos, .aix => return .char_pointer,
-            else => return .void, // unknown
-        },
-        .x86, .msp430 => return .char_pointer,
+        .s390x => .s390x_va_list,
         .x86_64 => switch (comp.target.os.tag) {
-            .windows => return .char_pointer,
+            .uefi, .windows => return .char_pointer,
             else => .x86_64_va_list,
         },
+        .xtensa => .xtensa_va_list,
         else => return .void, // unknown
     };
 
@@ -2093,6 +2135,87 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
 
             break :blk qt;
         },
+        .arm_va_list => blk: {
+            var record: Type.Record = .{
+                .name = try comp.internString("__va_list_tag"),
+                .decl_node = undefined, // TODO
+                .layout = null,
+                .fields = &.{},
+            };
+            const qt = try ts.put(comp.gpa, .{ .@"struct" = record });
+
+            var fields: [1]Type.Record.Field = .{
+                .{ .name = try comp.internString("__ap"), .qt = .void_pointer },
+            };
+            record.fields = &fields;
+            record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
+            try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
+
+            break :blk qt;
+        },
+        .hexagon_va_list => blk: {
+            var record: Type.Record = .{
+                .name = try comp.internString("__va_list_tag"),
+                .decl_node = undefined, // TODO
+                .layout = null,
+                .fields = &.{},
+            };
+            const qt = try ts.put(comp.gpa, .{ .@"struct" = record });
+
+            var fields: [4]Type.Record.Field = .{
+                .{ .name = try comp.internString("__gpr"), .qt = .long },
+                .{ .name = try comp.internString("__fpr"), .qt = .long },
+                .{ .name = try comp.internString("__overflow_arg_area"), .qt = .void_pointer },
+                .{ .name = try comp.internString("__reg_save_area"), .qt = .void_pointer },
+            };
+            record.fields = &fields;
+            record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
+            try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
+
+            break :blk qt;
+        },
+        .powerpc_va_list => blk: {
+            var record: Type.Record = .{
+                .name = try comp.internString("__va_list_tag"),
+                .decl_node = undefined, // TODO
+                .layout = null,
+                .fields = &.{},
+            };
+            const qt = try ts.put(comp.gpa, .{ .@"struct" = record });
+
+            var fields: [5]Type.Record.Field = .{
+                .{ .name = try comp.internString("gpr"), .qt = .uchar },
+                .{ .name = try comp.internString("fpr"), .qt = .uchar },
+                .{ .name = try comp.internString("reserved"), .qt = .ushort },
+                .{ .name = try comp.internString("overflow_arg_area"), .qt = .void_pointer },
+                .{ .name = try comp.internString("reg_save_area"), .qt = .void_pointer },
+            };
+            record.fields = &fields;
+            record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
+            try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
+
+            break :blk qt;
+        },
+        .s390x_va_list => blk: {
+            var record: Type.Record = .{
+                .name = try comp.internString("__va_list_tag"),
+                .decl_node = undefined, // TODO
+                .layout = null,
+                .fields = &.{},
+            };
+            const qt = try ts.put(comp.gpa, .{ .@"struct" = record });
+
+            var fields: [3]Type.Record.Field = .{
+                .{ .name = try comp.internString("__current_saved_reg_area_pointer"), .qt = .void_pointer },
+                .{ .name = try comp.internString("__saved_reg_area_end_pointer"), .qt = .void_pointer },
+                .{ .name = try comp.internString("__overflow_area_pointer"), .qt = .void_pointer },
+            };
+            record.fields = &fields;
+            record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
+            try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
+
+            break :blk qt;
+        },
         .x86_64_va_list => blk: {
             var record: Type.Record = .{
                 .name = try comp.internString("__va_list_tag"),
@@ -2107,6 +2230,26 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
                 .{ .name = try comp.internString("fp_offset"), .qt = .uint },
                 .{ .name = try comp.internString("overflow_arg_area"), .qt = .void_pointer },
                 .{ .name = try comp.internString("reg_save_area"), .qt = .void_pointer },
+            };
+            record.fields = &fields;
+            record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
+            try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
+
+            break :blk qt;
+        },
+        .xtensa_va_list => blk: {
+            var record: Type.Record = .{
+                .name = try comp.internString("__va_list_tag"),
+                .decl_node = undefined, // TODO
+                .layout = null,
+                .fields = &.{},
+            };
+            const qt = try ts.put(comp.gpa, .{ .@"struct" = record });
+
+            var fields: [3]Type.Record.Field = .{
+                .{ .name = try comp.internString("__va_stk"), .qt = .int_pointer },
+                .{ .name = try comp.internString("__va_reg"), .qt = .int_pointer },
+                .{ .name = try comp.internString("__va_ndx"), .qt = .int },
             };
             record.fields = &fields;
             record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
