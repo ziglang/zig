@@ -1176,6 +1176,7 @@ const test_targets = blk: {
                 .abi = .musl,
             },
             .link_libc = true,
+            .use_llvm = true,
             .use_lld = false,
         },
 
