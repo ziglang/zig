@@ -1189,7 +1189,7 @@ pub const Reader = struct {
     pub fn seekBy(r: *Reader, offset: i64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.logicalPos())) + offset));
             },
             .streaming, .streaming_reading => {
                 if (posix.SEEK == void) {
@@ -1206,14 +1206,20 @@ pub const Reader = struct {
                     }
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
-                while (remaining > 0) {
-                    remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
-                        r.seek_err = err;
-                        return err;
-                    };
+                const bufferedLen = r.interface.bufferedLen();
+                if (remaining < bufferedLen) {
+                    r.interface.seek += @intCast(remaining);
+                } else {
+                    remaining -= bufferedLen;
+                    while (remaining > 0) {
+                        remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
+                            r.seek_err = err;
+                            return err;
+                        };
+                    }
+                    r.interface.seek = 0;
+                    r.interface.end = 0;
                 }
-                r.interface.seek = 0;
-                r.interface.end = 0;
             },
             .failure => return r.seek_err.?,
         }
