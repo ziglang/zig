@@ -2384,6 +2384,7 @@ pub const Stream = struct {
     }
 };
 
+/// A bound, listening TCP socket, ready to accept new connections.
 pub const Server = struct {
     listen_address: Address,
     stream: Stream,
