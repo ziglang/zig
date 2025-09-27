@@ -6,26 +6,41 @@ const assert = std.debug.assert;
 
 pub const HostName = @import("net/HostName.zig");
 
-pub const ListenError = std.net.Address.ListenError || Io.Cancelable;
-
-pub const BindError = std.net.Address.BindError || Io.Cancelable;
-
-pub const ListenOptions = struct {
-    /// How many connections the kernel will accept on the application's behalf.
-    /// If more than this many connections pool in the kernel, clients will start
-    /// seeing "Connection refused".
-    kernel_backlog: u31 = 128,
-    /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
-    /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
-    reuse_address: bool = false,
-    force_nonblocking: bool = false,
-};
-
-pub const BindOptions = struct {
-    /// The socket is restricted to sending and receiving IPv6 packets only.
-    /// In this case, an IPv4 and an IPv6 application can bind to a single port
-    /// at the same time.
-    ip6_only: bool = false,
+/// Source of truth: Internet Assigned Numbers Authority (IANA)
+pub const Protocol = enum(u32) {
+    hopopts = 0,
+    icmp = 1,
+    igmp = 2,
+    ipip = 4,
+    tcp = 6,
+    egp = 8,
+    pup = 12,
+    udp = 17,
+    idp = 22,
+    tp = 29,
+    dccp = 33,
+    ipv6 = 41,
+    routing = 43,
+    fragment = 44,
+    rsvp = 46,
+    gre = 47,
+    esp = 50,
+    ah = 51,
+    icmpv6 = 58,
+    none = 59,
+    dstopts = 60,
+    mtp = 92,
+    beetph = 94,
+    encap = 98,
+    pim = 103,
+    comp = 108,
+    sctp = 132,
+    mh = 135,
+    udplite = 136,
+    mpls = 137,
+    ethernet = 143,
+    raw = 255,
+    mptcp = 262,
 };
 
 pub const IpAddress = union(enum) {
@@ -132,11 +147,69 @@ pub const IpAddress = union(enum) {
         };
     }
 
+    pub const ListenError = error{
+        /// The address is already taken. Can occur when bound port is 0 but
+        /// all ephemeral ports are already in use.
+        AddressInUse,
+        /// A nonexistent interface was requested or the requested address was not local.
+        AddressUnavailable,
+        /// The local network interface used to reach the destination is offline.
+        NetworkSubsystemDown,
+        /// Insufficient memory or other resource internal to the operating system.
+        SystemResources,
+        /// Per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+        /// System-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+        /// The requested address family (IPv4 or IPv6) is not supported by the operating system.
+        AddressFamilyUnsupported,
+    } || Io.UnexpectedError || Io.Cancelable;
+
+    pub const ListenOptions = struct {
+        /// How many connections the kernel will accept on the application's behalf.
+        /// If more than this many connections pool in the kernel, clients will start
+        /// seeing "Connection refused".
+        kernel_backlog: u31 = 128,
+        /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
+        /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
+        reuse_address: bool = false,
+    };
+
     /// Waits for a TCP connection. When using this API, `bind` does not need
     /// to be called. The returned `Server` has an open `stream`.
     pub fn listen(address: IpAddress, io: Io, options: ListenOptions) ListenError!Server {
-        return io.vtable.listen(io.userdata, address, options);
+        return io.vtable.tcpListen(io.userdata, address, options);
     }
+
+    pub const BindError = error{
+        /// The address is already taken. Can occur when bound port is 0 but
+        /// all ephemeral ports are already in use.
+        AddressInUse,
+        /// A nonexistent interface was requested or the requested address was not local.
+        AddressUnavailable,
+        /// The address is not valid for the address family of socket.
+        AddressFamilyUnsupported,
+        /// Insufficient memory or other resource internal to the operating system.
+        SystemResources,
+        /// The local network interface used to reach the destination is offline.
+        NetworkSubsystemDown,
+        ProtocolUnsupportedBySystem,
+        ProtocolUnsupportedByAddressFamily,
+        /// Per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+        /// System-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+        SocketModeUnsupported,
+    } || Io.UnexpectedError || Io.Cancelable;
+
+    pub const BindOptions = struct {
+        /// The socket is restricted to sending and receiving IPv6 packets only.
+        /// In this case, an IPv4 and an IPv6 application can bind to a single port
+        /// at the same time.
+        ip6_only: bool = false,
+        mode: Socket.Mode,
+        protocol: ?Protocol = null,
+    };
 
     /// Associates an address with a `Socket` which can be used to receive UDP
     /// packets and other kinds of non-streaming messages. See `listen` for a
@@ -145,7 +218,7 @@ pub const IpAddress = union(enum) {
     /// One bound `Socket` can be used to receive messages from multiple
     /// different addresses.
     pub fn bind(address: IpAddress, io: Io, options: BindOptions) BindError!Socket {
-        return io.vtable.bind(io.userdata, address, options);
+        return io.vtable.ipBind(io.userdata, address, options);
     }
 };
 
@@ -255,7 +328,7 @@ pub const Ip6Address = struct {
     pub fn fromIp4(ip4: Ip4Address) Ip6Address {
         const b = &ip4.bytes;
         return .{
-            .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, b[0], b[1], b[2], b[3] },
+            .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, b[0], b[1], b[2], b[3] },
             .port = ip4.port,
         };
     }
@@ -682,7 +755,25 @@ pub const Interface = struct {
 pub const Socket = struct {
     handle: Handle,
     /// Contains the resolved ephemeral port number if requested.
-    bind_address: IpAddress,
+    address: IpAddress,
+
+    pub const Mode = enum {
+        /// Provides sequenced, reliable, two-way, connection-based byte
+        /// streams. An out-of-band data transmission mechanism may be
+        /// supported.
+        stream,
+        /// Supports datagrams (connectionless, unreliable messages of a fixed
+        /// maximum length).
+        dgram,
+        /// Provides  a  sequenced,  reliable,  two-way connection-based data
+        /// transmission path for datagrams of fixed maximum length; a consumer
+        /// is required to read an entire packet with each input system call.
+        seqpacket,
+        /// Provides raw network protocol access.
+        raw,
+        /// Provides a reliable datagram layer that does not guarantee ordering.
+        rdm,
+    };
 
     /// Underlying platform-defined type which may or may not be
     /// interchangeable with a file system file descriptor.
@@ -691,8 +782,48 @@ pub const Socket = struct {
         else => std.posix.fd_t,
     };
 
-    pub fn close(s: Socket, io: Io) void {
-        return io.vtable.netClose(io.userdata, s);
+    pub fn close(s: *Socket, io: Io) void {
+        io.vtable.netClose(io.userdata, s.handle);
+        s.handle = undefined;
+    }
+
+    pub const SendError = error{
+        /// The socket type requires that message be sent atomically, and the size of the message
+        /// to be sent made this impossible. The message is not transmitted.
+        MessageTooBig,
+        /// The output queue for a network interface was full. This generally indicates that the
+        /// interface has stopped sending, but may be caused by transient congestion. (Normally,
+        /// this does not occur in Linux. Packets are just silently dropped when a device queue
+        /// overflows.)
+        ///
+        /// This is also caused when there is not enough kernel memory available.
+        SystemResources,
+        /// No route to network.
+        NetworkUnreachable,
+        /// Network reached but no route to host.
+        HostUnreachable,
+        /// The local network interface used to reach the destination is offline.
+        NetworkSubsystemDown,
+        /// The destination address is not listening. Can still occur for
+        /// connectionless messages.
+        ConnectionRefused,
+        /// Operating system or protocol does not support the address family.
+        AddressFamilyUnsupported,
+    } || Io.UnexpectedError || Io.Cancelable;
+
+    /// Transfers `data` to `dest`, connectionless.
+    pub fn send(s: *const Socket, io: Io, dest: *const IpAddress, data: []const u8) SendError!void {
+        return io.vtable.netSend(io.userdata, s.handle, dest, data);
+    }
+
+    pub const ReceiveError = error{} || Io.Cancelable;
+
+    /// Transfers `data` from `source`, connectionless.
+    ///
+    /// Returned slice has same pointer as `buffer` with possibly shorter length.
+    pub fn receive(s: *const Socket, io: Io, source: *const IpAddress, buffer: []u8) ReceiveError![]u8 {
+        const n = try io.vtable.netReceive(io.userdata, s.handle, source, buffer);
+        return buffer[0..n];
     }
 };
 
@@ -784,11 +915,6 @@ pub const Stream = struct {
 pub const Server = struct {
     socket: Socket,
 
-    pub const Connection = struct {
-        stream: Stream,
-        address: IpAddress,
-    };
-
     pub fn deinit(s: *Server, io: Io) void {
         s.socket.close(io);
         s.* = undefined;
@@ -796,9 +922,8 @@ pub const Server = struct {
 
     pub const AcceptError = std.posix.AcceptError || Io.Cancelable;
 
-    /// Blocks until a client connects to the server. The returned `Connection` has
-    /// an open stream.
-    pub fn accept(s: *Server, io: Io) AcceptError!Connection {
+    /// Blocks until a client connects to the server.
+    pub fn accept(s: *Server, io: Io) AcceptError!Stream {
         return io.vtable.accept(io, s);
     }
 };
