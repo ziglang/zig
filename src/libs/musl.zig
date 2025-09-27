@@ -627,6 +627,7 @@ const src_files = [_][]const u8{
     "musl/src/fenv/hexagon/fenv.S",
     "musl/src/fenv/i386/fenv.s",
     "musl/src/fenv/loongarch64/fenv.S",
+    "musl/src/fenv/loongarch64/fenv-sf.c",
     "musl/src/fenv/m68k/fenv.c",
     "musl/src/fenv/mips64/fenv.S",
     "musl/src/fenv/mips64/fenv-sf.c",
