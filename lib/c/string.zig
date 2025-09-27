@@ -15,7 +15,7 @@ comptime {
 
 fn strcmp(s1: [*:0]const c_char, s2: [*:0]const c_char) callconv(.c) c_int {
     // We need to perform unsigned comparisons.
-    return switch (std.mem.orderZ(u8, @ptrCast(s1), @ptrCast(s2))) {
+    return switch (std.mem.orderSentinel(u8, 0, @ptrCast(s1), @ptrCast(s2))) {
         .lt => -1,
         .eq => 0,
         .gt => 1,
