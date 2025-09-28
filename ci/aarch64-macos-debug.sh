@@ -3,9 +3,6 @@
 set -x
 set -e
 
-# Script assumes the presence of the following:
-# s3cmd
-
 ZIGDIR="$PWD"
 TARGET="aarch64-macos-none"
 MCPU="baseline"
