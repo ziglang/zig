@@ -9,7 +9,7 @@ const Alignment = Wasm.Alignment;
 const String = Wasm.String;
 const Relocation = Wasm.Relocation;
 const InternPool = @import("../../InternPool.zig");
-const Mir = @import("../../arch/wasm/Mir.zig");
+const Mir = @import("../../codegen/wasm/Mir.zig");
 
 const build_options = @import("build_options");
 

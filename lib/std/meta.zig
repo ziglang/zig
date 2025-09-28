@@ -742,13 +742,7 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
                 if (!eql(e, b[i])) return false;
             return true;
         },
-        .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!eql(a[i], b[i])) return false;
-            }
-            return true;
-        },
+        .vector => return @reduce(.And, a == b),
         .pointer => |info| {
             return switch (info.size) {
                 .one, .many, .c => a == b,
@@ -935,7 +929,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
-            .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
+            .name = std.fmt.bufPrintSentinel(&num_buf, "{d}", .{i}, 0) catch unreachable,
             .type = T,
             .default_value_ptr = null,
             .is_comptime = false,

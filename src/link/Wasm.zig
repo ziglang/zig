@@ -29,8 +29,8 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 
-const Mir = @import("../arch/wasm/Mir.zig");
-const CodeGen = @import("../arch/wasm/CodeGen.zig");
+const Mir = @import("../codegen/wasm/Mir.zig");
+const CodeGen = @import("../codegen/wasm/CodeGen.zig");
 const abi = @import("../codegen/wasm/abi.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
@@ -4257,7 +4257,14 @@ fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Zcu
     const func_table_fixups_start: u32 = @intCast(wasm.func_table_fixups.items.len);
     wasm.string_bytes_lock.lock();
 
-    try codegen.generateSymbol(&wasm.base, pt, .unneeded, .fromInterned(ip_index), &wasm.string_bytes, .none);
+    {
+        var aw: std.Io.Writer.Allocating = .fromArrayList(wasm.base.comp.gpa, &wasm.string_bytes);
+        defer wasm.string_bytes = aw.toArrayList();
+        codegen.generateSymbol(&wasm.base, pt, .unneeded, .fromInterned(ip_index), &aw.writer, .none) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
+    }
 
     const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
     const relocs_len: u32 = @intCast(wasm.out_relocs.len - relocs_start);

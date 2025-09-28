@@ -953,7 +953,7 @@ fn writeOffsetTableEntry(coff: *Coff, index: usize) !void {
 }
 
 fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
-    if (!coff.base.comp.incremental) return;
+    if (!coff.base.comp.config.incremental) return;
     // TODO: reverse-lookup might come in handy here
     for (coff.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -964,7 +964,7 @@ fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(coff: *Coff, addr: u32) void {
-    if (!coff.base.comp.incremental) return;
+    if (!coff.base.comp.config.incremental) return;
     const got_moved = blk: {
         const sect_id = coff.got_section_index orelse break :blk false;
         break :blk coff.sections.items(.header)[sect_id].virtual_address >= addr;
@@ -1111,20 +1111,24 @@ pub fn updateFunc(
 
     coff.navs.getPtr(func.owner_nav).?.section = coff.text_section_index.?;
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try codegen.emitFunction(
+    codegen.emitFunction(
         &coff.base,
         pt,
         zcu.navSrcLoc(nav_index),
         func_index,
+        coff.getAtom(atom_index).getSymbolIndex().?,
         mir,
-        &code_buffer,
+        &aw.writer,
         .none,
-    );
+    ) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
 
-    try coff.updateNavCode(pt, nav_index, code_buffer.items, .FUNCTION);
+    try coff.updateNavCode(pt, nav_index, aw.written(), .FUNCTION);
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
@@ -1145,18 +1149,18 @@ fn lowerConst(
 ) !LowerConstResult {
     const gpa = coff.base.comp.gpa;
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const atom_index = try coff.createAtom();
     const sym = coff.getAtom(atom_index).getSymbolPtr(coff);
     try coff.setSymbolName(sym, name);
     sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(sect_id + 1));
 
-    try codegen.generateSymbol(&coff.base, pt, src_loc, val, &code_buffer, .{
+    try codegen.generateSymbol(&coff.base, pt, src_loc, val, &aw.writer, .{
         .atom_index = coff.getAtom(atom_index).getSymbolIndex().?,
     });
-    const code = code_buffer.items;
+    const code = aw.written();
 
     const atom = coff.getAtomPtr(atom_index);
     atom.size = @intCast(code.len);
@@ -1170,7 +1174,7 @@ fn lowerConst(
     log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(coff).value });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
-    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
+    try coff.writeAtom(atom_index, code, coff.base.comp.config.incremental);
 
     return .{ .ok = atom_index };
 }
@@ -1214,19 +1218,22 @@ pub fn updateNav(
 
         coff.navs.getPtr(nav_index).?.section = coff.getNavOutputSection(nav_index);
 
-        var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-        defer code_buffer.deinit(gpa);
+        var aw: std.Io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
 
-        try codegen.generateSymbol(
+        codegen.generateSymbol(
             &coff.base,
             pt,
             zcu.navSrcLoc(nav_index),
             nav_init,
-            &code_buffer,
+            &aw.writer,
             .{ .atom_index = atom.getSymbolIndex().? },
-        );
+        ) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
 
-        try coff.updateNavCode(pt, nav_index, code_buffer.items, .NULL);
+        try coff.updateNavCode(pt, nav_index, aw.written(), .NULL);
     }
 
     // Exports will be updated by `Zcu.processExports` after the update.
@@ -1244,8 +1251,8 @@ fn updateLazySymbolAtom(
     const gpa = comp.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const name = try allocPrint(gpa, "__lazy_{s}_{f}", .{
         @tagName(sym.kind),
@@ -1262,11 +1269,11 @@ fn updateLazySymbolAtom(
         src,
         sym,
         &required_alignment,
-        &code_buffer,
+        &aw.writer,
         .none,
         .{ .atom_index = local_sym_index },
     );
-    const code = code_buffer.items;
+    const code = aw.written();
 
     const atom = coff.getAtomPtr(atom_index);
     const symbol = atom.getSymbolPtr(coff);
@@ -1285,7 +1292,7 @@ fn updateLazySymbolAtom(
     symbol.value = vaddr;
 
     try coff.addGotEntry(.{ .sym_index = local_sym_index });
-    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
+    try coff.writeAtom(atom_index, code, coff.base.comp.config.incremental);
 }
 
 pub fn getOrCreateAtomForLazySymbol(
@@ -1437,7 +1444,7 @@ fn updateNavCode(
         };
     }
 
-    coff.writeAtom(atom_index, code, coff.base.comp.incremental) catch |err| switch (err) {
+    coff.writeAtom(atom_index, code, coff.base.comp.config.incremental) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return coff.base.cgFail(nav_index, "failed to write atom: {s}", .{@errorName(e)}),
     };
@@ -1539,14 +1546,12 @@ pub fn updateExports(
         sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(metadata.section + 1));
         sym.type = atom.getSymbol(coff).type;
 
-        switch (exp.opts.linkage) {
-            .strong => {
-                sym.storage_class = .EXTERNAL;
-            },
-            .internal => @panic("TODO Internal"),
+        sym.storage_class = switch (exp.opts.linkage) {
+            .internal => .EXTERNAL,
+            .strong => .EXTERNAL,
             .weak => @panic("TODO WeakExternal"),
             else => unreachable,
-        }
+        };
 
         try coff.resolveGlobalSymbol(sym_loc);
     }

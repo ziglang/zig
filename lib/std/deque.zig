@@ -56,7 +56,7 @@ pub fn Deque(comptime T: type) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureTotalCapacity(deque: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
             if (deque.buffer.len >= new_capacity) return;
-            return deque.ensureTotalCapacityPrecise(gpa, growCapacity(deque.buffer.len, new_capacity));
+            return deque.ensureTotalCapacityPrecise(gpa, std.ArrayList(T).growCapacity(new_capacity));
         }
 
         /// If the current capacity is less than `new_capacity`, this function will
@@ -241,18 +241,6 @@ pub fn Deque(comptime T: type) type {
                 return deque.head + index;
             } else {
                 return index - head_len;
-            }
-        }
-
-        const init_capacity: comptime_int = @max(1, std.atomic.cache_line / @sizeOf(T));
-
-        /// Called when memory growth is necessary. Returns a capacity larger than
-        /// minimum that grows super-linearly.
-        fn growCapacity(current: usize, minimum: usize) usize {
-            var new = current;
-            while (true) {
-                new +|= new / 2 + init_capacity;
-                if (new >= minimum) return new;
             }
         }
     };

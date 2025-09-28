@@ -37,7 +37,7 @@ noinline fn frame0(expected: *[4]usize, unwound: *[4]usize) void {
 }
 
 // No-OS entrypoint
-export fn _start() callconv(.c) noreturn {
+export fn _start() callconv(.withStackAlign(.c, 1)) noreturn {
     var expected: [4]usize = undefined;
     var unwound: [4]usize = undefined;
     frame0(&expected, &unwound);

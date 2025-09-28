@@ -497,7 +497,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
         return error.OperationNotSupported;
 
     var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-    const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{pathfd}) catch unreachable;
+    const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/fd/{d}", .{pathfd}, 0) catch unreachable;
     while (true) {
         const res = system.chmod(proc_path, mode);
         switch (errno(res)) {
@@ -6515,14 +6515,16 @@ pub const CopyFileRangeError = error{
 ///
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    if (builtin.os.tag == .freebsd or
-        (comptime builtin.os.tag == .linux and std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 })))
-    {
+    if (builtin.os.tag == .freebsd or builtin.os.tag == .linux) {
+        const use_c = native_os != .linux or
+            std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 });
+        const sys = if (use_c) std.c else linux;
+
         var off_in_copy: i64 = @bitCast(off_in);
         var off_out_copy: i64 = @bitCast(off_out);
 
         while (true) {
-            const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
+            const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
             if (native_os == .freebsd) {
                 switch (errno(rc)) {
                     .SUCCESS => return @intCast(rc),

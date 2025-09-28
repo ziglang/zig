@@ -383,6 +383,8 @@ const ResultInfo = struct {
         assignment,
         /// No specific operator in particular.
         none,
+        /// The expression is operand to address-of which is the operand to a return expression.
+        return_addrof,
     };
 };
 
@@ -955,7 +957,14 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 _ = try gz.addUnTok(.validate_ref_ty, res_ty_inst, tree.firstToken(node));
                 break :rl .{ .ref_coerced_ty = res_ty_inst };
             } else .ref;
-            const result = try expr(gz, scope, .{ .rl = operand_rl }, tree.nodeData(node).node);
+            const operand_node = tree.nodeData(node).node;
+            const result = try expr(gz, scope, .{
+                .rl = operand_rl,
+                .ctx = switch (ri.ctx) {
+                    .@"return" => .return_addrof,
+                    else => .none,
+                },
+            }, operand_node);
             return rvalue(gz, ri, result, node);
         },
         .optional_type => {
@@ -2728,12 +2737,12 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_ptr,
             .elem_val,
             .elem_ptr_node,
-            .elem_val_node,
+            .elem_ptr_load,
             .elem_val_imm,
             .field_ptr,
-            .field_val,
+            .field_ptr_load,
             .field_ptr_named,
-            .field_val_named,
+            .field_ptr_named_load,
             .func,
             .func_inferred,
             .func_fancy,
@@ -6160,7 +6169,7 @@ fn fieldAccess(
     switch (ri.rl) {
         .ref, .ref_coerced_ty => return addFieldAccess(.field_ptr, gz, scope, .{ .rl = .ref }, node),
         else => {
-            const access = try addFieldAccess(.field_val, gz, scope, .{ .rl = .none }, node);
+            const access = try addFieldAccess(.field_ptr_load, gz, scope, .{ .rl = .ref }, node);
             return rvalue(gz, ri, access, node);
         },
     }
@@ -6210,14 +6219,14 @@ fn arrayAccess(
         },
         else => {
             const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
-            const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
+            const lhs = try expr(gz, scope, .{ .rl = .ref }, lhs_node);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
             const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, rhs_node);
             try emitDbgStmt(gz, cursor);
 
-            return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
+            return rvalue(gz, ri, try gz.addPlNode(.elem_ptr_load, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
         },
     }
 }
@@ -8420,13 +8429,19 @@ fn localVarRef(
                     local_ptr.used = .fromToken(ident_token);
                 }
 
-                // Can't close over a runtime variable
-                if (num_namespaces_out != 0 and !local_ptr.maybe_comptime and !gz.is_typeof) {
-                    const ident_name = try astgen.identifierTokenString(ident_token);
-                    return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
-                        try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
-                        try astgen.errNoteNode(capturing_namespace.node, "crosses namespace boundary here", .{}),
-                    });
+                if (!local_ptr.maybe_comptime and !gz.is_typeof) {
+                    if (num_namespaces_out != 0) {
+                        const ident_name = try astgen.identifierTokenString(ident_token);
+                        return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
+                            try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
+                            try astgen.errNoteNode(capturing_namespace.node, "crosses namespace boundary here", .{}),
+                        });
+                    } else if (ri.ctx == .return_addrof) {
+                        const ident_name = try astgen.identifierTokenString(ident_token);
+                        return astgen.failNodeNotes(ident, "returning address of expired local variable '{s}'", .{ident_name}, &.{
+                            try astgen.errNoteTok(local_ptr.token_src, "declared runtime-known here", .{}),
+                        });
+                    }
                 }
 
                 switch (ri.rl) {
@@ -9286,17 +9301,21 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .field => {
-            if (ri.rl == .ref or ri.rl == .ref_coerced_ty) {
-                return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
-                    .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
-                    .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
-                });
+            switch (ri.rl) {
+                .ref, .ref_coerced_ty => {
+                    return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
+                        .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
+                        .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
+                    });
+                },
+                else => {
+                    const result = try gz.addPlNode(.field_ptr_named_load, node, Zir.Inst.FieldNamed{
+                        .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
+                        .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
+                    });
+                    return rvalue(gz, ri, result, node);
+                },
             }
-            const result = try gz.addPlNode(.field_val_named, node, Zir.Inst.FieldNamed{
-                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
-            });
-            return rvalue(gz, ri, result, node);
         },
         .FieldType => {
             const ty_inst = try typeExpr(gz, scope, params[0]);

@@ -1187,7 +1187,7 @@ pub const Cpu = struct {
             pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
             pub const ShiftInt = std.math.Log2Int(usize);
 
-            pub const empty = Set{ .ints = [1]usize{0} ** usize_count };
+            pub const empty: Set = .{ .ints = @splat(0) };
 
             pub fn isEmpty(set: Set) bool {
                 return for (set.ints) |x| {
@@ -1903,7 +1903,7 @@ pub const Cpu = struct {
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
-                .loongarch64 => &loongarch.cpu.loongarch64,
+                .loongarch64 => &loongarch.cpu.la64v1_0,
                 .m68k => &m68k.cpu.M68000,
                 .mips, .mipsel => &mips.cpu.mips32r2,
                 .mips64, .mips64el => &mips.cpu.mips64r2,

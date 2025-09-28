@@ -219,12 +219,20 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
             // Affects or affected by issues #5185, #22523, and #22464.
             std.process.fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
         }
+
         assert(ws.fuzz == null);
 
         ws.build_status.store(.fuzz_init, .monotonic);
         ws.notifyUpdate();
 
-        ws.fuzz = Fuzz.init(ws) catch |err| std.process.fatal("failed to start fuzzer: {s}", .{@errorName(err)});
+        ws.fuzz = Fuzz.init(
+            ws.gpa,
+            ws.thread_pool,
+            ws.all_steps,
+            ws.root_prog_node,
+            ws.ttyconf,
+            .{ .forever = .{ .ws = ws } },
+        ) catch |err| std.process.fatal("failed to start fuzzer: {s}", .{@errorName(err)});
         ws.fuzz.?.start();
     }
 

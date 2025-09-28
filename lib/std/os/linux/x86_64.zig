@@ -137,12 +137,12 @@ pub fn restore_rt() callconv(.naked) noreturn {
             \\ syscall
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .rcx = true, .r11 = true, .memory = true }),
+        ),
         else => asm volatile (
             \\ syscall
             :
             : [number] "{rax}" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .rcx = true, .r11 = true, .memory = true }),
+        ),
     }
 }
 
