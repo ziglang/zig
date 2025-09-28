@@ -220,22 +220,6 @@ pub fn clone() callconv(.naked) usize {
     );
 }
 
-pub fn restore() callconv(.naked) noreturn {
-    asm volatile (
-        \\ syscall
-        :
-        : [number] "{$2}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
-}
-
-pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ syscall
-        :
-        : [number] "{$2}" (@intFromEnum(SYS.rt_sigreturn)),
-    );
-}
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;

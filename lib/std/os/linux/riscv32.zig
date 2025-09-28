@@ -135,16 +135,6 @@ pub fn clone() callconv(.naked) usize {
     );
 }
 
-pub const restore = restore_rt;
-
-pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ ecall
-        :
-        : [number] "{x17}" (@intFromEnum(SYS.rt_sigreturn)),
-    );
-}
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;
