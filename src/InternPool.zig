@@ -11847,7 +11847,7 @@ pub fn getOrPutTrailingString(
     switch (embedded_nulls) {
         .no_embedded_nulls => assert(null_index == null),
         .maybe_embedded_nulls => if (null_index) |index| {
-            strings.appendAssumeCapacity(.{start, @intCast(index)});
+            strings.appendAssumeCapacity(.{ start, @intCast(index) });
             string_bytes.appendAssumeCapacity(.{0});
             return value;
         },
@@ -11888,7 +11888,7 @@ pub fn getOrPutTrailingString(
     defer shard.mutate.string_map.len += 1;
     const map_header = map.header().*;
     if (shard.mutate.string_map.len < map_header.capacity * 3 / 5) {
-        strings.appendAssumeCapacity(.{start, len - @intFromBool(last_byte_is_null)});
+        strings.appendAssumeCapacity(.{ start, len - @intFromBool(last_byte_is_null) });
         string_bytes.appendAssumeCapacity(.{0});
         const entry = &map.entries[map_index];
         entry.hash = hash;
@@ -11931,7 +11931,7 @@ pub fn getOrPutTrailingString(
         map_index &= new_map_mask;
         if (map.entries[map_index].value == .none) break;
     }
-    strings.appendAssumeCapacity(.{start, len - @intFromBool(last_byte_is_null)});
+    strings.appendAssumeCapacity(.{ start, len - @intFromBool(last_byte_is_null) });
     string_bytes.appendAssumeCapacity(.{0});
     map.entries[map_index] = .{
         .value = @enumFromInt(@intFromEnum(value)),
