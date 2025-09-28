@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/x86_64-linux-debug.sh
   x86_64-linux-debug-llvm:
@@ -26,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/x86_64-linux-debug-llvm.sh
   x86_64-linux-release:
@@ -34,6 +38,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/x86_64-linux-release.sh
   aarch64-linux-debug:
@@ -41,6 +47,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/aarch64-linux-debug.sh
   aarch64-linux-release:
@@ -48,6 +56,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/aarch64-linux-release.sh
   aarch64-macos-debug:
@@ -55,6 +65,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/aarch64-macos-debug.sh
   aarch64-macos-release:
@@ -62,6 +74,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/aarch64-macos-release.sh
   x86_64-windows-debug:
@@ -70,6 +84,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/x86_64-windows-debug.ps1
   x86_64-windows-release:
@@ -78,5 +94,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/x86_64-windows-release.ps1

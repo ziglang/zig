@@ -22,14 +22,6 @@ function CheckLastExitCode {
     return 0
 }
 
-# Make the `zig version` number consistent.
-# This will affect the `zig build` command below which uses `git describe`.
-git fetch --tags
-
-if ((git rev-parse --is-shallow-repository) -eq "true") {
-    git fetch --unshallow # `git describe` won't work on a shallow repo
-}
-
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.

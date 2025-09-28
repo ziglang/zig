@@ -13,11 +13,6 @@ ZIG="$PREFIX/bin/zig"
 
 export PATH="$HOME/deps/wasmtime-v29.0.0-x86_64-linux:$HOME/deps/qemu-linux-x86_64-10.1.0/bin:$HOME/local/bin:$PATH"
 
-# Make the `zig version` number consistent.
-# This will affect the cmake command below.
-git fetch --unshallow || true
-git fetch --tags
-
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
