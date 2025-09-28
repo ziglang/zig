@@ -32,6 +32,13 @@ struct MemoryMappingLayoutData {
 
 void InitShadowBounds();
 
+// Individual sanitizers can define this to explicitly run something at the end
+// of `__sanitizer_startup_hook`. This can be useful if a sanitizer needs to do
+// extra work after the common startup hook code is called and before module
+// ctors are invoked. For example, hwasan can explicitly call its initializing
+// function here so it can be set up before libc extensions are initialized.
+void EarlySanitizerInit();
+
 }  // namespace __sanitizer
 
 #endif  // SANITIZER_FUCHSIA

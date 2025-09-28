@@ -21,11 +21,11 @@ const Air = @import("../Air.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../Type.zig");
 const codegen = @import("../codegen.zig");
-const x86_64_abi = @import("../arch/x86_64/abi.zig");
+const x86_64_abi = @import("x86_64/abi.zig");
 const wasm_c_abi = @import("wasm/abi.zig");
 const aarch64_c_abi = @import("aarch64/abi.zig");
 const arm_c_abi = @import("arm/abi.zig");
-const riscv_c_abi = @import("../arch/riscv64/abi.zig");
+const riscv_c_abi = @import("riscv64/abi.zig");
 const mips_c_abi = @import("mips/abi.zig");
 const dev = @import("../dev.zig");
 
@@ -82,7 +82,9 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .powerpc64le => "powerpc64le",
         .amdgcn => "amdgcn",
         .riscv32 => "riscv32",
+        .riscv32be => "riscv32be",
         .riscv64 => "riscv64",
+        .riscv64be => "riscv64be",
         .sparc => "sparc",
         .sparc64 => "sparc64",
         .s390x => "s390x",
@@ -198,7 +200,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
         .linux => "linux",
-        .ps3 => "lv2",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
         .solaris, .illumos => "solaris",
@@ -211,8 +212,10 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
         .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
+        .ps3 => "lv2",
         .ps4 => "ps4",
         .ps5 => "ps5",
+        .vita => "unknown", // LLVM doesn't know about this target
         .mesa3d => "mesa3d",
         .amdpal => "amdpal",
         .hermit => "hermit",
@@ -227,7 +230,9 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .visionos => "xros",
         .serenity => "serenity",
         .vulkan => "vulkan",
+        .managarm => "managarm",
 
+        .@"3ds",
         .opengl,
         .plan9,
         .contiki,
@@ -328,16 +333,16 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .lanai => "E-m:e-p:32:32-i64:64-a:0:32-n32-S64",
         .aarch64 => if (target.ofmt == .macho)
             if (target.os.tag == .windows)
-                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
             else if (target.abi == .ilp32)
-                "e-m:o-p:32:32-i64:64-i128:128-n32:64-S128-Fn32"
+                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
             else
-                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
         else if (target.os.tag == .windows)
-            "e-m:w-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
+            "e-m:w-p270:32:32-p271:32:32-p272:64:64-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
         else
-            "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
-        .aarch64_be => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+            "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+        .aarch64_be => "E-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
         .arm => if (target.ofmt == .macho)
             "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
         else
@@ -386,20 +391,28 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
                 "E-m:e-Fi64-i64:64-i128:128-n32:64",
         },
         .powerpc64le => if (target.os.tag == .linux)
-            "e-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+            "e-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
         else
-            "e-m:e-Fn32-i64:64-n32:64",
-        .nvptx => "e-p:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
-        .nvptx64 => "e-i64:64-i128:128-v16:16-v32:32-n16:32:64",
-        .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
+            "e-m:e-Fn32-i64:64-i128:128-n32:64",
+        .nvptx => "e-p:32:32-p6:32:32-p7:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .nvptx64 => "e-p6:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128:128:48-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
         .riscv32 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:32:32-i64:64-n32-S32"
         else
             "e-m:e-p:32:32-i64:64-n32-S128",
+        .riscv32be => if (target.cpu.has(.riscv, .e))
+            "E-m:e-p:32:32-i64:64-n32-S32"
+        else
+            "E-m:e-p:32:32-i64:64-n32-S128",
         .riscv64 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
         else
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .riscv64be => if (target.cpu.has(.riscv, .e))
+            "E-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
+        else
+            "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
         .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
         .s390x => if (target.os.tag == .zos)
@@ -2508,7 +2521,7 @@ pub const Object = struct {
                     o.debug_compile_unit, // Scope
                     0, // Line
                     .none, // Underlying type
-                    ty.abiSize(zcu) * 8,
+                    layout.payload_size * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.metadataTuple(fields.items),
                 );
@@ -2671,7 +2684,7 @@ pub const Object = struct {
     }
 
     fn allocTypeName(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error![:0]const u8 {
-        var aw: std.io.Writer.Allocating = .init(o.gpa);
+        var aw: std.Io.Writer.Allocating = .init(o.gpa);
         defer aw.deinit();
         ty.print(&aw.writer, pt) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
@@ -4967,8 +4980,8 @@ pub const FuncGen = struct {
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
-                .@"try"         => try self.airTry(body[i..], false),
-                .try_cold       => try self.airTry(body[i..], true),
+                .@"try"         => try self.airTry(inst, false),
+                .try_cold       => try self.airTry(inst, true),
                 .try_ptr        => try self.airTryPtr(inst, false),
                 .try_ptr_cold   => try self.airTryPtr(inst, true),
                 .intcast        => try self.airIntCast(inst, false),
@@ -4976,7 +4989,7 @@ pub const FuncGen = struct {
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .load           => try self.airLoad(body[i..]),
+                .load           => try self.airLoad(inst),
                 .not            => try self.airNot(inst),
                 .store          => try self.airStore(inst, false),
                 .store_safe     => try self.airStore(inst, true),
@@ -5032,7 +5045,7 @@ pub const FuncGen = struct {
                 .atomic_store_seq_cst   => try self.airAtomicStore(inst, .seq_cst),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
-                .struct_field_val => try self.airStructFieldVal(body[i..]),
+                .struct_field_val => try self.airStructFieldVal(inst),
 
                 .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
                 .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -5041,18 +5054,18 @@ pub const FuncGen = struct {
 
                 .field_parent_ptr => try self.airFieldParentPtr(inst),
 
-                .array_elem_val     => try self.airArrayElemVal(body[i..]),
-                .slice_elem_val     => try self.airSliceElemVal(body[i..]),
+                .array_elem_val     => try self.airArrayElemVal(inst),
+                .slice_elem_val     => try self.airSliceElemVal(inst),
                 .slice_elem_ptr     => try self.airSliceElemPtr(inst),
-                .ptr_elem_val       => try self.airPtrElemVal(body[i..]),
+                .ptr_elem_val       => try self.airPtrElemVal(inst),
                 .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
 
-                .optional_payload         => try self.airOptionalPayload(body[i..]),
+                .optional_payload         => try self.airOptionalPayload(inst),
                 .optional_payload_ptr     => try self.airOptionalPayloadPtr(inst),
                 .optional_payload_ptr_set => try self.airOptionalPayloadPtrSet(inst),
 
-                .unwrap_errunion_payload     => try self.airErrUnionPayload(body[i..], false),
-                .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(body[i..], true),
+                .unwrap_errunion_payload     => try self.airErrUnionPayload(inst, false),
+                .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
                 .unwrap_errunion_err         => try self.airErrUnionErr(inst, false),
                 .unwrap_errunion_err_ptr     => try self.airErrUnionErr(inst, true),
                 .errunion_payload_ptr_set    => try self.airErrUnionPayloadPtrSet(inst),
@@ -6253,19 +6266,14 @@ pub const FuncGen = struct {
         // No need to reset the insert cursor since this instruction is noreturn.
     }
 
-    fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index, err_cold: bool) !Builder.Value {
-        const pt = self.ng.pt;
-        const zcu = pt.zcu;
-        const inst = body_tail[0];
+    fn airTry(self: *FuncGen, inst: Air.Inst.Index, err_cold: bool) !Builder.Value {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
         const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(pl_op.operand);
-        const payload_ty = self.typeOfIndex(inst);
-        const can_elide_load = if (isByRef(payload_ty, zcu)) self.canElideLoad(body_tail) else false;
         const is_unused = self.liveness.isUnused(inst);
-        return lowerTry(self, err_union, body, err_union_ty, false, can_elide_load, is_unused, err_cold);
+        return lowerTry(self, err_union, body, err_union_ty, false, false, is_unused, err_cold);
     }
 
     fn airTryPtr(self: *FuncGen, inst: Air.Inst.Index, err_cold: bool) !Builder.Value {
@@ -6398,9 +6406,6 @@ pub const FuncGen = struct {
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
             if (zcu.comp.getTarget().cpu.arch.isWasm()) break :jmp_table null;
-
-            // Workaround for https://github.com/ziglang/zig/issues/24383:
-            if (self.ng.ownerModule().optimize_mode == .ReleaseSafe) break :jmp_table null;
 
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
@@ -6814,11 +6819,10 @@ pub const FuncGen = struct {
         return self.wip.gepStruct(slice_llvm_ty, slice_ptr, index, "");
     }
 
-    fn airSliceElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const slice_ty = self.typeOf(bin_op.lhs);
         const slice = try self.resolveInst(bin_op.lhs);
@@ -6828,9 +6832,6 @@ pub const FuncGen = struct {
         const base_ptr = try self.wip.extractValue(slice, &.{0}, "");
         const ptr = try self.wip.gep(.inbounds, llvm_elem_ty, base_ptr, &.{index}, "");
         if (isByRef(elem_ty, zcu)) {
-            if (self.canElideLoad(body_tail))
-                return ptr;
-
             self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
 
             const slice_align = (slice_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
@@ -6857,11 +6858,10 @@ pub const FuncGen = struct {
         return self.wip.gep(.inbounds, llvm_elem_ty, base_ptr, &.{index}, "");
     }
 
-    fn airArrayElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airArrayElemVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
 
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const array_ty = self.typeOf(bin_op.lhs);
@@ -6874,9 +6874,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(try o.lowerType(pt, Type.usize), 0), rhs,
             };
             if (isByRef(elem_ty, zcu)) {
-                const elem_ptr =
-                    try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
-                if (canElideLoad(self, body_tail)) return elem_ptr;
+                const elem_ptr = try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
                 return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
@@ -6890,11 +6888,10 @@ pub const FuncGen = struct {
         return self.wip.extractElement(array_llvm_val, rhs, "");
     }
 
-    fn airPtrElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = ptr_ty.childType(zcu);
@@ -6908,10 +6905,7 @@ pub const FuncGen = struct {
         else
             &.{rhs}, "");
         if (isByRef(elem_ty, zcu)) {
-            if (self.canElideLoad(body_tail)) return ptr;
-
             self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
-
             const ptr_align = (ptr_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
             return self.loadByRef(ptr, elem_ty, ptr_align, if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
@@ -6964,11 +6958,10 @@ pub const FuncGen = struct {
         return self.fieldPtr(inst, struct_ptr, struct_ptr_ty, field_index);
     }
 
-    fn airStructFieldVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airStructFieldVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
         const struct_ty = self.typeOf(struct_field.struct_operand);
@@ -7042,9 +7035,6 @@ pub const FuncGen = struct {
                     .flags = .{ .alignment = alignment },
                 });
                 if (isByRef(field_ty, zcu)) {
-                    if (canElideLoad(self, body_tail))
-                        return field_ptr;
-
                     assert(alignment != .none);
                     const field_alignment = alignment.toLlvm();
                     return self.loadByRef(field_ptr, field_ty, field_alignment, .normal);
@@ -7060,7 +7050,6 @@ pub const FuncGen = struct {
                     try self.wip.gepStruct(union_llvm_ty, struct_llvm_val, payload_index, "");
                 const payload_alignment = layout.payload_align.toLlvm();
                 if (isByRef(field_ty, zcu)) {
-                    if (canElideLoad(self, body_tail)) return field_ptr;
                     return self.loadByRef(field_ptr, field_ty, payload_alignment, .normal);
                 } else {
                     return self.loadTruncate(.normal, field_ty, field_ptr, payload_alignment);
@@ -7819,11 +7808,10 @@ pub const FuncGen = struct {
         return self.wip.gepStruct(optional_llvm_ty, operand, 0, "");
     }
 
-    fn airOptionalPayload(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airOptionalPayload(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.typeOf(ty_op.operand);
@@ -7836,19 +7824,13 @@ pub const FuncGen = struct {
         }
 
         const opt_llvm_ty = try o.lowerType(pt, optional_ty);
-        const can_elide_load = if (isByRef(payload_ty, zcu)) self.canElideLoad(body_tail) else false;
-        return self.optPayloadHandle(opt_llvm_ty, operand, optional_ty, can_elide_load);
+        return self.optPayloadHandle(opt_llvm_ty, operand, optional_ty, false);
     }
 
-    fn airErrUnionPayload(
-        self: *FuncGen,
-        body_tail: []const Air.Inst.Index,
-        operand_is_ptr: bool,
-    ) !Builder.Value {
+    fn airErrUnionPayload(self: *FuncGen, inst: Air.Inst.Index, operand_is_ptr: bool) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
@@ -7867,7 +7849,6 @@ pub const FuncGen = struct {
             const payload_alignment = payload_ty.abiAlignment(zcu).toLlvm();
             const payload_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
             if (isByRef(payload_ty, zcu)) {
-                if (self.canElideLoad(body_tail)) return payload_ptr;
                 return self.loadByRef(payload_ptr, payload_ty, payload_alignment, .normal);
             }
             const payload_llvm_ty = err_union_llvm_ty.structFields(&o.builder)[offset];
@@ -9730,44 +9711,14 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    /// As an optimization, we want to avoid unnecessary copies of isByRef=true
-    /// types. Here, we scan forward in the current block, looking to see if
-    /// this load dies before any side effects occur. In such case, we can
-    /// safely return the operand without making a copy.
-    ///
-    /// The first instruction of `body_tail` is the one whose copy we want to elide.
-    fn canElideLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) bool {
-        const zcu = fg.ng.pt.zcu;
-        const ip = &zcu.intern_pool;
-        for (body_tail[1..]) |body_inst| {
-            switch (fg.liveness.categorizeOperand(fg.air, zcu, body_inst, body_tail[0], ip)) {
-                .none => continue,
-                .write, .noret, .complex => return false,
-                .tomb => return true,
-            }
-        }
-        // The only way to get here is to hit the end of a loop instruction
-        // (implicit repeat).
-        return false;
-    }
-
-    fn airLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airLoad(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const pt = fg.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const ptr_ty = fg.typeOf(ty_op.operand);
         const ptr_info = ptr_ty.ptrInfo(zcu);
         const ptr = try fg.resolveInst(ty_op.operand);
-
-        elide: {
-            if (!isByRef(Type.fromInterned(ptr_info.child), zcu)) break :elide;
-            if (!canElideLoad(fg, body_tail)) break :elide;
-            return ptr;
-        }
-
         fg.maybeMarkAllowZeroAccess(ptr_info);
-
         return fg.load(ptr, ptr_ty);
     }
 
@@ -12223,8 +12174,8 @@ fn lowerFnRetTy(o: *Object, pt: Zcu.PerThread, fn_info: InternPool.Key.FuncType)
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => {
                 const integer: Builder.Type = switch (zcu.getTarget().cpu.arch) {
-                    .riscv64 => .i64,
-                    .riscv32 => .i32,
+                    .riscv64, .riscv64be => .i64,
+                    .riscv32, .riscv32be => .i32,
                     else => unreachable,
                 };
                 return o.builder.structType(.normal, &.{ integer, integer });
@@ -12684,7 +12635,7 @@ fn ccAbiPromoteInt(
             else => null,
         },
         else => switch (target.cpu.arch) {
-            .loongarch64, .riscv64 => switch (int_info.bits) {
+            .loongarch64, .riscv64, .riscv64be => switch (int_info.bits) {
                 0...16 => int_info.signedness,
                 32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
                 17...31, 33...63 => int_info.signedness,
@@ -12838,8 +12789,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/97981
         .csky,
         // https://github.com/llvm/llvm-project/issues/97981
-        .hexagon,
-        // https://github.com/llvm/llvm-project/issues/97981
         .powerpc,
         .powerpcle,
         .powerpc64,
@@ -12847,8 +12796,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/97981
         .wasm32,
         .wasm64,
-        // https://github.com/llvm/llvm-project/issues/50374
-        .s390x,
         // https://github.com/llvm/llvm-project/issues/97981
         .sparc,
         .sparc64,
@@ -12858,10 +12805,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         .thumb,
         .thumbeb,
         => target.abi.float() == .soft or target.cpu.has(.arm, .fullfp16),
-        // https://github.com/llvm/llvm-project/issues/129394
-        .aarch64,
-        .aarch64_be,
-        => target.cpu.has(.aarch64, .fp_armv8),
         else => true,
     };
 }
@@ -12876,9 +12819,6 @@ fn backendSupportsF128(target: *const std.Target) bool {
         // Test failures all over the place.
         .mips64,
         .mips64el,
-        // https://github.com/llvm/llvm-project/issues/95471
-        .nvptx,
-        .nvptx64,
         // https://github.com/llvm/llvm-project/issues/41838
         .sparc,
         => false,
@@ -13078,7 +13018,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializePowerPCAsmPrinter();
             llvm.LLVMInitializePowerPCAsmParser();
         },
-        .riscv32, .riscv64 => {
+        .riscv32, .riscv32be, .riscv64, .riscv64be => {
             llvm.LLVMInitializeRISCVTarget();
             llvm.LLVMInitializeRISCVTargetInfo();
             llvm.LLVMInitializeRISCVTargetMC();

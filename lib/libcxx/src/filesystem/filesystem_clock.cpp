@@ -8,8 +8,10 @@
 
 #include <__config>
 #include <__system_error/throw_system_error.h>
+#include <cerrno>
 #include <chrono>
 #include <filesystem>
+#include <ratio>
 #include <time.h>
 
 #if defined(_LIBCPP_WIN32API)
@@ -58,13 +60,13 @@ _FilesystemClock::time_point _FilesystemClock::now() noexcept {
   typedef chrono::duration<rep, nano> __nsecs;
   struct timespec ts;
   if (timespec_get(&ts, TIME_UTC) != TIME_UTC)
-    __throw_system_error(errno, "timespec_get(TIME_UTC) failed");
+    std::__throw_system_error(errno, "timespec_get(TIME_UTC) failed");
   return time_point(__secs(ts.tv_sec) + chrono::duration_cast<duration>(__nsecs(ts.tv_nsec)));
 #elif defined(_LIBCPP_HAS_CLOCK_GETTIME)
   typedef chrono::duration<rep, nano> __nsecs;
   struct timespec tp;
   if (0 != clock_gettime(CLOCK_REALTIME, &tp))
-    __throw_system_error(errno, "clock_gettime(CLOCK_REALTIME) failed");
+    std::__throw_system_error(errno, "clock_gettime(CLOCK_REALTIME) failed");
   return time_point(__secs(tp.tv_sec) + chrono::duration_cast<duration>(__nsecs(tp.tv_nsec)));
 #else
   typedef chrono::duration<rep, micro> __microsecs;

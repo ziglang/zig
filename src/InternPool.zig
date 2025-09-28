@@ -1,6 +1,20 @@
 //! All interned objects have both a value and a type.
 //! This data structure is self-contained.
 
+const builtin = @import("builtin");
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
+const Cache = std.Build.Cache;
+const Limb = std.math.big.Limb;
+const Hash = std.hash.Wyhash;
+
+const InternPool = @This();
+const Zcu = @import("Zcu.zig");
+const Zir = std.zig.Zir;
+
 /// One item per thread, indexed by `tid`, which is dense and unique per thread.
 locals: []Local,
 /// Length must be a power of two and represents the number of simultaneous
@@ -1606,20 +1620,6 @@ fn getIndexMask(ip: *const InternPool, comptime BackingInt: type) u32 {
 
 const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
-const builtin = @import("builtin");
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const BigIntConst = std.math.big.int.Const;
-const BigIntMutable = std.math.big.int.Mutable;
-const Cache = std.Build.Cache;
-const Limb = std.math.big.Limb;
-const Hash = std.hash.Wyhash;
-
-const InternPool = @This();
-const Zcu = @import("Zcu.zig");
-const Zir = std.zig.Zir;
-
 /// An index into `maps` which might be `none`.
 pub const OptionalMapIndex = enum(u32) {
     none = std.math.maxInt(u32),
@@ -1895,7 +1895,7 @@ pub const NullTerminatedString = enum(u32) {
         ip: *const InternPool,
         id: bool,
     };
-    fn format(data: FormatData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn format(data: FormatData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const slice = data.string.toSlice(data.ip);
         if (!data.id) {
             try writer.writeAll(slice);
@@ -1904,11 +1904,11 @@ pub const NullTerminatedString = enum(u32) {
         }
     }
 
-    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .string = string, .ip = ip, .id = false } };
     }
 
-    pub fn fmtId(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+    pub fn fmtId(string: NullTerminatedString, ip: *const InternPool) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .string = string, .ip = ip, .id = true } };
     }
 
@@ -6424,14 +6424,25 @@ pub const Alignment = enum(u6) {
         return n + 1;
     }
 
-    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
-
-    pub fn toLlvm(this: @This()) LlvmBuilderAlignment {
-        return @enumFromInt(@intFromEnum(this));
+    pub fn toStdMem(a: Alignment) std.mem.Alignment {
+        assert(a != .none);
+        return @enumFromInt(@intFromEnum(a));
     }
 
-    pub fn fromLlvm(other: LlvmBuilderAlignment) @This() {
-        return @enumFromInt(@intFromEnum(other));
+    pub fn fromStdMem(a: std.mem.Alignment) Alignment {
+        const r: Alignment = @enumFromInt(@intFromEnum(a));
+        assert(r != .none);
+        return r;
+    }
+
+    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
+
+    pub fn toLlvm(a: Alignment) LlvmBuilderAlignment {
+        return @enumFromInt(@intFromEnum(a));
+    }
+
+    pub fn fromLlvm(a: LlvmBuilderAlignment) Alignment {
+        return @enumFromInt(@intFromEnum(a));
     }
 };
 
@@ -6914,10 +6925,7 @@ pub fn deactivate(ip: *const InternPool) void {
 
 /// For debugger access only.
 const debug_state = struct {
-    const enable = switch (builtin.zig_backend) {
-        else => false,
-        .stage2_x86_64 => !builtin.strip_debug_info,
-    };
+    const enable = false;
     const enable_checks = enable and !builtin.single_threaded;
     threadlocal var intern_pool: ?*const InternPool = null;
 };

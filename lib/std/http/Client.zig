@@ -382,7 +382,7 @@ pub const Connection = struct {
         return c.stream_reader.getStream();
     }
 
-    fn host(c: *Connection) []u8 {
+    pub fn host(c: *Connection) []u8 {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
@@ -1375,7 +1375,7 @@ pub const basic_authorization = struct {
         var buf: [max_user_len + 1 + max_password_len]u8 = undefined;
         var w: Writer = .fixed(&buf);
         const user: Uri.Component = uri.user orelse .empty;
-        const password: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.password orelse .empty;
         user.formatUser(&w) catch unreachable;
         w.writeByte(':') catch unreachable;
         password.formatPassword(&w) catch unreachable;
@@ -1752,13 +1752,6 @@ pub const FetchOptions = struct {
         url: []const u8,
         uri: Uri,
     };
-
-    pub const ResponseStorage = struct {
-        list: *std.ArrayListUnmanaged(u8),
-        /// If null then only the existing capacity will be used.
-        allocator: ?Allocator = null,
-        append_limit: std.Io.Limit = .unlimited,
-    };
 };
 
 pub const FetchResult = struct {
@@ -1797,9 +1790,10 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
 
     if (options.payload) |payload| {
         req.transfer_encoding = .{ .content_length = payload.len };
-        var body = try req.sendBody(&.{});
+        var body = try req.sendBodyUnflushed(&.{});
         try body.writer.writeAll(payload);
         try body.end();
+        try req.connection.?.flush();
     } else {
         try req.sendBodiless();
     }

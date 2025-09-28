@@ -1,4 +1,38 @@
 //! The main driver of the self-hosted COFF linker.
+const Coff = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const coff_util = std.coff;
+const fmt = std.fmt;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const math = std.math;
+const mem = std.mem;
+
+const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
+const Cache = std.Build.Cache;
+
+const aarch64_util = link.aarch64;
+const allocPrint = std.fmt.allocPrint;
+const codegen = @import("../codegen.zig");
+const link = @import("../link.zig");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+
+const Compilation = @import("../Compilation.zig");
+const Zcu = @import("../Zcu.zig");
+const InternPool = @import("../InternPool.zig");
+const TableSection = @import("table_section.zig").TableSection;
+const StringTable = @import("StringTable.zig");
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
+const dev = @import("../dev.zig");
 
 base: link.File,
 image_base: u64,
@@ -919,7 +953,7 @@ fn writeOffsetTableEntry(coff: *Coff, index: usize) !void {
 }
 
 fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
-    if (!coff.base.comp.incremental) return;
+    if (!coff.base.comp.config.incremental) return;
     // TODO: reverse-lookup might come in handy here
     for (coff.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -930,7 +964,7 @@ fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(coff: *Coff, addr: u32) void {
-    if (!coff.base.comp.incremental) return;
+    if (!coff.base.comp.config.incremental) return;
     const got_moved = blk: {
         const sect_id = coff.got_section_index orelse break :blk false;
         break :blk coff.sections.items(.header)[sect_id].virtual_address >= addr;
@@ -1077,20 +1111,24 @@ pub fn updateFunc(
 
     coff.navs.getPtr(func.owner_nav).?.section = coff.text_section_index.?;
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try codegen.emitFunction(
+    codegen.emitFunction(
         &coff.base,
         pt,
         zcu.navSrcLoc(nav_index),
         func_index,
+        coff.getAtom(atom_index).getSymbolIndex().?,
         mir,
-        &code_buffer,
+        &aw.writer,
         .none,
-    );
+    ) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
 
-    try coff.updateNavCode(pt, nav_index, code_buffer.items, .FUNCTION);
+    try coff.updateNavCode(pt, nav_index, aw.written(), .FUNCTION);
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
@@ -1111,18 +1149,18 @@ fn lowerConst(
 ) !LowerConstResult {
     const gpa = coff.base.comp.gpa;
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const atom_index = try coff.createAtom();
     const sym = coff.getAtom(atom_index).getSymbolPtr(coff);
     try coff.setSymbolName(sym, name);
     sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(sect_id + 1));
 
-    try codegen.generateSymbol(&coff.base, pt, src_loc, val, &code_buffer, .{
+    try codegen.generateSymbol(&coff.base, pt, src_loc, val, &aw.writer, .{
         .atom_index = coff.getAtom(atom_index).getSymbolIndex().?,
     });
-    const code = code_buffer.items;
+    const code = aw.written();
 
     const atom = coff.getAtomPtr(atom_index);
     atom.size = @intCast(code.len);
@@ -1136,7 +1174,7 @@ fn lowerConst(
     log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(coff).value });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
-    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
+    try coff.writeAtom(atom_index, code, coff.base.comp.config.incremental);
 
     return .{ .ok = atom_index };
 }
@@ -1180,19 +1218,22 @@ pub fn updateNav(
 
         coff.navs.getPtr(nav_index).?.section = coff.getNavOutputSection(nav_index);
 
-        var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-        defer code_buffer.deinit(gpa);
+        var aw: std.Io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
 
-        try codegen.generateSymbol(
+        codegen.generateSymbol(
             &coff.base,
             pt,
             zcu.navSrcLoc(nav_index),
             nav_init,
-            &code_buffer,
+            &aw.writer,
             .{ .atom_index = atom.getSymbolIndex().? },
-        );
+        ) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
 
-        try coff.updateNavCode(pt, nav_index, code_buffer.items, .NULL);
+        try coff.updateNavCode(pt, nav_index, aw.written(), .NULL);
     }
 
     // Exports will be updated by `Zcu.processExports` after the update.
@@ -1210,8 +1251,8 @@ fn updateLazySymbolAtom(
     const gpa = comp.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const name = try allocPrint(gpa, "__lazy_{s}_{f}", .{
         @tagName(sym.kind),
@@ -1228,11 +1269,11 @@ fn updateLazySymbolAtom(
         src,
         sym,
         &required_alignment,
-        &code_buffer,
+        &aw.writer,
         .none,
         .{ .atom_index = local_sym_index },
     );
-    const code = code_buffer.items;
+    const code = aw.written();
 
     const atom = coff.getAtomPtr(atom_index);
     const symbol = atom.getSymbolPtr(coff);
@@ -1251,7 +1292,7 @@ fn updateLazySymbolAtom(
     symbol.value = vaddr;
 
     try coff.addGotEntry(.{ .sym_index = local_sym_index });
-    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
+    try coff.writeAtom(atom_index, code, coff.base.comp.config.incremental);
 }
 
 pub fn getOrCreateAtomForLazySymbol(
@@ -1403,7 +1444,7 @@ fn updateNavCode(
         };
     }
 
-    coff.writeAtom(atom_index, code, coff.base.comp.incremental) catch |err| switch (err) {
+    coff.writeAtom(atom_index, code, coff.base.comp.config.incremental) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return coff.base.cgFail(nav_index, "failed to write atom: {s}", .{@errorName(e)}),
     };
@@ -1505,14 +1546,12 @@ pub fn updateExports(
         sym.section_number = @as(coff_util.SectionNumber, @enumFromInt(metadata.section + 1));
         sym.type = atom.getSymbol(coff).type;
 
-        switch (exp.opts.linkage) {
-            .strong => {
-                sym.storage_class = .EXTERNAL;
-            },
-            .internal => @panic("TODO Internal"),
+        sym.storage_class = switch (exp.opts.linkage) {
+            .internal => .EXTERNAL,
+            .strong => .EXTERNAL,
             .weak => @panic("TODO WeakExternal"),
             else => unreachable,
-        }
+        };
 
         try coff.resolveGlobalSymbol(sym_loc);
     }
@@ -2168,24 +2207,24 @@ fn writeStrtab(coff: *Coff) !void {
 
 fn writeSectionHeaders(coff: *Coff) !void {
     const offset = coff.getSectionHeadersOffset();
-    try coff.pwriteAll(mem.sliceAsBytes(coff.sections.items(.header)), offset);
+    try coff.pwriteAll(@ptrCast(coff.sections.items(.header)), offset);
 }
 
 fn writeDataDirectoriesHeaders(coff: *Coff) !void {
     const offset = coff.getDataDirectoryHeadersOffset();
-    try coff.pwriteAll(mem.sliceAsBytes(&coff.data_directories), offset);
+    try coff.pwriteAll(@ptrCast(&coff.data_directories), offset);
 }
 
 fn writeHeader(coff: *Coff) !void {
     const target = &coff.base.comp.root_mod.resolved_target.result;
     const gpa = coff.base.comp.gpa;
-    var buffer = std.array_list.Managed(u8).init(gpa);
+    var buffer: std.Io.Writer.Allocating = .init(gpa);
     defer buffer.deinit();
-    const writer = buffer.writer();
+    const writer = &buffer.writer;
 
     try buffer.ensureTotalCapacity(coff.getSizeOfHeaders());
     writer.writeAll(&msdos_stub) catch unreachable;
-    mem.writeInt(u32, buffer.items[0x3c..][0..4], msdos_stub.len, .little);
+    mem.writeInt(u32, buffer.writer.buffer[0x3c..][0..4], msdos_stub.len, .little);
 
     writer.writeAll("PE\x00\x00") catch unreachable;
     var flags = coff_util.CoffHeaderFlags{
@@ -2313,7 +2352,7 @@ fn writeHeader(coff: *Coff) !void {
         },
     }
 
-    try coff.pwriteAll(buffer.items, 0);
+    try coff.pwriteAll(buffer.written(), 0);
 }
 
 pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
@@ -3039,7 +3078,7 @@ const ImportTable = struct {
         itab: ImportTable,
         ctx: Context,
 
-        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const lib_name = f.ctx.coff.temp_strtab.getAssumeExists(f.ctx.name_off);
             const base_vaddr = getBaseAddress(f.ctx);
             try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
@@ -3053,7 +3092,7 @@ const ImportTable = struct {
         }
     };
 
-    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(Format, Format.default) {
+    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Alt(Format, Format.default) {
         return .{ .data = .{ .itab = itab, .ctx = ctx } };
     }
 
@@ -3067,41 +3106,6 @@ fn pwriteAll(coff: *Coff, bytes: []const u8, offset: u64) error{LinkFailure}!voi
         return diags.fail("failed to write: {s}", .{@errorName(err)});
     };
 }
-
-const Coff = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const coff_util = std.coff;
-const fmt = std.fmt;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const math = std.math;
-const mem = std.mem;
-
-const Allocator = std.mem.Allocator;
-const Path = std.Build.Cache.Path;
-const Directory = std.Build.Cache.Directory;
-const Cache = std.Build.Cache;
-
-const aarch64_util = link.aarch64;
-const allocPrint = std.fmt.allocPrint;
-const codegen = @import("../codegen.zig");
-const link = @import("../link.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-
-const Compilation = @import("../Compilation.zig");
-const Zcu = @import("../Zcu.zig");
-const InternPool = @import("../InternPool.zig");
-const TableSection = @import("table_section.zig").TableSection;
-const StringTable = @import("StringTable.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const AnalUnit = InternPool.AnalUnit;
-const dev = @import("../dev.zig");
 
 /// This is the start of a Portable Executable (PE) file.
 /// It starts with a MS-DOS header followed by a MS-DOS stub program.

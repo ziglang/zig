@@ -6,13 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___UTILITY_TRANSACTION_H
-#define _LIBCPP___UTILITY_TRANSACTION_H
+#ifndef _LIBCPP___UTILITY_EXCEPTION_GUARD_H
+#define _LIBCPP___UTILITY_EXCEPTION_GUARD_H
 
 #include <__assert>
 #include <__config>
 #include <__type_traits/is_nothrow_constructible.h>
-#include <__utility/exchange.h>
 #include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -141,4 +140,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif // _LIBCPP___UTILITY_TRANSACTION_H
+#endif // _LIBCPP___UTILITY_EXCEPTION_GUARD_H

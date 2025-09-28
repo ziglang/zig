@@ -37,7 +37,7 @@ comptime {
             @export(&__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
 
-            if (builtin.os.tag == .linux) {
+            if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
                 @export(&__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
             }
 

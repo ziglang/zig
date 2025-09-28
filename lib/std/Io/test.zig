@@ -1,5 +1,4 @@
 const std = @import("std");
-const io = std.io;
 const DefaultPrng = std.Random.DefaultPrng;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -121,25 +120,4 @@ test "updateTimes" {
     const stat_new = try file.stat();
     try expect(stat_new.atime < stat_old.atime);
     try expect(stat_new.mtime < stat_old.mtime);
-}
-
-test "GenericReader methods can return error.EndOfStream" {
-    // https://github.com/ziglang/zig/issues/17733
-    var fbs = std.io.fixedBufferStream("");
-    try std.testing.expectError(
-        error.EndOfStream,
-        fbs.reader().readEnum(enum(u8) { a, b }, .little),
-    );
-    try std.testing.expectError(
-        error.EndOfStream,
-        fbs.reader().isBytes("foo"),
-    );
-}
-
-test "Adapted DeprecatedReader EndOfStream" {
-    var fbs: io.FixedBufferStream([]const u8) = .{ .buffer = &.{}, .pos = 0 };
-    const reader = fbs.reader();
-    var buf: [1]u8 = undefined;
-    var adapted = reader.adaptToNewApi(&buf);
-    try std.testing.expectError(error.EndOfStream, adapted.new_interface.takeByte());
 }

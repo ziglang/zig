@@ -28,7 +28,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :13:16: error: packed union does not support enum tag type

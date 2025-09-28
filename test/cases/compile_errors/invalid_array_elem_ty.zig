@@ -6,7 +6,5 @@ pub export fn entry() void {
 }
 
 // error
-// target=native
-// backend=stage2
 //
 // :5:12: error: expected type 'type', found 'fn () type'

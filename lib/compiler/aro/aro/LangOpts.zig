@@ -1,11 +1,20 @@
 const std = @import("std");
-const DiagnosticTag = @import("Diagnostics.zig").Tag;
+
 const char_info = @import("char_info.zig");
+const DiagnosticTag = @import("Diagnostics.zig").Tag;
 
 pub const Compiler = enum {
     clang,
     gcc,
     msvc,
+
+    pub fn defaultGccVersion(self: Compiler) u32 {
+        return switch (self) {
+            .clang => 4 * 10_000 + 2 * 100 + 1,
+            .gcc => 7 * 10_000 + 1 * 100 + 0,
+            .msvc => 0,
+        };
+    }
 };
 
 /// The floating-point evaluation method for intermediate results within a single expression
@@ -138,20 +147,15 @@ preserve_comments_in_macros: bool = false,
 /// Used ONLY for generating __GNUC__ and related macros. Does not control the presence/absence of any features
 /// Encoded as major * 10,000 + minor * 100 + patch
 /// e.g. 4.2.1 == 40201
-gnuc_version: u32 = 0,
+gnuc_version: ?u32 = null,
 
 pub fn setStandard(self: *LangOpts, name: []const u8) error{InvalidStandard}!void {
     self.standard = Standard.NameMap.get(name) orelse return error.InvalidStandard;
 }
 
-pub fn enableMSExtensions(self: *LangOpts) void {
-    self.declspec_attrs = true;
-    self.ms_extensions = true;
-}
-
-pub fn disableMSExtensions(self: *LangOpts) void {
-    self.declspec_attrs = false;
-    self.ms_extensions = true;
+pub fn setMSExtensions(self: *LangOpts, enabled: bool) void {
+    self.declspec_attrs = enabled;
+    self.ms_extensions = enabled;
 }
 
 pub fn hasChar8_T(self: *const LangOpts) bool {
@@ -164,7 +168,7 @@ pub fn hasDigraphs(self: *const LangOpts) bool {
 
 pub fn setEmulatedCompiler(self: *LangOpts, compiler: Compiler) void {
     self.emulate = compiler;
-    if (compiler == .msvc) self.enableMSExtensions();
+    self.setMSExtensions(compiler == .msvc);
 }
 
 pub fn setFpEvalMethod(self: *LangOpts, fp_eval_method: FPEvalMethod) void {

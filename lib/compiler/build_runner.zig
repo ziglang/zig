@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const io = std.io;
 const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
@@ -11,8 +10,9 @@ const Watch = std.Build.Watch;
 const WebServer = std.Build.WebServer;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 const runner = @This();
+const tty = std.Io.tty;
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -112,7 +112,7 @@ pub fn main() !void {
     var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
     var watch = false;
-    var fuzz = false;
+    var fuzz: ?std.Build.Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
     var webui_listen: ?std.net.Address = null;
 
@@ -274,10 +274,44 @@ pub fn main() !void {
                     webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
                 }
             } else if (mem.eql(u8, arg, "--fuzz")) {
-                fuzz = true;
+                fuzz = .{ .forever = undefined };
                 if (webui_listen == null) {
                     webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
                 }
+            } else if (mem.startsWith(u8, arg, "--fuzz=")) {
+                const value = arg["--fuzz=".len..];
+                if (value.len == 0) fatal("missing argument to --fuzz", .{});
+
+                const unit: u8 = value[value.len - 1];
+                const digits = switch (unit) {
+                    '0'...'9' => value,
+                    'K', 'M', 'G' => value[0 .. value.len - 1],
+                    else => fatal(
+                        "invalid argument to --fuzz, expected a positive number optionally suffixed by one of: [KMG]",
+                        .{},
+                    ),
+                };
+
+                const amount = std.fmt.parseInt(u64, digits, 10) catch {
+                    fatal(
+                        "invalid argument to --fuzz, expected a positive number optionally suffixed by one of: [KMG]",
+                        .{},
+                    );
+                };
+
+                const normalized_amount = std.math.mul(u64, amount, switch (unit) {
+                    else => unreachable,
+                    '0'...'9' => 1,
+                    'K' => 1000,
+                    'M' => 1_000_000,
+                    'G' => 1_000_000_000,
+                }) catch fatal("fuzzing limit amount overflows u64", .{});
+
+                fuzz = .{
+                    .limit = .{
+                        .amount = normalized_amount,
+                    },
+                };
             } else if (mem.eql(u8, arg, "-fincremental")) {
                 graph.incremental = true;
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
@@ -476,6 +510,7 @@ pub fn main() !void {
             targets.items,
             main_progress_node,
             &run,
+            fuzz,
         ) catch |err| switch (err) {
             error.UncleanExit => {
                 assert(!run.watch and run.web_server == null);
@@ -485,7 +520,12 @@ pub fn main() !void {
         };
 
         if (run.web_server) |*web_server| {
-            web_server.finishBuild(.{ .fuzz = fuzz });
+            if (fuzz) |mode| if (mode != .forever) fatal(
+                "error: limited fuzzing is not implemented yet for --webui",
+                .{},
+            );
+
+            web_server.finishBuild(.{ .fuzz = fuzz != null });
         }
 
         if (!watch and run.web_server == null) {
@@ -576,7 +616,7 @@ const Run = struct {
 
     claimed_rss: usize,
     summary: Summary,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
     stderr: File,
 
     fn cleanExit(run: Run) void {
@@ -651,6 +691,7 @@ fn runStepNames(
     step_names: []const []const u8,
     parent_prog_node: std.Progress.Node,
     run: *Run,
+    fuzz: ?std.Build.Fuzz.Mode,
 ) !void {
     const gpa = run.gpa;
     const step_stack = &run.step_stack;
@@ -676,6 +717,7 @@ fn runStepNames(
             });
         }
     }
+
     assert(run.memory_blocked_steps.items.len == 0);
 
     var test_skip_count: usize = 0;
@@ -724,6 +766,45 @@ fn runStepNames(
         }
     }
 
+    const ttyconf = run.ttyconf;
+
+    if (fuzz) |mode| blk: {
+        switch (builtin.os.tag) {
+            // Current implementation depends on two things that need to be ported to Windows:
+            // * Memory-mapping to share data between the fuzzer and build runner.
+            // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
+            //   many addresses to source locations).
+            .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
+            else => {},
+        }
+        if (@bitSizeOf(usize) != 64) {
+            // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+            // being compatible with `std.fs.getEndPos() u64`'s return value. This is not the case
+            // on 32-bit platforms.
+            // Affects or affected by issues #5185, #22523, and #22464.
+            fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
+        }
+
+        switch (mode) {
+            .forever => break :blk,
+            .limit => {},
+        }
+
+        assert(mode == .limit);
+        var f = std.Build.Fuzz.init(
+            gpa,
+            thread_pool,
+            step_stack.keys(),
+            parent_prog_node,
+            ttyconf,
+            mode,
+        ) catch |err| fatal("failed to start fuzzer: {s}", .{@errorName(err)});
+        defer f.deinit();
+
+        f.start();
+        f.waitAndPrintReport();
+    }
+
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
     const failures_only = switch (run.summary) {
@@ -736,8 +817,6 @@ fn runStepNames(
     } else {
         std.Progress.setStatus(.failure);
     }
-
-    const ttyconf = run.ttyconf;
 
     if (run.summary != .none) {
         const w = std.debug.lockStderrWriter(&stdio_buffer_allocation);
@@ -819,7 +898,7 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: std.io.tty.Config) !void {
+fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: tty.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
     try printPrefix(parent, stderr, ttyconf);
@@ -833,7 +912,7 @@ fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: std.io.tty.Config) !v
     }
 }
 
-fn printChildNodePrefix(stderr: *Writer, ttyconf: std.io.tty.Config) !void {
+fn printChildNodePrefix(stderr: *Writer, ttyconf: tty.Config) !void {
     try stderr.writeAll(switch (ttyconf) {
         .no_color, .windows_api => "+- ",
         .escape_codes => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ", // └─
@@ -843,7 +922,7 @@ fn printChildNodePrefix(stderr: *Writer, ttyconf: std.io.tty.Config) !void {
 fn printStepStatus(
     s: *Step,
     stderr: *Writer,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
     run: *const Run,
 ) !void {
     switch (s.state) {
@@ -923,7 +1002,7 @@ fn printStepStatus(
 fn printStepFailure(
     s: *Step,
     stderr: *Writer,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
 ) !void {
     if (s.result_error_bundle.errorMessageCount() > 0) {
         try ttyconf.setColor(stderr, .red);
@@ -977,7 +1056,7 @@ fn printTreeStep(
     s: *Step,
     run: *const Run,
     stderr: *Writer,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
@@ -1366,7 +1445,10 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\  --webui[=ip]                 Enable the web interface on the given IP address
-        \\  --fuzz                       Continuously search for unit test failures (implies '--webui')
+        \\  --fuzz[=limit]               Continuously search for unit test failures with an optional 
+        \\                               limit to the max number of iterations. The argument supports
+        \\                               an optional 'K', 'M', or 'G' suffix (e.g. '10K'). Implies
+        \\                               '--webui' when no limit is specified.
         \\  --time-report                Force full rebuild and provide detailed information on
         \\                               compilation time of Zig source code (implies '--webui')
         \\     -fincremental             Enable incremental compilation
@@ -1494,9 +1576,9 @@ fn uncleanExit() error{UncleanExit} {
 const Color = std.zig.Color;
 const Summary = enum { all, new, failures, none };
 
-fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
+fn get_tty_conf(color: Color, stderr: File) tty.Config {
     return switch (color) {
-        .auto => std.io.tty.detectConfig(stderr),
+        .auto => tty.detectConfig(stderr),
         .on => .escape_codes,
         .off => .no_color,
     };

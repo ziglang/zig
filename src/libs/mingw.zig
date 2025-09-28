@@ -296,7 +296,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
 
     const aro = @import("aro");
-    var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
+    var diagnostics: aro.Diagnostics = .{
+        .output = .{ .to_list = .{ .arena = .init(gpa) } },
+    };
+    defer diagnostics.deinit();
+    var aro_comp = aro.Compilation.init(gpa, arena, &diagnostics, std.fs.cwd());
     defer aro_comp.deinit();
 
     aro_comp.target = target.*;
@@ -304,9 +308,8 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = std.fs.File.stderr().deprecatedWriter();
+        var stderr = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
@@ -317,17 +320,22 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
     const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
 
-    var pp = aro.Preprocessor.init(&aro_comp);
+    var pp = aro.Preprocessor.init(&aro_comp, .{ .provided = 0 });
     defer pp.deinit();
     pp.linemarkers = .none;
     pp.preserve_whitespace = true;
 
     try pp.preprocessSources(&.{ def_file_source, builtin_macros });
 
-    for (aro_comp.diagnostics.list.items) |diagnostic| {
-        if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.fs.File.stderr()));
-            return error.AroPreprocessorFailed;
+    if (aro_comp.diagnostics.output.to_list.messages.items.len != 0) {
+        var buffer: [64]u8 = undefined;
+        const w = std.debug.lockStderrWriter(&buffer);
+        defer std.debug.unlockStderrWriter();
+        for (aro_comp.diagnostics.output.to_list.messages.items) |msg| {
+            if (msg.kind == .@"fatal error" or msg.kind == .@"error") {
+                msg.write(w, .detect(std.fs.File.stderr()), true) catch {};
+                return error.AroPreprocessorFailed;
+            }
         }
     }
 
@@ -335,7 +343,10 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.deprecatedWriter(), .result_only);
+        var buffer: [1024]u8 = undefined;
+        var file_writer = def_final_file.writer(&buffer);
+        try pp.prettyPrintTokens(&file_writer.interface, .result_only);
+        try file_writer.interface.flush();
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
@@ -410,9 +421,9 @@ fn findDef(
         // Try the archtecture-specific path first.
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "{s}" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{ lib_path, lib_name });
+            try override_path.print(fmt_path, .{ lib_path, lib_name });
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -427,9 +438,9 @@ fn findDef(
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{lib_name});
+            try override_path.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -444,9 +455,9 @@ fn findDef(
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def.in";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{lib_name});
+            try override_path.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -577,9 +588,6 @@ const mingw32_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "frexpl.c",
     "math" ++ path.sep_str ++ "hypotf.c",
     "math" ++ path.sep_str ++ "hypotl.c",
-    "math" ++ path.sep_str ++ "isnan.c",
-    "math" ++ path.sep_str ++ "isnanf.c",
-    "math" ++ path.sep_str ++ "isnanl.c",
     "math" ++ path.sep_str ++ "ldexpf.c",
     "math" ++ path.sep_str ++ "lgamma.c",
     "math" ++ path.sep_str ++ "lgammaf.c",
@@ -914,7 +922,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "rintl.c",
     "math" ++ path.sep_str ++ "roundl.c",
     "math" ++ path.sep_str ++ "tgammal.c",
-    "math" ++ path.sep_str ++ "truncl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acoshl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acosl.c",
@@ -923,7 +930,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2l.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanhl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanl.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceill.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "copysignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl_internal.S",
@@ -973,7 +979,6 @@ const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "asinf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2f.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanf.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceilf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodf.c",
 };
 

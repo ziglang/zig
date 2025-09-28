@@ -792,7 +792,18 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
         ,
         .Debug = .{
+            // std.debug.sys_can_stack_trace
+            .exclude_arch = &.{
+                .loongarch32,
+                .loongarch64,
+                .mips,
+                .mipsel,
+                .mips64,
+                .mips64el,
+                .s390x,
+            },
             .exclude_os = &.{
+                .freebsd,
                 .openbsd, // integer overflow
                 .windows, // TODO intermittent failures
             },
@@ -837,6 +848,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         },
         .ReleaseSafe = .{
             .exclude_os = &.{
+                .freebsd,
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
                 .macos, // Broken in LLVM 20.

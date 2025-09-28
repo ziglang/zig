@@ -989,7 +989,7 @@ pub const Pool = struct {
             else
                 try writer.print("f{d}", .{@intFromEnum(data.string.index)});
         }
-        pub fn fmt(str: String, pool: *const Pool) std.fmt.Formatter(FormatData, format) {
+        pub fn fmt(str: String, pool: *const Pool) std.fmt.Alt(FormatData, format) {
             return .{ .data = .{ .string = str, .pool = pool } };
         }
 
@@ -3396,7 +3396,7 @@ pub const AlignAs = packed struct {
 
 const std = @import("std");
 const assert = std.debug.assert;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const CType = @This();
 const InternPool = @import("../../InternPool.zig");

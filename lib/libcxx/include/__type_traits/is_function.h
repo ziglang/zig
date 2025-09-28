@@ -19,7 +19,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_function : integral_constant<bool, __is_function(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_function : integral_constant<bool, __is_function(_Tp)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>

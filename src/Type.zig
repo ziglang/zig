@@ -121,13 +121,13 @@ pub fn eql(a: Type, b: Type, zcu: *const Zcu) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn format(ty: Type, writer: *std.io.Writer) !void {
+pub fn format(ty: Type, writer: *std.Io.Writer) !void {
     _ = ty;
     _ = writer;
     @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
 }
 
-pub const Formatter = std.fmt.Formatter(Format, Format.default);
+pub const Formatter = std.fmt.Alt(Format, Format.default);
 
 pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     return .{ .data = .{
@@ -140,24 +140,24 @@ const Format = struct {
     ty: Type,
     pt: Zcu.PerThread,
 
-    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return print(f.ty, writer, f.pt);
     }
 };
 
-pub fn fmtDebug(ty: Type) std.fmt.Formatter(Type, dump) {
+pub fn fmtDebug(ty: Type) std.fmt.Alt(Type, dump) {
     return .{ .data = ty };
 }
 
 /// This is a debug function. In order to print types in a meaningful way
 /// we also need access to the module.
-pub fn dump(start_type: Type, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn dump(start_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     return writer.print("{any}", .{start_type.ip_index});
 }
 
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, writer: *std.io.Writer, pt: Zcu.PerThread) std.io.Writer.Error!void {
+pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
@@ -3514,22 +3514,17 @@ pub fn arrayBase(ty: Type, zcu: *const Zcu) struct { Type, u64 } {
     return .{ cur_ty, cur_len };
 }
 
-pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx: u32, pt: Zcu.PerThread) union(enum) {
-    /// The result is a bit-pointer with the same value and a new packed offset.
-    bit_ptr: InternPool.Key.PtrType.PackedOffset,
-    /// The result is a standard pointer.
-    byte_ptr: struct {
-        /// The byte offset of the field pointer from the parent pointer value.
-        offset: u64,
-        /// The alignment of the field pointer type.
-        alignment: InternPool.Alignment,
-    },
-} {
+/// Returns a bit-pointer with the same value and a new packed offset.
+pub fn packedStructFieldPtrInfo(
+    struct_ty: Type,
+    parent_ptr_ty: Type,
+    field_idx: u32,
+    pt: Zcu.PerThread,
+) InternPool.Key.PtrType.PackedOffset {
     comptime assert(Type.packed_struct_layout_version == 2);
 
     const zcu = pt.zcu;
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    const field_ty = struct_ty.fieldType(field_idx, zcu);
 
     var bit_offset: u16 = 0;
     var running_bits: u16 = 0;
@@ -3552,28 +3547,10 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
         bit_offset,
     };
 
-    // If the field happens to be byte-aligned, simplify the pointer type.
-    // We can only do this if the pointee's bit size matches its ABI byte size,
-    // so that loads and stores do not interfere with surrounding packed bits.
-    //
-    // TODO: we do not attempt this with big-endian targets yet because of nested
-    // structs and floats. I need to double-check the desired behavior for big endian
-    // targets before adding the necessary complications to this code. This will not
-    // cause miscompilations; it only means the field pointer uses bit masking when it
-    // might not be strictly necessary.
-    if (res_bit_offset % 8 == 0 and field_ty.bitSize(zcu) == field_ty.abiSize(zcu) * 8 and zcu.getTarget().cpu.arch.endian() == .little) {
-        const byte_offset = res_bit_offset / 8;
-        const new_align = Alignment.fromLog2Units(@ctz(byte_offset | parent_ptr_ty.ptrAlignment(zcu).toByteUnits().?));
-        return .{ .byte_ptr = .{
-            .offset = byte_offset,
-            .alignment = new_align,
-        } };
-    }
-
-    return .{ .bit_ptr = .{
+    return .{
         .host_size = res_host_size,
         .bit_offset = res_bit_offset,
-    } };
+    };
 }
 
 pub fn resolveLayout(ty: Type, pt: Zcu.PerThread) SemaError!void {
@@ -3914,15 +3891,17 @@ pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu)
             explicit_align
         else
             field_ty.abiAlignment(zcu);
-        const field_size = field_ty.abiSize(zcu);
-        if (field_size > payload_size) {
-            payload_size = field_size;
-            biggest_field = @intCast(field_index);
-        }
-        if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
-            most_aligned_field = @intCast(field_index);
-            most_aligned_field_align = field_align;
-            most_aligned_field_size = field_size;
+        if (field_ty.hasRuntimeBits(zcu)) {
+            const field_size = field_ty.abiSize(zcu);
+            if (field_size > payload_size) {
+                payload_size = field_size;
+                biggest_field = @intCast(field_index);
+            }
+            if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
+                most_aligned_field = @intCast(field_index);
+                most_aligned_field_align = field_align;
+                most_aligned_field_size = field_size;
+            }
         }
         payload_align = payload_align.max(field_align);
     }

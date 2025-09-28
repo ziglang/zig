@@ -267,18 +267,18 @@
                   : "0"(__leaf), "2"(__count))
 #else
 /* x86-64 uses %rbx as the base register, so preserve it. */
-#define __cpuid(__leaf, __eax, __ebx, __ecx, __edx) \
-    __asm("  xchgq  %%rbx,%q1\n" \
-          "  cpuid\n" \
-          "  xchgq  %%rbx,%q1" \
-        : "=a"(__eax), "=r" (__ebx), "=c"(__ecx), "=d"(__edx) \
+#define __cpuid(__leaf, __eax, __ebx, __ecx, __edx)                            \
+  __asm("  xchg{q|}  {%%|}rbx,%q1\n"                                           \
+        "  cpuid\n"                                                            \
+        "  xchg{q|}  {%%|}rbx,%q1"                                             \
+        : "=a"(__eax), "=r"(__ebx), "=c"(__ecx), "=d"(__edx)                   \
         : "0"(__leaf))
 
-#define __cpuid_count(__leaf, __count, __eax, __ebx, __ecx, __edx) \
-    __asm("  xchgq  %%rbx,%q1\n" \
-          "  cpuid\n" \
-          "  xchgq  %%rbx,%q1" \
-        : "=a"(__eax), "=r" (__ebx), "=c"(__ecx), "=d"(__edx) \
+#define __cpuid_count(__leaf, __count, __eax, __ebx, __ecx, __edx)             \
+  __asm("  xchg{q|}  {%%|}rbx,%q1\n"                                           \
+        "  cpuid\n"                                                            \
+        "  xchg{q|}  {%%|}rbx,%q1"                                             \
+        : "=a"(__eax), "=r"(__ebx), "=c"(__ecx), "=d"(__edx)                   \
         : "0"(__leaf), "2"(__count))
 #endif
 
@@ -289,20 +289,22 @@ static __inline unsigned int __get_cpuid_max (unsigned int __leaf,
 #ifdef __i386__
     int __cpuid_supported;
 
-    __asm("  pushfl\n"
-          "  popl   %%eax\n"
-          "  movl   %%eax,%%ecx\n"
-          "  xorl   $0x00200000,%%eax\n"
-          "  pushl  %%eax\n"
-          "  popfl\n"
-          "  pushfl\n"
-          "  popl   %%eax\n"
-          "  movl   $0,%0\n"
-          "  cmpl   %%eax,%%ecx\n"
+    __asm("  pushf{l|d}\n"
+          "  pop{l|}   {%%|}eax\n"
+          "  mov{l|}   {%%eax,%%ecx|ecx,eax}\n"
+          "  xor{l|}   {$0x00200000,%%eax|eax,0x00200000}\n"
+          "  push{l|}  {%%|}eax\n"
+          "  popf{l|d}\n"
+          "  pushf{l|d}\n"
+          "  pop{l|}   {%%|}eax\n"
+          "  mov{l|}   {$0,%0|%0,0}\n"
+          "  cmp{l|}   {%%eax,%%ecx|ecx,eax}\n"
           "  je     1f\n"
-          "  movl   $1,%0\n"
+          "  mov{l|}   {$1,%0|%0,1}\n"
           "1:"
-        : "=r" (__cpuid_supported) : : "eax", "ecx");
+          : "=r"(__cpuid_supported)
+          :
+          : "eax", "ecx");
     if (!__cpuid_supported)
         return 0;
 #endif

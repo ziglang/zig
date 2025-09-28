@@ -15,8 +15,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:42: error: invalid operands to binary expression: 'error_set' and 'comptime_int'
 // :12:35: error: invalid operands to binary expression: 'error_set' and 'comptime_int'

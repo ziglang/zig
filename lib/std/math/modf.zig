@@ -87,6 +87,7 @@ fn ModfTests(comptime T: type) type {
         test "vector" {
             if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) return error.SkipZigTest;
             if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+            if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/159529
 
             const widths = [_]comptime_int{ 1, 2, 3, 4, 8, 16 };
 

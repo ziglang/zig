@@ -9,7 +9,7 @@
 #ifndef _LIBCPP___ALGORITHM_RANGES_MAX_H
 #define _LIBCPP___ALGORITHM_RANGES_MAX_H
 
-#include <__algorithm/ranges_min_element.h>
+#include <__algorithm/min_element.h>
 #include <__assert>
 #include <__concepts/copyable.h>
 #include <__config>
@@ -57,7 +57,7 @@ struct __max {
         __il.begin() != __il.end(), "initializer_list must contain at least one element");
 
     auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) -> bool { return std::invoke(__comp, __rhs, __lhs); };
-    return *ranges::__min_element_impl(__il.begin(), __il.end(), __comp_lhs_rhs_swapped, __proj);
+    return *std::__min_element(__il.begin(), __il.end(), __comp_lhs_rhs_swapped, __proj);
   }
 
   template <input_range _Rp,
@@ -75,7 +75,7 @@ struct __max {
       auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) -> bool {
         return std::invoke(__comp, __rhs, __lhs);
       };
-      return *ranges::__min_element_impl(std::move(__first), std::move(__last), __comp_lhs_rhs_swapped, __proj);
+      return *std::__min_element(std::move(__first), std::move(__last), __comp_lhs_rhs_swapped, __proj);
     } else {
       range_value_t<_Rp> __result = *__first;
       while (++__first != __last) {

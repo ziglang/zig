@@ -23,8 +23,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :9:16: error: no field named 'signed' in enum 'tmp.Tag'
 // :1:13: note: enum declared here

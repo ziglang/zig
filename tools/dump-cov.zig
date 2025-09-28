@@ -38,10 +38,9 @@ pub fn main() !void {
     defer debug_info.deinit(gpa);
 
     const cov_bytes = cov_path.root_dir.handle.readFileAllocOptions(
-        arena,
         cov_path.sub_path,
-        1 << 30,
-        null,
+        arena,
+        .limited(1 << 30),
         .of(SeenPcsHeader),
         null,
     ) catch |err| {

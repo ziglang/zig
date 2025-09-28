@@ -2,6 +2,9 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     _ = build_opts;
     const elf_step = b.step("test-elf", "Run ELF tests");
 
+    // https://github.com/ziglang/zig/issues/25323
+    if (builtin.os.tag == .freebsd) return elf_step;
+
     const default_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
         .os_tag = .linux,
@@ -73,6 +76,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+        elf_step.dependOn(testLinksection(b, .{ .target = musl_target }));
         elf_step.dependOn(testMergeStrings(b, .{ .target = musl_target }));
         elf_step.dependOn(testMergeStrings2(b, .{ .target = musl_target }));
         // https://github.com/ziglang/zig/issues/17451
@@ -165,6 +169,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     elf_step.dependOn(testLinkingObj(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testLinksection(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = x86_64_gnu }));
     elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = x86_64_musl }));
 
@@ -2439,6 +2444,43 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testLinksection(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linksection", opts);
+
+    const obj = addObject(b, opts, .{ .name = "main", .zig_source_bytes = 
+        \\export var test_global: u32 linksection(".TestGlobal") = undefined;
+        \\export fn testFn() linksection(".TestFn") callconv(.c) void {
+        \\    TestGenericFn("A").f();
+        \\}
+        \\fn TestGenericFn(comptime suffix: []const u8) type {
+        \\    return struct {
+        \\        fn f() linksection(".TestGenFn" ++ suffix) void {}
+        \\    };
+        \\}
+    });
+
+    const check = obj.checkObject();
+    check.checkInSymtab();
+    check.checkContains("SECTION LOCAL DEFAULT .TestGlobal");
+    check.checkInSymtab();
+    check.checkContains("SECTION LOCAL DEFAULT .TestFn");
+    check.checkInSymtab();
+    check.checkContains("SECTION LOCAL DEFAULT .TestGenFnA");
+    check.checkInSymtab();
+    check.checkContains("OBJECT GLOBAL DEFAULT test_global");
+    check.checkInSymtab();
+    check.checkContains("FUNC GLOBAL DEFAULT testFn");
+
+    if (opts.optimize == .Debug) {
+        check.checkInSymtab();
+        check.checkContains("FUNC LOCAL DEFAULT main.TestGenericFn(");
+    }
+
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 // Adapted from https://github.com/rui314/mold/blob/main/test/elf/mergeable-strings.sh
 fn testMergeStrings(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-strings", opts);
@@ -4246,6 +4288,7 @@ const addStaticLibrary = link.addStaticLibrary;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const Build = std.Build;
 const BuildOptions = link.BuildOptions;

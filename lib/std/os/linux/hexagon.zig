@@ -135,7 +135,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
         \\ trap0(#0)
         :
         : [number] "{r6}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .memory = true });
+    );
 }
 
 pub const F = struct {

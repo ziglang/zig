@@ -20,13 +20,23 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS) && __has_builtin(__add_pointer)
+#if !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS)
 
 template <class _Tp>
+struct _LIBCPP_NO_SPECIALIZATIONS add_pointer {
+  using type _LIBCPP_NODEBUG = __add_pointer(_Tp);
+};
+
+#  ifdef _LIBCPP_COMPILER_GCC
+template <class _Tp>
+using __add_pointer_t _LIBCPP_NODEBUG = typename add_pointer<_Tp>::type;
+#  else
+template <class _Tp>
 using __add_pointer_t _LIBCPP_NODEBUG = __add_pointer(_Tp);
+#  endif
 
 #else
-template <class _Tp, bool = __libcpp_is_referenceable<_Tp>::value || is_void<_Tp>::value>
+template <class _Tp, bool = __is_referenceable_v<_Tp> || is_void<_Tp>::value>
 struct __add_pointer_impl {
   using type _LIBCPP_NODEBUG = __libcpp_remove_reference_t<_Tp>*;
 };
@@ -38,12 +48,12 @@ struct __add_pointer_impl<_Tp, false> {
 template <class _Tp>
 using __add_pointer_t = typename __add_pointer_impl<_Tp>::type;
 
-#endif // !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS) && __has_builtin(__add_pointer)
-
 template <class _Tp>
 struct _LIBCPP_NO_SPECIALIZATIONS add_pointer {
   using type _LIBCPP_NODEBUG = __add_pointer_t<_Tp>;
 };
+
+#endif // !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS)
 
 #if _LIBCPP_STD_VER >= 14
 template <class _Tp>

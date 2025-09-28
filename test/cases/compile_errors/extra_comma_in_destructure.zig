@@ -4,7 +4,5 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:23: error: expected expression or var decl, found '='

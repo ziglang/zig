@@ -109,7 +109,7 @@ pub fn getExternalExecutor(
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
             .sparc => Executor{
-                .qemu = if (candidate.cpu.has(.sparc, .v9))
+                .qemu = if (candidate.cpu.has(.sparc, .v8plus))
                     "qemu-sparc32plus"
                 else
                     "qemu-sparc",
@@ -228,7 +228,6 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 var len: usize = @sizeOf(@TypeOf(value));
 
                 posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
                     error.UnknownName => unreachable, // constant, known good value
@@ -469,9 +468,8 @@ fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: T
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .x86_64, .x86 => {
-            return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query);
-        },
+        .loongarch32, .loongarch64 => return @import("system/loongarch.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .x86_64, .x86 => return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
         else => {},
     }
 
@@ -518,15 +516,15 @@ pub fn abiAndDynamicLinkerFromFile(
     const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
     const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI.DATA]) {
         elf.ELFDATA2LSB => .little,
         elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+    if (hdr32.e_ident[elf.EI.VERSION] != 1) return error.InvalidElfVersion;
 
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
+    const is_64 = switch (hdr32.e_ident[elf.EI.CLASS]) {
         elf.ELFCLASS32 => false,
         elf.ELFCLASS64 => true,
         else => return error.InvalidElfClass,
@@ -922,15 +920,15 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
     const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI.DATA]) {
         elf.ELFDATA2LSB => .little,
         elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+    if (hdr32.e_ident[elf.EI.VERSION] != 1) return error.InvalidElfVersion;
 
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
+    const is_64 = switch (hdr32.e_ident[elf.EI.CLASS]) {
         elf.ELFCLASS32 => false,
         elf.ELFCLASS64 => true,
         else => return error.InvalidElfClass,

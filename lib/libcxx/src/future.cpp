@@ -62,7 +62,7 @@ void __assoc_sub_state::__on_zero_shared() noexcept { delete this; }
 void __assoc_sub_state::set_value() {
   unique_lock<mutex> __lk(__mut_);
   if (__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
   __state_ |= __constructed | ready;
   __cv_.notify_all();
 }
@@ -70,7 +70,7 @@ void __assoc_sub_state::set_value() {
 void __assoc_sub_state::set_value_at_thread_exit() {
   unique_lock<mutex> __lk(__mut_);
   if (__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
   __state_ |= __constructed;
   __thread_local_data()->__make_ready_at_thread_exit(this);
 }
@@ -78,7 +78,7 @@ void __assoc_sub_state::set_value_at_thread_exit() {
 void __assoc_sub_state::set_exception(exception_ptr __p) {
   unique_lock<mutex> __lk(__mut_);
   if (__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
   __exception_ = __p;
   __state_ |= ready;
   __cv_.notify_all();
@@ -87,7 +87,7 @@ void __assoc_sub_state::set_exception(exception_ptr __p) {
 void __assoc_sub_state::set_exception_at_thread_exit(exception_ptr __p) {
   unique_lock<mutex> __lk(__mut_);
   if (__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
   __exception_ = __p;
   __thread_local_data()->__make_ready_at_thread_exit(this);
 }
@@ -122,7 +122,7 @@ void __assoc_sub_state::__sub_wait(unique_lock<mutex>& __lk) {
   }
 }
 
-void __assoc_sub_state::__execute() { __throw_future_error(future_errc::no_state); }
+void __assoc_sub_state::__execute() { std::__throw_future_error(future_errc::no_state); }
 
 future<void>::future(__assoc_sub_state* __state) : __state_(__state) { __state_->__attach_future(); }
 
@@ -152,31 +152,31 @@ promise<void>::~promise() {
 
 future<void> promise<void>::get_future() {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   return future<void>(__state_);
 }
 
 void promise<void>::set_value() {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value();
 }
 
 void promise<void>::set_exception(exception_ptr __p) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_exception(__p);
 }
 
 void promise<void>::set_value_at_thread_exit() {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value_at_thread_exit();
 }
 
 void promise<void>::set_exception_at_thread_exit(exception_ptr __p) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_exception_at_thread_exit(__p);
 }
 

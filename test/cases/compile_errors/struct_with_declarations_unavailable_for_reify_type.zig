@@ -5,7 +5,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: reified structs must have no decls

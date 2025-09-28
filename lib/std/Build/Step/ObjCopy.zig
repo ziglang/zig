@@ -9,7 +9,6 @@ const InstallDir = std.Build.InstallDir;
 const Step = std.Build.Step;
 const elf = std.elf;
 const fs = std.fs;
-const io = std.io;
 const sort = std.sort;
 
 pub const base_id: Step.Id = .objcopy;

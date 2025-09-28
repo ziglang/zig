@@ -286,7 +286,7 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
     }
 }
 
-pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{
         .symbol = symbol,
         .macho_file = macho_file,
@@ -417,7 +417,7 @@ pub const Index = u32;
 const assert = std.debug.assert;
 const macho = std.macho;
 const std = @import("std");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Atom = @import("Atom.zig");
 const File = @import("file.zig").File;

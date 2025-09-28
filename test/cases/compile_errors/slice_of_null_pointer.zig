@@ -6,6 +6,5 @@ comptime {
 }
 
 // error
-// target=native
 //
 // :5:10: error: slice of null pointer

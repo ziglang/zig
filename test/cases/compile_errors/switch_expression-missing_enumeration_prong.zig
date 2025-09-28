@@ -17,8 +17,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:5: error: switch must handle all possibilities
 // :5:5: note: unhandled enumeration value: 'Four'

@@ -66,6 +66,9 @@ _LIBCPP_EXPORTED_FROM_ABI bool __remove(const path&, error_code* __ec = nullptr)
 _LIBCPP_EXPORTED_FROM_ABI void __rename(const path& __from, const path& __to, error_code* __ec = nullptr);
 _LIBCPP_EXPORTED_FROM_ABI void __resize_file(const path&, uintmax_t __size, error_code* = nullptr);
 _LIBCPP_EXPORTED_FROM_ABI path __temp_directory_path(error_code* __ec = nullptr);
+_LIBCPP_EXPORTED_FROM_ABI bool __fs_is_empty(const path& __p, error_code* __ec = nullptr);
+_LIBCPP_EXPORTED_FROM_ABI void __permissions(const path&, perms, perm_options, error_code* = nullptr);
+_LIBCPP_EXPORTED_FROM_ABI space_info __space(const path&, error_code* __ec = nullptr);
 
 inline _LIBCPP_HIDE_FROM_ABI path absolute(const path& __p) { return __absolute(__p); }
 inline _LIBCPP_HIDE_FROM_ABI path absolute(const path& __p, error_code& __ec) { return __absolute(__p, &__ec); }
@@ -182,7 +185,6 @@ inline _LIBCPP_HIDE_FROM_ABI bool is_directory(const path& __p) { return is_dire
 inline _LIBCPP_HIDE_FROM_ABI bool is_directory(const path& __p, error_code& __ec) noexcept {
   return is_directory(__status(__p, &__ec));
 }
-_LIBCPP_EXPORTED_FROM_ABI bool __fs_is_empty(const path& __p, error_code* __ec = nullptr);
 inline _LIBCPP_HIDE_FROM_ABI bool is_empty(const path& __p) { return __fs_is_empty(__p); }
 inline _LIBCPP_HIDE_FROM_ABI bool is_empty(const path& __p, error_code& __ec) { return __fs_is_empty(__p, &__ec); }
 inline _LIBCPP_HIDE_FROM_ABI bool is_fifo(file_status __s) noexcept { return __s.type() == file_type::fifo; }
@@ -220,7 +222,6 @@ inline _LIBCPP_HIDE_FROM_ABI void last_write_time(const path& __p, file_time_typ
 inline _LIBCPP_HIDE_FROM_ABI void last_write_time(const path& __p, file_time_type __t, error_code& __ec) noexcept {
   __last_write_time(__p, __t, &__ec);
 }
-_LIBCPP_EXPORTED_FROM_ABI void __permissions(const path&, perms, perm_options, error_code* = nullptr);
 inline _LIBCPP_HIDE_FROM_ABI void
 permissions(const path& __p, perms __prms, perm_options __opts = perm_options::replace) {
   __permissions(__p, __prms, __opts);
@@ -281,7 +282,6 @@ inline _LIBCPP_HIDE_FROM_ABI void resize_file(const path& __p, uintmax_t __ns) {
 inline _LIBCPP_HIDE_FROM_ABI void resize_file(const path& __p, uintmax_t __ns, error_code& __ec) noexcept {
   return __resize_file(__p, __ns, &__ec);
 }
-_LIBCPP_EXPORTED_FROM_ABI space_info __space(const path&, error_code* __ec = nullptr);
 inline _LIBCPP_HIDE_FROM_ABI space_info space(const path& __p) { return __space(__p); }
 inline _LIBCPP_HIDE_FROM_ABI space_info space(const path& __p, error_code& __ec) noexcept {
   return __space(__p, &__ec);

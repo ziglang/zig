@@ -2,10 +2,11 @@ const std = @import("../std.zig");
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 const pdb = std.pdb;
+const assert = std.debug.assert;
 
 const Pdb = @This();
 
-in_file: File,
+file_reader: *File.Reader,
 msf: Msf,
 allocator: Allocator,
 string_table: ?*MsfStream,
@@ -35,39 +36,38 @@ pub const Module = struct {
     }
 };
 
-pub fn init(allocator: Allocator, path: []const u8) !Pdb {
-    const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
-
+pub fn init(gpa: Allocator, file_reader: *File.Reader) !Pdb {
     return .{
-        .in_file = file,
-        .allocator = allocator,
+        .file_reader = file_reader,
+        .allocator = gpa,
         .string_table = null,
         .dbi = null,
-        .msf = try Msf.init(allocator, file),
-        .modules = &[_]Module{},
-        .sect_contribs = &[_]pdb.SectionContribEntry{},
+        .msf = try Msf.init(gpa, file_reader),
+        .modules = &.{},
+        .sect_contribs = &.{},
         .guid = undefined,
         .age = undefined,
     };
 }
 
 pub fn deinit(self: *Pdb) void {
-    self.in_file.close();
-    self.msf.deinit(self.allocator);
+    const gpa = self.allocator;
+    self.msf.deinit(gpa);
     for (self.modules) |*module| {
-        module.deinit(self.allocator);
+        module.deinit(gpa);
     }
-    self.allocator.free(self.modules);
-    self.allocator.free(self.sect_contribs);
+    gpa.free(self.modules);
+    gpa.free(self.sect_contribs);
 }
 
 pub fn parseDbiStream(self: *Pdb) !void {
     var stream = self.getStream(pdb.StreamType.dbi) orelse
         return error.InvalidDebugInfo;
-    const reader = stream.reader();
 
-    const header = try reader.readStruct(std.pdb.DbiStreamHeader);
+    const gpa = self.allocator;
+    const reader = &stream.interface;
+
+    const header = try reader.takeStruct(std.pdb.DbiStreamHeader, .little);
     if (header.version_header != 19990903) // V70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     // if (header.Age != age)
@@ -76,22 +76,28 @@ pub fn parseDbiStream(self: *Pdb) !void {
     const mod_info_size = header.mod_info_size;
     const section_contrib_size = header.section_contribution_size;
 
-    var modules = std.array_list.Managed(Module).init(self.allocator);
+    var modules = std.array_list.Managed(Module).init(gpa);
     errdefer modules.deinit();
 
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        const mod_info = try reader.readStruct(pdb.ModInfo);
+        const mod_info = try reader.takeStruct(pdb.ModInfo, .little);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
-        const module_name = try reader.readUntilDelimiterAlloc(self.allocator, 0, 1024);
-        errdefer self.allocator.free(module_name);
-        this_record_len += module_name.len + 1;
+        var module_name: std.Io.Writer.Allocating = .init(gpa);
+        defer module_name.deinit();
+        this_record_len += try reader.streamDelimiterLimit(&module_name.writer, 0, .limited(1024));
+        assert(reader.buffered()[0] == 0); // TODO change streamDelimiterLimit API
+        reader.toss(1);
+        this_record_len += 1;
 
-        const obj_file_name = try reader.readUntilDelimiterAlloc(self.allocator, 0, 1024);
-        errdefer self.allocator.free(obj_file_name);
-        this_record_len += obj_file_name.len + 1;
+        var obj_file_name: std.Io.Writer.Allocating = .init(gpa);
+        defer obj_file_name.deinit();
+        this_record_len += try reader.streamDelimiterLimit(&obj_file_name.writer, 0, .limited(1024));
+        assert(reader.buffered()[0] == 0); // TODO change streamDelimiterLimit API
+        reader.toss(1);
+        this_record_len += 1;
 
         if (this_record_len % 4 != 0) {
             const round_to_next_4 = (this_record_len | 0x3) + 1;
@@ -100,10 +106,10 @@ pub fn parseDbiStream(self: *Pdb) !void {
             this_record_len += march_forward_bytes;
         }
 
-        try modules.append(Module{
+        try modules.append(.{
             .mod_info = mod_info,
-            .module_name = module_name,
-            .obj_file_name = obj_file_name,
+            .module_name = try module_name.toOwnedSlice(),
+            .obj_file_name = try obj_file_name.toOwnedSlice(),
 
             .populated = false,
             .symbols = undefined,
@@ -117,21 +123,21 @@ pub fn parseDbiStream(self: *Pdb) !void {
     }
 
     // Section Contribution Substream
-    var sect_contribs = std.array_list.Managed(pdb.SectionContribEntry).init(self.allocator);
+    var sect_contribs = std.array_list.Managed(pdb.SectionContribEntry).init(gpa);
     errdefer sect_contribs.deinit();
 
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
-        const version = reader.readEnum(std.pdb.SectionContrSubstreamVersion, .little) catch |err| switch (err) {
-            error.InvalidValue => return error.InvalidDebugInfo,
-            else => |e| return e,
+        const version = reader.takeEnum(std.pdb.SectionContrSubstreamVersion, .little) catch |err| switch (err) {
+            error.InvalidEnumTag, error.EndOfStream => return error.InvalidDebugInfo,
+            error.ReadFailed => return error.ReadFailed,
         };
         _ = version;
         sect_cont_offset += @sizeOf(u32);
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        entry.* = try reader.readStruct(pdb.SectionContribEntry);
+        entry.* = try reader.takeStruct(pdb.SectionContribEntry, .little);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)
@@ -143,29 +149,28 @@ pub fn parseDbiStream(self: *Pdb) !void {
 }
 
 pub fn parseInfoStream(self: *Pdb) !void {
-    var stream = self.getStream(pdb.StreamType.pdb) orelse
-        return error.InvalidDebugInfo;
-    const reader = stream.reader();
+    var stream = self.getStream(pdb.StreamType.pdb) orelse return error.InvalidDebugInfo;
+    const reader = &stream.interface;
 
     // Parse the InfoStreamHeader.
-    const version = try reader.readInt(u32, .little);
-    const signature = try reader.readInt(u32, .little);
+    const version = try reader.takeInt(u32, .little);
+    const signature = try reader.takeInt(u32, .little);
     _ = signature;
-    const age = try reader.readInt(u32, .little);
-    const guid = try reader.readBytesNoEof(16);
+    const age = try reader.takeInt(u32, .little);
+    const guid = try reader.takeArray(16);
 
     if (version != 20000404) // VC70, only value observed by LLVM team
         return error.UnknownPDBVersion;
 
-    self.guid = guid;
+    self.guid = guid.*;
     self.age = age;
+
+    const gpa = self.allocator;
 
     // Find the string table.
     const string_table_index = str_tab_index: {
-        const name_bytes_len = try reader.readInt(u32, .little);
-        const name_bytes = try self.allocator.alloc(u8, name_bytes_len);
-        defer self.allocator.free(name_bytes);
-        try reader.readNoEof(name_bytes);
+        const name_bytes_len = try reader.takeInt(u32, .little);
+        const name_bytes = try reader.readAlloc(gpa, name_bytes_len);
 
         const HashTableHeader = extern struct {
             size: u32,
@@ -175,23 +180,23 @@ pub fn parseInfoStream(self: *Pdb) !void {
                 return cap * 2 / 3 + 1;
             }
         };
-        const hash_tbl_hdr = try reader.readStruct(HashTableHeader);
+        const hash_tbl_hdr = try reader.takeStruct(HashTableHeader, .little);
         if (hash_tbl_hdr.capacity == 0)
             return error.InvalidDebugInfo;
 
         if (hash_tbl_hdr.size > HashTableHeader.maxLoad(hash_tbl_hdr.capacity))
             return error.InvalidDebugInfo;
 
-        const present = try readSparseBitVector(&reader, self.allocator);
-        defer self.allocator.free(present);
+        const present = try readSparseBitVector(reader, gpa);
+        defer gpa.free(present);
         if (present.len != hash_tbl_hdr.size)
             return error.InvalidDebugInfo;
-        const deleted = try readSparseBitVector(&reader, self.allocator);
-        defer self.allocator.free(deleted);
+        const deleted = try readSparseBitVector(reader, gpa);
+        defer gpa.free(deleted);
 
         for (present) |_| {
-            const name_offset = try reader.readInt(u32, .little);
-            const name_index = try reader.readInt(u32, .little);
+            const name_offset = try reader.takeInt(u32, .little);
+            const name_index = try reader.takeInt(u32, .little);
             if (name_offset > name_bytes.len)
                 return error.InvalidDebugInfo;
             const name = std.mem.sliceTo(name_bytes[name_offset..], 0);
@@ -233,6 +238,7 @@ pub fn getSymbolName(self: *Pdb, module: *Module, address: u64) ?[]const u8 {
 pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.SourceLocation {
     std.debug.assert(module.populated);
     const subsect_info = module.subsect_info;
+    const gpa = self.allocator;
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
@@ -287,7 +293,16 @@ pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.S
                             const chksum_hdr: *align(1) pdb.FileChecksumEntryHeader = @ptrCast(&module.subsect_info[subsect_index]);
                             const strtab_offset = @sizeOf(pdb.StringTableHeader) + chksum_hdr.file_name_offset;
                             try self.string_table.?.seekTo(strtab_offset);
-                            const source_file_name = try self.string_table.?.reader().readUntilDelimiterAlloc(self.allocator, 0, 1024);
+                            const source_file_name = s: {
+                                const string_reader = &self.string_table.?.interface;
+                                var source_file_name: std.Io.Writer.Allocating = .init(gpa);
+                                defer source_file_name.deinit();
+                                _ = try string_reader.streamDelimiterLimit(&source_file_name.writer, 0, .limited(1024));
+                                assert(string_reader.buffered()[0] == 0); // TODO change streamDelimiterLimit API
+                                string_reader.toss(1);
+                                break :s try source_file_name.toOwnedSlice();
+                            };
+                            errdefer gpa.free(source_file_name);
 
                             const line_entry_idx = line_i - 1;
 
@@ -341,19 +356,16 @@ pub fn getModule(self: *Pdb, index: usize) !?*Module {
 
     const stream = self.getStreamById(mod.mod_info.module_sym_stream) orelse
         return error.MissingDebugInfo;
-    const reader = stream.reader();
+    const reader = &stream.interface;
 
-    const signature = try reader.readInt(u32, .little);
+    const signature = try reader.takeInt(u32, .little);
     if (signature != 4)
         return error.InvalidDebugInfo;
 
-    mod.symbols = try self.allocator.alloc(u8, mod.mod_info.sym_byte_size - 4);
-    errdefer self.allocator.free(mod.symbols);
-    try reader.readNoEof(mod.symbols);
+    const gpa = self.allocator;
 
-    mod.subsect_info = try self.allocator.alloc(u8, mod.mod_info.c13_byte_size);
-    errdefer self.allocator.free(mod.subsect_info);
-    try reader.readNoEof(mod.subsect_info);
+    mod.symbols = try reader.readAlloc(gpa, mod.mod_info.sym_byte_size - 4);
+    mod.subsect_info = try reader.readAlloc(gpa, mod.mod_info.c13_byte_size);
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
@@ -379,8 +391,7 @@ pub fn getModule(self: *Pdb, index: usize) !?*Module {
 }
 
 pub fn getStreamById(self: *Pdb, id: u32) ?*MsfStream {
-    if (id >= self.msf.streams.len)
-        return null;
+    if (id >= self.msf.streams.len) return null;
     return &self.msf.streams[id];
 }
 
@@ -394,17 +405,14 @@ const Msf = struct {
     directory: MsfStream,
     streams: []MsfStream,
 
-    fn init(allocator: Allocator, file: File) !Msf {
-        const in = file.deprecatedReader();
+    fn init(gpa: Allocator, file_reader: *File.Reader) !Msf {
+        const superblock = try file_reader.interface.takeStruct(pdb.SuperBlock, .little);
 
-        const superblock = try in.readStruct(pdb.SuperBlock);
-
-        // Sanity checks
         if (!std.mem.eql(u8, &superblock.file_magic, pdb.SuperBlock.expect_magic))
             return error.InvalidDebugInfo;
         if (superblock.free_block_map_block != 1 and superblock.free_block_map_block != 2)
             return error.InvalidDebugInfo;
-        const file_len = try file.getEndPos();
+        const file_len = try file_reader.getSize();
         if (superblock.num_blocks * superblock.block_size != file_len)
             return error.InvalidDebugInfo;
         switch (superblock.block_size) {
@@ -417,163 +425,182 @@ const Msf = struct {
         if (dir_block_count > superblock.block_size / @sizeOf(u32))
             return error.UnhandledBigDirectoryStream; // cf. BlockMapAddr comment.
 
-        try file.seekTo(superblock.block_size * superblock.block_map_addr);
-        const dir_blocks = try allocator.alloc(u32, dir_block_count);
+        try file_reader.seekTo(superblock.block_size * superblock.block_map_addr);
+        const dir_blocks = try gpa.alloc(u32, dir_block_count);
         for (dir_blocks) |*b| {
-            b.* = try in.readInt(u32, .little);
+            b.* = try file_reader.interface.takeInt(u32, .little);
         }
-        var directory = MsfStream.init(
-            superblock.block_size,
-            file,
-            dir_blocks,
-        );
+        var directory_buffer: [64]u8 = undefined;
+        var directory = MsfStream.init(superblock.block_size, file_reader, dir_blocks, &directory_buffer);
 
-        const begin = directory.pos;
-        const stream_count = try directory.reader().readInt(u32, .little);
-        const stream_sizes = try allocator.alloc(u32, stream_count);
-        defer allocator.free(stream_sizes);
+        const begin = directory.logicalPos();
+        const stream_count = try directory.interface.takeInt(u32, .little);
+        const stream_sizes = try gpa.alloc(u32, stream_count);
+        defer gpa.free(stream_sizes);
 
         // Microsoft's implementation uses @as(u32, -1) for inexistent streams.
         // These streams are not used, but still participate in the file
         // and must be taken into account when resolving stream indices.
-        const Nil = 0xFFFFFFFF;
+        const nil_size = 0xFFFFFFFF;
         for (stream_sizes) |*s| {
-            const size = try directory.reader().readInt(u32, .little);
-            s.* = if (size == Nil) 0 else blockCountFromSize(size, superblock.block_size);
+            const size = try directory.interface.takeInt(u32, .little);
+            s.* = if (size == nil_size) 0 else blockCountFromSize(size, superblock.block_size);
         }
 
-        const streams = try allocator.alloc(MsfStream, stream_count);
+        const streams = try gpa.alloc(MsfStream, stream_count);
+        errdefer gpa.free(streams);
+
         for (streams, 0..) |*stream, i| {
             const size = stream_sizes[i];
             if (size == 0) {
-                stream.* = MsfStream{
-                    .blocks = &[_]u32{},
-                };
+                stream.* = .empty;
             } else {
-                var blocks = try allocator.alloc(u32, size);
-                var j: u32 = 0;
-                while (j < size) : (j += 1) {
-                    const block_id = try directory.reader().readInt(u32, .little);
+                const blocks = try gpa.alloc(u32, size);
+                errdefer gpa.free(blocks);
+                for (blocks) |*block| {
+                    const block_id = try directory.interface.takeInt(u32, .little);
                     const n = (block_id % superblock.block_size);
                     // 0 is for pdb.SuperBlock, 1 and 2 for FPMs.
                     if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.block_size > file_len)
                         return error.InvalidBlockIndex;
-                    blocks[j] = block_id;
+                    block.* = block_id;
                 }
-
-                stream.* = MsfStream.init(
-                    superblock.block_size,
-                    file,
-                    blocks,
-                );
+                const buffer = try gpa.alloc(u8, 64);
+                errdefer gpa.free(buffer);
+                stream.* = .init(superblock.block_size, file_reader, blocks, buffer);
             }
         }
 
-        const end = directory.pos;
+        const end = directory.logicalPos();
         if (end - begin != superblock.num_directory_bytes)
             return error.InvalidStreamDirectory;
 
-        return Msf{
+        return .{
             .directory = directory,
             .streams = streams,
         };
     }
 
-    fn deinit(self: *Msf, allocator: Allocator) void {
-        allocator.free(self.directory.blocks);
+    fn deinit(self: *Msf, gpa: Allocator) void {
+        gpa.free(self.directory.blocks);
         for (self.streams) |*stream| {
-            allocator.free(stream.blocks);
+            gpa.free(stream.interface.buffer);
+            gpa.free(stream.blocks);
         }
-        allocator.free(self.streams);
+        gpa.free(self.streams);
     }
 };
 
 const MsfStream = struct {
-    in_file: File = undefined,
-    pos: u64 = undefined,
-    blocks: []u32 = undefined,
-    block_size: u32 = undefined,
+    file_reader: *File.Reader,
+    next_read_pos: u64,
+    blocks: []u32,
+    block_size: u32,
+    interface: std.Io.Reader,
+    err: ?Error,
 
-    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).@"fn".return_type.?).error_union.error_set;
+    const Error = File.Reader.SeekError;
 
-    fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
-        const stream = MsfStream{
-            .in_file = file,
-            .pos = 0,
+    const empty: MsfStream = .{
+        .file_reader = undefined,
+        .next_read_pos = 0,
+        .blocks = &.{},
+        .block_size = undefined,
+        .interface = .ending_instance,
+        .err = null,
+    };
+
+    fn init(block_size: u32, file_reader: *File.Reader, blocks: []u32, buffer: []u8) MsfStream {
+        return .{
+            .file_reader = file_reader,
+            .next_read_pos = 0,
             .blocks = blocks,
             .block_size = block_size,
+            .interface = .{
+                .vtable = &.{ .stream = stream },
+                .buffer = buffer,
+                .seek = 0,
+                .end = 0,
+            },
+            .err = null,
         };
-
-        return stream;
     }
 
-    fn read(self: *MsfStream, buffer: []u8) !usize {
-        var block_id = @as(usize, @intCast(self.pos / self.block_size));
-        if (block_id >= self.blocks.len) return 0; // End of Stream
-        var block = self.blocks[block_id];
-        var offset = self.pos % self.block_size;
+    fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        const ms: *MsfStream = @alignCast(@fieldParentPtr("interface", r));
 
-        try self.in_file.seekTo(block * self.block_size + offset);
-        const in = self.in_file.deprecatedReader();
+        var block_id: usize = @intCast(ms.next_read_pos / ms.block_size);
+        if (block_id >= ms.blocks.len) return error.EndOfStream;
+        var block = ms.blocks[block_id];
+        var offset = ms.next_read_pos % ms.block_size;
 
-        var size: usize = 0;
-        var rem_buffer = buffer;
-        while (size < buffer.len) {
-            const size_to_read = @min(self.block_size - offset, rem_buffer.len);
-            size += try in.read(rem_buffer[0..size_to_read]);
-            rem_buffer = buffer[size..];
-            offset += size_to_read;
+        ms.file_reader.seekTo(block * ms.block_size + offset) catch |err| {
+            ms.err = err;
+            return error.ReadFailed;
+        };
+
+        var remaining = @intFromEnum(limit);
+        while (remaining != 0) {
+            const stream_len: usize = @min(remaining, ms.block_size - offset);
+            const n = try ms.file_reader.interface.stream(w, .limited(stream_len));
+            remaining -= n;
+            offset += n;
 
             // If we're at the end of a block, go to the next one.
-            if (offset == self.block_size) {
+            if (offset == ms.block_size) {
                 offset = 0;
                 block_id += 1;
-                if (block_id >= self.blocks.len) break; // End of Stream
-                block = self.blocks[block_id];
-                try self.in_file.seekTo(block * self.block_size);
+                if (block_id >= ms.blocks.len) break; // End of Stream
+                block = ms.blocks[block_id];
+                ms.file_reader.seekTo(block * ms.block_size) catch |err| {
+                    ms.err = err;
+                    return error.ReadFailed;
+                };
             }
         }
 
-        self.pos += buffer.len;
-        return buffer.len;
+        const total = @intFromEnum(limit) - remaining;
+        ms.next_read_pos += total;
+        return total;
     }
 
-    pub fn seekBy(self: *MsfStream, len: i64) !void {
-        self.pos = @as(u64, @intCast(@as(i64, @intCast(self.pos)) + len));
-        if (self.pos >= self.blocks.len * self.block_size)
-            return error.EOF;
+    pub fn logicalPos(ms: *const MsfStream) u64 {
+        return ms.next_read_pos - ms.interface.bufferedLen();
     }
 
-    pub fn seekTo(self: *MsfStream, len: u64) !void {
-        self.pos = len;
-        if (self.pos >= self.blocks.len * self.block_size)
-            return error.EOF;
+    pub fn seekBy(ms: *MsfStream, len: i64) !void {
+        ms.next_read_pos = @as(u64, @intCast(@as(i64, @intCast(ms.logicalPos())) + len));
+        if (ms.next_read_pos >= ms.blocks.len * ms.block_size) return error.EOF;
+        ms.interface.tossBuffered();
     }
 
-    fn getSize(self: *const MsfStream) u64 {
-        return self.blocks.len * self.block_size;
+    pub fn seekTo(ms: *MsfStream, len: u64) !void {
+        ms.next_read_pos = len;
+        if (ms.next_read_pos >= ms.blocks.len * ms.block_size) return error.EOF;
+        ms.interface.tossBuffered();
     }
 
-    fn getFilePos(self: MsfStream) u64 {
-        const block_id = self.pos / self.block_size;
-        const block = self.blocks[block_id];
-        const offset = self.pos % self.block_size;
-
-        return block * self.block_size + offset;
+    fn getSize(ms: *const MsfStream) u64 {
+        return ms.blocks.len * ms.block_size;
     }
 
-    pub fn reader(self: *MsfStream) std.io.GenericReader(*MsfStream, Error, read) {
-        return .{ .context = self };
+    fn getFilePos(ms: *const MsfStream) u64 {
+        const pos = ms.logicalPos();
+        const block_id = pos / ms.block_size;
+        const block = ms.blocks[block_id];
+        const offset = pos % ms.block_size;
+
+        return block * ms.block_size + offset;
     }
 };
 
-fn readSparseBitVector(stream: anytype, allocator: Allocator) ![]u32 {
-    const num_words = try stream.readInt(u32, .little);
+fn readSparseBitVector(reader: *std.Io.Reader, allocator: Allocator) ![]u32 {
+    const num_words = try reader.takeInt(u32, .little);
     var list = std.array_list.Managed(u32).init(allocator);
     errdefer list.deinit();
     var word_i: u32 = 0;
     while (word_i != num_words) : (word_i += 1) {
-        const word = try stream.readInt(u32, .little);
+        const word = try reader.takeInt(u32, .little);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
             if (word & (@as(u32, 1) << bit_i) != 0) {

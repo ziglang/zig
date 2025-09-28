@@ -25,8 +25,6 @@ export fn d(rhs: @Vector(3, i32)) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:25: error: shift by negative amount '-1'
 // :7:12: error: shift by negative amount '-2'

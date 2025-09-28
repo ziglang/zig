@@ -47,7 +47,7 @@ pub const Fde = struct {
         return object.relocs.items[fde.rel_index..][0..fde.rel_num];
     }
 
-    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .fde = fde,
             .elf_file = elf_file,
@@ -58,7 +58,7 @@ pub const Fde = struct {
         fde: Fde,
         elf_file: *Elf,
 
-        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const fde = f.fde;
             const elf_file = f.elf_file;
             const base_addr = fde.address(elf_file);
@@ -130,7 +130,7 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .cie = cie,
             .elf_file = elf_file,
@@ -141,7 +141,7 @@ pub const Cie = struct {
         cie: Cie,
         elf_file: *Elf,
 
-        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const cie = f.cie;
             const elf_file = f.elf_file;
             const base_addr = cie.address(elf_file);
@@ -167,15 +167,14 @@ pub const Iterator = struct {
     pub fn next(it: *Iterator) !?Record {
         if (it.pos >= it.data.len) return null;
 
-        var stream = std.io.fixedBufferStream(it.data[it.pos..]);
-        const reader = stream.reader();
+        var reader: std.Io.Reader = .fixed(it.data[it.pos..]);
 
-        const size = try reader.readInt(u32, .little);
+        const size = try reader.takeInt(u32, .little);
         if (size == 0) return null;
         if (size == 0xFFFFFFFF) @panic("TODO");
 
-        const id = try reader.readInt(u32, .little);
-        const record = Record{
+        const id = try reader.takeInt(u32, .little);
+        const record: Record = .{
             .tag = if (id == 0) .cie else .fde,
             .offset = it.pos,
             .size = size,
@@ -286,8 +285,8 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 
     switch (cpu_arch) {
         .x86_64 => try x86_64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
-        .aarch64 => try aarch64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
-        .riscv64 => try riscv.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
+        .aarch64, .aarch64_be => try aarch64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
+        .riscv64, .riscv64be => try riscv.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         else => return error.UnsupportedCpuArch,
     }
 }
@@ -483,7 +482,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     );
     try writer.writeInt(u32, num_fdes, .little);
 
-    const Entry = struct {
+    const Entry = extern struct {
         init_addr: u32,
         fde_addr: u32,
 
@@ -521,7 +520,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     }
 
     std.mem.sort(Entry, entries.items, {}, Entry.lessThan);
-    try writer.writeAll(std.mem.sliceAsBytes(entries.items));
+    try writer.writeSliceEndian(Entry, entries.items, .little);
 }
 
 const eh_frame_hdr_header_size: usize = 12;

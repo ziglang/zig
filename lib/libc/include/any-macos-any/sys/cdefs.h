@@ -199,7 +199,16 @@
  */
 #define __exported      __attribute__((__visibility__("default")))
 #define __exported_push _Pragma("GCC visibility push(default)")
+#ifndef __BUILDING_XNU_LIBRARY__
+#define __exported_push_hidden _Pragma("GCC visibility push(hidden)")
 #define __exported_pop  _Pragma("GCC visibility pop")
+#define __exported_hidden __private_extern__
+#else /* __BUILDING_XNU_LIBRARY__ */
+/* Don't hide symbols that the might be need to be used from outside */
+#define __exported_push_hidden
+#define __exported_pop
+#define __exported_hidden
+#endif /* __BUILDING_XNU_LIBRARY__ */
 
 /* __deprecated causes the compiler to produce a warning when encountering
  * code using the deprecated functionality.
@@ -509,12 +518,14 @@
  * for plain C (see also <ptrcheck.h>).
  *
  * Attribute __unsafe_buffer_usage can be used to label functions that should be
- * avoided as they may perform or otherwise introduce unsafe buffer
- * manipulation operations.
+ * avoided as they may perform or otherwise introduce unsafe buffer manipulation
+ * operations. The attribute can also be attached to class/struct fields that
+ * are used in unsafe buffer manipulations.
  *
- * Calls to such functions are flagged by -Wunsafe-buffer-usage, similarly to
+ * Calls to attribute annotated functions are flagged by -Wunsafe-buffer-usage, similar to
  * how unchecked buffer manipulation operations are flagged when observed
- * by the compiler directly:
+ * by the compiler directly. Similarly, use of and assignment to the struct/class fields
+ * that have the attribute also get flagged by the compiler.
  *
  *   // An unsafe function that needs to be avoided.
  *   __unsafe_buffer_usage
@@ -527,12 +538,28 @@
  *       int array[5];
  *
  *       // Direct unsafe buffer manipulation through subscript operator:
- *       array[idx] = 3;  // warning [-Wunsafe-buffer-usage]
+ *       array[idx] = 3;  // warning: function introduces unsafe buffer manipulation [-Wunsafe-buffer-usage]
  *       // Unsafe buffer manipulation through function foo():
- *       foo(array, 5);   // warning [-Wunsafe-buffer-usage]
+ *       foo(array, 5);   // warning: function introduces unsafe buffer manipulation [-Wunsafe-buffer-usage]
  *       // Checked buffer manipulation, with bounds information automatically
  *       // preserved for the purposes of runtime checks in standard library:
  *       foo(array);      // no warning
+ *   }
+ *
+ *   struct Reader {
+ *      // Field involved in unsafe buffer manipulation
+ *      __unsafe_buffer_usage
+ *      void *ptr;
+ *
+ *      __unsafe_buffer_usage
+ *      size_t sz, count;
+ *   };
+ *
+ *   void add_element(Reader rdr, int value) {
+ *      if(rdr.count < rdr.sz) { // warning: unsafe buffer access [-Wunsafe-buffer-usage]
+ *         rdr.ptr[rdr.count] = value; // warning: unsafe buffer access [-Wunsafe-buffer-usage]
+ *         rdr.count++; // warning: unsafe buffer access [-Wunsafe-buffer-usage]
+ *      }
  *   }
  *
  * While annotating a function as __unsafe_buffer_usage has an effect similar
@@ -542,11 +569,12 @@
  * don't attempt to achieve bounds safety this way) as opposed to -Wdeprecated
  * (enabled in most codebases).
  *
- * The attribute does NOT suppress -Wunsafe-buffer-usage warnings inside
- * the function's body; it simply introduces new warnings at each call site
- * to help the developers avoid the function entirely. Most of the time
- * it does not make sense to annotate a function as __unsafe_buffer_usage
- * without providing the users with a safe alternative.
+ * The attribute suppresses all -Wunsafe-buffer-usage warnings inside the
+ * function's body as it is explictly marked as unsafe by the user and
+ * introduces new warnings at each call site to help the developers avoid the
+ * function entirely. Most of the time it does not make sense to annotate a
+ * function as __unsafe_buffer_usage without providing the users with a safe
+ * alternative.
  *
  * Pragmas __unsafe_buffer_usage_begin and __unsafe_buffer_usage_end
  * annotate a range of code as intentionally containing unsafe buffer
@@ -560,9 +588,7 @@
  *
  * These pragmas are NOT a way to mass-annotate functions with the attribute
  * __unsafe_buffer_usage. Functions declared within the pragma range
- * do NOT get annotated automatically. In some rare situations it makes sense
- * to do all three: put the attribute on the function, put pragmas inside
- * the body of the function, and put pragmas around some call sites.
+ * do NOT get annotated automatically.
  */
 #if __has_cpp_attribute(clang::unsafe_buffer_usage)
 #define __has_safe_buffers 1

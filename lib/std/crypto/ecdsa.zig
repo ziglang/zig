@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const crypto = std.crypto;
 const fmt = std.fmt;
-const io = std.io;
 const mem = std.mem;
 const sha3 = crypto.hash.sha3;
 const testing = std.testing;
@@ -135,40 +134,40 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// The maximum length of the DER encoding is der_encoded_length_max.
             /// The function returns a slice, that can be shorter than der_encoded_length_max.
             pub fn toDer(sig: Signature, buf: *[der_encoded_length_max]u8) []u8 {
-                var fb = io.fixedBufferStream(buf);
-                const w = fb.writer();
-                const r_len = @as(u8, @intCast(sig.r.len + (sig.r[0] >> 7)));
-                const s_len = @as(u8, @intCast(sig.s.len + (sig.s[0] >> 7)));
+                var w: std.Io.Writer = .fixed(buf);
+                const sig_r = mem.trimLeft(u8, &sig.r, &.{0});
+                const sig_s = mem.trimLeft(u8, &sig.s, &.{0});
+                const r_len = @as(u8, @intCast(sig_r.len + (sig_r[0] >> 7)));
+                const s_len = @as(u8, @intCast(sig_s.len + (sig_s[0] >> 7)));
                 const seq_len = @as(u8, @intCast(2 + r_len + 2 + s_len));
                 w.writeAll(&[_]u8{ 0x30, seq_len }) catch unreachable;
                 w.writeAll(&[_]u8{ 0x02, r_len }) catch unreachable;
-                if (sig.r[0] >> 7 != 0) {
+                if (sig_r[0] >> 7 != 0) {
                     w.writeByte(0x00) catch unreachable;
                 }
-                w.writeAll(&sig.r) catch unreachable;
+                w.writeAll(sig_r) catch unreachable;
                 w.writeAll(&[_]u8{ 0x02, s_len }) catch unreachable;
-                if (sig.s[0] >> 7 != 0) {
+                if (sig_s[0] >> 7 != 0) {
                     w.writeByte(0x00) catch unreachable;
                 }
-                w.writeAll(&sig.s) catch unreachable;
-                return fb.getWritten();
+                w.writeAll(sig_s) catch unreachable;
+                return w.buffered();
             }
 
             // Read a DER-encoded integer.
-            fn readDerInt(out: []u8, reader: anytype) EncodingError!void {
-                var buf: [2]u8 = undefined;
-                _ = reader.readNoEof(&buf) catch return error.InvalidEncoding;
+            fn readDerInt(out: []u8, reader: *std.Io.Reader) EncodingError!void {
+                const buf = reader.takeArray(2) catch return error.InvalidEncoding;
                 if (buf[0] != 0x02) return error.InvalidEncoding;
-                var expected_len = @as(usize, buf[1]);
+                var expected_len: usize = buf[1];
                 if (expected_len == 0 or expected_len > 1 + out.len) return error.InvalidEncoding;
                 var has_top_bit = false;
                 if (expected_len == 1 + out.len) {
-                    if ((reader.readByte() catch return error.InvalidEncoding) != 0) return error.InvalidEncoding;
+                    if ((reader.takeByte() catch return error.InvalidEncoding) != 0) return error.InvalidEncoding;
                     expected_len -= 1;
                     has_top_bit = true;
                 }
                 const out_slice = out[out.len - expected_len ..];
-                reader.readNoEof(out_slice) catch return error.InvalidEncoding;
+                reader.readSliceAll(out_slice) catch return error.InvalidEncoding;
                 if (@intFromBool(has_top_bit) != out[0] >> 7) return error.InvalidEncoding;
             }
 
@@ -176,16 +175,14 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Returns InvalidEncoding if the DER encoding is invalid.
             pub fn fromDer(der: []const u8) EncodingError!Signature {
                 var sig: Signature = mem.zeroInit(Signature, .{});
-                var fb = io.fixedBufferStream(der);
-                const reader = fb.reader();
-                var buf: [2]u8 = undefined;
-                _ = reader.readNoEof(&buf) catch return error.InvalidEncoding;
+                var reader: std.Io.Reader = .fixed(der);
+                const buf = reader.takeArray(2) catch return error.InvalidEncoding;
                 if (buf[0] != 0x30 or @as(usize, buf[1]) + 2 != der.len) {
                     return error.InvalidEncoding;
                 }
-                try readDerInt(&sig.r, reader);
-                try readDerInt(&sig.s, reader);
-                if (fb.getPos() catch unreachable != der.len) return error.InvalidEncoding;
+                try readDerInt(&sig.r, &reader);
+                try readDerInt(&sig.s, &reader);
+                if (reader.seek != der.len) return error.InvalidEncoding;
 
                 return sig;
             }

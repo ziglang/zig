@@ -8,7 +8,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:11: error: non-exhaustive enum specifies every value

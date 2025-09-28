@@ -2254,39 +2254,69 @@ pub const S = switch (native_os) {
         }
     },
     .dragonfly => struct {
+        pub const IFMT = 0o170000;
+
+        pub const IFIFO = 0o010000;
+        pub const IFCHR = 0o020000;
+        pub const IFDIR = 0o040000;
+        pub const IFBLK = 0o060000;
+        pub const IFREG = 0o100000;
+        pub const IFLNK = 0o120000;
+        pub const IFSOCK = 0o140000;
+        pub const IFWHT = 0o160000;
+
+        pub const ISUID = 0o4000;
+        pub const ISGID = 0o2000;
+        pub const ISVTX = 0o1000;
+        pub const IRWXU = 0o700;
+        pub const IRUSR = 0o400;
+        pub const IWUSR = 0o200;
+        pub const IXUSR = 0o100;
+        pub const IRWXG = 0o070;
+        pub const IRGRP = 0o040;
+        pub const IWGRP = 0o020;
+        pub const IXGRP = 0o010;
+        pub const IRWXO = 0o007;
+        pub const IROTH = 0o004;
+        pub const IWOTH = 0o002;
+        pub const IXOTH = 0o001;
+
         pub const IREAD = IRUSR;
         pub const IEXEC = IXUSR;
         pub const IWRITE = IWUSR;
-        pub const IXOTH = 1;
-        pub const IWOTH = 2;
-        pub const IROTH = 4;
-        pub const IRWXO = 7;
-        pub const IXGRP = 8;
-        pub const IWGRP = 16;
-        pub const IRGRP = 32;
-        pub const IRWXG = 56;
-        pub const IXUSR = 64;
-        pub const IWUSR = 128;
-        pub const IRUSR = 256;
-        pub const IRWXU = 448;
         pub const ISTXT = 512;
         pub const BLKSIZE = 512;
-        pub const ISVTX = 512;
-        pub const ISGID = 1024;
-        pub const ISUID = 2048;
-        pub const IFIFO = 4096;
-        pub const IFCHR = 8192;
-        pub const IFDIR = 16384;
-        pub const IFBLK = 24576;
-        pub const IFREG = 32768;
-        pub const IFDB = 36864;
-        pub const IFLNK = 40960;
-        pub const IFSOCK = 49152;
-        pub const IFWHT = 57344;
-        pub const IFMT = 61440;
+
+        pub fn ISFIFO(m: u32) bool {
+            return m & IFMT == IFIFO;
+        }
 
         pub fn ISCHR(m: u32) bool {
             return m & IFMT == IFCHR;
+        }
+
+        pub fn ISDIR(m: u32) bool {
+            return m & IFMT == IFDIR;
+        }
+
+        pub fn ISBLK(m: u32) bool {
+            return m & IFMT == IFBLK;
+        }
+
+        pub fn ISREG(m: u32) bool {
+            return m & IFMT == IFREG;
+        }
+
+        pub fn ISLNK(m: u32) bool {
+            return m & IFMT == IFLNK;
+        }
+
+        pub fn ISSOCK(m: u32) bool {
+            return m & IFMT == IFSOCK;
+        }
+
+        pub fn IWHT(m: u32) bool {
+            return m & IFMT == IFWHT;
         }
     },
     .haiku => struct {
@@ -3991,6 +4021,17 @@ pub const W = switch (native_os) {
     },
     else => void,
 };
+pub const accept_filter_arg = switch (native_os) {
+    // https://github.com/freebsd/freebsd-src/blob/2024887abc7d1b931e00fbb0697658e98adf048d/sys/sys/socket.h#L205
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L164
+    // https://github.com/NetBSD/src/blob/cad5c68a8524927f65e22ad651de3905382be6e0/sys/sys/socket.h#L188
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L504
+    .freebsd, .dragonfly, .netbsd, .macos, .driverkit, .ios, .tvos, .watchos, .visionos => extern struct {
+        name: [16]u8,
+        arg: [240]u8,
+    },
+    else => void,
+};
 pub const clock_t = switch (native_os) {
     .linux => linux.clock_t,
     .emscripten => emscripten.clock_t,
@@ -4076,11 +4117,71 @@ pub const ifreq = switch (native_os) {
     },
     else => void,
 };
+pub const in_pktinfo = switch (native_os) {
+    .linux => linux.in_pktinfo,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/netinet/in.h#L1084
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L1132
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet/in.h#L696
+    .solaris, .illumos, .driverkit, .ios, .macos, .tvos, .watchos, .visionos => extern struct {
+        ifindex: u32,
+        spec_dst: u32,
+        addr: u32,
+    },
+    else => void,
+};
+pub const in6_pktinfo = switch (native_os) {
+    .linux => linux.in6_pktinfo,
+    // https://github.com/freebsd/freebsd-src/blob/9bfbc6826f72eb385bf52f4cde8080bccf7e3ebd/sys/netinet6/in6.h#L547
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/netinet6/in6.h#L575
+    // https://github.com/NetBSD/src/blob/80bf25a5691072d4755e84567ccbdf0729370dea/sys/netinet6/in6.h#L468
+    // https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/netinet6/in6.h#L365
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/netinet/in.h#L1093
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/netinet/in.h#L114IP1
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/netinet6/in6.h#L737
+    // https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/netinet6/in6.h#L63
+    // https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/sys/socket.h#L122
+    .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos, .driverkit, .ios, .macos, .tvos, .watchos, .visionos, .haiku, .serenity => extern struct {
+        addr: [16]u8,
+        ifindex: u32,
+    },
+    else => void,
+};
 pub const itimerspec = switch (native_os) {
     .linux => linux.itimerspec,
     .haiku => extern struct {
         interval: timespec,
         value: timespec,
+    },
+    else => void,
+};
+pub const linger = switch (native_os) {
+    .linux => linux.linger,
+    // https://github.com/freebsd/freebsd-src/blob/46347b3619757e3d683a87ca03efaf2ae242335f/sys/sys/socket.h#L200
+    .freebsd,
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L158
+    .dragonfly,
+    // https://github.com/NetBSD/src/blob/80bf25a5691072d4755e84567ccbdf0729370dea/sys/sys/socket.h#L183
+    .netbsd,
+    // https://github.com/openbsd/src/blob/718a31b40d39fc6064de6355eb144e74633133fc/sys/sys/socket.h#L126
+    .openbsd,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/socket.h#L214
+    .solaris,
+    // https://github.com/illumos/illumos-gate/blob/608eb926e14f4ba4736b2d59e891335f1cba9e1e/usr/src/uts/common/sys/socket.h#L250
+    .illumos,
+    // https://github.com/haiku/haiku/blob/2aab5f5f14aeb3f34c3a3d9a9064cc3c0d914bea/headers/posix/sys/socket.h#L87
+    .haiku,
+    // https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/sys/socket.h#L122
+    .serenity,
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L498
+    .driverkit,
+    .ios,
+    .macos,
+    .tvos,
+    .watchos,
+    .visionos,
+    => extern struct {
+        onoff: i32, // non-zero to linger on close
+        linger: i32, // time to linger in seconds
     },
     else => void,
 };
@@ -4168,6 +4269,39 @@ pub const msghdr_const = switch (native_os) {
         control: ?*const anyopaque,
         controllen: socklen_t,
         flags: c_int,
+    },
+    else => void,
+};
+pub const cmsghdr = switch (native_os) {
+    // https://github.com/emscripten-core/emscripten/blob/96371ed7888fc78c040179f4d4faa82a6a07a116/system/lib/libc/musl/include/sys/socket.h#L44
+    .linux, .emscripten => linux.cmsghdr,
+    // https://github.com/freebsd/freebsd-src/blob/b197d2abcb6895d78bc9df8404e374397aa44748/sys/sys/socket.h#L492
+    .freebsd,
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/107c0518337ba90e7fa49e74845d8d44320c9a6d/sys/sys/socket.h#L452
+    .dragonfly,
+    // https://github.com/NetBSD/src/blob/ba8e1774fd9c0c26ecca461c07bc95d9ebb69579/sys/sys/socket.h#L528
+    .netbsd,
+    // https://github.com/openbsd/src/blob/master/sys/sys/socket.h#L527
+    .openbsd,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/socket.h#L416
+    .solaris,
+    // https://github.com/illumos/illumos-gate/blob/afdf2e523873cb523df379676067bf9785a0f456/usr/src/uts/common/sys/socket.h#L460
+    .illumos,
+    // https://github.com/SerenityOS/serenity/blob/4ee360a348a5e2490eeaeeabb3eb19e70dd450eb/Kernel/API/POSIX/sys/socket.h#L68
+    .serenity,
+    // https://github.com/haiku/haiku/blob/b54f586058fd6623645512e4631468cede9933b9/headers/posix/sys/socket.h#L132
+    .haiku,
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L1041
+    .macos,
+    .driverkit,
+    .ios,
+    .tvos,
+    .visionos,
+    .watchos,
+    => extern struct {
+        len: socklen_t,
+        level: c_int,
+        type: c_int,
     },
     else => void,
 };
@@ -5704,6 +5838,39 @@ pub const MSG = switch (native_os) {
         pub const WAITFORONE = 0x2000;
         pub const NOTIFICATION = 0x4000;
     },
+    // https://github.com/openbsd/src/blob/42a7be81bef70c04732f45ec573622effe56b563/sys/sys/socket.h#L506
+    .openbsd => struct {
+        pub const OOB = 0x1;
+        pub const PEEK = 0x2;
+        pub const DONTROUTE = 0x4;
+        pub const EOR = 0x8;
+        pub const TRUNC = 0x10;
+        pub const CTRUNC = 0x20;
+        pub const WAITALL = 0x40;
+        pub const DONTWAIT = 0x80;
+        pub const BCAST = 0x100;
+        pub const MCAST = 0x200;
+        pub const NOSIGNAL = 0x400;
+        pub const CMSG_CLOEXEC = 0x800;
+        pub const WAITFORONE = 0x1000;
+        pub const CMSG_CLOFORK = 0x2000;
+    },
+    .dragonfly => struct {
+        pub const OOB = 0x0001;
+        pub const PEEK = 0x0002;
+        pub const DONTROUTE = 0x0004;
+        pub const EOR = 0x0008;
+        pub const TRUNC = 0x0010;
+        pub const CTRUNC = 0x0020;
+        pub const WAITALL = 0x0040;
+        pub const DONTWAIT = 0x0080;
+        pub const NOSIGNAL = 0x0400;
+        pub const SYNC = 0x0800;
+        pub const CMSG_CLOEXEC = 0x1000;
+        pub const CMSG_CLOFORK = 0x2000;
+        pub const FBLOCKING = 0x10000;
+        pub const FNONBLOCKING = 0x20000;
+    },
     else => void,
 };
 pub const SOCK = switch (native_os) {
@@ -6338,7 +6505,7 @@ pub const IPPROTO = switch (native_os) {
         /// dummy for IP
         pub const IP = 0;
         /// IP6 hop-by-hop options
-        pub const HOPOPTS = IP;
+        pub const HOPOPTS = IPPROTO.IP;
         /// control message protocol
         pub const ICMP = 1;
         /// group mgmt protocol
@@ -6418,6 +6585,39 @@ pub const IPPROTO = switch (native_os) {
         pub const ICMPV6 = 58;
         pub const RAW = 255;
     },
+    else => void,
+};
+pub const IP = switch (native_os) {
+    .linux => linux.IP,
+    .freebsd => freebsd.IP,
+    .dragonfly => dragonfly.IP,
+    .netbsd => netbsd.IP,
+    .openbsd => openbsd.IP,
+    .solaris, .illumos => solaris.IP,
+    .haiku => haiku.IP,
+    .serenity => serenity.IP,
+    else => void,
+};
+pub const IPV6 = switch (native_os) {
+    .linux => linux.IPV6,
+    .freebsd => freebsd.IPV6,
+    .dragonfly => dragonfly.IPV6,
+    .netbsd => netbsd.IPV6,
+    .openbsd => openbsd.IPV6,
+    .solaris, .illumos => solaris.IPV6,
+    .haiku => haiku.IPV6,
+    .serenity => serenity.IPV6,
+    else => void,
+};
+pub const IPTOS = switch (native_os) {
+    .linux => linux.IPTOS,
+    .freebsd => freebsd.IPTOS,
+    .dragonfly => dragonfly.IPTOS,
+    .netbsd => netbsd.IPTOS,
+    .openbsd => openbsd.IPTOS,
+    .solaris, .illumos => solaris.IPTOS,
+    .haiku => haiku.IPTOS,
+    .serenity => serenity.IPTOS,
     else => void,
 };
 pub const SOL = switch (native_os) {
@@ -6683,9 +6883,70 @@ pub const SOMAXCONN = switch (native_os) {
     .windows => ws2_32.SOMAXCONN,
     // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L128
     .solaris, .illumos, .serenity => 128,
-    .openbsd => 28,
+    // https://github.com/freebsd/freebsd-src/blob/9ab31f821ad1c6bad474510447387c50bef2c24c/sys/sys/socket.h#L434
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/fd3d1949d526ffa646e57037770acd6f2f3bb617/sys/sys/socket.h#L393
+    // https://github.com/NetBSD/src/blob/a673fb3f8487e974c669216064f7588207229fea/sys/sys/socket.h#L472
+    // https://github.com/openbsd/src/blob/8ba9cd88f10123fef7af805b8e5ccc2463ad8fa4/sys/sys/socket.h#L483
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L815
+    .freebsd, .dragonfly, .netbsd, .openbsd, .driverkit, .macos, .ios, .tvos, .watchos, .visionos => 128,
     else => void,
 };
+pub const SCM = switch (native_os) {
+    .linux, .emscripten => linux.SCM,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/socket.h#L172
+    // https://github.com/illumos/illumos-gate/blob/489f6310fe8952e87fc1dce8af87990fcfd90f18/usr/src/uts/common/sys/socket.h#L196
+    .solaris, .illumos => struct {
+        pub const RIGHTS = 0x1010;
+        pub const UCRED = 0x1012;
+        pub const TIMESTAMP = SO.TIMESTAMP;
+    },
+    // https://github.com/haiku/haiku/blob/e3d01e53a25446d5ba4999d0ff6dff29a2418657/headers/posix/sys/socket.h#L156
+    .haiku => struct {
+        pub const RIGHTS = 1;
+    },
+    // https://github.com/SerenityOS/serenity/blob/c6618f36bf0949bd76177f202659b1f3079e0792/Kernel/API/POSIX/sys/socket.h#L171
+    .serenity => struct {
+        pub const TIMESTAMP = 0;
+        pub const RIGHTS = 1;
+    },
+    // https://github.com/freebsd/freebsd-src/blob/614e9b33bf5594d9d09b5d296afa4f3aa6971823/sys/sys/socket.h#L593
+    .freebsd => struct {
+        pub const RIGHTS = 1;
+        pub const TIMESTAMP = 2;
+        pub const CREDS = 3;
+        pub const BINTIME = 4;
+        pub const REALTIME = 5;
+        pub const MONOTONIC = 6;
+        pub const TIME_INFO = 7;
+        pub const CREDS2 = 8;
+    },
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L520
+    .dragonfly => struct {
+        pub const RIGHTS = 1;
+        pub const TIMESTAMP = 2;
+        pub const CREDS = 3;
+    },
+    // https://github.com/NetBSD/src/blob/3311177ea898ab8322292ba0e48faa9b2e834cb6/sys/sys/socket.h#L578
+    .netbsd => struct {
+        pub const RIGHTS = 0x01;
+        pub const TIMESTAMP = 0x08;
+        pub const CREDS = 0x10;
+    },
+    // https://github.com/openbsd/src/blob/1b1dd04c9634112eb763374379af99a68ace4328/sys/sys/socket.h#L566
+    .openbsd => struct {
+        pub const RIGHTS = 0x01;
+        pub const TIMESTAMP = 0x04;
+    },
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L1114
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => struct {
+        pub const RIGHTS = 1;
+        pub const TIMESTAMP = 2;
+        pub const CREDS = 3;
+        pub const TIMESTAMP_MONOTONIC = 4;
+    },
+    else => void,
+};
+
 pub const IFNAMESIZE = switch (native_os) {
     .linux => linux.IFNAMESIZE,
     .emscripten => emscripten.IFNAMESIZE,
@@ -10331,7 +10592,7 @@ pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_
 
 pub const arc4random_buf = switch (native_os) {
     .linux => if (builtin.abi.isAndroid()) private.arc4random_buf else {},
-    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
+    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .serenity, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
     else => {},
 };
 pub const getentropy = switch (native_os) {
@@ -10544,6 +10805,12 @@ pub const socket = switch (native_os) {
     else => private.socket,
 };
 
+pub const socketpair = switch (native_os) {
+    // https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/#unsupported\unavailable:
+    .windows => void,
+    else => private.socketpair,
+};
+
 pub const stat = switch (native_os) {
     .macos => switch (native_arch) {
         .x86_64 => private.@"stat$INODE64",
@@ -10685,7 +10952,6 @@ pub extern "c" fn uname(buf: *utsname) c_int;
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
 pub extern "c" fn shutdown(socket: fd_t, how: c_int) c_int;
 pub extern "c" fn bind(socket: fd_t, address: ?*const sockaddr, address_len: socklen_t) c_int;
-pub extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
 pub extern "c" fn listen(sockfd: fd_t, backlog: c_uint) c_int;
 pub extern "c" fn getsockname(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
 pub extern "c" fn getpeername(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
@@ -10719,7 +10985,15 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*sockaddr,
     noalias addrlen: ?*socklen_t,
 ) if (native_os == .windows) c_int else isize;
-pub extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
+
+pub const recvmsg = switch (native_os) {
+    // Windows: Technically, a form of recvmsg() exists for Windows, but the
+    // user has to install some kind of callback for it.  I'm not sure if/how
+    // we can map this to normal recvmsg() interface use.
+    // https://learn.microsoft.com/en-us/windows/win32/api/mswsock/nc-mswsock-lpfn_wsarecvmsg
+    .windows => void,
+    else => private.recvmsg,
+};
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 
@@ -10734,6 +11008,8 @@ pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
 pub extern "c" fn getuid() uid_t;
 pub extern "c" fn geteuid() uid_t;
+pub extern "c" fn getresuid(ruid: *uid_t, euid: *uid_t, suid: *uid_t) c_int;
+pub extern "c" fn getresgid(rgid: *gid_t, egid: *gid_t, sgid: *gid_t) c_int;
 
 pub extern "c" fn malloc(usize) ?*anyopaque;
 pub extern "c" fn calloc(usize, usize) ?*anyopaque;
@@ -10786,6 +11062,18 @@ pub const pthread_threadid_np = switch (native_os) {
     else => {},
 };
 
+pub const caddr_t = ?[*]u8;
+
+pub const ptrace = switch (native_os) {
+    .linux, .serenity => private.ptrace,
+    .macos, .ios, .tvos, .watchos, .visionos => darwin.ptrace,
+    .dragonfly => dragonfly.ptrace,
+    .freebsd => freebsd.ptrace,
+    .netbsd => netbsd.ptrace,
+    .openbsd => openbsd.ptrace,
+    else => {},
+};
+
 pub extern "c" fn sem_init(sem: *sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *sem_t) c_int;
 pub extern "c" fn sem_open(name: [*:0]const u8, flag: c_int, mode: mode_t, value: c_uint) *sem_t;
@@ -10796,7 +11084,10 @@ pub extern "c" fn sem_trywait(sem: *sem_t) c_int;
 pub extern "c" fn sem_timedwait(sem: *sem_t, abs_timeout: *const timespec) c_int;
 pub extern "c" fn sem_getvalue(sem: *sem_t, sval: *c_int) c_int;
 
-pub extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: mode_t) c_int;
+pub const shm_open = switch (native_os) {
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => darwin.shm_open,
+    else => private.shm_open,
+};
 pub extern "c" fn shm_unlink(name: [*:0]const u8) c_int;
 
 pub extern "c" fn kqueue() c_int;
@@ -10982,11 +11273,9 @@ pub const GETUSTACK = solaris.GETUSTACK;
 pub const PORT_ALERT = solaris.PORT_ALERT;
 pub const PORT_SOURCE = solaris.PORT_SOURCE;
 pub const POSIX_FADV = solaris.POSIX_FADV;
-pub const SCM = solaris.SCM;
 pub const SETCONTEXT = solaris.SETCONTEXT;
 pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
-pub const cmsghdr = solaris.cmsghdr;
 pub const ctid_t = solaris.ctid_t;
 pub const file_obj = solaris.file_obj;
 pub const fpregset_t = solaris.fpregset_t;
@@ -11106,12 +11395,15 @@ pub const fsfilcnt_t = freebsd.fsfilcnt_t;
 pub const kinfo_file = freebsd.kinfo_file;
 pub const kinfo_getfile = freebsd.kinfo_getfile;
 
+pub const CALENDAR_CLOCK = darwin.CALENDAR_CLOCK;
 pub const COPYFILE = darwin.COPYFILE;
 pub const CPUFAMILY = darwin.CPUFAMILY;
 pub const PT = darwin.PT;
 pub const DB_RECORDTYPE = darwin.DB_RECORDTYPE;
 pub const EXC = darwin.EXC;
 pub const EXCEPTION = darwin.EXCEPTION;
+pub const KEVENT = darwin.KEVENT;
+pub const MACH = darwin.MACH;
 pub const MACH_MSG_TYPE = darwin.MACH_MSG_TYPE;
 pub const MACH_PORT_RIGHT = darwin.MACH_PORT_RIGHT;
 pub const MACH_TASK_BASIC_INFO = darwin.MACH_TASK_BASIC_INFO;
@@ -11119,10 +11411,15 @@ pub const MACH_TASK_BASIC_INFO_COUNT = darwin.MACH_TASK_BASIC_INFO_COUNT;
 pub const MATTR = darwin.MATTR;
 pub const NSVersionOfRunTimeLibrary = darwin.NSVersionOfRunTimeLibrary;
 pub const OPEN_MAX = darwin.OPEN_MAX;
+pub const OS = darwin.OS;
 pub const POSIX_SPAWN = darwin.POSIX_SPAWN;
+pub const SYSPROTO_EVENT = darwin.SYSPROTO_EVENT;
+pub const SYSPROTO_CONTROL = darwin.SYSPROTO_CONTROL;
+pub const TASK = darwin.TASK;
 pub const TASK_NULL = darwin.TASK_NULL;
 pub const TASK_VM_INFO = darwin.TASK_VM_INFO;
 pub const TASK_VM_INFO_COUNT = darwin.TASK_VM_INFO_COUNT;
+pub const THREAD = darwin.THREAD;
 pub const THREAD_BASIC_INFO = darwin.THREAD_BASIC_INFO;
 pub const THREAD_BASIC_INFO_COUNT = darwin.THREAD_BASIC_INFO_COUNT;
 pub const THREAD_IDENTIFIER_INFO_COUNT = darwin.THREAD_IDENTIFIER_INFO_COUNT;
@@ -11140,15 +11437,24 @@ pub const _dyld_get_image_name = darwin._dyld_get_image_name;
 pub const _dyld_get_image_vmaddr_slide = darwin._dyld_get_image_vmaddr_slide;
 pub const _dyld_image_count = darwin._dyld_image_count;
 pub const _host_page_size = darwin._host_page_size;
+pub const boolean_t = darwin.boolean_t;
 pub const clock_get_time = darwin.clock_get_time;
+pub const clock_serv_t = darwin.clock_serv_t;
+pub const clock_res_t = darwin.clock_res_t;
 pub const @"close$NOCANCEL" = darwin.@"close$NOCANCEL";
+pub const dispatch_function_t = darwin.dispatch_function_t;
+pub const dispatch_once_f = darwin.dispatch_once_f;
+pub const dispatch_once_t = darwin.dispatch_once_t;
 pub const dispatch_release = darwin.dispatch_release;
 pub const dispatch_semaphore_create = darwin.dispatch_semaphore_create;
 pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
+pub const dispatch_semaphore_t = darwin.dispatch_semaphore_t;
 pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
+pub const dispatch_time_t = darwin.dispatch_time_t;
 pub const fcopyfile = darwin.fcopyfile;
 pub const host_t = darwin.host_t;
+pub const integer_t = darwin.integer_t;
 pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
@@ -11160,6 +11466,7 @@ pub const mach_continuous_time = darwin.mach_continuous_time;
 pub const mach_hdr = darwin.mach_hdr;
 pub const mach_host_self = darwin.mach_host_self;
 pub const mach_msg = darwin.mach_msg;
+pub const mach_msg_return_t = darwin.mach_msg_return_t;
 pub const mach_msg_type_number_t = darwin.mach_msg_type_number_t;
 pub const mach_port_allocate = darwin.mach_port_allocate;
 pub const mach_port_array_t = darwin.mach_port_array_t;
@@ -11171,6 +11478,7 @@ pub const mach_task_basic_info = darwin.mach_task_basic_info;
 pub const mach_task_self = darwin.mach_task_self;
 pub const mach_timebase_info = darwin.mach_timebase_info;
 pub const mach_timebase_info_data = darwin.mach_timebase_info_data;
+pub const mach_timespec_t = darwin.mach_timespec_t;
 pub const mach_vm_address_t = darwin.mach_vm_address_t;
 pub const mach_vm_protect = darwin.mach_vm_protect;
 pub const mach_vm_read = darwin.mach_vm_read;
@@ -11180,16 +11488,20 @@ pub const mach_vm_size_t = darwin.mach_vm_size_t;
 pub const mach_vm_write = darwin.mach_vm_write;
 pub const natural_t = darwin.natural_t;
 pub const os_log_create = darwin.os_log_create;
+pub const os_log_t = darwin.os_log_t;
 pub const os_log_type_enabled = darwin.os_log_type_enabled;
+pub const os_log_type_t = darwin.os_log_type_t;
 pub const os_signpost_enabled = darwin.os_signpost_enabled;
 pub const os_signpost_id_generate = darwin.os_signpost_id_generate;
 pub const os_signpost_id_make_with_pointer = darwin.os_signpost_id_make_with_pointer;
+pub const os_signpost_id_t = darwin.os_signpost_id_t;
 pub const os_signpost_interval_begin = darwin.os_signpost_interval_begin;
 pub const os_signpost_interval_end = darwin.os_signpost_interval_end;
 pub const os_unfair_lock = darwin.os_unfair_lock;
 pub const os_unfair_lock_assert_not_owner = darwin.os_unfair_lock_assert_not_owner;
 pub const os_unfair_lock_assert_owner = darwin.os_unfair_lock_assert_owner;
 pub const os_unfair_lock_lock = darwin.os_unfair_lock_lock;
+pub const os_unfair_lock_t = darwin.os_unfair_lock_t;
 pub const os_unfair_lock_trylock = darwin.os_unfair_lock_trylock;
 pub const os_unfair_lock_unlock = darwin.os_unfair_lock_unlock;
 pub const pid_for_task = darwin.pid_for_task;
@@ -11213,11 +11525,13 @@ pub const pthread_attr_get_qos_class_np = darwin.pthread_attr_get_qos_class_np;
 pub const pthread_attr_set_qos_class_np = darwin.pthread_attr_set_qos_class_np;
 pub const pthread_get_qos_class_np = darwin.pthread_get_qos_class_np;
 pub const pthread_set_qos_class_self_np = darwin.pthread_set_qos_class_self_np;
-pub const ptrace = darwin.ptrace;
+pub const qos_class_t = darwin.qos_class_t;
+pub const task_flavor_t = darwin.task_flavor_t;
 pub const task_for_pid = darwin.task_for_pid;
 pub const task_get_exception_ports = darwin.task_get_exception_ports;
 pub const task_info = darwin.task_info;
 pub const task_info_t = darwin.task_info_t;
+pub const task_name_t = darwin.task_name_t;
 pub const task_resume = darwin.task_resume;
 pub const task_set_exception_ports = darwin.task_set_exception_ports;
 pub const task_suspend = darwin.task_suspend;
@@ -11230,8 +11544,10 @@ pub const thread_info = darwin.thread_info;
 pub const thread_info_t = darwin.thread_info_t;
 pub const thread_resume = darwin.thread_resume;
 pub const thread_set_state = darwin.thread_set_state;
+pub const vm_address_t = darwin.vm_address_t;
 pub const vm_deallocate = darwin.vm_deallocate;
 pub const vm_machine_attribute = darwin.vm_machine_attribute;
+pub const vm_machine_attribute_t = darwin.vm_machine_attribute_t;
 pub const vm_machine_attribute_val_t = darwin.vm_machine_attribute_val_t;
 pub const vm_map_t = darwin.vm_map_t;
 pub const vm_offset_t = darwin.vm_offset_t;
@@ -11244,7 +11560,6 @@ pub const vm_region_submap_info_64 = darwin.vm_region_submap_info_64;
 pub const vm_region_submap_short_info_64 = darwin.vm_region_submap_short_info_64;
 pub const vm_region_top_info = darwin.vm_region_top_info;
 
-pub const caddr_t = darwin.caddr_t;
 pub const exception_behavior_array_t = darwin.exception_behavior_array_t;
 pub const exception_behavior_t = darwin.exception_behavior_t;
 pub const exception_data_t = darwin.exception_data_t;
@@ -11256,10 +11571,12 @@ pub const exception_mask_array_t = darwin.exception_mask_array_t;
 pub const exception_mask_t = darwin.exception_mask_t;
 pub const exception_port_array_t = darwin.exception_port_array_t;
 pub const exception_port_t = darwin.exception_port_t;
+pub const exception_type_t = darwin.exception_type_t;
 pub const mach_exception_data_t = darwin.mach_exception_data_t;
 pub const mach_exception_data_type_t = darwin.mach_exception_data_type_t;
 pub const mach_msg_bits_t = darwin.mach_msg_bits_t;
 pub const mach_msg_id_t = darwin.mach_msg_id_t;
+pub const mach_msg_header_t = darwin.mach_msg_header_t;
 pub const mach_msg_option_t = darwin.mach_msg_option_t;
 pub const mach_msg_size_t = darwin.mach_msg_size_t;
 pub const mach_msg_timeout_t = darwin.mach_msg_timeout_t;
@@ -11269,6 +11586,7 @@ pub const memory_object_offset_t = darwin.memory_object_offset_t;
 pub const policy_t = darwin.policy_t;
 pub const task_policy_flavor_t = darwin.task_policy_flavor_t;
 pub const task_policy_t = darwin.task_policy_t;
+pub const task_read_t = darwin.task_read_t;
 pub const task_t = darwin.task_t;
 pub const thread_act_t = darwin.thread_act_t;
 pub const thread_flavor_t = darwin.thread_flavor_t;
@@ -11332,6 +11650,7 @@ const private = struct {
     extern "c" fn pipe2(fds: *[2]fd_t, flags: O) c_int;
     extern "c" fn readdir(dir: *DIR) ?*dirent;
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
     extern "c" fn sched_yield() c_int;
     extern "c" fn sendfile(out_fd: fd_t, in_fd: fd_t, offset: ?*off_t, count: usize) isize;
     extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
@@ -11342,9 +11661,11 @@ const private = struct {
     extern "c" fn sigismember(set: ?*const sigset_t, signo: c_int) c_int;
     extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+    extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn sysconf(sc: c_int) c_long;
+    extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: mode_t) c_int;
 
     extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
     extern "c" fn getcontext(ucp: *ucontext_t) c_int;
@@ -11363,6 +11684,9 @@ const private = struct {
     extern "c" fn munlock(addr: *align(page_size) const anyopaque, len: usize) c_int;
     extern "c" fn mlockall(flags: MCL) c_int;
     extern "c" fn munlockall() c_int;
+
+    // linux and https://github.com/SerenityOS/serenity/blob/502caef9a40bccc7459f9835f2174a601106299a/Userland/Libraries/LibC/sys/ptrace.cpp
+    extern "c" fn ptrace(request: c_int, pid: pid_t, addr: ?*anyopaque, data: ?*anyopaque) c_long;
 
     /// macos modernized symbols.
     /// x86_64 links to $INODE64 suffix for 64-bit support.

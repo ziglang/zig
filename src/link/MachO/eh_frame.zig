@@ -17,31 +17,29 @@ pub const Cie = struct {
 
         if (aug[0] != 'z') return; // TODO should we error out?
 
-        var stream = std.io.fixedBufferStream(data[9 + aug.len + 1 ..]);
-        var creader = std.io.countingReader(stream.reader());
-        const reader = creader.reader();
+        var reader: std.Io.Reader = .fixed(data[9 + aug.len + 1 ..]);
 
-        _ = try leb.readUleb128(u64, reader); // code alignment factor
-        _ = try leb.readUleb128(u64, reader); // data alignment factor
-        _ = try leb.readUleb128(u64, reader); // return address register
-        _ = try leb.readUleb128(u64, reader); // augmentation data length
+        _ = try reader.takeLeb128(u64); // code alignment factor
+        _ = try reader.takeLeb128(u64); // data alignment factor
+        _ = try reader.takeLeb128(u64); // return address register
+        _ = try reader.takeLeb128(u64); // augmentation data length
 
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
-                const enc = try reader.readByte();
+                const enc = try reader.takeByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.absptr) {
                     @panic("unexpected pointer encoding"); // TODO error
                 }
             },
             'P' => {
-                const enc = try reader.readByte();
+                const enc = try reader.takeByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.indirect | DW_EH_PE.sdata4) {
                     @panic("unexpected personality pointer encoding"); // TODO error
                 }
-                _ = try reader.readInt(u32, .little); // personality pointer
+                _ = try reader.takeInt(u32, .little); // personality pointer
             },
             'L' => {
-                const enc = try reader.readByte();
+                const enc = try reader.takeByte();
                 switch (enc & DW_EH_PE.type_mask) {
                     DW_EH_PE.sdata4 => cie.lsda_size = .p32,
                     DW_EH_PE.absptr => cie.lsda_size = .p64,
@@ -81,7 +79,7 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .cie = cie,
             .macho_file = macho_file,
@@ -163,14 +161,13 @@ pub const Fde = struct {
 
         // Parse LSDA atom index if any
         if (cie.lsda_size) |lsda_size| {
-            var stream = std.io.fixedBufferStream(data[24..]);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
-            _ = try leb.readUleb128(u64, reader); // augmentation length
-            fde.lsda_ptr_offset = @intCast(creader.bytes_read + 24);
+            var reader: std.Io.Reader = .fixed(data);
+            reader.seek = 24;
+            _ = try reader.takeLeb128(u64); // augmentation length
+            fde.lsda_ptr_offset = @intCast(reader.seek);
             const lsda_ptr = switch (lsda_size) {
-                .p32 => try reader.readInt(i32, .little),
-                .p64 => try reader.readInt(i64, .little),
+                .p32 => try reader.takeInt(i32, .little),
+                .p64 => try reader.takeInt(i64, .little),
             };
             const lsda_addr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + fde.lsda_ptr_offset)) + lsda_ptr);
             fde.lsda = object.findAtom(lsda_addr) orelse {
@@ -211,7 +208,7 @@ pub const Fde = struct {
         return fde.getObject(macho_file).getAtom(fde.lsda);
     }
 
-    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .fde = fde,
             .macho_file = macho_file,
@@ -251,13 +248,12 @@ pub const Iterator = struct {
     pub fn next(it: *Iterator) !?Record {
         if (it.pos >= it.data.len) return null;
 
-        var stream = std.io.fixedBufferStream(it.data[it.pos..]);
-        const reader = stream.reader();
+        var reader: std.Io.Reader = .fixed(it.data[it.pos..]);
 
-        const size = try reader.readInt(u32, .little);
+        const size = try reader.takeInt(u32, .little);
         if (size == 0xFFFFFFFF) @panic("DWARF CFI is 32bit on macOS");
 
-        const id = try reader.readInt(u32, .little);
+        const id = try reader.takeInt(u32, .little);
         const record = Record{
             .tag = if (id == 0) .cie else .fde,
             .offset = it.pos,
@@ -505,7 +501,7 @@ const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");

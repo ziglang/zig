@@ -143,6 +143,7 @@ const PowerpcCpuinfoImpl = struct {
         .{ "POWER8NVL", &Target.powerpc.cpu.pwr8 },
         .{ "POWER9", &Target.powerpc.cpu.pwr9 },
         .{ "POWER10", &Target.powerpc.cpu.pwr10 },
+        .{ "POWER11", &Target.powerpc.cpu.pwr11 },
     };
 
     fn line_hook(self: *PowerpcCpuinfoImpl, key: []const u8, value: []const u8) !bool {

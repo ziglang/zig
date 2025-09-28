@@ -119,7 +119,7 @@ const Value = extern struct {
         }
     }
 
-    pub fn format(value: Value, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(value: Value, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         // Work around x86_64 backend limitation.
         if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
             try writer.writeAll("(unknown)");
@@ -627,7 +627,7 @@ fn exportHandler(
     // Work around x86_64 backend limitation.
     const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
     const N = "__ubsan_handle_" ++ sym_name;
-    @export(handler, .{ .name = N, .linkage = linkage });
+    @export(handler, .{ .name = N, .linkage = linkage, .visibility = if (linkage == .internal) .default else .hidden });
 }
 
 fn exportHandlerWithAbort(
@@ -639,11 +639,11 @@ fn exportHandlerWithAbort(
     const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
     {
         const N = "__ubsan_handle_" ++ sym_name;
-        @export(handler, .{ .name = N, .linkage = linkage });
+        @export(handler, .{ .name = N, .linkage = linkage, .visibility = if (linkage == .internal) .default else .hidden });
     }
     {
         const N = "__ubsan_handle_" ++ sym_name ++ "_abort";
-        @export(abort_handler, .{ .name = N, .linkage = linkage });
+        @export(abort_handler, .{ .name = N, .linkage = linkage, .visibility = if (linkage == .internal) .default else .hidden });
     }
 }
 

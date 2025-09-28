@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
 const Allocator = mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const dev = @import("../dev.zig");
 const link = @import("../link.zig");
@@ -345,15 +345,15 @@ fn isReservedIdent(ident: []const u8) bool {
     } else return reserved_idents.has(ident);
 }
 
-fn formatIdentSolo(ident: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIdentSolo(ident: []const u8, w: *Writer) Writer.Error!void {
     return formatIdentOptions(ident, w, true);
 }
 
-fn formatIdentUnsolo(ident: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIdentUnsolo(ident: []const u8, w: *Writer) Writer.Error!void {
     return formatIdentOptions(ident, w, false);
 }
 
-fn formatIdentOptions(ident: []const u8, w: *std.io.Writer, solo: bool) std.io.Writer.Error!void {
+fn formatIdentOptions(ident: []const u8, w: *Writer, solo: bool) Writer.Error!void {
     if (solo and isReservedIdent(ident)) {
         try w.writeAll("zig_e_");
     }
@@ -371,11 +371,11 @@ fn formatIdentOptions(ident: []const u8, w: *std.io.Writer, solo: bool) std.io.W
     }
 }
 
-pub fn fmtIdentSolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentSolo) {
+pub fn fmtIdentSolo(ident: []const u8) std.fmt.Alt([]const u8, formatIdentSolo) {
     return .{ .data = ident };
 }
 
-pub fn fmtIdentUnsolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentUnsolo) {
+pub fn fmtIdentUnsolo(ident: []const u8) std.fmt.Alt([]const u8, formatIdentUnsolo) {
     return .{ .data = ident };
 }
 
@@ -384,7 +384,7 @@ const CTypePoolStringFormatData = struct {
     ctype_pool: *const CType.Pool,
     solo: bool,
 };
-fn formatCTypePoolString(data: CTypePoolStringFormatData, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatCTypePoolString(data: CTypePoolStringFormatData, w: *Writer) Writer.Error!void {
     if (data.ctype_pool_string.toSlice(data.ctype_pool)) |slice|
         try formatIdentOptions(slice, w, data.solo)
     else
@@ -394,7 +394,7 @@ pub fn fmtCTypePoolString(
     ctype_pool_string: CType.Pool.String,
     ctype_pool: *const CType.Pool,
     solo: bool,
-) std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString) {
+) std.fmt.Alt(CTypePoolStringFormatData, formatCTypePoolString) {
     return .{ .data = .{
         .ctype_pool_string = ctype_pool_string,
         .ctype_pool = ctype_pool,
@@ -610,11 +610,11 @@ pub const Function = struct {
         return f.object.dg.renderIntCast(w, dest_ty, .{ .c_value = .{ .f = f, .value = src, .v = v } }, src_ty, location);
     }
 
-    fn fmtIntLiteralDec(f: *Function, val: Value) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    fn fmtIntLiteralDec(f: *Function, val: Value) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return f.object.dg.fmtIntLiteralDec(val, .Other);
     }
 
-    fn fmtIntLiteralHex(f: *Function, val: Value) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    fn fmtIntLiteralHex(f: *Function, val: Value) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return f.object.dg.fmtIntLiteralHex(val, .Other);
     }
 
@@ -711,8 +711,8 @@ pub const Function = struct {
 /// It is not available when generating .h file.
 pub const Object = struct {
     dg: DeclGen,
-    code_header: std.io.Writer.Allocating,
-    code: std.io.Writer.Allocating,
+    code_header: Writer.Allocating,
+    code: Writer.Allocating,
     indent_counter: usize,
 
     const indent_width = 1;
@@ -748,7 +748,7 @@ pub const DeclGen = struct {
     pass: Pass,
     is_naked_fn: bool,
     expected_block: ?u32,
-    fwd_decl: std.io.Writer.Allocating,
+    fwd_decl: Writer.Allocating,
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
     scratch: std.ArrayListUnmanaged(u32),
@@ -1919,7 +1919,7 @@ pub const DeclGen = struct {
         kind: CType.Kind,
         name: union(enum) {
             nav: InternPool.Nav.Index,
-            fmt_ctype_pool_string: std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString),
+            fmt_ctype_pool_string: std.fmt.Alt(CTypePoolStringFormatData, formatCTypePoolString),
             @"export": struct {
                 main_name: InternPool.NullTerminatedString,
                 extern_name: InternPool.NullTerminatedString,
@@ -2439,7 +2439,7 @@ pub const DeclGen = struct {
         loc: ValueRenderLocation,
         base: u8,
         case: std.fmt.Case,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         const zcu = dg.pt.zcu;
         const kind = loc.toCTypeKind();
         const ty = val.typeOf(zcu);
@@ -2461,7 +2461,7 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         val: Value,
         loc: ValueRenderLocation,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return fmtIntLiteral(dg, val, loc, 10, .lower);
     }
 
@@ -2469,7 +2469,7 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         val: Value,
         loc: ValueRenderLocation,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return fmtIntLiteral(dg, val, loc, 16, .lower);
     }
 };
@@ -8287,7 +8287,7 @@ const FormatStringContext = struct {
     sentinel: ?u8,
 };
 
-fn formatStringLiteral(data: FormatStringContext, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatStringLiteral(data: FormatStringContext, w: *Writer) Writer.Error!void {
     var literal: StringLiteral = .init(w, data.str.len + @intFromBool(data.sentinel != null));
     try literal.start();
     for (data.str) |c| try literal.writeChar(c);
@@ -8295,7 +8295,7 @@ fn formatStringLiteral(data: FormatStringContext, w: *std.io.Writer) std.io.Writ
     try literal.end();
 }
 
-fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(FormatStringContext, formatStringLiteral) {
+fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Alt(FormatStringContext, formatStringLiteral) {
     return .{ .data = .{ .str = str, .sentinel = sentinel } };
 }
 
@@ -8314,7 +8314,7 @@ const FormatIntLiteralContext = struct {
     base: u8,
     case: std.fmt.Case,
 };
-fn formatIntLiteral(data: FormatIntLiteralContext, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIntLiteral(data: FormatIntLiteralContext, w: *Writer) Writer.Error!void {
     const pt = data.dg.pt;
     const zcu = pt.zcu;
     const target = &data.dg.mod.resolved_target.result;

@@ -1,6 +1,5 @@
 const std = @import("std");
 const fs = std.fs;
-const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
 const fatal = std.process.fatal;
@@ -25,9 +24,9 @@ pub fn cmdTargets(
     defer allocator.free(zig_lib_directory.path.?);
 
     const abilists_contents = zig_lib_directory.handle.readFileAlloc(
-        allocator,
         glibc.abilists_path,
-        glibc.abilists_max_size,
+        allocator,
+        .limited(glibc.abilists_max_size),
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => fatal("unable to read " ++ glibc.abilists_path ++ ": {s}", .{@errorName(err)}),

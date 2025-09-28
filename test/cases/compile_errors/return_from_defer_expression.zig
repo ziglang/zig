@@ -17,8 +17,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:11: error: 'try' not allowed inside defer expression
 // :4:5: note: defer expression here

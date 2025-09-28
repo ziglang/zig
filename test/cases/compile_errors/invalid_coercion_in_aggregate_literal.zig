@@ -14,8 +14,6 @@ export fn invalidStructField() u8 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:41: error: type 'u8' cannot represent integer value '256'
 // :7:49: error: type 'u8' cannot represent integer value '256'

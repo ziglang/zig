@@ -4,7 +4,5 @@ test {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:14: error: unused capture

@@ -16,5 +16,5 @@ fn unsigned_cast(x: i32) u32 {
     return @intCast(x);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

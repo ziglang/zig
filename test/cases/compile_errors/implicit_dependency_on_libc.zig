@@ -4,7 +4,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
 // target=native-linux
 //
 // :1:8: error: dependency on libc must be explicitly specified in the build command

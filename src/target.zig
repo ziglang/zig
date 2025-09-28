@@ -189,7 +189,9 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .powerpc64le,
         .amdgcn,
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         .sparc,
         .sparc64,
         .spirv32,
@@ -229,6 +231,16 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
+pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.CompilerBackend) bool {
+    return switch (ofmt) {
+        .elf => switch (backend) {
+            .stage2_x86_64 => true,
+            else => false,
+        },
+        else => false,
+    };
+}
+
 /// The set of targets that our own self-hosted backends have robust support for.
 /// Used to select between LLVM backend and self-hosted backend when compiling in
 /// debug mode. A given target should only return true here if it is passing greater
@@ -236,7 +248,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
     if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
-        if (target.os.tag == .netbsd or target.os.tag == .openbsd) {
+        if (target.os.tag.isBSD()) {
             // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
             return false;
         }
@@ -486,7 +498,9 @@ pub fn clangSupportsNoImplicitFloatArg(target: *const std.Target) bool {
         .thumb,
         .thumbeb,
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         .x86,
         .x86_64,
         => true,
@@ -655,7 +669,7 @@ pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
             else => if (target.abi.isMusl()) "elfv2" else "elfv1",
         },
         .powerpc64le => "elfv2",
-        .riscv64 => if (target.cpu.has(.riscv, .e))
+        .riscv64, .riscv64be => if (target.cpu.has(.riscv, .e))
             "lp64e"
         else if (target.cpu.has(.riscv, .d))
             "lp64d"
@@ -663,7 +677,7 @@ pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
             "lp64f"
         else
             "lp64",
-        .riscv32 => if (target.cpu.has(.riscv, .e))
+        .riscv32, .riscv32be => if (target.cpu.has(.riscv, .e))
             "ilp32e"
         else if (target.cpu.has(.riscv, .d))
             "ilp32d"
@@ -707,7 +721,9 @@ pub fn defaultFunctionAlignment(target: *const std.Target) Alignment {
 pub fn minFunctionAlignment(target: *const std.Target) Alignment {
     return switch (target.cpu.arch) {
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         => if (target.cpu.hasAny(.riscv, &.{ .c, .zca })) .@"2" else .@"4",
         .thumb,
         .thumbeb,

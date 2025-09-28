@@ -75,7 +75,10 @@ pub const HOST_NAME_MAX = system.HOST_NAME_MAX;
 pub const HW = system.HW;
 pub const IFNAMESIZE = system.IFNAMESIZE;
 pub const IOV_MAX = system.IOV_MAX;
+pub const IP = system.IP;
+pub const IPV6 = system.IPV6;
 pub const IPPROTO = system.IPPROTO;
+pub const IPTOS = system.IPTOS;
 pub const KERN = system.KERN;
 pub const Kevent = system.Kevent;
 pub const MADV = system.MADV;
@@ -101,6 +104,7 @@ pub const RR = system.RR;
 pub const S = system.S;
 pub const SA = system.SA;
 pub const SC = system.SC;
+pub const SCM = system.SCM;
 pub const SEEK = system.SEEK;
 pub const SHUT = system.SHUT;
 pub const SIG = system.SIG;
@@ -133,7 +137,10 @@ pub const fd_t = system.fd_t;
 pub const file_obj = system.file_obj;
 pub const gid_t = system.gid_t;
 pub const ifreq = system.ifreq;
+pub const in_pktinfo = system.in_pktinfo;
+pub const in6_pktinfo = system.in6_pktinfo;
 pub const ino_t = system.ino_t;
+pub const linger = system.linger;
 pub const mcontext_t = system.mcontext_t;
 pub const mode_t = system.mode_t;
 pub const msghdr = system.msghdr;
@@ -490,7 +497,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
         return error.OperationNotSupported;
 
     var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-    const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{pathfd}) catch unreachable;
+    const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/fd/{d}", .{pathfd}, 0) catch unreachable;
     while (true) {
         const res = system.chmod(proc_path, mode);
         switch (errno(res)) {
@@ -671,8 +678,8 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     }
 
     const file: fs.File = .{ .handle = fd };
-    const stream = file.deprecatedReader();
-    stream.readNoEof(buf) catch return error.Unexpected;
+    var file_reader = file.readerStreaming(&.{});
+    file_reader.interface.readSliceAll(buf) catch return error.Unexpected;
 }
 
 /// Causes abnormal process termination.
@@ -3671,6 +3678,46 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     }
 }
 
+pub fn socketpair(domain: u32, socket_type: u32, protocol: u32) SocketError![2]socket_t {
+    // Note to the future: we could provide a shim here for e.g. windows which
+    // creates a listening socket, then creates a second socket and connects it
+    // to the listening socket, and then returns the two.
+    if (@TypeOf(system.socketpair) == void)
+        @compileError("socketpair() not supported by this OS");
+
+    // I'm not really sure if haiku supports flags here.  I'm following the
+    // existing filter here from pipe2(), because it sure seems like it
+    // supports flags there too, but haiku can be hard to understand.
+    const have_sock_flags = !builtin.target.os.tag.isDarwin() and native_os != .haiku;
+    const filtered_sock_type = if (!have_sock_flags)
+        socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC)
+    else
+        socket_type;
+    var socks: [2]socket_t = undefined;
+    const rc = system.socketpair(domain, filtered_sock_type, protocol, &socks);
+    switch (errno(rc)) {
+        .SUCCESS => {
+            errdefer close(socks[0]);
+            errdefer close(socks[1]);
+            if (!have_sock_flags) {
+                try setSockFlags(socks[0], socket_type);
+                try setSockFlags(socks[1], socket_type);
+            }
+            return socks;
+        },
+        .ACCES => return error.AccessDenied,
+        .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+        .INVAL => return error.ProtocolFamilyNotAvailable,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NOBUFS => return error.SystemResources,
+        .NOMEM => return error.SystemResources,
+        .PROTONOSUPPORT => return error.ProtocolNotSupported,
+        .PROTOTYPE => return error.SocketTypeNotSupported,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const ShutdownError = error{
     ConnectionAborted,
 
@@ -4285,6 +4332,9 @@ pub const ConnectError = error{
 
     /// Socket is non-blocking and already has a pending connection in progress.
     ConnectionPending,
+
+    /// Socket was already connected
+    AlreadyConnected,
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
@@ -4305,7 +4355,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             => return error.NetworkUnreachable,
             .WSAEFAULT => unreachable,
             .WSAEINVAL => unreachable,
-            .WSAEISCONN => unreachable,
+            .WSAEISCONN => return error.AlreadyConnected,
             .WSAENOTSOCK => unreachable,
             .WSAEWOULDBLOCK => return error.WouldBlock,
             .WSAEACCES => unreachable,
@@ -4331,7 +4381,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .CONNRESET => return error.ConnectionResetByPeer,
             .FAULT => unreachable, // The socket structure address is outside the user's address space.
             .INTR => continue,
-            .ISCONN => unreachable, // The socket is already connected.
+            .ISCONN => return error.AlreadyConnected, // The socket is already connected.
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
@@ -4391,7 +4441,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             .BADF => unreachable, // sockfd is not a valid open file descriptor.
             .CONNREFUSED => return error.ConnectionRefused,
             .FAULT => unreachable, // The socket structure address is outside the user's address space.
-            .ISCONN => unreachable, // The socket is already connected.
+            .ISCONN => return error.AlreadyConnected, // The socket is already connected.
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
@@ -5291,13 +5341,19 @@ pub fn sysctl(
     }
 }
 
+pub const SysCtlByNameError = error{
+    PermissionDenied,
+    SystemResources,
+    UnknownName,
+} || UnexpectedError;
+
 pub fn sysctlbynameZ(
     name: [*:0]const u8,
     oldp: ?*anyopaque,
     oldlenp: ?*usize,
     newp: ?*anyopaque,
     newlen: usize,
-) SysCtlError!void {
+) SysCtlByNameError!void {
     if (native_os == .wasi) {
         @compileError("sysctl not supported on WASI");
     }
@@ -6459,14 +6515,16 @@ pub const CopyFileRangeError = error{
 ///
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    if (builtin.os.tag == .freebsd or
-        (comptime builtin.os.tag == .linux and std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 })))
-    {
+    if (builtin.os.tag == .freebsd or builtin.os.tag == .linux) {
+        const use_c = native_os != .linux or
+            std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 });
+        const sys = if (use_c) std.c else linux;
+
         var off_in_copy: i64 = @bitCast(off_in);
         var off_out_copy: i64 = @bitCast(off_out);
 
         while (true) {
-            const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
+            const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
             if (native_os == .freebsd) {
                 switch (errno(rc)) {
                     .SUCCESS => return @intCast(rc),
@@ -6595,6 +6653,9 @@ pub const RecvFromError = error{
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
+
+    /// The other end closed the socket unexpectedly or a read is executed on a shut down socket
+    BrokenPipe,
 } || UnexpectedError;
 
 pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
@@ -6643,8 +6704,58 @@ pub fn recvfrom(
                 .CONNREFUSED => return error.ConnectionRefused,
                 .CONNRESET => return error.ConnectionResetByPeer,
                 .TIMEDOUT => return error.ConnectionTimedOut,
+                .PIPE => return error.BrokenPipe,
                 else => |err| return unexpectedErrno(err),
             }
+        }
+    }
+}
+
+pub const RecvMsgError = RecvFromError || error{
+    /// Reception of SCM_RIGHTS fds via ancillary data in msg.control would
+    /// exceed some system limit (generally this is retryable by trying to
+    /// receive fewer fds or closing some existing fds)
+    SystemFdQuotaExceeded,
+
+    /// Reception of SCM_RIGHTS fds via ancillary data in msg.control would
+    /// exceed some process limit (generally this is retryable by trying to
+    /// receive fewer fds, closing some existing fds, or changing the ulimit)
+    ProcessFdQuotaExceeded,
+};
+
+/// If `sockfd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
+pub fn recvmsg(
+    /// The file descriptor of the sending socket.
+    sockfd: socket_t,
+    /// Message header and iovecs
+    msg: *msghdr,
+    flags: u32,
+) RecvMsgError!usize {
+    if (@TypeOf(system.recvmsg) == void)
+        @compileError("recvmsg() not supported on this OS");
+    while (true) {
+        const rc = system.recvmsg(sockfd, msg, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .AGAIN => return error.WouldBlock,
+            .BADF => unreachable, // always a race condition
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .INTR => continue,
+            .FAULT => unreachable, // An invalid user space address was specified for an argument.
+            .INVAL => unreachable, // Invalid argument passed.
+            .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .MSGSIZE => return error.MessageTooBig,
+            .PIPE => return error.BrokenPipe,
+            .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .NETDOWN => return error.NetworkSubsystemFailed,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
@@ -6898,7 +7009,7 @@ pub const SetSidError = error{
 pub fn setsid() SetSidError!pid_t {
     const rc = system.setsid();
     switch (errno(rc)) {
-        .SUCCESS => return rc,
+        .SUCCESS => return @intCast(rc),
         .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
@@ -7275,18 +7386,33 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!system.itimerspec {
 }
 
 pub const PtraceError = error{
+    DeadLock,
     DeviceBusy,
     InputOutput,
+    NameTooLong,
+    OperationNotSupported,
+    OutOfMemory,
     ProcessNotFound,
     PermissionDenied,
 } || UnexpectedError;
 
-pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!void {
-    if (native_os == .windows or native_os == .wasi)
-        @compileError("Unsupported OS");
-
+pub fn ptrace(request: u32, pid: pid_t, addr: usize, data: usize) PtraceError!void {
     return switch (native_os) {
-        .linux => switch (errno(linux.ptrace(request, pid, addr, signal, 0))) {
+        .windows,
+        .wasi,
+        .emscripten,
+        .haiku,
+        .solaris,
+        .illumos,
+        .plan9,
+        => @compileError("ptrace unsupported by target OS"),
+
+        .linux => switch (errno(if (builtin.link_libc) std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @ptrFromInt(data),
+        ) else linux.ptrace(request, pid, addr, data, 0))) {
             .SUCCESS => {},
             .SRCH => error.ProcessNotFound,
             .FAULT => unreachable,
@@ -7298,10 +7424,10 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
         },
 
         .macos, .ios, .tvos, .watchos, .visionos => switch (errno(std.c.ptrace(
-            @intCast(request),
+            @enumFromInt(request),
             pid,
             @ptrFromInt(addr),
-            @intCast(signal),
+            @intCast(data),
         ))) {
             .SUCCESS => {},
             .SRCH => error.ProcessNotFound,
@@ -7311,7 +7437,12 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
             else => |err| return unexpectedErrno(err),
         },
 
-        else => switch (errno(system.ptrace(request, pid, addr, signal))) {
+        .dragonfly => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
             .SUCCESS => {},
             .SRCH => error.ProcessNotFound,
             .INVAL => unreachable,
@@ -7319,6 +7450,54 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
             .BUSY => error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         },
+
+        .freebsd => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            .NOENT, .NOMEM => error.OutOfMemory,
+            .NAMETOOLONG => error.NameTooLong,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        .netbsd => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            .DEADLK => error.DeadLock,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        .openbsd => switch (errno(std.c.ptrace(
+            @intCast(request),
+            pid,
+            @ptrFromInt(addr),
+            @intCast(data),
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            .NOTSUP => error.OperationNotSupported,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        else => @compileError("std.posix.ptrace unimplemented for target OS"),
     };
 }
 

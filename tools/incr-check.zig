@@ -52,7 +52,7 @@ pub fn main() !void {
     const zig_exe = opt_zig_exe orelse fatal("missing path to zig\n{s}", .{usage});
     const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
 
-    const input_file_bytes = try std.fs.cwd().readFileAlloc(arena, input_file_name, std.math.maxInt(u32));
+    const input_file_bytes = try std.fs.cwd().readFileAlloc(input_file_name, arena, .limited(std.math.maxInt(u32)));
     const case = try Case.parse(arena, input_file_bytes);
 
     // Check now: if there are any targets using the `cbe` backend, we need the lib dir.
@@ -226,7 +226,7 @@ const Eval = struct {
     cc_child_args: *std.ArrayListUnmanaged([]const u8),
 
     const StreamEnum = enum { stdout, stderr };
-    const Poller = std.io.Poller(StreamEnum);
+    const Poller = std.Io.Poller(StreamEnum);
 
     /// Currently this function assumes the previous updates have already been written.
     fn write(eval: *Eval, update: Case.Update) void {

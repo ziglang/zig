@@ -3,7 +3,7 @@ thread_pool: *std.Thread.Pool,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
 listen_address: std.net.Address,
-ttyconf: std.io.tty.Config,
+ttyconf: std.Io.tty.Config,
 root_prog_node: std.Progress.Node,
 watch: bool,
 
@@ -53,7 +53,7 @@ pub const Options = struct {
     thread_pool: *std.Thread.Pool,
     graph: *const std.Build.Graph,
     all_steps: []const *Build.Step,
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
     root_prog_node: std.Progress.Node,
     watch: bool,
     listen_address: std.net.Address,
@@ -219,12 +219,20 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
             // Affects or affected by issues #5185, #22523, and #22464.
             std.process.fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
         }
+
         assert(ws.fuzz == null);
 
         ws.build_status.store(.fuzz_init, .monotonic);
         ws.notifyUpdate();
 
-        ws.fuzz = Fuzz.init(ws) catch |err| std.process.fatal("failed to start fuzzer: {s}", .{@errorName(err)});
+        ws.fuzz = Fuzz.init(
+            ws.gpa,
+            ws.thread_pool,
+            ws.all_steps,
+            ws.root_prog_node,
+            ws.ttyconf,
+            .{ .forever = .{ .ws = ws } },
+        ) catch |err| std.process.fatal("failed to start fuzzer: {s}", .{@errorName(err)});
         ws.fuzz.?.start();
     }
 
@@ -323,7 +331,7 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
                 // Temporarily unlock, then re-lock after the message is sent.
                 ws.time_report_mutex.unlock();
                 defer ws.time_report_mutex.lock();
-                try sock.writeMessage(msg, .binary);
+                try sock.writeMessage(owned_msg, .binary);
             }
         }
 
@@ -446,7 +454,7 @@ pub fn serveFile(
     // The desired API is actually sendfile, which will require enhancing http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
-    const file_contents = path.root_dir.handle.readFileAlloc(gpa, path.sub_path, 10 * 1024 * 1024) catch |err| {
+    const file_contents = path.root_dir.handle.readFileAlloc(path.sub_path, gpa, .limited(10 * 1024 * 1024)) catch |err| {
         log.err("failed to read '{f}': {s}", .{ path, @errorName(err) });
         return error.AlreadyReported;
     };
@@ -557,7 +565,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     child.stderr_behavior = .Pipe;
     try child.spawn();
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });

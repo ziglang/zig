@@ -25,8 +25,11 @@ __BEGIN_DECLS
  * Clients can initiate a session with a service that accepts xpc_connection_t connections but session
  * semantics will be maintained.
  *
+ * Sessions can be created in an active or inactive state. They must be
+ * activated and subsequently cancelled before they can be released.
+ *
  */
-OS_OBJECT_DECL_CLASS(xpc_session);
+OS_OBJECT_DECL_SENDABLE_CLASS(xpc_session);
 
 #pragma mark Constants
 /*!
@@ -244,8 +247,8 @@ xpc_session_set_target_queue(xpc_session_t session,
  *
  * @discussion
  * xpc_session_activate must not be called on a session that has been already
- * activated. Releasing the last reference on an inactive session that was
- * created with an xpc_session_create*() will trigger an API misuse crash.
+ * activated. Releasing the last reference on an inactive session or an
+ * active session that has not been cancelled will trigger an API misuse crash.
  *
  * If activation fails, the session is automatically cancelled. 
  */
@@ -266,8 +269,9 @@ xpc_session_activate(xpc_session_t session,
  * The session object to cancel.
  *
  * @discussion
- * Session must have been activated to be canceled. Cancellation is asynchronous
- * and non-preemptive.
+ * Session must have been activated to be cancelled and must be cancelled
+ * before the last reference can be released. Cancellation is asynchronous and
+ * non-preemptive.
  */
 API_AVAILABLE(macos(13.0), ios(16.0), tvos(16.0), watchos(9.0))
 XPC_EXPORT XPC_SWIFT_NOEXPORT
@@ -388,20 +392,26 @@ xpc_session_send_message_with_reply_async(xpc_session_t session,
  * The session object which is to be modified.
  *
  * @param requirement
- * The code signing requirement to be satisfied by the peer
- * It is safe to deallocate the requirement string after calling `xpc_session_set_peer_code_signing_requirement`
+ * The code signing requirement to be satisfied by the peer. It is safe to
+ * deallocate the requirement string after calling this function.
  *
  * @result
  * 0 on success, non-zero on error
  *
  * @discussion
- * This function will return an error promptly if the code signing requirement string is invalid.
+ * This function will return an error promptly if the code signing requirement
+ * string is invalid.
  *
- * It is a programming error to call `xpc_session_set_peer_code_signing_requirement` more than once per session.
+ * It is a programming error to call `xpc_session_set_peer_*requirement` more
+ * than once per session.
  *
- * All messages received on this session will be checked to ensure they come from a peer who satisfies
- * the code signing requirement. When message or a reply is received on the session and the peer does
- * not satisfy the requirement the session will be cancelled.
+ * All messages received on this session will be checked to ensure they come
+ * from a peer who satisfies the code signing requirement. When message or a
+ * reply is received on the session and the peer does not satisfy the
+ * requirement the session will be cancelled. A rich error describing the peer
+ * code signing error will be passed to the cancellation handler. For
+ * `xpc_session_send_message_with_reply_*` NULL will be returned instead of
+ * reply, with `error_out` pointing to that rich error.
  *
  * @see https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements
  */
@@ -410,6 +420,34 @@ API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 int
 xpc_session_set_peer_code_signing_requirement(xpc_session_t session, const char *requirement);
+
+/*!
+ * @function xpc_session_set_peer_requirement
+ * Requires that the session peer satisfies a requirement.
+ *
+ * @param session
+ * The session object which is to be modified. Must be inactive.
+ *
+ * @param requirement
+ * The requirement to be satisfied by the peer. It will be retained by XPC.
+ *
+ * @discussion
+ * It is a programming error to call `xpc_session_set_peer_*requirement` more
+ * than once per session.
+ *
+ * All messages received on this session will be checked to ensure they come
+ * from a peer who satisfies the requirement. When a reply is expected on the
+ * session and the peer does not satisfy the requirement, the session will be
+ * canceled with cancellation handler called with a rich error describing the
+ * peer code signing error. For `xpc_session_send_message_with_reply_sync` NULL
+ * will be returned instead of reply, with `error_out` (if set) pointing to the
+ * rich error describing the peer code signing error.
+ */
+API_AVAILABLE(macos(26.0), ios(26.0))
+API_UNAVAILABLE(tvos, watchos)
+XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_NONNULL_ALL
+void
+xpc_session_set_peer_requirement(xpc_session_t session, xpc_peer_requirement_t requirement);
 
 /* This is included for compatibility and should not be used in new code */
 #define XPC_TYPE_SESSION (&_xpc_type_session)

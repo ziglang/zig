@@ -23,7 +23,7 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const BitStack = std.BitStack;
 const Stringify = @This();
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const IndentationMode = enum(u1) {
     object = 0,
@@ -576,7 +576,7 @@ pub fn value(v: anytype, options: Options, writer: *Writer) Error!void {
 }
 
 test value {
-    var out: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var out: Writer.Allocating = .init(std.testing.allocator);
     const writer = &out.writer;
     defer out.deinit();
 
@@ -616,7 +616,7 @@ test value {
 ///
 /// Caller owns returned memory.
 pub fn valueAlloc(gpa: Allocator, v: anytype, options: Options) error{OutOfMemory}![]u8 {
-    var aw: std.io.Writer.Allocating = .init(gpa);
+    var aw: Writer.Allocating = .init(gpa);
     defer aw.deinit();
     value(v, options, &aw.writer) catch return error.OutOfMemory;
     return aw.toOwnedSlice();

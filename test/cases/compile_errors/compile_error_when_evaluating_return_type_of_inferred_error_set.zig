@@ -8,7 +8,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:11: error: use of undeclared identifier 'SymbolThatDoesNotExist'

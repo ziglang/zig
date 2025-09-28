@@ -153,7 +153,7 @@ template <class _Tp, class _Container>
 _LIBCPP_HIDE_FROM_ABI bool operator<(const stack<_Tp, _Container>& __x, const stack<_Tp, _Container>& __y);
 
 template <class _Tp, class _Container /*= deque<_Tp>*/>
-class _LIBCPP_TEMPLATE_VIS stack {
+class stack {
 public:
   typedef _Container container_type;
   typedef typename container_type::value_type value_type;
@@ -279,10 +279,18 @@ public:
   [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI const _Container& __get_container() const { return c; }
 
   template <class _T1, class _OtherContainer>
-  friend bool operator==(const stack<_T1, _OtherContainer>& __x, const stack<_T1, _OtherContainer>& __y);
+  friend _LIBCPP_HIDE_FROM_ABI bool
+  operator==(const stack<_T1, _OtherContainer>& __x, const stack<_T1, _OtherContainer>& __y);
 
   template <class _T1, class _OtherContainer>
-  friend bool operator<(const stack<_T1, _OtherContainer>& __x, const stack<_T1, _OtherContainer>& __y);
+  friend _LIBCPP_HIDE_FROM_ABI bool
+  operator<(const stack<_T1, _OtherContainer>& __x, const stack<_T1, _OtherContainer>& __y);
+
+#  if _LIBCPP_STD_VER >= 20
+  template <class _T1, three_way_comparable _OtherContainer>
+  friend _LIBCPP_HIDE_FROM_ABI compare_three_way_result_t<_OtherContainer>
+  operator<=>(const stack<_T1, _OtherContainer>& __x, const stack<_T1, _OtherContainer>& __y);
+#  endif
 };
 
 #  if _LIBCPP_STD_VER >= 17
@@ -353,8 +361,7 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator<=(const stack<_Tp, _Container>& __x, 
 template <class _Tp, three_way_comparable _Container>
 _LIBCPP_HIDE_FROM_ABI compare_three_way_result_t<_Container>
 operator<=>(const stack<_Tp, _Container>& __x, const stack<_Tp, _Container>& __y) {
-  // clang 16 bug: declaring `friend operator<=>` causes "use of overloaded operator '*' is ambiguous" errors
-  return __x.__get_container() <=> __y.__get_container();
+  return __x.c <=> __y.c;
 }
 
 #  endif
@@ -366,8 +373,7 @@ inline _LIBCPP_HIDE_FROM_ABI void swap(stack<_Tp, _Container>& __x, stack<_Tp, _
 }
 
 template <class _Tp, class _Container, class _Alloc>
-struct _LIBCPP_TEMPLATE_VIS uses_allocator<stack<_Tp, _Container>, _Alloc> : public uses_allocator<_Container, _Alloc> {
-};
+struct uses_allocator<stack<_Tp, _Container>, _Alloc> : public uses_allocator<_Container, _Alloc> {};
 
 _LIBCPP_END_NAMESPACE_STD
 

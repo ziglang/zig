@@ -10,7 +10,5 @@ export fn entry() i32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:13: error: aoeu

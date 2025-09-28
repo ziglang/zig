@@ -1,24 +1,31 @@
 const std = @import("../../std.zig");
-const lzma = @import("../lzma.zig");
+const lzma = std.compress.lzma;
 
 fn testDecompress(compressed: []const u8) ![]u8 {
-    const allocator = std.testing.allocator;
-    var stream = std.io.fixedBufferStream(compressed);
-    var decompressor = try lzma.decompress(allocator, stream.reader());
+    const gpa = std.testing.allocator;
+    var stream: std.Io.Reader = .fixed(compressed);
+
+    var decompressor = try lzma.Decompress.initOptions(&stream, gpa, &.{}, .{}, std.math.maxInt(u32));
     defer decompressor.deinit();
-    const reader = decompressor.reader();
-    return reader.readAllAlloc(allocator, std.math.maxInt(usize));
+    return decompressor.reader.allocRemaining(gpa, .unlimited);
 }
 
 fn testDecompressEqual(expected: []const u8, compressed: []const u8) !void {
-    const allocator = std.testing.allocator;
+    const gpa = std.testing.allocator;
     const decomp = try testDecompress(compressed);
-    defer allocator.free(decomp);
+    defer gpa.free(decomp);
     try std.testing.expectEqualSlices(u8, expected, decomp);
 }
 
 fn testDecompressError(expected: anyerror, compressed: []const u8) !void {
-    return std.testing.expectError(expected, testDecompress(compressed));
+    const gpa = std.testing.allocator;
+    var stream: std.Io.Reader = .fixed(compressed);
+
+    var decompressor = try lzma.Decompress.initOptions(&stream, gpa, &.{}, .{}, std.math.maxInt(u32));
+    defer decompressor.deinit();
+
+    try std.testing.expectError(error.ReadFailed, decompressor.reader.allocRemaining(gpa, .unlimited));
+    try std.testing.expectEqual(expected, decompressor.err orelse return error.TestFailed);
 }
 
 test "decompress empty world" {
@@ -76,24 +83,26 @@ test "known size with end of payload marker" {
 
 test "too big uncompressed size in header" {
     try testDecompressError(
-        error.CorruptInput,
+        error.DecompressedSizeMismatch,
         @embedFile("testdata/bad-too_big_size-with_eopm.lzma"),
     );
 }
 
 test "too small uncompressed size in header" {
     try testDecompressError(
-        error.CorruptInput,
+        error.DecompressedSizeMismatch,
         @embedFile("testdata/bad-too_small_size-without_eopm-3.lzma"),
     );
 }
 
 test "reading one byte" {
+    const gpa = std.testing.allocator;
     const compressed = @embedFile("testdata/good-known_size-with_eopm.lzma");
-    var stream = std.io.fixedBufferStream(compressed);
-    var decompressor = try lzma.decompress(std.testing.allocator, stream.reader());
+    var stream: std.Io.Reader = .fixed(compressed);
+    var decompressor = try lzma.Decompress.initOptions(&stream, gpa, &.{}, .{}, std.math.maxInt(u32));
     defer decompressor.deinit();
 
-    var buffer = [1]u8{0};
-    _ = try decompressor.read(buffer[0..]);
+    var buffer: [1]u8 = undefined;
+    try decompressor.reader.readSliceAll(&buffer);
+    try std.testing.expectEqual(72, buffer[0]);
 }

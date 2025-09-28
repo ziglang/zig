@@ -82,13 +82,11 @@ pub fn main() !void {
 
     try readExtRegistry(&exts, std.fs.cwd(), args[2]);
 
-    const output_buf = try allocator.alloc(u8, 1024 * 1024);
-    var fbs = std.io.fixedBufferStream(output_buf);
-    var adapter = fbs.writer().adaptToNewApi(&.{});
-    const w = &adapter.new_interface;
-    try render(w, core_spec, exts.items);
-    var output: [:0]u8 = @ptrCast(fbs.getWritten());
-    output[output.len] = 0;
+    var allocating: std.Io.Writer.Allocating = .init(allocator);
+    defer allocating.deinit();
+    try render(&allocating.writer, core_spec, exts.items);
+    try allocating.writer.writeByte(0);
+    const output = allocating.written()[0 .. allocating.written().len - 1 :0];
 
     var tree = try std.zig.Ast.parse(allocator, output, .zig);
     var color: std.zig.Color = .on;
@@ -138,7 +136,7 @@ fn readExtRegistry(exts: *std.array_list.Managed(Extension), dir: std.fs.Dir, su
 }
 
 fn readRegistry(comptime RegistryType: type, dir: std.fs.Dir, path: []const u8) !RegistryType {
-    const spec = try dir.readFileAlloc(allocator, path, std.math.maxInt(usize));
+    const spec = try dir.readFileAlloc(path, allocator, .unlimited);
     // Required for json parsing.
     // TODO: ALI
     @setEvalBranchQuota(10000);
@@ -191,7 +189,7 @@ fn tagPriorityScore(tag: []const u8) usize {
 }
 
 fn render(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     registry: CoreRegistry,
     extensions: []const Extension,
 ) !void {
@@ -216,7 +214,7 @@ fn render(
         \\    none,
         \\    _,
         \\
-        \\    pub fn format(self: Id, writer: *std.io.Writer) std.io.Writer.Error!void {
+        \\    pub fn format(self: Id, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\        switch (self) {
         \\            .none => try writer.writeAll("(none)"),
         \\            else => try writer.print("%{d}", .{@intFromEnum(self)}),
@@ -329,7 +327,7 @@ fn render(
 }
 
 fn renderInstructionSet(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     core: CoreRegistry,
     extensions: []const Extension,
     all_operand_kinds: OperandKindMap,
@@ -364,7 +362,7 @@ fn renderInstructionSet(
 }
 
 fn renderInstructionsCase(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     set_name: []const u8,
     instructions: []const Instruction,
     all_operand_kinds: OperandKindMap,
@@ -411,7 +409,7 @@ fn renderInstructionsCase(
     );
 }
 
-fn renderClass(writer: *std.io.Writer, instructions: []const Instruction) !void {
+fn renderClass(writer: *std.Io.Writer, instructions: []const Instruction) !void {
     var class_map = std.StringArrayHashMap(void).init(allocator);
 
     for (instructions) |inst| {
@@ -429,10 +427,9 @@ fn renderClass(writer: *std.io.Writer, instructions: []const Instruction) !void 
 const Formatter = struct {
     data: []const u8,
 
-    fn format(f: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn format(f: Formatter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         var id_buf: [128]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&id_buf);
-        const fw = fbs.writer();
+        var fw: std.Io.Writer = .fixed(&id_buf);
         for (f.data, 0..) |c, i| {
             switch (c) {
                 '-', '_', '.', '~', ' ' => fw.writeByte('_') catch return error.WriteFailed,
@@ -452,7 +449,7 @@ const Formatter = struct {
         }
 
         // make sure that this won't clobber with zig keywords
-        try writer.print("{f}", .{std.zig.fmtId(fbs.getWritten())});
+        try writer.print("{f}", .{std.zig.fmtId(fw.buffered())});
     }
 };
 
@@ -460,7 +457,7 @@ fn formatId(identifier: []const u8) std.fmt.Alt(Formatter, Formatter.format) {
     return .{ .data = .{ .data = identifier } };
 }
 
-fn renderOperandKind(writer: *std.io.Writer, operands: []const OperandKind) !void {
+fn renderOperandKind(writer: *std.Io.Writer, operands: []const OperandKind) !void {
     try writer.writeAll(
         \\pub const OperandKind = enum {
         \\    opcode,
@@ -516,7 +513,7 @@ fn renderOperandKind(writer: *std.io.Writer, operands: []const OperandKind) !voi
     try writer.writeAll("};\n}\n};\n");
 }
 
-fn renderEnumerant(writer: *std.io.Writer, enumerant: Enumerant) !void {
+fn renderEnumerant(writer: *std.Io.Writer, enumerant: Enumerant) !void {
     try writer.print(".{{.name = \"{s}\", .value = ", .{enumerant.enumerant});
     switch (enumerant.value) {
         .bitflag => |flag| try writer.writeAll(flag),
@@ -533,7 +530,7 @@ fn renderEnumerant(writer: *std.io.Writer, enumerant: Enumerant) !void {
 }
 
 fn renderOpcodes(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     opcode_type_name: []const u8,
     want_operands: bool,
     instructions: []const Instruction,
@@ -632,7 +629,7 @@ fn renderOpcodes(
 }
 
 fn renderOperandKinds(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     kinds: []const OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
@@ -646,7 +643,7 @@ fn renderOperandKinds(
 }
 
 fn renderValueEnum(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     enumeration: OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
@@ -724,7 +721,7 @@ fn renderValueEnum(
 }
 
 fn renderBitEnum(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     enumeration: OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
@@ -807,7 +804,7 @@ fn renderBitEnum(
 }
 
 fn renderOperand(
-    writer: *std.io.Writer,
+    writer: *std.Io.Writer,
     kind: enum {
         @"union",
         instruction,
@@ -891,7 +888,7 @@ fn renderOperand(
     try writer.writeAll(",\n");
 }
 
-fn renderFieldName(writer: *std.io.Writer, operands: []const Operand, field_index: usize) !void {
+fn renderFieldName(writer: *std.Io.Writer, operands: []const Operand, field_index: usize) !void {
     const operand = operands[field_index];
 
     derive_from_kind: {

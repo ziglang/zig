@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2022 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2025 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -126,6 +126,7 @@
 #define O_TRUNC         0x00000400      /* truncate to zero length */
 #define O_EXCL          0x00000800      /* error if already exists */
 #define O_RESOLVE_BENEATH 0x00001000    /* only for open(2), same value as FMARK */
+#define O_UNIQUE        0x00002000      /* only for open(2), same value as FDEFER */
 
 
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
@@ -181,6 +182,8 @@
 #define AT_REALDEV              0x0200  /* Return real device inodes resides on for fstatat(2) */
 #define AT_FDONLY               0x0400  /* Use only the fd and Ignore the path for fstatat(2) */
 #define AT_SYMLINK_NOFOLLOW_ANY 0x0800  /* Path should not contain any symlinks */
+#define AT_RESOLVE_BENEATH      0x2000  /* Path must reside in the hierarchy beneath the starting directory */
+#define AT_NODELETEBUSY         0x4000  /* Don't delete busy files */
 #endif
 #endif
 
@@ -258,9 +261,7 @@
 #define F_THAW_FS       54              /* "thaw" all fs operations */
 #define F_GLOBAL_NOCACHE 55             /* turn data caching off/on (globally) for this file */
 
-
 #define F_ADDSIGS       59              /* add detached signatures */
-
 
 #define F_ADDFILESIGS   61              /* add signature from same file (used by dyld for shared libs) */
 
@@ -282,7 +283,6 @@
 
 /* See F_DUPFD_CLOEXEC below for 67 */
 
-
 #define F_SETBACKINGSTORE       70      /* Mark the file as being the backing store for another filesystem */
 #define F_GETPATH_MTMINFO       71      /* return the full path of the FD, but error in specific mtmd circumstances */
 
@@ -300,9 +300,7 @@
 
 #define F_FINDSIGS              78      /* Add detached code signatures (used by dyld for shared libs) */
 
-
 #define F_ADDFILESIGS_FOR_DYLD_SIM 83   /* Add signature from same file, only if it is signed by Apple (used by dyld for simulator) */
-
 
 #define F_BARRIERFSYNC          85      /* fsync + issue barrier to drive */
 
@@ -313,7 +311,6 @@
 
 #define F_OFD_SETLKWTIMEOUT     93      /* (as F_OFD_SETLKW but return if timeout) */
 #endif
-
 
 #define F_ADDFILESIGS_RETURN    97      /* Add signature from same file, return end offset in structure on success */
 #define F_CHECK_LV              98      /* Check if Library Validation allows this Mach-O file to be mapped into the calling process */
@@ -335,10 +332,10 @@
 
 #define F_SETLEASE_ARG(t, oc)   ((t) | ((oc) << 2))
 
-
 #define F_TRANSFEREXTENTS       110      /* Transfer allocated extents beyond leof to a different file */
 
 #define F_ATTRIBUTION_TAG       111      /* Based on flags, query/set/delete a file's attribution tag */
+#define F_NOCACHE_EXT           112      /* turn data caching off/on for this fd and relax size and alignment restrictions for write */
 
 #define F_ADDSIGS_MAIN_BINARY   113             /* add detached signatures for main binary -- development only */
 
@@ -358,7 +355,6 @@
 #define F_RDLCK         1               /* shared or read lock */
 #define F_UNLCK         2               /* unlock */
 #define F_WRLCK         3               /* exclusive or write lock */
-
 
 /*
  * [XSI] The values used for l_whence shall be defined as described
@@ -409,6 +405,7 @@ struct flocktimeout {
 	struct flock    fl;             /* flock passed for file locking */
 	struct timespec timeout;        /* timespec struct for timeout */
 };
+
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
@@ -521,7 +518,6 @@ typedef struct fspecread {
 	off_t fsr_length;        /* IN: size of the region */
 } fspecread_t;
 
-
 /* fattributiontag_t used by F_ATTRIBUTION_TAG */
 #define ATTRIBUTION_NAME_MAX 255
 typedef struct fattributiontag {
@@ -572,7 +568,6 @@ struct log2phys {
 
 #define O_POPUP    0x80000000   /* force window to popup on open */
 #define O_ALERT    0x20000000   /* small, clean popup window */
-
 
 #endif /* (_POSIX_C_SOURCE && !_DARWIN_C_SOURCE) */
 
@@ -627,5 +622,6 @@ int     filesec_unset_property(filesec_t, filesec_property_t) __OSX_AVAILABLE_ST
 #define _FILESEC_REMOVE_ACL     ((void *)1)
 #endif /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 __END_DECLS
+
 
 #endif /* !_SYS_FCNTL_H_ */
