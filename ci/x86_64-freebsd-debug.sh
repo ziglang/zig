@@ -5,8 +5,7 @@
 set -x
 set -e
 
-ARCH="x86_64"
-TARGET="$ARCH-freebsd-none"
+TARGET="x86_64-freebsd-none"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.16.0-dev.312+164c598cd"
 PREFIX="$HOME/deps/$CACHE_BASENAME"

@@ -7,7 +7,7 @@ set -e
 # s3cmd
 
 ZIGDIR="$PWD"
-TARGET="$ARCH-macos-none"
+TARGET="aarch64-macos-none"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.16.0-dev.104+689461e31"
 PREFIX="$HOME/$CACHE_BASENAME"
