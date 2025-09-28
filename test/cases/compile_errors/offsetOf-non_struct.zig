@@ -4,7 +4,5 @@ export fn foo() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:22: error: expected struct type, found 'i32'

@@ -8,8 +8,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:21: error: value with comptime-only type 'comptime_int' depends on runtime control flow
 // :4:10: note: runtime control flow here

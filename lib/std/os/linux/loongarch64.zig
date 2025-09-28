@@ -143,7 +143,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
         \\ syscall 0
         :
         : [number] "r" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
+    );
 }
 
 pub const msghdr = extern struct {

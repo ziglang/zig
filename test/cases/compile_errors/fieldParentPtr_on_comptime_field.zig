@@ -9,8 +9,6 @@ pub export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:5: error: no offset available for comptime field
 // :8:29: error: cannot get @fieldParentPtr of a comptime field

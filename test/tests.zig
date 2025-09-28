@@ -6,20 +6,15 @@ const OptimizeMode = std.builtin.OptimizeMode;
 const Step = std.Build.Step;
 
 // Cases
-const compare_output = @import("compare_output.zig");
 const stack_traces = @import("stack_traces.zig");
-const assemble_and_link = @import("assemble_and_link.zig");
-const translate_c = @import("translate_c.zig");
-const run_translated_c = @import("run_translated_c.zig");
 const llvm_ir = @import("llvm_ir.zig");
+const libc = @import("libc.zig");
 
 // Implementations
-pub const TranslateCContext = @import("src/TranslateC.zig");
-pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
-pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
 pub const LlvmIrContext = @import("src/LlvmIr.zig");
+pub const LibcContext = @import("src/Libc.zig");
 
 const TestTarget = struct {
     linkage: ?std.builtin.LinkMode = null,
@@ -422,8 +417,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
         .{
             .target = .{
@@ -432,8 +425,6 @@ const test_targets = blk: {
                 .abi = .musl,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
         .{
             .target = .{
@@ -443,8 +434,6 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
             .extra_target = true,
         },
         .{
@@ -454,8 +443,6 @@ const test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/21646
-            .skip_modules = &.{"std"},
         },
 
         .{
@@ -1355,27 +1342,33 @@ const test_targets = blk: {
 
         // SPIR-V Targets
 
-        .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "spirv64-vulkan",
-                .cpu_features = "vulkan_v1_2+float16+float64",
-            }) catch unreachable,
-            .use_llvm = false,
-            .use_lld = false,
-            .skip_modules = &.{ "c-import", "zigc", "std" },
-        },
+        // Disabled due to no active maintainer (feel free to fix the failures
+        // and then re-enable at any time). The failures occur due to changing AIR
+        // from the frontend, and backend being incomplete.
+        //.{
+        //    .target = std.Target.Query.parse(.{
+        //        .arch_os_abi = "spirv64-vulkan",
+        //        .cpu_features = "vulkan_v1_2+float16+float64",
+        //    }) catch unreachable,
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //    .skip_modules = &.{ "c-import", "zigc", "std" },
+        //},
 
         // WASI Targets
 
-        .{
-            .target = .{
-                .cpu_arch = .wasm32,
-                .os_tag = .wasi,
-                .abi = .none,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // Disabled due to no active maintainer (feel free to fix the failures
+        // and then re-enable at any time). The failures occur due to backend
+        // miscompilation of different AIR from the frontend.
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .wasm32,
+        //        .os_tag = .wasi,
+        //        .abi = .none,
+        //    },
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .wasm32,
@@ -1863,25 +1856,6 @@ const c_abi_targets = blk: {
     };
 };
 
-pub fn addCompareOutputTests(
-    b: *std.Build,
-    test_filters: []const []const u8,
-    optimize_modes: []const OptimizeMode,
-) *Step {
-    const cases = b.allocator.create(CompareOutputContext) catch @panic("OOM");
-    cases.* = CompareOutputContext{
-        .b = b,
-        .step = b.step("test-compare-output", "Run the compare output tests"),
-        .test_index = 0,
-        .test_filters = test_filters,
-        .optimize_modes = optimize_modes,
-    };
-
-    compare_output.addCases(cases);
-
-    return cases.step;
-}
-
 pub fn addStackTraceTests(
     b: *std.Build,
     test_filters: []const []const u8,
@@ -2175,57 +2149,6 @@ pub fn addCliTests(b: *std.Build) *Step {
     return step;
 }
 
-pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, optimize_modes: []const OptimizeMode) *Step {
-    const cases = b.allocator.create(CompareOutputContext) catch @panic("OOM");
-    cases.* = CompareOutputContext{
-        .b = b,
-        .step = b.step("test-asm-link", "Run the assemble and link tests"),
-        .test_index = 0,
-        .test_filters = test_filters,
-        .optimize_modes = optimize_modes,
-    };
-
-    assemble_and_link.addCases(cases);
-
-    return cases.step;
-}
-
-pub fn addTranslateCTests(
-    b: *std.Build,
-    parent_step: *std.Build.Step,
-    test_filters: []const []const u8,
-    test_target_filters: []const []const u8,
-) void {
-    const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
-    cases.* = TranslateCContext{
-        .b = b,
-        .step = parent_step,
-        .test_index = 0,
-        .test_filters = test_filters,
-        .test_target_filters = test_target_filters,
-    };
-
-    translate_c.addCases(cases);
-}
-
-pub fn addRunTranslatedCTests(
-    b: *std.Build,
-    parent_step: *std.Build.Step,
-    test_filters: []const []const u8,
-    target: std.Build.ResolvedTarget,
-) void {
-    const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
-    cases.* = .{
-        .b = b,
-        .step = parent_step,
-        .test_index = 0,
-        .test_filters = test_filters,
-        .target = target,
-    };
-
-    run_translated_c.addCases(cases);
-}
-
 const ModuleTestOptions = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
@@ -2428,6 +2351,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
                     // https://github.com/llvm/llvm-project/issues/153314
                     "-Wno-unterminated-string-initialization",
+
+                    // In both Zig and C it is legal to return a pointer to a
+                    // local. The C backend lowers such thing directly, so the
+                    // corresponding warning in C must be disabled.
+                    "-Wno-return-stack-address",
                 },
             });
             compile_c.addIncludePath(b.path("lib")); // for zig.h
@@ -2483,8 +2411,9 @@ pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: Opt
         else => return true,
     }
     const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
+    const os_tag = query.os_tag orelse builtin.os.tag;
     switch (cpu_arch) {
-        .x86_64 => if (std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true,
+        .x86_64 => if (os_tag.isBSD() or std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true,
         .spirv32, .spirv64 => return false,
         else => return true,
     }
@@ -2587,9 +2516,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
-    target: std.Build.ResolvedTarget,
     case_test_options: @import("src/Cases.zig").CaseTestOptions,
-    translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
 ) !void {
     const arena = b.allocator;
@@ -2602,15 +2529,6 @@ pub fn addCases(
 
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
-
-    cases.lowerToTranslateCSteps(
-        b,
-        parent_step,
-        case_test_options.test_filters,
-        case_test_options.test_target_filters,
-        target,
-        translate_c_options,
-    );
 
     cases.lowerToBuildSteps(
         b,
@@ -2699,4 +2617,192 @@ pub fn addLlvmIrTests(b: *std.Build, options: LlvmIrContext.Options) ?*Step {
     llvm_ir.addCases(&context);
 
     return step;
+}
+
+const libc_targets: []const std.Target.Query = &.{
+    .{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .armeb,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .armeb,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .thumb,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .thumb,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .thumbeb,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .thumbeb,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .aarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .aarch64_be,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    // .{
+    //     .cpu_arch = .hexagon,
+    //     .os_tag = .linux,
+    //     .abi = .musl,
+    // },
+    .{
+        .cpu_arch = .loongarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .loongarch64,
+        .os_tag = .linux,
+        .abi = .muslsf,
+    },
+    // .{
+    //     .cpu_arch = .mips,
+    //     .os_tag = .linux,
+    //     .abi = .musleabi,
+    // },
+    // .{
+    //     .cpu_arch = .mips,
+    //     .os_tag = .linux,
+    //     .abi = .musleabihf,
+    // },
+    // .{
+    //     .cpu_arch = .mipsel,
+    //     .os_tag = .linux,
+    //     .abi = .musleabi,
+    // },
+    // .{
+    //     .cpu_arch = .mipsel,
+    //     .os_tag = .linux,
+    //     .abi = .musleabihf,
+    // },
+    // .{
+    //     .cpu_arch = .mips64,
+    //     .os_tag = .linux,
+    //     .abi = .muslabi64,
+    // },
+    // .{
+    //     .cpu_arch = .mips64,
+    //     .os_tag = .linux,
+    //     .abi = .muslabin32,
+    // },
+    // .{
+    //     .cpu_arch = .mips64el,
+    //     .os_tag = .linux,
+    //     .abi = .muslabi64,
+    // },
+    // .{
+    //     .cpu_arch = .mips64el,
+    //     .os_tag = .linux,
+    //     .abi = .muslabin32,
+    // },
+    .{
+        .cpu_arch = .powerpc,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .powerpc,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .powerpc64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .powerpc64le,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .riscv32,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .riscv64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .s390x,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .muslx32,
+    },
+};
+
+pub fn addLibcTests(b: *std.Build, options: LibcContext.Options) ?*Step {
+    const step = b.step("test-libc", "Run libc-test test cases");
+    const opt_libc_test_path = b.option(std.Build.LazyPath, "libc-test-path", "path to libc-test source directory");
+    if (opt_libc_test_path) |libc_test_path| {
+        var context: LibcContext = .{
+            .b = b,
+            .options = options,
+            .root_step = step,
+            .libc_test_src_path = libc_test_path.path(b, "src"),
+        };
+
+        libc.addCases(&context);
+
+        for (libc_targets) |target_query| {
+            const target = b.resolveTargetQuery(target_query);
+            context.addTarget(target);
+        }
+
+        return step;
+    } else {
+        step.dependOn(&b.addFail("The -Dlibc-test-path=... option is required for this step").step);
+        return null;
+    }
 }

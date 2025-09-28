@@ -2,8 +2,6 @@ test "thingy" {}
 test "thingy" {}
 
 // error
-// backend=stage2
-// target=native
 // is_test=true
 //
 // :1:6: error: duplicate test name 'thingy'

@@ -219,6 +219,7 @@ pub const Diags = struct {
     }
 
     pub fn addError(diags: *Diags, comptime format: []const u8, args: anytype) void {
+        @branchHint(.cold);
         return addErrorSourceLocation(diags, .none, format, args);
     }
 
@@ -529,7 +530,7 @@ pub const File = struct {
             const lld: *Lld = try .createEmpty(arena, comp, emit, options);
             return &lld.base;
         }
-        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
+        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt, comp.config.use_new_linker)) {
             .plan9 => return error.UnsupportedObjectFormat,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -552,7 +553,7 @@ pub const File = struct {
             const lld: *Lld = try .createEmpty(arena, comp, emit, options);
             return &lld.base;
         }
-        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
+        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt, comp.config.use_new_linker)) {
             .plan9 => return error.UnsupportedObjectFormat,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -579,7 +580,8 @@ pub const File = struct {
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
-                        base.cast(.coff).?.ptraceAttach(pid) catch |err| {
+                        const coff_file = base.cast(.coff).?;
+                        coff_file.ptraceAttach(pid) catch |err| {
                             log.warn("attaching failed with error: {s}", .{@errorName(err)});
                         };
                     } else {
@@ -597,8 +599,11 @@ pub const File = struct {
                             .linux => std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                                 log.warn("ptrace failure: {s}", .{@errorName(err)});
                             },
-                            .macos => base.cast(.macho).?.ptraceAttach(pid) catch |err| {
-                                log.warn("attaching failed with error: {s}", .{@errorName(err)});
+                            .macos => {
+                                const macho_file = base.cast(.macho).?;
+                                macho_file.ptraceAttach(pid) catch |err| {
+                                    log.warn("attaching failed with error: {s}", .{@errorName(err)});
+                                };
                             },
                             .windows => unreachable,
                             else => return error.HotSwapUnavailableOnHostOperatingSystem,
@@ -612,6 +617,20 @@ pub const File = struct {
                     .read = true,
                     .mode = determineMode(output_mode, link_mode),
                 });
+            },
+            .elf2 => {
+                const elf = base.cast(.elf2).?;
+                if (base.file == null) {
+                    elf.mf.file = try base.emit.root_dir.handle.createFile(base.emit.sub_path, .{
+                        .truncate = false,
+                        .read = true,
+                        .mode = determineMode(comp.config.output_mode, comp.config.link_mode),
+                    });
+                    base.file = elf.mf.file;
+                    try elf.mf.ensureTotalCapacity(
+                        @intCast(elf.mf.nodes.items[0].location().resolve(&elf.mf)[1]),
+                    );
+                }
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
             .plan9 => unreachable,
@@ -669,12 +688,28 @@ pub const File = struct {
 
                 if (base.child_pid) |pid| {
                     switch (builtin.os.tag) {
-                        .macos => base.cast(.macho).?.ptraceDetach(pid) catch |err| {
-                            log.warn("detaching failed with error: {s}", .{@errorName(err)});
+                        .macos => {
+                            const macho_file = base.cast(.macho).?;
+                            macho_file.ptraceDetach(pid) catch |err| {
+                                log.warn("detaching failed with error: {s}", .{@errorName(err)});
+                            };
                         },
-                        .windows => base.cast(.coff).?.ptraceDetach(pid),
+                        .windows => {
+                            const coff_file = base.cast(.coff).?;
+                            coff_file.ptraceDetach(pid);
+                        },
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
+                }
+            },
+            .elf2 => {
+                const elf = base.cast(.elf2).?;
+                if (base.file) |f| {
+                    elf.mf.unmap();
+                    assert(elf.mf.file.handle == f.handle);
+                    elf.mf.file = undefined;
+                    f.close();
+                    base.file = null;
                 }
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
@@ -793,6 +828,7 @@ pub const File = struct {
             .spirv => {},
             .goff, .xcoff => {},
             .plan9 => unreachable,
+            .elf2 => {},
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateLineNumber(pt, ti_id);
@@ -821,6 +857,26 @@ pub const File = struct {
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 @as(*tag.Type(), @fieldParentPtr("base", base)).deinit();
+            },
+        }
+    }
+
+    pub fn idle(base: *File, tid: Zcu.PerThread.Id) !bool {
+        switch (base.tag) {
+            else => return false,
+            inline .elf2 => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).idle(tid);
+            },
+        }
+    }
+
+    pub fn updateErrorData(base: *File, pt: Zcu.PerThread) !void {
+        switch (base.tag) {
+            else => {},
+            inline .elf2 => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateErrorData(pt);
             },
         }
     }
@@ -1099,7 +1155,7 @@ pub const File = struct {
         if (base.zcu_object_basename != null) return;
 
         switch (base.tag) {
-            inline .wasm => |tag| {
+            inline .elf2, .wasm => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(base.comp.link_prog_node);
             },
@@ -1110,6 +1166,7 @@ pub const File = struct {
     pub const Tag = enum {
         coff,
         elf,
+        elf2,
         macho,
         c,
         wasm,
@@ -1123,6 +1180,7 @@ pub const File = struct {
             return switch (tag) {
                 .coff => Coff,
                 .elf => Elf,
+                .elf2 => Elf2,
                 .macho => MachO,
                 .c => C,
                 .wasm => Wasm,
@@ -1134,10 +1192,10 @@ pub const File = struct {
             };
         }
 
-        fn fromObjectFormat(ofmt: std.Target.ObjectFormat) Tag {
+        fn fromObjectFormat(ofmt: std.Target.ObjectFormat, use_new_linker: bool) Tag {
             return switch (ofmt) {
                 .coff => .coff,
-                .elf => .elf,
+                .elf => if (use_new_linker) .elf2 else .elf,
                 .macho => .macho,
                 .wasm => .wasm,
                 .plan9 => .plan9,
@@ -1223,6 +1281,7 @@ pub const File = struct {
     pub const C = @import("link/C.zig");
     pub const Coff = @import("link/Coff.zig");
     pub const Elf = @import("link/Elf.zig");
+    pub const Elf2 = @import("link/Elf2.zig");
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
@@ -1548,6 +1607,9 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
         }
     }
 }
+pub fn doIdleTask(comp: *Compilation, tid: usize) error{ OutOfMemory, LinkFailure }!bool {
+    return if (comp.bin_file) |lf| lf.idle(@enumFromInt(tid)) else false;
+}
 /// After the main pipeline is done, but before flush, the compilation may need to link one final
 /// `Nav` into the binary: the `builtin.test_functions` value. Since the link thread isn't running
 /// by then, we expose this function which can be called directly.
@@ -1572,6 +1634,13 @@ pub fn linkTestFunctionsNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) 
             },
         };
     }
+}
+pub fn updateErrorData(pt: Zcu.PerThread) void {
+    const comp = pt.zcu.comp;
+    if (comp.bin_file) |lf| lf.updateErrorData(pt) catch |err| switch (err) {
+        error.OutOfMemory => comp.link_diags.setAllocFailure(),
+        error.LinkFailure => {},
+    };
 }
 
 /// Provided by the CLI, processed into `LinkInput` instances at the start of

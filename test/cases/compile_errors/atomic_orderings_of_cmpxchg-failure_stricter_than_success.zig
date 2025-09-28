@@ -5,7 +5,5 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:81: error: failure atomic ordering must be no stricter than success

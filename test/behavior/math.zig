@@ -111,6 +111,8 @@ test "@clz vectors" {
 }
 
 fn testClzVectors() !void {
+    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/159529
+
     const Vu4 = @Vector(64, u4);
     const Vu8 = @Vector(64, u8);
     const Vu128 = @Vector(64, u128);
@@ -137,11 +139,7 @@ fn expectVectorsEqual(a: anytype, b: anytype) !void {
     const len_a = @typeInfo(@TypeOf(a)).vector.len;
     const len_b = @typeInfo(@TypeOf(b)).vector.len;
     try expect(len_a == len_b);
-
-    var i: usize = 0;
-    while (i < len_a) : (i += 1) {
-        try expect(a[i] == b[i]);
-    }
+    try expect(@reduce(.And, a == b));
 }
 
 test "@ctz" {
@@ -197,6 +195,8 @@ test "@ctz vectors" {
 }
 
 fn testCtzVectors() !void {
+    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/159529
+
     const Vu4 = @Vector(64, u4);
     const Vu8 = @Vector(64, u8);
     @setEvalBranchQuota(10_000);

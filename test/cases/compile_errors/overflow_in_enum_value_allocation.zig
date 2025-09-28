@@ -8,7 +8,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:5: error: enumeration value '256' too large for type 'u8'

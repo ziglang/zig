@@ -31,8 +31,6 @@ export fn entry() void {
     k(true);
 }
 // error
-// backend=stage2
-// target=native
 //
 // :2:20: error: expected type 'i32', found 'void'
 // :8:15: error: incompatible types: 'i32' and 'void'

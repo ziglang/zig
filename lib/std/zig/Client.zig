@@ -33,10 +33,18 @@ pub const Message = struct {
         /// Ask the test runner to run a particular test.
         /// The message body is a u32 test index.
         run_test,
-        /// Ask the test runner to start fuzzing a particular test.
-        /// The message body is a u32 test index.
+        /// Ask the test runner to start fuzzing a particular test forever or for a given amount of time/iterations.
+        /// The message body is:
+        /// - a u32 test index.
+        /// - a u8 test limit kind (std.Build.api.fuzz.LimitKind)
+        /// - a u64 value whose meaning depends on FuzzLimitKind (either a limit amount or an instance id)
         start_fuzzing,
 
         _,
     };
+
+    comptime {
+        const std = @import("std");
+        std.debug.assert(@sizeOf(std.Build.abi.fuzz.LimitKind) == 1);
+    }
 };

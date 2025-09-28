@@ -8,7 +8,7 @@ const std = @import("std");
 pub fn main() void {}
 
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=arm-linux,armeb-linux,thumb-linux,thumbeb-linux,aarch64-linux,aarch64_be-linux,loongarch64-linux,mips-linux,mipsel-linux,mips64-linux,mips64el-linux,powerpc-linux,powerpc64-linux,powerpc64le-linux,riscv32-linux,riscv64-linux,s390x-linux,x86-linux,x86_64-linux
 // pic=true
 // link_libc=true

@@ -19,8 +19,6 @@ const Enum = enum { foo };
 const Union = union { foo: void };
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:24: error: expected number, found 'type'
 // :3:24: error: expected number, found 'void'

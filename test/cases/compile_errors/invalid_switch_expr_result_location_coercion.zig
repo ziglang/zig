@@ -37,8 +37,6 @@ export fn invalidNonExhaustiveProng(enum_value: Enum) u8 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:19: error: type 'u8' cannot represent integer value '256'
 // :15:20: error: type 'u8' cannot represent integer value '256'

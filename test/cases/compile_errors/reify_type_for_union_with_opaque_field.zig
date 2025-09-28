@@ -13,8 +13,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:18: error: opaque types have unknown size and therefore cannot be directly embedded in unions
 // :6:39: note: opaque declared here

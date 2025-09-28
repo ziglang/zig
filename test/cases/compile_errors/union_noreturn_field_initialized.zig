@@ -29,8 +29,6 @@ pub export fn entry3() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :11:14: error: cannot initialize 'noreturn' field of union
 // :4:9: note: field 'b' declared here

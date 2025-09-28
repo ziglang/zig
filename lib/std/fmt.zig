@@ -602,9 +602,19 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
     return w.buffered();
 }
 
+/// Deprecated in favor of `bufPrintSentinel`
 pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
-    const result = try bufPrint(buf, fmt ++ "\x00", args);
-    return result[0 .. result.len - 1 :0];
+    return try bufPrintSentinel(buf, fmt, args, 0);
+}
+
+pub fn bufPrintSentinel(
+    buf: []u8,
+    comptime fmt: []const u8,
+    args: anytype,
+    comptime sentinel: u8,
+) BufPrintError![:sentinel]u8 {
+    const result = try bufPrint(buf, fmt ++ [_]u8{sentinel}, args);
+    return result[0 .. result.len - 1 :sentinel];
 }
 
 /// Count the characters needed for format.

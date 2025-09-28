@@ -8,8 +8,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:5: error: unable to export type 'type'
 // :7:5: error: unable to export type 'tmp.E'

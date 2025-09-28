@@ -21,8 +21,6 @@ export fn b() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: duplicate struct member name 'Bar'
 // :3:5: note: duplicate name here

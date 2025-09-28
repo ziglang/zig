@@ -187,12 +187,12 @@ pub fn restore_rt() callconv(.naked) noreturn {
             \\ int $0x80
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .memory = true }),
+        ),
         else => asm volatile (
             \\ int $0x80
             :
             : [number] "{eax}" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .memory = true }),
+        ),
     }
 }
 

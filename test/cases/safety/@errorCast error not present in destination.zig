@@ -17,5 +17,5 @@ fn foo(set1: Set1) Set2 {
     return @errorCast(set1);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

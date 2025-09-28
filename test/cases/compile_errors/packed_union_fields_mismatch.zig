@@ -6,8 +6,6 @@ export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:16: error: packed union has fields with mismatching bit sizes
 // :3:12: note: 1 bits here

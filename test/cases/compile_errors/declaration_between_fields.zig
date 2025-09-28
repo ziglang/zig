@@ -16,8 +16,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :9:5: error: declarations are not allowed between container fields
 // :5:5: note: field before declarations here

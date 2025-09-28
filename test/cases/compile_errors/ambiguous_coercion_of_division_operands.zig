@@ -16,8 +16,6 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:25: error: ambiguous coercion of division operands 'comptime_float' and 'comptime_int'; non-zero remainder '4'
 // :6:23: error: ambiguous coercion of division operands 'comptime_int' and 'comptime_float'; non-zero remainder '4'

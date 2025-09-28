@@ -4,7 +4,5 @@ fn main() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:23: error: repeated digit separator

@@ -148,7 +148,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile ("trap #0"
         :
         : [number] "{d0}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .memory = true });
+    );
 }
 
 pub const F = struct {

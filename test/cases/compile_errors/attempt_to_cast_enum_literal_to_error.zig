@@ -5,7 +5,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:10: error: expected type 'error{Hi}', found '@Type(.enum_literal)'

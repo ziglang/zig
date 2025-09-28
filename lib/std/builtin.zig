@@ -846,6 +846,12 @@ pub const VaListAarch64 = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListArm = extern struct {
+    __ap: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaListHexagon = extern struct {
     __gpr: c_long,
     __fpr: c_long,
@@ -891,37 +897,56 @@ pub const VaListXtensa = extern struct {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const VaList = switch (builtin.cpu.arch) {
+    .amdgcn,
+    .msp430,
+    .nvptx,
+    .nvptx64,
+    .powerpc64,
+    .powerpc64le,
+    .x86,
+    => *u8,
+    .arc,
+    .avr,
+    .bpfel,
+    .bpfeb,
+    .csky,
+    .lanai,
+    .loongarch32,
+    .loongarch64,
+    .m68k,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .riscv32,
+    .riscv32be,
+    .riscv64,
+    .riscv64be,
+    .sparc,
+    .sparc64,
+    .spirv32,
+    .spirv64,
+    .ve,
+    .wasm32,
+    .wasm64,
+    .xcore,
+    => *anyopaque,
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
-        .windows => *u8,
-        .ios, .macos, .tvos, .watchos, .visionos => *u8,
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos, .windows => *u8,
         else => switch (builtin.zig_backend) {
             else => VaListAarch64,
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
     },
-    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .visionos => *u8,
-        else => *anyopaque,
-    },
-    .amdgcn => *u8,
-    .avr => *anyopaque,
-    .bpfel, .bpfeb => *anyopaque,
+    .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
-    .loongarch32, .loongarch64 => *anyopaque,
-    .mips, .mipsel, .mips64, .mips64el => *anyopaque,
-    .riscv32, .riscv32be, .riscv64, .riscv64be => *anyopaque,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .visionos, .aix => *u8,
+        .aix => *u8,
         else => VaListPowerPc,
     },
-    .powerpc64, .powerpc64le => *u8,
-    .sparc, .sparc64 => *anyopaque,
-    .spirv32, .spirv64 => *anyopaque,
     .s390x => VaListS390x,
-    .wasm32, .wasm64 => *anyopaque,
-    .x86 => *u8,
     .x86_64 => switch (builtin.os.tag) {
-        .windows => switch (builtin.zig_backend) {
+        .uefi, .windows => switch (builtin.zig_backend) {
             else => *u8,
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },

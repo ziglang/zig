@@ -1335,9 +1335,9 @@ test "union field ptr - zero sized field" {
 }
 
 test "packed union in packed struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = packed struct {
         nested: packed union {
@@ -1420,7 +1420,6 @@ test "union reassignment can use previous value" {
 }
 
 test "reinterpreting enum value inside packed union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const U = packed union {
@@ -1612,7 +1611,6 @@ test "memset extern union" {
 }
 
 test "memset packed union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const U = packed union {
@@ -2324,4 +2322,22 @@ test "initialize empty field of union inside comptime-known struct constant" {
 
     const val: Wrapper = .{ .inner = .{ .none = {} } };
     comptime assert(val.inner.none == {});
+}
+
+test "union with function body field" {
+    const U = union {
+        f: fn () void,
+        fn foo() void {}
+        fn bar() void {}
+    };
+    const x: U = .{ .f = U.foo };
+    try std.testing.expect(x.f == U.foo);
+    x.f();
+
+    comptime var y: U = .{ .f = U.bar };
+    try std.testing.expect(y.f == U.bar);
+    y.f();
+    y.f = U.foo;
+    try std.testing.expect(y.f == U.foo);
+    y.f();
 }

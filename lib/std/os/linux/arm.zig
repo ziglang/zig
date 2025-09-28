@@ -150,12 +150,12 @@ pub fn restore_rt() callconv(.naked) noreturn {
             \\ svc #0
             :
             : [number] "I" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .memory = true }),
+        ),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{r7}" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .memory = true }),
+        ),
     }
 }
 

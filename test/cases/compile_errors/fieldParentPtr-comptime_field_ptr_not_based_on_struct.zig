@@ -14,7 +14,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :12:62: error: pointer value not based on parent struct
