@@ -1432,10 +1432,8 @@ const Local = struct {
     }
 
     /// For a given pair of `s: String, ip: *const InternPool`, `s.unwrap(ip).index`
-    /// refers to an index into this array. The corresponding value is an offset into
-    /// `string_bytes`. This allows for up to `@bitSizeOf(String) - ip.tid_shift_32`
-    /// unique to be stored and up to 4 GiB of string bytes to be stored, although this
-    /// last part could change in the future depending on future needs.
+    /// refers to an index into this array. The corresponding value is an both an offset into
+    /// `string_bytes` and a length.
     pub fn getMutableStrings(local: *Local, gpa: Allocator) Strings.Mutable {
         return .{
             .gpa = gpa,

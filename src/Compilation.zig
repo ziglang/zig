@@ -3771,6 +3771,7 @@ pub fn saveState(comp: *Compilation) !void {
             }
             if (pt_header.intern_pool.strings_len > 0) {
                 addBuf(&bufs, @ptrCast(local.shared.strings.view().items(.@"0")[0..pt_header.intern_pool.strings_len]));
+                addBuf(&bufs, @ptrCast(local.shared.strings.view().items(.@"1")[0..pt_header.intern_pool.strings_len]));
             }
             if (pt_header.intern_pool.string_bytes_len > 0) {
                 addBuf(&bufs, local.shared.string_bytes.view().items(.@"0")[0..pt_header.intern_pool.string_bytes_len]);
