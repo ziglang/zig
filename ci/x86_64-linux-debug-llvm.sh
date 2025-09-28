@@ -5,14 +5,13 @@
 set -x
 set -e
 
-ARCH="$(uname -m)"
-TARGET="$ARCH-linux-musl"
+TARGET="x86_64-linux-musl"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.16.0-dev.104+689461e31"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v29.0.0-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-10.1.0/bin:$HOME/local/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v29.0.0-x86_64-linux:$HOME/deps/qemu-linux-x86_64-10.1.0/bin:$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.

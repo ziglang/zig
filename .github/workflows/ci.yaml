@@ -52,8 +52,6 @@ jobs:
         run: sh ci/aarch64-linux-release.sh
   aarch64-macos-debug:
     runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,8 +59,6 @@ jobs:
         run: ci/aarch64-macos-debug.sh
   aarch64-macos-release:
     runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,8 +67,6 @@ jobs:
   x86_64-windows-debug:
     timeout-minutes: 420
     runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,8 +75,6 @@ jobs:
   x86_64-windows-release:
     timeout-minutes: 420
     runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
