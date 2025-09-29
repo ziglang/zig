@@ -391,7 +391,7 @@ pub const CommonInformationEntry = struct {
                 'P' => {
                     const enc: EH.PE = @bitCast(try aug_data.takeByte());
                     const endian: Endian = .little; // irrelevant because we're discarding the value anyway
-                    _ = try readEhPointerAbs(&r, enc.type, addr_size_bytes, endian); // we ignore the personality routine; endianness is irrelevant since we're discarding
+                    _ = try readEhPointerAbs(&aug_data, enc.type, addr_size_bytes, endian); // we ignore the personality routine; endianness is irrelevant since we're discarding
                 },
                 'R' => fde_pointer_enc = @bitCast(try aug_data.takeByte()),
                 'S' => is_signal_frame = true,
