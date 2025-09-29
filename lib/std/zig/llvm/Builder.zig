@@ -1325,8 +1325,8 @@ pub const Attribute = union(Kind) {
                 .none => unreachable,
             }
         }
-        pub fn fmt(self: Index, builder: *const Builder, mode: FormatData.mode) std.fmt.Alt(FormatData, format) {
-            return .{ .data = .{ .attribute_index = self, .builder = builder, .mode = mode } };
+        pub fn fmt(self: Index, builder: *const Builder, flags: FormatData.Flags) std.fmt.Alt(FormatData, format) {
+            return .{ .data = .{ .attribute_index = self, .builder = builder, .flags = flags } };
         }
 
         fn toStorage(self: Index, builder: *const Builder) Storage {

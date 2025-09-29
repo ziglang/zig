@@ -2032,7 +2032,7 @@ pub const Mutable = struct {
         return formatNumber(self, w, .{});
     }
 
-    pub fn formatNumber(self: Const, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
+    pub fn formatNumber(self: Mutable, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return self.toConst().formatNumber(w, n);
     }
 };
@@ -2077,7 +2077,7 @@ pub const Const = struct {
         for (self.limbs[0..self.limbs.len]) |limb| {
             std.debug.print("{x} ", .{limb});
         }
-        std.debug.print("len={} positive={}\n", .{ self.len, self.positive });
+        std.debug.print("len={} positive={}\n", .{ self.limbs.len, self.positive });
     }
 
     pub fn abs(self: Const) Const {
