@@ -15,8 +15,10 @@ const dl = @import("../dynamic_library.zig");
 const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
 const native_endian = native_arch.endian();
+const is_loongarch = native_arch.isLoongArch();
 const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPowerPC();
+const is_riscv = native_arch.isRISCV();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -1868,15 +1870,23 @@ pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        // Zig needs to install our arch restorer function with any signal handler, so
-        // must copy the Sigaction struct
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
-        ksa = k_sigaction{
-            .handler = new.handler.handler,
-            .flags = new.flags | SA.RESTORER,
-            .mask = new.mask,
-            .restorer = @ptrCast(restorer_fn),
-        };
+        if (native_arch == .hexagon or is_loongarch or is_mips or is_riscv) {
+            ksa = .{
+                .handler = new.handler.handler,
+                .flags = new.flags,
+                .mask = new.mask,
+            };
+        } else {
+            // Zig needs to install our arch restorer function with any signal handler, so
+            // must copy the Sigaction struct
+            const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
+            ksa = .{
+                .handler = new.handler.handler,
+                .flags = new.flags | SA.RESTORER,
+                .mask = new.mask,
+                .restorer = @ptrCast(restorer_fn),
+            };
+        }
     }
 
     const ksa_arg = if (act != null) @intFromPtr(&ksa) else 0;
@@ -3668,7 +3678,6 @@ pub const SA = if (is_mips) struct {
     pub const RESETHAND = 0x80000000;
     pub const ONSTACK = 0x08000000;
     pub const NODEFER = 0x40000000;
-    pub const RESTORER = 0x04000000;
 } else if (is_sparc) struct {
     pub const NOCLDSTOP = 0x8;
     pub const NOCLDWAIT = 0x100;
@@ -3678,6 +3687,14 @@ pub const SA = if (is_mips) struct {
     pub const ONSTACK = 0x1;
     pub const NODEFER = 0x20;
     pub const RESTORER = 0x04000000;
+} else if (native_arch == .hexagon or is_loongarch or is_riscv) struct {
+    pub const NOCLDSTOP = 1;
+    pub const NOCLDWAIT = 2;
+    pub const SIGINFO = 4;
+    pub const RESTART = 0x10000000;
+    pub const RESETHAND = 0x80000000;
+    pub const ONSTACK = 0x08000000;
+    pub const NODEFER = 0x40000000;
 } else struct {
     pub const NOCLDSTOP = 1;
     pub const NOCLDWAIT = 2;
@@ -5743,13 +5760,18 @@ const k_sigaction_funcs = struct {
     const restorer = *const fn () callconv(.c) void;
 };
 
-/// Kernel sigaction struct, as expected by the `rt_sigaction` syscall.  Includes restorer.
+/// Kernel sigaction struct, as expected by the `rt_sigaction` syscall.  Includes `restorer` on
+/// targets where userspace is responsible for hooking up `rt_sigreturn`.
 pub const k_sigaction = switch (native_arch) {
     .mips, .mipsel, .mips64, .mips64el => extern struct {
         flags: c_uint,
         handler: k_sigaction_funcs.handler,
         mask: sigset_t,
-        restorer: k_sigaction_funcs.restorer,
+    },
+    .hexagon, .loongarch32, .loongarch64, .riscv32, .riscv64 => extern struct {
+        handler: k_sigaction_funcs.handler,
+        flags: c_ulong,
+        mask: sigset_t,
     },
     else => extern struct {
         handler: k_sigaction_funcs.handler,

@@ -135,17 +135,6 @@ pub fn clone() callconv(.naked) usize {
     );
 }
 
-pub const restore = restore_rt;
-
-pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ or $a7, $zero, %[number]
-        \\ syscall 0
-        :
-        : [number] "r" (@intFromEnum(SYS.rt_sigreturn)),
-    );
-}
-
 pub const msghdr = extern struct {
     name: ?*sockaddr,
     namelen: socklen_t,
