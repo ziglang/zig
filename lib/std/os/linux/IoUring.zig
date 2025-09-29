@@ -17,7 +17,7 @@ flags: Flags.Setup,
 features: Flags.Features,
 
 // COMMIT: move IoUring constants to Constants
-pub const Constants = struct {
+pub const constants = struct {
     /// If sqe.file_index (splice_fd_in in Zig Struct) is set to this for opcodes that instantiate a new
     /// an available direct descriptor instead of having the application pass one
     /// direct descriptor (like openat/openat2/accept), then io_uring will allocate
@@ -204,23 +204,23 @@ pub const Flags = struct {
     pub const AsyncCancel = packed struct(u32) {
         /// IORING_ASYNC_CANCEL_ALL
         /// Cancel all requests that match the given key
-        ALL: bool = false,
+        CANCEL_ALL: bool = false,
         /// IORING_ASYNC_CANCEL_FD
         /// Key off 'fd' for cancelation rather than the request 'user_data'
-        FD: bool = false,
+        CANCEL_FD: bool = false,
         /// IORING_ASYNC_CANCEL_ANY
         /// Match any request
-        ANY: bool = false,
+        CANCEL_ANY: bool = false,
         /// IORING_ASYNC_CANCEL_FD_FIXED
         /// 'fd' passed in is a fixed descriptor
-        FD_FIXED: bool = false,
+        CANCEL_FD_FIXED: bool = false,
         // COMMIT: new AsyncCancel Flags
         /// IORING_ASYNC_CANCEL_USERDATA
         /// Match on user_data, default for no other key
-        USERDATA: bool = false,
+        CANCEL_USERDATA: bool = false,
         /// IORING_ASYNC_CANCEL_OP
         /// Match request based on opcode
-        OP: bool = false,
+        CANCEL_OP: bool = false,
         _unused: u26 = 0,
     };
 
@@ -295,42 +295,6 @@ pub const Flags = struct {
         _unused_1: u26 = 0,
     };
 
-    /// cqe.flags
-    pub const Cqe = packed struct(u32) {
-        /// IORING_CQE_F_BUFFER If set, the upper 16 bits are the buffer ID
-        F_BUFFER: bool = false,
-        /// IORING_CQE_F_MORE If set, parent SQE will generate more CQE entries
-        F_MORE: bool = false,
-        /// IORING_CQE_F_SOCK_NONEMPTY If set, more data to read after socket recv
-        F_SOCK_NONEMPTY: bool = false,
-        /// IORING_CQE_F_NOTIF Set for notification CQEs. Can be used to distinct
-        ///  them from sends.
-        F_NOTIF: bool = false,
-        /// IORING_CQE_F_BUF_MORE If set, the buffer ID set in the completion will get
-        /// more completions. In other words, the buffer is being
-        /// partially consumed, and will be used by the kernel for
-        /// more completions. This is only set for buffers used via
-        /// the incremental buffer consumption, as provided by
-        /// a ring buffer setup with IOU_PBUF_RING_INC. For any
-        /// other provided buffer type, all completions with a
-        /// buffer passed back is automatically returned to the
-        /// application.
-        F_BUF_MORE: bool = false,
-        // COMMIT: new flags
-        /// IORING_CQE_F_SKIP If set, then the application/liburing must ignore this
-        /// CQE. It's only purpose is to fill a gap in the ring,
-        /// if a large CQE is attempted posted when the ring has
-        /// just a single small CQE worth of space left before
-        /// wrapping.
-        F_SKIP: bool = false,
-        _unused: u9 = 0,
-        /// IORING_CQE_F_32 If set, this is a 32b/big-cqe posting. Use with rings
-        /// setup in a mixed CQE mode, where both 16b and 32b
-        /// CQEs may be posted to the CQ ring.
-        F_32: bool = false,
-        _unused_1: u16 = 0,
-    };
-
     /// sq_ring.flags
     pub const Sq = packed struct(u32) {
         /// needs io_uring_enter wakeup
@@ -394,13 +358,47 @@ pub const io_uring_cqe = extern struct {
     user_data: u64,
     /// result code for this event
     res: i32,
-    flags: Flags.Cqe,
+    flags: CqeFlags,
     // COMMIT: add big_cqe which was missing in io_uring_cqe type declaration
     /// If the ring is initialized with IORING_SETUP_CQE32, then this field
     /// contains 16-bytes of padding, doubling the size of the CQE.
     big_cqe: []u64,
 
-    // Followed by 16 bytes of padding if initialized with IORING_SETUP_CQE32, doubling cqe size
+    /// cqe.flags
+    pub const CqeFlags = packed struct(u32) {
+        /// IORING_CQE_F_BUFFER If set, the upper 16 bits are the buffer ID
+        F_BUFFER: bool = false,
+        /// IORING_CQE_F_MORE If set, parent SQE will generate more CQE entries
+        F_MORE: bool = false,
+        /// IORING_CQE_F_SOCK_NONEMPTY If set, more data to read after socket recv
+        F_SOCK_NONEMPTY: bool = false,
+        /// IORING_CQE_F_NOTIF Set for notification CQEs. Can be used to distinct
+        ///  them from sends.
+        F_NOTIF: bool = false,
+        /// IORING_CQE_F_BUF_MORE If set, the buffer ID set in the completion will get
+        /// more completions. In other words, the buffer is being
+        /// partially consumed, and will be used by the kernel for
+        /// more completions. This is only set for buffers used via
+        /// the incremental buffer consumption, as provided by
+        /// a ring buffer setup with IOU_PBUF_RING_INC. For any
+        /// other provided buffer type, all completions with a
+        /// buffer passed back is automatically returned to the
+        /// application.
+        F_BUF_MORE: bool = false,
+        // COMMIT: new flags
+        /// IORING_CQE_F_SKIP If set, then the application/liburing must ignore this
+        /// CQE. It's only purpose is to fill a gap in the ring,
+        /// if a large CQE is attempted posted when the ring has
+        /// just a single small CQE worth of space left before
+        /// wrapping.
+        F_SKIP: bool = false,
+        _unused: u9 = 0,
+        /// IORING_CQE_F_32 If set, this is a 32b/big-cqe posting. Use with rings
+        /// setup in a mixed CQE mode, where both 16b and 32b
+        /// CQEs may be posted to the CQ ring.
+        F_32: bool = false,
+        _unused_1: u16 = 0,
+    };
 
     pub fn err(self: io_uring_cqe) linux.E {
         if (self.res > -4096 and self.res < 0) {
@@ -416,7 +414,7 @@ pub const io_uring_cqe = extern struct {
         if (!self.flags.F_BUFFER) {
             return error.NoBufferSelected;
         }
-        return @as(u16, @intCast(@as(u32, @bitCast(self.flags)) >> Constants.CQE_BUFFER_SHIFT));
+        return @intCast(@as(u32, @bitCast(self.flags)) >> constants.CQE_BUFFER_SHIFT);
     }
 };
 
@@ -427,7 +425,10 @@ pub const io_uring_sqe = extern struct {
     /// IOSQE_* flags
     flags: SqeFlags,
     /// ioprio for the request
-    ioprio: u16,
+    ioprio: packed union {
+        send_recv: Flags.SendRecv,
+        accept: Flags.Accept,
+    },
     /// file descriptor to do IO on
     fd: i32,
     /// offset into file
@@ -474,8 +475,8 @@ pub const io_uring_sqe = extern struct {
     pub fn prep_nop(sqe: *io_uring_sqe) void {
         sqe.* = .{
             .opcode = .NOP,
-            .flags = @bitCast(0),
-            .ioprio = 0,
+            .flags = .{},
+            .ioprio = @bitCast(@as(u16, 0)),
             .fd = 0,
             .off = 0,
             .addr = 0,
@@ -490,16 +491,16 @@ pub const io_uring_sqe = extern struct {
         };
     }
 
-    pub fn prep_fsync(sqe: *io_uring_sqe, fd: linux.fd_t, flags: u32) void {
+    pub fn prep_fsync(sqe: *io_uring_sqe, fd: linux.fd_t, flags: Flags.Fsync) void {
         sqe.* = .{
             .opcode = .FSYNC,
-            .flags = 0,
-            .ioprio = 0,
+            .flags = .{},
+            .ioprio = @bitCast(@as(u16, 0)),
             .fd = fd,
             .off = 0,
             .addr = 0,
             .len = 0,
-            .rw_flags = flags,
+            .rw_flags = @bitCast(flags),
             .user_data = 0,
             .buf_index = 0,
             .personality = 0,
@@ -519,8 +520,8 @@ pub const io_uring_sqe = extern struct {
     ) void {
         sqe.* = .{
             .opcode = op,
-            .flags = @bitCast(0),
-            .ioprio = 0,
+            .flags = .{},
+            .ioprio = @bitCast(@as(u16, 0)),
             .fd = fd,
             .off = offset,
             .addr = addr,
@@ -582,7 +583,7 @@ pub const io_uring_sqe = extern struct {
         fd: linux.fd_t,
         addr: ?*linux.sockaddr,
         addrlen: ?*linux.socklen_t,
-        flags: u32,
+        flags: linux.SOCK,
     ) void {
         // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
         // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
@@ -590,32 +591,45 @@ pub const io_uring_sqe = extern struct {
         sqe.rw_flags = flags;
     }
 
+    /// accept directly into the fixed file table
     pub fn prep_accept_direct(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         addr: ?*linux.sockaddr,
         addrlen: ?*linux.socklen_t,
-        flags: u32,
+        flags: linux.SOCK,
         file_index: u32,
     ) void {
         prep_accept(sqe, fd, addr, addrlen, flags);
         set_target_fixed_file(sqe, file_index);
     }
 
+    pub fn prep_multishot_accept(
+        sqe: *io_uring_sqe,
+        fd: linux.fd_t,
+        addr: ?*linux.sockaddr,
+        addrlen: ?*linux.socklen_t,
+        flags: linux.SOCK,
+    ) void {
+        prep_accept(sqe, fd, addr, addrlen, flags);
+        sqe.ioprio = .{ .accept = .{ .MULTISHOT = true } };
+    }
+
+    /// multishot accept directly into the fixed file table
     pub fn prep_multishot_accept_direct(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         addr: ?*linux.sockaddr,
         addrlen: ?*linux.socklen_t,
-        flags: u32,
+        flags: linux.SOCK,
     ) void {
         prep_multishot_accept(sqe, fd, addr, addrlen, flags);
-        set_target_fixed_file(sqe, linux.IORING_FILE_INDEX_ALLOC);
+        set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
     }
 
     fn set_target_fixed_file(sqe: *io_uring_sqe, file_index: u32) void {
-        const sqe_file_index: u32 = if (file_index == Constants.FILE_INDEX_ALLOC)
-            Constants.FILE_INDEX_ALLOC
+        const sqe_file_index: u32 = if (file_index == constants.FILE_INDEX_ALLOC)
+            constants.FILE_INDEX_ALLOC
         else
             // 0 means no fixed files, indexes should be encoded as "index + 1"
             file_index + 1;
@@ -645,79 +659,82 @@ pub const io_uring_sqe = extern struct {
         sqe.prep_rw(.EPOLL_CTL, epfd, @intFromPtr(ev), op, @intCast(fd));
     }
 
-    pub fn prep_recv(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []u8, flags: Flags.SendRecv) void {
+    pub fn prep_recv(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []u8, flags: linux.MSG) void {
         sqe.prep_rw(.RECV, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
-        sqe.rw_flags = @bitCast(flags);
+        sqe.rw_flags = flags;
     }
 
+    // TODO: review recv `flags`
     pub fn prep_recv_multishot(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         buffer: []u8,
-        flags: Flags.SendRecv,
+        flags: linux.MSG,
     ) void {
         sqe.prep_recv(fd, buffer, flags);
-        const enable_multishot: Flags.SendRecv = .{ .RECV_MULTISHOT = true };
-        sqe.ioprio |= @bitCast(enable_multishot);
+        sqe.ioprio = .{ .send_recv = .{ .RECV_MULTISHOT = true } };
     }
 
     pub fn prep_recvmsg(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         msg: *linux.msghdr,
-        flags: Flags.SendRecv,
+        flags: linux.MSG,
     ) void {
         sqe.prep_rw(.RECVMSG, fd, @intFromPtr(msg), 1, 0);
-        sqe.rw_flags = @bitCast(flags);
+        sqe.rw_flags = flags;
     }
 
     pub fn prep_recvmsg_multishot(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         msg: *linux.msghdr,
-        flags: Flags.SendRecv,
+        flags: linux.MSG,
     ) void {
         sqe.prep_recvmsg(fd, msg, flags);
-        const enable_multishot: Flags.SendRecv = .{ .RECV_MULTISHOT = true };
-        sqe.ioprio |= @bitCast(enable_multishot);
+        sqe.ioprio = .{ .send_recv = .{ .RECV_MULTISHOT = true } };
     }
 
     // COMMIT: fix send[|recv] flag param type
-    pub fn prep_send(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []const u8, flags: Flags.SendRecv) void {
+    pub fn prep_send(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG) void {
         sqe.prep_rw(.SEND, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
-        sqe.rw_flags = @bitCast(flags);
+        sqe.rw_flags = flags;
     }
 
-    pub fn prep_send_zc(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []const u8, flags: u32, zc_flags: u16) void {
+    pub fn prep_send_zc(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG, zc_flags: Flags.SendRecv) void {
         sqe.prep_rw(.SEND_ZC, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
         sqe.rw_flags = flags;
-        sqe.ioprio = zc_flags;
+        sqe.ioprio = .{ .send_recv = zc_flags };
     }
 
-    pub fn prep_send_zc_fixed(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []const u8, flags: u32, zc_flags: u16, buf_index: u16) void {
-        prep_send_zc(sqe, fd, buffer, flags, zc_flags);
-        sqe.ioprio |= linux.IORING_RECVSEND_FIXED_BUF;
+    pub fn prep_send_zc_fixed(sqe: *io_uring_sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG, zc_flags: Flags.SendRecv, buf_index: u16) void {
+        const zc_flags_fixed = blk: {
+            var updated_flags = zc_flags;
+            updated_flags.RECVSEND_FIXED_BUF = true;
+            break :blk updated_flags;
+        };
+        prep_send_zc(sqe, fd, buffer, flags, zc_flags_fixed);
         sqe.buf_index = buf_index;
-    }
-
-    pub fn prep_sendmsg_zc(
-        sqe: *io_uring_sqe,
-        fd: linux.fd_t,
-        msg: *const linux.msghdr_const,
-        flags: u32,
-    ) void {
-        prep_sendmsg(sqe, fd, msg, flags);
-        sqe.opcode = .SENDMSG_ZC;
     }
 
     pub fn prep_sendmsg(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         msg: *const linux.msghdr_const,
-        flags: u32,
+        flags: linux.MSG,
     ) void {
         sqe.prep_rw(.SENDMSG, fd, @intFromPtr(msg), 1, 0);
         sqe.rw_flags = flags;
+    }
+
+    pub fn prep_sendmsg_zc(
+        sqe: *io_uring_sqe,
+        fd: linux.fd_t,
+        msg: *const linux.msghdr_const,
+        flags: linux.MSG,
+    ) void {
+        prep_sendmsg(sqe, fd, msg, flags);
+        sqe.opcode = .SENDMSG_ZC;
     }
 
     pub fn prep_openat(
@@ -747,7 +764,7 @@ pub const io_uring_sqe = extern struct {
         sqe.* = .{
             .opcode = .CLOSE,
             .flags = .{},
-            .ioprio = 0,
+            .ioprio = @bitCast(@as(u16, 0)),
             .fd = fd,
             .off = 0,
             .addr = 0,
@@ -771,22 +788,22 @@ pub const io_uring_sqe = extern struct {
         sqe: *io_uring_sqe,
         ts: *const linux.kernel_timespec,
         count: u32,
-        flags: u32,
+        flags: Flags.Timeout,
     ) void {
         sqe.prep_rw(.TIMEOUT, -1, @intFromPtr(ts), 1, count);
-        sqe.rw_flags = flags;
+        sqe.rw_flags = @bitCast(flags);
     }
 
-    pub fn prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, flags: u32) void {
+    pub fn prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, flags: Flags.Timeout) void {
         sqe.* = .{
             .opcode = .TIMEOUT_REMOVE,
             .flags = .{},
-            .ioprio = 0,
+            .ioprio = @bitCast(@as(u16, 0)),
             .fd = -1,
             .off = 0,
             .addr = timeout_user_data,
             .len = 0,
-            .rw_flags = flags,
+            .rw_flags = @bitCast(flags),
             .user_data = 0,
             .buf_index = 0,
             .personality = 0,
@@ -799,7 +816,7 @@ pub const io_uring_sqe = extern struct {
     pub fn prep_link_timeout(
         sqe: *io_uring_sqe,
         ts: *const linux.kernel_timespec,
-        flags: u32,
+        flags: Flags.Timeout,
     ) void {
         sqe.prep_rw(.LINK_TIMEOUT, -1, @intFromPtr(ts), 1, 0);
         sqe.rw_flags = flags;
@@ -808,7 +825,7 @@ pub const io_uring_sqe = extern struct {
     pub fn prep_poll_add(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
-        poll_mask: u32,
+        poll_mask: linux.POLL,
     ) void {
         sqe.prep_rw(.POLL_ADD, fd, @intFromPtr(@as(?*anyopaque, null)), 0, 0);
         // Poll masks previously used to comprise of 16 bits in the flags union of
@@ -831,8 +848,8 @@ pub const io_uring_sqe = extern struct {
         sqe: *io_uring_sqe,
         old_user_data: u64,
         new_user_data: u64,
-        poll_mask: u32,
-        flags: u32,
+        poll_mask: linux.POLL,
+        flags: Flags.Poll,
     ) void {
         sqe.prep_rw(.POLL_REMOVE, -1, old_user_data, flags, new_user_data);
         // Poll masks previously used to comprise of 16 bits in the flags union of
@@ -854,7 +871,7 @@ pub const io_uring_sqe = extern struct {
         sqe.* = .{
             .opcode = .FALLOCATE,
             .flags = .{},
-            .ioprio = 0,
+            .ioprio = @bitCast(@as(u16, 0)),
             .fd = fd,
             .off = offset,
             .addr = len,
@@ -873,8 +890,8 @@ pub const io_uring_sqe = extern struct {
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         path: [*:0]const u8,
-        flags: u32,
-        mask: u32,
+        flags: linux.AT,
+        mask: linux.STATX, // TODO: compose linux.STATX
         buf: *linux.Statx,
     ) void {
         sqe.prep_rw(.STATX, fd, @intFromPtr(path), mask, @intFromPtr(buf));
@@ -884,25 +901,30 @@ pub const io_uring_sqe = extern struct {
     pub fn prep_cancel(
         sqe: *io_uring_sqe,
         cancel_user_data: u64,
-        flags: u32,
+        flags: Flags.AsyncCancel,
     ) void {
         sqe.prep_rw(.ASYNC_CANCEL, -1, cancel_user_data, 0, 0);
-        sqe.rw_flags = flags;
+        sqe.rw_flags = @bitCast(flags);
     }
 
     pub fn prep_cancel_fd(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
-        flags: u32,
+        flags: Flags.AsyncCancel,
     ) void {
         sqe.prep_rw(.ASYNC_CANCEL, fd, 0, 0, 0);
-        sqe.rw_flags = flags | linux.IORING_ASYNC_CANCEL_FD;
+        const enable_cancel_fd = blk: {
+            var update_flags = flags;
+            update_flags.CANCEL_FD = true;
+            break :blk update_flags;
+        };
+        sqe.rw_flags = @bitCast(enable_cancel_fd);
     }
 
     pub fn prep_shutdown(
         sqe: *io_uring_sqe,
         sockfd: linux.socket_t,
-        how: u32,
+        how: linux.SHUT,
     ) void {
         sqe.prep_rw(.SHUTDOWN, sockfd, 0, how, 0);
     }
@@ -913,7 +935,7 @@ pub const io_uring_sqe = extern struct {
         old_path: [*:0]const u8,
         new_dir_fd: linux.fd_t,
         new_path: [*:0]const u8,
-        flags: u32,
+        flags: linux.RENAME,
     ) void {
         sqe.prep_rw(
             .RENAMEAT,
@@ -930,7 +952,7 @@ pub const io_uring_sqe = extern struct {
         sqe: *io_uring_sqe,
         dir_fd: linux.fd_t,
         path: [*:0]const u8,
-        flags: u32,
+        flags: linux.AT, // TODO: unlink flags only AT_REMOVEDIR
     ) void {
         sqe.prep_rw(.UNLINKAT, dir_fd, @intFromPtr(path), 0, 0);
         sqe.rw_flags = flags;
@@ -966,7 +988,7 @@ pub const io_uring_sqe = extern struct {
         old_path: [*:0]const u8,
         new_dir_fd: linux.fd_t,
         new_path: [*:0]const u8,
-        flags: u32,
+        flags: linux.AT, // only AT_EMPTY_PATH, AT_SYMLINK_FOLLOW
     ) void {
         sqe.prep_rw(
             .LINKAT,
@@ -991,9 +1013,10 @@ pub const io_uring_sqe = extern struct {
         sqe: *io_uring_sqe,
         fds: []linux.fd_t,
     ) void {
-        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, linux.IORING_FILE_INDEX_ALLOC);
+        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, constants.FILE_INDEX_ALLOC);
     }
 
+    // TODO: why can't slice be used here ?
     pub fn prep_provide_buffers(
         sqe: *io_uring_sqe,
         buffers: [*]u8,
@@ -1016,23 +1039,12 @@ pub const io_uring_sqe = extern struct {
         sqe.buf_index = @intCast(group_id);
     }
 
-    pub fn prep_multishot_accept(
-        sqe: *io_uring_sqe,
-        fd: linux.fd_t,
-        addr: ?*linux.sockaddr,
-        addrlen: ?*linux.socklen_t,
-        flags: u32,
-    ) void {
-        prep_accept(sqe, fd, addr, addrlen, flags);
-        sqe.ioprio |= linux.IORING_ACCEPT_MULTISHOT;
-    }
-
     pub fn prep_socket(
         sqe: *io_uring_sqe,
-        domain: u32,
-        socket_type: u32,
-        protocol: u32,
-        flags: u32,
+        domain: linux.AF,
+        socket_type: linux.SOCK,
+        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        flags: u32, // flags is unused
     ) void {
         sqe.prep_rw(.SOCKET, @intCast(domain), 0, protocol, socket_type);
         sqe.rw_flags = flags;
@@ -1040,10 +1052,10 @@ pub const io_uring_sqe = extern struct {
 
     pub fn prep_socket_direct(
         sqe: *io_uring_sqe,
-        domain: u32,
-        socket_type: u32,
-        protocol: u32,
-        flags: u32,
+        domain: linux.AF,
+        socket_type: linux.SOCK,
+        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        flags: u32, // flags is unused
         file_index: u32,
     ) void {
         prep_socket(sqe, domain, socket_type, protocol, flags);
@@ -1052,13 +1064,13 @@ pub const io_uring_sqe = extern struct {
 
     pub fn prep_socket_direct_alloc(
         sqe: *io_uring_sqe,
-        domain: u32,
-        socket_type: u32,
-        protocol: u32,
-        flags: u32,
+        domain: linux.AF,
+        socket_type: linux.SOCK,
+        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        flags: u32, // flags is unused
     ) void {
         prep_socket(sqe, domain, socket_type, protocol, flags);
-        set_target_fixed_file(sqe, linux.IORING_FILE_INDEX_ALLOC);
+        set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
     }
 
     pub fn prep_waitid(
@@ -1066,20 +1078,21 @@ pub const io_uring_sqe = extern struct {
         id_type: linux.P,
         id: i32,
         infop: *linux.siginfo_t,
-        options: u32,
-        flags: u32,
+        options: linux.W,
+        flags: u32, // flags is unused
     ) void {
         sqe.prep_rw(.WAITID, id, 0, @intFromEnum(id_type), @intFromPtr(infop));
         sqe.rw_flags = flags;
         sqe.splice_fd_in = @bitCast(options);
     }
 
+    // TODO: maybe remove unused flag fields?
     pub fn prep_bind(
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         addr: *const linux.sockaddr,
         addrlen: linux.socklen_t,
-        flags: u32,
+        flags: u32, // flags is unused and does't exist in io_uring's api
     ) void {
         sqe.prep_rw(.BIND, fd, @intFromPtr(addr), 0, addrlen);
         sqe.rw_flags = flags;
@@ -1089,7 +1102,7 @@ pub const io_uring_sqe = extern struct {
         sqe: *io_uring_sqe,
         fd: linux.fd_t,
         backlog: usize,
-        flags: u32,
+        flags: u32, // flags is unused and does't exist in io_uring's api
     ) void {
         sqe.prep_rw(.LISTEN, fd, 0, backlog, 0);
         sqe.rw_flags = flags;
@@ -1097,10 +1110,10 @@ pub const io_uring_sqe = extern struct {
 
     pub fn prep_cmd_sock(
         sqe: *io_uring_sqe,
-        cmd_op: linux.IO_URING_SOCKET_OP,
+        cmd_op: SocketOp,
         fd: linux.fd_t,
-        level: u32,
-        optname: u32,
+        level: linux.SOL,
+        optname: linux.SO,
         optval: u64,
         optlen: u32,
     ) void {
@@ -1314,7 +1327,7 @@ pub const io_uring_probe_op = extern struct {
     resv2: u32,
 
     pub fn is_supported(self: @This()) bool {
-        return self.flags & Constants.IO_URING_OP_SUPPORTED != 0;
+        return self.flags & constants.IO_URING_OP_SUPPORTED != 0;
     }
 };
 
