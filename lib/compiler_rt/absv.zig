@@ -11,7 +11,7 @@ pub inline fn absv(comptime ST: type, a: ST) ST {
     // compute the integer absolute value (abs) without branching
     var x: ST = a;
     const N: UT = @bitSizeOf(ST);
-    const sign: ST = a >> N - 1;
+    const sign: ST = a >> (N - 1);
     x +%= sign;
     x ^= sign;
     if (x < 0)
