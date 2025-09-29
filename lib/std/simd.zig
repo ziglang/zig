@@ -307,28 +307,23 @@ test "vector shifting" {
 }
 
 pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
-    const len = vectorLength(@TypeOf(vec));
-    const IndexInt = VectorIndex(@TypeOf(vec));
+    const Int = std.meta.Int(.unsigned, vectorLength(@TypeOf(vec)));
 
-    if (!@reduce(.Or, vec)) {
+    const as_int: Int = @bitCast(vec);
+    if (as_int == 0)
         return null;
-    }
-    const all_max: @Vector(len, IndexInt) = @splat(~@as(IndexInt, 0));
-    const indices = @select(IndexInt, vec, iota(IndexInt, len), all_max);
-    return @reduce(.Min, indices);
+
+    return @intCast(@ctz(as_int));
 }
 
 pub fn lastTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
-    const len = vectorLength(@TypeOf(vec));
-    const IndexInt = VectorIndex(@TypeOf(vec));
+    const Int = std.meta.Int(.unsigned, vectorLength(@TypeOf(vec)));
 
-    if (!@reduce(.Or, vec)) {
+    const as_int: Int = @bitCast(vec);
+    if (as_int == 0)
         return null;
-    }
 
-    const all_zeroes: @Vector(len, IndexInt) = @splat(0);
-    const indices = @select(IndexInt, vec, iota(IndexInt, len), all_zeroes);
-    return @reduce(.Max, indices);
+    return @intCast(@bitSizeOf(Int) - @clz(as_int) - 1);
 }
 
 pub fn countTrues(vec: anytype) VectorCount(@TypeOf(vec)) {
