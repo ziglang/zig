@@ -736,10 +736,9 @@ pub fn Future(Result: type) type {
         any_future: ?*AnyFuture,
         result: Result,
 
-        /// Equivalent to `await` but sets a flag observable to application
-        /// code that cancellation has been requested.
+        /// Equivalent to `await` but places a cancellation request.
         ///
-        /// Idempotent.
+        /// Idempotent. Not threadsafe.
         pub fn cancel(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
             io.vtable.cancel(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
@@ -747,6 +746,7 @@ pub fn Future(Result: type) type {
             return f.result;
         }
 
+        /// Idempotent. Not threadsafe.
         pub fn await(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
             io.vtable.await(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
@@ -759,8 +759,9 @@ pub fn Future(Result: type) type {
 pub const Group = struct {
     state: usize,
     context: ?*anyopaque,
+    token: ?*anyopaque,
 
-    pub const init: Group = .{ .state = 0, .context = null };
+    pub const init: Group = .{ .state = 0, .context = null, .token = null };
 
     /// Calls `function` with `args` asynchronously. The resource spawned is
     /// owned by the group.
@@ -771,7 +772,7 @@ pub const Group = struct {
     /// deinitialized.
     ///
     /// See also:
-    /// * `async`
+    /// * `Io.async`
     /// * `concurrent`
     pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
         const Args = @TypeOf(args);
@@ -784,14 +785,21 @@ pub const Group = struct {
         io.vtable.groupAsync(io.userdata, g, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
     }
 
-    /// Idempotent.
+    /// Blocks until all tasks of the group finish.
+    ///
+    /// Idempotent. Not threadsafe.
     pub fn wait(g: *Group, io: Io) void {
         io.vtable.groupWait(io.userdata, g);
     }
 
-    /// Idempotent.
+    /// Equivalent to `wait` but requests cancellation on all tasks owned by
+    /// the group.
+    ///
+    /// Idempotent. Not threadsafe.
     pub fn cancel(g: *Group, io: Io) void {
+        if (g.token == null) return;
         io.vtable.groupCancel(io.userdata, g);
+        assert(g.token == null);
     }
 };
 
