@@ -1,24 +1,102 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
 const math = std.math;
 const mem = std.mem;
 const posix = std.posix;
 const fs = std.fs;
 const testing = std.testing;
-const root = @import("root");
+const Allocator = mem.Allocator;
 const File = std.fs.File;
 const windows = std.os.windows;
-const native_arch = builtin.cpu.arch;
-const native_os = builtin.os.tag;
-const native_endian = native_arch.endian();
 const Writer = std.Io.Writer;
 const tty = std.Io.tty;
 
+const builtin = @import("builtin");
+const native_arch = builtin.cpu.arch;
+const native_os = builtin.os.tag;
+
+const root = @import("root");
+
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
-pub const SelfInfo = @import("debug/SelfInfo.zig");
+pub const ElfFile = @import("debug/ElfFile.zig");
 pub const Info = @import("debug/Info.zig");
 pub const Coverage = @import("debug/Coverage.zig");
+pub const cpu_context = @import("debug/cpu_context.zig");
+
+/// This type abstracts the target-specific implementation of accessing this process' own debug
+/// information behind a generic interface which supports looking up source locations associated
+/// with addresses, as well as unwinding the stack where a safe mechanism to do so exists.
+///
+/// The Zig Standard Library provides default implementations of `SelfInfo` for common targets, but
+/// the implementation can be overriden by exposing `root.debug.SelfInfo`. Setting `SelfInfo` to
+/// `void` indicates that the `SelfInfo` API is not supported.
+///
+/// This type must expose the following declarations:
+///
+/// ```
+/// pub const init: SelfInfo;
+/// pub fn deinit(si: *SelfInfo, gpa: Allocator) void;
+///
+/// /// Returns the symbol and source location of the instruction at `address`.
+/// pub fn getSymbol(si: *SelfInfo, gpa: Allocator, address: usize) SelfInfoError!Symbol;
+/// /// Returns a name for the "module" (e.g. shared library or executable image) containing `address`.
+/// pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) SelfInfoError![]const u8;
+///
+/// /// Whether a reliable stack unwinding strategy, such as DWARF unwinding, is available.
+/// pub const can_unwind: bool;
+/// /// Only required if `can_unwind == true`.
+/// pub const UnwindContext = struct {
+///     /// An address representing the instruction pointer in the last frame.
+///     pc: usize,
+///
+///     pub fn init(ctx: *cpu_context.Native, gpa: Allocator) Allocator.Error!UnwindContext;
+///     pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void;
+///     /// Returns the frame pointer associated with the last unwound stack frame.
+///     /// If the frame pointer is unknown, 0 may be returned instead.
+///     pub fn getFp(uc: *UnwindContext) usize;
+/// };
+/// /// Only required if `can_unwind == true`. Unwinds a single stack frame, returning the frame's
+/// /// return address, or 0 if the end of the stack has been reached.
+/// pub fn unwindFrame(si: *SelfInfo, gpa: Allocator, context: *UnwindContext) SelfInfoError!usize;
+/// ```
+pub const SelfInfo = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "SelfInfo"))
+    root.debug.SelfInfo
+else switch (native_os) {
+    .linux,
+    .netbsd,
+    .freebsd,
+    .dragonfly,
+    .openbsd,
+    .solaris,
+    .illumos,
+    => @import("debug/SelfInfo/Elf.zig"),
+
+    .macos,
+    .ios,
+    .watchos,
+    .tvos,
+    .visionos,
+    => @import("debug/SelfInfo/Darwin.zig"),
+
+    .uefi,
+    .windows,
+    => @import("debug/SelfInfo/Windows.zig"),
+
+    else => void,
+};
+
+pub const SelfInfoError = error{
+    /// The required debug info is invalid or corrupted.
+    InvalidDebugInfo,
+    /// The required debug info could not be found.
+    MissingDebugInfo,
+    /// The required debug info was found, and may be valid, but is not supported by this implementation.
+    UnsupportedDebugInfo,
+    /// The required debug info could not be read from disk due to some IO error.
+    ReadFailed,
+    OutOfMemory,
+    Unexpected,
+};
 
 pub const simple_panic = @import("debug/simple_panic.zig");
 pub const no_panic = @import("debug/no_panic.zig");
@@ -153,9 +231,14 @@ pub const SourceLocation = struct {
 };
 
 pub const Symbol = struct {
-    name: []const u8 = "???",
-    compile_unit_name: []const u8 = "???",
-    source_location: ?SourceLocation = null,
+    name: ?[]const u8,
+    compile_unit_name: ?[]const u8,
+    source_location: ?SourceLocation,
+    pub const unknown: Symbol = .{
+        .name = null,
+        .compile_unit_name = null,
+        .source_location = null,
+    };
 };
 
 /// Deprecated because it returns the optimization mode of the standard
@@ -166,18 +249,12 @@ pub const runtime_safety = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
+/// Whether we can unwind the stack on this target, allowing capturing and/or printing the current
+/// stack trace. It is still legal to call `captureCurrentStackTrace`, `writeCurrentStackTrace`, and
+/// `dumpCurrentStackTrace` if this is `false`; it will just print an error / capture an empty
+/// trace due to missing functionality. This value is just intended as a heuristic to avoid
+/// pointless work e.g. capturing always-empty stack traces.
 pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
-    // Observed to go into an infinite loop.
-    // TODO: Make this work.
-    .loongarch32,
-    .loongarch64,
-    .mips,
-    .mipsel,
-    .mips64,
-    .mips64el,
-    .s390x,
-    => false,
-
     // `@returnAddress()` in LLVM 10 gives
     // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
     // On Emscripten, Zig only supports `@returnAddress()` in debug builds
@@ -186,7 +263,7 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     .wasm64,
     => native_os == .emscripten and builtin.mode == .Debug,
 
-    // `@returnAddress()` is unsupported in LLVM 13.
+    // `@returnAddress()` is unsupported in LLVM 21.
     .bpfel,
     .bpfeb,
     => false,
@@ -209,8 +286,12 @@ pub fn unlockStdErr() void {
 ///
 /// During the lock, any `std.Progress` information is cleared from the terminal.
 ///
-/// Returns a `Writer` with empty buffer, meaning that it is
-/// in fact unbuffered and does not need to be flushed.
+/// The lock is recursive, so it is valid for the same thread to call `lockStderrWriter` multiple
+/// times. The primary motivation is that this allows the panic handler to safely dump the stack
+/// trace and panic message even if the mutex was held at the panic site.
+///
+/// The returned `Writer` does not need to be manually flushed: flushing is performed automatically
+/// when the matching `unlockStderrWriter` call occurs.
 pub fn lockStderrWriter(buffer: []u8) *Writer {
     return std.Progress.lockStderrWriter(buffer);
 }
@@ -231,16 +312,13 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend bw.print(fmt, args) catch return;
 }
 
-/// TODO multithreaded awareness
-var self_debug_info: ?SelfInfo = null;
-
-pub fn getSelfDebugInfo() !*SelfInfo {
-    if (self_debug_info) |*info| {
-        return info;
-    } else {
-        self_debug_info = try SelfInfo.open(getDebugInfoAllocator());
-        return &self_debug_info.?;
-    }
+/// Marked `inline` to propagate a comptime-known error to callers.
+pub inline fn getSelfDebugInfo() !*SelfInfo {
+    if (SelfInfo == void) return error.UnsupportedTarget;
+    const S = struct {
+        var self_info: SelfInfo = .init;
+    };
+    return &S.self_info;
 }
 
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
@@ -321,226 +399,8 @@ test dumpHexFallible {
     try std.testing.expectEqualStrings(expected, aw.written());
 }
 
-/// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
-pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    const stderr = lockStderrWriter(&.{});
-    defer unlockStderrWriter();
-    nosuspend dumpCurrentStackTraceToWriter(start_addr, stderr) catch return;
-}
-
-/// Prints the current stack trace to the provided writer.
-pub fn dumpCurrentStackTraceToWriter(start_addr: ?usize, writer: *Writer) !void {
-    if (builtin.target.cpu.arch.isWasm()) {
-        if (native_os == .wasi) {
-            try writer.writeAll("Unable to dump stack trace: not implemented for Wasm\n");
-        }
-        return;
-    }
-    if (builtin.strip_debug_info) {
-        try writer.writeAll("Unable to dump stack trace: debug info stripped\n");
-        return;
-    }
-    const debug_info = getSelfDebugInfo() catch |err| {
-        try writer.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
-        return;
-    };
-    writeCurrentStackTrace(writer, debug_info, tty.detectConfig(.stderr()), start_addr) catch |err| {
-        try writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
-        return;
-    };
-}
-
-pub const have_ucontext = posix.ucontext_t != void;
-
-/// Platform-specific thread state. This contains register state, and on some platforms
-/// information about the stack. This is not safe to trivially copy, because some platforms
-/// use internal pointers within this structure. To make a copy, use `copyContext`.
-pub const ThreadContext = blk: {
-    if (native_os == .windows) {
-        break :blk windows.CONTEXT;
-    } else if (have_ucontext) {
-        break :blk posix.ucontext_t;
-    } else {
-        break :blk void;
-    }
-};
-
-/// Copies one context to another, updating any internal pointers
-pub fn copyContext(source: *const ThreadContext, dest: *ThreadContext) void {
-    if (!have_ucontext) return {};
-    dest.* = source.*;
-    relocateContext(dest);
-}
-
-/// Updates any internal pointers in the context to reflect its current location
-pub fn relocateContext(context: *ThreadContext) void {
-    return switch (native_os) {
-        .macos => {
-            context.mcontext = &context.__mcontext_data;
-        },
-        else => {},
-    };
-}
-
-pub const have_getcontext = @TypeOf(posix.system.getcontext) != void;
-
-/// Capture the current context. The register values in the context will reflect the
-/// state after the platform `getcontext` function returns.
-///
-/// It is valid to call this if the platform doesn't have context capturing support,
-/// in that case false will be returned.
-pub inline fn getContext(context: *ThreadContext) bool {
-    if (native_os == .windows) {
-        context.* = std.mem.zeroes(windows.CONTEXT);
-        windows.ntdll.RtlCaptureContext(context);
-        return true;
-    }
-
-    const result = have_getcontext and posix.system.getcontext(context) == 0;
-    if (native_os == .macos) {
-        assert(context.mcsize == @sizeOf(std.c.mcontext_t));
-
-        // On aarch64-macos, the system getcontext doesn't write anything into the pc
-        // register slot, it only writes lr. This makes the context consistent with
-        // other aarch64 getcontext implementations which write the current lr
-        // (where getcontext will return to) into both the lr and pc slot of the context.
-        if (native_arch == .aarch64) context.mcontext.ss.pc = context.mcontext.ss.lr;
-    }
-
-    return result;
-}
-
-/// Tries to print the stack trace starting from the supplied base pointer to stderr,
-/// unbuffered, and ignores any error returned.
-/// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
-    nosuspend {
-        if (builtin.target.cpu.arch.isWasm()) {
-            if (native_os == .wasi) {
-                stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
-            }
-            return;
-        }
-        if (builtin.strip_debug_info) {
-            stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
-            return;
-        }
-        const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-        const tty_config = tty.detectConfig(.stderr());
-        if (native_os == .windows) {
-            // On x86_64 and aarch64, the stack will be unwound using RtlVirtualUnwind using the context
-            // provided by the exception handler. On x86, RtlVirtualUnwind doesn't exist. Instead, a new backtrace
-            // will be captured and frames prior to the exception will be filtered.
-            // The caveat is that RtlCaptureStackBackTrace does not include the KiUserExceptionDispatcher frame,
-            // which is where the IP in `context` points to, so it can't be used as start_addr.
-            // Instead, start_addr is recovered from the stack.
-            const start_addr = if (builtin.cpu.arch == .x86) @as(*const usize, @ptrFromInt(context.getRegs().bp + 4)).* else null;
-            writeStackTraceWindows(stderr, debug_info, tty_config, context, start_addr) catch return;
-            return;
-        }
-
-        var it = StackIterator.initWithContext(null, debug_info, context, @frameAddress()) catch return;
-        defer it.deinit();
-
-        // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
-        const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
-            context.mcontext.ss.pc
-        else
-            it.unwind_state.?.dwarf_context.pc;
-        printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
-
-        while (it.next()) |return_address| {
-            printLastUnwindError(&it, debug_info, stderr, tty_config);
-
-            // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
-            // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
-            // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
-            // condition on the subsequent iteration and return `null` thus terminating the loop.
-            // same behaviour for x86-windows-msvc
-            const address = if (return_address == 0) return_address else return_address - 1;
-            printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
-        } else printLastUnwindError(&it, debug_info, stderr, tty_config);
-    }
-}
-
-/// Returns a slice with the same pointer as addresses, with a potentially smaller len.
-/// On Windows, when first_address is not null, we ask for at least 32 stack frames,
-/// and then try to find the first address. If addresses.len is more than 32, we
-/// capture that many stack frames exactly, and then look for the first address,
-/// chopping off the irrelevant frames and shifting so that the returned addresses pointer
-/// equals the passed in addresses pointer.
-pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackTrace) void {
-    if (native_os == .windows) {
-        const addrs = stack_trace.instruction_addresses;
-        const first_addr = first_address orelse {
-            stack_trace.index = walkStackWindows(addrs[0..], null);
-            return;
-        };
-        var addr_buf_stack: [32]usize = undefined;
-        const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-        const n = walkStackWindows(addr_buf[0..], null);
-        const first_index = for (addr_buf[0..n], 0..) |addr, i| {
-            if (addr == first_addr) {
-                break i;
-            }
-        } else {
-            stack_trace.index = 0;
-            return;
-        };
-        const end_index = @min(first_index + addrs.len, n);
-        const slice = addr_buf[first_index..end_index];
-        // We use a for loop here because slice and addrs may alias.
-        for (slice, 0..) |addr, i| {
-            addrs[i] = addr;
-        }
-        stack_trace.index = slice.len;
-    } else {
-        // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required).
-        //       A new path for loading SelfInfo needs to be created which will only attempt to parse in-memory sections, because
-        //       stopping to load other debug info (ie. source line info) from disk here is not required for unwinding.
-        var it = StackIterator.init(first_address, @frameAddress());
-        defer it.deinit();
-        for (stack_trace.instruction_addresses, 0..) |*addr, i| {
-            addr.* = it.next() orelse {
-                stack_trace.index = i;
-                return;
-            };
-        }
-        stack_trace.index = stack_trace.instruction_addresses.len;
-    }
-}
-
-/// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
-/// TODO multithreaded awareness
-pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
-    nosuspend {
-        if (builtin.target.cpu.arch.isWasm()) {
-            if (native_os == .wasi) {
-                const stderr = lockStderrWriter(&.{});
-                defer unlockStderrWriter();
-                stderr.writeAll("Unable to dump stack trace: not implemented for Wasm\n") catch return;
-            }
-            return;
-        }
-        const stderr = lockStderrWriter(&.{});
-        defer unlockStderrWriter();
-        if (builtin.strip_debug_info) {
-            stderr.writeAll("Unable to dump stack trace: debug info stripped\n") catch return;
-            return;
-        }
-        const debug_info = getSelfDebugInfo() catch |err| {
-            stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-        writeStackTrace(stack_trace, stderr, debug_info, tty.detectConfig(.stderr())) catch |err| {
-            stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
-            return;
-        };
-    }
-}
+/// The pointer through which a `cpu_context.Native` is received from callers of stack tracing logic.
+pub const CpuContextPtr = if (cpu_context.Native == noreturn) noreturn else *const cpu_context.Native;
 
 /// Invokes detectable illegal behavior when `ok` is `false`.
 ///
@@ -579,8 +439,8 @@ pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     panicExtra(@returnAddress(), format, args);
 }
 
-/// Equivalent to `@panic` but with a formatted message, and with an explicitly
-/// provided return address.
+/// Equivalent to `@panic` but with a formatted message and an explicitly provided return address
+/// which will be the first address in the stack trace.
 pub fn panicExtra(
     ret_addr: ?usize,
     comptime format: []const u8,
@@ -610,6 +470,24 @@ var panicking = std.atomic.Value(u8).init(0);
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
 
+/// For backends that cannot handle the language features depended on by the
+/// default panic handler, we will use a simpler implementation.
+const use_trap_panic = switch (builtin.zig_backend) {
+    .stage2_aarch64,
+    .stage2_arm,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    .stage2_spirv,
+    .stage2_wasm,
+    .stage2_x86,
+    => true,
+    .stage2_x86_64 => switch (builtin.target.ofmt) {
+        .elf, .macho => false,
+        else => true,
+    },
+    else => false,
+};
+
 /// Dumps a stack trace to standard error, then aborts.
 pub fn defaultPanic(
     msg: []const u8,
@@ -617,8 +495,8 @@ pub fn defaultPanic(
 ) noreturn {
     @branchHint(.cold);
 
-    // For backends that cannot handle the language features depended on by the
-    // default panic handler, we have a simpler panic handler:
+    if (use_trap_panic) @trap();
+
     switch (builtin.zig_backend) {
         .stage2_aarch64,
         .stage2_arm,
@@ -683,41 +561,48 @@ pub fn defaultPanic(
         resetSegfaultHandler();
     }
 
-    // Note there is similar logic in handleSegfaultPosix and handleSegfaultWindowsExtra.
-    nosuspend switch (panic_stage) {
+    // There is very similar logic to the following in `handleSegfault`.
+    switch (panic_stage) {
         0 => {
             panic_stage = 1;
-
             _ = panicking.fetchAdd(1, .seq_cst);
 
-            {
+            trace: {
+                const tty_config = tty.detectConfig(.stderr());
+
                 const stderr = lockStderrWriter(&.{});
                 defer unlockStderrWriter();
 
                 if (builtin.single_threaded) {
-                    stderr.print("panic: ", .{}) catch posix.abort();
+                    stderr.print("panic: ", .{}) catch break :trace;
                 } else {
                     const current_thread_id = std.Thread.getCurrentId();
-                    stderr.print("thread {} panic: ", .{current_thread_id}) catch posix.abort();
+                    stderr.print("thread {} panic: ", .{current_thread_id}) catch break :trace;
                 }
-                stderr.print("{s}\n", .{msg}) catch posix.abort();
+                stderr.print("{s}\n", .{msg}) catch break :trace;
 
-                if (@errorReturnTrace()) |t| dumpStackTrace(t.*);
-                dumpCurrentStackTraceToWriter(first_trace_addr orelse @returnAddress(), stderr) catch {};
+                if (@errorReturnTrace()) |t| if (t.index > 0) {
+                    stderr.writeAll("error return context:\n") catch break :trace;
+                    writeStackTrace(t, stderr, tty_config) catch break :trace;
+                    stderr.writeAll("\nstack trace:\n") catch break :trace;
+                };
+                writeCurrentStackTrace(.{
+                    .first_address = first_trace_addr orelse @returnAddress(),
+                    .allow_unsafe_unwind = true, // we're crashing anyway, give it our all!
+                }, stderr, tty_config) catch break :trace;
             }
 
             waitForOtherThreadToFinishPanicking();
         },
         1 => {
             panic_stage = 2;
-
             // A panic happened while trying to print a previous panic message.
             // We're still holding the mutex but that's fine as we're going to
             // call abort().
             fs.File.stderr().writeAll("aborting due to recursive panic\n") catch {};
         },
         else => {}, // Panicked while printing the recursive panic message.
-    };
+    }
 
     posix.abort();
 }
@@ -736,391 +621,417 @@ fn waitForOtherThreadToFinishPanicking() void {
     }
 }
 
-pub fn writeStackTrace(
-    stack_trace: std.builtin.StackTrace,
-    writer: *Writer,
-    debug_info: *SelfInfo,
-    tty_config: tty.Config,
-) !void {
-    if (builtin.strip_debug_info) return error.MissingDebugInfo;
-    var frame_index: usize = 0;
-    var frames_left: usize = @min(stack_trace.index, stack_trace.instruction_addresses.len);
+pub const StackUnwindOptions = struct {
+    /// If not `null`, we will ignore all frames up until this return address. This is typically
+    /// used to omit intermediate handling code (for instance, a panic handler and its machinery)
+    /// from stack traces.
+    first_address: ?usize = null,
+    /// If not `null`, we will unwind from this `cpu_context.Native` instead of the current top of
+    /// the stack. The main use case here is printing stack traces from signal handlers, where the
+    /// kernel provides a `*const cpu_context.Native` of the state before the signal.
+    context: ?CpuContextPtr = null,
+    /// If `true`, stack unwinding strategies which may cause crashes are used as a last resort.
+    /// If `false`, only known-safe mechanisms will be attempted.
+    allow_unsafe_unwind: bool = false,
+};
 
-    while (frames_left != 0) : ({
-        frames_left -= 1;
-        frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
-    }) {
-        const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
+/// Capture and return the current stack trace. The returned `StackTrace` stores its addresses in
+/// the given buffer, so `addr_buf` must have a lifetime at least equal to the `StackTrace`.
+///
+/// See `writeCurrentStackTrace` to immediately print the trace instead of capturing it.
+pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) std.builtin.StackTrace {
+    const empty_trace: std.builtin.StackTrace = .{ .index = 0, .instruction_addresses = &.{} };
+    if (!std.options.allow_stack_tracing) return empty_trace;
+    var it = StackIterator.init(options.context) catch return empty_trace;
+    defer it.deinit();
+    if (!it.stratOk(options.allow_unsafe_unwind)) return empty_trace;
+    var total_frames: usize = 0;
+    var index: usize = 0;
+    var wait_for = options.first_address;
+    // Ideally, we would iterate the whole stack so that the `index` in the returned trace was
+    // indicative of how many frames were skipped. However, this has a significant runtime cost
+    // in some cases, so at least for now, we don't do that.
+    while (index < addr_buf.len) switch (it.next()) {
+        .switch_to_fp => if (!it.stratOk(options.allow_unsafe_unwind)) break,
+        .end => break,
+        .frame => |ret_addr| {
+            if (total_frames > 10_000) {
+                // Limit the number of frames in case of (e.g.) broken debug information which is
+                // getting unwinding stuck in a loop.
+                break;
+            }
+            total_frames += 1;
+            if (wait_for) |target| {
+                if (ret_addr != target) continue;
+                wait_for = null;
+            }
+            addr_buf[index] = ret_addr;
+            index += 1;
+        },
+    };
+    return .{
+        .index = index,
+        .instruction_addresses = addr_buf[0..index],
+    };
+}
+/// Write the current stack trace to `writer`, annotated with source locations.
+///
+/// See `captureCurrentStackTrace` to capture the trace addresses into a buffer instead of printing.
+pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+    if (!std.options.allow_stack_tracing) {
+        tty_config.setColor(writer, .dim) catch {};
+        try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
+        tty_config.setColor(writer, .reset) catch {};
+        return;
     }
+    const di_gpa = getDebugInfoAllocator();
+    const di = getSelfDebugInfo() catch |err| switch (err) {
+        error.UnsupportedTarget => {
+            tty_config.setColor(writer, .dim) catch {};
+            try writer.print("Cannot print stack trace: debug info unavailable for target\n", .{});
+            tty_config.setColor(writer, .reset) catch {};
+            return;
+        },
+    };
+    var it = StackIterator.init(options.context) catch |err| switch (err) {
+        error.CannotUnwindFromContext => {
+            tty_config.setColor(writer, .dim) catch {};
+            try writer.print("Cannot print stack trace: context unwind unavailable for target\n", .{});
+            tty_config.setColor(writer, .reset) catch {};
+            return;
+        },
+    };
+    defer it.deinit();
+    if (!it.stratOk(options.allow_unsafe_unwind)) {
+        tty_config.setColor(writer, .dim) catch {};
+        try writer.print("Cannot print stack trace: safe unwind unavailable for target\n", .{});
+        tty_config.setColor(writer, .reset) catch {};
+        return;
+    }
+    var total_frames: usize = 0;
+    var wait_for = options.first_address;
+    var printed_any_frame = false;
+    while (true) switch (it.next()) {
+        .switch_to_fp => |unwind_error| {
+            if (StackIterator.fp_unwind_is_safe) continue; // no need to even warn
+            const module_name = di.getModuleName(di_gpa, unwind_error.address) catch "???";
+            const caption: []const u8 = switch (unwind_error.err) {
+                error.MissingDebugInfo => "unwind info unavailable",
+                error.InvalidDebugInfo => "unwind info invalid",
+                error.UnsupportedDebugInfo => "unwind info unsupported",
+                error.ReadFailed => "filesystem error",
+                error.OutOfMemory => "out of memory",
+                error.Unexpected => "unexpected error",
+            };
+            if (it.stratOk(options.allow_unsafe_unwind)) {
+                tty_config.setColor(writer, .dim) catch {};
+                try writer.print(
+                    "Unwind error at address `{s}:0x{x}` ({s}), remaining frames may be incorrect\n",
+                    .{ module_name, unwind_error.address, caption },
+                );
+                tty_config.setColor(writer, .reset) catch {};
+            } else {
+                tty_config.setColor(writer, .dim) catch {};
+                try writer.print(
+                    "Unwind error at address `{s}:0x{x}` ({s}), stopping trace early\n",
+                    .{ module_name, unwind_error.address, caption },
+                );
+                tty_config.setColor(writer, .reset) catch {};
+                return;
+            }
+        },
+        .end => break,
+        .frame => |ret_addr| {
+            if (total_frames > 10_000) {
+                tty_config.setColor(writer, .dim) catch {};
+                try writer.print(
+                    "Stopping trace after {d} frames (large frame count may indicate broken debug info)\n",
+                    .{total_frames},
+                );
+                tty_config.setColor(writer, .reset) catch {};
+                return;
+            }
+            total_frames += 1;
+            if (wait_for) |target| {
+                if (ret_addr != target) continue;
+                wait_for = null;
+            }
+            // `ret_addr` is the return address, which is *after* the function call.
+            // Subtract 1 to get an address *in* the function call for a better source location.
+            try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
+            printed_any_frame = true;
+        },
+    };
+    if (!printed_any_frame) return writer.writeAll("(empty stack trace)\n");
+}
+/// A thin wrapper around `writeCurrentStackTrace` which writes to stderr and ignores write errors.
+pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
+    const tty_config = tty.detectConfig(.stderr());
+    const stderr = lockStderrWriter(&.{});
+    defer unlockStderrWriter();
+    writeCurrentStackTrace(.{
+        .first_address = a: {
+            if (options.first_address) |a| break :a a;
+            if (options.context != null) break :a null;
+            break :a @returnAddress(); // don't include this frame in the trace
+        },
+        .context = options.context,
+        .allow_unsafe_unwind = options.allow_unsafe_unwind,
+    }, stderr, tty_config) catch |err| switch (err) {
+        error.WriteFailed => {},
+    };
+}
 
-    if (stack_trace.index > stack_trace.instruction_addresses.len) {
-        const dropped_frames = stack_trace.index - stack_trace.instruction_addresses.len;
-
+/// Write a previously captured stack trace to `writer`, annotated with source locations.
+pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+    if (!std.options.allow_stack_tracing) {
+        tty_config.setColor(writer, .dim) catch {};
+        try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
+        tty_config.setColor(writer, .reset) catch {};
+        return;
+    }
+    // Fetch `st.index` straight away. Aside from avoiding redundant loads, this prevents issues if
+    // `st` is `@errorReturnTrace()` and errors are encountered while writing the stack trace.
+    const n_frames = st.index;
+    if (n_frames == 0) return writer.writeAll("(empty stack trace)\n");
+    const di_gpa = getDebugInfoAllocator();
+    const di = getSelfDebugInfo() catch |err| switch (err) {
+        error.UnsupportedTarget => {
+            tty_config.setColor(writer, .dim) catch {};
+            try writer.print("Cannot print stack trace: debug info unavailable for target\n\n", .{});
+            tty_config.setColor(writer, .reset) catch {};
+            return;
+        },
+    };
+    const captured_frames = @min(n_frames, st.instruction_addresses.len);
+    for (st.instruction_addresses[0..captured_frames]) |ret_addr| {
+        // `ret_addr` is the return address, which is *after* the function call.
+        // Subtract 1 to get an address *in* the function call for a better source location.
+        try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
+    }
+    if (n_frames > captured_frames) {
         tty_config.setColor(writer, .bold) catch {};
-        try writer.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
+        try writer.print("({d} additional stack frames skipped...)\n", .{n_frames - captured_frames});
         tty_config.setColor(writer, .reset) catch {};
     }
 }
+/// A thin wrapper around `writeStackTrace` which writes to stderr and ignores write errors.
+pub fn dumpStackTrace(st: *const std.builtin.StackTrace) void {
+    const tty_config = tty.detectConfig(.stderr());
+    const stderr = lockStderrWriter(&.{});
+    defer unlockStderrWriter();
+    writeStackTrace(st, stderr, tty_config) catch |err| switch (err) {
+        error.WriteFailed => {},
+    };
+}
 
-pub const UnwindError = if (have_ucontext)
-    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).@"fn".return_type.?).error_union.error_set
-else
-    void;
-
-pub const StackIterator = struct {
-    // Skip every frame before this address is found.
-    first_address: ?usize,
-    // Last known value of the frame pointer register.
+const StackIterator = union(enum) {
+    /// Unwinding using debug info (e.g. DWARF CFI).
+    di: if (SelfInfo != void and SelfInfo.can_unwind) SelfInfo.UnwindContext else noreturn,
+    /// We will first report the *current* PC of this `UnwindContext`, then we will switch to `di`.
+    di_first: if (SelfInfo != void and SelfInfo.can_unwind) SelfInfo.UnwindContext else noreturn,
+    /// Naive frame-pointer-based unwinding. Very simple, but typically unreliable.
     fp: usize,
 
-    // When SelfInfo and a register context is available, this iterator can unwind
-    // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
-    // using DWARF and MachO unwind info.
-    unwind_state: if (have_ucontext) ?struct {
-        debug_info: *SelfInfo,
-        dwarf_context: SelfInfo.UnwindContext,
-        last_error: ?UnwindError = null,
-        failed: bool = false,
-    } else void = if (have_ucontext) null else {},
-
-    pub fn init(first_address: ?usize, fp: usize) StackIterator {
-        if (native_arch.isSPARC()) {
+    /// It is important that this function is marked `inline` so that it can safely use
+    /// `@frameAddress` and `cpu_context.Native.current` as the caller's stack frame and
+    /// our own are one and the same.
+    inline fn init(opt_context_ptr: ?CpuContextPtr) error{CannotUnwindFromContext}!StackIterator {
+        if (builtin.cpu.arch.isSPARC()) {
             // Flush all the register windows on stack.
-            asm volatile (if (builtin.cpu.has(.sparc, .v9))
-                    "flushw"
-                else
-                    "ta 3" // ST_FLUSH_WINDOWS
-                ::: .{ .memory = true });
+            if (builtin.cpu.has(.sparc, .v9)) {
+                asm volatile ("flushw" ::: .{ .memory = true });
+            } else {
+                asm volatile ("ta 3" ::: .{ .memory = true }); // ST_FLUSH_WINDOWS
+            }
         }
+        if (opt_context_ptr) |context_ptr| {
+            if (SelfInfo == void or !SelfInfo.can_unwind) return error.CannotUnwindFromContext;
+            // Use `di_first` here so we report the PC in the context before unwinding any further.
+            return .{ .di_first = .init(context_ptr) };
+        }
+        // Workaround the C backend being unable to use inline assembly on MSVC by disabling the
+        // call to `current`. This effectively constrains stack trace collection and dumping to FP
+        // unwinding when building with CBE for MSVC.
+        if (!(builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) and
+            SelfInfo != void and
+            SelfInfo.can_unwind and
+            cpu_context.Native != noreturn)
+        {
+            // We don't need `di_first` here, because our PC is in `std.debug`; we're only interested
+            // in our caller's frame and above.
+            return .{ .di = .init(&.current()) };
+        }
+        return .{ .fp = @frameAddress() };
+    }
+    fn deinit(si: *StackIterator) void {
+        switch (si.*) {
+            .fp => {},
+            .di, .di_first => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
+        }
+    }
 
-        return .{
-            .first_address = first_address,
-            .fp = fp,
+    /// On aarch64-macos, Apple mandate that the frame pointer is always used.
+    /// TODO: are there any other architectures with guarantees like this?
+    const fp_unwind_is_safe = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();
+
+    /// Whether the current unwind strategy is allowed given `allow_unsafe`.
+    fn stratOk(it: *const StackIterator, allow_unsafe: bool) bool {
+        return switch (it.*) {
+            .di, .di_first => true,
+            // If we omitted frame pointers from *this* compilation, FP unwinding would crash
+            // immediately regardless of anything. But FPs could also be omitted from a different
+            // linked object, so it's not guaranteed to be safe, unless the target specifically
+            // requires it.
+            .fp => !builtin.omit_frame_pointer and (fp_unwind_is_safe or allow_unsafe),
         };
     }
 
-    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t, fp: usize) !StackIterator {
-        // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
-        // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
-            return init(first_address, @truncate(context.mcontext.ss.fp));
+    const Result = union(enum) {
+        /// A stack frame has been found; this is the corresponding return address.
+        frame: usize,
+        /// The end of the stack has been reached.
+        end,
+        /// We were using `SelfInfo.UnwindInfo`, but are now switching to FP unwinding due to this error.
+        switch_to_fp: struct {
+            address: usize,
+            err: SelfInfoError,
+        },
+    };
 
-        if (SelfInfo.supports_unwinding) {
-            var iterator = init(first_address, fp);
-            iterator.unwind_state = .{
-                .debug_info = debug_info,
-                .dwarf_context = try SelfInfo.UnwindContext.init(debug_info.allocator, context),
-            };
-            return iterator;
-        }
-
-        return init(first_address, fp);
-    }
-
-    pub fn deinit(it: *StackIterator) void {
-        if (have_ucontext and it.unwind_state != null) it.unwind_state.?.dwarf_context.deinit();
-    }
-
-    pub fn getLastError(it: *StackIterator) ?struct {
-        err: UnwindError,
-        address: usize,
-    } {
-        if (!have_ucontext) return null;
-        if (it.unwind_state) |*unwind_state| {
-            if (unwind_state.last_error) |err| {
-                unwind_state.last_error = null;
-                return .{
-                    .err = err,
-                    .address = unwind_state.dwarf_context.pc,
+    fn next(it: *StackIterator) Result {
+        switch (it.*) {
+            .di_first => |unwind_context| {
+                const first_pc = unwind_context.pc;
+                if (first_pc == 0) return .end;
+                it.* = .{ .di = unwind_context };
+                // The caller expects *return* addresses, where they will subtract 1 to find the address of the call.
+                // However, we have the actual current PC, which should not be adjusted. Compensate by adding 1.
+                return .{ .frame = first_pc +| 1 };
+            },
+            .di => |*unwind_context| {
+                const di = getSelfDebugInfo() catch unreachable;
+                const di_gpa = getDebugInfoAllocator();
+                const ret_addr = di.unwindFrame(di_gpa, unwind_context) catch |err| {
+                    const pc = unwind_context.pc;
+                    it.* = .{ .fp = unwind_context.getFp() };
+                    return .{ .switch_to_fp = .{
+                        .address = pc,
+                        .err = err,
+                    } };
                 };
-            }
-        }
+                if (ret_addr <= 1) return .end;
+                return .{ .frame = ret_addr };
+            },
+            .fp => |fp| {
+                if (fp == 0) return .end; // we reached the "sentinel" base pointer
 
-        return null;
+                const bp_addr = applyOffset(fp, bp_offset) orelse return .end;
+                const ra_addr = applyOffset(fp, ra_offset) orelse return .end;
+
+                if (bp_addr == 0 or !mem.isAligned(bp_addr, @alignOf(usize)) or
+                    ra_addr == 0 or !mem.isAligned(ra_addr, @alignOf(usize)))
+                {
+                    // This isn't valid, but it most likely indicates end of stack.
+                    return .end;
+                }
+
+                const bp_ptr: *const usize = @ptrFromInt(bp_addr);
+                const ra_ptr: *const usize = @ptrFromInt(ra_addr);
+                const bp = applyOffset(bp_ptr.*, bp_bias) orelse return .end;
+
+                // The stack grows downards, so `bp > fp` should always hold. If it doesn't, this
+                // frame is invalid, so we'll treat it as though it we reached end of stack. The
+                // exception is address 0, which is a graceful end-of-stack signal, in which case
+                // *this* return address is valid and the *next* iteration will be the last.
+                if (bp != 0 and bp <= fp) return .end;
+
+                it.fp = bp;
+                const ra = stripInstructionPtrAuthCode(ra_ptr.*);
+                if (ra <= 1) return .end;
+                return .{ .frame = ra };
+            },
+        }
     }
 
-    // Offset of the saved BP wrt the frame pointer.
-    const fp_offset = if (native_arch.isRISCV())
+    /// Offset of the saved base pointer (previous frame pointer) wrt the frame pointer.
+    const bp_offset = off: {
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
         // slot where the previous frame pointer is saved.
-        2 * @sizeOf(usize)
-    else if (native_arch.isSPARC())
+        if (native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
         // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
-        14 * @sizeOf(usize)
-    else
-        0;
+        if (native_arch.isSPARC()) break :off 14 * @sizeOf(usize);
+        break :off 0;
+    };
 
-    const fp_bias = if (native_arch.isSPARC())
-        // On SPARC frame pointers are biased by a constant.
-        2047
-    else
-        0;
+    /// Offset of the saved return address wrt the frame pointer.
+    const ra_offset = off: {
+        if (native_arch == .powerpc64le) break :off 2 * @sizeOf(usize);
+        break :off @sizeOf(usize);
+    };
 
-    // Positive offset of the saved PC wrt the frame pointer.
-    const pc_offset = if (native_arch == .powerpc64le)
-        2 * @sizeOf(usize)
-    else
-        @sizeOf(usize);
+    /// Value to add to a base pointer after loading it from the stack. Yes, SPARC really does this.
+    const bp_bias = bias: {
+        if (native_arch.isSPARC()) break :bias 2047;
+        break :bias 0;
+    };
 
-    pub fn next(it: *StackIterator) ?usize {
-        var address = it.next_internal() orelse return null;
-
-        if (it.first_address) |first_address| {
-            while (address != first_address) {
-                address = it.next_internal() orelse return null;
-            }
-            it.first_address = null;
-        }
-
-        return address;
-    }
-
-    fn next_unwind(it: *StackIterator) !usize {
-        const unwind_state = &it.unwind_state.?;
-        const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
-        switch (native_os) {
-            .macos, .ios, .watchos, .tvos, .visionos => {
-                // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
-                // via DWARF before attempting to use the compact unwind info will produce incorrect results.
-                if (module.unwind_info) |unwind_info| {
-                    if (SelfInfo.unwindFrameMachO(
-                        unwind_state.debug_info.allocator,
-                        module.base_address,
-                        &unwind_state.dwarf_context,
-                        unwind_info,
-                        module.eh_frame,
-                    )) |return_address| {
-                        return return_address;
-                    } else |err| {
-                        if (err != error.RequiresDWARFUnwind) return err;
-                    }
-                } else return error.MissingUnwindInfo;
-            },
-            else => {},
-        }
-
-        if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(
-                unwind_state.debug_info.allocator,
-                di,
-                module.base_address,
-                &unwind_state.dwarf_context,
-                null,
-            );
-        } else return error.MissingDebugInfo;
-    }
-
-    fn next_internal(it: *StackIterator) ?usize {
-        if (have_ucontext) {
-            if (it.unwind_state) |*unwind_state| {
-                if (!unwind_state.failed) {
-                    if (unwind_state.dwarf_context.pc == 0) return null;
-                    defer it.fp = unwind_state.dwarf_context.getFp() catch 0;
-                    if (it.next_unwind()) |return_address| {
-                        return return_address;
-                    } else |err| {
-                        unwind_state.last_error = err;
-                        unwind_state.failed = true;
-
-                        // Fall back to fp-based unwinding on the first failure.
-                        // We can't attempt it again for other modules higher in the
-                        // stack because the full register state won't have been unwound.
-                    }
-                }
-            }
-        }
-
-        if (builtin.omit_frame_pointer) return null;
-
-        const fp = if (comptime native_arch.isSPARC())
-            // On SPARC the offset is positive. (!)
-            math.add(usize, it.fp, fp_offset) catch return null
-        else
-            math.sub(usize, it.fp, fp_offset) catch return null;
-
-        // Sanity check.
-        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize))) return null;
-        const new_fp = math.add(usize, @as(*usize, @ptrFromInt(fp)).*, fp_bias) catch
-            return null;
-
-        // Sanity check: the stack grows down thus all the parent frames must be
-        // be at addresses that are greater (or equal) than the previous one.
-        // A zero frame pointer often signals this is the last frame, that case
-        // is gracefully handled by the next call to next_internal.
-        if (new_fp != 0 and new_fp < it.fp) return null;
-        const new_pc = @as(*usize, @ptrFromInt(math.add(usize, fp, pc_offset) catch return null)).*;
-
-        it.fp = new_fp;
-
-        return new_pc;
+    fn applyOffset(addr: usize, comptime off: comptime_int) ?usize {
+        if (off >= 0) return math.add(usize, addr, off) catch return null;
+        return math.sub(usize, addr, -off) catch return null;
     }
 };
 
-pub fn writeCurrentStackTrace(
-    writer: *Writer,
-    debug_info: *SelfInfo,
-    tty_config: tty.Config,
-    start_addr: ?usize,
-) !void {
-    if (native_os == .windows) {
-        var context: ThreadContext = undefined;
-        assert(getContext(&context));
-        return writeStackTraceWindows(writer, debug_info, tty_config, &context, start_addr);
+/// Some platforms use pointer authentication: the upper bits of instruction pointers contain a
+/// signature. This function clears those signature bits to make the pointer directly usable.
+pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
+    if (native_arch.isAARCH64()) {
+        // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
+        // The save / restore is because `xpaclri` operates on x30 (LR)
+        return asm (
+            \\mov x16, x30
+            \\mov x30, x15
+            \\hint 0x07
+            \\mov x15, x30
+            \\mov x30, x16
+            : [ret] "={x15}" (-> usize),
+            : [ptr] "{x15}" (ptr),
+            : .{ .x16 = true });
     }
-    var context: ThreadContext = undefined;
-    const has_context = getContext(&context);
 
-    var it = (if (has_context) blk: {
-        break :blk StackIterator.initWithContext(start_addr, debug_info, &context, @frameAddress()) catch null;
-    } else null) orelse StackIterator.init(start_addr, @frameAddress());
-    defer it.deinit();
-
-    while (it.next()) |return_address| {
-        printLastUnwindError(&it, debug_info, writer, tty_config);
-
-        // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
-        // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
-        // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
-        // condition on the subsequent iteration and return `null` thus terminating the loop.
-        // same behaviour for x86-windows-msvc
-        const address = return_address -| 1;
-        try printSourceAtAddress(debug_info, writer, address, tty_config);
-    } else printLastUnwindError(&it, debug_info, writer, tty_config);
+    return ptr;
 }
 
-pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const windows.CONTEXT) usize {
-    if (builtin.cpu.arch == .x86) {
-        // RtlVirtualUnwind doesn't exist on x86
-        return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
-    }
-
-    const tib = &windows.teb().NtTib;
-
-    var context: windows.CONTEXT = undefined;
-    if (existing_context) |context_ptr| {
-        context = context_ptr.*;
-    } else {
-        context = std.mem.zeroes(windows.CONTEXT);
-        windows.ntdll.RtlCaptureContext(&context);
-    }
-
-    var i: usize = 0;
-    var image_base: windows.DWORD64 = undefined;
-    var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
-
-    while (i < addresses.len) : (i += 1) {
-        const current_regs = context.getRegs();
-        if (windows.ntdll.RtlLookupFunctionEntry(current_regs.ip, &image_base, &history_table)) |runtime_function| {
-            var handler_data: ?*anyopaque = null;
-            var establisher_frame: u64 = undefined;
-            _ = windows.ntdll.RtlVirtualUnwind(
-                windows.UNW_FLAG_NHANDLER,
-                image_base,
-                current_regs.ip,
-                runtime_function,
-                &context,
-                &handler_data,
-                &establisher_frame,
-                null,
-            );
-        } else {
-            // leaf function
-            context.setIp(@as(*usize, @ptrFromInt(current_regs.sp)).*);
-            context.setSp(current_regs.sp + @sizeOf(usize));
-        }
-
-        const next_regs = context.getRegs();
-        if (next_regs.sp < @intFromPtr(tib.StackLimit) or next_regs.sp > @intFromPtr(tib.StackBase)) {
-            break;
-        }
-
-        if (next_regs.ip == 0) {
-            break;
-        }
-
-        addresses[i] = next_regs.ip;
-    }
-
-    return i;
-}
-
-pub fn writeStackTraceWindows(
-    writer: *Writer,
-    debug_info: *SelfInfo,
-    tty_config: tty.Config,
-    context: *const windows.CONTEXT,
-    start_addr: ?usize,
-) !void {
-    var addr_buf: [1024]usize = undefined;
-    const n = walkStackWindows(addr_buf[0..], context);
-    const addrs = addr_buf[0..n];
-    const start_i: usize = if (start_addr) |saddr| blk: {
-        for (addrs, 0..) |addr, i| {
-            if (addr == saddr) break :blk i;
-        }
-        return;
-    } else 0;
-    for (addrs[start_i..]) |addr| {
-        try printSourceAtAddress(debug_info, writer, addr - 1, tty_config);
-    }
-}
-
-fn printUnknownSource(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
-    const module_name = debug_info.getModuleNameForAddress(address);
+fn printSourceAtAddress(gpa: Allocator, debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) Writer.Error!void {
+    const symbol: Symbol = debug_info.getSymbol(gpa, address) catch |err| switch (err) {
+        error.MissingDebugInfo,
+        error.UnsupportedDebugInfo,
+        error.InvalidDebugInfo,
+        => .unknown,
+        error.ReadFailed, error.Unexpected => s: {
+            tty_config.setColor(writer, .dim) catch {};
+            try writer.print("Failed to read debug info from filesystem, trace may be incomplete\n\n", .{});
+            tty_config.setColor(writer, .reset) catch {};
+            break :s .unknown;
+        },
+        error.OutOfMemory => s: {
+            tty_config.setColor(writer, .dim) catch {};
+            try writer.print("Ran out of memory loading debug info, trace may be incomplete\n\n", .{});
+            tty_config.setColor(writer, .reset) catch {};
+            break :s .unknown;
+        },
+    };
+    defer if (symbol.source_location) |sl| gpa.free(sl.file_name);
     return printLineInfo(
         writer,
-        null,
+        symbol.source_location,
         address,
-        "???",
-        module_name orelse "???",
+        symbol.name orelse "???",
+        symbol.compile_unit_name orelse debug_info.getModuleName(gpa, address) catch "???",
         tty_config,
-        printLineFromFileAnyOs,
     );
 }
-
-fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writer, tty_config: tty.Config) void {
-    if (!have_ucontext) return;
-    if (it.getLastError()) |unwind_error| {
-        printUnwindError(debug_info, writer, unwind_error.address, unwind_error.err, tty_config) catch {};
-    }
-}
-
-fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, err: UnwindError, tty_config: tty.Config) !void {
-    const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
-    try tty_config.setColor(writer, .dim);
-    if (err == error.MissingDebugInfo) {
-        try writer.print("Unwind information for `{s}:0x{x}` was not available, trace may be incomplete\n\n", .{ module_name, address });
-    } else {
-        try writer.print("Unwind error at address `{s}:0x{x}` ({}), trace may be incomplete\n\n", .{ module_name, address, err });
-    }
-    try tty_config.setColor(writer, .reset);
-}
-
-pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
-    const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
-        else => return err,
-    };
-
-    const symbol_info = module.getSymbolAtAddress(debug_info.allocator, address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
-        else => return err,
-    };
-    defer if (symbol_info.source_location) |sl| debug_info.allocator.free(sl.file_name);
-
-    return printLineInfo(
-        writer,
-        symbol_info.source_location,
-        address,
-        symbol_info.name,
-        symbol_info.compile_unit_name,
-        tty_config,
-        printLineFromFileAnyOs,
-    );
-}
-
 fn printLineInfo(
     writer: *Writer,
     source_location: ?SourceLocation,
@@ -1128,10 +1039,9 @@ fn printLineInfo(
     symbol_name: []const u8,
     compile_unit_name: []const u8,
     tty_config: tty.Config,
-    comptime printLineFromFile: anytype,
-) !void {
+) Writer.Error!void {
     nosuspend {
-        try tty_config.setColor(writer, .bold);
+        tty_config.setColor(writer, .bold) catch {};
 
         if (source_location) |*sl| {
             try writer.print("{s}:{d}:{d}", .{ sl.file_name, sl.line, sl.column });
@@ -1139,11 +1049,11 @@ fn printLineInfo(
             try writer.writeAll("???:?:?");
         }
 
-        try tty_config.setColor(writer, .reset);
+        tty_config.setColor(writer, .reset) catch {};
         try writer.writeAll(": ");
-        try tty_config.setColor(writer, .dim);
+        tty_config.setColor(writer, .dim) catch {};
         try writer.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
-        try tty_config.setColor(writer, .reset);
+        tty_config.setColor(writer, .reset) catch {};
         try writer.writeAll("\n");
 
         // Show the matching source code line if possible
@@ -1154,22 +1064,24 @@ fn printLineInfo(
                     const space_needed = @as(usize, @intCast(sl.column - 1));
 
                     try writer.splatByteAll(' ', space_needed);
-                    try tty_config.setColor(writer, .green);
+                    tty_config.setColor(writer, .green) catch {};
                     try writer.writeAll("^");
-                    try tty_config.setColor(writer, .reset);
+                    tty_config.setColor(writer, .reset) catch {};
                 }
                 try writer.writeAll("\n");
-            } else |err| switch (err) {
-                error.EndOfFile, error.FileNotFound => {},
-                error.BadPathName => {},
-                error.AccessDenied => {},
-                else => return err,
+            } else |_| {
+                // Ignore all errors; it's a better UX to just print the source location without the
+                // corresponding line number. The user can always open the source file themselves.
             }
         }
     }
 }
+fn printLineFromFile(writer: *Writer, source_location: SourceLocation) !void {
+    // Allow overriding the target-agnostic source line printing logic by exposing `root.debug.printLineFromFile`.
+    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "printLineFromFile")) {
+        return root.debug.printLineFromFile(writer, source_location);
+    }
 
-fn printLineFromFileAnyOs(writer: *Writer, source_location: SourceLocation) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(source_location.file_name, .{});
@@ -1223,7 +1135,7 @@ fn printLineFromFileAnyOs(writer: *Writer, source_location: SourceLocation) !voi
     }
 }
 
-test printLineFromFileAnyOs {
+test printLineFromFile {
     var aw: Writer.Allocating = .init(std.testing.allocator);
     defer aw.deinit();
     const output_stream = &aw.writer;
@@ -1245,9 +1157,9 @@ test printLineFromFileAnyOs {
         defer allocator.free(path);
         try test_dir.dir.writeFile(.{ .sub_path = "one_line.zig", .data = "no new lines in this file, but one is printed anyway" });
 
-        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+        try expectError(error.EndOfFile, printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings("no new lines in this file, but one is printed anyway\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1263,11 +1175,11 @@ test printLineFromFileAnyOs {
             ,
         });
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings("1\n", aw.written());
         aw.clearRetainingCapacity();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
         try expectEqualStrings("3\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1286,7 +1198,7 @@ test printLineFromFileAnyOs {
         try writer.splatByteAll('a', overlap);
         try writer.flush();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
         try expectEqualStrings(("a" ** overlap) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1300,7 +1212,7 @@ test printLineFromFileAnyOs {
         const writer = &file_writer.interface;
         try writer.splatByteAll('a', std.heap.page_size_max);
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings(("a" ** std.heap.page_size_max) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1314,19 +1226,19 @@ test printLineFromFileAnyOs {
         const writer = &file_writer.interface;
         try writer.splatByteAll('a', 3 * std.heap.page_size_max);
 
-        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+        try expectError(error.EndOfFile, printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
 
         try writer.writeAll("a\na");
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "a\n", aw.written());
         aw.clearRetainingCapacity();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
         try expectEqualStrings("a\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1342,26 +1254,29 @@ test printLineFromFileAnyOs {
         try writer.splatByteAll('\n', real_file_start);
         try writer.writeAll("abc\ndef");
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
         try expectEqualStrings("abc\n", aw.written());
         aw.clearRetainingCapacity();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
         try expectEqualStrings("def\n", aw.written());
         aw.clearRetainingCapacity();
     }
 }
 
-/// TODO multithreaded awareness
-var debug_info_allocator: ?mem.Allocator = null;
-var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
-fn getDebugInfoAllocator() mem.Allocator {
-    if (debug_info_allocator) |a| return a;
-
-    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = debug_info_arena_allocator.allocator();
-    debug_info_allocator = allocator;
-    return allocator;
+/// The returned allocator should be thread-safe if the compilation is multi-threaded, because
+/// multiple threads could capture and/or print stack traces simultaneously.
+fn getDebugInfoAllocator() Allocator {
+    // Allow overriding the debug info allocator by exposing `root.debug.getDebugInfoAllocator`.
+    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "getDebugInfoAllocator")) {
+        return root.debug.getDebugInfoAllocator();
+    }
+    // Otherwise, use a global arena backed by the page allocator
+    const S = struct {
+        var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+        var ts_arena: std.heap.ThreadSafeAllocator = .{ .child_allocator = arena.allocator() };
+    };
+    return S.ts_arena.allocator();
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
@@ -1372,9 +1287,10 @@ pub const have_segfault_handling_support = switch (native_os) {
     .solaris,
     .illumos,
     .windows,
+    .freebsd,
+    .openbsd,
     => true,
 
-    .freebsd, .openbsd => have_ucontext,
     else => false,
 };
 
@@ -1396,7 +1312,16 @@ pub fn updateSegfaultHandler(act: ?*const posix.Sigaction) void {
     posix.sigaction(posix.SIG.FPE, act, null);
 }
 
-/// Attaches a global SIGSEGV handler which calls `@panic("segmentation fault");`
+/// Attaches a global handler for several signals which, when triggered, prints output to stderr
+/// similar to the default panic handler, with a message containing the type of signal and a stack
+/// trace if possible. This implementation does not just call the panic handler, because unwinding
+/// the stack (for a stack trace) when a signal is received requires special target-specific logic.
+///
+/// The signals for which a handler is installed are:
+/// * SIGSEGV (segmentation fault)
+/// * SIGILL (illegal instruction)
+/// * SIGBUS (bus error)
+/// * SIGFPE (arithmetic exception)
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
@@ -1430,52 +1355,9 @@ fn resetSegfaultHandler() void {
 }
 
 fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
-    // Reset to the default handler so that if a segfault happens in this handler it will crash
-    // the process. Also when this handler returns, the original instruction will be repeated
-    // and the resulting segfault will crash the process rather than continually dump stack traces.
-    resetSegfaultHandler();
-
-    const addr = switch (native_os) {
-        .linux => @intFromPtr(info.fields.sigfault.addr),
-        .freebsd, .macos => @intFromPtr(info.addr),
-        .netbsd => @intFromPtr(info.info.reason.fault.addr),
-        .openbsd => @intFromPtr(info.data.fault.addr),
-        .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
-        else => unreachable,
-    };
-
-    const code = if (native_os == .netbsd) info.info.code else info.code;
-    nosuspend switch (panic_stage) {
-        0 => {
-            panic_stage = 1;
-            _ = panicking.fetchAdd(1, .seq_cst);
-
-            {
-                lockStdErr();
-                defer unlockStdErr();
-
-                dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
-            }
-
-            waitForOtherThreadToFinishPanicking();
-        },
-        else => {
-            // panic mutex already locked
-            dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
-        },
-    };
-
-    // We cannot allow the signal handler to return because when it runs the original instruction
-    // again, the memory may be mapped and undefined behavior would occur rather than repeating
-    // the segfault. So we simply abort here.
-    posix.abort();
-}
-
-fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
-    const stderr = lockStderrWriter(&.{});
-    defer unlockStderrWriter();
-    _ = switch (sig) {
-        posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
+    if (use_trap_panic) @trap();
+    const addr: ?usize, const name: []const u8 = info: {
+        if (native_os == .linux and native_arch == .x86_64) {
             // x86_64 doesn't have a full 64-bit virtual address space.
             // Addresses outside of that address space are non-canonical
             // and the CPU won't provide the faulting address to us.
@@ -1483,100 +1365,92 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
             // but can also happen when no addressable memory is involved;
             // for example when reading/writing model-specific registers
             // by executing `rdmsr` or `wrmsr` in user-space (unprivileged mode).
-            stderr.writeAll("General protection exception (no address available)\n")
-        else
-            stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
-        posix.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
-        posix.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
-        posix.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
-        else => unreachable,
-    } catch posix.abort();
-
-    switch (native_arch) {
-        .x86,
-        .x86_64,
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .aarch64,
-        .aarch64_be,
-        => {
-            // Some kernels don't align `ctx_ptr` properly. Handle this defensively.
-            const ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
-            var new_ctx: posix.ucontext_t = ctx.*;
-            if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) {
-                // The kernel incorrectly writes the contents of `__mcontext_data` right after `mcontext`,
-                // rather than after the 8 bytes of padding that are supposed to sit between the two. Copy the
-                // contents to the right place so that the `mcontext` pointer will be correct after the
-                // `relocateContext` call below.
-                new_ctx.__mcontext_data = @as(*align(1) extern struct {
-                    onstack: c_int,
-                    sigmask: std.c.sigset_t,
-                    stack: std.c.stack_t,
-                    link: ?*std.c.ucontext_t,
-                    mcsize: u64,
-                    mcontext: *std.c.mcontext_t,
-                    __mcontext_data: std.c.mcontext_t align(@sizeOf(usize)), // Disable padding after `mcontext`.
-                }, @ptrCast(ctx)).__mcontext_data;
+            const SI_KERNEL = 0x80;
+            if (sig == posix.SIG.SEGV and info.code == SI_KERNEL) {
+                break :info .{ null, "General protection exception" };
             }
-            relocateContext(&new_ctx);
-            dumpStackTraceFromBase(&new_ctx, stderr);
-        },
-        else => {},
-    }
+        }
+        const addr: usize = switch (native_os) {
+            .linux => @intFromPtr(info.fields.sigfault.addr),
+            .freebsd, .macos => @intFromPtr(info.addr),
+            .netbsd => @intFromPtr(info.info.reason.fault.addr),
+            .openbsd => @intFromPtr(info.data.fault.addr),
+            .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
+            else => comptime unreachable,
+        };
+        const name = switch (sig) {
+            posix.SIG.SEGV => "Segmentation fault",
+            posix.SIG.ILL => "Illegal instruction",
+            posix.SIG.BUS => "Bus error",
+            posix.SIG.FPE => "Arithmetic exception",
+            else => unreachable,
+        };
+        break :info .{ addr, name };
+    };
+    const opt_cpu_context: ?cpu_context.Native = cpu_context.fromPosixSignalContext(ctx_ptr);
+    handleSegfault(addr, name, if (opt_cpu_context) |*ctx| ctx else null);
 }
 
 fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
-    switch (info.ExceptionRecord.ExceptionCode) {
-        windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, 0, "Unaligned Memory Access"),
-        windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, 1, null),
-        windows.EXCEPTION_ILLEGAL_INSTRUCTION => handleSegfaultWindowsExtra(info, 2, null),
-        windows.EXCEPTION_STACK_OVERFLOW => handleSegfaultWindowsExtra(info, 0, "Stack Overflow"),
+    if (use_trap_panic) @trap();
+    const name: []const u8, const addr: ?usize = switch (info.ExceptionRecord.ExceptionCode) {
+        windows.EXCEPTION_DATATYPE_MISALIGNMENT => .{ "Unaligned memory access", null },
+        windows.EXCEPTION_ACCESS_VIOLATION => .{ "Segmentation fault", info.ExceptionRecord.ExceptionInformation[1] },
+        windows.EXCEPTION_ILLEGAL_INSTRUCTION => .{ "Illegal instruction", info.ContextRecord.getRegs().ip },
+        windows.EXCEPTION_STACK_OVERFLOW => .{ "Stack overflow", null },
         else => return windows.EXCEPTION_CONTINUE_SEARCH,
-    }
+    };
+    handleSegfault(addr, name, &cpu_context.fromWindowsContext(info.ContextRecord));
 }
 
-fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) noreturn {
-    // For backends that cannot handle the language features used by this segfault handler, we have a simpler one,
-    switch (builtin.zig_backend) {
-        .stage2_x86_64 => if (builtin.target.ofmt == .coff) @trap(),
-        else => {},
+fn handleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContextPtr) noreturn {
+    // Allow overriding the target-agnostic segfault handler by exposing `root.debug.handleSegfault`.
+    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "handleSegfault")) {
+        return root.debug.handleSegfault(addr, name, opt_ctx);
     }
+    return defaultHandleSegfault(addr, name, opt_ctx);
+}
 
-    comptime assert(windows.CONTEXT != void);
-    nosuspend switch (panic_stage) {
+pub fn defaultHandleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContextPtr) noreturn {
+    // There is very similar logic to the following in `defaultPanic`.
+    switch (panic_stage) {
         0 => {
             panic_stage = 1;
             _ = panicking.fetchAdd(1, .seq_cst);
 
-            {
+            trace: {
+                const tty_config = tty.detectConfig(.stderr());
+
                 const stderr = lockStderrWriter(&.{});
                 defer unlockStderrWriter();
 
-                dumpSegfaultInfoWindows(info, msg, label, stderr);
+                if (addr) |a| {
+                    stderr.print("{s} at address 0x{x}\n", .{ name, a }) catch break :trace;
+                } else {
+                    stderr.print("{s} (no address available)\n", .{name}) catch break :trace;
+                }
+                if (opt_ctx) |context| {
+                    writeCurrentStackTrace(.{
+                        .context = context,
+                        .allow_unsafe_unwind = true, // we're crashing anyway, give it our all!
+                    }, stderr, tty_config) catch break :trace;
+                }
             }
-
-            waitForOtherThreadToFinishPanicking();
         },
         1 => {
             panic_stage = 2;
+            // A segfault happened while trying to print a previous panic message.
+            // We're still holding the mutex but that's fine as we're going to
+            // call abort().
             fs.File.stderr().writeAll("aborting due to recursive panic\n") catch {};
         },
-        else => {},
-    };
+        else => {}, // Panicked while printing the recursive panic message.
+    }
+
+    // We cannot allow the signal handler to return because when it runs the original instruction
+    // again, the memory may be mapped and undefined behavior would occur rather than repeating
+    // the segfault. So we simply abort here.
     posix.abort();
-}
-
-fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8, stderr: *Writer) void {
-    _ = switch (msg) {
-        0 => stderr.print("{s}\n", .{label.?}),
-        1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
-        2 => stderr.print("Illegal instruction at address 0x{x}\n", .{info.ContextRecord.getRegs().ip}),
-        else => unreachable,
-    } catch posix.abort();
-
-    dumpStackTraceFromBase(info.ContextRecord, stderr);
 }
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {
@@ -1587,26 +1461,23 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
-    if (builtin.strip_debug_info) return error.SkipZigTest;
-
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    if (native_os == .windows) {
-        // https://github.com/ziglang/zig/issues/13963
-        return error.SkipZigTest;
-    }
-
-    // self-hosted debug info is still too buggy
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
-
-    var discarding: Writer.Discarding = .init(&.{});
-    var di = try SelfInfo.open(testing.allocator);
-    defer di.deinit();
-    try printSourceAtAddress(&di, &discarding.writer, showMyTrace(), tty.detectConfig(.stderr()));
-}
-
-noinline fn showMyTrace() usize {
-    return @returnAddress();
+    if (SelfInfo == void) return error.SkipZigTest;
+    const S = struct {
+        noinline fn showMyTrace() usize {
+            return @returnAddress();
+        }
+    };
+    const gpa = std.testing.allocator;
+    var discarding: std.Io.Writer.Discarding = .init(&.{});
+    var di: SelfInfo = .init;
+    defer di.deinit(gpa);
+    try printSourceAtAddress(
+        gpa,
+        &di,
+        &discarding.writer,
+        S.showMyTrace(),
+        tty.detectConfig(.stderr()),
+    );
 }
 
 /// This API helps you track where a value originated and where it was mutated,
@@ -1653,12 +1524,11 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
 
             if (t.index < size) {
                 t.notes[t.index] = note;
-                t.addrs[t.index] = [1]usize{0} ** stack_frame_count;
-                var stack_trace: std.builtin.StackTrace = .{
-                    .index = 0,
-                    .instruction_addresses = &t.addrs[t.index],
-                };
-                captureStackTrace(addr, &stack_trace);
+                const addrs = &t.addrs[t.index];
+                const st = captureCurrentStackTrace(.{ .first_address = addr }, addrs);
+                if (st.index < addrs.len) {
+                    @memset(addrs[st.index..], 0); // zero unused frames to indicate end of trace
+                }
             }
             // Keep counting even if the end is reached so that the
             // user can find out how much more size they need.
@@ -1672,13 +1542,6 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             const stderr = lockStderrWriter(&.{});
             defer unlockStderrWriter();
             const end = @min(t.index, size);
-            const debug_info = getSelfDebugInfo() catch |err| {
-                stderr.print(
-                    "Unable to dump stack trace: Unable to open debug info: {s}\n",
-                    .{@errorName(err)},
-                ) catch return;
-                return;
-            };
             for (t.addrs[0..end], 0..) |frames_array, i| {
                 stderr.print("{s}:\n", .{t.notes[i]}) catch return;
                 var frames_array_mutable = frames_array;
@@ -1687,7 +1550,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, stderr, debug_info, tty_config) catch continue;
+                writeStackTrace(&stack_trace, stderr, tty_config) catch return;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{

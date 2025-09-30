@@ -1,0 +1,1028 @@
+/// Register state for the native architecture, used by `std.debug` for stack unwinding.
+/// `noreturn` if there is no implementation for the native architecture.
+/// This can be overriden by exposing a declaration `root.debug.CpuContext`.
+pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuContext"))
+    root.debug.CpuContext
+else switch (native_arch) {
+    .x86 => X86,
+    .x86_64 => X86_64,
+    .arm, .armeb, .thumb, .thumbeb => Arm,
+    .aarch64, .aarch64_be => Aarch64,
+    else => noreturn,
+};
+
+pub const DwarfRegisterError = error{
+    InvalidRegister,
+    UnsupportedRegister,
+};
+
+pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
+    if (signal_ucontext_t == void) return null;
+    const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+    return switch (native_arch) {
+        .x86 => switch (native_os) {
+            .linux, .netbsd, .solaris, .illumos => .{ .gprs = .init(.{
+                .eax = uc.mcontext.gregs[std.posix.REG.EAX],
+                .ecx = uc.mcontext.gregs[std.posix.REG.ECX],
+                .edx = uc.mcontext.gregs[std.posix.REG.EDX],
+                .ebx = uc.mcontext.gregs[std.posix.REG.EBX],
+                .esp = uc.mcontext.gregs[std.posix.REG.ESP],
+                .ebp = uc.mcontext.gregs[std.posix.REG.EBP],
+                .esi = uc.mcontext.gregs[std.posix.REG.ESI],
+                .edi = uc.mcontext.gregs[std.posix.REG.EDI],
+                .eip = uc.mcontext.gregs[std.posix.REG.EIP],
+            }) },
+            else => null,
+        },
+        .x86_64 => switch (native_os) {
+            .linux, .solaris, .illumos => .{ .gprs = .init(.{
+                .rax = uc.mcontext.gregs[std.posix.REG.RAX],
+                .rdx = uc.mcontext.gregs[std.posix.REG.RDX],
+                .rcx = uc.mcontext.gregs[std.posix.REG.RCX],
+                .rbx = uc.mcontext.gregs[std.posix.REG.RBX],
+                .rsi = uc.mcontext.gregs[std.posix.REG.RSI],
+                .rdi = uc.mcontext.gregs[std.posix.REG.RDI],
+                .rbp = uc.mcontext.gregs[std.posix.REG.RBP],
+                .rsp = uc.mcontext.gregs[std.posix.REG.RSP],
+                .r8 = uc.mcontext.gregs[std.posix.REG.R8],
+                .r9 = uc.mcontext.gregs[std.posix.REG.R9],
+                .r10 = uc.mcontext.gregs[std.posix.REG.R10],
+                .r11 = uc.mcontext.gregs[std.posix.REG.R11],
+                .r12 = uc.mcontext.gregs[std.posix.REG.R12],
+                .r13 = uc.mcontext.gregs[std.posix.REG.R13],
+                .r14 = uc.mcontext.gregs[std.posix.REG.R14],
+                .r15 = uc.mcontext.gregs[std.posix.REG.R15],
+                .rip = uc.mcontext.gregs[std.posix.REG.RIP],
+            }) },
+            .freebsd => .{ .gprs = .init(.{
+                .rax = uc.mcontext.rax,
+                .rdx = uc.mcontext.rdx,
+                .rcx = uc.mcontext.rcx,
+                .rbx = uc.mcontext.rbx,
+                .rsi = uc.mcontext.rsi,
+                .rdi = uc.mcontext.rdi,
+                .rbp = uc.mcontext.rbp,
+                .rsp = uc.mcontext.rsp,
+                .r8 = uc.mcontext.r8,
+                .r9 = uc.mcontext.r9,
+                .r10 = uc.mcontext.r10,
+                .r11 = uc.mcontext.r11,
+                .r12 = uc.mcontext.r12,
+                .r13 = uc.mcontext.r13,
+                .r14 = uc.mcontext.r14,
+                .r15 = uc.mcontext.r15,
+                .rip = uc.mcontext.rip,
+            }) },
+            .openbsd => .{ .gprs = .init(.{
+                .rax = @bitCast(uc.sc_rax),
+                .rdx = @bitCast(uc.sc_rdx),
+                .rcx = @bitCast(uc.sc_rcx),
+                .rbx = @bitCast(uc.sc_rbx),
+                .rsi = @bitCast(uc.sc_rsi),
+                .rdi = @bitCast(uc.sc_rdi),
+                .rbp = @bitCast(uc.sc_rbp),
+                .rsp = @bitCast(uc.sc_rsp),
+                .r8 = @bitCast(uc.sc_r8),
+                .r9 = @bitCast(uc.sc_r9),
+                .r10 = @bitCast(uc.sc_r10),
+                .r11 = @bitCast(uc.sc_r11),
+                .r12 = @bitCast(uc.sc_r12),
+                .r13 = @bitCast(uc.sc_r13),
+                .r14 = @bitCast(uc.sc_r14),
+                .r15 = @bitCast(uc.sc_r15),
+                .rip = @bitCast(uc.sc_rip),
+            }) },
+            .macos, .ios => .{ .gprs = .init(.{
+                .rax = uc.mcontext.ss.rax,
+                .rdx = uc.mcontext.ss.rdx,
+                .rcx = uc.mcontext.ss.rcx,
+                .rbx = uc.mcontext.ss.rbx,
+                .rsi = uc.mcontext.ss.rsi,
+                .rdi = uc.mcontext.ss.rdi,
+                .rbp = uc.mcontext.ss.rbp,
+                .rsp = uc.mcontext.ss.rsp,
+                .r8 = uc.mcontext.ss.r8,
+                .r9 = uc.mcontext.ss.r9,
+                .r10 = uc.mcontext.ss.r10,
+                .r11 = uc.mcontext.ss.r11,
+                .r12 = uc.mcontext.ss.r12,
+                .r13 = uc.mcontext.ss.r13,
+                .r14 = uc.mcontext.ss.r14,
+                .r15 = uc.mcontext.ss.r15,
+                .rip = uc.mcontext.ss.rip,
+            }) },
+            else => null,
+        },
+        .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
+            .linux => .{
+                .r = .{
+                    uc.mcontext.arm_r0,
+                    uc.mcontext.arm_r1,
+                    uc.mcontext.arm_r2,
+                    uc.mcontext.arm_r3,
+                    uc.mcontext.arm_r4,
+                    uc.mcontext.arm_r5,
+                    uc.mcontext.arm_r6,
+                    uc.mcontext.arm_r7,
+                    uc.mcontext.arm_r8,
+                    uc.mcontext.arm_r9,
+                    uc.mcontext.arm_r10,
+                    uc.mcontext.arm_fp, // r11 = fp
+                    uc.mcontext.arm_ip, // r12 = ip
+                    uc.mcontext.arm_sp, // r13 = sp
+                    uc.mcontext.arm_lr, // r14 = lr
+                    uc.mcontext.arm_pc, // r15 = pc
+                },
+            },
+            else => null,
+        },
+        .aarch64, .aarch64_be => switch (builtin.os.tag) {
+            .macos, .ios, .tvos, .watchos, .visionos => .{
+                .x = uc.mcontext.ss.regs ++ @as([2]u64, .{
+                    uc.mcontext.ss.fp, // x29 = fp
+                    uc.mcontext.ss.lr, // x30 = lr
+                }),
+                .sp = uc.mcontext.ss.sp,
+                .pc = uc.mcontext.ss.pc,
+            },
+            .netbsd => .{
+                .x = uc.mcontext.gregs[0..31].*,
+                .sp = uc.mcontext.gregs[31],
+                .pc = uc.mcontext.gregs[32],
+            },
+            .freebsd => .{
+                .x = uc.mcontext.gpregs.x ++ @as([1]u64, .{
+                    uc.mcontext.gpregs.lr, // x30 = lr
+                }),
+                .sp = uc.mcontext.gpregs.sp,
+                // On aarch64, the register ELR_LR1 defines the address to return to after handling
+                // a CPU exception (ELR is "Exception Link Register"). FreeBSD's ucontext_t uses
+                // this as the field name, but it's the same thing as the context's PC.
+                .pc = uc.mcontext.gpregs.elr,
+            },
+            .openbsd => .{
+                .x = uc.sc_x ++ .{uc.sc_lr},
+                .sp = uc.sc_sp,
+                // Not a bug; see freebsd above for explanation.
+                .pc = uc.sc_elr,
+            },
+            .linux => .{
+                .x = uc.mcontext.regs,
+                .sp = uc.mcontext.sp,
+                .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        else => null,
+    };
+}
+
+pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
+    return switch (native_arch) {
+        .x86 => .{ .gprs = .init(.{
+            .eax = ctx.Eax,
+            .ecx = ctx.Ecx,
+            .edx = ctx.Edx,
+            .ebx = ctx.Ebx,
+            .esp = ctx.Esp,
+            .ebp = ctx.Ebp,
+            .esi = ctx.Esi,
+            .edi = ctx.Edi,
+            .eip = ctx.Eip,
+        }) },
+        .x86_64 => .{ .gprs = .init(.{
+            .rax = ctx.Rax,
+            .rdx = ctx.Rdx,
+            .rcx = ctx.Rcx,
+            .rbx = ctx.Rbx,
+            .rsi = ctx.Rsi,
+            .rdi = ctx.Rdi,
+            .rbp = ctx.Rbp,
+            .rsp = ctx.Rsp,
+            .r8 = ctx.R8,
+            .r9 = ctx.R9,
+            .r10 = ctx.R10,
+            .r11 = ctx.R11,
+            .r12 = ctx.R12,
+            .r13 = ctx.R13,
+            .r14 = ctx.R14,
+            .r15 = ctx.R15,
+            .rip = ctx.Rip,
+        }) },
+        .aarch64, .aarch64_be => .{
+            .x = ctx.DUMMYUNIONNAME.X[0..31].*,
+            .sp = ctx.Sp,
+            .pc = ctx.Pc,
+        },
+        .thumb => .{ .r = .{
+            ctx.R0,  ctx.R1, ctx.R2,  ctx.R3,
+            ctx.R4,  ctx.R5, ctx.R6,  ctx.R7,
+            ctx.R8,  ctx.R9, ctx.R10, ctx.R11,
+            ctx.R12, ctx.Sp, ctx.Lr,  ctx.Pc,
+        } },
+        else => comptime unreachable,
+    };
+}
+
+pub const X86 = struct {
+    /// The first 8 registers here intentionally match the order of registers in the x86 instruction
+    /// encoding. This order is inherited by the PUSHA instruction and the DWARF register mappings,
+    /// among other things.
+    pub const Gpr = enum {
+        // zig fmt: off
+        eax, ecx, edx, ebx,
+        esp, ebp, esi, edi,
+        eip,
+        // zig fmt: on
+    };
+    gprs: std.enums.EnumArray(Gpr, u32),
+
+    pub inline fn current() X86 {
+        var ctx: X86 = undefined;
+        asm volatile (
+            \\movl %%eax, 0x00(%%edi)
+            \\movl %%ecx, 0x04(%%edi)
+            \\movl %%edx, 0x08(%%edi)
+            \\movl %%ebx, 0x0c(%%edi)
+            \\movl %%esp, 0x10(%%edi)
+            \\movl %%ebp, 0x14(%%edi)
+            \\movl %%esi, 0x18(%%edi)
+            \\movl %%edi, 0x1c(%%edi)
+            \\call 1f
+            \\1:
+            \\popl 0x20(%%edi)
+            :
+            : [gprs] "{edi}" (&ctx.gprs.values),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *X86, register_num: u16) DwarfRegisterError![]u8 {
+        // System V Application Binary Interface Intel386 Architecture Processor Supplement Version 1.1
+        //   § 2.4.2 "DWARF Register Number Mapping"
+        switch (register_num) {
+            // The order of `Gpr` intentionally matches DWARF's mappings.
+            //
+            // x86-macos sometimes uses different mappings (ebp and esp are reversed when the unwind
+            // information is from `__eh_frame`). This deviation is not considered here, because
+            // x86-macos is a deprecated target which is not supported by the Zig Standard Library.
+            0...8 => return @ptrCast(&ctx.gprs.values[register_num]),
+
+            9 => return error.UnsupportedRegister, // rflags
+            11...18 => return error.UnsupportedRegister, // st0 - st7
+            21...28 => return error.UnsupportedRegister, // xmm0 - xmm7
+            29...36 => return error.UnsupportedRegister, // mm0 - mm7
+            39 => return error.UnsupportedRegister, // mxcsr
+            40...45 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
+            48 => return error.UnsupportedRegister, // tr
+            49 => return error.UnsupportedRegister, // ldtr
+            93...94 => return error.UnsupportedRegister, // fs.base, gs.base
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+pub const X86_64 = struct {
+    /// The order here intentionally matches the order of the DWARF register mappings. It's unclear
+    /// where those mappings actually originated from---the ordering of the first 4 registers seems
+    /// quite unusual---but it is currently convenient for us to match DWARF.
+    pub const Gpr = enum {
+        // zig fmt: off
+        rax, rdx, rcx, rbx,
+        rsi, rdi, rbp, rsp,
+        r8,  r9,  r10, r11,
+        r12, r13, r14, r15,
+        rip,
+        // zig fmt: on
+    };
+    gprs: std.enums.EnumArray(Gpr, u64),
+
+    pub inline fn current() X86_64 {
+        var ctx: X86_64 = undefined;
+        asm volatile (
+            \\movq %%rax, 0x00(%%rdi)
+            \\movq %%rdx, 0x08(%%rdi)
+            \\movq %%rcx, 0x10(%%rdi)
+            \\movq %%rbx, 0x18(%%rdi)
+            \\movq %%rsi, 0x20(%%rdi)
+            \\movq %%rdi, 0x28(%%rdi)
+            \\movq %%rbp, 0x30(%%rdi)
+            \\movq %%rsp, 0x38(%%rdi)
+            \\movq %%r8,  0x40(%%rdi)
+            \\movq %%r9,  0x48(%%rdi)
+            \\movq %%r10, 0x50(%%rdi)
+            \\movq %%r11, 0x58(%%rdi)
+            \\movq %%r12, 0x60(%%rdi)
+            \\movq %%r13, 0x68(%%rdi)
+            \\movq %%r14, 0x70(%%rdi)
+            \\movq %%r15, 0x78(%%rdi)
+            \\leaq (%%rip), %%rax
+            \\movq %%rax, 0x80(%%rdi)
+            \\movq 0x00(%%rdi), %%rax
+            :
+            : [gprs] "{rdi}" (&ctx.gprs.values),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *X86_64, register_num: u16) DwarfRegisterError![]u8 {
+        // System V Application Binary Interface AMD64 Architecture Processor Supplement
+        //   § 3.6.2 "DWARF Register Number Mapping"
+        switch (register_num) {
+            // The order of `Gpr` intentionally matches DWARF's mappings.
+            0...16 => return @ptrCast(&ctx.gprs.values[register_num]),
+
+            17...32 => return error.UnsupportedRegister, // xmm0 - xmm15
+            33...40 => return error.UnsupportedRegister, // st0 - st7
+            41...48 => return error.UnsupportedRegister, // mm0 - mm7
+            49 => return error.UnsupportedRegister, // rflags
+            50...55 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
+            58...59 => return error.UnsupportedRegister, // fs.base, gs.base
+            62 => return error.UnsupportedRegister, // tr
+            63 => return error.UnsupportedRegister, // ldtr
+            64 => return error.UnsupportedRegister, // mxcsr
+            65 => return error.UnsupportedRegister, // fcw
+            66 => return error.UnsupportedRegister, // fsw
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+pub const Arm = struct {
+    /// The numbered general-purpose registers R0 - R15.
+    r: [16]u32,
+
+    pub inline fn current() Arm {
+        var ctx: Arm = undefined;
+        asm volatile (
+            \\// For compatibility with Thumb, we can't write r13 (sp) or r15 (pc) with stm.
+            \\stm r0, {r0-r12}
+            \\str r13, [r0, #0x34]
+            \\str r14, [r0, #0x38]
+            \\str r15, [r0, #0x3c]
+            :
+            : [r] "{r0}" (&ctx.r),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Arm, register_num: u16) DwarfRegisterError![]u8 {
+        // DWARF for the Arm(r) Architecture § 4.1 "DWARF register names"
+        switch (register_num) {
+            // The order of `Gpr` intentionally matches DWARF's mappings.
+            0...15 => return @ptrCast(&ctx.r[register_num]),
+
+            64...95 => return error.UnsupportedRegister, // S0 - S31
+            96...103 => return error.UnsupportedRegister, // F0 - F7
+            104...111 => return error.UnsupportedRegister, // wCGR0 - wCGR7, or ACC0 - ACC7
+            112...127 => return error.UnsupportedRegister, // wR0 - wR15
+            128 => return error.UnsupportedRegister, // SPSR
+            129 => return error.UnsupportedRegister, // SPSR_FIQ
+            130 => return error.UnsupportedRegister, // SPSR_IRQ
+            131 => return error.UnsupportedRegister, // SPSR_ABT
+            132 => return error.UnsupportedRegister, // SPSR_UND
+            133 => return error.UnsupportedRegister, // SPSR_SVC
+            143 => return error.UnsupportedRegister, // RA_AUTH_CODE
+            144...150 => return error.UnsupportedRegister, // R8_USR - R14_USR
+            151...157 => return error.UnsupportedRegister, // R8_FIQ - R14_FIQ
+            158...159 => return error.UnsupportedRegister, // R13_IRQ - R14_IRQ
+            160...161 => return error.UnsupportedRegister, // R13_ABT - R14_ABT
+            162...163 => return error.UnsupportedRegister, // R13_UND - R14_UND
+            164...165 => return error.UnsupportedRegister, // R13_SVC - R14_SVC
+            192...199 => return error.UnsupportedRegister, // wC0 - wC7
+            256...287 => return error.UnsupportedRegister, // D0 - D31
+            320 => return error.UnsupportedRegister, // TPIDRURO
+            321 => return error.UnsupportedRegister, // TPIDRURW
+            322 => return error.UnsupportedRegister, // TPIDPR
+            323 => return error.UnsupportedRegister, // HTPIDPR
+            8192...16383 => return error.UnsupportedRegister, // Unspecified vendor co-processor register
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const Aarch64 = extern struct {
+    /// The numbered general-purpose registers X0 - X30.
+    x: [31]u64,
+    sp: u64,
+    pc: u64,
+
+    pub inline fn current() Aarch64 {
+        var ctx: Aarch64 = undefined;
+        asm volatile (
+            \\stp x0,  x1,  [x0, #0x000]
+            \\stp x2,  x3,  [x0, #0x010]
+            \\stp x4,  x5,  [x0, #0x020]
+            \\stp x6,  x7,  [x0, #0x030]
+            \\stp x8,  x9,  [x0, #0x040]
+            \\stp x10, x11, [x0, #0x050]
+            \\stp x12, x13, [x0, #0x060]
+            \\stp x14, x15, [x0, #0x070]
+            \\stp x16, x17, [x0, #0x080]
+            \\stp x18, x19, [x0, #0x090]
+            \\stp x20, x21, [x0, #0x0a0]
+            \\stp x22, x23, [x0, #0x0b0]
+            \\stp x24, x25, [x0, #0x0c0]
+            \\stp x26, x27, [x0, #0x0d0]
+            \\stp x28, x29, [x0, #0x0e0]
+            \\str x30, [x0, #0x0f0]
+            \\mov x1, sp
+            \\str x1, [x0, #0x0f8]
+            \\adr x1, .
+            \\str x1, [x0, #0x100]
+            \\ldr x1, [x0, #0x008]
+            :
+            : [gprs] "{x0}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
+        // DWARF for the Arm(r) 64-bit Architecture (AArch64) § 4.1 "DWARF register names"
+        switch (register_num) {
+            // The order of `Gpr` intentionally matches DWARF's mappings.
+            0...30 => return @ptrCast(&ctx.x[register_num]),
+            31 => return @ptrCast(&ctx.sp),
+            32 => return @ptrCast(&ctx.pc),
+
+            33 => return error.UnsupportedRegister, // ELF_mode
+            34 => return error.UnsupportedRegister, // RA_SIGN_STATE
+            35 => return error.UnsupportedRegister, // TPIDRRO_ELO
+            36 => return error.UnsupportedRegister, // RPIDR_ELO
+            37 => return error.UnsupportedRegister, // RPIDR_EL1
+            38 => return error.UnsupportedRegister, // RPIDR_EL2
+            39 => return error.UnsupportedRegister, // RPIDR_EL3
+            46 => return error.UnsupportedRegister, // VG
+            47 => return error.UnsupportedRegister, // FFR
+            48...63 => return error.UnsupportedRegister, // P0 - P15
+            64...95 => return error.UnsupportedRegister, // V0 - V31
+            96...127 => return error.UnsupportedRegister, // Z0 - Z31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+const signal_ucontext_t = switch (native_os) {
+    .linux => std.os.linux.ucontext_t,
+    .emscripten => std.os.emscripten.ucontext_t,
+    .freebsd => std.os.freebsd.ucontext_t,
+    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+        onstack: c_int,
+        sigmask: std.c.sigset_t,
+        stack: std.c.stack_t,
+        link: ?*signal_ucontext_t,
+        mcsize: u64,
+        mcontext: *mcontext_t,
+        const mcontext_t = switch (native_arch) {
+            .aarch64 => extern struct {
+                es: extern struct {
+                    far: u64, // Virtual Fault Address
+                    esr: u32, // Exception syndrome
+                    exception: u32, // Number of arm exception taken
+                },
+                ss: extern struct {
+                    /// General purpose registers
+                    regs: [29]u64,
+                    /// Frame pointer x29
+                    fp: u64,
+                    /// Link register x30
+                    lr: u64,
+                    /// Stack pointer x31
+                    sp: u64,
+                    /// Program counter
+                    pc: u64,
+                    /// Current program status register
+                    cpsr: u32,
+                    __pad: u32,
+                },
+                ns: extern struct {
+                    q: [32]u128,
+                    fpsr: u32,
+                    fpcr: u32,
+                },
+            },
+            .x86_64 => extern struct {
+                es: extern struct {
+                    trapno: u16,
+                    cpu: u16,
+                    err: u32,
+                    faultvaddr: u64,
+                },
+                ss: extern struct {
+                    rax: u64,
+                    rbx: u64,
+                    rcx: u64,
+                    rdx: u64,
+                    rdi: u64,
+                    rsi: u64,
+                    rbp: u64,
+                    rsp: u64,
+                    r8: u64,
+                    r9: u64,
+                    r10: u64,
+                    r11: u64,
+                    r12: u64,
+                    r13: u64,
+                    r14: u64,
+                    r15: u64,
+                    rip: u64,
+                    rflags: u64,
+                    cs: u64,
+                    fs: u64,
+                    gs: u64,
+                },
+                fs: extern struct {
+                    reserved: [2]c_int,
+                    fcw: u16,
+                    fsw: u16,
+                    ftw: u8,
+                    rsrv1: u8,
+                    fop: u16,
+                    ip: u32,
+                    cs: u16,
+                    rsrv2: u16,
+                    dp: u32,
+                    ds: u16,
+                    rsrv3: u16,
+                    mxcsr: u32,
+                    mxcsrmask: u32,
+                    stmm: [8]stmm_reg,
+                    xmm: [16]xmm_reg,
+                    rsrv4: [96]u8,
+                    reserved1: c_int,
+
+                    const stmm_reg = [16]u8;
+                    const xmm_reg = [16]u8;
+                },
+            },
+            else => void,
+        };
+    },
+    .solaris, .illumos => extern struct {
+        flags: u64,
+        link: ?*signal_ucontext_t,
+        sigmask: std.c.sigset_t,
+        stack: std.c.stack_t,
+        mcontext: mcontext_t,
+        brand_data: [3]?*anyopaque,
+        filler: [2]i64,
+        const mcontext_t = extern struct {
+            gregs: [28]u64,
+            fpregs: std.c.fpregset_t,
+        };
+    },
+    .openbsd => switch (builtin.cpu.arch) {
+        .x86_64 => extern struct {
+            sc_rdi: c_long,
+            sc_rsi: c_long,
+            sc_rdx: c_long,
+            sc_rcx: c_long,
+            sc_r8: c_long,
+            sc_r9: c_long,
+            sc_r10: c_long,
+            sc_r11: c_long,
+            sc_r12: c_long,
+            sc_r13: c_long,
+            sc_r14: c_long,
+            sc_r15: c_long,
+            sc_rbp: c_long,
+            sc_rbx: c_long,
+            sc_rax: c_long,
+            sc_gs: c_long,
+            sc_fs: c_long,
+            sc_es: c_long,
+            sc_ds: c_long,
+            sc_trapno: c_long,
+            sc_err: c_long,
+            sc_rip: c_long,
+            sc_cs: c_long,
+            sc_rflags: c_long,
+            sc_rsp: c_long,
+            sc_ss: c_long,
+
+            sc_fpstate: *anyopaque, // struct fxsave64 *
+            __sc_unused: c_int,
+            sc_mask: c_int,
+            sc_cookie: c_long,
+        },
+        .aarch64 => extern struct {
+            __sc_unused: c_int,
+            sc_mask: c_int,
+            sc_sp: c_ulong,
+            sc_lr: c_ulong,
+            sc_elr: c_ulong,
+            sc_spsr: c_ulong,
+            sc_x: [30]c_ulong,
+            sc_cookie: c_long,
+        },
+        else => void,
+    },
+    .netbsd => extern struct {
+        flags: u32,
+        link: ?*signal_ucontext_t,
+        sigmask: std.c.sigset_t,
+        stack: std.c.stack_t,
+        mcontext: mcontext_t,
+        __pad: [
+            switch (builtin.cpu.arch) {
+                .x86 => 4,
+                .mips, .mipsel, .mips64, .mips64el => 14,
+                .arm, .armeb, .thumb, .thumbeb => 1,
+                .sparc, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
+                else => 0,
+            }
+        ]u32,
+        const mcontext_t = switch (builtin.cpu.arch) {
+            .aarch64, .aarch64_be => extern struct {
+                gregs: [35]u64,
+                fregs: [528]u8 align(16),
+                spare: [8]u64,
+            },
+            .x86 => extern struct {
+                gregs: [19]u32,
+                fpregs: [161]u32,
+                mc_tlsbase: u32,
+            },
+            .x86_64 => extern struct {
+                gregs: [26]u64,
+                mc_tlsbase: u64,
+                fpregs: [512]u8 align(8),
+            },
+            else => void,
+        };
+    },
+    .dragonfly => extern struct {
+        sigmask: std.c.sigset_t,
+        mcontext: mcontext_t,
+        link: ?*signal_ucontext_t,
+        stack: std.c.stack_t,
+        cofunc: ?*fn (?*signal_ucontext_t, ?*anyopaque) void,
+        arg: ?*void,
+        _spare: [4]c_int,
+        const mcontext_t = extern struct {
+            const register_t = isize;
+            onstack: register_t, // XXX - sigcontext compat.
+            rdi: register_t,
+            rsi: register_t,
+            rdx: register_t,
+            rcx: register_t,
+            r8: register_t,
+            r9: register_t,
+            rax: register_t,
+            rbx: register_t,
+            rbp: register_t,
+            r10: register_t,
+            r11: register_t,
+            r12: register_t,
+            r13: register_t,
+            r14: register_t,
+            r15: register_t,
+            xflags: register_t,
+            trapno: register_t,
+            addr: register_t,
+            flags: register_t,
+            err: register_t,
+            rip: register_t,
+            cs: register_t,
+            rflags: register_t,
+            rsp: register_t, // machine state
+            ss: register_t,
+
+            len: c_uint, // sizeof(mcontext_t)
+            fpformat: c_uint,
+            ownedfp: c_uint,
+            reserved: c_uint,
+            unused: [8]c_uint,
+
+            // NOTE! 64-byte aligned as of here. Also must match savefpu structure.
+            fpregs: [256]c_int align(64),
+        };
+    },
+    .serenity => extern struct {
+        link: ?*signal_ucontext_t,
+        sigmask: std.c.sigset_t,
+        stack: std.c.stack_t,
+        mcontext: mcontext_t,
+        const mcontext_t = switch (builtin.cpu.arch) {
+            // https://github.com/SerenityOS/serenity/blob/200e91cd7f1ec5453799a2720d4dc114a59cc289/Kernel/Arch/aarch64/mcontext.h#L15-L19
+            .aarch64 => extern struct {
+                x: [31]u64,
+                sp: u64,
+                pc: u64,
+            },
+            // https://github.com/SerenityOS/serenity/blob/66f8d0f031ef25c409dbb4fecaa454800fecae0f/Kernel/Arch/riscv64/mcontext.h#L15-L18
+            .riscv64 => extern struct {
+                x: [31]u64,
+                pc: u64,
+            },
+            // https://github.com/SerenityOS/serenity/blob/7b9ea3efdec9f86a1042893e8107d0b23aad8727/Kernel/Arch/x86_64/mcontext.h#L15-L40
+            .x86_64 => extern struct {
+                rax: u64,
+                rcx: u64,
+                rdx: u64,
+                rbx: u64,
+                rsp: u64,
+                rbp: u64,
+                rsi: u64,
+                rdi: u64,
+                rip: u64,
+                r8: u64,
+                r9: u64,
+                r10: u64,
+                r11: u64,
+                r12: u64,
+                r13: u64,
+                r14: u64,
+                r15: u64,
+                rflags: u64,
+                cs: u32,
+                ss: u32,
+                ds: u32,
+                es: u32,
+                fs: u32,
+                gs: u32,
+            },
+            else => void,
+        };
+    },
+    .haiku => extern struct {
+        link: ?*signal_ucontext_t,
+        sigmask: std.c.sigset_t,
+        stack: std.c.stack_t,
+        mcontext: mcontext_t,
+        const mcontext_t = switch (builtin.cpu.arch) {
+            .arm, .thumb => extern struct {
+                r0: u32,
+                r1: u32,
+                r2: u32,
+                r3: u32,
+                r4: u32,
+                r5: u32,
+                r6: u32,
+                r7: u32,
+                r8: u32,
+                r9: u32,
+                r10: u32,
+                r11: u32,
+                r12: u32,
+                r13: u32,
+                r14: u32,
+                r15: u32,
+                cpsr: u32,
+            },
+            .aarch64 => extern struct {
+                x: [10]u64,
+                lr: u64,
+                sp: u64,
+                elr: u64,
+                spsr: u64,
+                fp_q: [32]u128,
+                fpsr: u32,
+                fpcr: u32,
+            },
+            .m68k => extern struct {
+                pc: u32,
+                d0: u32,
+                d1: u32,
+                d2: u32,
+                d3: u32,
+                d4: u32,
+                d5: u32,
+                d6: u32,
+                d7: u32,
+                a0: u32,
+                a1: u32,
+                a2: u32,
+                a3: u32,
+                a4: u32,
+                a5: u32,
+                a6: u32,
+                a7: u32,
+                ccr: u8,
+                f0: f64,
+                f1: f64,
+                f2: f64,
+                f3: f64,
+                f4: f64,
+                f5: f64,
+                f6: f64,
+                f7: f64,
+                f8: f64,
+                f9: f64,
+                f10: f64,
+                f11: f64,
+                f12: f64,
+                f13: f64,
+            },
+            .mipsel => extern struct {
+                r0: u32,
+            },
+            .powerpc => extern struct {
+                pc: u32,
+                r0: u32,
+                r1: u32,
+                r2: u32,
+                r3: u32,
+                r4: u32,
+                r5: u32,
+                r6: u32,
+                r7: u32,
+                r8: u32,
+                r9: u32,
+                r10: u32,
+                r11: u32,
+                r12: u32,
+                f0: f64,
+                f1: f64,
+                f2: f64,
+                f3: f64,
+                f4: f64,
+                f5: f64,
+                f6: f64,
+                f7: f64,
+                f8: f64,
+                f9: f64,
+                f10: f64,
+                f11: f64,
+                f12: f64,
+                f13: f64,
+                reserved: u32,
+                fpscr: u32,
+                ctr: u32,
+                xer: u32,
+                cr: u32,
+                msr: u32,
+                lr: u32,
+            },
+            .riscv64 => extern struct {
+                x: [31]u64,
+                pc: u64,
+                f: [32]f64,
+                fcsr: u64,
+            },
+            .sparc64 => extern struct {
+                g1: u64,
+                g2: u64,
+                g3: u64,
+                g4: u64,
+                g5: u64,
+                g6: u64,
+                g7: u64,
+                o0: u64,
+                o1: u64,
+                o2: u64,
+                o3: u64,
+                o4: u64,
+                o5: u64,
+                sp: u64,
+                o7: u64,
+                l0: u64,
+                l1: u64,
+                l2: u64,
+                l3: u64,
+                l4: u64,
+                l5: u64,
+                l6: u64,
+                l7: u64,
+                i0: u64,
+                i1: u64,
+                i2: u64,
+                i3: u64,
+                i4: u64,
+                i5: u64,
+                fp: u64,
+                i7: u64,
+            },
+            .x86 => extern struct {
+                pub const old_extended_regs = extern struct {
+                    control: u16,
+                    reserved1: u16,
+                    status: u16,
+                    reserved2: u16,
+                    tag: u16,
+                    reserved3: u16,
+                    eip: u32,
+                    cs: u16,
+                    opcode: u16,
+                    datap: u32,
+                    ds: u16,
+                    reserved4: u16,
+                    fp_mmx: [8][10]u8,
+                };
+
+                pub const fp_register = extern struct { value: [10]u8, reserved: [6]u8 };
+
+                pub const xmm_register = extern struct { value: [16]u8 };
+
+                pub const new_extended_regs = extern struct {
+                    control: u16,
+                    status: u16,
+                    tag: u16,
+                    opcode: u16,
+                    eip: u32,
+                    cs: u16,
+                    reserved1: u16,
+                    datap: u32,
+                    ds: u16,
+                    reserved2: u16,
+                    mxcsr: u32,
+                    reserved3: u32,
+                    fp_mmx: [8]fp_register,
+                    xmmx: [8]xmm_register,
+                    reserved4: [224]u8,
+                };
+
+                pub const extended_regs = extern struct {
+                    state: extern union {
+                        old_format: old_extended_regs,
+                        new_format: new_extended_regs,
+                    },
+                    format: u32,
+                };
+
+                eip: u32,
+                eflags: u32,
+                eax: u32,
+                ecx: u32,
+                edx: u32,
+                esp: u32,
+                ebp: u32,
+                reserved: u32,
+                xregs: extended_regs,
+                edi: u32,
+                esi: u32,
+                ebx: u32,
+            },
+            .x86_64 => extern struct {
+                pub const fp_register = extern struct {
+                    value: [10]u8,
+                    reserved: [6]u8,
+                };
+
+                pub const xmm_register = extern struct {
+                    value: [16]u8,
+                };
+
+                pub const fpu_state = extern struct {
+                    control: u16,
+                    status: u16,
+                    tag: u16,
+                    opcode: u16,
+                    rip: u64,
+                    rdp: u64,
+                    mxcsr: u32,
+                    mscsr_mask: u32,
+
+                    fp_mmx: [8]fp_register,
+                    xmm: [16]xmm_register,
+                    reserved: [96]u8,
+                };
+
+                pub const xstate_hdr = extern struct {
+                    bv: u64,
+                    xcomp_bv: u64,
+                    reserved: [48]u8,
+                };
+
+                pub const savefpu = extern struct {
+                    fxsave: fpu_state,
+                    xstate: xstate_hdr,
+                    ymm: [16]xmm_register,
+                };
+
+                rax: u64,
+                rbx: u64,
+                rcx: u64,
+                rdx: u64,
+                rdi: u64,
+                rsi: u64,
+                rbp: u64,
+                r8: u64,
+                r9: u64,
+                r10: u64,
+                r11: u64,
+                r12: u64,
+                r13: u64,
+                r14: u64,
+                r15: u64,
+                rsp: u64,
+                rip: u64,
+                rflags: u64,
+                fpu: savefpu,
+            },
+            else => void,
+        };
+    },
+    else => void,
+};
+
+const std = @import("../std.zig");
+const root = @import("root");
+const builtin = @import("builtin");
+const native_arch = @import("builtin").target.cpu.arch;
+const native_os = @import("builtin").target.os.tag;

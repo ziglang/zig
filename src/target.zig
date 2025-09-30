@@ -512,7 +512,7 @@ pub fn defaultUnwindTables(target: *const std.Target, libunwind: bool, libtsan: 
     if (target.os.tag.isDarwin()) return .async;
     if (libunwind) return .async;
     if (libtsan) return .async;
-    if (std.debug.Dwarf.abi.supportsUnwinding(target)) return .async;
+    if (std.debug.Dwarf.supportsUnwinding(target)) return .async;
     return .none;
 }
 

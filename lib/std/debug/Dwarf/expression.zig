@@ -5,11 +5,16 @@ const native_endian = native_arch.endian();
 const std = @import("std");
 const leb = std.leb;
 const OP = std.dwarf.OP;
-const abi = std.debug.Dwarf.abi;
 const mem = std.mem;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Writer = std.Io.Writer;
+
+const regNative = std.debug.Dwarf.SelfUnwinder.regNative;
+
+const ip_reg_num = std.debug.Dwarf.ipRegNum(native_arch).?;
+const fp_reg_num = std.debug.Dwarf.fpRegNum(native_arch);
+const sp_reg_num = std.debug.Dwarf.spRegNum(native_arch);
 
 /// Expressions can be evaluated in different contexts, each requiring its own set of inputs.
 /// Callers should specify all the fields relevant to their context. If a field is required
@@ -23,9 +28,7 @@ pub const Context = struct {
     object_address: ?*const anyopaque = null,
     /// .debug_addr section
     debug_addr: ?[]const u8 = null,
-    /// Thread context
-    thread_context: ?*std.debug.ThreadContext = null,
-    reg_context: ?abi.RegisterContext = null,
+    cpu_context: ?*std.debug.cpu_context.Native = null,
     /// Call frame address, if in a CFI context
     cfa: ?usize = null,
     /// This expression is a sub-expression from an OP.entry_value instruction
@@ -62,7 +65,9 @@ pub const Error = error{
     InvalidTypeLength,
 
     TruncatedIntegralType,
-} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero, ReadFailed };
+
+    IncompatibleRegisterSize,
+} || std.debug.cpu_context.DwarfRegisterError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero, ReadFailed };
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
@@ -369,29 +374,20 @@ pub fn StackMachine(comptime options: Options) type {
                 OP.breg0...OP.breg31,
                 OP.bregx,
                 => {
-                    if (context.thread_context == null) return error.IncompleteExpressionContext;
+                    const cpu_context = context.cpu_context orelse return error.IncompleteExpressionContext;
 
-                    const base_register = operand.?.base_register;
-                    var value: i64 = @intCast(mem.readInt(usize, (try abi.regBytes(
-                        context.thread_context.?,
-                        base_register.base_register,
-                        context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian));
-                    value += base_register.offset;
-                    try self.stack.append(allocator, .{ .generic = @intCast(value) });
+                    const br = operand.?.base_register;
+                    const value: i64 = @intCast((try regNative(cpu_context, br.base_register)).*);
+                    try self.stack.append(allocator, .{ .generic = @intCast(value + br.offset) });
                 },
                 OP.regval_type => {
-                    const register_type = operand.?.register_type;
-                    const value = mem.readInt(usize, (try abi.regBytes(
-                        context.thread_context.?,
-                        register_type.register,
-                        context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian);
+                    const cpu_context = context.cpu_context orelse return error.IncompleteExpressionContext;
+                    const rt = operand.?.register_type;
                     try self.stack.append(allocator, .{
                         .regval_type = .{
-                            .type_offset = register_type.type_offset,
+                            .type_offset = rt.type_offset,
                             .type_size = @sizeOf(addr_type),
-                            .value = value,
+                            .value = (try regNative(cpu_context, rt.register)).*,
                         },
                     });
                 },
@@ -734,14 +730,14 @@ pub fn StackMachine(comptime options: Options) type {
 
                     // TODO: The spec states that this sub-expression needs to observe the state (ie. registers)
                     //       as it was upon entering the current subprogram. If this isn't being called at the
-                    //       end of a frame unwind operation, an additional ThreadContext with this state will be needed.
+                    //       end of a frame unwind operation, an additional cpu_context.Native with this state will be needed.
 
                     if (isOpcodeRegisterLocation(block[0])) {
-                        if (context.thread_context == null) return error.IncompleteExpressionContext;
+                        const cpu_context = context.cpu_context orelse return error.IncompleteExpressionContext;
 
                         var block_stream: std.Io.Reader = .fixed(block);
                         const register = (try readOperand(&block_stream, block[0], context)).?.register;
-                        const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
+                        const value = (try regNative(cpu_context, register)).*;
                         try self.stack.append(allocator, .{ .generic = value });
                     } else {
                         var stack_machine: Self = .{};
@@ -1149,55 +1145,39 @@ test "basics" {
     }
 
     // Register values
-    if (@sizeOf(std.debug.ThreadContext) != 0) {
+    if (std.debug.cpu_context.Native != noreturn) {
         stack_machine.reset();
         program.clearRetainingCapacity();
 
-        const reg_context = abi.RegisterContext{
-            .eh_frame = true,
-            .is_macho = builtin.os.tag == .macos,
-        };
-        var thread_context: std.debug.ThreadContext = undefined;
-        std.debug.relocateContext(&thread_context);
+        var cpu_context: std.debug.cpu_context.Native = undefined;
         const context = Context{
-            .thread_context = &thread_context,
-            .reg_context = reg_context,
+            .cpu_context = &cpu_context,
         };
 
-        // Only test register operations on arch / os that have them implemented
-        if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
+        const reg_bytes = try cpu_context.dwarfRegisterBytes(0);
 
-            // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
+        // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
-            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
-            (try abi.regValueNative(&thread_context, abi.fpRegNum(native_arch, reg_context), reg_context)).* = 1;
-            (try abi.regValueNative(&thread_context, abi.spRegNum(native_arch, reg_context), reg_context)).* = 2;
-            (try abi.regValueNative(&thread_context, abi.ipRegNum(native_arch).?, reg_context)).* = 3;
+        mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
+        (try regNative(&cpu_context, fp_reg_num)).* = 1;
+        (try regNative(&cpu_context, sp_reg_num)).* = 2;
+        (try regNative(&cpu_context, ip_reg_num)).* = 3;
 
-            try b.writeBreg(writer, abi.fpRegNum(native_arch, reg_context), @as(usize, 100));
-            try b.writeBreg(writer, abi.spRegNum(native_arch, reg_context), @as(usize, 200));
-            try b.writeBregx(writer, abi.ipRegNum(native_arch).?, @as(usize, 300));
-            try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
+        try b.writeBreg(writer, fp_reg_num, @as(usize, 100));
+        try b.writeBreg(writer, sp_reg_num, @as(usize, 200));
+        try b.writeBregx(writer, ip_reg_num, @as(usize, 300));
+        try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
 
-            _ = try stack_machine.run(program.written(), allocator, context, 0);
+        _ = try stack_machine.run(program.written(), allocator, context, 0);
 
-            const regval_type = stack_machine.stack.pop().?.regval_type;
-            try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
-            try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
-            try testing.expectEqual(@as(usize, 0xee), regval_type.value);
+        const regval_type = stack_machine.stack.pop().?.regval_type;
+        try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
+        try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
+        try testing.expectEqual(@as(usize, 0xee), regval_type.value);
 
-            try testing.expectEqual(@as(usize, 303), stack_machine.stack.pop().?.generic);
-            try testing.expectEqual(@as(usize, 202), stack_machine.stack.pop().?.generic);
-            try testing.expectEqual(@as(usize, 101), stack_machine.stack.pop().?.generic);
-        } else |err| {
-            switch (err) {
-                error.UnimplementedArch,
-                error.UnimplementedOs,
-                error.ThreadContextNotSupported,
-                => {},
-                else => return err,
-            }
-        }
+        try testing.expectEqual(@as(usize, 303), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 202), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 101), stack_machine.stack.pop().?.generic);
     }
 
     // Stack operations
@@ -1585,38 +1565,21 @@ test "basics" {
         }
 
         // Register location description
-        const reg_context = abi.RegisterContext{
-            .eh_frame = true,
-            .is_macho = builtin.os.tag == .macos,
-        };
-        var thread_context: std.debug.ThreadContext = undefined;
-        std.debug.relocateContext(&thread_context);
-        context = Context{
-            .thread_context = &thread_context,
-            .reg_context = reg_context,
-        };
+        var cpu_context: std.debug.cpu_context.Native = undefined;
+        context = .{ .cpu_context = &cpu_context };
 
-        if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
-            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
+        const reg_bytes = try cpu_context.dwarfRegisterBytes(0);
+        mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
 
-            var sub_program: std.Io.Writer.Allocating = .init(allocator);
-            defer sub_program.deinit();
-            const sub_writer = &sub_program.writer;
-            try b.writeReg(sub_writer, 0);
+        var sub_program: std.Io.Writer.Allocating = .init(allocator);
+        defer sub_program.deinit();
+        const sub_writer = &sub_program.writer;
+        try b.writeReg(sub_writer, 0);
 
-            stack_machine.reset();
-            program.clearRetainingCapacity();
-            try b.writeEntryValue(writer, sub_program.written());
-            _ = try stack_machine.run(program.written(), allocator, context, null);
-            try testing.expectEqual(@as(usize, 0xee), stack_machine.stack.pop().?.generic);
-        } else |err| {
-            switch (err) {
-                error.UnimplementedArch,
-                error.UnimplementedOs,
-                error.ThreadContextNotSupported,
-                => {},
-                else => return err,
-            }
-        }
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeEntryValue(writer, sub_program.written());
+        _ = try stack_machine.run(program.written(), allocator, context, null);
+        try testing.expectEqual(@as(usize, 0xee), stack_machine.stack.pop().?.generic);
     }
 }

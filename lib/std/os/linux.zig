@@ -49,7 +49,6 @@ const arch_bits = switch (native_arch) {
     .s390x => @import("linux/s390x.zig"),
     else => struct {
         pub const ucontext_t = void;
-        pub const getcontext = {};
     },
 };
 
@@ -112,7 +111,6 @@ pub const timeval = arch_bits.timeval;
 pub const timezone = arch_bits.timezone;
 pub const ucontext_t = arch_bits.ucontext_t;
 pub const user_desc = arch_bits.user_desc;
-pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
 pub const BPF = @import("linux/bpf.zig");
