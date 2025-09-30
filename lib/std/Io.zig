@@ -641,8 +641,8 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque) void,
     ) void,
-    groupWait: *const fn (?*anyopaque, *Group) void,
-    groupCancel: *const fn (?*anyopaque, *Group) void,
+    groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
+    groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
 
     /// Blocks until one of the futures from the list has a result ready, such
     /// that awaiting it will not block. Returns that index.
@@ -665,14 +665,14 @@ pub const VTable = struct {
     fileSeekBy: *const fn (?*anyopaque, file: File, offset: i64) File.SeekError!void,
     fileSeekTo: *const fn (?*anyopaque, file: File, offset: u64) File.SeekError!void,
 
-    now: *const fn (?*anyopaque, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp,
-    sleep: *const fn (?*anyopaque, clockid: std.posix.clockid_t, deadline: Deadline) SleepError!void,
+    now: *const fn (?*anyopaque, clockid: std.posix.clockid_t) NowError!Timestamp,
+    sleep: *const fn (?*anyopaque, clockid: std.posix.clockid_t, timeout: Timeout) SleepError!void,
 
     listen: *const fn (?*anyopaque, address: net.IpAddress, options: net.IpAddress.ListenOptions) net.IpAddress.ListenError!net.Server,
     accept: *const fn (?*anyopaque, server: *net.Server) net.Server.AcceptError!net.Stream,
     ipBind: *const fn (?*anyopaque, address: net.IpAddress, options: net.IpAddress.BindOptions) net.IpAddress.BindError!net.Socket,
-    netSend: *const fn (?*anyopaque, handle: net.Socket.Handle, address: net.IpAddress, data: []const u8) net.Socket.SendError!void,
-    netReceive: *const fn (?*anyopaque, handle: net.Socket.Handle, address: net.IpAddress, buffer: []u8) net.Socket.ReceiveError!void,
+    netSend: *const fn (?*anyopaque, handle: net.Socket.Handle, address: *const net.IpAddress, data: []const u8) net.Socket.SendError!void,
+    netReceive: *const fn (?*anyopaque, handle: net.Socket.Handle, buffer: []u8, timeout: Timeout) net.Socket.ReceiveTimeoutError!net.ReceivedMessage,
     netRead: *const fn (?*anyopaque, src: net.Stream, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Stream, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
     netClose: *const fn (?*anyopaque, handle: net.Socket.Handle) void,
@@ -710,6 +710,15 @@ pub const Timestamp = enum(i96) {
     pub fn addDuration(from: Timestamp, duration: Duration) Timestamp {
         return @enumFromInt(@intFromEnum(from) + duration.nanoseconds);
     }
+
+    pub fn fromNow(io: Io, clockid: std.posix.clockid_t, duration: Duration) NowError!Timestamp {
+        const now_ts = try now(io, clockid);
+        return addDuration(now_ts, duration);
+    }
+
+    pub fn compare(lhs: Timestamp, op: std.math.CompareOperator, rhs: Timestamp) bool {
+        return std.math.compare(@intFromEnum(lhs), op, @intFromEnum(rhs));
+    }
 };
 pub const Duration = struct {
     nanoseconds: i96,
@@ -722,11 +731,14 @@ pub const Duration = struct {
         return .{ .nanoseconds = @as(i96, x) * std.time.ns_per_s };
     }
 };
-pub const Deadline = union(enum) {
+pub const Timeout = union(enum) {
+    none,
     duration: Duration,
-    timestamp: Timestamp,
+    deadline: Timestamp,
+
+    pub const Error = error{Timeout};
 };
-pub const ClockGetTimeError = std.posix.ClockGetTimeError || Cancelable;
+pub const NowError = std.posix.ClockGetTimeError || Cancelable;
 pub const SleepError = error{ UnsupportedClock, Unexpected, Canceled };
 
 pub const AnyFuture = opaque {};
@@ -768,8 +780,10 @@ pub const Group = struct {
     ///
     /// `function` *may* be called immediately, before `async` returns.
     ///
-    /// After this is called, `wait` must be called before the group is
-    /// deinitialized.
+    /// After this is called, `wait` or `cancel` must be called before the
+    /// group is deinitialized.
+    ///
+    /// Threadsafe.
     ///
     /// See also:
     /// * `Io.async`
@@ -789,7 +803,9 @@ pub const Group = struct {
     ///
     /// Idempotent. Not threadsafe.
     pub fn wait(g: *Group, io: Io) void {
-        io.vtable.groupWait(io.userdata, g);
+        const token = g.token orelse return;
+        g.token = null;
+        io.vtable.groupWait(io.userdata, g, token);
     }
 
     /// Equivalent to `wait` but requests cancellation on all tasks owned by
@@ -797,9 +813,9 @@ pub const Group = struct {
     ///
     /// Idempotent. Not threadsafe.
     pub fn cancel(g: *Group, io: Io) void {
-        if (g.token == null) return;
-        io.vtable.groupCancel(io.userdata, g);
-        assert(g.token == null);
+        const token = g.token orelse return;
+        g.token = null;
+        io.vtable.groupCancel(io.userdata, g, token);
     }
 };
 
@@ -1215,12 +1231,12 @@ pub fn cancelRequested(io: Io) bool {
     return io.vtable.cancelRequested(io.userdata);
 }
 
-pub fn now(io: Io, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp {
+pub fn now(io: Io, clockid: std.posix.clockid_t) NowError!Timestamp {
     return io.vtable.now(io.userdata, clockid);
 }
 
-pub fn sleep(io: Io, clockid: std.posix.clockid_t, deadline: Deadline) SleepError!void {
-    return io.vtable.sleep(io.userdata, clockid, deadline);
+pub fn sleep(io: Io, clockid: std.posix.clockid_t, timeout: Timeout) SleepError!void {
+    return io.vtable.sleep(io.userdata, clockid, timeout);
 }
 
 pub fn sleepDuration(io: Io, duration: Duration) SleepError!void {
