@@ -1718,7 +1718,18 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
     // The params list is a sparse set that does *not* include anytype or ... parameters.
 
     const trailing_comma = tree.tokenTag(rparen - 1) == .comma;
-    if (!trailing_comma and !hasComment(tree, lparen, rparen)) {
+
+    // Check if there are any doc comment tokens between lparen and rparen
+    var has_doc_comment = false;
+    for (lparen..rparen) |i| {
+        const token: Ast.TokenIndex = @intCast(i);
+        if (tree.tokenTag(token) == .doc_comment) {
+            has_doc_comment = true;
+            break;
+        }
+    }
+
+    if (!trailing_comma and !hasComment(tree, lparen, rparen) and !has_doc_comment) {
         // Render all on one line, no trailing comma.
         try renderToken(r, lparen, .none); // (
 
