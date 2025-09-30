@@ -463,15 +463,18 @@ fn groupAsync(
         },
         .pool = pool,
         .group = group,
-        .node = .{ .next = @ptrCast(@alignCast(group.token)) },
+        .node = undefined,
         .func = start,
         .context_alignment = context_alignment,
         .context_len = context.len,
     };
-    group.token = &gc.node;
     @memcpy(gc.contextPointer()[0..context.len], context);
 
     pool.mutex.lock();
+
+    // Append to the group linked list inside the mutex to make `Io.Group.async` thread-safe.
+    gc.node = .{ .next = @ptrCast(@alignCast(group.token)) };
+    group.token = &gc.node;
 
     const thread_capacity = cpu_count - 1 + pool.concurrent_count;
 
@@ -493,6 +496,8 @@ fn groupAsync(
         pool.threads.appendAssumeCapacity(thread);
     }
 
+    // This needs to be done before unlocking the mutex to avoid a race with
+    // the associated task finishing.
     const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
     std.Thread.WaitGroup.startStateless(group_state);
 
@@ -500,26 +505,51 @@ fn groupAsync(
     pool.cond.signal();
 }
 
-fn groupWait(userdata: ?*anyopaque, group: *Io.Group) void {
-    if (builtin.single_threaded) return;
+fn groupWait(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
+
+    if (builtin.single_threaded) return;
+
     const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
     const reset_event: *ResetEvent = @ptrCast(&group.context);
     std.Thread.WaitGroup.waitStateless(group_state, reset_event);
-}
 
-fn groupCancel(userdata: ?*anyopaque, group: *Io.Group) void {
-    if (builtin.single_threaded) return;
-    const pool: *Pool = @ptrCast(@alignCast(userdata));
-    _ = pool;
-    const token = group.token.?;
-    group.token = null;
     var node: *std.SinglyLinkedList.Node = @ptrCast(@alignCast(token));
     while (true) {
         const gc: *GroupClosure = @fieldParentPtr("node", node);
         gc.closure.requestCancel();
         node = node.next orelse break;
+    }
+}
+
+fn groupCancel(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const gpa = pool.allocator;
+
+    if (builtin.single_threaded) return;
+
+    {
+        var node: *std.SinglyLinkedList.Node = @ptrCast(@alignCast(token));
+        while (true) {
+            const gc: *GroupClosure = @fieldParentPtr("node", node);
+            gc.closure.requestCancel();
+            node = node.next orelse break;
+        }
+    }
+
+    const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
+    const reset_event: *ResetEvent = @ptrCast(&group.context);
+    std.Thread.WaitGroup.waitStateless(group_state, reset_event);
+
+    {
+        var node: *std.SinglyLinkedList.Node = @ptrCast(@alignCast(token));
+        while (true) {
+            const gc: *GroupClosure = @fieldParentPtr("node", node);
+            const node_next = node.next;
+            gc.free(gpa);
+            node = node_next orelse break;
+        }
     }
 }
 
@@ -774,7 +804,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .SUCCESS => return nread,
             .INTR => unreachable,
             .INVAL => unreachable,
-            .FAULT => unreachable,
+            .FAULT => |err| return errnoBug(err),
             .AGAIN => unreachable, // currently not support in WASI
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -796,7 +826,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
             .INVAL => unreachable,
-            .FAULT => unreachable,
+            .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
@@ -896,7 +926,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .SUCCESS => return nread,
             .INTR => unreachable,
             .INVAL => unreachable,
-            .FAULT => unreachable,
+            .FAULT => |err| return errnoBug(err),
             .AGAIN => unreachable,
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
@@ -922,7 +952,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .SUCCESS => return @bitCast(rc),
             .INTR => continue,
             .INVAL => unreachable,
-            .FAULT => unreachable,
+            .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForReading, // can be a race condition
@@ -969,18 +999,19 @@ fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posi
     };
 }
 
-fn now(userdata: ?*anyopaque, clockid: posix.clockid_t) Io.ClockGetTimeError!Io.Timestamp {
+fn now(userdata: ?*anyopaque, clockid: posix.clockid_t) Io.NowError!Io.Timestamp {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
     const timespec = try posix.clock_gettime(clockid);
     return @enumFromInt(@as(i128, timespec.sec) * std.time.ns_per_s + timespec.nsec);
 }
 
-fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
+fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, timeout: Io.Timeout) Io.SleepError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    const deadline_nanoseconds: i96 = switch (deadline) {
+    const deadline_nanoseconds: i96 = switch (timeout) {
+        .none => std.math.maxInt(i96),
         .duration => |duration| duration.nanoseconds,
-        .timestamp => |timestamp| @intFromEnum(timestamp),
+        .deadline => |deadline| @intFromEnum(deadline),
     };
     var timespec: posix.timespec = .{
         .sec = @intCast(@divFloor(deadline_nanoseconds, std.time.ns_per_s)),
@@ -988,12 +1019,12 @@ fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, deadline: Io.Deadline)
     };
     while (true) {
         try pool.checkCancel();
-        switch (std.os.linux.E.init(std.os.linux.clock_nanosleep(clockid, .{ .ABSTIME = switch (deadline) {
-            .duration => false,
-            .timestamp => true,
+        switch (std.os.linux.E.init(std.os.linux.clock_nanosleep(clockid, .{ .ABSTIME = switch (timeout) {
+            .none, .duration => false,
+            .deadline => true,
         } }, &timespec, &timespec))) {
             .SUCCESS => return,
-            .FAULT => unreachable,
+            .FAULT => |err| return errnoBug(err),
             .INTR => {},
             .INVAL => return error.UnsupportedClock,
             else => |err| return posix.unexpectedErrno(err),
@@ -1278,7 +1309,7 @@ fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.n
 fn netSend(
     userdata: ?*anyopaque,
     handle: Io.net.Socket.Handle,
-    address: Io.net.IpAddress,
+    address: *const Io.net.IpAddress,
     data: []const u8,
 ) Io.net.Socket.SendError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
@@ -1293,15 +1324,15 @@ fn netSend(
 fn netReceive(
     userdata: ?*anyopaque,
     handle: Io.net.Socket.Handle,
-    address: Io.net.IpAddress,
     buffer: []u8,
-) Io.net.Socket.ReceiveError!void {
+    timeout: Io.Timeout,
+) Io.net.Socket.ReceiveTimeoutError!Io.net.ReceivedMessage {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
     _ = handle;
-    _ = address;
     _ = buffer;
+    _ = timeout;
     @panic("TODO");
 }
 

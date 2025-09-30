@@ -46,15 +46,13 @@ pub const LookupOptions = struct {
     family: ?IpAddress.Family = null,
 };
 
-pub const LookupError = Io.Cancelable || Io.File.OpenError || Io.File.Reader.Error || error{
+pub const LookupError = error{
     UnknownHostName,
     ResolvConfParseFailed,
-    // TODO remove from error set; retry a few times then report a different error
-    TemporaryNameServerFailure,
     InvalidDnsARecord,
     InvalidDnsAAAARecord,
     NameServerFailure,
-};
+} || Io.NowError || IpAddress.BindError || Io.File.OpenError || Io.File.Reader.Error || Io.Cancelable;
 
 pub const LookupResult = struct {
     /// How many `LookupOptions.addresses_buffer` elements are populated.
@@ -185,7 +183,7 @@ fn sortLookupResults(options: LookupOptions, result: LookupResult) !LookupResult
     return result;
 }
 
-fn lookupDnsSearch(host_name: HostName, io: Io, options: LookupOptions) !LookupResult {
+fn lookupDnsSearch(host_name: HostName, io: Io, options: LookupOptions) LookupError!LookupResult {
     const rc = ResolvConf.init(io) catch return error.ResolvConfParseFailed;
 
     // Count dots, suppress search when >=ndots or name ends in
@@ -218,19 +216,17 @@ fn lookupDnsSearch(host_name: HostName, io: Io, options: LookupOptions) !LookupR
     return lookupDns(io, lookup_canon_name, &rc, options);
 }
 
-const DnsReply = struct {
-    buf: [512]u8,
-    len: usize,
-};
-
-fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, options: LookupOptions) !LookupResult {
+fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, options: LookupOptions) LookupError!LookupResult {
     const family_records: [2]struct { af: IpAddress.Family, rr: u8 } = .{
         .{ .af = .ip6, .rr = std.posix.RR.A },
         .{ .af = .ip4, .rr = std.posix.RR.AAAA },
     };
     var query_buffers: [2][280]u8 = undefined;
+    var answer_buffers: [2][512]u8 = undefined;
     var queries_buffer: [2][]const u8 = undefined;
+    var answers_buffer: [2][]const u8 = undefined;
     var nq: usize = 0;
+    var next_answer_buffer: usize = 0;
 
     for (family_records) |fr| {
         if (options.family != fr.af) {
@@ -241,41 +237,123 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
         }
     }
 
-    const queries = queries_buffer[0..nq];
-    var replies_buffer: [2]DnsReply = undefined;
-    var replies: Io.Queue(DnsReply) = .init(&replies_buffer);
-    try rc.sendMessage(io, queries, &replies);
+    var ip4_mapped: [ResolvConf.max_nameservers]IpAddress = undefined;
+    var any_ip6 = false;
+    for (rc.nameservers(), &ip4_mapped) |*ns, *m| {
+        m.* = .{ .ip6 = .fromAny(ns.*) };
+        any_ip6 = any_ip6 or ns.* == .ip6;
+    }
+    var socket = s: {
+        if (any_ip6) ip6: {
+            const ip6_addr: IpAddress = .{ .ip6 = .unspecified(0) };
+            const socket = ip6_addr.bind(io, .{ .ip6_only = true, .mode = .dgram }) catch |err| switch (err) {
+                error.AddressFamilyUnsupported => break :ip6,
+                else => |e| return e,
+            };
+            break :s socket;
+        }
+        any_ip6 = false;
+        const ip4_addr: IpAddress = .{ .ip4 = .unspecified(0) };
+        const socket = try ip4_addr.bind(io, .{ .mode = .dgram });
+        break :s socket;
+    };
+    defer socket.close(io);
 
-    for (replies) |reply| {
-        if (reply.len < 4 or (reply[3] & 15) == 2) return error.TemporaryNameServerFailure;
-        if ((reply[3] & 15) == 3) return .empty;
-        if ((reply[3] & 15) != 0) return error.UnknownHostName;
+    const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
+    const queries = queries_buffer[0..nq];
+    const answers = answers_buffer[0..queries.len];
+    for (answers) |*answer| answer.len = 0;
+
+    var now_ts = try io.now(.MONOTONIC);
+    const final_ts = now_ts.addDuration(.seconds(rc.timeout_seconds));
+    const attempt_duration: Io.Duration = .{
+        .nanoseconds = std.time.ns_per_s * @as(usize, rc.timeout_seconds) / rc.attempts,
+    };
+
+    send: while (now_ts.compare(.lt, final_ts)) : (now_ts = try io.now(.MONOTONIC)) {
+        var group: Io.Group = .init;
+        defer group.cancel(io);
+
+        for (queries, answers) |query, *answer| {
+            if (answer.len != 0) continue;
+            for (mapped_nameservers) |*ns| {
+                group.async(io, sendIgnoringResult, .{ io, socket.handle, ns, query });
+            }
+        }
+
+        const timeout: Io.Timeout = .{ .deadline = now_ts.addDuration(attempt_duration) };
+
+        while (true) {
+            const buf = &answer_buffers[next_answer_buffer];
+            const reply = socket.receiveTimeout(io, buf, timeout) catch |err| switch (err) {
+                error.Canceled => return error.Canceled,
+                error.Timeout => continue :send,
+                else => continue,
+            };
+
+            // Ignore non-identifiable packets.
+            if (reply.len < 4) continue;
+
+            // Ignore replies from addresses we didn't send to.
+            const ns = for (mapped_nameservers) |*ns| {
+                if (reply.from.eql(ns)) break ns;
+            } else {
+                continue;
+            };
+
+            const reply_msg = buf[0..reply.len];
+
+            // Find which query this answer goes with, if any.
+            const query, const answer = for (queries, answers) |query, *answer| {
+                if (reply_msg[0] == query[0] and reply_msg[1] == query[1]) break .{ query, answer };
+            } else {
+                continue;
+            };
+            if (answer.len != 0) continue;
+
+            // Only accept positive or negative responses; retry immediately on
+            // server failure, and ignore all other codes such as refusal.
+            switch (reply_msg[3] & 15) {
+                0, 3 => {
+                    answer.* = reply_msg;
+                    next_answer_buffer += 1;
+                    if (next_answer_buffer == answers.len) break :send;
+                },
+                2 => {
+                    group.async(io, sendIgnoringResult, .{ io, socket.handle, ns, query });
+                    continue;
+                },
+                else => continue,
+            }
+        }
+    } else {
+        return error.NameServerFailure;
     }
 
     var addresses_len: usize = 0;
     var canonical_name: ?HostName = null;
 
-    for (replies) |reply| {
-        var it = DnsResponse.init(reply) catch {
+    for (answers) |answer| {
+        var it = DnsResponse.init(answer) catch {
             // TODO accept a diagnostics struct and append warnings
             continue;
         };
         while (it.next() catch {
             // TODO accept a diagnostics struct and append warnings
             continue;
-        }) |answer| switch (answer.rr) {
+        }) |record| switch (record.rr) {
             std.posix.RR.A => {
-                if (answer.data.len != 4) return error.InvalidDnsARecord;
+                if (record.data.len != 4) return error.InvalidDnsARecord;
                 options.addresses_buffer[addresses_len] = .{ .ip4 = .{
-                    .bytes = answer.data[0..4].*,
+                    .bytes = record.data[0..4].*,
                     .port = options.port,
                 } };
                 addresses_len += 1;
             },
             std.posix.RR.AAAA => {
-                if (answer.data.len != 16) return error.InvalidDnsAAAARecord;
+                if (record.data.len != 16) return error.InvalidDnsAAAARecord;
                 options.addresses_buffer[addresses_len] = .{ .ip6 = .{
-                    .bytes = answer.data[0..16].*,
+                    .bytes = record.data[0..16].*,
                     .port = options.port,
                 } };
                 addresses_len += 1;
@@ -285,7 +363,7 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
                 @panic("TODO");
                 //var tmp: [256]u8 = undefined;
                 //// Returns len of compressed name. strlen to get canon name.
-                //_ = try posix.dn_expand(packet, answer.data, &tmp);
+                //_ = try posix.dn_expand(packet, record.data, &tmp);
                 //const canon_name = mem.sliceTo(&tmp, 0);
                 //if (isValidHostName(canon_name)) {
                 //    ctx.canon.items.len = 0;
@@ -302,6 +380,10 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
     };
 
     return error.NameServerFailure;
+}
+
+fn sendIgnoringResult(io: Io, socket_handle: Io.net.Socket.Handle, dest: *const IpAddress, msg: []const u8) void {
+    _ = io.vtable.netSend(io.userdata, socket_handle, dest, msg) catch {};
 }
 
 fn lookupHosts(host_name: HostName, io: Io, options: LookupOptions) !LookupResult {
@@ -523,7 +605,7 @@ pub fn connectTcp(host_name: HostName, io: Io, port: u16) ConnectTcpError!Stream
 pub const ResolvConf = struct {
     attempts: u32,
     ndots: u32,
-    timeout: Io.Duration,
+    timeout_seconds: u32,
     nameservers_buffer: [max_nameservers]IpAddress,
     nameservers_len: usize,
     search_buffer: [max_len]u8,
@@ -539,7 +621,7 @@ pub const ResolvConf = struct {
             .search_buffer = undefined,
             .search_len = 0,
             .ndots = 1,
-            .timeout = .seconds(5),
+            .timeout_seconds = 5,
             .attempts = 2,
         };
 
@@ -589,7 +671,7 @@ pub const ResolvConf = struct {
                     switch (std.meta.stringToEnum(Option, name) orelse continue) {
                         .ndots => rc.ndots = @min(value, 15),
                         .attempts => rc.attempts = @min(value, 10),
-                        .timeout => rc.timeout = .seconds(@min(value, 60)),
+                        .timeout => rc.timeout_seconds = @min(value, 60),
                     }
                 },
                 .nameserver => {
@@ -621,68 +703,6 @@ pub const ResolvConf = struct {
     fn nameservers(rc: *const ResolvConf) []const IpAddress {
         return rc.nameservers_buffer[0..rc.nameservers_len];
     }
-
-    fn sendMessage(
-        rc: *const ResolvConf,
-        io: Io,
-        queries: []const []const u8,
-        replies: *Io.Queue(DnsReply),
-    ) !void {
-        var ip4_mapped: [ResolvConf.max_nameservers]IpAddress = undefined;
-        var any_ip6 = false;
-        for (rc.nameservers(), &ip4_mapped) |*ns, *m| {
-            m.* = .{ .ip6 = .fromAny(ns.*) };
-            any_ip6 = any_ip6 or ns.* == .ip6;
-        }
-
-        const socket = s: {
-            if (any_ip6) ip6: {
-                const ip6_addr: IpAddress = .{ .ip6 = .unspecified(0) };
-                const socket = ip6_addr.bind(io, .{ .ip6_only = true, .mode = .dgram }) catch |err| switch (err) {
-                    error.AddressFamilyUnsupported => break :ip6,
-                    else => |e| return e,
-                };
-                break :s socket;
-            }
-            any_ip6 = false;
-            const ip4_addr: IpAddress = .{ .ip4 = .unspecified(0) };
-            const socket = try ip4_addr.bind(io, .{ .mode = .dgram });
-            break :s socket;
-        };
-        defer socket.close();
-
-        const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
-
-        var group: Io.Group = .init;
-        defer group.cancel();
-
-        for (queries) |query| {
-            for (mapped_nameservers) |*ns| {
-                group.async(sendOneMessage, .{ io, query, ns });
-            }
-        }
-
-        const deadline: Io.Deadline = .fromDuration(rc.timeout);
-
-        for (0..queries.len) |_| {
-            const msg = socket.receiveDeadline(deadline) catch |err| switch (err) {
-                error.Timeout => return error.Timeout,
-                error.Canceled => return error.Canceled,
-                else => continue,
-            };
-            _ = msg;
-            _ = replies;
-            @panic("TODO check msg for dns reply and put into replies queue");
-        }
-    }
-
-    fn sendOneMessage(
-        io: Io,
-        query: []const u8,
-        ns: *const IpAddress,
-    ) void {
-        io.vtable.netSend(io.userdata, ns.*, &.{query}) catch |err| switch (err) {};
-    }
 };
 
 test ResolvConf {
@@ -702,7 +722,7 @@ test ResolvConf {
         .search_buffer = undefined,
         .search_len = 0,
         .ndots = 1,
-        .timeout = .seconds(5),
+        .timeout_seconds = 5,
         .attempts = 2,
     };
 

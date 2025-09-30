@@ -134,13 +134,13 @@ pub const IpAddress = union(enum) {
         }
     }
 
-    pub fn eql(a: IpAddress, b: IpAddress) bool {
-        return switch (a) {
-            .ip4 => |a_ip4| switch (b) {
+    pub fn eql(a: *const IpAddress, b: *const IpAddress) bool {
+        return switch (a.*) {
+            .ip4 => |a_ip4| switch (b.*) {
                 .ip4 => |b_ip4| a_ip4.eql(b_ip4),
                 else => false,
             },
-            .ip6 => |a_ip6| switch (b) {
+            .ip6 => |a_ip6| switch (b.*) {
                 .ip6 => |b_ip6| a_ip6.eql(b_ip6),
                 else => false,
             },
@@ -695,6 +695,11 @@ pub const Ip6Address = struct {
     };
 };
 
+pub const ReceivedMessage = struct {
+    from: IpAddress,
+    len: usize,
+};
+
 pub const Interface = struct {
     /// Value 0 indicates `none`.
     index: u32,
@@ -816,14 +821,31 @@ pub const Socket = struct {
         return io.vtable.netSend(io.userdata, s.handle, dest, data);
     }
 
-    pub const ReceiveError = error{} || Io.Cancelable;
+    pub const ReceiveError = error{} || Io.UnexpectedError || Io.Cancelable;
 
-    /// Transfers `data` from `source`, connectionless.
+    /// Waits for data. Connectionless.
     ///
-    /// Returned slice has same pointer as `buffer` with possibly shorter length.
-    pub fn receive(s: *const Socket, io: Io, source: *const IpAddress, buffer: []u8) ReceiveError![]u8 {
-        const n = try io.vtable.netReceive(io.userdata, s.handle, source, buffer);
-        return buffer[0..n];
+    /// See also:
+    /// * `receiveTimeout`
+    pub fn receive(s: *const Socket, io: Io, source: *const IpAddress, buffer: []u8) ReceiveError!ReceivedMessage {
+        return io.vtable.netReceive(io.userdata, s.handle, source, buffer, .none);
+    }
+
+    pub const ReceiveTimeoutError = ReceiveError || Io.Timeout.Error;
+
+    /// Waits for data. Connectionless.
+    ///
+    /// Returns `error.Timeout` if no message arrives early enough.
+    ///
+    /// See also:
+    /// * `receive`
+    pub fn receiveTimeout(
+        s: *const Socket,
+        io: Io,
+        buffer: []u8,
+        timeout: Io.Timeout,
+    ) ReceiveTimeoutError!ReceivedMessage {
+        return io.vtable.netReceive(io.userdata, s.handle, buffer, timeout);
     }
 };
 
