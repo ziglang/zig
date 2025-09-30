@@ -41,7 +41,7 @@ pub fn addCase(self: *ErrorTrace, case: Case) void {
 fn shouldTestNonLlvm(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.ofmt) {
-            .elf => true,
+            .elf => !target.os.tag.isBSD(),
             else => false,
         },
         else => false,

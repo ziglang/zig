@@ -46,7 +46,7 @@ fn addCaseTarget(
 ) void {
     const both_backends = switch (target.result.cpu.arch) {
         .x86_64 => switch (target.result.ofmt) {
-            .elf => true,
+            .elf => !target.result.os.tag.isBSD(),
             else => false,
         },
         else => false,
