@@ -460,8 +460,17 @@ pub fn ArrayHashMapWithAllocator(
         /// Sorts the entries and then rebuilds the index.
         /// `sort_ctx` must have this method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses a stable sorting algorithm.
         pub fn sort(self: *Self, sort_ctx: anytype) void {
             return self.unmanaged.sortContext(sort_ctx, self.ctx);
+        }
+
+        /// Sorts the entries and then rebuilds the index.
+        /// `sort_ctx` must have this method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses an unstable sorting algorithm.
+        pub fn sortUnstable(self: *Self, sort_ctx: anytype) void {
+            return self.unmanaged.sortUnstableContext(sort_ctx, self.ctx);
         }
 
         /// Shrinks the underlying `Entry` array to `new_len` elements and
