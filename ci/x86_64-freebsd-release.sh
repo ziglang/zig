@@ -50,7 +50,7 @@ unset CXX
 ninja install
 
 stage3-release/bin/zig build test docs \
-  --maxrss 32212254720 \
+  --maxrss 42949672960 \
   -Dstatic-llvm \
   -Dskip-linux \
   -Dskip-netbsd \
