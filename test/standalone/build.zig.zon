@@ -163,9 +163,6 @@
         .zerolength_check = .{
             .path = "zerolength_check",
         },
-        .stack_iterator = .{
-            .path = "stack_iterator",
-        },
         .coff_dwarf = .{
             .path = "coff_dwarf",
         },
