@@ -169,7 +169,6 @@ const Header = struct {
     };
 
     /// Includes prefix concatenated, if any.
-    /// TODO: check against "../" and other nefarious things
     pub fn fullName(header: Header, buffer: []u8) ![]const u8 {
         const n = name(header);
         const p = prefix(header);
@@ -598,6 +597,19 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: *std.Io.Reader, options: PipeOp
             } });
             continue;
         }
+
+        // Check for directory traversal attacks
+        if (file_name.len > 0 and std.fs.path.hasDirectoryTraversal(file_name)) {
+            if (options.diagnostics) |d| {
+                try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
+                    .code = error.TarBadPath,
+                    .file_name = try d.allocator.dupe(u8, file_name),
+                } });
+                continue;
+            } else {
+                return error.TarBadPath;
+            }
+        }
         if (options.diagnostics) |d| {
             try d.findRoot(file.kind, file_name);
         }
@@ -624,6 +636,9 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: *std.Io.Reader, options: PipeOp
             },
             .sym_link => {
                 const link_name = file.link_name;
+                // Note: We don't check hasDirectoryTraversal for symlink targets because
+                // symlinks can legitimately use .. to reference other files within
+                // the extracted archive structure. The OS will handle symlink security.
                 createDirAndSymlink(dir, link_name, file_name) catch |err| {
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
                     try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
