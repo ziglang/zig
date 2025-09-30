@@ -24,7 +24,7 @@ pub fn main() !void {
     const arena = arena_state.allocator();
 
     const stderr = std.fs.File.stderr();
-    const stderr_config = std.Io.tty.detectConfig(stderr);
+    const stderr_config: std.Io.tty.Config = .detect(stderr);
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
