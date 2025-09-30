@@ -28,6 +28,7 @@ const Dwarf = @This();
 
 pub const expression = @import("Dwarf/expression.zig");
 pub const Unwind = @import("Dwarf/Unwind.zig");
+pub const SelfUnwinder = @import("Dwarf/SelfUnwinder.zig");
 
 /// Useful to temporarily enable while working on this file.
 const debug_debug_mode = false;
@@ -1458,8 +1459,8 @@ pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
 
 /// Tells whether unwinding for this target is supported by the Dwarf standard.
 ///
-/// See also `std.debug.SelfInfo.supports_unwinding` which tells whether the Zig
-/// standard library has a working implementation of unwinding for this target.
+/// See also `std.debug.SelfInfo.can_unwind` which tells whether the Zig standard
+/// library has a working implementation of unwinding for the current target.
 pub fn supportsUnwinding(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .amdgcn,

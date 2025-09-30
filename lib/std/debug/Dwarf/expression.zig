@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const Writer = std.Io.Writer;
 
-const regNative = std.debug.SelfInfo.DwarfUnwindContext.regNative;
+const regNative = std.debug.Dwarf.SelfUnwinder.regNative;
 
 const ip_reg_num = std.debug.Dwarf.ipRegNum(native_arch).?;
 const fp_reg_num = std.debug.Dwarf.fpRegNum(native_arch);

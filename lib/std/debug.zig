@@ -19,10 +19,84 @@ const root = @import("root");
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const ElfFile = @import("debug/ElfFile.zig");
-pub const SelfInfo = @import("debug/SelfInfo.zig");
 pub const Info = @import("debug/Info.zig");
 pub const Coverage = @import("debug/Coverage.zig");
 pub const cpu_context = @import("debug/cpu_context.zig");
+
+/// This type abstracts the target-specific implementation of accessing this process' own debug
+/// information behind a generic interface which supports looking up source locations associated
+/// with addresses, as well as unwinding the stack where a safe mechanism to do so exists.
+///
+/// The Zig Standard Library provides default implementations of `SelfInfo` for common targets, but
+/// the implementation can be overriden by exposing `root.debug.SelfInfo`. Setting `SelfInfo` to
+/// `void` indicates that the `SelfInfo` API is not supported.
+///
+/// This type must expose the following declarations:
+///
+/// ```
+/// pub const init: SelfInfo;
+/// pub fn deinit(si: *SelfInfo, gpa: Allocator) void;
+///
+/// /// Returns the symbol and source location of the instruction at `address`.
+/// pub fn getSymbol(si: *SelfInfo, gpa: Allocator, address: usize) SelfInfoError!Symbol;
+/// /// Returns a name for the "module" (e.g. shared library or executable image) containing `address`.
+/// pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) SelfInfoError![]const u8;
+///
+/// /// Whether a reliable stack unwinding strategy, such as DWARF unwinding, is available.
+/// pub const can_unwind: bool;
+/// /// Only required if `can_unwind == true`.
+/// pub const UnwindContext = struct {
+///     /// An address representing the instruction pointer in the last frame.
+///     pc: usize,
+///
+///     pub fn init(ctx: *cpu_context.Native, gpa: Allocator) Allocator.Error!UnwindContext;
+///     pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void;
+///     /// Returns the frame pointer associated with the last unwound stack frame.
+///     /// If the frame pointer is unknown, 0 may be returned instead.
+///     pub fn getFp(uc: *UnwindContext) usize;
+/// };
+/// /// Only required if `can_unwind == true`. Unwinds a single stack frame, returning the frame's
+/// /// return address, or 0 if the end of the stack has been reached.
+/// pub fn unwindFrame(si: *SelfInfo, gpa: Allocator, context: *UnwindContext) SelfInfoError!usize;
+/// ```
+pub const SelfInfo = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "SelfInfo"))
+    root.debug.SelfInfo
+else switch (native_os) {
+    .linux,
+    .netbsd,
+    .freebsd,
+    .dragonfly,
+    .openbsd,
+    .solaris,
+    .illumos,
+    => @import("debug/SelfInfo/Elf.zig"),
+
+    .macos,
+    .ios,
+    .watchos,
+    .tvos,
+    .visionos,
+    => @import("debug/SelfInfo/Darwin.zig"),
+
+    .uefi,
+    .windows,
+    => @import("debug/SelfInfo/Windows.zig"),
+
+    else => void,
+};
+
+pub const SelfInfoError = error{
+    /// The required debug info is invalid or corrupted.
+    InvalidDebugInfo,
+    /// The required debug info could not be found.
+    MissingDebugInfo,
+    /// The required debug info was found, and may be valid, but is not supported by this implementation.
+    UnsupportedDebugInfo,
+    /// The required debug info could not be read from disk due to some IO error.
+    ReadFailed,
+    OutOfMemory,
+    Unexpected,
+};
 
 pub const simple_panic = @import("debug/simple_panic.zig");
 pub const no_panic = @import("debug/no_panic.zig");
@@ -240,7 +314,7 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
 
 /// Marked `inline` to propagate a comptime-known error to callers.
 pub inline fn getSelfDebugInfo() !*SelfInfo {
-    if (!SelfInfo.target_supported) return error.UnsupportedTarget;
+    if (SelfInfo == void) return error.UnsupportedTarget;
     const S = struct {
         var self_info: SelfInfo = .init;
     };
@@ -640,7 +714,7 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
     while (true) switch (it.next()) {
         .switch_to_fp => |unwind_error| {
             if (StackIterator.fp_unwind_is_safe) continue; // no need to even warn
-            const module_name = di.getModuleNameForAddress(di_gpa, unwind_error.address) catch "???";
+            const module_name = di.getModuleName(di_gpa, unwind_error.address) catch "???";
             const caption: []const u8 = switch (unwind_error.err) {
                 error.MissingDebugInfo => "unwind info unavailable",
                 error.InvalidDebugInfo => "unwind info invalid",
@@ -753,9 +827,9 @@ pub fn dumpStackTrace(st: *const std.builtin.StackTrace) void {
 
 const StackIterator = union(enum) {
     /// Unwinding using debug info (e.g. DWARF CFI).
-    di: if (SelfInfo.supports_unwinding) SelfInfo.UnwindContext else noreturn,
+    di: if (SelfInfo != void and SelfInfo.can_unwind) SelfInfo.UnwindContext else noreturn,
     /// We will first report the *current* PC of this `UnwindContext`, then we will switch to `di`.
-    di_first: if (SelfInfo.supports_unwinding) SelfInfo.UnwindContext else noreturn,
+    di_first: if (SelfInfo != void and SelfInfo.can_unwind) SelfInfo.UnwindContext else noreturn,
     /// Naive frame-pointer-based unwinding. Very simple, but typically unreliable.
     fp: usize,
 
@@ -772,7 +846,7 @@ const StackIterator = union(enum) {
             }
         }
         if (opt_context_ptr) |context_ptr| {
-            if (!SelfInfo.supports_unwinding) return error.CannotUnwindFromContext;
+            if (SelfInfo == void or !SelfInfo.can_unwind) return error.CannotUnwindFromContext;
             // Use `di_first` here so we report the PC in the context before unwinding any further.
             return .{ .di_first = .init(context_ptr) };
         }
@@ -780,7 +854,8 @@ const StackIterator = union(enum) {
         // call to `current`. This effectively constrains stack trace collection and dumping to FP
         // unwinding when building with CBE for MSVC.
         if (!(builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) and
-            SelfInfo.supports_unwinding and
+            SelfInfo != void and
+            SelfInfo.can_unwind and
             cpu_context.Native != noreturn)
         {
             // We don't need `di_first` here, because our PC is in `std.debug`; we're only interested
@@ -820,7 +895,7 @@ const StackIterator = union(enum) {
         /// We were using `SelfInfo.UnwindInfo`, but are now switching to FP unwinding due to this error.
         switch_to_fp: struct {
             address: usize,
-            err: SelfInfo.Error,
+            err: SelfInfoError,
         },
     };
 
@@ -929,7 +1004,7 @@ pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
 }
 
 fn printSourceAtAddress(gpa: Allocator, debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) Writer.Error!void {
-    const symbol: Symbol = debug_info.getSymbolAtAddress(gpa, address) catch |err| switch (err) {
+    const symbol: Symbol = debug_info.getSymbol(gpa, address) catch |err| switch (err) {
         error.MissingDebugInfo,
         error.UnsupportedDebugInfo,
         error.InvalidDebugInfo,
@@ -953,7 +1028,7 @@ fn printSourceAtAddress(gpa: Allocator, debug_info: *SelfInfo, writer: *Writer, 
         symbol.source_location,
         address,
         symbol.name orelse "???",
-        symbol.compile_unit_name orelse debug_info.getModuleNameForAddress(gpa, address) catch "???",
+        symbol.compile_unit_name orelse debug_info.getModuleName(gpa, address) catch "???",
         tty_config,
     );
 }
@@ -1386,7 +1461,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
-    if (!SelfInfo.target_supported) return error.SkipZigTest;
+    if (SelfInfo == void) return error.SkipZigTest;
     const S = struct {
         noinline fn showMyTrace() usize {
             return @returnAddress();

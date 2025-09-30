@@ -530,16 +530,18 @@ pub fn prepare(
     };
     if (saw_terminator != expect_terminator) return bad();
 
-    std.mem.sortUnstable(SortedFdeEntry, fde_list.items, {}, struct {
-        fn lessThan(ctx: void, a: SortedFdeEntry, b: SortedFdeEntry) bool {
-            ctx;
-            return a.pc_begin < b.pc_begin;
-        }
-    }.lessThan);
+    if (need_lookup) {
+        std.mem.sortUnstable(SortedFdeEntry, fde_list.items, {}, struct {
+            fn lessThan(ctx: void, a: SortedFdeEntry, b: SortedFdeEntry) bool {
+                ctx;
+                return a.pc_begin < b.pc_begin;
+            }
+        }.lessThan);
 
-    // This temporary is necessary to avoid an RLS footgun where `lookup` ends up non-null `undefined` on OOM.
-    const final_fdes = try fde_list.toOwnedSlice(gpa);
-    unwind.lookup = .{ .sorted_fdes = final_fdes };
+        // This temporary is necessary to avoid an RLS footgun where `lookup` ends up non-null `undefined` on OOM.
+        const final_fdes = try fde_list.toOwnedSlice(gpa);
+        unwind.lookup = .{ .sorted_fdes = final_fdes };
+    }
 }
 
 fn findCie(unwind: *const Unwind, offset: u64) ?*const CommonInformationEntry {
