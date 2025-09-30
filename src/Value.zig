@@ -66,9 +66,10 @@ pub fn toIpString(val: Value, ty: Type, pt: Zcu.PerThread) !InternPool.NullTermi
         .repeated_elem => |elem| {
             const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(zcu));
             const len: u32 = @intCast(ty.arrayLen(zcu));
-            const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(zcu.gpa);
+            const size_class: InternPool.String.SizeClass = .detect(len, pt.tid, ip);
+            const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(zcu.gpa, size_class);
             try string_bytes.appendNTimes(.{byte}, len);
-            return ip.getOrPutTrailingString(zcu.gpa, pt.tid, len, .no_embedded_nulls);
+            return ip.getOrPutTrailingString(zcu.gpa, pt.tid, len, size_class, .no_embedded_nulls);
         },
     }
 }
@@ -109,7 +110,8 @@ fn arrayToIpString(val: Value, len_u64: u64, pt: Zcu.PerThread) !InternPool.Null
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const len: u32 = @intCast(len_u64);
-    const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(gpa);
+    const size_class: InternPool.String.SizeClass = .detect(len, pt.tid, ip);
+    const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(gpa, size_class);
     try string_bytes.ensureUnusedCapacity(len);
     for (0..len) |i| {
         // I don't think elemValue has the possibility to affect ip.string_bytes. Let's
@@ -120,7 +122,7 @@ fn arrayToIpString(val: Value, len_u64: u64, pt: Zcu.PerThread) !InternPool.Null
         const byte: u8 = @intCast(elem_val.toUnsignedInt(zcu));
         string_bytes.appendAssumeCapacity(.{byte});
     }
-    return ip.getOrPutTrailingString(gpa, pt.tid, len, .no_embedded_nulls);
+    return ip.getOrPutTrailingString(gpa, pt.tid, len, size_class, .no_embedded_nulls);
 }
 
 pub fn fromInterned(i: InternPool.Index) Value {

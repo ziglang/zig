@@ -1,4 +1,4 @@
-//! Machine Intermediate Representation.
+//as/! Machine Intermediate Representation.
 //! This data is produced by x86_64 Codegen and consumed by x86_64 Isel.
 //! These instructions have a 1:1 correspondence with machine code instructions
 //! for the target. MIR can be lowered to source-annotated textual assembly code
@@ -1726,11 +1726,13 @@ pub const Inst = struct {
     };
 
     comptime {
-        if (!std.debug.runtime_safety) {
-            // Make sure we don't accidentally make instructions bigger than expected.
-            // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
-            assert(@sizeOf(Data) == 8);
+        // Make sure we don't accidentally make instructions bigger than expected.
+        // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
+        switch (builtin.mode) {
+            .Debug, .ReleaseSafe => {},
+            .ReleaseFast, .ReleaseSmall => assert(@sizeOf(Data) == 8),
         }
+
         const Mnemonic = @import("Encoding.zig").Mnemonic;
         if (@typeInfo(Mnemonic).@"enum".fields.len != 977 or
             @typeInfo(Fixes).@"enum".fields.len != 231 or

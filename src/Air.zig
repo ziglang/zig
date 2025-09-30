@@ -1249,8 +1249,9 @@ pub const Inst = struct {
         // bigger than expected. Note that in safety builds, Zig is allowed
         // to insert a secret field for safety checks.
         comptime {
-            if (!std.debug.runtime_safety) {
-                assert(@sizeOf(Data) == 8);
+            switch (builtin.mode) {
+                .Debug, .ReleaseSafe => {},
+                .ReleaseFast, .ReleaseSmall => assert(@sizeOf(Data) == 8),
             }
         }
     };

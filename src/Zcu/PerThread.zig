@@ -2459,7 +2459,8 @@ fn updateEmbedFileInner(
 
     // The loaded bytes of the file, including a sentinel 0 byte.
     const ip_str: InternPool.String = str: {
-        const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+        const size_class: InternPool.String.SizeClass = .detect(@intCast(size), tid, ip);
+        const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa, size_class);
         const old_len = string_bytes.mutate.len;
         errdefer string_bytes.shrinkRetainingCapacity(old_len);
         const bytes = (try string_bytes.addManyAsSlice(size_plus_one))[0];
@@ -2470,7 +2471,7 @@ fn updateEmbedFileInner(
             error.EndOfStream => return error.UnexpectedEof,
         };
         bytes[size] = 0;
-        break :str try ip.getOrPutTrailingString(gpa, tid, @intCast(bytes.len), .maybe_embedded_nulls);
+        break :str try ip.getOrPutTrailingString(gpa, tid, @intCast(bytes.len), size_class, .maybe_embedded_nulls);
     };
     if (ip_str_out) |p| p.* = ip_str;
 
