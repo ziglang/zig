@@ -7,18 +7,28 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const assert = std.debug.assert;
 const testing = std.testing;
 
 data: []u8,
 capacity: usize,
 allocator: Allocator,
+writer: std.Io.Writer,
 
 const ArrayListReverse = @This();
 const Error = Allocator.Error;
 
 pub fn init(allocator: Allocator) ArrayListReverse {
-    return .{ .data = &.{}, .capacity = 0, .allocator = allocator };
+    return .{
+        .data = &.{},
+        .capacity = 0,
+        .allocator = allocator,
+        .writer = .{
+            .buffer = &.{},
+            .vtable = &vtable,
+        },
+    };
 }
 
 pub fn deinit(self: *ArrayListReverse) void {
@@ -65,6 +75,28 @@ pub fn clearAndFree(self: *ArrayListReverse) void {
     self.allocator.free(self.allocatedSlice());
     self.data.len = 0;
     self.capacity = 0;
+}
+
+const vtable: Io.Writer.VTable = .{
+    .drain = &drain,
+};
+
+fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
+    const self: *ArrayListReverse = @fieldParentPtr("writer", w);
+
+    assert(w.buffered().len == 0);
+
+    if (data.len == 1 and splat == 1) {
+        @branchHint(.likely);
+        self.prependSlice(data[0]) catch return error.WriteFailed;
+        return data[0].len;
+    }
+
+    var buffer: Io.Writer.Allocating = .init(self.allocator);
+    defer buffer.deinit();
+    try buffer.writer.writeSplatAll(@constCast(data), splat);
+    self.prependSlice(buffer.written()) catch return error.WriteFailed;
+    return Io.Writer.countSplat(data, splat);
 }
 
 /// The caller owns the returned memory.

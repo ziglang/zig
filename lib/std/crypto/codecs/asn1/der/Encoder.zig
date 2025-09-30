@@ -117,8 +117,8 @@ pub fn tagBytes(self: *Encoder, tag_: Tag, bytes: []const u8) !void {
 }
 
 /// Warning: This writer writes backwards. `fn print` will NOT work as expected.
-pub fn writer(self: *Encoder) ArrayListReverse.Writer {
-    return self.buffer.writer();
+pub fn writer(self: *Encoder) *std.Io.Writer {
+    return &self.buffer.writer;
 }
 
 fn int(self: *Encoder, comptime T: type, value: T) !void {

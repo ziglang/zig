@@ -90,7 +90,7 @@ pub const Tag = struct {
         };
     }
 
-    pub fn encode(self: Tag, writer: *std.Io.Writer) @TypeOf(writer).Error!void {
+    pub fn encode(self: Tag, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         var tag1 = FirstTag{
             .number = undefined,
             .constructed = self.constructed,
@@ -98,7 +98,7 @@ pub const Tag = struct {
         };
 
         var buffer: [3]u8 = undefined;
-        var writer2: std.Io.Writer = .init(&buffer);
+        var writer2: std.Io.Writer = .fixed(&buffer);
 
         switch (@intFromEnum(self.number)) {
             0...std.math.maxInt(u5) => |n| {
@@ -183,7 +183,7 @@ pub const Element = struct {
         }
     };
 
-    pub const DecodeError = error{ InvalidLength, EndOfStream };
+    pub const DecodeError = error{InvalidLength} || std.Io.Reader.Error;
 
     /// Safely decode a DER/BER/CER element at `index`:
     /// - Ensures length uses shortest form
