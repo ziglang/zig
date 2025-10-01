@@ -1108,8 +1108,8 @@ fn listenPosix(
     }
 
     var storage: PosixAddress = undefined;
-    var socklen = addressToPosix(address, &storage);
-    try posixBind(pool, socket_fd, &storage.any, socklen);
+    var addr_len = addressToPosix(&address, &storage);
+    try posixBind(pool, socket_fd, &storage.any, addr_len);
 
     while (true) {
         try pool.checkCancel();
@@ -1121,7 +1121,7 @@ fn listenPosix(
         }
     }
 
-    try posixGetSockName(pool, socket_fd, &storage.any, &socklen);
+    try posixGetSockName(pool, socket_fd, &storage.any, &addr_len);
     return .{
         .socket = .{
             .handle = socket_fd,
@@ -1226,9 +1226,9 @@ fn ipBindPosix(
     }
 
     var storage: PosixAddress = undefined;
-    var socklen = addressToPosix(address, &storage);
-    try posixBind(pool, socket_fd, &storage.any, socklen);
-    try posixGetSockName(pool, socket_fd, &storage.any, &socklen);
+    var addr_len = addressToPosix(&address, &storage);
+    try posixBind(pool, socket_fd, &storage.any, addr_len);
+    try posixGetSockName(pool, socket_fd, &storage.any, &addr_len);
     return .{
         .handle = socket_fd,
         .address = addressFromPosix(&storage),
@@ -1306,19 +1306,100 @@ fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.n
     return n;
 }
 
+const have_sendmmsg = builtin.os.tag == .linux;
+
 fn netSend(
     userdata: ?*anyopaque,
     handle: Io.net.Socket.Handle,
-    messages: []const Io.net.OutgoingMessage,
+    messages: []Io.net.OutgoingMessage,
     flags: Io.net.SendFlags,
 ) Io.net.Socket.SendError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
 
-    _ = handle;
-    _ = messages;
-    _ = flags;
+    if (have_sendmmsg) {
+        var i: usize = 0;
+        while (messages.len - i != 0) {
+            i += try netSendMany(pool, handle, messages[i..], flags);
+        }
+        return;
+    }
+
+    try pool.checkCancel();
     @panic("TODO");
+}
+
+fn netSendMany(
+    pool: *Pool,
+    handle: Io.net.Socket.Handle,
+    messages: []Io.net.OutgoingMessage,
+    flags: Io.net.SendFlags,
+) Io.net.Socket.SendError!usize {
+    var msg_buffer: [64]std.os.linux.mmsghdr = undefined;
+    var addr_buffer: [msg_buffer.len]PosixAddress = undefined;
+    var iovecs_buffer: [msg_buffer.len]posix.iovec = undefined;
+    const min_len: usize = @min(messages.len, msg_buffer.len);
+    const clamped_messages = messages[0..min_len];
+    const clamped_msgs = (&msg_buffer)[0..min_len];
+    const clamped_addrs = (&addr_buffer)[0..min_len];
+    const clamped_iovecs = (&iovecs_buffer)[0..min_len];
+
+    for (clamped_messages, clamped_msgs, clamped_addrs, clamped_iovecs) |*message, *msg, *addr, *iovec| {
+        iovec.* = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
+        msg.* = .{
+            .hdr = .{
+                .name = &addr.any,
+                .namelen = addressToPosix(message.address, addr),
+                .iov = iovec[0..1],
+                .iovlen = 1,
+                .control = @constCast(message.control.ptr),
+                .controllen = message.control.len,
+                .flags = 0,
+            },
+            .len = undefined, // Populated by calling sendmmsg below.
+        };
+    }
+
+    const posix_flags: u32 =
+        @as(u32, if (flags.confirm) posix.MSG.CONFIRM else 0) |
+        @as(u32, if (flags.dont_route) posix.MSG.DONTROUTE else 0) |
+        @as(u32, if (flags.eor) posix.MSG.EOR else 0) |
+        @as(u32, if (flags.oob) posix.MSG.OOB else 0) |
+        @as(u32, if (flags.fastopen) posix.MSG.FASTOPEN else 0) |
+        posix.MSG.NOSIGNAL;
+
+    while (true) {
+        try pool.checkCancel();
+        const rc = posix.system.sendmmsg(handle, clamped_msgs.ptr, @intCast(clamped_msgs.len), posix_flags);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                for (clamped_messages[0..rc], clamped_msgs[0..rc]) |*message, *msg| {
+                    message.data_len = msg.len;
+                }
+                return rc;
+            },
+            .AGAIN => |err| return errnoBug(err),
+            .ALREADY => return error.FastOpenAlreadyInProgress,
+            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .DESTADDRREQ => |err| return errnoBug(err), // The socket is not connection-mode, and no peer address is set.
+            .FAULT => |err| return errnoBug(err), // An invalid user space address was specified for an argument.
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err), // Invalid argument passed.
+            .ISCONN => |err| return errnoBug(err), // connection-mode socket was connected already but a recipient was specified
+            .MSGSIZE => return error.MessageOversize,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTSOCK => |err| return errnoBug(err), // The file descriptor sockfd does not refer to a socket.
+            .OPNOTSUPP => |err| return errnoBug(err), // Some bit in the flags argument is inappropriate for the socket type.
+            .PIPE => return error.SocketNotConnected,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .HOSTUNREACH => return error.NetworkUnreachable,
+            .NETUNREACH => return error.NetworkUnreachable,
+            .NOTCONN => return error.SocketNotConnected,
+            .NETDOWN => return error.NetworkDown,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn netReceive(
@@ -1503,13 +1584,13 @@ fn addressFromPosix(posix_address: *PosixAddress) Io.net.IpAddress {
     };
 }
 
-fn addressToPosix(a: Io.net.IpAddress, storage: *PosixAddress) posix.socklen_t {
-    return switch (a) {
+fn addressToPosix(a: *const Io.net.IpAddress, storage: *PosixAddress) posix.socklen_t {
+    return switch (a.*) {
         .ip4 => |ip4| {
             storage.in = address4ToPosix(ip4);
             return @sizeOf(posix.sockaddr.in);
         },
-        .ip6 => |ip6| {
+        .ip6 => |*ip6| {
             storage.in6 = address6ToPosix(ip6);
             return @sizeOf(posix.sockaddr.in6);
         },
@@ -1539,7 +1620,7 @@ fn address4ToPosix(a: Io.net.Ip4Address) posix.sockaddr.in {
     };
 }
 
-fn address6ToPosix(a: Io.net.Ip6Address) posix.sockaddr.in6 {
+fn address6ToPosix(a: *const Io.net.Ip6Address) posix.sockaddr.in6 {
     return .{
         .port = std.mem.nativeToBig(u16, a.port),
         .flowinfo = a.flow,
