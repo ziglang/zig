@@ -19,7 +19,7 @@ pub fn preprocess(
     var driver: aro.Driver = .{ .comp = comp, .diagnostics = comp.diagnostics, .aro_name = "arocc" };
     defer driver.deinit();
 
-    var macro_buf: std.ArrayListUnmanaged(u8) = .empty;
+    var macro_buf: std.ArrayList(u8) = .empty;
     defer macro_buf.deinit(comp.gpa);
 
     var discard_buffer: [64]u8 = undefined;
@@ -66,9 +66,7 @@ pub fn preprocess(
 
     if (hasAnyErrors(comp)) return error.PreprocessError;
 
-    pp.prettyPrintTokens(writer, .result_only) catch |err| switch (err) {
-        error.WriteFailed => return error.OutOfMemory,
-    };
+    try pp.prettyPrintTokens(writer, .result_only);
 
     if (maybe_dependencies) |dependencies| {
         for (comp.sources.values()) |comp_source| {
