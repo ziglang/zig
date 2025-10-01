@@ -1,4 +1,4 @@
-//as/! Machine Intermediate Representation.
+//! Machine Intermediate Representation.
 //! This data is produced by x86_64 Codegen and consumed by x86_64 Isel.
 //! These instructions have a 1:1 correspondence with machine code instructions
 //! for the target. MIR can be lowered to source-annotated textual assembly code
