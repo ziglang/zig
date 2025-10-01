@@ -565,7 +565,13 @@ pub fn stat(self: File) StatError!Stat {
             self.handle,
             "",
             linux.AT.EMPTY_PATH,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            .{
+                .type = true,
+                .mode = true,
+                .atime = true,
+                .mtime = true,
+                .ctime = true,
+            },
             &stx,
         );
 
