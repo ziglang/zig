@@ -1432,6 +1432,7 @@ pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
         .aarch64, .aarch64_be => 32,
         .arm, .armeb, .thumb, .thumbeb => 15,
         .loongarch32, .loongarch64 => 32,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => 32,
         .x86 => 8,
         .x86_64 => 16,
         else => null,
@@ -1443,6 +1444,7 @@ pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
         .aarch64, .aarch64_be => 29,
         .arm, .armeb, .thumb, .thumbeb => 11,
         .loongarch32, .loongarch64 => 22,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => 8,
         .x86 => 5,
         .x86_64 => 6,
         else => unreachable,
@@ -1454,6 +1456,7 @@ pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
         .aarch64, .aarch64_be => 31,
         .arm, .armeb, .thumb, .thumbeb => 13,
         .loongarch32, .loongarch64 => 3,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => 2,
         .x86 => 4,
         .x86_64 => 7,
         else => unreachable,
@@ -1472,10 +1475,6 @@ pub fn supportsUnwinding(target: *const std.Target) bool {
         .spirv32,
         .spirv64,
         => false,
-
-        // Enabling this causes relocation errors such as:
-        // error: invalid relocation type R_RISCV_SUB32 at offset 0x20
-        .riscv64, .riscv64be, .riscv32, .riscv32be => false,
 
         // Conservative guess. Feel free to update this logic with any targets
         // that are known to not support Dwarf unwinding.

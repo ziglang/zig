@@ -7,6 +7,7 @@ else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .loongarch32, .loongarch64 => LoongArch,
+    .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .x86 => X86,
     .x86_64 => X86_64,
     else => noreturn,
@@ -178,6 +179,13 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             .linux => .{
                 .r = uc.mcontext.regs, // includes r0 (hardwired zero)
                 .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .riscv32, .riscv64 => switch (builtin.os.tag) {
+            .linux => .{
+                .r = [1]usize{0} ++ uc.mcontext.gregs[1..].*, // r0 position is used for pc; replace with zero
+                .pc = uc.mcontext.gregs[0],
             },
             else => null,
         },
@@ -562,6 +570,104 @@ pub const LoongArch = extern struct {
     }
 
     pub fn dwarfRegisterBytes(ctx: *LoongArch, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            32 => return @ptrCast(&ctx.pc),
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const Riscv = extern struct {
+    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
+    r: [32]usize,
+    pc: usize,
+
+    pub inline fn current() Riscv {
+        var ctx: Riscv = undefined;
+        asm volatile (if (@sizeOf(usize) == 8)
+                \\ sd zero, 0(t0)
+                \\ sd ra, 8(t0)
+                \\ sd sp, 16(t0)
+                \\ sd gp, 24(t0)
+                \\ sd tp, 32(t0)
+                \\ sd t0, 40(t0)
+                \\ sd t1, 48(t0)
+                \\ sd t2, 56(t0)
+                \\ sd s0, 64(t0)
+                \\ sd s1, 72(t0)
+                \\ sd a0, 80(t0)
+                \\ sd a1, 88(t0)
+                \\ sd a2, 96(t0)
+                \\ sd a3, 104(t0)
+                \\ sd a4, 112(t0)
+                \\ sd a5, 120(t0)
+                \\ sd a6, 128(t0)
+                \\ sd a7, 136(t0)
+                \\ sd s2, 144(t0)
+                \\ sd s3, 152(t0)
+                \\ sd s4, 160(t0)
+                \\ sd s5, 168(t0)
+                \\ sd s6, 176(t0)
+                \\ sd s7, 184(t0)
+                \\ sd s8, 192(t0)
+                \\ sd s9, 200(t0)
+                \\ sd s10, 208(t0)
+                \\ sd s11, 216(t0)
+                \\ sd t3, 224(t0)
+                \\ sd t4, 232(t0)
+                \\ sd t5, 240(t0)
+                \\ sd t6, 248(t0)
+                \\ jal ra, 1f
+                \\1:
+                \\ sd ra, 256(t0)
+                \\ ld ra, 8(t0)
+            else
+                \\ sw zero, 0(t0)
+                \\ sw ra, 4(t0)
+                \\ sw sp, 8(t0)
+                \\ sw gp, 12(t0)
+                \\ sw tp, 16(t0)
+                \\ sw t0, 20(t0)
+                \\ sw t1, 24(t0)
+                \\ sw t2, 28(t0)
+                \\ sw s0, 32(t0)
+                \\ sw s1, 36(t0)
+                \\ sw a0, 40(t0)
+                \\ sw a1, 44(t0)
+                \\ sw a2, 48(t0)
+                \\ sw a3, 52(t0)
+                \\ sw a4, 56(t0)
+                \\ sw a5, 60(t0)
+                \\ sw a6, 64(t0)
+                \\ sw a7, 68(t0)
+                \\ sw s2, 72(t0)
+                \\ sw s3, 76(t0)
+                \\ sw s4, 80(t0)
+                \\ sw s5, 84(t0)
+                \\ sw s6, 88(t0)
+                \\ sw s7, 92(t0)
+                \\ sw s8, 96(t0)
+                \\ sw s9, 100(t0)
+                \\ sw s10, 104(t0)
+                \\ sw s11, 108(t0)
+                \\ sw t3, 112(t0)
+                \\ sw t4, 116(t0)
+                \\ sw t5, 120(t0)
+                \\ sw t6, 124(t0)
+                \\ jal ra, 1f
+                \\1:
+                \\ sw ra, 128(t0)
+                \\ lw ra, 4(t0)
+            :
+            : [gprs] "{t0}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Riscv, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             32 => return @ptrCast(&ctx.pc),
