@@ -528,13 +528,11 @@ pub const SectionHeader = extern struct {
 
     /// Applicable only to section headers in COFF objects.
     pub fn getAlignment(self: SectionHeader) ?u16 {
-        if (self.flags.ALIGN == 0) return null;
-        return std.math.powi(u16, 2, self.flags.ALIGN - 1) catch unreachable;
+        return self.flags.ALIGN.toByteUnits();
     }
 
     pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
-        assert(new_alignment > 0 and new_alignment <= 8192);
-        self.flags.ALIGN = @intCast(std.math.log2(new_alignment));
+        self.flags.ALIGN = .fromByteUnits(new_alignment);
     }
 
     pub fn isCode(self: SectionHeader) bool {
@@ -651,6 +649,16 @@ pub const SectionHeader = extern struct {
             @"4096BYTES" = 13,
             @"8192BYTES" = 14,
             _,
+
+            pub fn toByteUnits(a: Align) ?u16 {
+                if (a == .NONE) return null;
+                return @as(u16, 1) << (@intFromEnum(a) - 1);
+            }
+
+            pub fn fromByteUnits(n: u16) Align {
+                std.debug.assert(std.math.isPowerOfTwo(n));
+                return @enumFromInt(@ctz(n) + 1);
+            }
         };
     };
 };
