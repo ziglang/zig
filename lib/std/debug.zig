@@ -62,7 +62,7 @@ pub const cpu_context = @import("debug/cpu_context.zig");
 pub const SelfInfo = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "SelfInfo"))
     root.debug.SelfInfo
 else switch (std.Target.ObjectFormat.default(native_os, native_arch)) {
-    .coff => @import("debug/SelfInfo/Windows.zig"),
+    .coff => if (native_os == .windows) @import("debug/SelfInfo/Windows.zig") else void,
     .elf => @import("debug/SelfInfo/Elf.zig"),
     .macho => @import("debug/SelfInfo/Darwin.zig"),
     .goff, .plan9, .spirv, .wasm, .xcoff => void,
