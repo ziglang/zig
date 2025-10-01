@@ -1309,15 +1309,15 @@ fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.n
 fn netSend(
     userdata: ?*anyopaque,
     handle: Io.net.Socket.Handle,
-    address: *const Io.net.IpAddress,
-    data: []const u8,
+    messages: []const Io.net.OutgoingMessage,
+    flags: Io.net.SendFlags,
 ) Io.net.Socket.SendError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
     _ = handle;
-    _ = address;
-    _ = data;
+    _ = messages;
+    _ = flags;
     @panic("TODO");
 }
 

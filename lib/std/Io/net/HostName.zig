@@ -271,15 +271,19 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
     };
 
     send: while (now_ts.compare(.lt, final_ts)) : (now_ts = try io.now(.MONOTONIC)) {
-        var group: Io.Group = .init;
-        defer group.cancel(io);
-
+        var message_buffer: [queries_buffer.len * ResolvConf.max_nameservers]Io.net.OutgoingMessage = undefined;
+        var message_i: usize = 0;
         for (queries, answers) |query, *answer| {
             if (answer.len != 0) continue;
             for (mapped_nameservers) |*ns| {
-                group.async(io, sendIgnoringResult, .{ io, socket.handle, ns, query });
+                message_buffer[message_i] = .{
+                    .address = ns,
+                    .data = query,
+                };
+                message_i += 1;
             }
         }
+        io.vtable.netSend(io.userdata, socket.handle, message_buffer[0..message_i], .{}) catch {};
 
         const timeout: Io.Timeout = .{ .deadline = now_ts.addDuration(attempt_duration) };
 
@@ -320,7 +324,11 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
                     if (next_answer_buffer == answers.len) break :send;
                 },
                 2 => {
-                    group.async(io, sendIgnoringResult, .{ io, socket.handle, ns, query });
+                    const message: Io.net.OutgoingMessage = .{
+                        .address = ns,
+                        .data = query,
+                    };
+                    io.vtable.netSend(io.userdata, socket.handle, &.{message}, .{}) catch {};
                     continue;
                 },
                 else => continue,
@@ -380,10 +388,6 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
     };
 
     return error.NameServerFailure;
-}
-
-fn sendIgnoringResult(io: Io, socket_handle: Io.net.Socket.Handle, dest: *const IpAddress, msg: []const u8) void {
-    _ = io.vtable.netSend(io.userdata, socket_handle, dest, msg) catch {};
 }
 
 fn lookupHosts(host_name: HostName, io: Io, options: LookupOptions) !LookupResult {
