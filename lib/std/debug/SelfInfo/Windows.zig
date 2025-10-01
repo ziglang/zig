@@ -88,7 +88,7 @@ pub const UnwindContext = struct {
                     .R15 = ctx.gprs.get(.r15),
                     .Rip = ctx.gprs.get(.rip),
                 }),
-                .aarch64, .aarch64_be => .{
+                .aarch64 => .{
                     .ContextFlags = 0,
                     .Cpsr = 0,
                     .DUMMYUNIONNAME = .{ .X = ctx.x },

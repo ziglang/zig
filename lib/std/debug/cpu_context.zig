@@ -21,7 +21,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
     const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
     return switch (native_arch) {
         .x86 => switch (native_os) {
-            .linux, .netbsd, .solaris, .illumos => .{ .gprs = .init(.{
+            .linux, .netbsd, .illumos => .{ .gprs = .init(.{
                 .eax = uc.mcontext.gregs[std.posix.REG.EAX],
                 .ecx = uc.mcontext.gregs[std.posix.REG.ECX],
                 .edx = uc.mcontext.gregs[std.posix.REG.EDX],
@@ -92,7 +92,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
                 .r15 = @bitCast(uc.sc_r15),
                 .rip = @bitCast(uc.sc_rip),
             }) },
-            .macos, .ios => .{ .gprs = .init(.{
+            .driverkit, .macos, .ios => .{ .gprs = .init(.{
                 .rax = uc.mcontext.ss.rax,
                 .rdx = uc.mcontext.ss.rdx,
                 .rcx = uc.mcontext.ss.rcx,
@@ -137,7 +137,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             else => null,
         },
         .aarch64, .aarch64_be => switch (builtin.os.tag) {
-            .macos, .ios, .tvos, .watchos, .visionos => .{
+            .driverkit, .macos, .ios, .tvos, .watchos, .visionos => .{
                 .x = uc.mcontext.ss.regs ++ @as([2]u64, .{
                     uc.mcontext.ss.fp, // x29 = fp
                     uc.mcontext.ss.lr, // x30 = lr
@@ -209,7 +209,7 @@ pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
             .r15 = ctx.R15,
             .rip = ctx.Rip,
         }) },
-        .aarch64, .aarch64_be => .{
+        .aarch64 => .{
             .x = ctx.DUMMYUNIONNAME.X[0..31].*,
             .sp = ctx.Sp,
             .pc = ctx.Pc,
@@ -371,7 +371,6 @@ pub const Arm = struct {
     pub fn dwarfRegisterBytes(ctx: *Arm, register_num: u16) DwarfRegisterError![]u8 {
         // DWARF for the Arm(r) Architecture § 4.1 "DWARF register names"
         switch (register_num) {
-            // The order of `Gpr` intentionally matches DWARF's mappings.
             0...15 => return @ptrCast(&ctx.r[register_num]),
 
             64...95 => return error.UnsupportedRegister, // S0 - S31
@@ -444,7 +443,6 @@ pub const Aarch64 = extern struct {
     pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
         // DWARF for the Arm(r) 64-bit Architecture (AArch64) § 4.1 "DWARF register names"
         switch (register_num) {
-            // The order of `Gpr` intentionally matches DWARF's mappings.
             0...30 => return @ptrCast(&ctx.x[register_num]),
             31 => return @ptrCast(&ctx.sp),
             32 => return @ptrCast(&ctx.pc),
@@ -471,7 +469,7 @@ const signal_ucontext_t = switch (native_os) {
     .linux => std.os.linux.ucontext_t,
     .emscripten => std.os.emscripten.ucontext_t,
     .freebsd => std.os.freebsd.ucontext_t,
-    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         onstack: c_int,
         sigmask: std.c.sigset_t,
         stack: std.c.stack_t,
