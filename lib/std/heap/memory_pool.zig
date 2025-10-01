@@ -60,6 +60,8 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
 
         const Node = std.SinglyLinkedList.Node;
         const ItemPtr = *align(item_alignment.toByteUnits()) Item;
+        const Unit = [item_alignment.forward(item_size)]u8;
+        const unit_al_bytes = item_alignment.toByteUnits();
 
         /// A MemoryPool containing no elements.
         pub const empty: Pool = .{
@@ -94,11 +96,9 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
         /// This allows at least `num` active allocations before an
         /// `OutOfMemory` error might happen when calling `create()`.
         pub fn addCapacity(pool: *Pool, allocator: Allocator, num: usize) Allocator.Error!void {
-            var i: usize = 0;
-            while (i < num) : (i += 1) {
-                const memory = try pool.allocNew(allocator);
-                pool.free_list.prepend(@ptrCast(memory));
-            }
+            const raw_mem = try pool.allocNew(allocator, num);
+            const uni_slc = raw_mem[0..num];
+            for (uni_slc) |*unit| pool.free_list.prepend(@ptrCast(unit));
         }
 
         pub const ResetMode = std.heap.ArenaAllocator.ResetMode;
@@ -131,7 +131,7 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
             const ptr: ItemPtr = if (pool.free_list.popFirst()) |node|
                 @ptrCast(@alignCast(node))
             else if (pool_options.growable)
-                @ptrCast(try pool.allocNew(allocator))
+                @ptrCast(try pool.allocNew(allocator, 1))
             else
                 return error.OutOfMemory;
 
@@ -146,11 +146,11 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
             pool.free_list.prepend(@ptrCast(ptr));
         }
 
-        fn allocNew(pool: *Pool, allocator: Allocator) Allocator.Error!*align(item_alignment.toByteUnits()) [item_size]u8 {
+        fn allocNew(pool: *Pool, allocator: Allocator, num: usize) Allocator.Error![*]align(unit_al_bytes) Unit {
             var arena = pool.arena_state.promote(allocator);
             defer pool.arena_state = arena.state;
-            const memory = try arena.allocator().alignedAlloc(u8, item_alignment, item_size);
-            return memory[0..item_size];
+            const memory = try arena.allocator().alignedAlloc(Unit, item_alignment, num);
+            return memory.ptr;
         }
     };
 }
@@ -175,6 +175,8 @@ pub fn ExtraManaged(comptime Item: type, comptime pool_options: Options) type {
         pub const item_alignment = Unmanaged.item_alignment;
 
         const ItemPtr = Unmanaged.ItemPtr;
+        const Unit = Unmanaged.Unit;
+        const unit_al_bytes = Unmanaged.unit_al_bytes;
 
         /// Creates a new memory pool.
         pub fn init(allocator: Allocator) Pool {
@@ -227,8 +229,9 @@ pub fn ExtraManaged(comptime Item: type, comptime pool_options: Options) type {
             return pool.unmanaged.destroy(ptr);
         }
 
-        fn allocNew(pool: *Pool) Allocator.Error!*align(item_alignment) [item_size]u8 {
-            return pool.unmanaged.allocNew(pool.allocator);
+        fn allocNew(pool: *Pool, num: usize) Allocator.Error![*]align(unit_al_bytes) Unit {
+            const memory = try pool.arena.allocator().alignedAlloc(Unit, item_alignment, num);
+            return memory.ptr;
         }
     };
 }
