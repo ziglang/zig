@@ -2079,12 +2079,6 @@ pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
     }
 }
 
-/// Warning: libc is defined to have incompatible integer types with the
-/// corresponding kernel data structures for this syscall.
-///
-/// Warning: on 64-bit systems, if any message length would exceed `maxInt(i32)`,
-/// number of bytes sent cannot be determined, because the kernel uses `ssize_t`
-/// for `sendmsg` return value but `int` for the corresponding values here.
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
     return syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(msgvec), vlen, flags);
 }
