@@ -492,7 +492,7 @@ pub fn accept(
     fd: linux.fd_t,
     addr: ?*posix.sockaddr,
     addrlen: ?*posix.socklen_t,
-    flags: u32,
+    flags: linux.Sock,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_accept(fd, addr, addrlen, flags);
@@ -514,7 +514,7 @@ pub fn accept_multishot(
     fd: linux.fd_t,
     addr: ?*posix.sockaddr,
     addrlen: ?*posix.socklen_t,
-    flags: u32,
+    flags: linux.Sock,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_multishot_accept(fd, addr, addrlen, flags);
@@ -539,7 +539,7 @@ pub fn accept_direct(
     fd: linux.fd_t,
     addr: ?*posix.sockaddr,
     addrlen: ?*posix.socklen_t,
-    flags: u32,
+    flags: linux.Sock,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_accept_direct(fd, addr, addrlen, flags, constants.FILE_INDEX_ALLOC);
@@ -555,7 +555,7 @@ pub fn accept_multishot_direct(
     fd: linux.fd_t,
     addr: ?*posix.sockaddr,
     addrlen: ?*posix.socklen_t,
-    flags: u32,
+    flags: linux.Sock,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_multishot_accept_direct(fd, addr, addrlen, flags);
@@ -931,7 +931,7 @@ pub fn statx(
     user_data: u64,
     fd: linux.fd_t,
     path: [:0]const u8,
-    flags: u32,
+    flags: linux.At,
     mask: linux.Statx.Mask,
     buf: *linux.Statx,
 ) !*Sqe {
@@ -969,7 +969,7 @@ pub fn shutdown(
     self: *IoUring,
     user_data: u64,
     sockfd: posix.socket_t,
-    how: u32,
+    how: linux.At,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_shutdown(sockfd, how);
@@ -1001,7 +1001,7 @@ pub fn unlinkat(
     user_data: u64,
     dir_fd: linux.fd_t,
     path: [*:0]const u8,
-    flags: u32,
+    flags: linux.At,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_unlinkat(dir_fd, path, flags);
@@ -1048,7 +1048,7 @@ pub fn linkat(
     old_path: [*:0]const u8,
     new_dir_fd: linux.fd_t,
     new_path: [*:0]const u8,
-    flags: u32,
+    flags: linux.At,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_linkat(old_dir_fd, old_path, new_dir_fd, new_path, flags);
@@ -1329,7 +1329,7 @@ pub fn socket(
     self: *IoUring,
     user_data: u64,
     domain: linux.AF,
-    socket_type: linux.SOCK,
+    socket_type: linux.Sock,
     protocol: u32,
     flags: u32,
 ) !*Sqe {
@@ -2079,7 +2079,7 @@ test "accept/connect/send/recv" {
     try testing.expectEqual(Cqe{
         .user_data = 0xeeeeeeee,
         .res = buffer_send.len,
-        .flags = 0,
+        .flags = .{},
     }, cqe_send);
 
     const cqe_recv = try ring.copy_cqe();
@@ -2171,7 +2171,7 @@ test "sendmsg/recvmsg" {
     try testing.expectEqual(Cqe{
         .user_data = 0x11111111,
         .res = buffer_send.len,
-        .flags = 0,
+        .flags = .{},
     }, cqe_sendmsg);
 
     const cqe_recvmsg = try ring.copy_cqe();
@@ -2306,7 +2306,7 @@ test "timeout_remove" {
             try testing.expectEqual(Cqe{
                 .user_data = 0x99999999,
                 .res = 0,
-                .flags = 0,
+                .flags = .{},
             }, cqe);
         }
     }
@@ -2457,7 +2457,7 @@ test "statx" {
     try testing.expectEqual(Cqe{
         .user_data = 0xaaaaaaaa,
         .res = 0,
-        .flags = 0,
+        .flags = .{},
     }, cqe);
 
     try testing.expect(buf.mask & linux.STATX_SIZE == linux.STATX_SIZE);
@@ -2504,13 +2504,13 @@ test "accept/connect/recv/cancel" {
     try testing.expectEqual(Cqe{
         .user_data = 0xffffffff,
         .res = -@as(i32, @intFromEnum(linux.E.CANCELED)),
-        .flags = 0,
+        .flags = .{},
     }, cqe_recv);
 
     try testing.expectEqual(Cqe{
         .user_data = 0x99999999,
         .res = 0,
-        .flags = 0,
+        .flags = .{},
     }, cqe_cancel);
 }
 
@@ -2645,7 +2645,7 @@ test "shutdown" {
         try testing.expectEqual(Cqe{
             .user_data = 0x445445445,
             .res = 0,
-            .flags = 0,
+            .flags = .{},
         }, cqe);
     }
 
@@ -2715,7 +2715,7 @@ test "renameat" {
     try testing.expectEqual(Cqe{
         .user_data = 0x12121212,
         .res = 0,
-        .flags = 0,
+        .flags = .{},
     }, cqe);
 
     // Validate that the old file doesn't exist anymore
@@ -2768,7 +2768,7 @@ test "unlinkat" {
     try testing.expectEqual(Cqe{
         .user_data = 0x12121212,
         .res = 0,
-        .flags = 0,
+        .flags = .{},
     }, cqe);
 
     // Validate that the file doesn't exist anymore
@@ -2917,7 +2917,7 @@ test "linkat" {
     try testing.expectEqual(Cqe{
         .user_data = 0x12121212,
         .res = 0,
-        .flags = 0,
+        .flags = .{},
     }, cqe);
 
     // Validate the second file
@@ -3365,7 +3365,7 @@ fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
     try testing.expectEqual(Cqe{
         .user_data = 0xcccccccc,
         .res = 0,
-        .flags = 0,
+        .flags = .{},
     }, cqe_connect);
 
     // All good
@@ -3811,7 +3811,7 @@ test "waitid" {
     }
 
     var siginfo: posix.siginfo_t = undefined;
-    _ = try ring.waitid(0, .PID, pid, &siginfo, posix.W.EXITED, 0);
+    _ = try ring.waitid(0, .PID, pid, &siginfo, .{ .exited = true }, 0);
 
     try testing.expectEqual(1, try ring.submit());
 
@@ -3884,7 +3884,7 @@ test BufferGroup {
         try testing.expectEqual(1, submitted);
         const cqe_send = try ring.copy_cqe();
         if (cqe_send.err() == .INVAL) return error.SkipZigTest;
-        try testing.expectEqual(Cqe{ .user_data = 1, .res = data.len, .flags = 0 }, cqe_send);
+        try testing.expectEqual(Cqe{ .user_data = 1, .res = data.len, .flags = .{} }, cqe_send);
     }
 
     // Server uses buffer group receive
@@ -3954,7 +3954,7 @@ test "ring mapped buffers recv" {
             try testing.expectEqual(@as(u32, 1), try ring.submit());
             const cqe_send = try ring.copy_cqe();
             if (cqe_send.err() == .INVAL) return error.SkipZigTest;
-            try testing.expectEqual(Cqe{ .user_data = user_data, .res = data.len, .flags = 0 }, cqe_send);
+            try testing.expectEqual(Cqe{ .user_data = user_data, .res = data.len, .flags = .{} }, cqe_send);
         }
         var pos: usize = 0;
 
@@ -4043,7 +4043,7 @@ test "ring mapped buffers multishot recv" {
             try testing.expectEqual(@as(u32, 1), try ring.submit());
             const cqe_send = try ring.copy_cqe();
             if (cqe_send.err() == .INVAL) return error.SkipZigTest;
-            try testing.expectEqual(Cqe{ .user_data = user_data, .res = data.len, .flags = 0 }, cqe_send);
+            try testing.expectEqual(Cqe{ .user_data = user_data, .res = data.len, .flags = .{} }, cqe_send);
         }
 
         // start multishot recv
@@ -4251,7 +4251,7 @@ test "bind/listen/connect" {
 
     const listen_fd = brk: {
         // Create socket
-        _ = try ring.socket(1, addr.family, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, proto, 0);
+        _ = try ring.socket(1, addr.any.family, .{ .type = .stream, .flags = .{ .cloexec = true } }, proto, 0);
         try testing.expectEqual(1, try ring.submit());
         var cqe = try ring.copy_cqe();
         try testing.expectEqual(1, cqe.user_data);
@@ -4653,7 +4653,7 @@ pub const Sqe = extern struct {
         fd: linux.fd_t,
         addr: ?*linux.sockaddr,
         addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
+        flags: linux.Sock,
     ) void {
         // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
         // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
@@ -4667,7 +4667,7 @@ pub const Sqe = extern struct {
         fd: linux.fd_t,
         addr: ?*linux.sockaddr,
         addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
+        flags: linux.Sock,
         file_index: u32,
     ) void {
         prep_accept(sqe, fd, addr, addrlen, flags);
@@ -4679,7 +4679,7 @@ pub const Sqe = extern struct {
         fd: linux.fd_t,
         addr: ?*linux.sockaddr,
         addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
+        flags: linux.Sock,
     ) void {
         prep_accept(sqe, fd, addr, addrlen, flags);
         sqe.ioprio = .{ .accept = .{ .MULTISHOT = true } };
@@ -4691,7 +4691,7 @@ pub const Sqe = extern struct {
         fd: linux.fd_t,
         addr: ?*linux.sockaddr,
         addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
+        flags: linux.Sock,
     ) void {
         prep_multishot_accept(sqe, fd, addr, addrlen, flags);
         set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
@@ -4994,9 +4994,9 @@ pub const Sqe = extern struct {
     pub fn prep_shutdown(
         sqe: *Sqe,
         sockfd: linux.socket_t,
-        how: linux.SHUT,
+        how: linux.Shut,
     ) void {
-        sqe.prep_rw(.SHUTDOWN, sockfd, 0, how, 0);
+        sqe.prep_rw(.SHUTDOWN, sockfd, 0, @intFromEnum(how), 0);
     }
 
     pub fn prep_renameat(
@@ -5015,7 +5015,7 @@ pub const Sqe = extern struct {
             @intFromPtr(new_path),
         );
         sqe.len = @bitCast(new_dir_fd);
-        sqe.rw_flags = flags;
+        sqe.rw_flags = @bitCast(flags);
     }
 
     pub fn prep_unlinkat(
@@ -5058,7 +5058,7 @@ pub const Sqe = extern struct {
         old_path: [*:0]const u8,
         new_dir_fd: linux.fd_t,
         new_path: [*:0]const u8,
-        flags: linux.AT, // only AT_EMPTY_PATH, AT_SYMLINK_FOLLOW
+        flags: linux.At, // only AT_EMPTY_PATH, AT_SYMLINK_FOLLOW
     ) void {
         sqe.prep_rw(
             .LINKAT,
