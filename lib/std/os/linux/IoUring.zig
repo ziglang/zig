@@ -16,1665 +16,6 @@ cq: Cq,
 flags: uflags.Setup,
 features: uflags.Features,
 
-// COMMIT: move IoUring constants to Constants
-pub const constants = struct {
-    /// If sqe.file_index (splice_fd_in in Zig Struct) is set to this for opcodes that instantiate a new
-    /// an available direct descriptor instead of having the application pass one
-    /// direct descriptor (like openat/openat2/accept), then io_uring will allocate
-    /// in. The picked direct descriptor will be returned in cqe.res, or -ENFILE
-    /// if the space is full.
-    pub const FILE_INDEX_ALLOC = std.math.maxInt(u32);
-
-    pub const CMD_MASK = 1 << 0;
-
-    pub const TIMEOUT_CLOCK_MASK = ((1 << 2) | (1 << 3));
-    pub const TIMEOUT_UPDATE_MASK = ((1 << 1) | (1 << 4));
-
-    pub const CQE_BUFFER_SHIFT = 16;
-
-    /// cqe.res for IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was
-    /// requested It should be treated as a flag, all other bits of cqe.res
-    /// should be treated as reserved!
-    pub const NOTIF_USAGE_ZC_COPIED = (1 << 31);
-
-    //Magic offsets for the application to mmap the data it needs
-    pub const OFF_SQ_RING = 0;
-    pub const OFF_CQ_RING = 0x8000000;
-    pub const OFF_SQES = 0x10000000;
-    // COMMIT: new magic constants
-    pub const OFF_PBUF_RING = 0x80000000;
-    pub const OFF_PBUF_SHIFT = 16;
-    pub const OFF_MMAP_MASK = 0xf8000000;
-
-    /// Register a fully sparse file space, rather than pass in an array of all -1 file descriptors.
-    pub const RSRC_REGISTER_SPARSE = 1 << 0;
-
-    /// Skip updating fd indexes set to this value in the fd table
-    pub const REGISTER_FILES_SKIP = -2;
-
-    // COMMIT: new TX Timestamp definition
-    /// SOCKET_URING_OP_TX_TIMESTAMP definitions
-    pub const TIMESTAMP_HW_SHIFT = 16;
-    /// The cqe.flags bit from which the timestamp type is stored
-    pub const TIMESTAMP_TYPE_SHIFT = (TIMESTAMP_HW_SHIFT + 1);
-    /// The cqe.flags flag signifying whether it's a hardware timestamp
-    pub const CQE_F_TSTAMP_HW = (1 << TIMESTAMP_HW_SHIFT);
-
-    /// The bit from which area id is encoded into offsets
-    pub const ZCRX_AREA_SHIFT = 48;
-    pub const ZCRX_AREA_MASK = (~((1 << ZCRX_AREA_SHIFT) - 1));
-
-    // flag added to the opcode to use a registered ring fd
-    pub const REGISTER_USE_REGISTERED_RING = 1 << 31;
-};
-
-// COMMIT: move IoUring flags to Flags struct
-pub const uflags = struct {
-    /// io_uring_setup() flags
-    pub const Setup = packed struct(u32) {
-        /// io_context is polled
-        IOPOLL: bool = false,
-        /// SQ poll thread
-        SQPOLL: bool = false,
-        /// sq_thread_cpu is valid
-        SQ_AFF: bool = false,
-        /// app defines CQ size
-        CQSIZE: bool = false,
-        /// clamp SQ/CQ ring sizes
-        CLAMP: bool = false,
-        /// attach to existing wq
-        ATTACH_WQ: bool = false,
-        /// start with ring disabled
-        R_DISABLED: bool = false,
-        /// continue submit on error
-        SUBMIT_ALL: bool = false,
-        ///Cooperative task running. When requests complete, they often require
-        ///forcing the submitter to transition to the kernel to complete. If this
-        ///flag is set, work will be done when the task transitions anyway, rather
-        ///than force an inter-processor interrupt reschedule. This avoids interrupting
-        ///a task running in userspace, and saves an IPI.
-        COOP_TASKRUN: bool = false,
-        ///If COOP_TASKRUN is set, get notified if task work is available for
-        ///running and a kernel transition would be needed to run it. This sets
-        ///IORING_SQ_TASKRUN in the sq ring flags. Not valid with COOP_TASKRUN.
-        TASKRUN_FLAG: bool = false,
-        /// SQEs are 128 byte
-        SQE128: bool = false,
-        /// CQEs are 32 byte
-        CQE32: bool = false,
-        /// Only one task is allowed to submit requests
-        SINGLE_ISSUER: bool = false,
-        /// Defer running task work to get events.
-        /// Rather than running bits of task work whenever the task transitions
-        /// try to do it just before it is needed.
-        DEFER_TASKRUN: bool = false,
-        /// Application provides the memory for the rings
-        NO_MMAP: bool = false,
-        /// Register the ring fd in itself for use with
-        /// IORING_REGISTER_USE_REGISTERED_RING; return a registered fd index rather
-        /// than an fd.
-        REGISTERED_FD_ONLY: bool = false,
-        /// Removes indirection through the SQ index array.
-        NO_SQARRAY: bool = false,
-        // COMMIT: new setup flags
-        /// Use hybrid poll in iopoll process
-        HYBRID_IOPOLL: bool = false,
-        /// Allow both 16b and 32b CQEs. If a 32b CQE is posted, it will have
-        /// IORING_CQE_F_32 set in cqe.flags.
-        CQE_MIXED: bool = false,
-        _unused: u13 = 0,
-    };
-
-    /// sqe.uring_cmd_flags (rw_flags in the Zig struct)
-    /// top 8bits aren't available for userspace
-    /// use registered buffer; pass this flag along with setting sqe.buf_index.
-    pub const Cmd = packed struct(u32) {
-        CMD_FIXED: bool = false,
-        _unused: u31 = 0,
-    };
-
-    /// sqe.fsync_flags (rw_flags in the Zig struct)
-    pub const Fsync = packed struct(u32) {
-        DATASYNC: bool = false,
-        _unused: u31 = 0,
-    };
-
-    /// sqe.timeout_flags
-    pub const Timeout = packed struct(u32) {
-        TIMEOUT_ABS: bool = false,
-        /// Available since Linux 5.11
-        TIMEOUT_UPDATE: bool = false,
-        /// Available since Linux 5.15
-        TIMEOUT_BOOTTIME: bool = false,
-        /// Available since Linux 5.15
-        TIMEOUT_REALTIME: bool = false,
-        /// Available since Linux 5.15
-        LINK_TIMEOUT_UPDATE: bool = false,
-        /// Available since Linux 5.16
-        TIMEOUT_ETIME_SUCCESS: bool = false,
-        // COMMIT: new Timeout Flag
-        // TODO: add when it became available
-        TIMEOUT_MULTISHOT: bool = false,
-        _unused: u25 = 0,
-    };
-
-    /// sqe.splice_flags (rw_flags in Zig Struct)
-    /// extends splice(2) flags
-    pub const Splice = packed struct(u32) {
-        _unused: u31 = 0,
-        /// the last bit of __u32
-        F_FD_IN_FIXED: bool = false,
-    };
-
-    /// POLL_ADD flags. Note that since sqe.poll_events (rw_flags in Zig Struct)
-    /// is the flag space, the command flags for POLL_ADD are stored in sqe.len.
-    pub const Poll = packed struct(u32) {
-        /// IORING_POLL_ADD_MULTI
-        /// Multishot poll. Sets IORING_CQE_F_MORE if the poll handler will continue
-        /// to report CQEs on behalf of the same SQE.
-        ADD_MULTI: bool = false,
-        // TODO: verify this doc comment is valid for the 2 flags below
-        /// IORING_POLL_UPDATE
-        /// Update existing poll request, matching sqe.addr as the old user_data
-        /// field.
-        UPDATE_EVENTS: bool = false,
-        /// IORING_POLL_UPDATE
-        /// Update existing poll request, matching sqe.addr as the old user_data
-        /// field.
-        UPDATE_USER_DATA: bool = false,
-        /// IORING_POLL_LEVEL
-        /// Level triggered poll.
-        ADD_LEVEL: bool = false,
-        _unused: u28 = 0,
-    };
-
-    /// ASYNC_CANCEL flags.
-    pub const AsyncCancel = packed struct(u32) {
-        /// IORING_ASYNC_CANCEL_ALL
-        /// Cancel all requests that match the given key
-        CANCEL_ALL: bool = false,
-        /// IORING_ASYNC_CANCEL_FD
-        /// Key off 'fd' for cancelation rather than the request 'user_data'
-        CANCEL_FD: bool = false,
-        /// IORING_ASYNC_CANCEL_ANY
-        /// Match any request
-        CANCEL_ANY: bool = false,
-        /// IORING_ASYNC_CANCEL_FD_FIXED
-        /// 'fd' passed in is a fixed descriptor
-        CANCEL_FD_FIXED: bool = false,
-        // COMMIT: new AsyncCancel Flags
-        /// IORING_ASYNC_CANCEL_USERDATA
-        /// Match on user_data, default for no other key
-        CANCEL_USERDATA: bool = false,
-        /// IORING_ASYNC_CANCEL_OP
-        /// Match request based on opcode
-        CANCEL_OP: bool = false,
-        _unused: u26 = 0,
-    };
-
-    /// send/sendmsg and recv/recvmsg flags (sqe.ioprio)
-    pub const SendRecv = packed struct(u16) {
-        /// IORING_RECVSEND_POLL_FIRST
-        /// If set, instead of first attempting to send or receive and arm poll
-        /// if that yields an -EAGAIN result, arm poll upfront and skip the
-        /// initial transfer attempt.
-        RECVSEND_POLL_FIRST: bool = false,
-        /// IORING_RECV_MULTISHOT
-        /// Multishot recv. Sets IORING_CQE_F_MORE if the handler will continue
-        /// to report CQEs on behalf of the same SQE.
-        RECV_MULTISHOT: bool = false,
-        /// IORING_RECVSEND_FIXED_BUF
-        /// Use registered buffers, the index is stored in the buf_index field.
-        RECVSEND_FIXED_BUF: bool = false,
-        /// IORING_SEND_ZC_REPORT_USAGE
-        /// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res
-        /// for the IORING_CQE_F_NOTIF cqe. 0 is reported if zerocopy was
-        /// actually possible. IORING_NOTIF_USAGE_ZC_COPIED if data was copied
-        /// (at least partially).
-        SEND_ZC_REPORT_USAGE: bool = false,
-        /// IORING_RECVSEND_BUNDLE
-        /// Used with IOSQE_BUFFER_SELECT. If set, send or recv will grab as
-        /// many buffers from the buffer group ID given and send them all.
-        /// The completion result will be the number of buffers send, with the
-        /// starting buffer ID in cqe.flags as per usual for provided buffer
-        /// usage. The buffers will be contiguous from the starting buffer ID.
-        RECVSEND_BUNDLE: bool = false,
-        // COMMIT: new flags
-        /// IORING_SEND_VECTORIZED
-        /// If set, SEND[_ZC] will take a pointer to a io_vec to allow
-        /// vectorized send operations.
-        SEND_VECTORIZED: bool = false,
-        _: u10 = 0,
-    };
-
-    /// accept flags stored in sqe.ioprio
-    pub const Accept = packed struct(u16) {
-        MULTISHOT: bool = false,
-        // COMMIT: new Flags
-        DONTWAIT: bool = false,
-        POLL_FIRST: bool = false,
-        _unused: u13 = 0,
-    };
-
-    /// IORING_OP_MSG_RING flags (sqe.msg_ring_flags or sqe.rw_flags in Zig Struct)
-    pub const MsgRing = packed struct(u32) {
-        /// IORING_MSG_RING_CQE_SKIP Don't post a CQE to the target ring.
-        /// Not applicable for IORING_MSG_DATA, obviously.
-        CQE_SKIP: bool = false,
-        /// Pass through the flags from sqe.file_index to cqe.flags
-        FLAGS_PASS: bool = false,
-        _unused: u30 = 0,
-    };
-
-    // COMMIT: new flag
-    /// IORING_OP_FIXED_FD_INSTALL flags (sqe.install_fd_flags or sqe.rw_flags in Zig Struct)
-    pub const FixedFd = packed struct(u32) {
-        /// IORING_FIXED_FD_NO_CLOEXEC Don't mark the fd as O_CLOEXEC
-        NO_CLOEXEC: bool = false,
-    };
-
-    /// COMMIT: new flags
-    /// IORING_OP_NOP flags (sqe.nop_flags or sqe.rw_flags in Zig Struct)
-    pub const Nop = packed struct(u32) {
-        /// IORING_NOP_INJECT_RESULT Inject result from sqe.result
-        INJECT_RESULT: bool = false,
-        _unused: u4 = 0,
-        CQE32: bool = false,
-        _unused_1: u26 = 0,
-    };
-
-    /// io_uring_enter(2) flags
-    pub const Enter = packed struct(u32) {
-        GETEVENTS: bool = false,
-        SQ_WAKEUP: bool = false,
-        SQ_WAIT: bool = false,
-        EXT_ARG: bool = false,
-        REGISTERED_RING: bool = false,
-        // COMMIT: new flags
-        ABS_TIMER: bool = false,
-        EXT_ARG_REG: bool = false,
-        NO_IOWAIT: bool = false,
-        _unused: u24 = 0,
-    };
-
-    /// io_uring_params.features flags
-    const Features = packed struct(u32) {
-        SINGLE_MMAP: bool = false,
-        NODROP: bool = false,
-        SUBMIT_STABLE: bool = false,
-        RW_CUR_POS: bool = false,
-        CUR_PERSONALITY: bool = false,
-        FAST_POLL: bool = false,
-        POLL_32BITS: bool = false,
-        SQPOLL_NONFIXED: bool = false,
-        EXT_ARG: bool = false,
-        NATIVE_WORKERS: bool = false,
-        RSRC_TAGS: bool = false,
-        CQE_SKIP: bool = false,
-        LINKED_FILE: bool = false,
-        // COMMIT: add new Feature Flags
-        REG_REG_RING: bool = false,
-        RECVSEND_BUNDLE: bool = false,
-        MIN_TIMEOUT: bool = false,
-        RW_ATTR: bool = false,
-        NO_IOWAIT: bool = false,
-        _unused: u14 = 0,
-    };
-};
-
-// IO completion data structure (Completion Queue Entry)
-pub const Cqe = extern struct {
-    /// sqe.user_data value passed back
-    user_data: u64,
-    /// result code for this event
-    res: i32,
-    flags: Flags,
-    // COMMIT: add big_cqe which was missing in io_uring_cqe type declaration
-    // TODO: add support for the IORING_SETUP_CQE32 case
-    /// If the ring is initialized with IORING_SETUP_CQE32, then this field
-    /// contains 16-bytes of padding, doubling the size of the CQE.
-    // big_cqe: ?[2]u64,
-
-    /// cqe.flags
-    pub const Flags = packed struct(u32) {
-        /// IORING_CQE_F_BUFFER If set, the upper 16 bits are the buffer ID
-        F_BUFFER: bool = false,
-        /// IORING_CQE_F_MORE If set, parent SQE will generate more CQE entries
-        F_MORE: bool = false,
-        /// IORING_CQE_F_SOCK_NONEMPTY If set, more data to read after socket recv
-        F_SOCK_NONEMPTY: bool = false,
-        /// IORING_CQE_F_NOTIF Set for notification CQEs. Can be used to distinct
-        ///  them from sends.
-        F_NOTIF: bool = false,
-        /// IORING_CQE_F_BUF_MORE If set, the buffer ID set in the completion will get
-        /// more completions. In other words, the buffer is being
-        /// partially consumed, and will be used by the kernel for
-        /// more completions. This is only set for buffers used via
-        /// the incremental buffer consumption, as provided by
-        /// a ring buffer setup with IOU_PBUF_RING_INC. For any
-        /// other provided buffer type, all completions with a
-        /// buffer passed back is automatically returned to the
-        /// application.
-        F_BUF_MORE: bool = false,
-        // COMMIT: new flags
-        /// IORING_CQE_F_SKIP If set, then the application/liburing must ignore this
-        /// CQE. It's only purpose is to fill a gap in the ring,
-        /// if a large CQE is attempted posted when the ring has
-        /// just a single small CQE worth of space left before
-        /// wrapping.
-        F_SKIP: bool = false,
-        _unused: u9 = 0,
-        /// IORING_CQE_F_32 If set, this is a 32b/big-cqe posting. Use with rings
-        /// setup in a mixed CQE mode, where both 16b and 32b
-        /// CQEs may be posted to the CQ ring.
-        F_32: bool = false,
-        _unused_1: u16 = 0,
-    };
-
-    pub fn err(self: Cqe) linux.E {
-        if (self.res > -4096 and self.res < 0) {
-            return @as(linux.E, @enumFromInt(-self.res));
-        }
-        return .SUCCESS;
-    }
-
-    // On successful completion of the provided buffers IO request, the CQE flags field
-    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
-    // the upper 16-bits of the flags field.
-    pub fn buffer_id(self: Cqe) !u16 {
-        if (!self.flags.F_BUFFER) {
-            return error.NoBufferSelected;
-        }
-        return @intCast(@as(u32, @bitCast(self.flags)) >> constants.CQE_BUFFER_SHIFT);
-    }
-};
-
-/// IO submission data structure (Submission Queue Entry)
-/// matches io_uring_sqe in liburing
-pub const Sqe = extern struct {
-    /// type of operation for this sqe
-    opcode: Op,
-    /// IOSQE_* flags
-    flags: IoSqe,
-    /// ioprio for the request
-    ioprio: packed union {
-        send_recv: uflags.SendRecv,
-        accept: uflags.Accept,
-    },
-    /// file descriptor to do IO on
-    fd: i32,
-    /// offset into file
-    off: u64,
-    /// pointer to buffer or iovecs
-    addr: u64,
-    /// buffer size or number of iovecs
-    len: u32,
-    /// flags for any sqe operation
-    /// rw_flags | fsync_flags | poll_event | poll32_event | sync_range_flags | msg_flags
-    /// timeout_flags | accept_flags | cancel_flags | open_flags | statx_flags
-    /// fadvise_advice | splice_flags | rename_flags | unlink_flags | hardlink_flags
-    /// xattr_flags | msg_ring_flags | uring_cmd_flags | waitid_flags | futex_flags
-    /// install_fd_flags | nop_flags | pipe_flags
-    rw_flags: u32,
-    /// data to be passed back at completion time
-    user_data: u64,
-    /// index into fixed buffers or for grouped buffer selection
-    buf_index: u16,
-    personality: u16,
-    splice_fd_in: i32,
-    addr3: u64,
-    resv: u64,
-
-    /// sqe.flags
-    pub const IoSqe = packed struct(u8) {
-        /// use fixed fileset
-        FIXED_FILE: bool = false,
-        /// issue after inflight IO
-        IO_DRAIN: bool = false,
-        /// links next sqe
-        IO_LINK: bool = false,
-        /// like LINK, but stronger
-        IO_HARDLINK: bool = false,
-        /// always go async
-        ASYNC: bool = false,
-        /// select buffer from sqe->buf_group
-        BUFFER_SELECT: bool = false,
-        /// don't post CQE if request succeeded
-        CQE_SKIP_SUCCESS: bool = false,
-        _: u1 = 0,
-    };
-
-    pub fn prep_nop(sqe: *Sqe) void {
-        sqe.* = .{
-            .opcode = .NOP,
-            .flags = .{},
-            .ioprio = @bitCast(@as(u16, 0)),
-            .fd = 0,
-            .off = 0,
-            .addr = 0,
-            .len = 0,
-            .rw_flags = 0,
-            .user_data = 0,
-            .buf_index = 0,
-            .personality = 0,
-            .splice_fd_in = 0,
-            .addr3 = 0,
-            .resv = 0,
-        };
-    }
-
-    pub fn prep_fsync(sqe: *Sqe, fd: linux.fd_t, flags: uflags.Fsync) void {
-        sqe.* = .{
-            .opcode = .FSYNC,
-            .flags = .{},
-            .ioprio = @bitCast(@as(u16, 0)),
-            .fd = fd,
-            .off = 0,
-            .addr = 0,
-            .len = 0,
-            .rw_flags = @bitCast(flags),
-            .user_data = 0,
-            .buf_index = 0,
-            .personality = 0,
-            .splice_fd_in = 0,
-            .addr3 = 0,
-            .resv = 0,
-        };
-    }
-
-    pub fn prep_rw(
-        sqe: *Sqe,
-        op: Op,
-        fd: linux.fd_t,
-        addr: u64,
-        len: usize,
-        offset: u64,
-    ) void {
-        sqe.* = .{
-            .opcode = op,
-            .flags = .{},
-            .ioprio = @bitCast(@as(u16, 0)),
-            .fd = fd,
-            .off = offset,
-            .addr = addr,
-            .len = @intCast(len),
-            .rw_flags = 0,
-            .user_data = 0,
-            .buf_index = 0,
-            .personality = 0,
-            .splice_fd_in = 0,
-            .addr3 = 0,
-            .resv = 0,
-        };
-    }
-
-    pub fn prep_read(sqe: *Sqe, fd: linux.fd_t, buffer: []u8, offset: u64) void {
-        sqe.prep_rw(.READ, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
-    }
-
-    pub fn prep_write(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, offset: u64) void {
-        sqe.prep_rw(.WRITE, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
-    }
-
-    pub fn prep_splice(sqe: *Sqe, fd_in: linux.fd_t, off_in: u64, fd_out: linux.fd_t, off_out: u64, len: usize) void {
-        sqe.prep_rw(.SPLICE, fd_out, undefined, len, off_out);
-        sqe.addr = off_in;
-        sqe.splice_fd_in = fd_in;
-    }
-
-    pub fn prep_readv(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        iovecs: []const std.posix.iovec,
-        offset: u64,
-    ) void {
-        sqe.prep_rw(.READV, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
-    }
-
-    pub fn prep_writev(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        iovecs: []const std.posix.iovec_const,
-        offset: u64,
-    ) void {
-        sqe.prep_rw(.WRITEV, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
-    }
-
-    pub fn prep_read_fixed(sqe: *Sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
-        sqe.prep_rw(.READ_FIXED, fd, @intFromPtr(buffer.base), buffer.len, offset);
-        sqe.buf_index = buffer_index;
-    }
-
-    pub fn prep_write_fixed(sqe: *Sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
-        sqe.prep_rw(.WRITE_FIXED, fd, @intFromPtr(buffer.base), buffer.len, offset);
-        sqe.buf_index = buffer_index;
-    }
-
-    pub fn prep_accept(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        addr: ?*linux.sockaddr,
-        addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
-    ) void {
-        // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
-        // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
-        sqe.prep_rw(.ACCEPT, fd, @intFromPtr(addr), 0, @intFromPtr(addrlen));
-        sqe.rw_flags = flags;
-    }
-
-    /// accept directly into the fixed file table
-    pub fn prep_accept_direct(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        addr: ?*linux.sockaddr,
-        addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
-        file_index: u32,
-    ) void {
-        prep_accept(sqe, fd, addr, addrlen, flags);
-        set_target_fixed_file(sqe, file_index);
-    }
-
-    pub fn prep_multishot_accept(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        addr: ?*linux.sockaddr,
-        addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
-    ) void {
-        prep_accept(sqe, fd, addr, addrlen, flags);
-        sqe.ioprio = .{ .accept = .{ .MULTISHOT = true } };
-    }
-
-    /// multishot accept directly into the fixed file table
-    pub fn prep_multishot_accept_direct(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        addr: ?*linux.sockaddr,
-        addrlen: ?*linux.socklen_t,
-        flags: linux.SOCK,
-    ) void {
-        prep_multishot_accept(sqe, fd, addr, addrlen, flags);
-        set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
-    }
-
-    fn set_target_fixed_file(sqe: *Sqe, file_index: u32) void {
-        const sqe_file_index: u32 = if (file_index == constants.FILE_INDEX_ALLOC)
-            constants.FILE_INDEX_ALLOC
-        else
-            // 0 means no fixed files, indexes should be encoded as "index + 1"
-            file_index + 1;
-        // This filed is overloaded in liburing:
-        //   splice_fd_in: i32
-        //   sqe_file_index: u32
-        sqe.splice_fd_in = @bitCast(sqe_file_index);
-    }
-
-    pub fn prep_connect(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        addr: *const linux.sockaddr,
-        addrlen: linux.socklen_t,
-    ) void {
-        // `addrlen` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
-        sqe.prep_rw(.CONNECT, fd, @intFromPtr(addr), 0, addrlen);
-    }
-
-    pub fn prep_epoll_ctl(
-        sqe: *Sqe,
-        epfd: linux.fd_t,
-        fd: linux.fd_t,
-        op: u32,
-        ev: ?*linux.epoll_event,
-    ) void {
-        sqe.prep_rw(.EPOLL_CTL, epfd, @intFromPtr(ev), op, @intCast(fd));
-    }
-
-    pub fn prep_recv(sqe: *Sqe, fd: linux.fd_t, buffer: []u8, flags: linux.MSG) void {
-        sqe.prep_rw(.RECV, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
-        sqe.rw_flags = flags;
-    }
-
-    // TODO: review recv `flags`
-    pub fn prep_recv_multishot(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        buffer: []u8,
-        flags: linux.MSG,
-    ) void {
-        sqe.prep_recv(fd, buffer, flags);
-        sqe.ioprio = .{ .send_recv = .{ .RECV_MULTISHOT = true } };
-    }
-
-    pub fn prep_recvmsg(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        msg: *linux.msghdr,
-        flags: linux.MSG,
-    ) void {
-        sqe.prep_rw(.RECVMSG, fd, @intFromPtr(msg), 1, 0);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_recvmsg_multishot(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        msg: *linux.msghdr,
-        flags: linux.MSG,
-    ) void {
-        sqe.prep_recvmsg(fd, msg, flags);
-        sqe.ioprio = .{ .send_recv = .{ .RECV_MULTISHOT = true } };
-    }
-
-    // COMMIT: fix send[|recv] flag param type
-    pub fn prep_send(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG) void {
-        sqe.prep_rw(.SEND, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_send_zc(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG, zc_flags: uflags.SendRecv) void {
-        sqe.prep_rw(.SEND_ZC, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
-        sqe.rw_flags = flags;
-        sqe.ioprio = .{ .send_recv = zc_flags };
-    }
-
-    pub fn prep_send_zc_fixed(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG, zc_flags: uflags.SendRecv, buf_index: u16) void {
-        const zc_flags_fixed = blk: {
-            var updated_flags = zc_flags;
-            updated_flags.RECVSEND_FIXED_BUF = true;
-            break :blk updated_flags;
-        };
-        prep_send_zc(sqe, fd, buffer, flags, zc_flags_fixed);
-        sqe.buf_index = buf_index;
-    }
-
-    pub fn prep_sendmsg(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        msg: *const linux.msghdr_const,
-        flags: linux.MSG,
-    ) void {
-        sqe.prep_rw(.SENDMSG, fd, @intFromPtr(msg), 1, 0);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_sendmsg_zc(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        msg: *const linux.msghdr_const,
-        flags: linux.MSG,
-    ) void {
-        prep_sendmsg(sqe, fd, msg, flags);
-        sqe.opcode = .SENDMSG_ZC;
-    }
-
-    pub fn prep_openat(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        path: [*:0]const u8,
-        flags: linux.O,
-        mode: linux.mode_t,
-    ) void {
-        sqe.prep_rw(.OPENAT, fd, @intFromPtr(path), mode, 0);
-        sqe.rw_flags = @bitCast(flags);
-    }
-
-    pub fn prep_openat_direct(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        path: [*:0]const u8,
-        flags: linux.O,
-        mode: linux.mode_t,
-        file_index: u32,
-    ) void {
-        prep_openat(sqe, fd, path, flags, mode);
-        set_target_fixed_file(sqe, file_index);
-    }
-
-    pub fn prep_close(sqe: *Sqe, fd: linux.fd_t) void {
-        sqe.* = .{
-            .opcode = .CLOSE,
-            .flags = .{},
-            .ioprio = @bitCast(@as(u16, 0)),
-            .fd = fd,
-            .off = 0,
-            .addr = 0,
-            .len = 0,
-            .rw_flags = 0,
-            .user_data = 0,
-            .buf_index = 0,
-            .personality = 0,
-            .splice_fd_in = 0,
-            .addr3 = 0,
-            .resv = 0,
-        };
-    }
-
-    pub fn prep_close_direct(sqe: *Sqe, file_index: u32) void {
-        prep_close(sqe, 0);
-        set_target_fixed_file(sqe, file_index);
-    }
-
-    pub fn prep_timeout(
-        sqe: *Sqe,
-        ts: *const linux.kernel_timespec,
-        count: u32,
-        flags: uflags.Timeout,
-    ) void {
-        sqe.prep_rw(.TIMEOUT, -1, @intFromPtr(ts), 1, count);
-        sqe.rw_flags = @bitCast(flags);
-    }
-
-    pub fn prep_timeout_remove(sqe: *Sqe, timeout_user_data: u64, flags: uflags.Timeout) void {
-        sqe.* = .{
-            .opcode = .TIMEOUT_REMOVE,
-            .flags = .{},
-            .ioprio = @bitCast(@as(u16, 0)),
-            .fd = -1,
-            .off = 0,
-            .addr = timeout_user_data,
-            .len = 0,
-            .rw_flags = @bitCast(flags),
-            .user_data = 0,
-            .buf_index = 0,
-            .personality = 0,
-            .splice_fd_in = 0,
-            .addr3 = 0,
-            .resv = 0,
-        };
-    }
-
-    pub fn prep_link_timeout(
-        sqe: *Sqe,
-        ts: *const linux.kernel_timespec,
-        flags: uflags.Timeout,
-    ) void {
-        sqe.prep_rw(.LINK_TIMEOUT, -1, @intFromPtr(ts), 1, 0);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_poll_add(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        poll_mask: linux.POLL,
-    ) void {
-        sqe.prep_rw(.POLL_ADD, fd, @intFromPtr(@as(?*anyopaque, null)), 0, 0);
-        // Poll masks previously used to comprise of 16 bits in the flags union of
-        // a SQE, but were then extended to comprise of 32 bits in order to make
-        // room for additional option flags. To ensure that the correct bits of
-        // poll masks are consistently and properly read across multiple kernel
-        // versions, poll masks are enforced to be little-endian.
-        // https://www.spinics.net/lists/io-uring/msg02848.html
-        sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
-    }
-
-    pub fn prep_poll_remove(
-        sqe: *Sqe,
-        target_user_data: u64,
-    ) void {
-        sqe.prep_rw(.POLL_REMOVE, -1, target_user_data, 0, 0);
-    }
-
-    pub fn prep_poll_update(
-        sqe: *Sqe,
-        old_user_data: u64,
-        new_user_data: u64,
-        poll_mask: linux.POLL,
-        flags: uflags.Poll,
-    ) void {
-        sqe.prep_rw(.POLL_REMOVE, -1, old_user_data, flags, new_user_data);
-        // Poll masks previously used to comprise of 16 bits in the flags union of
-        // a SQE, but were then extended to comprise of 32 bits in order to make
-        // room for additional option flags. To ensure that the correct bits of
-        // poll masks are consistently and properly read across multiple kernel
-        // versions, poll masks are enforced to be little-endian.
-        // https://www.spinics.net/lists/io-uring/msg02848.html
-        sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
-    }
-
-    pub fn prep_fallocate(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        mode: i32,
-        offset: u64,
-        len: u64,
-    ) void {
-        sqe.* = .{
-            .opcode = .FALLOCATE,
-            .flags = .{},
-            .ioprio = @bitCast(@as(u16, 0)),
-            .fd = fd,
-            .off = offset,
-            .addr = len,
-            .len = @intCast(mode),
-            .rw_flags = 0,
-            .user_data = 0,
-            .buf_index = 0,
-            .personality = 0,
-            .splice_fd_in = 0,
-            .addr3 = 0,
-            .resv = 0,
-        };
-    }
-
-    pub fn prep_statx(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        path: [*:0]const u8,
-        flags: linux.AT,
-        mask: linux.StatxMask,
-        buf: *linux.Statx,
-    ) void {
-        sqe.prep_rw(.STATX, fd, @intFromPtr(path), @bitCast(mask), @intFromPtr(buf));
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_cancel(
-        sqe: *Sqe,
-        cancel_user_data: u64,
-        flags: uflags.AsyncCancel,
-    ) void {
-        sqe.prep_rw(.ASYNC_CANCEL, -1, cancel_user_data, 0, 0);
-        sqe.rw_flags = @bitCast(flags);
-    }
-
-    pub fn prep_cancel_fd(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        flags: uflags.AsyncCancel,
-    ) void {
-        sqe.prep_rw(.ASYNC_CANCEL, fd, 0, 0, 0);
-        const enable_cancel_fd = blk: {
-            var update_flags = flags;
-            update_flags.CANCEL_FD = true;
-            break :blk update_flags;
-        };
-        sqe.rw_flags = @bitCast(enable_cancel_fd);
-    }
-
-    pub fn prep_shutdown(
-        sqe: *Sqe,
-        sockfd: linux.socket_t,
-        how: linux.SHUT,
-    ) void {
-        sqe.prep_rw(.SHUTDOWN, sockfd, 0, how, 0);
-    }
-
-    pub fn prep_renameat(
-        sqe: *Sqe,
-        old_dir_fd: linux.fd_t,
-        old_path: [*:0]const u8,
-        new_dir_fd: linux.fd_t,
-        new_path: [*:0]const u8,
-        flags: linux.RenameFlags,
-    ) void {
-        sqe.prep_rw(
-            .RENAMEAT,
-            old_dir_fd,
-            @intFromPtr(old_path),
-            0,
-            @intFromPtr(new_path),
-        );
-        sqe.len = @bitCast(new_dir_fd);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_unlinkat(
-        sqe: *Sqe,
-        dir_fd: linux.fd_t,
-        path: [*:0]const u8,
-        flags: linux.AT, // TODO: unlink flags only AT_REMOVEDIR
-    ) void {
-        sqe.prep_rw(.UNLINKAT, dir_fd, @intFromPtr(path), 0, 0);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_mkdirat(
-        sqe: *Sqe,
-        dir_fd: linux.fd_t,
-        path: [*:0]const u8,
-        mode: linux.mode_t,
-    ) void {
-        sqe.prep_rw(.MKDIRAT, dir_fd, @intFromPtr(path), mode, 0);
-    }
-
-    pub fn prep_symlinkat(
-        sqe: *Sqe,
-        target: [*:0]const u8,
-        new_dir_fd: linux.fd_t,
-        link_path: [*:0]const u8,
-    ) void {
-        sqe.prep_rw(
-            .SYMLINKAT,
-            new_dir_fd,
-            @intFromPtr(target),
-            0,
-            @intFromPtr(link_path),
-        );
-    }
-
-    pub fn prep_linkat(
-        sqe: *Sqe,
-        old_dir_fd: linux.fd_t,
-        old_path: [*:0]const u8,
-        new_dir_fd: linux.fd_t,
-        new_path: [*:0]const u8,
-        flags: linux.AT, // only AT_EMPTY_PATH, AT_SYMLINK_FOLLOW
-    ) void {
-        sqe.prep_rw(
-            .LINKAT,
-            old_dir_fd,
-            @intFromPtr(old_path),
-            0,
-            @intFromPtr(new_path),
-        );
-        sqe.len = @bitCast(new_dir_fd);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_files_update(
-        sqe: *Sqe,
-        fds: []const linux.fd_t,
-        offset: u32,
-    ) void {
-        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, @intCast(offset));
-    }
-
-    pub fn prep_files_update_alloc(
-        sqe: *Sqe,
-        fds: []linux.fd_t,
-    ) void {
-        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, constants.FILE_INDEX_ALLOC);
-    }
-
-    // TODO: why can't slice be used here ?
-    pub fn prep_provide_buffers(
-        sqe: *Sqe,
-        buffers: [*]u8,
-        buffer_len: usize,
-        num: usize,
-        group_id: usize,
-        buffer_id: usize,
-    ) void {
-        const ptr = @intFromPtr(buffers);
-        sqe.prep_rw(.PROVIDE_BUFFERS, @intCast(num), ptr, buffer_len, buffer_id);
-        sqe.buf_index = @intCast(group_id);
-    }
-
-    pub fn prep_remove_buffers(
-        sqe: *Sqe,
-        num: usize,
-        group_id: usize,
-    ) void {
-        sqe.prep_rw(.REMOVE_BUFFERS, @intCast(num), 0, 0, 0);
-        sqe.buf_index = @intCast(group_id);
-    }
-
-    pub fn prep_socket(
-        sqe: *Sqe,
-        domain: linux.AF,
-        socket_type: linux.SOCK,
-        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
-        flags: u32, // flags is unused
-    ) void {
-        sqe.prep_rw(.SOCKET, @intCast(domain), 0, protocol, socket_type);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_socket_direct(
-        sqe: *Sqe,
-        domain: linux.AF,
-        socket_type: linux.SOCK,
-        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
-        flags: u32, // flags is unused
-        file_index: u32,
-    ) void {
-        prep_socket(sqe, domain, socket_type, protocol, flags);
-        set_target_fixed_file(sqe, file_index);
-    }
-
-    pub fn prep_socket_direct_alloc(
-        sqe: *Sqe,
-        domain: linux.AF,
-        socket_type: linux.SOCK,
-        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
-        flags: u32, // flags is unused
-    ) void {
-        prep_socket(sqe, domain, socket_type, protocol, flags);
-        set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
-    }
-
-    pub fn prep_waitid(
-        sqe: *Sqe,
-        id_type: linux.P,
-        id: i32,
-        infop: *linux.siginfo_t,
-        options: linux.W,
-        flags: u32, // flags is unused
-    ) void {
-        sqe.prep_rw(.WAITID, id, 0, @intFromEnum(id_type), @intFromPtr(infop));
-        sqe.rw_flags = flags;
-        sqe.splice_fd_in = @bitCast(options);
-    }
-
-    // TODO: maybe remove unused flag fields?
-    pub fn prep_bind(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        addr: *const linux.sockaddr,
-        addrlen: linux.socklen_t,
-        flags: u32, // flags is unused and does't exist in io_uring's api
-    ) void {
-        sqe.prep_rw(.BIND, fd, @intFromPtr(addr), 0, addrlen);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_listen(
-        sqe: *Sqe,
-        fd: linux.fd_t,
-        backlog: usize,
-        flags: u32, // flags is unused and does't exist in io_uring's api
-    ) void {
-        sqe.prep_rw(.LISTEN, fd, 0, backlog, 0);
-        sqe.rw_flags = flags;
-    }
-
-    pub fn prep_cmd_sock(
-        sqe: *Sqe,
-        cmd_op: SocketOp,
-        fd: linux.fd_t,
-        level: linux.SOL,
-        optname: linux.SO,
-        optval: u64,
-        optlen: u32,
-    ) void {
-        sqe.prep_rw(.URING_CMD, fd, 0, 0, 0);
-        // off is overloaded with cmd_op, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L39
-        sqe.off = @intFromEnum(cmd_op);
-        // addr is overloaded, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L46
-        sqe.addr = @bitCast(packed struct {
-            level: u32,
-            optname: u32,
-        }{
-            .level = level,
-            .optname = optname,
-        });
-        // splice_fd_in if overloaded u32 -> i32
-        sqe.splice_fd_in = @bitCast(optlen);
-        // addr3 is overloaded, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L102
-        sqe.addr3 = optval;
-    }
-
-    pub fn set_flags(sqe: *Sqe, flags: Sqe.IoSqe) void {
-        const updated_flags = @as(u8, @bitCast(sqe.flags)) | @as(u8, @bitCast(flags));
-        sqe.flags = @bitCast(updated_flags);
-    }
-
-    /// This SQE forms a link with the next SQE in the submission ring. Next SQE
-    /// will not be started before this one completes. Forms a chain of SQEs.
-    pub fn link_next(sqe: *Sqe) void {
-        sqe.flags.IO_LINK = true;
-    }
-};
-
-/// Filled with the offset for mmap(2)
-/// matches io_sqring_offsets in liburing
-pub const SqOffsets = extern struct {
-    /// offset of ring head
-    head: u32,
-    /// offset of ring tail
-    tail: u32,
-    /// ring mask value
-    ring_mask: u32,
-    /// entries in ring
-    ring_entries: u32,
-    /// ring flags
-    flags: u32,
-    /// number of sqes not submitted
-    dropped: u32,
-    /// sqe index array
-    array: u32,
-    resv1: u32,
-    user_addr: u64,
-};
-
-/// matches io_cqring_offsets in liburing
-pub const CqOffsets = extern struct {
-    head: u32,
-    tail: u32,
-    ring_mask: u32,
-    ring_entries: u32,
-    overflow: u32,
-    cqes: u32,
-    flags: u32,
-    resv: u32,
-    user_addr: u64,
-};
-
-/// Passed in for io_uring_setup(2). Copied back with updated info on success
-/// matches io_uring_params in liburing
-pub const Params = extern struct {
-    sq_entries: u32,
-    cq_entries: u32,
-    flags: uflags.Setup,
-    sq_thread_cpu: u32,
-    sq_thread_idle: u32,
-    features: uflags.Features,
-    wq_fd: u32,
-    resv: [3]u32,
-    sq_off: SqOffsets,
-    cq_off: CqOffsets,
-};
-
-/// io_uring_register(2) opcodes and arguments
-/// matches io_uring_register_op in liburing
-pub const RegisterOp = enum(u8) {
-    REGISTER_BUFFERS,
-    UNREGISTER_BUFFERS,
-    REGISTER_FILES,
-    UNREGISTER_FILES,
-    REGISTER_EVENTFD,
-    UNREGISTER_EVENTFD,
-    REGISTER_FILES_UPDATE,
-    REGISTER_EVENTFD_ASYNC,
-    REGISTER_PROBE,
-    REGISTER_PERSONALITY,
-    UNREGISTER_PERSONALITY,
-    REGISTER_RESTRICTIONS,
-    REGISTER_ENABLE_RINGS,
-
-    // extended with tagging
-    REGISTER_FILES2,
-    REGISTER_FILES_UPDATE2,
-    REGISTER_BUFFERS2,
-    REGISTER_BUFFERS_UPDATE,
-
-    // set/clear io-wq thread affinities
-    REGISTER_IOWQ_AFF,
-    UNREGISTER_IOWQ_AFF,
-
-    // set/get max number of io-wq workers
-    REGISTER_IOWQ_MAX_WORKERS,
-
-    // register/unregister io_uring fd with the ring
-    REGISTER_RING_FDS,
-    UNREGISTER_RING_FDS,
-
-    // register ring based provide buffer group
-    REGISTER_PBUF_RING,
-    UNREGISTER_PBUF_RING,
-
-    // sync cancelation API
-    REGISTER_SYNC_CANCEL,
-
-    // register a range of fixed file slots for automatic slot allocation
-    REGISTER_FILE_ALLOC_RANGE,
-
-    // return status information for a buffer group
-    REGISTER_PBUF_STATUS,
-
-    // set/clear busy poll settings
-    REGISTER_NAPI,
-    UNREGISTER_NAPI,
-
-    REGISTER_CLOCK,
-
-    // clone registered buffers from source ring to current ring
-    REGISTER_CLONE_BUFFERS,
-
-    // send MSG_RING without having a ring
-    REGISTER_SEND_MSG_RING,
-
-    // register a netdev hw rx queue for zerocopy
-    REGISTER_ZCRX_IFQ,
-
-    // resize CQ ring
-    REGISTER_RESIZE_RINGS,
-
-    REGISTER_MEM_REGION,
-
-    // COMMIT: new register opcode
-    // query various aspects of io_uring, see linux/io_uring/query.h
-    REGISTER_QUERY,
-
-    _,
-};
-
-/// io-wq worker categories
-/// matches io_wq_type in liburing
-pub const IoWqCategory = enum(u8) {
-    BOUND,
-    UNBOUND,
-};
-
-// COMMIT: remove deprecated io_uring_rsrc_update struct
-// deprecated, see struct io_uring_rsrc_update
-
-// COMMIT: add new io_uring_region_desc struct
-/// matches io_uring_region_desc in liburing
-pub const RegionDesc = extern struct {
-    user_addr: u64,
-    size: u64,
-    flags: Flags,
-    id: u32,
-    mmap_offset: u64,
-    __resv: [4]u64,
-
-    // COMMIT: new constant
-    /// initialise with user provided memory pointed by user_addr
-    pub const Flags = packed struct(u32) {
-        TYPE_USER: bool = false,
-        _: u31 = 0,
-    };
-};
-
-// COMMIT: add new io_uring_mem_region_reg struct
-/// matches io_uring_mem_region_reg in liburing
-pub const MemRegionReg = extern struct {
-    /// struct io_uring_region_desc (RegionDesc in Zig)
-    region_uptr: u64,
-    flags: Flags,
-    __resv: [2]u64,
-
-    /// expose the region as registered wait arguments
-    pub const Flags = packed struct(u64) {
-        REG_WAIT_ARG: bool = false,
-        _: u63 = 0,
-    };
-};
-
-/// matches io_uring_rsrc_register in liburing
-pub const RsrcRegister = extern struct {
-    nr: u32,
-    flags: u32,
-    resv2: u64,
-    data: u64,
-    tags: u64,
-};
-
-/// matches io_uring_rsrc_update in liburing
-pub const RsrcUpdate = extern struct {
-    offset: u32,
-    resv: u32,
-    data: u64,
-};
-
-/// matches io_uring_rsrc_update2 in liburing
-pub const RsrcUpdate2 = extern struct {
-    offset: u32,
-    resv: u32,
-    data: u64,
-    tags: u64,
-    nr: u32,
-    resv2: u32,
-};
-
-/// matches io_uring_probe_op in liburing
-pub const ProbeOp = extern struct {
-    op: Op,
-    resv: u8,
-    flags: Flags,
-    resv2: u32,
-
-    pub const Flags = packed struct(u16) {
-        OP_SUPPORTED: bool = false,
-        _: u15 = 0,
-    };
-
-    pub fn is_supported(self: ProbeOp) bool {
-        return self.flags.OP_SUPPORTED;
-    }
-};
-
-/// matches io_uring_probe in liburing
-pub const Probe = extern struct {
-    /// Last opcode supported
-    last_op: Op,
-    /// Length of ops[] array below
-    ops_len: u8,
-    resv: u16,
-    resv2: [3]u32,
-    ops: [256]ProbeOp,
-
-    /// Is the operation supported on the running kernel.
-    pub fn is_supported(self: @This(), op: Op) bool {
-        const i = @intFromEnum(op);
-        if (i > @intFromEnum(self.last_op) or i >= self.ops_len)
-            return false;
-        return self.ops[i].is_supported();
-    }
-};
-
-// COMMIT: fix defination of io_uring_restriction
-// RegisterOp is actually u8
-/// matches io_uring_restriction in liburing
-pub const Restriction = extern struct {
-    opcode: RestrictionOp,
-    arg: extern union {
-        /// IORING_RESTRICTION_REGISTER_OP
-        register_op: RegisterOp,
-        /// IORING_RESTRICTION_SQE_OP
-        sqe_op: Op,
-        /// IORING_RESTRICTION_SQE_FLAGS_*
-        sqe_flags: u8,
-    },
-    resv: u8,
-    resv2: [3]u32,
-};
-
-// COMMIT: add new struct type
-/// matches io_uring_clock_register in liburing
-pub const ClockRegister = extern struct {
-    clockid: u32,
-    __resv: [3]u32,
-};
-
-// COMMIT: add new struct type
-/// matches io_uring_clone_buffers in liburing
-pub const CloneBuffers = extern struct {
-    src_fd: u32,
-    flags: Flags,
-    src_off: u32,
-    dst_off: u32,
-    nr: u32,
-    pad: [3]u32,
-
-    // COMMIT: new flags
-    pub const Flags = packed struct(u32) {
-        REGISTER_SRC_REGISTERED: bool = false,
-        REGISTER_DST_REPLACE: bool = false,
-        _: u30 = 0,
-    };
-};
-
-/// matches io_uring_buf in liburing
-pub const Buffer = extern struct {
-    addr: u64,
-    len: u32,
-    bid: u16,
-    resv: u16,
-};
-
-/// matches io_uring_buf_ring in liburing
-pub const BufferRing = extern struct {
-    resv1: u64,
-    resv2: u32,
-    resv3: u16,
-    tail: u16,
-};
-
-/// argument for IORING_(UN)REGISTER_PBUF_RING
-/// matches io_uring_buf_reg in liburing
-pub const BufferRegister = extern struct {
-    ring_addr: u64,
-    ring_entries: u32,
-    bgid: u16,
-    flags: Flags,
-    resv: [3]u64,
-
-    // COMMIT: new IORING_REGISTER_PBUF_RING flags
-    /// Flags for IORING_REGISTER_PBUF_RING.
-    pub const Flags = packed struct(u16) {
-        /// IOU_PBUF_RING_MMAP:
-        /// If set, kernel will allocate the memory for the ring.
-        /// The application must not set a ring_addr in struct io_uring_buf_reg
-        /// instead it must subsequently call mmap(2) with the offset set
-        /// as: IORING_OFF_PBUF_RING | (bgid << IORING_OFF_PBUF_SHIFT) to get
-        /// a virtual mapping for the ring.
-        IOU_PBUF_RING_MMAP: bool = false,
-        /// IOU_PBUF_RING_INC:
-        /// If set, buffers consumed from this buffer ring can be
-        /// consumed incrementally. Normally one (or more) buffers
-        /// are fully consumed. With incremental consumptions, it's
-        /// feasible to register big ranges of buffers, and each
-        /// use of it will consume only as much as it needs. This
-        /// requires that both the kernel and application keep
-        /// track of where the current read/recv index is at.
-        IOU_PBUF_RING_INC: bool = false,
-        _: u14 = 0,
-    };
-};
-
-/// argument for IORING_REGISTER_PBUF_STATUS
-/// matches io_uring_buf_status in liburing
-pub const BufferStatus = extern struct {
-    /// input
-    buf_group: u32,
-    /// output
-    head: u32,
-    resv: [8]u32,
-};
-
-/// argument for IORING_(UN)REGISTER_NAPI
-/// matches io_uring_napi in liburing
-pub const Napi = extern struct {
-    busy_poll_to: u32,
-    prefer_busy_poll: u8,
-    pad: [3]u8,
-    resv: u64,
-};
-
-// COMMIT: new struct type
-/// Argument for io_uring_enter(2) with
-/// IORING_GETEVENTS | IORING_ENTER_EXT_ARG_REG set, where the actual argument
-/// is an index into a previously registered fixed wait region described by
-/// the below structure.
-/// matches io_uring_reg_wait in liburing
-pub const RegisterWait = extern struct {
-    ts: linux.kernel_timespec,
-    min_wait_usec: u32,
-    flags: Flags,
-    sigmask: u64,
-    sigmask_sz: u32,
-    pad: [3]u32,
-    pad2: [2]u64,
-
-    // COMMIT: new constant
-    pub const Flags = packed struct(u32) {
-        REG_WAIT_TS: bool = false,
-        _: u31 = 0,
-    };
-};
-
-/// Argument for io_uring_enter(2) with IORING_GETEVENTS | IORING_ENTER_EXT_ARG
-/// matches io_uring_getevents_arg in liburing
-pub const GetEventsArg = extern struct {
-    sigmask: u64,
-    sigmask_sz: u32,
-    pad: u32,
-    ts: u64,
-};
-
-// COMMIT: fix type definition of io_uring_sync_cancel_reg
-/// Argument for IORING_REGISTER_SYNC_CANCEL
-/// matches io_uring_sync_cancel_reg in liburing
-pub const SyncCancelRegister = extern struct {
-    addr: u64,
-    fd: i32,
-    flags: uflags.AsyncCancel,
-    timeout: linux.kernel_timespec,
-    opcode: Op,
-    pad: [7]u8,
-    pad2: [4]u64,
-};
-
-/// Argument for IORING_REGISTER_FILE_ALLOC_RANGE
-/// The range is specified as [off, off + len)
-/// matches io_uring_file_index_range in liburing
-pub const FileIndexRange = extern struct {
-    off: u32,
-    len: u32,
-    resv: u64,
-};
-
-/// matches io_uring_recvmsg_out in liburing
-pub const RecvmsgOut = extern struct {
-    namelen: u32,
-    controllen: u32,
-    payloadlen: u32,
-    flags: u32,
-};
-
-/// Zero copy receive refill queue entry
-/// matches io_uring_zcrx_rqe in liburing
-pub const ZcrxRqe = extern struct {
-    off: u64,
-    len: u32,
-    __pad: u32,
-};
-
-/// matches io_uring_zcrx_cqe in liburing
-pub const ZcrxCqe = extern struct {
-    off: u64,
-    __pad: u64,
-};
-
-/// matches io_uring_zcrx_offsets in liburing
-pub const ZcrxOffsets = extern struct {
-    head: u32,
-    tail: u32,
-    rqes: u32,
-    __resv2: u32,
-    __resv: [2]u64,
-};
-
-/// matches io_uring_zcrx_area_reg in liburing
-pub const ZcrxAreaRegister = extern struct {
-    addr: u64,
-    len: u64,
-    rq_area_token: u64,
-    flags: Flags,
-    dmabuf_fd: u32,
-    __resv2: [2]u64,
-
-    pub const Flags = packed struct(u32) {
-        DMABUF: bool = false,
-        _: u31 = 0,
-    };
-};
-
-/// Argument for IORING_REGISTER_ZCRX_IFQ
-/// matches io_uring_zcrx_ifq_reg in liburing
-pub const ZcrxIfqRegister = extern struct {
-    if_idx: u32,
-    if_rxq: u32,
-    rq_entries: u32,
-    // TODO: find out its flags, I suspect its ZcrxAreaRegister.Flags
-    flags: u32,
-    /// pointer to struct io_uring_zcrx_area_reg
-    area_ptr: u64,
-    /// struct io_uring_region_desc
-    region_ptr: u64,
-    offsets: ZcrxOffsets,
-    zcrx_id: u32,
-    __resv2: u32,
-    __resv: [3]u64,
-};
-
-pub const SocketOp = enum(u16) {
-    SIOCIN,
-    SIOCOUTQ,
-    GETSOCKOPT,
-    SETSOCKOPT,
-    // COMMIT: new socket op
-    TX_TIMESTAMP,
-};
-
-/// io_uring_restriction.opcode values
-/// matches io_uring_register_restriction_op in liburing
-pub const RestrictionOp = enum(u16) {
-    /// Allow an io_uring_register(2) opcode
-    REGISTER_OP = 0,
-    /// Allow an sqe opcode
-    SQE_OP = 1,
-    /// Allow sqe flags
-    SQE_FLAGS_ALLOWED = 2,
-    /// Require sqe flags (these flags must be set on each submission)
-    SQE_FLAGS_REQUIRED = 3,
-
-    _,
-};
-
-/// IORING_OP_MSG_RING command types, stored in sqe.addr
-pub const MsgRingCmd = enum {
-    /// pass sqe->len as 'res' and off as user_data
-    DATA,
-    /// send a registered fd to another ring
-    SEND_FD,
-};
-
-// COMMIT: OP to IoUring
-pub const Op = enum(u8) {
-    NOP,
-    READV,
-    WRITEV,
-    FSYNC,
-    READ_FIXED,
-    WRITE_FIXED,
-    POLL_ADD,
-    POLL_REMOVE,
-    SYNC_FILE_RANGE,
-    SENDMSG,
-    RECVMSG,
-    TIMEOUT,
-    TIMEOUT_REMOVE,
-    ACCEPT,
-    ASYNC_CANCEL,
-    LINK_TIMEOUT,
-    CONNECT,
-    FALLOCATE,
-    OPENAT,
-    CLOSE,
-    FILES_UPDATE,
-    STATX,
-    READ,
-    WRITE,
-    FADVISE,
-    MADVISE,
-    SEND,
-    RECV,
-    EPOLL_CTL,
-    OPENAT2,
-    SPLICE,
-    PROVIDE_BUFFERS,
-    REMOVE_BUFFERS,
-    TEE,
-    SHUTDOWN,
-    RENAMEAT,
-    UNLINKAT,
-    MKDIRAT,
-    SYMLINKAT,
-    LINKAT,
-    MSG_RING,
-    FSETXATTR,
-    SETXATTR,
-    FGETXATTR,
-    GETXATTR,
-    SOCKET,
-    URING_CMD,
-    SEND_ZC,
-    SENDMSG_ZC,
-    READ_MULTISHOT,
-    WAITID,
-    FUTEX_WAIT,
-    FUTEX_WAKE,
-    FUTEX_WAITV,
-    FIXED_FD_INSTALL,
-    FTRUNCATE,
-    BIND,
-    LISTEN,
-    RECV_ZC,
-    // COMMIT: new OPs
-    // TODO: to be implemented
-    EPOLL_WAIT,
-    READV_FIXED,
-    WRITEV_FIXED,
-    PIPE,
-
-    _,
-};
-
 /// A friendly way to setup an io_uring, with default linux.io_uring_params.
 /// `entries` must be a power of two between 1 and 32768, although the kernel will make the final
 /// call on how many entries the submission and completion queues will ultimately have,
@@ -1696,19 +37,18 @@ pub fn init_params(entries: u16, p: *Params) !IoUring {
     if (entries == 0) return error.EntriesZero;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
     assert(p.sq_entries == 0);
-    assert(@as(u32, @bitCast(p.features)) == 0);
+    assert(p.features.empty());
     assert(p.resv[0] == 0);
     assert(p.resv[1] == 0);
     assert(p.resv[2] == 0);
 
-    const flags: uflags.Setup = @bitCast(p.flags);
-    assert(p.cq_entries == 0 or flags.CQSIZE);
-    assert(p.wq_fd == 0 or flags.ATTACH_WQ);
+    assert(p.cq_entries == 0 or p.flags.CQSIZE);
+    assert(p.wq_fd == 0 or p.flags.ATTACH_WQ);
 
     // flags compatibility
-    assert(flags.SQPOLL and !(flags.COOP_TASKRUN or flags.TASKRUN_FLAG or flags.DEFER_TASKRUN));
-    assert(flags.SQ_AFF and flags.SQPOLL);
-    assert(flags.DEFER_TASKRUN and flags.SINGLE_ISSUER);
+    assert(p.flags.SQPOLL and !(p.flags.COOP_TASKRUN or p.flags.TASKRUN_FLAG or p.flags.DEFER_TASKRUN));
+    assert(p.flags.SQ_AFF and p.flags.SQPOLL);
+    assert(p.flags.DEFER_TASKRUN and p.flags.SINGLE_ISSUER);
 
     const res = linux.io_uring_setup(entries, p);
     switch (linux.errno(res)) {
@@ -1731,7 +71,6 @@ pub fn init_params(entries: u16, p: *Params) !IoUring {
     assert(fd >= 0);
     errdefer posix.close(fd);
 
-    const features: uflags.Features = @bitCast(p.features);
     // Kernel versions 5.4 and up use only one mmap() for the submission and completion queues.
     // This is not an optional feature for us... if the kernel does it, we have to do it.
     // The thinking on this by the kernel developers was that both the submission and the
@@ -1741,7 +80,7 @@ pub fn init_params(entries: u16, p: *Params) !IoUring {
     // See https://patchwork.kernel.org/patch/11115257 for the kernel patch.
     // We do not support the double mmap() done before 5.4, because we want to keep the
     // init/deinit mmap paths simple and because io_uring has had many bug fixes even since 5.4.
-    if (!features.SINGLE_MMAP) {
+    if (!p.features.SINGLE_MMAP) {
         return error.SystemOutdated;
     }
 
@@ -1752,9 +91,9 @@ pub fn init_params(entries: u16, p: *Params) !IoUring {
 
     // From here on, we only need to read from params, so pass `p` by value as immutable.
     // The completion queue shares the mmap with the submission queue, so pass `sq` there too.
-    var sq = try Sq.init(fd, p.*);
+    var sq: Sq = try .init(fd, p.*);
     errdefer sq.deinit();
-    var cq = try Cq.init(fd, p.*, sq);
+    var cq: Cq = try .init(fd, p.*, sq);
     errdefer cq.deinit();
 
     // Check that our starting state is as we expect.
@@ -1778,8 +117,8 @@ pub fn init_params(entries: u16, p: *Params) !IoUring {
         .fd = fd,
         .sq = sq,
         .cq = cq,
-        .flags = flags,
-        .features = features,
+        .flags = p.flags,
+        .features = p.features,
     };
 }
 
@@ -1899,7 +238,7 @@ pub fn flush_sq(self: *IoUring) u32 {
 /// For the latter case, we set the SQ thread wakeup flag.
 /// Matches the implementation of sq_ring_needs_enter() in liburing.
 pub fn sq_ring_needs_enter(self: *IoUring, flags: *uflags.Enter) bool {
-    assert(@as(u32, @bitCast(flags.*)) == 0);
+    assert(flags.*.empty());
     if (!self.flags.SQPOLL) return true;
     if (@atomicLoad(Sq.Flags, self.sq.flags, .unordered).NEED_WAKEUP) {
         flags.*.SQ_WAKEUP = true;
@@ -2025,23 +364,6 @@ pub fn nop(self: *IoUring, user_data: u64) !*Sqe {
     sqe.user_data = user_data;
     return sqe;
 }
-
-/// Used to select how the read should be handled.
-pub const ReadBuffer = union(enum) {
-    /// io_uring will read directly into this buffer
-    buffer: []u8,
-
-    /// io_uring will read directly into these buffers using readv.
-    iovecs: []const posix.iovec,
-
-    /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
-    /// The buffer group reference by `group_id` must contain at least one buffer for the read to work.
-    /// `len` controls the number of bytes to read into the selected buffer.
-    buffer_selection: struct {
-        group_id: u16,
-        len: usize,
-    },
-};
 
 /// Queues (but does not submit) an SQE to perform a `read(2)` or `preadv(2)` depending on the buffer type.
 /// * Reading into a `ReadBuffer.buffer` uses `read(2)`
@@ -2271,20 +593,6 @@ pub fn epoll_ctl(
     sqe.user_data = user_data;
     return sqe;
 }
-
-/// Used to select how the recv call should be handled.
-pub const RecvBuffer = union(enum) {
-    /// io_uring will recv directly into this buffer
-    buffer: []u8,
-
-    /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
-    /// The buffer group referenced by `group_id` must contain at least one buffer for the recv call to work.
-    /// `len` controls the number of bytes to read into the selected buffer.
-    buffer_selection: struct {
-        group_id: u16,
-        len: usize,
-    },
-};
 
 /// Queues (but does not submit) an SQE to perform a `recv(2)`.
 /// Returns a pointer to the SQE.
@@ -2521,7 +829,7 @@ pub fn timeout_remove(
     self: *IoUring,
     user_data: u64,
     timeout_user_data: u64,
-    flags: u32,
+    flags: uflags.Timeout,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_timeout_remove(timeout_user_data, flags);
@@ -2624,7 +932,7 @@ pub fn statx(
     fd: linux.fd_t,
     path: [:0]const u8,
     flags: u32,
-    mask: u32,
+    mask: linux.Statx.Mask,
     buf: *linux.Statx,
 ) !*Sqe {
     const sqe = try self.get_sqe();
@@ -2678,7 +986,7 @@ pub fn renameat(
     old_path: [*:0]const u8,
     new_dir_fd: linux.fd_t,
     new_path: [*:0]const u8,
-    flags: u32,
+    flags: linux.RenameFlags,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_renameat(old_dir_fd, old_path, new_dir_fd, new_path, flags);
@@ -3161,258 +1469,6 @@ pub fn getsockopt(
     );
 }
 
-/// matches io_uring_sq in liburing
-pub const Sq = struct {
-    head: *u32,
-    tail: *u32,
-    mask: u32,
-    flags: *Flags,
-    dropped: *u32,
-    array: []u32,
-    sqes: []Sqe,
-    mmap: []align(page_size_min) u8,
-    mmap_sqes: []align(page_size_min) u8,
-
-    // We use `sqe_head` and `sqe_tail` in the same way as liburing:
-    // We increment `sqe_tail` (but not `tail`) for each call to `get_sqe()`.
-    // We then set `tail` to `sqe_tail` once, only when these events are actually submitted.
-    // This allows us to amortize the cost of the @atomicStore to `tail` across multiple SQEs.
-    sqe_head: u32 = 0,
-    sqe_tail: u32 = 0,
-
-    /// sq_ring.flags
-    pub const Flags = packed struct(u32) {
-        /// needs io_uring_enter wakeup
-        NEED_WAKEUP: bool = false,
-        /// CQ ring is overflown
-        CQ_OVERFLOW: bool = false,
-        /// task should enter the kernel
-        TASKRUN: bool = false,
-        _unused: u29 = 0,
-    };
-
-    pub fn init(fd: posix.fd_t, p: Params) !Sq {
-        assert(fd >= 0);
-        assert(p.features.SINGLE_MMAP);
-        const size = @max(
-            p.sq_off.array + p.sq_entries * @sizeOf(u32),
-            p.cq_off.cqes + p.cq_entries * @sizeOf(Cqe),
-        );
-        const mmap = try posix.mmap(
-            null,
-            size,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .SHARED, .POPULATE = true },
-            fd,
-            constants.OFF_SQ_RING,
-        );
-        errdefer posix.munmap(mmap);
-        assert(mmap.len == size);
-
-        // The motivation for the `sqes` and `array` indirection is to make it possible for the
-        // application to preallocate static io_uring_sqe entries and then replay them when needed.
-        const size_sqes = p.sq_entries * @sizeOf(Sqe);
-        const mmap_sqes = try posix.mmap(
-            null,
-            size_sqes,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .SHARED, .POPULATE = true },
-            fd,
-            constants.OFF_SQES,
-        );
-        errdefer posix.munmap(mmap_sqes);
-        assert(mmap_sqes.len == size_sqes);
-
-        const array: [*]u32 = @ptrCast(@alignCast(&mmap[p.sq_off.array]));
-        const sqes: [*]Sqe = @ptrCast(@alignCast(&mmap_sqes[0]));
-        // We expect the kernel copies p.sq_entries to the u32 pointed to by p.sq_off.ring_entries,
-        // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
-        assert(p.sq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_entries]))).*);
-        return .{
-            .head = @ptrCast(@alignCast(&mmap[p.sq_off.head])),
-            .tail = @ptrCast(@alignCast(&mmap[p.sq_off.tail])),
-            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_mask]))).*,
-            .flags = @ptrCast(@alignCast(&mmap[p.sq_off.flags])),
-            .dropped = @ptrCast(@alignCast(&mmap[p.sq_off.dropped])),
-            .array = array[0..p.sq_entries],
-            .sqes = sqes[0..p.sq_entries],
-            .mmap = mmap,
-            .mmap_sqes = mmap_sqes,
-        };
-    }
-
-    pub fn deinit(self: *Sq) void {
-        posix.munmap(self.mmap_sqes);
-        posix.munmap(self.mmap);
-    }
-};
-
-/// matches io_uring_cq in liburing
-pub const Cq = struct {
-    head: *u32,
-    tail: *u32,
-    mask: u32,
-    overflow: *u32,
-    cqes: []Cqe,
-
-    /// cq_ring.flags
-    pub const Flags = packed struct(u32) {
-        /// disable eventfd notifications
-        EVENTFD_DISABLED: bool = false,
-        _unused: u31 = 0,
-    };
-
-    pub fn init(fd: posix.fd_t, p: Params, sq: Sq) !Cq {
-        assert(fd >= 0);
-        const features: uflags.Features = @bitCast(p.features);
-        assert(features.SINGLE_MMAP);
-        const mmap = sq.mmap;
-        const cqes: [*]Cqe = @ptrCast(@alignCast(&mmap[p.cq_off.cqes]));
-        assert(p.cq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_entries]))).*);
-        return .{
-            .head = @ptrCast(@alignCast(&mmap[p.cq_off.head])),
-            .tail = @ptrCast(@alignCast(&mmap[p.cq_off.tail])),
-            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_mask]))).*,
-            .overflow = @ptrCast(@alignCast(&mmap[p.cq_off.overflow])),
-            .cqes = cqes[0..p.cq_entries],
-        };
-    }
-
-    pub fn deinit(self: *Cq) void {
-        _ = self;
-        // A no-op since we now share the mmap with the submission queue.
-        // Here for symmetry with the submission queue, and for any future feature support.
-    }
-};
-
-/// Group of application provided buffers. Uses newer type, called ring mapped
-/// buffers, supported since kernel 5.19. Buffers are identified by a buffer
-/// group ID, and within that group, a buffer ID. IO_Uring can have multiple
-/// buffer groups, each with unique group ID.
-///
-/// In `init` application provides contiguous block of memory `buffers` for
-/// `buffers_count` buffers of size `buffers_size`. Application can then submit
-/// `recv` operation without providing buffer upfront. Once the operation is
-/// ready to receive data, a buffer is picked automatically and the resulting
-/// CQE will contain the buffer ID in `cqe.buffer_id()`. Use `get` method to get
-/// buffer for buffer ID identified by CQE. Once the application has processed
-/// the buffer, it may hand ownership back to the kernel, by calling `put`
-/// allowing the cycle to repeat.
-///
-/// Depending on the rate of arrival of data, it is possible that a given buffer
-/// group will run out of buffers before those in CQEs can be put back to the
-/// kernel. If this happens, a `cqe.err()` will have ENOBUFS as the error value.
-///
-pub const BufferGroup = struct {
-    /// Parent ring for which this group is registered.
-    ring: *IoUring,
-    /// Pointer to the memory shared by the kernel.
-    /// `buffers_count` of `io_uring_buf` structures are shared by the kernel.
-    /// First `io_uring_buf` is overlaid by `io_uring_buf_ring` struct.
-    br: *align(page_size_min) BufferRing,
-    /// Contiguous block of memory of size (buffers_count * buffer_size).
-    buffers: []u8,
-    /// Size of each buffer in buffers.
-    buffer_size: u32,
-    /// Number of buffers in `buffers`, number of `io_uring_buf structures` in br.
-    buffers_count: u16,
-    /// Head of unconsumed part of each buffer, if incremental consumption is enabled
-    heads: []u32,
-    /// ID of this group, must be unique in ring.
-    group_id: u16,
-
-    pub fn init(
-        ring: *IoUring,
-        allocator: mem.Allocator,
-        group_id: u16,
-        buffer_size: u32,
-        buffers_count: u16,
-    ) !BufferGroup {
-        const buffers = try allocator.alloc(u8, buffer_size * buffers_count);
-        errdefer allocator.free(buffers);
-        const heads = try allocator.alloc(u32, buffers_count);
-        errdefer allocator.free(heads);
-
-        const br = try setup_buf_ring(ring.fd, buffers_count, group_id, .{ .IOU_PBUF_RING_INC = true });
-        buf_ring_init(br);
-
-        const mask = buf_ring_mask(buffers_count);
-        var i: u16 = 0;
-        while (i < buffers_count) : (i += 1) {
-            const pos = buffer_size * i;
-            const buf = buffers[pos .. pos + buffer_size];
-            heads[i] = 0;
-            buf_ring_add(br, buf, i, mask, i);
-        }
-        buf_ring_advance(br, buffers_count);
-
-        return BufferGroup{
-            .ring = ring,
-            .group_id = group_id,
-            .br = br,
-            .buffers = buffers,
-            .heads = heads,
-            .buffer_size = buffer_size,
-            .buffers_count = buffers_count,
-        };
-    }
-
-    pub fn deinit(self: *BufferGroup, allocator: mem.Allocator) void {
-        free_buf_ring(self.ring.fd, self.br, self.buffers_count, self.group_id);
-        allocator.free(self.buffers);
-        allocator.free(self.heads);
-    }
-
-    // Prepare recv operation which will select buffer from this group.
-    pub fn recv(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*Sqe {
-        var sqe = try self.ring.get_sqe();
-        sqe.prep_rw(.RECV, fd, 0, 0, 0);
-        sqe.rw_flags = flags;
-        sqe.flags.BUFFER_SELECT = true;
-        sqe.buf_index = self.group_id;
-        sqe.user_data = user_data;
-        return sqe;
-    }
-
-    // Prepare multishot recv operation which will select buffer from this group.
-    pub fn recv_multishot(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*Sqe {
-        var sqe = try self.recv(user_data, fd, flags);
-        sqe.ioprio.send_recv.RECV_MULTISHOT = true;
-        return sqe;
-    }
-
-    // Get buffer by id.
-    fn get_by_id(self: *BufferGroup, buffer_id: u16) []u8 {
-        const pos = self.buffer_size * buffer_id;
-        return self.buffers[pos .. pos + self.buffer_size][self.heads[buffer_id]..];
-    }
-
-    // Get buffer by CQE.
-    pub fn get(self: *BufferGroup, cqe: Cqe) ![]u8 {
-        const buffer_id = try cqe.buffer_id();
-        const used_len = @as(usize, @intCast(cqe.res));
-        return self.get_by_id(buffer_id)[0..used_len];
-    }
-
-    // Release buffer from CQE to the kernel.
-    pub fn put(self: *BufferGroup, cqe: Cqe) !void {
-        const buffer_id = try cqe.buffer_id();
-        if (cqe.flags.F_BUF_MORE) {
-            // Incremental consumption active, kernel will write to the this buffer again
-            const used_len = @as(u32, @intCast(cqe.res));
-            // Track what part of the buffer is used
-            self.heads[buffer_id] += used_len;
-            return;
-        }
-        self.heads[buffer_id] = 0;
-
-        // Release buffer to the kernel.    const mask = buf_ring_mask(self.buffers_count);
-        const mask = buf_ring_mask(self.buffers_count);
-        buf_ring_add(self.br, self.get_by_id(buffer_id), buffer_id, mask, 0);
-        buf_ring_advance(self.br, 1);
-    }
-};
-
 /// Registers a shared buffer ring to be used with provided buffers.
 /// `entries` number of `io_uring_buf` structures is mem mapped and shared by kernel.
 /// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
@@ -3567,7 +1623,7 @@ test "nop" {
     try testing.expectEqual(Sqe{
         .opcode = .NOP,
         .flags = .{},
-        .ioprio = @bitCast(@as(u16, 0)),
+        .ioprio = .init_empty(),
         .fd = 0,
         .off = 0,
         .addr = 0,
@@ -3940,7 +1996,7 @@ test "openat" {
     try testing.expectEqual(Sqe{
         .opcode = .OPENAT,
         .flags = .{},
-        .ioprio = @bitCast(@as(u16, 0)),
+        .ioprio = .init_empty(),
         .fd = tmp.dir.fd,
         .off = 0,
         .addr = path_addr,
@@ -4211,7 +2267,7 @@ test "timeout_remove" {
     try testing.expectEqual(Op.TIMEOUT, sqe_timeout.opcode);
     try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
 
-    const sqe_timeout_remove = try ring.timeout_remove(0x99999999, 0x88888888, 0);
+    const sqe_timeout_remove = try ring.timeout_remove(0x99999999, 0x88888888, .{});
     try testing.expectEqual(Op.TIMEOUT_REMOVE, sqe_timeout_remove.opcode);
     try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout_remove.addr);
     try testing.expectEqual(@as(u64, 0x99999999), sqe_timeout_remove.user_data);
@@ -4233,7 +2289,7 @@ test "timeout_remove" {
         // We don't want to skip this test for newer kernels.
         if (cqe.user_data == 0x99999999 and
             cqe.err() == .BADF and
-            (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
+            (!ring.features.RW_CUR_POS))
         {
             return error.SkipZigTest;
         }
@@ -4244,7 +2300,7 @@ test "timeout_remove" {
             try testing.expectEqual(Cqe{
                 .user_data = 0x88888888,
                 .res = -@as(i32, @intFromEnum(linux.E.CANCELED)),
-                .flags = 0,
+                .flags = .{},
             }, cqe);
         } else if (cqe.user_data == 0x99999999) {
             try testing.expectEqual(Cqe{
@@ -4377,7 +2433,7 @@ test "statx" {
         tmp.dir.fd,
         path,
         0,
-        linux.STATX_SIZE,
+        .{ .size = true },
         &buf,
     );
     try testing.expectEqual(Op.STATX, sqe.opcode);
@@ -4642,7 +2698,7 @@ test "renameat" {
         old_path,
         tmp.dir.fd,
         new_path,
-        0,
+        .{},
     );
     try testing.expectEqual(Op.RENAMEAT, sqe.opcode);
     try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
@@ -4928,7 +2984,7 @@ test "provide_buffers: read" {
         }
 
         try testing.expect(cqe.flags.F_BUFFER);
-        const used_buffer_id = @as(u32, @bitCast(cqe.flags)) >> 16;
+        const used_buffer_id = try cqe.buffer_id();
         try testing.expect(used_buffer_id >= 0 and used_buffer_id <= 3);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
 
@@ -4993,7 +3049,7 @@ test "provide_buffers: read" {
         }
 
         try testing.expect(cqe.flags.F_BUFFER);
-        const used_buffer_id = @as(u32, @bitCast(cqe.flags)) >> 16;
+        const used_buffer_id = try cqe.buffer_id();
         try testing.expectEqual(used_buffer_id, reprovided_buffer_id);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
@@ -5067,7 +3123,7 @@ test "remove_buffers" {
         }
 
         try testing.expect(cqe.flags.F_BUFFER);
-        const used_buffer_id = @as(u32, @bitCast(cqe.flags)) >> 16;
+        const used_buffer_id = try cqe.buffer_id();
         try testing.expect(used_buffer_id >= 0 and used_buffer_id < 4);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
@@ -5167,8 +3223,8 @@ test "provide_buffers: accept/connect/send/recv" {
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }
 
-        try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
-        const used_buffer_id = cqe.flags >> 16;
+        try testing.expect(cqe.flags.F_BUFFER);
+        const used_buffer_id = try cqe.buffer_id();
         try testing.expect(used_buffer_id >= 0 and used_buffer_id <= 3);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
 
@@ -5246,8 +3302,8 @@ test "provide_buffers: accept/connect/send/recv" {
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }
 
-        try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
-        const used_buffer_id = cqe.flags >> 16;
+        try testing.expect(cqe.flags.F_BUFFER);
+        const used_buffer_id = try cqe.buffer_id();
         try testing.expectEqual(used_buffer_id, reprovided_buffer_id);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
@@ -5462,7 +3518,7 @@ test "accept_direct" {
 
     for (0..2) |_| {
         for (registered_fds, 0..) |_, i| {
-            var buffer_recv = [_]u8{0} ** 16;
+            var buffer_recv: [16]u8 = @splat(0);
             const buffer_send: []const u8 = data[0 .. data.len - i]; // make it different at each loop
 
             // submit accept, will chose registered fd and return index in cqe
@@ -5576,7 +3632,7 @@ test "accept_multishot_direct" {
             const cqe_accept = try ring.copy_cqe();
             try testing.expect(cqe_accept.user_data == accept_userdata);
             try testing.expectEqual(posix.E.NFILE, cqe_accept.err());
-            try testing.expect(cqe_accept.flags & linux.IORING_CQE_F_MORE == 0); // has more is not set
+            try testing.expect(!cqe_accept.flags.F_MORE); // has more is not set
         }
         // return file descriptors to kernel
         try ring.register_files_update(0, registered_fds[0..]);
@@ -6315,3 +4371,1955 @@ fn testSendRecv(ring: *IoUring, send_fd: posix.socket_t, recv_fd: posix.socket_t
 fn addrAny(addr: *linux.sockaddr.in) *linux.sockaddr {
     return @ptrCast(addr);
 }
+// IO completion data structure (Completion Queue Entry)
+pub const Cqe = extern struct {
+    /// sqe.user_data value passed back
+    user_data: u64,
+    /// result code for this event
+    res: i32,
+    flags: Flags,
+    // COMMIT: add big_cqe which was missing in io_uring_cqe type declaration
+    // TODO: add support for the IORING_SETUP_CQE32 case
+    /// If the ring is initialized with IORING_SETUP_CQE32, then this field
+    /// contains 16-bytes of padding, doubling the size of the CQE.
+    // big_cqe: ?[2]u64,
+
+    /// cqe.flags
+    pub const Flags = packed struct(u32) {
+        /// IORING_CQE_F_BUFFER If set, the upper 16 bits are the buffer ID
+        F_BUFFER: bool = false,
+        /// IORING_CQE_F_MORE If set, parent SQE will generate more CQE entries
+        F_MORE: bool = false,
+        /// IORING_CQE_F_SOCK_NONEMPTY If set, more data to read after socket recv
+        F_SOCK_NONEMPTY: bool = false,
+        /// IORING_CQE_F_NOTIF Set for notification CQEs. Can be used to distinct
+        ///  them from sends.
+        F_NOTIF: bool = false,
+        /// IORING_CQE_F_BUF_MORE If set, the buffer ID set in the completion will get
+        /// more completions. In other words, the buffer is being
+        /// partially consumed, and will be used by the kernel for
+        /// more completions. This is only set for buffers used via
+        /// the incremental buffer consumption, as provided by
+        /// a ring buffer setup with IOU_PBUF_RING_INC. For any
+        /// other provided buffer type, all completions with a
+        /// buffer passed back is automatically returned to the
+        /// application.
+        F_BUF_MORE: bool = false,
+        // COMMIT: new flags
+        /// IORING_CQE_F_SKIP If set, then the application/liburing must ignore this
+        /// CQE. It's only purpose is to fill a gap in the ring,
+        /// if a large CQE is attempted posted when the ring has
+        /// just a single small CQE worth of space left before
+        /// wrapping.
+        F_SKIP: bool = false,
+        _unused: u9 = 0,
+        /// IORING_CQE_F_32 If set, this is a 32b/big-cqe posting. Use with rings
+        /// setup in a mixed CQE mode, where both 16b and 32b
+        /// CQEs may be posted to the CQ ring.
+        F_32: bool = false,
+        _unused_1: u16 = 0,
+    };
+
+    pub fn err(self: Cqe) linux.E {
+        if (self.res > -4096 and self.res < 0) {
+            return @as(linux.E, @enumFromInt(-self.res));
+        }
+        return .SUCCESS;
+    }
+
+    // On successful completion of the provided buffers IO request, the CQE flags field
+    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
+    // the upper 16-bits of the flags field.
+    pub fn buffer_id(self: Cqe) !u16 {
+        if (!self.flags.F_BUFFER) {
+            return error.NoBufferSelected;
+        }
+        return @intCast(@as(u32, @bitCast(self.flags)) >> constants.CQE_BUFFER_SHIFT);
+    }
+};
+
+/// IO submission data structure (Submission Queue Entry)
+/// matches io_uring_sqe in liburing
+pub const Sqe = extern struct {
+    /// type of operation for this sqe
+    opcode: Op,
+    /// IOSQE_* flags
+    flags: IoSqe,
+    /// ioprio for the request
+    ioprio: packed union {
+        send_recv: SendRecv,
+        accept: Accept,
+        const Ioprio = @This();
+
+        pub fn init_empty() Ioprio {
+            return @bitCast(@as(u16, 0));
+        }
+    },
+    /// file descriptor to do IO on
+    fd: i32,
+    /// offset into file
+    off: u64,
+    /// pointer to buffer or iovecs
+    addr: u64,
+    /// buffer size or number of iovecs
+    len: u32,
+    /// flags for any sqe operation
+    /// rw_flags | fsync_flags | poll_event | poll32_event | sync_range_flags | msg_flags
+    /// timeout_flags | accept_flags | cancel_flags | open_flags | statx_flags
+    /// fadvise_advice | splice_flags | rename_flags | unlink_flags | hardlink_flags
+    /// xattr_flags | msg_ring_flags | uring_cmd_flags | waitid_flags | futex_flags
+    /// install_fd_flags | nop_flags | pipe_flags
+    rw_flags: u32,
+    /// data to be passed back at completion time
+    user_data: u64,
+    /// index into fixed buffers or for grouped buffer selection
+    buf_index: u16,
+    personality: u16,
+    splice_fd_in: i32,
+    addr3: u64,
+    resv: u64,
+
+    /// sqe.flags
+    pub const IoSqe = packed struct(u8) {
+        /// use fixed fileset
+        FIXED_FILE: bool = false,
+        /// issue after inflight IO
+        IO_DRAIN: bool = false,
+        /// links next sqe
+        IO_LINK: bool = false,
+        /// like LINK, but stronger
+        IO_HARDLINK: bool = false,
+        /// always go async
+        ASYNC: bool = false,
+        /// select buffer from sqe->buf_group
+        BUFFER_SELECT: bool = false,
+        /// don't post CQE if request succeeded
+        CQE_SKIP_SUCCESS: bool = false,
+        _: u1 = 0,
+    };
+
+    /// send/sendmsg and recv/recvmsg flags (sqe.ioprio)
+    pub const SendRecv = packed struct(u16) {
+        /// IORING_RECVSEND_POLL_FIRST
+        /// If set, instead of first attempting to send or receive and arm poll
+        /// if that yields an -EAGAIN result, arm poll upfront and skip the
+        /// initial transfer attempt.
+        RECVSEND_POLL_FIRST: bool = false,
+        /// IORING_RECV_MULTISHOT
+        /// Multishot recv. Sets IORING_CQE_F_MORE if the handler will continue
+        /// to report CQEs on behalf of the same SQE.
+        RECV_MULTISHOT: bool = false,
+        /// IORING_RECVSEND_FIXED_BUF
+        /// Use registered buffers, the index is stored in the buf_index field.
+        RECVSEND_FIXED_BUF: bool = false,
+        /// IORING_SEND_ZC_REPORT_USAGE
+        /// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res
+        /// for the IORING_CQE_F_NOTIF cqe. 0 is reported if zerocopy was
+        /// actually possible. IORING_NOTIF_USAGE_ZC_COPIED if data was copied
+        /// (at least partially).
+        SEND_ZC_REPORT_USAGE: bool = false,
+        /// IORING_RECVSEND_BUNDLE
+        /// Used with IOSQE_BUFFER_SELECT. If set, send or recv will grab as
+        /// many buffers from the buffer group ID given and send them all.
+        /// The completion result will be the number of buffers send, with the
+        /// starting buffer ID in cqe.flags as per usual for provided buffer
+        /// usage. The buffers will be contiguous from the starting buffer ID.
+        RECVSEND_BUNDLE: bool = false,
+        // COMMIT: new flags
+        /// IORING_SEND_VECTORIZED
+        /// If set, SEND[_ZC] will take a pointer to a io_vec to allow
+        /// vectorized send operations.
+        SEND_VECTORIZED: bool = false,
+        _: u10 = 0,
+    };
+
+    /// accept flags stored in sqe.ioprio
+    pub const Accept = packed struct(u16) {
+        MULTISHOT: bool = false,
+        // COMMIT: new Flags
+        DONTWAIT: bool = false,
+        POLL_FIRST: bool = false,
+        _unused: u13 = 0,
+    };
+
+    pub fn prep_nop(sqe: *Sqe) void {
+        sqe.* = .{
+            .opcode = .NOP,
+            .flags = .{},
+            .ioprio = .init_empty(),
+            .fd = 0,
+            .off = 0,
+            .addr = 0,
+            .len = 0,
+            .rw_flags = 0,
+            .user_data = 0,
+            .buf_index = 0,
+            .personality = 0,
+            .splice_fd_in = 0,
+            .addr3 = 0,
+            .resv = 0,
+        };
+    }
+
+    pub fn prep_fsync(sqe: *Sqe, fd: linux.fd_t, flags: uflags.Fsync) void {
+        sqe.* = .{
+            .opcode = .FSYNC,
+            .flags = .{},
+            .ioprio = .init_empty(),
+            .fd = fd,
+            .off = 0,
+            .addr = 0,
+            .len = 0,
+            .rw_flags = @bitCast(flags),
+            .user_data = 0,
+            .buf_index = 0,
+            .personality = 0,
+            .splice_fd_in = 0,
+            .addr3 = 0,
+            .resv = 0,
+        };
+    }
+
+    pub fn prep_rw(
+        sqe: *Sqe,
+        op: Op,
+        fd: linux.fd_t,
+        addr: u64,
+        len: usize,
+        offset: u64,
+    ) void {
+        sqe.* = .{
+            .opcode = op,
+            .flags = .{},
+            .ioprio = .init_empty(),
+            .fd = fd,
+            .off = offset,
+            .addr = addr,
+            .len = @intCast(len),
+            .rw_flags = 0,
+            .user_data = 0,
+            .buf_index = 0,
+            .personality = 0,
+            .splice_fd_in = 0,
+            .addr3 = 0,
+            .resv = 0,
+        };
+    }
+
+    pub fn prep_read(sqe: *Sqe, fd: linux.fd_t, buffer: []u8, offset: u64) void {
+        sqe.prep_rw(.READ, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
+    }
+
+    pub fn prep_write(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, offset: u64) void {
+        sqe.prep_rw(.WRITE, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
+    }
+
+    pub fn prep_splice(sqe: *Sqe, fd_in: linux.fd_t, off_in: u64, fd_out: linux.fd_t, off_out: u64, len: usize) void {
+        sqe.prep_rw(.SPLICE, fd_out, undefined, len, off_out);
+        sqe.addr = off_in;
+        sqe.splice_fd_in = fd_in;
+    }
+
+    pub fn prep_readv(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        iovecs: []const std.posix.iovec,
+        offset: u64,
+    ) void {
+        sqe.prep_rw(.READV, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
+    }
+
+    pub fn prep_writev(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        iovecs: []const std.posix.iovec_const,
+        offset: u64,
+    ) void {
+        sqe.prep_rw(.WRITEV, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
+    }
+
+    pub fn prep_read_fixed(sqe: *Sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
+        sqe.prep_rw(.READ_FIXED, fd, @intFromPtr(buffer.base), buffer.len, offset);
+        sqe.buf_index = buffer_index;
+    }
+
+    pub fn prep_write_fixed(sqe: *Sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
+        sqe.prep_rw(.WRITE_FIXED, fd, @intFromPtr(buffer.base), buffer.len, offset);
+        sqe.buf_index = buffer_index;
+    }
+
+    pub fn prep_accept(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        addr: ?*linux.sockaddr,
+        addrlen: ?*linux.socklen_t,
+        flags: linux.SOCK,
+    ) void {
+        // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
+        // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
+        sqe.prep_rw(.ACCEPT, fd, @intFromPtr(addr), 0, @intFromPtr(addrlen));
+        sqe.rw_flags = flags;
+    }
+
+    /// accept directly into the fixed file table
+    pub fn prep_accept_direct(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        addr: ?*linux.sockaddr,
+        addrlen: ?*linux.socklen_t,
+        flags: linux.SOCK,
+        file_index: u32,
+    ) void {
+        prep_accept(sqe, fd, addr, addrlen, flags);
+        set_target_fixed_file(sqe, file_index);
+    }
+
+    pub fn prep_multishot_accept(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        addr: ?*linux.sockaddr,
+        addrlen: ?*linux.socklen_t,
+        flags: linux.SOCK,
+    ) void {
+        prep_accept(sqe, fd, addr, addrlen, flags);
+        sqe.ioprio = .{ .accept = .{ .MULTISHOT = true } };
+    }
+
+    /// multishot accept directly into the fixed file table
+    pub fn prep_multishot_accept_direct(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        addr: ?*linux.sockaddr,
+        addrlen: ?*linux.socklen_t,
+        flags: linux.SOCK,
+    ) void {
+        prep_multishot_accept(sqe, fd, addr, addrlen, flags);
+        set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
+    }
+
+    fn set_target_fixed_file(sqe: *Sqe, file_index: u32) void {
+        const sqe_file_index: u32 = if (file_index == constants.FILE_INDEX_ALLOC)
+            constants.FILE_INDEX_ALLOC
+        else
+            // 0 means no fixed files, indexes should be encoded as "index + 1"
+            file_index + 1;
+        // This filed is overloaded in liburing:
+        //   splice_fd_in: i32
+        //   sqe_file_index: u32
+        sqe.splice_fd_in = @bitCast(sqe_file_index);
+    }
+
+    pub fn prep_connect(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        addr: *const linux.sockaddr,
+        addrlen: linux.socklen_t,
+    ) void {
+        // `addrlen` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
+        sqe.prep_rw(.CONNECT, fd, @intFromPtr(addr), 0, addrlen);
+    }
+
+    pub fn prep_epoll_ctl(
+        sqe: *Sqe,
+        epfd: linux.fd_t,
+        fd: linux.fd_t,
+        op: u32,
+        ev: ?*linux.epoll_event,
+    ) void {
+        sqe.prep_rw(.EPOLL_CTL, epfd, @intFromPtr(ev), op, @intCast(fd));
+    }
+
+    pub fn prep_recv(sqe: *Sqe, fd: linux.fd_t, buffer: []u8, flags: linux.MSG) void {
+        sqe.prep_rw(.RECV, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
+        sqe.rw_flags = flags;
+    }
+
+    // TODO: review recv `flags`
+    pub fn prep_recv_multishot(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        buffer: []u8,
+        flags: linux.MSG,
+    ) void {
+        sqe.prep_recv(fd, buffer, flags);
+        sqe.ioprio = .{ .send_recv = .{ .RECV_MULTISHOT = true } };
+    }
+
+    pub fn prep_recvmsg(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        msg: *linux.msghdr,
+        flags: linux.MSG,
+    ) void {
+        sqe.prep_rw(.RECVMSG, fd, @intFromPtr(msg), 1, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_recvmsg_multishot(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        msg: *linux.msghdr,
+        flags: linux.MSG,
+    ) void {
+        sqe.prep_recvmsg(fd, msg, flags);
+        sqe.ioprio = .{ .send_recv = .{ .RECV_MULTISHOT = true } };
+    }
+
+    // COMMIT: fix send[|recv] flag param type
+    pub fn prep_send(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG) void {
+        sqe.prep_rw(.SEND, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_send_zc(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG, zc_flags: Sqe.SendRecv) void {
+        sqe.prep_rw(.SEND_ZC, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
+        sqe.rw_flags = flags;
+        sqe.ioprio = .{ .send_recv = zc_flags };
+    }
+
+    pub fn prep_send_zc_fixed(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, flags: linux.MSG, zc_flags: Sqe.SendRecv, buf_index: u16) void {
+        const zc_flags_fixed = blk: {
+            var updated_flags = zc_flags;
+            updated_flags.RECVSEND_FIXED_BUF = true;
+            break :blk updated_flags;
+        };
+        prep_send_zc(sqe, fd, buffer, flags, zc_flags_fixed);
+        sqe.buf_index = buf_index;
+    }
+
+    pub fn prep_sendmsg(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        msg: *const linux.msghdr_const,
+        flags: linux.MSG,
+    ) void {
+        sqe.prep_rw(.SENDMSG, fd, @intFromPtr(msg), 1, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_sendmsg_zc(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        msg: *const linux.msghdr_const,
+        flags: linux.MSG,
+    ) void {
+        prep_sendmsg(sqe, fd, msg, flags);
+        sqe.opcode = .SENDMSG_ZC;
+    }
+
+    pub fn prep_openat(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        path: [*:0]const u8,
+        flags: linux.O,
+        mode: linux.mode_t,
+    ) void {
+        sqe.prep_rw(.OPENAT, fd, @intFromPtr(path), mode, 0);
+        sqe.rw_flags = @bitCast(flags);
+    }
+
+    pub fn prep_openat_direct(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        path: [*:0]const u8,
+        flags: linux.O,
+        mode: linux.mode_t,
+        file_index: u32,
+    ) void {
+        prep_openat(sqe, fd, path, flags, mode);
+        set_target_fixed_file(sqe, file_index);
+    }
+
+    pub fn prep_close(sqe: *Sqe, fd: linux.fd_t) void {
+        sqe.* = .{
+            .opcode = .CLOSE,
+            .flags = .{},
+            .ioprio = .init_empty(),
+            .fd = fd,
+            .off = 0,
+            .addr = 0,
+            .len = 0,
+            .rw_flags = 0,
+            .user_data = 0,
+            .buf_index = 0,
+            .personality = 0,
+            .splice_fd_in = 0,
+            .addr3 = 0,
+            .resv = 0,
+        };
+    }
+
+    pub fn prep_close_direct(sqe: *Sqe, file_index: u32) void {
+        prep_close(sqe, 0);
+        set_target_fixed_file(sqe, file_index);
+    }
+
+    pub fn prep_timeout(
+        sqe: *Sqe,
+        ts: *const linux.kernel_timespec,
+        count: u32,
+        flags: uflags.Timeout,
+    ) void {
+        sqe.prep_rw(.TIMEOUT, -1, @intFromPtr(ts), 1, count);
+        sqe.rw_flags = @bitCast(flags);
+    }
+
+    pub fn prep_timeout_remove(sqe: *Sqe, timeout_user_data: u64, flags: uflags.Timeout) void {
+        sqe.* = .{
+            .opcode = .TIMEOUT_REMOVE,
+            .flags = .{},
+            .ioprio = .init_empty(),
+            .fd = -1,
+            .off = 0,
+            .addr = timeout_user_data,
+            .len = 0,
+            .rw_flags = @bitCast(flags),
+            .user_data = 0,
+            .buf_index = 0,
+            .personality = 0,
+            .splice_fd_in = 0,
+            .addr3 = 0,
+            .resv = 0,
+        };
+    }
+
+    pub fn prep_link_timeout(
+        sqe: *Sqe,
+        ts: *const linux.kernel_timespec,
+        flags: uflags.Timeout,
+    ) void {
+        sqe.prep_rw(.LINK_TIMEOUT, -1, @intFromPtr(ts), 1, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_poll_add(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        poll_mask: linux.POLL,
+    ) void {
+        sqe.prep_rw(.POLL_ADD, fd, @intFromPtr(@as(?*anyopaque, null)), 0, 0);
+        // Poll masks previously used to comprise of 16 bits in the flags union of
+        // a SQE, but were then extended to comprise of 32 bits in order to make
+        // room for additional option flags. To ensure that the correct bits of
+        // poll masks are consistently and properly read across multiple kernel
+        // versions, poll masks are enforced to be little-endian.
+        // https://www.spinics.net/lists/io-uring/msg02848.html
+        sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
+    }
+
+    pub fn prep_poll_remove(
+        sqe: *Sqe,
+        target_user_data: u64,
+    ) void {
+        sqe.prep_rw(.POLL_REMOVE, -1, target_user_data, 0, 0);
+    }
+
+    pub fn prep_poll_update(
+        sqe: *Sqe,
+        old_user_data: u64,
+        new_user_data: u64,
+        poll_mask: linux.POLL,
+        flags: uflags.Poll,
+    ) void {
+        sqe.prep_rw(.POLL_REMOVE, -1, old_user_data, flags, new_user_data);
+        // Poll masks previously used to comprise of 16 bits in the flags union of
+        // a SQE, but were then extended to comprise of 32 bits in order to make
+        // room for additional option flags. To ensure that the correct bits of
+        // poll masks are consistently and properly read across multiple kernel
+        // versions, poll masks are enforced to be little-endian.
+        // https://www.spinics.net/lists/io-uring/msg02848.html
+        sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
+    }
+
+    pub fn prep_fallocate(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        mode: i32,
+        offset: u64,
+        len: u64,
+    ) void {
+        sqe.* = .{
+            .opcode = .FALLOCATE,
+            .flags = .{},
+            .ioprio = .init_empty(),
+            .fd = fd,
+            .off = offset,
+            .addr = len,
+            .len = @intCast(mode),
+            .rw_flags = 0,
+            .user_data = 0,
+            .buf_index = 0,
+            .personality = 0,
+            .splice_fd_in = 0,
+            .addr3 = 0,
+            .resv = 0,
+        };
+    }
+
+    pub fn prep_statx(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        path: [*:0]const u8,
+        flags: linux.AT,
+        mask: linux.Statx.Mask,
+        buf: *linux.Statx,
+    ) void {
+        sqe.prep_rw(.STATX, fd, @intFromPtr(path), @bitCast(mask), @intFromPtr(buf));
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_cancel(
+        sqe: *Sqe,
+        cancel_user_data: u64,
+        flags: uflags.AsyncCancel,
+    ) void {
+        sqe.prep_rw(.ASYNC_CANCEL, -1, cancel_user_data, 0, 0);
+        sqe.rw_flags = @bitCast(flags);
+    }
+
+    pub fn prep_cancel_fd(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        flags: uflags.AsyncCancel,
+    ) void {
+        sqe.prep_rw(.ASYNC_CANCEL, fd, 0, 0, 0);
+        const enable_cancel_fd = blk: {
+            var update_flags = flags;
+            update_flags.CANCEL_FD = true;
+            break :blk update_flags;
+        };
+        sqe.rw_flags = @bitCast(enable_cancel_fd);
+    }
+
+    pub fn prep_shutdown(
+        sqe: *Sqe,
+        sockfd: linux.socket_t,
+        how: linux.SHUT,
+    ) void {
+        sqe.prep_rw(.SHUTDOWN, sockfd, 0, how, 0);
+    }
+
+    pub fn prep_renameat(
+        sqe: *Sqe,
+        old_dir_fd: linux.fd_t,
+        old_path: [*:0]const u8,
+        new_dir_fd: linux.fd_t,
+        new_path: [*:0]const u8,
+        flags: linux.RenameFlags,
+    ) void {
+        sqe.prep_rw(
+            .RENAMEAT,
+            old_dir_fd,
+            @intFromPtr(old_path),
+            0,
+            @intFromPtr(new_path),
+        );
+        sqe.len = @bitCast(new_dir_fd);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_unlinkat(
+        sqe: *Sqe,
+        dir_fd: linux.fd_t,
+        path: [*:0]const u8,
+        flags: linux.AT, // TODO: unlink flags only AT_REMOVEDIR
+    ) void {
+        sqe.prep_rw(.UNLINKAT, dir_fd, @intFromPtr(path), 0, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_mkdirat(
+        sqe: *Sqe,
+        dir_fd: linux.fd_t,
+        path: [*:0]const u8,
+        mode: linux.mode_t,
+    ) void {
+        sqe.prep_rw(.MKDIRAT, dir_fd, @intFromPtr(path), mode, 0);
+    }
+
+    pub fn prep_symlinkat(
+        sqe: *Sqe,
+        target: [*:0]const u8,
+        new_dir_fd: linux.fd_t,
+        link_path: [*:0]const u8,
+    ) void {
+        sqe.prep_rw(
+            .SYMLINKAT,
+            new_dir_fd,
+            @intFromPtr(target),
+            0,
+            @intFromPtr(link_path),
+        );
+    }
+
+    pub fn prep_linkat(
+        sqe: *Sqe,
+        old_dir_fd: linux.fd_t,
+        old_path: [*:0]const u8,
+        new_dir_fd: linux.fd_t,
+        new_path: [*:0]const u8,
+        flags: linux.AT, // only AT_EMPTY_PATH, AT_SYMLINK_FOLLOW
+    ) void {
+        sqe.prep_rw(
+            .LINKAT,
+            old_dir_fd,
+            @intFromPtr(old_path),
+            0,
+            @intFromPtr(new_path),
+        );
+        sqe.len = @bitCast(new_dir_fd);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_files_update(
+        sqe: *Sqe,
+        fds: []const linux.fd_t,
+        offset: u32,
+    ) void {
+        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, @intCast(offset));
+    }
+
+    pub fn prep_files_update_alloc(
+        sqe: *Sqe,
+        fds: []linux.fd_t,
+    ) void {
+        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, constants.FILE_INDEX_ALLOC);
+    }
+
+    // TODO: why can't slice be used here ?
+    pub fn prep_provide_buffers(
+        sqe: *Sqe,
+        buffers: [*]u8,
+        buffer_len: usize,
+        num: usize,
+        group_id: usize,
+        buffer_id: usize,
+    ) void {
+        const ptr = @intFromPtr(buffers);
+        sqe.prep_rw(.PROVIDE_BUFFERS, @intCast(num), ptr, buffer_len, buffer_id);
+        sqe.buf_index = @intCast(group_id);
+    }
+
+    pub fn prep_remove_buffers(
+        sqe: *Sqe,
+        num: usize,
+        group_id: usize,
+    ) void {
+        sqe.prep_rw(.REMOVE_BUFFERS, @intCast(num), 0, 0, 0);
+        sqe.buf_index = @intCast(group_id);
+    }
+
+    pub fn prep_socket(
+        sqe: *Sqe,
+        domain: linux.AF,
+        socket_type: linux.SOCK,
+        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        flags: u32, // flags is unused
+    ) void {
+        sqe.prep_rw(.SOCKET, @intCast(domain), 0, protocol, socket_type);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_socket_direct(
+        sqe: *Sqe,
+        domain: linux.AF,
+        socket_type: linux.SOCK,
+        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        flags: u32, // flags is unused
+        file_index: u32,
+    ) void {
+        prep_socket(sqe, domain, socket_type, protocol, flags);
+        set_target_fixed_file(sqe, file_index);
+    }
+
+    pub fn prep_socket_direct_alloc(
+        sqe: *Sqe,
+        domain: linux.AF,
+        socket_type: linux.SOCK,
+        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        flags: u32, // flags is unused
+    ) void {
+        prep_socket(sqe, domain, socket_type, protocol, flags);
+        set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
+    }
+
+    pub fn prep_waitid(
+        sqe: *Sqe,
+        id_type: linux.P,
+        id: i32,
+        infop: *linux.siginfo_t,
+        options: linux.W,
+        flags: u32, // flags is unused
+    ) void {
+        sqe.prep_rw(.WAITID, id, 0, @intFromEnum(id_type), @intFromPtr(infop));
+        sqe.rw_flags = flags;
+        sqe.splice_fd_in = @bitCast(options);
+    }
+
+    // TODO: maybe remove unused flag fields?
+    pub fn prep_bind(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        addr: *const linux.sockaddr,
+        addrlen: linux.socklen_t,
+        flags: u32, // flags is unused and does't exist in io_uring's api
+    ) void {
+        sqe.prep_rw(.BIND, fd, @intFromPtr(addr), 0, addrlen);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_listen(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        backlog: usize,
+        flags: u32, // flags is unused and does't exist in io_uring's api
+    ) void {
+        sqe.prep_rw(.LISTEN, fd, 0, backlog, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_cmd_sock(
+        sqe: *Sqe,
+        cmd_op: SocketOp,
+        fd: linux.fd_t,
+        level: linux.SOL,
+        optname: linux.SO,
+        optval: u64,
+        optlen: u32,
+    ) void {
+        sqe.prep_rw(.URING_CMD, fd, 0, 0, 0);
+        // off is overloaded with cmd_op, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L39
+        sqe.off = @intFromEnum(cmd_op);
+        // addr is overloaded, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L46
+        sqe.addr = @bitCast(packed struct {
+            level: u32,
+            optname: u32,
+        }{
+            .level = level,
+            .optname = optname,
+        });
+        // splice_fd_in if overloaded u32 -> i32
+        sqe.splice_fd_in = @bitCast(optlen);
+        // addr3 is overloaded, https://github.com/axboe/liburing/blob/e1003e496e66f9b0ae06674869795edf772d5500/src/include/liburing/io_uring.h#L102
+        sqe.addr3 = optval;
+    }
+
+    pub fn set_flags(sqe: *Sqe, flags: Sqe.IoSqe) void {
+        const updated_flags = @as(u8, @bitCast(sqe.flags)) | @as(u8, @bitCast(flags));
+        sqe.flags = @bitCast(updated_flags);
+    }
+
+    /// This SQE forms a link with the next SQE in the submission ring. Next SQE
+    /// will not be started before this one completes. Forms a chain of SQEs.
+    pub fn link_next(sqe: *Sqe) void {
+        sqe.flags.IO_LINK = true;
+    }
+};
+
+/// matches io_uring_sq in liburing
+pub const Sq = struct {
+    head: *u32,
+    tail: *u32,
+    mask: u32,
+    flags: *Flags,
+    dropped: *u32,
+    array: []u32,
+    sqes: []Sqe,
+    mmap: []align(page_size_min) u8,
+    mmap_sqes: []align(page_size_min) u8,
+
+    // We use `sqe_head` and `sqe_tail` in the same way as liburing:
+    // We increment `sqe_tail` (but not `tail`) for each call to `get_sqe()`.
+    // We then set `tail` to `sqe_tail` once, only when these events are actually submitted.
+    // This allows us to amortize the cost of the @atomicStore to `tail` across multiple SQEs.
+    sqe_head: u32 = 0,
+    sqe_tail: u32 = 0,
+
+    /// sq_ring.flags
+    pub const Flags = packed struct(u32) {
+        /// needs io_uring_enter wakeup
+        NEED_WAKEUP: bool = false,
+        /// CQ ring is overflown
+        CQ_OVERFLOW: bool = false,
+        /// task should enter the kernel
+        TASKRUN: bool = false,
+        _unused: u29 = 0,
+    };
+
+    pub fn init(fd: posix.fd_t, p: Params) !Sq {
+        assert(fd >= 0);
+        assert(p.features.SINGLE_MMAP);
+        const size = @max(
+            p.sq_off.array + p.sq_entries * @sizeOf(u32),
+            p.cq_off.cqes + p.cq_entries * @sizeOf(Cqe),
+        );
+        const mmap = try posix.mmap(
+            null,
+            size,
+            posix.PROT.READ | posix.PROT.WRITE,
+            .{ .TYPE = .SHARED, .POPULATE = true },
+            fd,
+            constants.OFF_SQ_RING,
+        );
+        errdefer posix.munmap(mmap);
+        assert(mmap.len == size);
+
+        // The motivation for the `sqes` and `array` indirection is to make it possible for the
+        // application to preallocate static io_uring_sqe entries and then replay them when needed.
+        const size_sqes = p.sq_entries * @sizeOf(Sqe);
+        const mmap_sqes = try posix.mmap(
+            null,
+            size_sqes,
+            posix.PROT.READ | posix.PROT.WRITE,
+            .{ .TYPE = .SHARED, .POPULATE = true },
+            fd,
+            constants.OFF_SQES,
+        );
+        errdefer posix.munmap(mmap_sqes);
+        assert(mmap_sqes.len == size_sqes);
+
+        const array: [*]u32 = @ptrCast(@alignCast(&mmap[p.sq_off.array]));
+        const sqes: [*]Sqe = @ptrCast(@alignCast(&mmap_sqes[0]));
+        // We expect the kernel copies p.sq_entries to the u32 pointed to by p.sq_off.ring_entries,
+        // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
+        assert(p.sq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_entries]))).*);
+        return .{
+            .head = @ptrCast(@alignCast(&mmap[p.sq_off.head])),
+            .tail = @ptrCast(@alignCast(&mmap[p.sq_off.tail])),
+            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_mask]))).*,
+            .flags = @ptrCast(@alignCast(&mmap[p.sq_off.flags])),
+            .dropped = @ptrCast(@alignCast(&mmap[p.sq_off.dropped])),
+            .array = array[0..p.sq_entries],
+            .sqes = sqes[0..p.sq_entries],
+            .mmap = mmap,
+            .mmap_sqes = mmap_sqes,
+        };
+    }
+
+    pub fn deinit(self: *Sq) void {
+        posix.munmap(self.mmap_sqes);
+        posix.munmap(self.mmap);
+    }
+};
+
+/// matches io_uring_cq in liburing
+pub const Cq = struct {
+    head: *u32,
+    tail: *u32,
+    mask: u32,
+    overflow: *u32,
+    cqes: []Cqe,
+
+    /// cq_ring.flags
+    pub const Flags = packed struct(u32) {
+        /// disable eventfd notifications
+        EVENTFD_DISABLED: bool = false,
+        _unused: u31 = 0,
+    };
+
+    pub fn init(fd: posix.fd_t, p: Params, sq: Sq) !Cq {
+        assert(fd >= 0);
+        assert(p.features.SINGLE_MMAP);
+        const mmap = sq.mmap;
+        const cqes: [*]Cqe = @ptrCast(@alignCast(&mmap[p.cq_off.cqes]));
+        assert(p.cq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_entries]))).*);
+        return .{
+            .head = @ptrCast(@alignCast(&mmap[p.cq_off.head])),
+            .tail = @ptrCast(@alignCast(&mmap[p.cq_off.tail])),
+            .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_mask]))).*,
+            .overflow = @ptrCast(@alignCast(&mmap[p.cq_off.overflow])),
+            .cqes = cqes[0..p.cq_entries],
+        };
+    }
+
+    pub fn deinit(self: *Cq) void {
+        _ = self;
+        // A no-op since we now share the mmap with the submission queue.
+        // Here for symmetry with the submission queue, and for any future feature support.
+    }
+};
+
+/// Group of application provided buffers. Uses newer type, called ring mapped
+/// buffers, supported since kernel 5.19. Buffers are identified by a buffer
+/// group ID, and within that group, a buffer ID. IO_Uring can have multiple
+/// buffer groups, each with unique group ID.
+///
+/// In `init` application provides contiguous block of memory `buffers` for
+/// `buffers_count` buffers of size `buffers_size`. Application can then submit
+/// `recv` operation without providing buffer upfront. Once the operation is
+/// ready to receive data, a buffer is picked automatically and the resulting
+/// CQE will contain the buffer ID in `cqe.buffer_id()`. Use `get` method to get
+/// buffer for buffer ID identified by CQE. Once the application has processed
+/// the buffer, it may hand ownership back to the kernel, by calling `put`
+/// allowing the cycle to repeat.
+///
+/// Depending on the rate of arrival of data, it is possible that a given buffer
+/// group will run out of buffers before those in CQEs can be put back to the
+/// kernel. If this happens, a `cqe.err()` will have ENOBUFS as the error value.
+///
+pub const BufferGroup = struct {
+    /// Parent ring for which this group is registered.
+    ring: *IoUring,
+    /// Pointer to the memory shared by the kernel.
+    /// `buffers_count` of `io_uring_buf` structures are shared by the kernel.
+    /// First `io_uring_buf` is overlaid by `io_uring_buf_ring` struct.
+    br: *align(page_size_min) BufferRing,
+    /// Contiguous block of memory of size (buffers_count * buffer_size).
+    buffers: []u8,
+    /// Size of each buffer in buffers.
+    buffer_size: u32,
+    /// Number of buffers in `buffers`, number of `io_uring_buf structures` in br.
+    buffers_count: u16,
+    /// Head of unconsumed part of each buffer, if incremental consumption is enabled
+    heads: []u32,
+    /// ID of this group, must be unique in ring.
+    group_id: u16,
+
+    pub fn init(
+        ring: *IoUring,
+        allocator: mem.Allocator,
+        group_id: u16,
+        buffer_size: u32,
+        buffers_count: u16,
+    ) !BufferGroup {
+        const buffers = try allocator.alloc(u8, buffer_size * buffers_count);
+        errdefer allocator.free(buffers);
+        const heads = try allocator.alloc(u32, buffers_count);
+        errdefer allocator.free(heads);
+
+        const br = try setup_buf_ring(ring.fd, buffers_count, group_id, .{ .IOU_PBUF_RING_INC = true });
+        buf_ring_init(br);
+
+        const mask = buf_ring_mask(buffers_count);
+        var i: u16 = 0;
+        while (i < buffers_count) : (i += 1) {
+            const pos = buffer_size * i;
+            const buf = buffers[pos .. pos + buffer_size];
+            heads[i] = 0;
+            buf_ring_add(br, buf, i, mask, i);
+        }
+        buf_ring_advance(br, buffers_count);
+
+        return BufferGroup{
+            .ring = ring,
+            .group_id = group_id,
+            .br = br,
+            .buffers = buffers,
+            .heads = heads,
+            .buffer_size = buffer_size,
+            .buffers_count = buffers_count,
+        };
+    }
+
+    pub fn deinit(self: *BufferGroup, allocator: mem.Allocator) void {
+        free_buf_ring(self.ring.fd, self.br, self.buffers_count, self.group_id);
+        allocator.free(self.buffers);
+        allocator.free(self.heads);
+    }
+
+    // Prepare recv operation which will select buffer from this group.
+    pub fn recv(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*Sqe {
+        var sqe = try self.ring.get_sqe();
+        sqe.prep_rw(.RECV, fd, 0, 0, 0);
+        sqe.rw_flags = flags;
+        sqe.flags.BUFFER_SELECT = true;
+        sqe.buf_index = self.group_id;
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    // Prepare multishot recv operation which will select buffer from this group.
+    pub fn recv_multishot(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*Sqe {
+        var sqe = try self.recv(user_data, fd, flags);
+        sqe.ioprio.send_recv.RECV_MULTISHOT = true;
+        return sqe;
+    }
+
+    // Get buffer by id.
+    fn get_by_id(self: *BufferGroup, buffer_id: u16) []u8 {
+        const pos = self.buffer_size * buffer_id;
+        return self.buffers[pos .. pos + self.buffer_size][self.heads[buffer_id]..];
+    }
+
+    // Get buffer by CQE.
+    pub fn get(self: *BufferGroup, cqe: Cqe) ![]u8 {
+        const buffer_id = try cqe.buffer_id();
+        const used_len = @as(usize, @intCast(cqe.res));
+        return self.get_by_id(buffer_id)[0..used_len];
+    }
+
+    // Release buffer from CQE to the kernel.
+    pub fn put(self: *BufferGroup, cqe: Cqe) !void {
+        const buffer_id = try cqe.buffer_id();
+        if (cqe.flags.F_BUF_MORE) {
+            // Incremental consumption active, kernel will write to the this buffer again
+            const used_len = @as(u32, @intCast(cqe.res));
+            // Track what part of the buffer is used
+            self.heads[buffer_id] += used_len;
+            return;
+        }
+        self.heads[buffer_id] = 0;
+
+        // Release buffer to the kernel.    const mask = buf_ring_mask(self.buffers_count);
+        const mask = buf_ring_mask(self.buffers_count);
+        buf_ring_add(self.br, self.get_by_id(buffer_id), buffer_id, mask, 0);
+        buf_ring_advance(self.br, 1);
+    }
+};
+
+/// Used to select how the read should be handled.
+pub const ReadBuffer = union(enum) {
+    /// io_uring will read directly into this buffer
+    buffer: []u8,
+
+    /// io_uring will read directly into these buffers using readv.
+    iovecs: []const posix.iovec,
+
+    /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
+    /// The buffer group reference by `group_id` must contain at least one buffer for the read to work.
+    /// `len` controls the number of bytes to read into the selected buffer.
+    buffer_selection: struct {
+        group_id: u16,
+        len: usize,
+    },
+};
+
+/// Used to select how the recv call should be handled.
+pub const RecvBuffer = union(enum) {
+    /// io_uring will recv directly into this buffer
+    buffer: []u8,
+
+    /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
+    /// The buffer group referenced by `group_id` must contain at least one buffer for the recv call to work.
+    /// `len` controls the number of bytes to read into the selected buffer.
+    buffer_selection: struct {
+        group_id: u16,
+        len: usize,
+    },
+};
+
+/// Filled with the offset for mmap(2)
+/// matches io_sqring_offsets in liburing
+pub const SqOffsets = extern struct {
+    /// offset of ring head
+    head: u32,
+    /// offset of ring tail
+    tail: u32,
+    /// ring mask value
+    ring_mask: u32,
+    /// entries in ring
+    ring_entries: u32,
+    /// ring flags
+    flags: u32,
+    /// number of sqes not submitted
+    dropped: u32,
+    /// sqe index array
+    array: u32,
+    resv1: u32,
+    user_addr: u64,
+};
+
+/// matches io_cqring_offsets in liburing
+pub const CqOffsets = extern struct {
+    head: u32,
+    tail: u32,
+    ring_mask: u32,
+    ring_entries: u32,
+    overflow: u32,
+    cqes: u32,
+    flags: u32,
+    resv: u32,
+    user_addr: u64,
+};
+
+/// Passed in for io_uring_setup(2). Copied back with updated info on success
+/// matches io_uring_params in liburing
+pub const Params = extern struct {
+    sq_entries: u32,
+    cq_entries: u32,
+    flags: uflags.Setup,
+    sq_thread_cpu: u32,
+    sq_thread_idle: u32,
+    features: uflags.Features,
+    wq_fd: u32,
+    resv: [3]u32,
+    sq_off: SqOffsets,
+    cq_off: CqOffsets,
+};
+
+// COMMIT: remove deprecated io_uring_rsrc_update struct
+// deprecated, see struct io_uring_rsrc_update
+
+// COMMIT: add new io_uring_region_desc struct
+/// matches io_uring_region_desc in liburing
+pub const RegionDesc = extern struct {
+    user_addr: u64,
+    size: u64,
+    flags: Flags,
+    id: u32,
+    mmap_offset: u64,
+    __resv: [4]u64,
+
+    // COMMIT: new constant
+    /// initialise with user provided memory pointed by user_addr
+    pub const Flags = packed struct(u32) {
+        TYPE_USER: bool = false,
+        _: u31 = 0,
+    };
+};
+
+// COMMIT: add new io_uring_mem_region_reg struct
+/// matches io_uring_mem_region_reg in liburing
+pub const MemRegionReg = extern struct {
+    /// struct io_uring_region_desc (RegionDesc in Zig)
+    region_uptr: u64,
+    flags: Flags,
+    __resv: [2]u64,
+
+    /// expose the region as registered wait arguments
+    pub const Flags = packed struct(u64) {
+        REG_WAIT_ARG: bool = false,
+        _: u63 = 0,
+    };
+};
+
+/// matches io_uring_rsrc_register in liburing
+pub const RsrcRegister = extern struct {
+    nr: u32,
+    flags: u32,
+    resv2: u64,
+    data: u64,
+    tags: u64,
+};
+
+/// matches io_uring_rsrc_update in liburing
+pub const RsrcUpdate = extern struct {
+    offset: u32,
+    resv: u32,
+    data: u64,
+};
+
+/// matches io_uring_rsrc_update2 in liburing
+pub const RsrcUpdate2 = extern struct {
+    offset: u32,
+    resv: u32,
+    data: u64,
+    tags: u64,
+    nr: u32,
+    resv2: u32,
+};
+
+/// matches io_uring_probe_op in liburing
+pub const ProbeOp = extern struct {
+    op: Op,
+    resv: u8,
+    flags: Flags,
+    resv2: u32,
+
+    pub const Flags = packed struct(u16) {
+        OP_SUPPORTED: bool = false,
+        _: u15 = 0,
+    };
+
+    pub fn is_supported(self: ProbeOp) bool {
+        return self.flags.OP_SUPPORTED;
+    }
+};
+
+/// matches io_uring_probe in liburing
+pub const Probe = extern struct {
+    /// Last opcode supported
+    last_op: Op,
+    /// Length of ops[] array below
+    ops_len: u8,
+    resv: u16,
+    resv2: [3]u32,
+    ops: [256]ProbeOp,
+
+    /// Is the operation supported on the running kernel.
+    pub fn is_supported(self: @This(), op: Op) bool {
+        const i = @intFromEnum(op);
+        if (i > @intFromEnum(self.last_op) or i >= self.ops_len)
+            return false;
+        return self.ops[i].is_supported();
+    }
+};
+
+// COMMIT: fix defination of io_uring_restriction
+// RegisterOp is actually u8
+/// matches io_uring_restriction in liburing
+pub const Restriction = extern struct {
+    opcode: RestrictionOp,
+    arg: extern union {
+        /// IORING_RESTRICTION_REGISTER_OP
+        register_op: RegisterOp,
+        /// IORING_RESTRICTION_SQE_OP
+        sqe_op: Op,
+        /// IORING_RESTRICTION_SQE_FLAGS_*
+        sqe_flags: u8,
+    },
+    resv: u8,
+    resv2: [3]u32,
+};
+
+// COMMIT: add new struct type
+/// matches io_uring_clock_register in liburing
+pub const ClockRegister = extern struct {
+    clockid: u32,
+    __resv: [3]u32,
+};
+
+// COMMIT: add new struct type
+/// matches io_uring_clone_buffers in liburing
+pub const CloneBuffers = extern struct {
+    src_fd: u32,
+    flags: Flags,
+    src_off: u32,
+    dst_off: u32,
+    nr: u32,
+    pad: [3]u32,
+
+    // COMMIT: new flags
+    pub const Flags = packed struct(u32) {
+        REGISTER_SRC_REGISTERED: bool = false,
+        REGISTER_DST_REPLACE: bool = false,
+        _: u30 = 0,
+    };
+};
+
+/// matches io_uring_buf in liburing
+pub const Buffer = extern struct {
+    addr: u64,
+    len: u32,
+    bid: u16,
+    resv: u16,
+};
+
+/// matches io_uring_buf_ring in liburing
+pub const BufferRing = extern struct {
+    resv1: u64,
+    resv2: u32,
+    resv3: u16,
+    tail: u16,
+};
+
+/// argument for IORING_(UN)REGISTER_PBUF_RING
+/// matches io_uring_buf_reg in liburing
+pub const BufferRegister = extern struct {
+    ring_addr: u64,
+    ring_entries: u32,
+    bgid: u16,
+    flags: Flags,
+    resv: [3]u64,
+
+    // COMMIT: new IORING_REGISTER_PBUF_RING flags
+    /// Flags for IORING_REGISTER_PBUF_RING.
+    pub const Flags = packed struct(u16) {
+        /// IOU_PBUF_RING_MMAP:
+        /// If set, kernel will allocate the memory for the ring.
+        /// The application must not set a ring_addr in struct io_uring_buf_reg
+        /// instead it must subsequently call mmap(2) with the offset set
+        /// as: IORING_OFF_PBUF_RING | (bgid << IORING_OFF_PBUF_SHIFT) to get
+        /// a virtual mapping for the ring.
+        IOU_PBUF_RING_MMAP: bool = false,
+        /// IOU_PBUF_RING_INC:
+        /// If set, buffers consumed from this buffer ring can be
+        /// consumed incrementally. Normally one (or more) buffers
+        /// are fully consumed. With incremental consumptions, it's
+        /// feasible to register big ranges of buffers, and each
+        /// use of it will consume only as much as it needs. This
+        /// requires that both the kernel and application keep
+        /// track of where the current read/recv index is at.
+        IOU_PBUF_RING_INC: bool = false,
+        _: u14 = 0,
+    };
+};
+
+/// argument for IORING_REGISTER_PBUF_STATUS
+/// matches io_uring_buf_status in liburing
+pub const BufferStatus = extern struct {
+    /// input
+    buf_group: u32,
+    /// output
+    head: u32,
+    resv: [8]u32,
+};
+
+/// argument for IORING_(UN)REGISTER_NAPI
+/// matches io_uring_napi in liburing
+pub const Napi = extern struct {
+    busy_poll_to: u32,
+    prefer_busy_poll: u8,
+    pad: [3]u8,
+    resv: u64,
+};
+
+// COMMIT: new struct type
+/// Argument for io_uring_enter(2) with
+/// IORING_GETEVENTS | IORING_ENTER_EXT_ARG_REG set, where the actual argument
+/// is an index into a previously registered fixed wait region described by
+/// the below structure.
+/// matches io_uring_reg_wait in liburing
+pub const RegisterWait = extern struct {
+    ts: linux.kernel_timespec,
+    min_wait_usec: u32,
+    flags: Flags,
+    sigmask: u64,
+    sigmask_sz: u32,
+    pad: [3]u32,
+    pad2: [2]u64,
+
+    // COMMIT: new constant
+    pub const Flags = packed struct(u32) {
+        REG_WAIT_TS: bool = false,
+        _: u31 = 0,
+    };
+};
+
+/// Argument for io_uring_enter(2) with IORING_GETEVENTS | IORING_ENTER_EXT_ARG
+/// matches io_uring_getevents_arg in liburing
+pub const GetEventsArg = extern struct {
+    sigmask: u64,
+    sigmask_sz: u32,
+    pad: u32,
+    ts: u64,
+};
+
+// COMMIT: fix type definition of io_uring_sync_cancel_reg
+/// Argument for IORING_REGISTER_SYNC_CANCEL
+/// matches io_uring_sync_cancel_reg in liburing
+pub const SyncCancelRegister = extern struct {
+    addr: u64,
+    fd: i32,
+    flags: uflags.AsyncCancel,
+    timeout: linux.kernel_timespec,
+    opcode: Op,
+    pad: [7]u8,
+    pad2: [4]u64,
+};
+
+/// Argument for IORING_REGISTER_FILE_ALLOC_RANGE
+/// The range is specified as [off, off + len)
+/// matches io_uring_file_index_range in liburing
+pub const FileIndexRange = extern struct {
+    off: u32,
+    len: u32,
+    resv: u64,
+};
+
+/// matches io_uring_recvmsg_out in liburing
+pub const RecvmsgOut = extern struct {
+    namelen: u32,
+    controllen: u32,
+    payloadlen: u32,
+    flags: u32,
+};
+
+/// Zero copy receive refill queue entry
+/// matches io_uring_zcrx_rqe in liburing
+pub const ZcrxRqe = extern struct {
+    off: u64,
+    len: u32,
+    __pad: u32,
+};
+
+/// matches io_uring_zcrx_cqe in liburing
+pub const ZcrxCqe = extern struct {
+    off: u64,
+    __pad: u64,
+};
+
+/// matches io_uring_zcrx_offsets in liburing
+pub const ZcrxOffsets = extern struct {
+    head: u32,
+    tail: u32,
+    rqes: u32,
+    __resv2: u32,
+    __resv: [2]u64,
+};
+
+/// matches io_uring_zcrx_area_reg in liburing
+pub const ZcrxAreaRegister = extern struct {
+    addr: u64,
+    len: u64,
+    rq_area_token: u64,
+    flags: Flags,
+    dmabuf_fd: u32,
+    __resv2: [2]u64,
+
+    pub const Flags = packed struct(u32) {
+        DMABUF: bool = false,
+        _: u31 = 0,
+    };
+};
+
+/// Argument for IORING_REGISTER_ZCRX_IFQ
+/// matches io_uring_zcrx_ifq_reg in liburing
+pub const ZcrxIfqRegister = extern struct {
+    if_idx: u32,
+    if_rxq: u32,
+    rq_entries: u32,
+    // TODO: find out its flags, I suspect its ZcrxAreaRegister.Flags
+    flags: u32,
+    /// pointer to struct io_uring_zcrx_area_reg
+    area_ptr: u64,
+    /// struct io_uring_region_desc
+    region_ptr: u64,
+    offsets: ZcrxOffsets,
+    zcrx_id: u32,
+    __resv2: u32,
+    __resv: [3]u64,
+};
+
+// COMMIT: move IoUring constants to Constants
+pub const constants = struct {
+    /// If sqe.file_index (splice_fd_in in Zig Struct) is set to this for opcodes that instantiate a new
+    /// an available direct descriptor instead of having the application pass one
+    /// direct descriptor (like openat/openat2/accept), then io_uring will allocate
+    /// in. The picked direct descriptor will be returned in cqe.res, or -ENFILE
+    /// if the space is full.
+    pub const FILE_INDEX_ALLOC = std.math.maxInt(u32);
+
+    pub const CMD_MASK = 1 << 0;
+
+    pub const TIMEOUT_CLOCK_MASK = ((1 << 2) | (1 << 3));
+    pub const TIMEOUT_UPDATE_MASK = ((1 << 1) | (1 << 4));
+
+    pub const CQE_BUFFER_SHIFT = 16;
+
+    /// cqe.res for IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was
+    /// requested It should be treated as a flag, all other bits of cqe.res
+    /// should be treated as reserved!
+    pub const NOTIF_USAGE_ZC_COPIED = (1 << 31);
+
+    //Magic offsets for the application to mmap the data it needs
+    pub const OFF_SQ_RING = 0;
+    pub const OFF_CQ_RING = 0x8000000;
+    pub const OFF_SQES = 0x10000000;
+    // COMMIT: new magic constants
+    pub const OFF_PBUF_RING = 0x80000000;
+    pub const OFF_PBUF_SHIFT = 16;
+    pub const OFF_MMAP_MASK = 0xf8000000;
+
+    /// Register a fully sparse file space, rather than pass in an array of all -1 file descriptors.
+    pub const RSRC_REGISTER_SPARSE = 1 << 0;
+
+    /// Skip updating fd indexes set to this value in the fd table
+    pub const REGISTER_FILES_SKIP = -2;
+
+    // COMMIT: new TX Timestamp definition
+    /// SOCKET_URING_OP_TX_TIMESTAMP definitions
+    pub const TIMESTAMP_HW_SHIFT = 16;
+    /// The cqe.flags bit from which the timestamp type is stored
+    pub const TIMESTAMP_TYPE_SHIFT = (TIMESTAMP_HW_SHIFT + 1);
+    /// The cqe.flags flag signifying whether it's a hardware timestamp
+    pub const CQE_F_TSTAMP_HW = (1 << TIMESTAMP_HW_SHIFT);
+
+    /// The bit from which area id is encoded into offsets
+    pub const ZCRX_AREA_SHIFT = 48;
+    pub const ZCRX_AREA_MASK = (~((1 << ZCRX_AREA_SHIFT) - 1));
+
+    // flag added to the opcode to use a registered ring fd
+    pub const REGISTER_USE_REGISTERED_RING = 1 << 31;
+};
+
+// COMMIT: move IoUring flags to Flags struct
+pub const uflags = struct {
+    /// io_uring_setup() flags
+    pub const Setup = packed struct(u32) {
+        /// io_context is polled
+        IOPOLL: bool = false,
+        /// SQ poll thread
+        SQPOLL: bool = false,
+        /// sq_thread_cpu is valid
+        SQ_AFF: bool = false,
+        /// app defines CQ size
+        CQSIZE: bool = false,
+        /// clamp SQ/CQ ring sizes
+        CLAMP: bool = false,
+        /// attach to existing wq
+        ATTACH_WQ: bool = false,
+        /// start with ring disabled
+        R_DISABLED: bool = false,
+        /// continue submit on error
+        SUBMIT_ALL: bool = false,
+        ///Cooperative task running. When requests complete, they often require
+        ///forcing the submitter to transition to the kernel to complete. If this
+        ///flag is set, work will be done when the task transitions anyway, rather
+        ///than force an inter-processor interrupt reschedule. This avoids interrupting
+        ///a task running in userspace, and saves an IPI.
+        COOP_TASKRUN: bool = false,
+        ///If COOP_TASKRUN is set, get notified if task work is available for
+        ///running and a kernel transition would be needed to run it. This sets
+        ///IORING_SQ_TASKRUN in the sq ring flags. Not valid with COOP_TASKRUN.
+        TASKRUN_FLAG: bool = false,
+        /// SQEs are 128 byte
+        SQE128: bool = false,
+        /// CQEs are 32 byte
+        CQE32: bool = false,
+        /// Only one task is allowed to submit requests
+        SINGLE_ISSUER: bool = false,
+        /// Defer running task work to get events.
+        /// Rather than running bits of task work whenever the task transitions
+        /// try to do it just before it is needed.
+        DEFER_TASKRUN: bool = false,
+        /// Application provides the memory for the rings
+        NO_MMAP: bool = false,
+        /// Register the ring fd in itself for use with
+        /// IORING_REGISTER_USE_REGISTERED_RING; return a registered fd index rather
+        /// than an fd.
+        REGISTERED_FD_ONLY: bool = false,
+        /// Removes indirection through the SQ index array.
+        NO_SQARRAY: bool = false,
+        // COMMIT: new setup flags
+        /// Use hybrid poll in iopoll process
+        HYBRID_IOPOLL: bool = false,
+        /// Allow both 16b and 32b CQEs. If a 32b CQE is posted, it will have
+        /// IORING_CQE_F_32 set in cqe.flags.
+        CQE_MIXED: bool = false,
+        _unused: u13 = 0,
+    };
+
+    /// sqe.uring_cmd_flags (rw_flags in the Zig struct)
+    /// top 8bits aren't available for userspace
+    /// use registered buffer; pass this flag along with setting sqe.buf_index.
+    pub const Cmd = packed struct(u32) {
+        CMD_FIXED: bool = false,
+        _unused: u31 = 0,
+    };
+
+    /// sqe.fsync_flags (rw_flags in the Zig struct)
+    pub const Fsync = packed struct(u32) {
+        DATASYNC: bool = false,
+        _unused: u31 = 0,
+    };
+
+    /// sqe.timeout_flags
+    pub const Timeout = packed struct(u32) {
+        TIMEOUT_ABS: bool = false,
+        /// Available since Linux 5.11
+        TIMEOUT_UPDATE: bool = false,
+        /// Available since Linux 5.15
+        TIMEOUT_BOOTTIME: bool = false,
+        /// Available since Linux 5.15
+        TIMEOUT_REALTIME: bool = false,
+        /// Available since Linux 5.15
+        LINK_TIMEOUT_UPDATE: bool = false,
+        /// Available since Linux 5.16
+        TIMEOUT_ETIME_SUCCESS: bool = false,
+        // COMMIT: new Timeout Flag
+        // TODO: add when it became available
+        TIMEOUT_MULTISHOT: bool = false,
+        _unused: u25 = 0,
+    };
+
+    /// sqe.splice_flags (rw_flags in Zig Struct)
+    /// extends splice(2) flags
+    pub const Splice = packed struct(u32) {
+        _unused: u31 = 0,
+        /// the last bit of __u32
+        F_FD_IN_FIXED: bool = false,
+    };
+
+    /// POLL_ADD flags. Note that since sqe.poll_events (rw_flags in Zig Struct)
+    /// is the flag space, the command flags for POLL_ADD are stored in sqe.len.
+    pub const Poll = packed struct(u32) {
+        /// IORING_POLL_ADD_MULTI
+        /// Multishot poll. Sets IORING_CQE_F_MORE if the poll handler will continue
+        /// to report CQEs on behalf of the same SQE.
+        ADD_MULTI: bool = false,
+        // TODO: verify this doc comment is valid for the 2 flags below
+        /// IORING_POLL_UPDATE
+        /// Update existing poll request, matching sqe.addr as the old user_data
+        /// field.
+        UPDATE_EVENTS: bool = false,
+        /// IORING_POLL_UPDATE
+        /// Update existing poll request, matching sqe.addr as the old user_data
+        /// field.
+        UPDATE_USER_DATA: bool = false,
+        /// IORING_POLL_LEVEL
+        /// Level triggered poll.
+        ADD_LEVEL: bool = false,
+        _unused: u28 = 0,
+    };
+
+    /// ASYNC_CANCEL flags.
+    pub const AsyncCancel = packed struct(u32) {
+        /// IORING_ASYNC_CANCEL_ALL
+        /// Cancel all requests that match the given key
+        CANCEL_ALL: bool = false,
+        /// IORING_ASYNC_CANCEL_FD
+        /// Key off 'fd' for cancelation rather than the request 'user_data'
+        CANCEL_FD: bool = false,
+        /// IORING_ASYNC_CANCEL_ANY
+        /// Match any request
+        CANCEL_ANY: bool = false,
+        /// IORING_ASYNC_CANCEL_FD_FIXED
+        /// 'fd' passed in is a fixed descriptor
+        CANCEL_FD_FIXED: bool = false,
+        // COMMIT: new AsyncCancel Flags
+        /// IORING_ASYNC_CANCEL_USERDATA
+        /// Match on user_data, default for no other key
+        CANCEL_USERDATA: bool = false,
+        /// IORING_ASYNC_CANCEL_OP
+        /// Match request based on opcode
+        CANCEL_OP: bool = false,
+        _unused: u26 = 0,
+    };
+
+    /// IORING_OP_MSG_RING flags (sqe.msg_ring_flags or sqe.rw_flags in Zig Struct)
+    pub const MsgRing = packed struct(u32) {
+        /// IORING_MSG_RING_CQE_SKIP Don't post a CQE to the target ring.
+        /// Not applicable for IORING_MSG_DATA, obviously.
+        CQE_SKIP: bool = false,
+        /// Pass through the flags from sqe.file_index to cqe.flags
+        FLAGS_PASS: bool = false,
+        _unused: u30 = 0,
+    };
+
+    // COMMIT: new flag
+    /// IORING_OP_FIXED_FD_INSTALL flags (sqe.install_fd_flags or sqe.rw_flags in Zig Struct)
+    pub const FixedFd = packed struct(u32) {
+        /// IORING_FIXED_FD_NO_CLOEXEC Don't mark the fd as O_CLOEXEC
+        NO_CLOEXEC: bool = false,
+    };
+
+    /// COMMIT: new flags
+    /// IORING_OP_NOP flags (sqe.nop_flags or sqe.rw_flags in Zig Struct)
+    pub const Nop = packed struct(u32) {
+        /// IORING_NOP_INJECT_RESULT Inject result from sqe.result
+        INJECT_RESULT: bool = false,
+        _unused: u4 = 0,
+        CQE32: bool = false,
+        _unused_1: u26 = 0,
+    };
+
+    /// io_uring_enter(2) flags
+    pub const Enter = packed struct(u32) {
+        GETEVENTS: bool = false,
+        SQ_WAKEUP: bool = false,
+        SQ_WAIT: bool = false,
+        EXT_ARG: bool = false,
+        REGISTERED_RING: bool = false,
+        // COMMIT: new flags
+        ABS_TIMER: bool = false,
+        EXT_ARG_REG: bool = false,
+        NO_IOWAIT: bool = false,
+        _unused: u24 = 0,
+
+        pub fn empty(enter_flags: Enter) bool {
+            return @as(u32, @bitCast(enter_flags)) == 0;
+        }
+    };
+
+    /// io_uring_params.features flags
+    const Features = packed struct(u32) {
+        SINGLE_MMAP: bool = false,
+        NODROP: bool = false,
+        SUBMIT_STABLE: bool = false,
+        RW_CUR_POS: bool = false,
+        CUR_PERSONALITY: bool = false,
+        FAST_POLL: bool = false,
+        POLL_32BITS: bool = false,
+        SQPOLL_NONFIXED: bool = false,
+        EXT_ARG: bool = false,
+        NATIVE_WORKERS: bool = false,
+        RSRC_TAGS: bool = false,
+        CQE_SKIP: bool = false,
+        LINKED_FILE: bool = false,
+        // COMMIT: add new Feature Flags
+        REG_REG_RING: bool = false,
+        RECVSEND_BUNDLE: bool = false,
+        MIN_TIMEOUT: bool = false,
+        RW_ATTR: bool = false,
+        NO_IOWAIT: bool = false,
+        _unused: u14 = 0,
+
+        pub fn empty(features: Features) bool {
+            return @as(u32, @bitCast(features)) == 0;
+        }
+    };
+};
+/// io_uring_register(2) opcodes and arguments
+/// matches io_uring_register_op in liburing
+pub const RegisterOp = enum(u8) {
+    REGISTER_BUFFERS,
+    UNREGISTER_BUFFERS,
+    REGISTER_FILES,
+    UNREGISTER_FILES,
+    REGISTER_EVENTFD,
+    UNREGISTER_EVENTFD,
+    REGISTER_FILES_UPDATE,
+    REGISTER_EVENTFD_ASYNC,
+    REGISTER_PROBE,
+    REGISTER_PERSONALITY,
+    UNREGISTER_PERSONALITY,
+    REGISTER_RESTRICTIONS,
+    REGISTER_ENABLE_RINGS,
+
+    // extended with tagging
+    REGISTER_FILES2,
+    REGISTER_FILES_UPDATE2,
+    REGISTER_BUFFERS2,
+    REGISTER_BUFFERS_UPDATE,
+
+    // set/clear io-wq thread affinities
+    REGISTER_IOWQ_AFF,
+    UNREGISTER_IOWQ_AFF,
+
+    // set/get max number of io-wq workers
+    REGISTER_IOWQ_MAX_WORKERS,
+
+    // register/unregister io_uring fd with the ring
+    REGISTER_RING_FDS,
+    UNREGISTER_RING_FDS,
+
+    // register ring based provide buffer group
+    REGISTER_PBUF_RING,
+    UNREGISTER_PBUF_RING,
+
+    // sync cancelation API
+    REGISTER_SYNC_CANCEL,
+
+    // register a range of fixed file slots for automatic slot allocation
+    REGISTER_FILE_ALLOC_RANGE,
+
+    // return status information for a buffer group
+    REGISTER_PBUF_STATUS,
+
+    // set/clear busy poll settings
+    REGISTER_NAPI,
+    UNREGISTER_NAPI,
+
+    REGISTER_CLOCK,
+
+    // clone registered buffers from source ring to current ring
+    REGISTER_CLONE_BUFFERS,
+
+    // send MSG_RING without having a ring
+    REGISTER_SEND_MSG_RING,
+
+    // register a netdev hw rx queue for zerocopy
+    REGISTER_ZCRX_IFQ,
+
+    // resize CQ ring
+    REGISTER_RESIZE_RINGS,
+
+    REGISTER_MEM_REGION,
+
+    // COMMIT: new register opcode
+    // query various aspects of io_uring, see linux/io_uring/query.h
+    REGISTER_QUERY,
+
+    _,
+};
+
+/// io-wq worker categories
+/// matches io_wq_type in liburing
+pub const IoWqCategory = enum(u8) {
+    BOUND,
+    UNBOUND,
+};
+
+pub const SocketOp = enum(u16) {
+    SIOCIN,
+    SIOCOUTQ,
+    GETSOCKOPT,
+    SETSOCKOPT,
+    // COMMIT: new socket op
+    TX_TIMESTAMP,
+};
+
+/// io_uring_restriction.opcode values
+/// matches io_uring_register_restriction_op in liburing
+pub const RestrictionOp = enum(u16) {
+    /// Allow an io_uring_register(2) opcode
+    REGISTER_OP = 0,
+    /// Allow an sqe opcode
+    SQE_OP = 1,
+    /// Allow sqe flags
+    SQE_FLAGS_ALLOWED = 2,
+    /// Require sqe flags (these flags must be set on each submission)
+    SQE_FLAGS_REQUIRED = 3,
+
+    _,
+};
+
+/// IORING_OP_MSG_RING command types, stored in sqe.addr
+pub const MsgRingCmd = enum {
+    /// pass sqe->len as 'res' and off as user_data
+    DATA,
+    /// send a registered fd to another ring
+    SEND_FD,
+};
+
+// COMMIT: OP to IoUring
+pub const Op = enum(u8) {
+    NOP,
+    READV,
+    WRITEV,
+    FSYNC,
+    READ_FIXED,
+    WRITE_FIXED,
+    POLL_ADD,
+    POLL_REMOVE,
+    SYNC_FILE_RANGE,
+    SENDMSG,
+    RECVMSG,
+    TIMEOUT,
+    TIMEOUT_REMOVE,
+    ACCEPT,
+    ASYNC_CANCEL,
+    LINK_TIMEOUT,
+    CONNECT,
+    FALLOCATE,
+    OPENAT,
+    CLOSE,
+    FILES_UPDATE,
+    STATX,
+    READ,
+    WRITE,
+    FADVISE,
+    MADVISE,
+    SEND,
+    RECV,
+    EPOLL_CTL,
+    OPENAT2,
+    SPLICE,
+    PROVIDE_BUFFERS,
+    REMOVE_BUFFERS,
+    TEE,
+    SHUTDOWN,
+    RENAMEAT,
+    UNLINKAT,
+    MKDIRAT,
+    SYMLINKAT,
+    LINKAT,
+    MSG_RING,
+    FSETXATTR,
+    SETXATTR,
+    FGETXATTR,
+    GETXATTR,
+    SOCKET,
+    URING_CMD,
+    SEND_ZC,
+    SENDMSG_ZC,
+    READ_MULTISHOT,
+    WAITID,
+    FUTEX_WAIT,
+    FUTEX_WAKE,
+    FUTEX_WAITV,
+    FIXED_FD_INSTALL,
+    FTRUNCATE,
+    BIND,
+    LISTEN,
+    RECV_ZC,
+    // COMMIT: new OPs
+    // TODO: to be implemented
+    EPOLL_WAIT,
+    READV_FIXED,
+    WRITEV_FIXED,
+    PIPE,
+
+    _,
+};

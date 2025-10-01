@@ -2249,13 +2249,13 @@ pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usi
     }
 }
 
-pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
+pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: Statx.Mask, statx_buf: *Statx) usize {
     return syscall5(
         .statx,
         @as(usize, @bitCast(@as(isize, dirfd))),
         @intFromPtr(path),
         flags,
-        mask,
+        @intCast(@as(u32, @bitCast(mask))),
         @intFromPtr(statx_buf),
     );
 }
@@ -6936,93 +6936,6 @@ pub const utsname = extern struct {
 };
 pub const HOST_NAME_MAX = 64;
 
-// COMMIT: add new StatxMask fields
-// https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L203
-pub const StatxMask = packed struct(u32) {
-    type: bool = false,
-    /// Want/got stx_mode & ~S_IFMT
-    mode: bool = false,
-    /// Want/got stx_nlink
-    nlink: bool = false,
-    /// Want/got stx_uid
-    uid: bool = false,
-    /// Want/got stx_gid
-    gid: bool = false,
-    /// Want/got stx_atime
-    atime: bool = false,
-    /// Want/got stx_mtime
-    mtime: bool = false,
-    /// Want/got stx_ctime
-    ctime: bool = false,
-    /// Want/got stx_ino
-    ino: bool = false,
-    /// Want/got stx_size
-    size: bool = false,
-    /// Want/got stx_blocks
-    blocks: bool = false,
-    /// Want/got stx_btime
-    btime: bool = false,
-    /// Got stx_mnt_id
-    mnt_id: bool = false,
-    /// Want/got direct I/O alignment info
-    dioalign: bool = false,
-    /// Want/got extended stx_mount_id
-    mnt_id_unique: bool = false,
-    /// Want/got stx_subvol
-    subvol: bool = false,
-    /// Want/got atomic_write_* fields
-    write_atomic: bool = false,
-    /// Want/got dio read alignment info
-    dio_read_align: bool = false,
-    /// Reserved for future struct statx expansion
-    _: u14 = 0,
-
-    /// The stuff in the normal stat struct (bits 0-10)
-    pub const basic_stats: StatxMask = .{
-        .type = true,
-        .mode = true,
-        .nlink = true,
-        .uid = true,
-        .gid = true,
-        .atime = true,
-        .mtime = true,
-        .ctime = true,
-        .ino = true,
-        .size = true,
-        .blocks = true,
-    };
-};
-
-// COMMIT: Statx as Packed Struct
-// https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L248
-pub const StatxAttr = packed struct(u64) {
-    _0: u2 = 0,
-    /// File is compressed by the fs
-    compressed: bool = false,
-    _1: u1 = 0,
-    /// File is marked immutable
-    immutable: bool = false,
-    /// File is append-only
-    append: bool = false,
-    /// File is not to be dumped
-    nodump: bool = false,
-    _2: u4 = 0,
-    /// File requires key to decrypt in fs
-    encrypted: bool = false,
-    /// Dir: Automount trigger
-    automount: bool = false,
-    /// Root of a mount
-    mount_root: bool = false,
-    _3: u6 = 0,
-    /// Verity protected file
-    verity: bool = false,
-    /// File is currently in DAX state
-    dax: bool = false,
-    /// File supports atomic write operations
-    write_atomic: bool = false,
-    _: u41 = 0,
-};
-
 // COMMIT: RenameFlags
 pub const RenameFlags = packed struct(u32) {
     /// Don't overwrite target
@@ -7043,13 +6956,13 @@ pub const statx_timestamp = extern struct {
 /// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
     /// Mask of bits indicating filled fields
-    mask: StatxMask,
+    mask: Mask,
 
     /// Block size for filesystem I/O
     blksize: u32,
 
     /// Extra file attribute indicators
-    attributes: StatxAttr,
+    attributes: Attr,
 
     /// Number of hard links
     nlink: u32,
@@ -7074,7 +6987,7 @@ pub const Statx = extern struct {
     blocks: u64,
 
     /// Mask to show what's supported in `attributes`.
-    attributes_mask: StatxAttr,
+    attributes_mask: Attr,
 
     /// Last access file timestamp
     atime: statx_timestamp,
@@ -7101,6 +7014,95 @@ pub const Statx = extern struct {
     dev_minor: u32,
 
     __pad2: [14]u64,
+
+    // COMMIT: add new StatxMask fields
+    // https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L203
+    /// matches STATX_* in kernel
+    pub const Mask = packed struct(u32) {
+        type: bool = false,
+        /// Want/got stx_mode & ~S_IFMT
+        mode: bool = false,
+        /// Want/got stx_nlink
+        nlink: bool = false,
+        /// Want/got stx_uid
+        uid: bool = false,
+        /// Want/got stx_gid
+        gid: bool = false,
+        /// Want/got stx_atime
+        atime: bool = false,
+        /// Want/got stx_mtime
+        mtime: bool = false,
+        /// Want/got stx_ctime
+        ctime: bool = false,
+        /// Want/got stx_ino
+        ino: bool = false,
+        /// Want/got stx_size
+        size: bool = false,
+        /// Want/got stx_blocks
+        blocks: bool = false,
+        /// Want/got stx_btime
+        btime: bool = false,
+        /// Got stx_mnt_id
+        mnt_id: bool = false,
+        /// Want/got direct I/O alignment info
+        dioalign: bool = false,
+        /// Want/got extended stx_mount_id
+        mnt_id_unique: bool = false,
+        /// Want/got stx_subvol
+        subvol: bool = false,
+        /// Want/got atomic_write_* fields
+        write_atomic: bool = false,
+        /// Want/got dio read alignment info
+        dio_read_align: bool = false,
+        /// Reserved for future struct statx expansion
+        _: u14 = 0,
+
+        /// The stuff in the normal stat struct (bits 0-10)
+        pub const basic_stats: Mask = .{
+            .type = true,
+            .mode = true,
+            .nlink = true,
+            .uid = true,
+            .gid = true,
+            .atime = true,
+            .mtime = true,
+            .ctime = true,
+            .ino = true,
+            .size = true,
+            .blocks = true,
+        };
+    };
+
+    // COMMIT: Statx as Packed Struct
+    // https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L248
+    /// matches STATX_ATTR_* in kernel
+    pub const Attr = packed struct(u64) {
+        _0: u2 = 0,
+        /// File is compressed by the fs
+        compressed: bool = false,
+        _1: u1 = 0,
+        /// File is marked immutable
+        immutable: bool = false,
+        /// File is append-only
+        append: bool = false,
+        /// File is not to be dumped
+        nodump: bool = false,
+        _2: u4 = 0,
+        /// File requires key to decrypt in fs
+        encrypted: bool = false,
+        /// Dir: Automount trigger
+        automount: bool = false,
+        /// Root of a mount
+        mount_root: bool = false,
+        _3: u6 = 0,
+        /// Verity protected file
+        verity: bool = false,
+        /// File is currently in DAX state
+        dax: bool = false,
+        /// File supports atomic write operations
+        write_atomic: bool = false,
+        _: u41 = 0,
+    };
 };
 
 pub const addrinfo = extern struct {

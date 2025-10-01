@@ -85,7 +85,7 @@ test "statx" {
     defer file.close();
 
     var statx_buf: linux.Statx = undefined;
-    switch (linux.errno(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+    switch (linux.errno(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.Statx.Mask.basic_stats, &statx_buf))) {
         .SUCCESS => {},
         else => unreachable,
     }
