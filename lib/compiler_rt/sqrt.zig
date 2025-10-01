@@ -35,7 +35,7 @@ pub fn __sqrth(x: f16) callconv(.c) f16 {
     if (top -% 0x01 >= 0x1F - 0x01) {
         @branchHint(.unlikely);
         // x < 0x1p-14 or inf or nan.
-        if (ix *% 2 == 0) return x;
+        if (ix & 0x7FFF == 0) return x;
         if (ix == 0x7C00) return x;
         if (ix > 0x7C00) return math.nan(f16);
         // x is subnormal, normalize it.
@@ -56,7 +56,7 @@ pub fn __sqrth(x: f16) callconv(.c) f16 {
     // the fixed point representations are
     //   m: 2.14 r: 0.16, s: 2.14, d: 2.14, u: 2.14, three: 2.14
     const three: u16 = 0xC000;
-    const i: usize = @intCast((ix >> 4) % 128);
+    const i: usize = @intCast((ix >> 4) & 0x7F);
     const r = __rsqrt_tab[i];
     // |r*sqrt(m) - 1| < 0x1p-8
     var s = mul16(m, r);
@@ -101,7 +101,7 @@ pub fn sqrtf(x: f32) callconv(.c) f32 {
     if (top -% 0x01 >= 0xFF - 0x01) {
         @branchHint(.unlikely);
         // x < 0x1p-126 or inf or nan.
-        if (ix *% 2 == 0) return x;
+        if (ix & 0x7FFF_FFFF == 0) return x;
         if (ix == 0x7F80_0000) return x;
         if (ix > 0x7F80_0000) return math.nan(f32);
         // x is subnormal, normalize it.
@@ -122,7 +122,7 @@ pub fn sqrtf(x: f32) callconv(.c) f32 {
     // the fixed point representations are
     //   m: 2.30 r: 0.32, s: 2.30, d: 2.30, u: 2.30, three: 2.30
     const three: u32 = 0xC000_0000;
-    var i: usize = @intCast((ix >> 17) % 64);
+    var i: usize = @intCast((ix >> 17) & 0x3F);
     if (even) i += 64;
     var r = @as(u32, @intCast(__rsqrt_tab[i])) << 16;
     // |r*sqrt(m) - 1| < 0x1p-8
@@ -174,7 +174,7 @@ pub fn sqrt(x: f64) callconv(.c) f64 {
     if (top -% 0x001 >= 0x7FF - 0x001) {
         @branchHint(.unlikely);
         // x < 0x1p-1022 or inf or nan.
-        if (ix *% 2 == 0) return x;
+        if (ix & 0x7FFF_FFFF_FFFF_FFFF == 0) return x;
         if (ix == 0x7FF0_0000_0000_0000) return x;
         if (ix > 0x7FF0_0000_0000_0000) return math.nan(f64);
         // x is subnormal, normalize it.
@@ -252,7 +252,7 @@ pub fn sqrt(x: f64) callconv(.c) f64 {
     var s: struct { u32, u64 } = undefined;
     var d: struct { u32, u64 } = undefined;
     var u: struct { u32, u64 } = undefined;
-    const i: usize = @intCast((ix >> 46) % 128);
+    const i: usize = @intCast((ix >> 46) & 0x7F);
     r[0] = @intCast(__rsqrt_tab[i]);
     r[0] <<= 16;
     // |r sqrt(m) - 1| < 0x1.fdp-9
@@ -312,7 +312,7 @@ pub fn __sqrtx(x: f80) callconv(.c) f80 {
     if (top -% 0x0001 >= 0x7FFF - 0x0001) {
         @branchHint(.unlikely);
         // x < 0x1p-16382 or inf or nan.
-        if (ix *% 2 == 0) return x;
+        if (ix & 0x7FFF_FFFF_FFFF_FFFF_FFFF == 0) return x;
         if (ix == 0x7FFF_8000_0000_0000_0000) return x;
         if (ix > 0x7FFF_8000_0000_0000_0000) return math.nan(f80);
         // x is subnormal, normalize it.
@@ -345,7 +345,7 @@ pub fn __sqrtx(x: f80) callconv(.c) f80 {
     var s: struct { u32, u64, u80 } = undefined;
     var d: struct { u32, u64, u80 } = undefined;
     var u: struct { u32, u64, u80 } = undefined;
-    var i: usize = @intCast((ix >> 57) % 64);
+    var i: usize = @intCast((ix >> 57) & 0x3F);
     if (even) i += 64;
     r[0] = @intCast(__rsqrt_tab[i]);
     r[0] <<= 16;
@@ -410,7 +410,7 @@ pub fn sqrtq(x: f128) callconv(.c) f128 {
     if (top -% 0x0001 >= 0x7FFF - 0x0001) {
         @branchHint(.unlikely);
         // x < 0x1p-16382 or inf or nan.
-        if (ix *% 2 == 0) return x;
+        if (ix & 0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF == 0) return x;
         if (ix == 0x7FFF_0000_0000_0000_0000_0000_0000_0000) return x;
         if (ix > 0x7FFF_0000_0000_0000_0000_0000_0000_0000) return math.nan(f128);
         // x is subnormal, normalize it.
@@ -443,7 +443,7 @@ pub fn sqrtq(x: f128) callconv(.c) f128 {
     var s: struct { u32, u64, u128 } = undefined;
     var d: struct { u32, u64, u128 } = undefined;
     var u: struct { u32, u64, u128 } = undefined;
-    const i: usize = @intCast((ix >> 106) % 128);
+    const i: usize = @intCast((ix >> 106) & 0x7F);
     r[0] = @intCast(__rsqrt_tab[i]);
     r[0] <<= 16;
     // |r sqrt(m) - 1| < 0x1p-8
