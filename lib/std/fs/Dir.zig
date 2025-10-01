@@ -2812,7 +2812,13 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
             self.fd,
             &sub_path_c,
             linux.AT.NO_AUTOMOUNT,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            .{
+                .type = true,
+                .mode = true,
+                .atime = true,
+                .mtime = true,
+                .ctime = true,
+            },
             &stx,
         );
 
