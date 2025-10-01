@@ -933,6 +933,10 @@ pub const WeakExternalDefinition = struct {
     flag: WeakExternalFlag,
 
     unused: [10]u8,
+
+    pub fn sizeOf() usize {
+        return 18;
+    }
 };
 
 // https://github.com/tpn/winsdk-10/blob/master/Include/10.0.16299.0/km/ntimage.h
