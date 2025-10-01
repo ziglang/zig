@@ -55,7 +55,7 @@ jobs:
         run: sh ci/loongarch64-linux-release.sh
         timeout-minutes: 180
   riscv64-linux-debug:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, riscv64-linux]
     steps:
       - name: Checkout
@@ -66,7 +66,7 @@ jobs:
         run: sh ci/riscv64-linux-debug.sh
         timeout-minutes: 420
   riscv64-linux-release:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, riscv64-linux]
     steps:
       - name: Checkout
