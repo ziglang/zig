@@ -700,6 +700,21 @@ pub const ReceivedMessage = struct {
     len: usize,
 };
 
+pub const OutgoingMessage = struct {
+    address: *const IpAddress,
+    data: []const u8,
+    control: []const u8 = &.{},
+};
+
+pub const SendFlags = packed struct(u8) {
+    confirm: bool = false,
+    dont_route: bool = false,
+    eor: bool = false,
+    oob: bool = false,
+    fastopen: bool = false,
+    _: u3 = 0,
+};
+
 pub const Interface = struct {
     /// Value 0 indicates `none`.
     index: u32,
@@ -818,7 +833,12 @@ pub const Socket = struct {
 
     /// Transfers `data` to `dest`, connectionless.
     pub fn send(s: *const Socket, io: Io, dest: *const IpAddress, data: []const u8) SendError!void {
-        return io.vtable.netSend(io.userdata, s.handle, dest, data);
+        const message: OutgoingMessage = .{ .address = dest, .data = data };
+        return io.vtable.netSend(io.userdata, s.handle, &.{message}, .{});
+    }
+
+    pub fn sendMany(s: *const Socket, io: Io, messages: []const OutgoingMessage, flags: SendFlags) SendError!void {
+        return io.vtable.netSend(io.userdata, s.handle, messages, flags);
     }
 
     pub const ReceiveError = error{} || Io.UnexpectedError || Io.Cancelable;
