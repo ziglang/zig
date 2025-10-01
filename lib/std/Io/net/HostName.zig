@@ -278,7 +278,8 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
             for (mapped_nameservers) |*ns| {
                 message_buffer[message_i] = .{
                     .address = ns,
-                    .data = query,
+                    .data_ptr = query.ptr,
+                    .data_len = query.len,
                 };
                 message_i += 1;
             }
@@ -324,11 +325,12 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
                     if (next_answer_buffer == answers.len) break :send;
                 },
                 2 => {
-                    const message: Io.net.OutgoingMessage = .{
+                    var message: Io.net.OutgoingMessage = .{
                         .address = ns,
-                        .data = query,
+                        .data_ptr = query.ptr,
+                        .data_len = query.len,
                     };
-                    io.vtable.netSend(io.userdata, socket.handle, &.{message}, .{}) catch {};
+                    io.vtable.netSend(io.userdata, socket.handle, (&message)[0..1], .{}) catch {};
                     continue;
                 },
                 else => continue,
