@@ -4,10 +4,11 @@
 pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuContext"))
     root.debug.CpuContext
 else switch (native_arch) {
+    .aarch64, .aarch64_be => Aarch64,
+    .arm, .armeb, .thumb, .thumbeb => Arm,
+    .loongarch32, .loongarch64 => LoongArch,
     .x86 => X86,
     .x86_64 => X86_64,
-    .arm, .armeb, .thumb, .thumbeb => Arm,
-    .aarch64, .aarch64_be => Aarch64,
     else => noreturn,
 };
 
@@ -169,6 +170,13 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             .linux => .{
                 .x = uc.mcontext.regs,
                 .sp = uc.mcontext.sp,
+                .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .loongarch64 => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.regs, // includes r0 (hardwired zero)
                 .pc = uc.mcontext.pc,
             },
             else => null,
@@ -459,6 +467,104 @@ pub const Aarch64 = extern struct {
             48...63 => return error.UnsupportedRegister, // P0 - P15
             64...95 => return error.UnsupportedRegister, // V0 - V31
             96...127 => return error.UnsupportedRegister, // Z0 - Z31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const LoongArch = extern struct {
+    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
+    r: [32]usize,
+    pc: usize,
+
+    pub inline fn current() LoongArch {
+        var ctx: LoongArch = undefined;
+        asm volatile (if (@sizeOf(usize) == 8)
+                \\ st.d $zero, $t0, 0
+                \\ st.d $ra, $t0, 8
+                \\ st.d $tp, $t0, 16
+                \\ st.d $sp, $t0, 24
+                \\ st.d $a0, $t0, 32
+                \\ st.d $a1, $t0, 40
+                \\ st.d $a2, $t0, 48
+                \\ st.d $a3, $t0, 56
+                \\ st.d $a4, $t0, 64
+                \\ st.d $a5, $t0, 72
+                \\ st.d $a6, $t0, 80
+                \\ st.d $a7, $t0, 88
+                \\ st.d $t0, $t0, 96
+                \\ st.d $t1, $t0, 104
+                \\ st.d $t2, $t0, 112
+                \\ st.d $t3, $t0, 120
+                \\ st.d $t4, $t0, 128
+                \\ st.d $t5, $t0, 136
+                \\ st.d $t6, $t0, 144
+                \\ st.d $t7, $t0, 152
+                \\ st.d $t8, $t0, 160
+                \\ st.d $r21, $t0, 168
+                \\ st.d $fp, $t0, 176
+                \\ st.d $s0, $t0, 184
+                \\ st.d $s1, $t0, 192
+                \\ st.d $s2, $t0, 200
+                \\ st.d $s3, $t0, 208
+                \\ st.d $s4, $t0, 216
+                \\ st.d $s5, $t0, 224
+                \\ st.d $s6, $t0, 232
+                \\ st.d $s7, $t0, 240
+                \\ st.d $s8, $t0, 248
+                \\ bl 1f
+                \\1:
+                \\ st.d $ra, $t0, 256
+                \\ ld.d $ra, $t0, 8
+            else
+                \\ st.w $zero, $t0, 0
+                \\ st.w $ra, $t0, 4
+                \\ st.w $tp, $t0, 8
+                \\ st.w $sp, $t0, 12
+                \\ st.w $a0, $t0, 16
+                \\ st.w $a1, $t0, 20
+                \\ st.w $a2, $t0, 24
+                \\ st.w $a3, $t0, 28
+                \\ st.w $a4, $t0, 32
+                \\ st.w $a5, $t0, 36
+                \\ st.w $a6, $t0, 40
+                \\ st.w $a7, $t0, 44
+                \\ st.w $t0, $t0, 48
+                \\ st.w $t1, $t0, 52
+                \\ st.w $t2, $t0, 56
+                \\ st.w $t3, $t0, 60
+                \\ st.w $t4, $t0, 64
+                \\ st.w $t5, $t0, 68
+                \\ st.w $t6, $t0, 72
+                \\ st.w $t7, $t0, 76
+                \\ st.w $t8, $t0, 80
+                \\ st.w $r21, $t0, 84
+                \\ st.w $fp, $t0, 88
+                \\ st.w $s0, $t0, 92
+                \\ st.w $s1, $t0, 96
+                \\ st.w $s2, $t0, 100
+                \\ st.w $s3, $t0, 104
+                \\ st.w $s4, $t0, 108
+                \\ st.w $s5, $t0, 112
+                \\ st.w $s6, $t0, 116
+                \\ st.w $s7, $t0, 120
+                \\ st.w $s8, $t0, 124
+                \\ bl 1f
+                \\1:
+                \\ st.w $ra, $t0, 128
+                \\ ld.w $ra, $t0, 4
+            :
+            : [gprs] "{$r12}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *LoongArch, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            32 => return @ptrCast(&ctx.pc),
 
             else => return error.InvalidRegister,
         }

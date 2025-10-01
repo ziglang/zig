@@ -87,6 +87,7 @@ pub const can_unwind: bool = s: {
         .linux => &.{
             .aarch64,
             .aarch64_be,
+            .loongarch64,
             .x86,
             .x86_64,
         },
