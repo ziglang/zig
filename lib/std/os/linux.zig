@@ -3476,41 +3476,41 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-pub const AT = struct {
-    /// Special value used to indicate openat should use the current working directory
-    pub const FDCWD = -100;
-
+/// matches AT_* and AT_STATX_*
+pub const At = packed struct(u32) {
+    _reserved: u8 = 0,
     /// Do not follow symbolic links
-    pub const SYMLINK_NOFOLLOW = 0x100;
-
+    symlink_nofollow: bool = false,
     /// Remove directory instead of unlinking file
-    pub const REMOVEDIR = 0x200;
-
+    /// Or
+    /// File handle is needed to compare object identity and may not be usable
+    /// with open_by_handle_at(2)
+    removedir_or_handle_fid: bool = false,
     /// Follow symbolic links.
-    pub const SYMLINK_FOLLOW = 0x400;
-
+    symlink_follow: bool = false,
     /// Suppress terminal automount traversal
-    pub const NO_AUTOMOUNT = 0x800;
-
+    no_automount: bool = false,
     /// Allow empty relative pathname
-    pub const EMPTY_PATH = 0x1000;
-
-    /// Type of synchronisation required from statx()
-    pub const STATX_SYNC_TYPE = 0x6000;
-
-    /// - Do whatever stat() does
-    pub const STATX_SYNC_AS_STAT = 0x0000;
-
-    /// - Force the attributes to be sync'd with the server
-    pub const STATX_FORCE_SYNC = 0x2000;
-
-    /// - Don't sync attributes with the server
-    pub const STATX_DONT_SYNC = 0x4000;
-
+    empty_path: bool = false,
+    /// Force the attributes to be sync'd with the server
+    statx_force_sync: bool = false,
+    /// Don't sync attributes with the server
+    statx_dont_sync: bool = false,
     /// Apply to the entire subtree
-    pub const RECURSIVE = 0x8000;
+    recursive: bool = false,
 
-    pub const HANDLE_FID = REMOVEDIR;
+    /// Special value used to indicate openat should use the current working directory
+    pub const fdcwd = -100;
+
+    // https://github.com/torvalds/linux/blob/d3479214c05dbd07bc56f8823e7bd8719fcd39a9/tools/perf/trace/beauty/fs_at_flags.sh#L15
+    /// AT_STATX_SYNC_TYPE is not a bit, its a mask of
+    /// AT_STATX_SYNC_AS_STAT, AT_STATX_FORCE_SYNC and AT_STATX_DONT_SYNC
+    /// Type of synchronisation required from statx()
+    pub const statx_sync_type = 0x6000;
+
+    /// Do whatever stat() does
+    /// This is the default and is very much filesystem-specific
+    pub const statx_sync_as_stat: At = .{};
 };
 
 pub const FALLOC = struct {
@@ -3656,30 +3656,36 @@ pub const X_OK = 1;
 pub const W_OK = 2;
 pub const R_OK = 4;
 
-pub const W = struct {
-    pub const NOHANG = 1;
-    pub const UNTRACED = 2;
-    pub const STOPPED = 2;
-    pub const EXITED = 4;
-    pub const CONTINUED = 8;
-    pub const NOWAIT = 0x1000000;
+pub const W = packed struct(u32) {
+    nohang: bool = false,
+    untraced_or_stopped: bool = false,
+    exited: bool = false,
+    continued: bool = false,
+    _unused: u20 = 0,
+    nowait: bool = false,
+    _unused_1: u7 = 0,
 
-    pub fn EXITSTATUS(s: u32) u8 {
-        return @as(u8, @intCast((s & 0xff00) >> 8));
+    pub fn EXITSTATUS(s: W) u8 {
+        return @intCast((@as(u32, @bitCast(s)) & 0xff00) >> 8);
     }
-    pub fn TERMSIG(s: u32) u32 {
-        return s & 0x7f;
+
+    pub fn TERMSIG(s: W) u32 {
+        return @as(u32, @bitCast(s)) & 0x7f;
     }
-    pub fn STOPSIG(s: u32) u32 {
+
+    pub fn STOPSIG(s: W) u32 {
         return EXITSTATUS(s);
     }
-    pub fn IFEXITED(s: u32) bool {
+
+    pub fn IFEXITED(s: W) bool {
         return TERMSIG(s) == 0;
     }
-    pub fn IFSTOPPED(s: u32) bool {
-        return @as(u16, @truncate(((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+
+    pub fn IFSTOPPED(s: W) bool {
+        return @as(u16, @truncate(((@as(u32, @bitCast(s)) & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
     }
-    pub fn IFSIGNALED(s: u32) bool {
+
+    pub fn IFSIGNALED(s: W) bool {
         return (s & 0xffff) -% 1 < 0xff;
     }
 };
@@ -3885,16 +3891,44 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const SOCK = struct {
-    pub const STREAM = if (is_mips) 2 else 1;
-    pub const DGRAM = if (is_mips) 1 else 2;
-    pub const RAW = 3;
-    pub const RDM = 4;
-    pub const SEQPACKET = 5;
-    pub const DCCP = 6;
-    pub const PACKET = 10;
-    pub const CLOEXEC = if (is_sparc) 0o20000000 else 0o2000000;
-    pub const NONBLOCK = if (is_mips) 0o200 else if (is_sparc) 0o40000 else 0o4000;
+/// SOCK_* Socket type and flags
+pub const Sock = packed struct(u32) {
+    type: Type,
+    flags: Flags = .{},
+
+    /// matches sock_type in kernel
+    pub const Type = enum(u7) {
+        stream = if (is_mips) 2 else 1,
+        dgram = if (is_mips) 1 else 2,
+        raw = 3,
+        rdm = 4,
+        seqpacket = 5,
+        dccp = 6,
+        packet = 10,
+
+        _,
+    };
+
+    // bit range is (8 - 32] of the u32
+    /// Flags for socket, socketpair, accept4
+    pub const Flags = if (is_sparc) packed struct(u25) {
+        _: u7 = 0, // start from u7 since Type comes before Flags
+        nonblock: bool = false,
+        _1: u7 = 0,
+        cloexec: bool = false,
+        _2: u9 = 0,
+    } else if (is_mips) packed struct(u25) {
+        nonblock: bool = false,
+        _: u11 = 0,
+        cloexec: bool = false,
+        _1: u12 = 0,
+    } else packed struct(u25) {
+        _: u4 = 0,
+        nonblock: bool = false,
+        _1: u7 = 0,
+        cloexec: bool = false,
+        _2: u12 = 0,
+    };
 };
 
 pub const TCP = struct {
