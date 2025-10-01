@@ -115,7 +115,7 @@ jobs:
           fetch-depth: 0
       - name: Build and Test
         run: sh ci/x86_64-linux-debug-llvm.sh
-        timeout-minutes: 420
+        timeout-minutes: 480
   x86_64-linux-release:
     runs-on: [self-hosted, x86_64-linux]
     steps:
