@@ -1433,9 +1433,9 @@ const Local = struct {
         };
     }
 
-    /// For a given pair of `s: String, ip: *const InternPool`, `s.unwrap(ip).data.index`
-    /// refers to an index into this array. The corresponding value is an both an offset into
-    /// `large_string_bytes` and a length.
+    /// For a given pair of `s: String, ip: *const InternPool` for which `s.unwrap().data.large`
+    /// is `true`, `s.unwrap(ip).data.index` refers to an index into this array. The corresponding
+    /// value is an both an offset into `large_string_bytes` and a length.
     pub fn getMutableLargeStrings(local: *Local, gpa: Allocator) LargeStrings.Mutable {
         return .{
             .gpa = gpa,
@@ -1794,8 +1794,8 @@ pub const String = enum(u32) {
     }
 
     pub const SizeClass = enum(u1) {
-        small,
-        large,
+        small = 0,
+        large = 1,
 
         pub fn detect(len: u32, tid: Zcu.PerThread.Id, ip: *InternPool) SizeClass {
             if (len > max_small_string_len)
@@ -1814,8 +1814,12 @@ pub const String = enum(u32) {
 
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) String {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
-            assert(unwrapped.index <= (ip.getIndexMask(u31) >> @intCast(1)));
-            return @enumFromInt((@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32) | (@as(u32, @intFromEnum(unwrapped.size_class)) << @intCast(ip.tid_shift_32 - 1)) | unwrapped.index);
+            assert(unwrapped.index <= ip.getIndexMask(u31));
+            return blk: {
+                const tid = @as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32;
+                const size_class = @as(u32, @intFromEnum(unwrapped.size_class)) << (ip.tid_shift_32 - 1);
+                break :blk @enumFromInt(tid | size_class | unwrapped.index);
+            };
         }
     };
 
@@ -1911,11 +1915,7 @@ pub const NullTerminatedString = enum(u32) {
             .small => {
                 // Most calls to this function are on small strings. Let the optimizer know that.
                 @branchHint(.likely);
-                // Looking at the disassembly, LLVM fails to inline `smallLength` on its own. Forcing
-                // this call to be `always_inline allows LLVM to optimize out the duplicate logic
-                // (unwrapping the string, computing `local`, etc). Seems to be responsible for about a
-                // ~0.3% speed improvement overall.
-                const len = @call(.always_inline, smallLength, .{ string, ip });
+                const len = string.smallLength(ip);
                 return local.small_string_bytes.view().items(.@"0")[unwrapped.index..][0..len :0];
             },
         }
