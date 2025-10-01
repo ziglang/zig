@@ -574,16 +574,13 @@ pub const File = struct {
         const gpa = comp.gpa;
         switch (base.tag) {
             .lld => assert(base.file == null),
-            .coff, .elf, .macho, .wasm, .goff, .xcoff => {
+            .elf, .macho, .wasm, .goff, .xcoff => {
                 if (base.file != null) return;
                 dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
-                        const coff_file = base.cast(.coff).?;
-                        coff_file.ptraceAttach(pid) catch |err| {
-                            log.warn("attaching failed with error: {s}", .{@errorName(err)});
-                        };
+                        return error.HotSwapUnavailableOnHostOperatingSystem;
                     } else {
                         // If we try to open the output file in write mode while it is running,
                         // it will return ETXTBSY. So instead, we copy the file, atomically rename it
@@ -671,7 +668,7 @@ pub const File = struct {
                     }
                 }
             },
-            .coff, .macho, .wasm, .goff, .xcoff => if (base.file) |f| {
+            .macho, .wasm, .goff, .xcoff => if (base.file) |f| {
                 dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 f.close();
                 base.file = null;
@@ -683,10 +680,6 @@ pub const File = struct {
                             macho_file.ptraceDetach(pid) catch |err| {
                                 log.warn("detaching failed with error: {s}", .{@errorName(err)});
                             };
-                        },
-                        .windows => {
-                            const coff_file = base.cast(.coff).?;
-                            coff_file.ptraceDetach(pid);
                         },
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
@@ -1157,7 +1150,6 @@ pub const File = struct {
     }
 
     pub const Tag = enum {
-        coff,
         coff2,
         elf,
         elf2,
@@ -1172,7 +1164,6 @@ pub const File = struct {
 
         pub fn Type(comptime tag: Tag) type {
             return switch (tag) {
-                .coff => Coff,
                 .coff2 => Coff2,
                 .elf => Elf,
                 .elf2 => Elf2,
@@ -1189,7 +1180,7 @@ pub const File = struct {
 
         fn fromObjectFormat(ofmt: std.Target.ObjectFormat, use_new_linker: bool) Tag {
             return switch (ofmt) {
-                .coff => if (use_new_linker) .coff2 else .coff,
+                .coff => .coff2,
                 .elf => if (use_new_linker) .elf2 else .elf,
                 .macho => .macho,
                 .wasm => .wasm,
@@ -1274,7 +1265,6 @@ pub const File = struct {
 
     pub const Lld = @import("link/Lld.zig");
     pub const C = @import("link/C.zig");
-    pub const Coff = @import("link/Coff.zig");
     pub const Coff2 = @import("link/Coff2.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const Elf2 = @import("link/Elf2.zig");

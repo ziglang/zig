@@ -438,8 +438,6 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.use_new_linker) |x| break :b x;
 
-        if (target.ofmt == .coff) break :b true;
-
         break :b options.incremental;
     };
 

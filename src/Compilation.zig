@@ -3226,7 +3226,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     .root_dir = comp.dirs.local_cache,
                     .sub_path = try fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
-                const result: link.File.OpenError!void = switch (need_writable_dance) {
+                const result: (link.File.OpenError || error{HotSwapUnavailableOnHostOperatingSystem})!void = switch (need_writable_dance) {
                     .no => {},
                     .lf_only => lf.makeWritable(),
                     .lf_and_debug => res: {

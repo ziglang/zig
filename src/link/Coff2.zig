@@ -28,6 +28,73 @@ relocs: std.ArrayList(Reloc),
 /// This is hiding actual bugs with global symbols! Reconsider once they are implemented correctly.
 entry_hack: Symbol.Index,
 
+pub const default_file_alignment: u16 = 0x200;
+pub const default_size_of_stack_reserve: u32 = 0x1000000;
+pub const default_size_of_stack_commit: u32 = 0x1000;
+pub const default_size_of_heap_reserve: u32 = 0x100000;
+pub const default_size_of_heap_commit: u32 = 0x1000;
+
+/// This is the start of a Portable Executable (PE) file.
+/// It starts with a MS-DOS header followed by a MS-DOS stub program.
+/// This data does not change so we include it as follows in all binaries.
+///
+/// In this context,
+/// A "paragraph" is 16 bytes.
+/// A "page" is 512 bytes.
+/// A "long" is 4 bytes.
+/// A "word" is 2 bytes.
+pub const msdos_stub: [120]u8 = .{
+    'M', 'Z', // Magic number. Stands for Mark Zbikowski (designer of the MS-DOS executable format).
+    0x78, 0x00, // Number of bytes in the last page. This matches the size of this entire MS-DOS stub.
+    0x01, 0x00, // Number of pages.
+    0x00, 0x00, // Number of entries in the relocation table.
+    0x04, 0x00, // The number of paragraphs taken up by the header. 4 * 16 = 64, which matches the header size (all bytes before the MS-DOS stub program).
+    0x00, 0x00, // The number of paragraphs required by the program.
+    0x00, 0x00, // The number of paragraphs requested by the program.
+    0x00, 0x00, // Initial value for SS (relocatable segment address).
+    0x00, 0x00, // Initial value for SP.
+    0x00, 0x00, // Checksum.
+    0x00, 0x00, // Initial value for IP.
+    0x00, 0x00, // Initial value for CS (relocatable segment address).
+    0x40, 0x00, // Absolute offset to relocation table. 64 matches the header size (all bytes before the MS-DOS stub program).
+    0x00, 0x00, // Overlay number. Zero means this is the main executable.
+}
+    // Reserved words.
+    ++ .{ 0x00, 0x00 } ** 4
+        // OEM-related fields.
+    ++ .{
+        0x00, 0x00, // OEM identifier.
+        0x00, 0x00, // OEM information.
+    }
+    // Reserved words.
+    ++ .{ 0x00, 0x00 } ** 10
+        // Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
+    ++ .{ 0x78, 0x00, 0x00, 0x00 }
+    // What follows is a 16-bit x86 MS-DOS program of 7 instructions that prints the bytes after these instructions and then exits.
+    ++ .{
+        // Set the value of the data segment to the same value as the code segment.
+        0x0e, // push cs
+        0x1f, // pop ds
+        // Set the DX register to the address of the message.
+        // If you count all bytes of these 7 instructions you get 14, so that's the address of what's after these instructions.
+        0xba, 14, 0x00, // mov dx, 14
+        // Set AH to the system call code for printing a message.
+        0xb4, 0x09, // mov ah, 0x09
+        // Perform the system call to print the message.
+        0xcd, 0x21, // int 0x21
+        // Set AH to 0x4c which is the system call code for exiting, and set AL to 0x01 which is the exit code.
+        0xb8, 0x01, 0x4c, // mov ax, 0x4c01
+        // Peform the system call to exit the program with exit code 1.
+        0xcd, 0x21, // int 0x21
+    }
+    // Message to print.
+    ++ "This program cannot be run in DOS mode.".*
+    // Message terminators.
+    ++ .{
+        '$', // We do not pass a length to the print system call; the string is terminated by this character.
+        0x00, 0x00, // Terminating zero bytes.
+    };
+
 pub const Node = union(enum) {
     file,
     header,
@@ -613,8 +680,7 @@ fn initHeaders(
 ) !void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
-    const file_align: std.mem.Alignment =
-        comptime .fromByteUnits(link.File.Coff.default_file_alignment);
+    const file_align: std.mem.Alignment = comptime .fromByteUnits(default_file_alignment);
     const target_endian = coff.targetEndian();
 
     const optional_header_size: u16 = if (is_image) switch (magic) {
@@ -639,15 +705,14 @@ fn initHeaders(
 
     const signature_ni = Node.known.signature;
     assert(signature_ni == try coff.mf.addOnlyChildNode(gpa, header_ni, .{
-        .size = (if (is_image) link.File.Coff.msdos_stub.len else 0) + "PE\x00\x00".len,
+        .size = (if (is_image) msdos_stub.len else 0) + "PE\x00\x00".len,
         .alignment = .@"4",
         .fixed = true,
     }));
     coff.nodes.appendAssumeCapacity(.signature);
     {
         const signature_slice = signature_ni.slice(&coff.mf);
-        if (is_image)
-            @memcpy(signature_slice[0..link.File.Coff.msdos_stub.len], &link.File.Coff.msdos_stub);
+        if (is_image) @memcpy(signature_slice[0..msdos_stub.len], &msdos_stub);
         @memcpy(signature_slice[signature_slice.len - 4 ..], "PE\x00\x00");
     }
 
@@ -730,10 +795,10 @@ fn initHeaders(
                     .TERMINAL_SERVER_AWARE = true,
                     .NX_COMPAT = true,
                 },
-                .size_of_stack_reserve = link.File.Coff.default_size_of_stack_reserve,
-                .size_of_stack_commit = link.File.Coff.default_size_of_stack_commit,
-                .size_of_heap_reserve = link.File.Coff.default_size_of_heap_reserve,
-                .size_of_heap_commit = link.File.Coff.default_size_of_heap_commit,
+                .size_of_stack_reserve = default_size_of_stack_reserve,
+                .size_of_stack_commit = default_size_of_stack_commit,
+                .size_of_heap_reserve = default_size_of_heap_reserve,
+                .size_of_heap_commit = default_size_of_heap_commit,
                 .loader_flags = 0,
                 .number_of_rva_and_sizes = data_directories_len,
             };
@@ -781,10 +846,10 @@ fn initHeaders(
                     .TERMINAL_SERVER_AWARE = true,
                     .NX_COMPAT = true,
                 },
-                .size_of_stack_reserve = link.File.Coff.default_size_of_stack_reserve,
-                .size_of_stack_commit = link.File.Coff.default_size_of_stack_commit,
-                .size_of_heap_reserve = link.File.Coff.default_size_of_heap_reserve,
-                .size_of_heap_commit = link.File.Coff.default_size_of_heap_commit,
+                .size_of_stack_reserve = default_size_of_stack_reserve,
+                .size_of_stack_commit = default_size_of_stack_commit,
+                .size_of_heap_reserve = default_size_of_heap_reserve,
+                .size_of_heap_commit = default_size_of_heap_commit,
                 .loader_flags = 0,
                 .number_of_rva_and_sizes = data_directories_len,
             };
