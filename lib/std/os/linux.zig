@@ -2079,7 +2079,7 @@ pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
     }
 }
 
-pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
+pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr, vlen: u32, flags: u32) usize {
     return syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(msgvec), vlen, flags);
 }
 
@@ -5952,11 +5952,6 @@ pub const sockaddr = extern struct {
 
 pub const mmsghdr = extern struct {
     hdr: msghdr,
-    len: u32,
-};
-
-pub const mmsghdr_const = extern struct {
-    hdr: msghdr_const,
     len: u32,
 };
 

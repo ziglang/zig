@@ -154,7 +154,7 @@ pub const IpAddress = union(enum) {
         /// A nonexistent interface was requested or the requested address was not local.
         AddressUnavailable,
         /// The local network interface used to reach the destination is offline.
-        NetworkSubsystemDown,
+        NetworkDown,
         /// Insufficient memory or other resource internal to the operating system.
         SystemResources,
         /// Per-process limit on the number of open file descriptors has been reached.
@@ -192,7 +192,7 @@ pub const IpAddress = union(enum) {
         /// Insufficient memory or other resource internal to the operating system.
         SystemResources,
         /// The local network interface used to reach the destination is offline.
-        NetworkSubsystemDown,
+        NetworkDown,
         ProtocolUnsupportedBySystem,
         ProtocolUnsupportedByAddressFamily,
         /// Per-process limit on the number of open file descriptors has been reached.
@@ -702,7 +702,10 @@ pub const ReceivedMessage = struct {
 
 pub const OutgoingMessage = struct {
     address: *const IpAddress,
-    data: []const u8,
+    data_ptr: [*]const u8,
+    /// Initialized with how many bytes of `data_ptr` to send. After sending
+    /// succeeds, replaced with how many bytes were actually sent.
+    data_len: usize,
     control: []const u8 = &.{},
 };
 
@@ -808,9 +811,10 @@ pub const Socket = struct {
     }
 
     pub const SendError = error{
-        /// The socket type requires that message be sent atomically, and the size of the message
-        /// to be sent made this impossible. The message is not transmitted.
-        MessageTooBig,
+        /// The socket type requires that message be sent atomically, and the
+        /// size of the message to be sent made this impossible. The message
+        /// was not transmitted, or was partially transmitted.
+        MessageOversize,
         /// The output queue for a network interface was full. This generally indicates that the
         /// interface has stopped sending, but may be caused by transient congestion. (Normally,
         /// this does not occur in Linux. Packets are just silently dropped when a device queue
@@ -823,21 +827,29 @@ pub const Socket = struct {
         /// Network reached but no route to host.
         HostUnreachable,
         /// The local network interface used to reach the destination is offline.
-        NetworkSubsystemDown,
+        NetworkDown,
         /// The destination address is not listening. Can still occur for
         /// connectionless messages.
         ConnectionRefused,
         /// Operating system or protocol does not support the address family.
         AddressFamilyUnsupported,
+        /// Another TCP Fast Open is already in progress.
+        FastOpenAlreadyInProgress,
+        /// Network connection was unexpectedly closed by recipient.
+        ConnectionResetByPeer,
+        /// Local end has been shut down on a connection-oriented socket, or
+        /// the socket was never connected.
+        SocketNotConnected,
     } || Io.UnexpectedError || Io.Cancelable;
 
-    /// Transfers `data` to `dest`, connectionless.
+    /// Transfers `data` to `dest`, connectionless, in one packet.
     pub fn send(s: *const Socket, io: Io, dest: *const IpAddress, data: []const u8) SendError!void {
-        const message: OutgoingMessage = .{ .address = dest, .data = data };
-        return io.vtable.netSend(io.userdata, s.handle, &.{message}, .{});
+        var message: OutgoingMessage = .{ .address = dest, .data_ptr = data.ptr, .data_len = data.len };
+        try io.vtable.netSend(io.userdata, s.handle, &message, .{});
+        if (message.data_len != data.len) return error.MessageOversize;
     }
 
-    pub fn sendMany(s: *const Socket, io: Io, messages: []const OutgoingMessage, flags: SendFlags) SendError!void {
+    pub fn sendMany(s: *const Socket, io: Io, messages: []OutgoingMessage, flags: SendFlags) SendError!void {
         return io.vtable.netSend(io.userdata, s.handle, messages, flags);
     }
 
