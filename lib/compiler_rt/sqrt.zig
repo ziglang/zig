@@ -48,8 +48,7 @@ pub fn __sqrth(x: f16) callconv(.c) f16 {
     // m: fixed point representation [2.14]
     // 2^e is the exponent part of the result.
     const even = (top & 1) != 0;
-    var m = (ix << 5) | 0x8000;
-    if (even) m >>= 1;
+    const m = if (even) (ix << 4) & 0x7FFF else (ix << 5) | 0x8000;
     top = (top +% 0x0F) >> 1;
 
     // approximate r ~ 1/sqrt(m) and s ~ sqrt(m) when m in [1,4)
@@ -114,8 +113,7 @@ pub fn sqrtf(x: f32) callconv(.c) f32 {
     // m: fixed point representation [2.30]
     // 2^e is the exponent part of the result.
     const even = (top & 1) != 0;
-    var m = (ix << 8) | 0x8000_0000;
-    if (even) m >>= 1;
+    const m = if (even) (ix << 7) & 0x7FFF_FFFF else (ix << 8) | 0x8000_0000;
     top = (top +% 0x7F) >> 1;
 
     // approximate r ~ 1/sqrt(m) and s ~ sqrt(m) when m in [1,4)
@@ -187,8 +185,7 @@ pub fn sqrt(x: f64) callconv(.c) f64 {
     // m: fixed point representation [2.62]
     // 2^e is the exponent part of the result.
     const even = (top & 1) != 0;
-    var m = (ix << 11) | 0x8000_0000_0000_0000;
-    if (even) m >>= 1;
+    const m = if (even) (ix << 10) & 0x7FFF_FFFF_FFFF_FFFF else (ix << 11) | 0x8000_0000_0000_0000;
     top = (top +% 0x3FF) >> 1;
 
     // approximate r ~ 1/sqrt(m) and s ~ sqrt(m) when m in [1,4)
@@ -325,8 +322,7 @@ pub fn __sqrtx(x: f80) callconv(.c) f80 {
     // m: fixed point representation [2.78]
     // 2^e is the exponent part of the result.
     const even = (top & 1) != 0;
-    var m = ix << 16;
-    if (even) m >>= 1;
+    const m = if (even) (ix << 15) & 0x7FFF_FFFF_FFFF_FFFF_FFFF else ix << 16;
     top = (top +% 0x3FFF) >> 1;
 
     // approximate r ~ 1/sqrt(m) and s ~ sqrt(m) when m in [1,4)
@@ -423,8 +419,7 @@ pub fn sqrtq(x: f128) callconv(.c) f128 {
     // m: fixed point representation [2.126]
     // 2^e is the exponent part of the result.
     const even = (top & 1) != 0;
-    var m = (ix << 15) | 0x8000_0000_0000_0000_0000_0000_0000_0000;
-    if (even) m >>= 1;
+    const m = if (even) (ix << 14) & 0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF else (ix << 15) | 0x8000_0000_0000_0000_0000_0000_0000_0000;
     top = (top +% 0x3FFF) >> 1;
 
     // approximate r ~ 1/sqrt(m) and s ~ sqrt(m) when m in [1,4)
