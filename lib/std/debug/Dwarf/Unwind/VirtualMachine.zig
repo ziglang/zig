@@ -256,7 +256,18 @@ fn evalInstructions(
                 .offset = cfa.offset_sf * cie.data_alignment_factor,
             } },
             .def_cfa_reg => |register| switch (vm.current_row.cfa) {
-                .none, .expression => return error.InvalidOperation,
+                .none => {
+                    // According to the DWARF specification, this is not valid, because this
+                    // instruction can only be used to replace the register if the rule is already a
+                    // `.reg_off`. However, this is emitted in practice by GNU toolchains for some
+                    // targets, and so by convention is interpreted as equivalent to `.def_cfa` with
+                    // an offset of 0.
+                    vm.current_row.cfa = .{ .reg_off = .{
+                        .register = register,
+                        .offset = 0,
+                    } };
+                },
+                .expression => return error.InvalidOperation,
                 .reg_off => |*ro| ro.register = register,
             },
             .def_cfa_offset => |offset| switch (vm.current_row.cfa) {

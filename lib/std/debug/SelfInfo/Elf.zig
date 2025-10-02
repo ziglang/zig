@@ -84,12 +84,35 @@ pub const can_unwind: bool = s: {
     // Notably, we are yet to support unwinding on ARM. There, unwinding is not done through
     // `.eh_frame`, but instead with the `.ARM.exidx` section, which has a different format.
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
-        .linux => &.{ .x86, .x86_64, .aarch64, .aarch64_be },
-        .netbsd => &.{ .x86, .x86_64, .aarch64, .aarch64_be },
-        .freebsd => &.{ .x86_64, .aarch64, .aarch64_be },
-        .openbsd => &.{.x86_64},
-        .solaris => &.{ .x86, .x86_64 },
-        .illumos => &.{ .x86, .x86_64 },
+        .linux => &.{
+            .aarch64,
+            .aarch64_be,
+            .loongarch64,
+            .riscv32,
+            .riscv64,
+            .x86,
+            .x86_64,
+        },
+        .netbsd => &.{
+            .aarch64,
+            .aarch64_be,
+            .x86,
+            .x86_64,
+        },
+        .freebsd => &.{
+            .x86_64,
+            .aarch64,
+        },
+        .openbsd => &.{
+            .x86_64,
+        },
+        .solaris => &.{
+            .x86_64,
+        },
+        .illumos => &.{
+            .x86,
+            .x86_64,
+        },
         else => unreachable,
     };
     for (archs) |a| {
