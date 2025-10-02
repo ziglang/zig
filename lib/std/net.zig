@@ -1917,7 +1917,7 @@ pub const Stream = struct {
         MessageTooBig,
         NetworkSubsystemFailed,
         ConnectionResetByPeer,
-        SocketNotConnected,
+        SocketUnconnected,
     };
 
     pub const WriteError = posix.SendMsgError || error{
@@ -1926,7 +1926,7 @@ pub const Stream = struct {
         MessageTooBig,
         NetworkSubsystemFailed,
         SystemResources,
-        SocketNotConnected,
+        SocketUnconnected,
         Unexpected,
     };
 
@@ -2004,7 +2004,7 @@ pub const Stream = struct {
                     .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
-                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
                     .WSA_IO_PENDING => unreachable,
@@ -2171,7 +2171,7 @@ pub const Stream = struct {
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENOBUFS => return error.SystemResources,
-                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAENOTSOCK => unreachable, // not a socket
                     .WSAEOPNOTSUPP => unreachable, // only for message-oriented sockets
                     .WSAESHUTDOWN => unreachable, // cannot send on a socket after write shutdown

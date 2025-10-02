@@ -695,9 +695,41 @@ pub const Ip6Address = struct {
     };
 };
 
-pub const ReceivedMessage = struct {
+pub const ReceiveFlags = packed struct(u8) {
+    oob: bool = false,
+    peek: bool = false,
+    trunc: bool = false,
+    _: u5 = 0,
+};
+
+pub const IncomingMessage = struct {
+    /// Populated by receive functions.
     from: IpAddress,
-    len: usize,
+    /// Populated by receive functions, points into the caller-supplied buffer.
+    data: []u8,
+    /// Supplied by caller before calling receive functions; mutated by receive
+    /// functions.
+    control: []u8 = &.{},
+    /// Populated by receive functions.
+    flags: Flags,
+
+    pub const Flags = packed struct(u8) {
+        /// indicates end-of-record; the data returned completed a record
+        /// (generally used with sockets of type SOCK_SEQPACKET).
+        eor: bool,
+        /// indicates that the trailing portion of a datagram was discarded
+        /// because the datagram was larger than the buffer supplied.
+        trunc: bool,
+        /// indicates that some control data was discarded due to lack of
+        /// space in the buffer for ancil‐ lary data.
+        ctrunc: bool,
+        /// indicates expedited or out-of-band data was received.
+        oob: bool,
+        /// indicates that no data was received but an extended error from the
+        /// socket error queue.
+        errqueue: bool,
+        _: u3 = 0,
+    };
 };
 
 pub const OutgoingMessage = struct {
@@ -716,6 +748,14 @@ pub const SendFlags = packed struct(u8) {
     oob: bool = false,
     fastopen: bool = false,
     _: u3 = 0,
+};
+
+pub const SendResult = union(enum) {
+    success,
+    fail: struct {
+        err: Socket.SendError,
+        sent: usize,
+    },
 };
 
 pub const Interface = struct {
@@ -839,7 +879,7 @@ pub const Socket = struct {
         ConnectionResetByPeer,
         /// Local end has been shut down on a connection-oriented socket, or
         /// the socket was never connected.
-        SocketNotConnected,
+        SocketUnconnected,
     } || Io.UnexpectedError || Io.Cancelable;
 
     /// Transfers `data` to `dest`, connectionless, in one packet.
@@ -853,14 +893,34 @@ pub const Socket = struct {
         return io.vtable.netSend(io.userdata, s.handle, messages, flags);
     }
 
-    pub const ReceiveError = error{} || Io.UnexpectedError || Io.Cancelable;
+    pub const ReceiveError = error{
+        /// Insufficient memory or other resource internal to the operating system.
+        SystemResources,
+        /// Per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+        /// System-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+        /// Local end has been shut down on a connection-oriented socket, or
+        /// the socket was never connected.
+        SocketUnconnected,
+        /// The socket type requires that message be sent atomically, and the
+        /// size of the message to be sent made this impossible. The message
+        /// was not transmitted, or was partially transmitted.
+        MessageOversize,
+        /// Network connection was unexpectedly closed by sender.
+        ConnectionResetByPeer,
+        /// The local network interface used to reach the destination is offline.
+        NetworkDown,
+    } || Io.UnexpectedError || Io.Cancelable;
 
     /// Waits for data. Connectionless.
     ///
     /// See also:
     /// * `receiveTimeout`
-    pub fn receive(s: *const Socket, io: Io, source: *const IpAddress, buffer: []u8) ReceiveError!ReceivedMessage {
-        return io.vtable.netReceive(io.userdata, s.handle, source, buffer, .none);
+    pub fn receive(s: *const Socket, io: Io, buffer: []u8) ReceiveError!IncomingMessage {
+        var message: IncomingMessage = undefined;
+        assert(1 == try io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, .none));
+        return message;
     }
 
     pub const ReceiveTimeoutError = ReceiveError || Io.Timeout.Error;
@@ -871,13 +931,36 @@ pub const Socket = struct {
     ///
     /// See also:
     /// * `receive`
+    /// * `receiveManyTimeout`
     pub fn receiveTimeout(
         s: *const Socket,
         io: Io,
         buffer: []u8,
         timeout: Io.Timeout,
-    ) ReceiveTimeoutError!ReceivedMessage {
-        return io.vtable.netReceive(io.userdata, s.handle, buffer, timeout);
+    ) ReceiveTimeoutError!IncomingMessage {
+        var message: IncomingMessage = undefined;
+        assert(1 == try io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, timeout));
+        return message;
+    }
+
+    /// Waits until at least one message is delivered, possibly returning more
+    /// than one message. Connectionless.
+    ///
+    /// Returns number of messages received, or `error.Timeout` if no message
+    /// arrives early enough.
+    ///
+    /// See also:
+    /// * `receive`
+    /// * `receiveTimeout`
+    pub fn receiveManyTimeout(
+        s: *const Socket,
+        io: Io,
+        message_buffer: []IncomingMessage,
+        data_buffer: []u8,
+        flags: ReceiveFlags,
+        timeout: Io.Timeout,
+    ) struct { ?ReceiveTimeoutError, usize } {
+        return io.vtable.netReceive(io.userdata, s.handle, message_buffer, data_buffer, flags, timeout);
     }
 };
 
