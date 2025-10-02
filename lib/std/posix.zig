@@ -840,7 +840,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
@@ -869,7 +869,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
@@ -909,7 +909,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
@@ -931,7 +931,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
@@ -978,7 +978,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
@@ -1011,7 +1011,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
@@ -1129,7 +1129,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
@@ -1155,7 +1155,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
@@ -3711,7 +3711,7 @@ pub const ShutdownError = error{
     NetworkSubsystemFailed,
 
     /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
+    SocketUnconnected,
     SystemResources,
 } || UnexpectedError;
 
@@ -3731,7 +3731,7 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
             .WSAEINPROGRESS => return error.BlockingOperationInProgress,
             .WSAEINVAL => unreachable,
             .WSAENETDOWN => return error.NetworkSubsystemFailed,
-            .WSAENOTCONN => return error.SocketNotConnected,
+            .WSAENOTCONN => return error.SocketUnconnected,
             .WSAENOTSOCK => unreachable,
             .WSANOTINITIALISED => unreachable,
             else => |err| return windows.unexpectedWSAError(err),
@@ -3746,7 +3746,7 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
             .SUCCESS => return,
             .BADF => unreachable,
             .INVAL => unreachable,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .NOTSOCK => unreachable,
             .NOBUFS => return error.SystemResources,
             else => |err| return unexpectedErrno(err),
@@ -6181,7 +6181,7 @@ pub const SendMsgError = SendError || error{
     NotDir,
 
     /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
+    SocketUnconnected,
     AddressNotAvailable,
 };
 
@@ -6212,7 +6212,7 @@ pub fn sendmsg(
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
-                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
@@ -6248,7 +6248,7 @@ pub fn sendmsg(
                 .NOTDIR => return error.NotDir,
                 .HOSTUNREACH => return error.NetworkUnreachable,
                 .NETUNREACH => return error.NetworkUnreachable,
-                .NOTCONN => return error.SocketNotConnected,
+                .NOTCONN => return error.SocketUnconnected,
                 .NETDOWN => return error.NetworkSubsystemFailed,
                 else => |err| return unexpectedErrno(err),
             }
@@ -6315,7 +6315,7 @@ pub fn sendto(
                 .WSAENETDOWN => return error.NetworkSubsystemFailed,
                 .WSAENETRESET => return error.ConnectionResetByPeer,
                 .WSAENETUNREACH => return error.NetworkUnreachable,
-                .WSAENOTCONN => return error.SocketNotConnected,
+                .WSAENOTCONN => return error.SocketUnconnected,
                 .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
                 .WSAEWOULDBLOCK => return error.WouldBlock,
                 .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
@@ -6353,7 +6353,7 @@ pub fn sendto(
             .NOTDIR => return error.NotDir,
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .NETDOWN => return error.NetworkSubsystemFailed,
             else => |err| return unexpectedErrno(err),
         }
@@ -6393,7 +6393,7 @@ pub fn send(
         error.NotDir => unreachable,
         error.NetworkUnreachable => unreachable,
         error.AddressNotAvailable => unreachable,
-        error.SocketNotConnected => unreachable,
+        error.SocketUnconnected => unreachable,
         error.UnreachableAddress => unreachable,
         else => |e| return e,
     };
@@ -6579,7 +6579,7 @@ pub const RecvFromError = error{
     NetworkSubsystemFailed,
 
     /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
+    SocketUnconnected,
 
     /// The other end closed the socket unexpectedly or a read is executed on a shut down socket
     BrokenPipe,
@@ -6608,7 +6608,7 @@ pub fn recvfrom(
                     .WSAEINVAL => return error.SocketNotBound,
                     .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSAETIMEDOUT => return error.ConnectionTimedOut,
                     // TODO: handle more errors
@@ -6623,7 +6623,7 @@ pub fn recvfrom(
                 .BADF => unreachable, // always a race condition
                 .FAULT => unreachable,
                 .INVAL => unreachable,
-                .NOTCONN => return error.SocketNotConnected,
+                .NOTCONN => return error.SocketUnconnected,
                 .NOTSOCK => unreachable,
                 .INTR => continue,
                 .AGAIN => return error.WouldBlock,
@@ -6675,7 +6675,7 @@ pub fn recvmsg(
             .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             .MSGSIZE => return error.MessageTooBig,
             .PIPE => return error.BrokenPipe,

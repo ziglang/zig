@@ -1406,7 +1406,7 @@ fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.o
         .ISDIR => return error.IsDir,
         .NOBUFS => return error.SystemResources,
         .NOMEM => return error.SystemResources,
-        .NOTCONN => return error.SocketNotConnected,
+        .NOTCONN => return error.SocketUnconnected,
         .CONNRESET => return error.ConnectionResetByPeer,
         .TIMEDOUT => return error.ConnectionTimedOut,
         .NXIO => return error.Unseekable,

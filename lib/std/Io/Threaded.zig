@@ -811,7 +811,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
@@ -834,7 +834,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return posix.unexpectedErrno(err),
@@ -933,7 +933,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
@@ -960,7 +960,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
@@ -999,19 +999,29 @@ fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posi
     };
 }
 
-fn now(userdata: ?*anyopaque, clockid: posix.clockid_t) Io.NowError!Io.Timestamp {
+fn now(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
-    const timespec = try posix.clock_gettime(clockid);
-    return @enumFromInt(@as(i128, timespec.sec) * std.time.ns_per_s + timespec.nsec);
+    _ = pool;
+    const clock_id: posix.clockid_t = clockToPosix(clock);
+    var tp: posix.timespec = undefined;
+    switch (posix.errno(posix.system.clock_gettime(clock_id, &tp))) {
+        .SUCCESS => return @intCast(@as(i128, tp.sec) * std.time.ns_per_s + tp.nsec),
+        .INVAL => return error.UnsupportedClock,
+        else => |err| return posix.unexpectedErrno(err),
+    }
 }
 
-fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, timeout: Io.Timeout) Io.SleepError!void {
+fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const clock_id: posix.clockid_t = clockToPosix(switch (timeout) {
+        .none => .monotonic,
+        .duration => |d| d.clock,
+        .deadline => |d| d.clock,
+    });
     const deadline_nanoseconds: i96 = switch (timeout) {
         .none => std.math.maxInt(i96),
-        .duration => |duration| duration.nanoseconds,
-        .deadline => |deadline| @intFromEnum(deadline),
+        .duration => |d| d.duration.nanoseconds,
+        .deadline => |deadline| deadline.nanoseconds,
     };
     var timespec: posix.timespec = .{
         .sec = @intCast(@divFloor(deadline_nanoseconds, std.time.ns_per_s)),
@@ -1019,13 +1029,12 @@ fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, timeout: Io.Timeout) I
     };
     while (true) {
         try pool.checkCancel();
-        switch (std.os.linux.E.init(std.os.linux.clock_nanosleep(clockid, .{ .ABSTIME = switch (timeout) {
+        switch (std.os.linux.E.init(std.os.linux.clock_nanosleep(clock_id, .{ .ABSTIME = switch (timeout) {
             .none, .duration => false,
             .deadline => true,
         } }, &timespec, &timespec))) {
             .SUCCESS => return,
-            .FAULT => |err| return errnoBug(err),
-            .INTR => {},
+            .INTR => continue,
             .INVAL => return error.UnsupportedClock,
             else => |err| return posix.unexpectedErrno(err),
         }
@@ -1313,15 +1322,18 @@ fn netSend(
     handle: Io.net.Socket.Handle,
     messages: []Io.net.OutgoingMessage,
     flags: Io.net.SendFlags,
-) Io.net.Socket.SendError!void {
+) Io.net.SendResult {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
 
     if (have_sendmmsg) {
         var i: usize = 0;
         while (messages.len - i != 0) {
-            i += try netSendMany(pool, handle, messages[i..], flags);
+            i += netSendMany(pool, handle, messages[i..], flags) catch |err| return .{ .fail = .{
+                .err = err,
+                .sent = i,
+            } };
         }
-        return;
+        return .success;
     }
 
     try pool.checkCancel();
@@ -1391,11 +1403,11 @@ fn netSendMany(
             .NOMEM => return error.SystemResources,
             .NOTSOCK => |err| return errnoBug(err), // The file descriptor sockfd does not refer to a socket.
             .OPNOTSUPP => |err| return errnoBug(err), // Some bit in the flags argument is inappropriate for the socket type.
-            .PIPE => return error.SocketNotConnected,
+            .PIPE => return error.SocketUnconnected,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
-            .NOTCONN => return error.SocketNotConnected,
+            .NOTCONN => return error.SocketUnconnected,
             .NETDOWN => return error.NetworkDown,
             else => |err| return posix.unexpectedErrno(err),
         }
@@ -1405,16 +1417,128 @@ fn netSendMany(
 fn netReceive(
     userdata: ?*anyopaque,
     handle: Io.net.Socket.Handle,
-    buffer: []u8,
+    message_buffer: []Io.net.IncomingMessage,
+    data_buffer: []u8,
+    flags: Io.net.ReceiveFlags,
     timeout: Io.Timeout,
-) Io.net.Socket.ReceiveTimeoutError!Io.net.ReceivedMessage {
+) struct { ?Io.net.Socket.ReceiveTimeoutError, usize } {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
 
-    _ = handle;
-    _ = buffer;
-    _ = timeout;
-    @panic("TODO");
+    // recvmmsg is useless, here's why:
+    // * [timeout bug](https://bugzilla.kernel.org/show_bug.cgi?id=75371)
+    // * it wants iovecs for each message but we have a better API: one data
+    //   buffer to handle all the messages. The better API cannot be lowered to
+    //   the split vectors though because reducing the buffer size might make
+    //   some messages unreceivable.
+
+    // So the strategy instead is to use poll with timeout and then non-blocking
+    // recvmsg calls.
+    const posix_flags: u32 =
+        @as(u32, if (flags.oob) posix.MSG.OOB else 0) |
+        @as(u32, if (flags.peek) posix.MSG.PEEK else 0) |
+        @as(u32, if (flags.trunc) posix.MSG.TRUNC else 0) |
+        posix.MSG.DONTWAIT | posix.MSG.NOSIGNAL;
+
+    var poll_fds: [1]posix.pollfd = .{
+        .{
+            .fd = handle,
+            .events = posix.POLL.IN,
+            .revents = undefined,
+        },
+    };
+    var message_i: usize = 0;
+    var data_i: usize = 0;
+
+    // TODO: recvmsg first, then poll if EAGAIN. saves syscall in case the messages are already queued.
+
+    const deadline = timeout.toDeadline(pool.io()) catch |err| return .{ err, message_i };
+
+    poll: while (true) {
+        pool.checkCancel() catch |err| return .{ err, message_i };
+
+        if (message_i > 0 or message_buffer.len - message_i == 0) return .{ null, message_i };
+
+        const max_poll_ms = std.math.maxInt(u31);
+        const timeout_ms: u31 = if (deadline) |d| t: {
+            const duration = d.durationFromNow(pool.io()) catch |err| return .{ err, message_i };
+            if (duration.nanoseconds <= 0) return .{ error.Timeout, message_i };
+            break :t @intCast(@min(max_poll_ms, duration.toMilliseconds()));
+        } else max_poll_ms;
+
+        const poll_rc = posix.system.poll(&poll_fds, poll_fds.len, timeout_ms);
+        switch (posix.errno(poll_rc)) {
+            .SUCCESS => {
+                if (poll_rc == 0) {
+                    // Possibly spurious timeout.
+                    if (deadline == null) continue;
+                    return .{ error.Timeout, message_i };
+                }
+
+                // Proceed to recvmsg.
+                while (true) {
+                    pool.checkCancel() catch |err| return .{ err, message_i };
+
+                    const message = &message_buffer[message_i];
+                    const remaining_data_buffer = data_buffer[data_i..];
+                    var storage: PosixAddress = undefined;
+                    var iov: posix.iovec = .{ .base = remaining_data_buffer.ptr, .len = remaining_data_buffer.len };
+                    var msg: posix.msghdr = .{
+                        .name = &storage.any,
+                        .namelen = @sizeOf(PosixAddress),
+                        .iov = (&iov)[0..1],
+                        .iovlen = 1,
+                        .control = message.control.ptr,
+                        .controllen = message.control.len,
+                        .flags = undefined,
+                    };
+
+                    const rc = posix.system.recvmsg(handle, &msg, posix_flags);
+                    switch (posix.errno(rc)) {
+                        .SUCCESS => {
+                            const data = remaining_data_buffer[0..@intCast(rc)];
+                            data_i += data.len;
+                            message.* = .{
+                                .from = addressFromPosix(&storage),
+                                .data = data,
+                                .control = if (msg.control) |ptr| @as([*]u8, @ptrCast(ptr))[0..msg.controllen] else message.control,
+                                .flags = .{
+                                    .eor = (msg.flags & posix.MSG.EOR) != 0,
+                                    .trunc = (msg.flags & posix.MSG.TRUNC) != 0,
+                                    .ctrunc = (msg.flags & posix.MSG.CTRUNC) != 0,
+                                    .oob = (msg.flags & posix.MSG.OOB) != 0,
+                                    .errqueue = (msg.flags & posix.MSG.ERRQUEUE) != 0,
+                                },
+                            };
+                            message_i += 1;
+                            continue;
+                        },
+                        .AGAIN => continue :poll,
+                        .BADF => |err| return .{ errnoBug(err), message_i },
+                        .NFILE => return .{ error.SystemFdQuotaExceeded, message_i },
+                        .MFILE => return .{ error.ProcessFdQuotaExceeded, message_i },
+                        .INTR => continue,
+                        .FAULT => |err| return .{ errnoBug(err), message_i },
+                        .INVAL => |err| return .{ errnoBug(err), message_i },
+                        .NOBUFS => return .{ error.SystemResources, message_i },
+                        .NOMEM => return .{ error.SystemResources, message_i },
+                        .NOTCONN => return .{ error.SocketUnconnected, message_i },
+                        .NOTSOCK => |err| return .{ errnoBug(err), message_i },
+                        .MSGSIZE => return .{ error.MessageOversize, message_i },
+                        .PIPE => return .{ error.SocketUnconnected, message_i },
+                        .OPNOTSUPP => |err| return .{ errnoBug(err), message_i },
+                        .CONNRESET => return .{ error.ConnectionResetByPeer, message_i },
+                        .NETDOWN => return .{ error.NetworkDown, message_i },
+                        else => |err| return .{ posix.unexpectedErrno(err), message_i },
+                    }
+                }
+            },
+            .INTR => continue,
+            .FAULT => |err| return .{ errnoBug(err), message_i },
+            .INVAL => |err| return .{ errnoBug(err), message_i },
+            .NOMEM => return .{ error.SystemResources, message_i },
+            else => |err| return .{ posix.unexpectedErrno(err), message_i },
+        }
+    }
 }
 
 fn netWritePosix(
@@ -1652,4 +1776,12 @@ fn posixProtocol(protocol: ?Io.net.Protocol) u32 {
 
 fn recoverableOsBugDetected() void {
     if (builtin.mode == .Debug) unreachable;
+}
+
+fn clockToPosix(clock: Io.Timestamp.Clock) posix.clockid_t {
+    return switch (clock) {
+        .realtime => posix.CLOCK.REALTIME,
+        .monotonic => posix.CLOCK.MONOTONIC,
+        .boottime => posix.CLOCK.BOOTTIME,
+    };
 }

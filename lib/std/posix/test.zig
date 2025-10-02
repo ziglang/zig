@@ -634,7 +634,7 @@ test "shutdown socket" {
     }
     const sock = try posix.socket(posix.AF.INET, posix.SOCK.STREAM, 0);
     posix.shutdown(sock, .both) catch |err| switch (err) {
-        error.SocketNotConnected => {},
+        error.SocketUnconnected => {},
         else => |e| return e,
     };
     std.net.Stream.close(.{ .handle = sock });

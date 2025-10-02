@@ -52,7 +52,7 @@ pub const LookupError = error{
     InvalidDnsARecord,
     InvalidDnsAAAARecord,
     NameServerFailure,
-} || Io.NowError || IpAddress.BindError || Io.File.OpenError || Io.File.Reader.Error || Io.Cancelable;
+} || Io.Timestamp.Error || IpAddress.BindError || Io.File.OpenError || Io.File.Reader.Error || Io.Cancelable;
 
 pub const LookupResult = struct {
     /// How many `LookupOptions.addresses_buffer` elements are populated.
@@ -222,11 +222,11 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
         .{ .af = .ip4, .rr = std.posix.RR.AAAA },
     };
     var query_buffers: [2][280]u8 = undefined;
-    var answer_buffers: [2][512]u8 = undefined;
+    var answer_buffer: [2 * 512]u8 = undefined;
     var queries_buffer: [2][]const u8 = undefined;
     var answers_buffer: [2][]const u8 = undefined;
     var nq: usize = 0;
-    var next_answer_buffer: usize = 0;
+    var answer_buffer_i: usize = 0;
 
     for (family_records) |fr| {
         if (options.family != fr.af) {
@@ -262,79 +262,89 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
     const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
     const queries = queries_buffer[0..nq];
     const answers = answers_buffer[0..queries.len];
+    var answers_remaining = answers.len;
     for (answers) |*answer| answer.len = 0;
 
-    var now_ts = try io.now(.MONOTONIC);
-    const final_ts = now_ts.addDuration(.seconds(rc.timeout_seconds));
+    // boottime is chosen because time the computer is suspended should count
+    // against time spent waiting for external messages to arrive.
+    var now_ts = try Io.Timestamp.now(io, .boottime);
+    const final_ts = now_ts.addDuration(.fromSeconds(rc.timeout_seconds));
     const attempt_duration: Io.Duration = .{
         .nanoseconds = std.time.ns_per_s * @as(usize, rc.timeout_seconds) / rc.attempts,
     };
 
-    send: while (now_ts.compare(.lt, final_ts)) : (now_ts = try io.now(.MONOTONIC)) {
-        var message_buffer: [queries_buffer.len * ResolvConf.max_nameservers]Io.net.OutgoingMessage = undefined;
-        var message_i: usize = 0;
-        for (queries, answers) |query, *answer| {
-            if (answer.len != 0) continue;
-            for (mapped_nameservers) |*ns| {
-                message_buffer[message_i] = .{
-                    .address = ns,
-                    .data_ptr = query.ptr,
-                    .data_len = query.len,
-                };
-                message_i += 1;
-            }
-        }
-        io.vtable.netSend(io.userdata, socket.handle, message_buffer[0..message_i], .{}) catch {};
-
-        const timeout: Io.Timeout = .{ .deadline = now_ts.addDuration(attempt_duration) };
-
-        while (true) {
-            const buf = &answer_buffers[next_answer_buffer];
-            const reply = socket.receiveTimeout(io, buf, timeout) catch |err| switch (err) {
-                error.Canceled => return error.Canceled,
-                error.Timeout => continue :send,
-                else => continue,
-            };
-
-            // Ignore non-identifiable packets.
-            if (reply.len < 4) continue;
-
-            // Ignore replies from addresses we didn't send to.
-            const ns = for (mapped_nameservers) |*ns| {
-                if (reply.from.eql(ns)) break ns;
-            } else {
-                continue;
-            };
-
-            const reply_msg = buf[0..reply.len];
-
-            // Find which query this answer goes with, if any.
-            const query, const answer = for (queries, answers) |query, *answer| {
-                if (reply_msg[0] == query[0] and reply_msg[1] == query[1]) break .{ query, answer };
-            } else {
-                continue;
-            };
-            if (answer.len != 0) continue;
-
-            // Only accept positive or negative responses; retry immediately on
-            // server failure, and ignore all other codes such as refusal.
-            switch (reply_msg[3] & 15) {
-                0, 3 => {
-                    answer.* = reply_msg;
-                    next_answer_buffer += 1;
-                    if (next_answer_buffer == answers.len) break :send;
-                },
-                2 => {
-                    var message: Io.net.OutgoingMessage = .{
+    send: while (now_ts.compare(.lt, final_ts)) : (now_ts = try Io.Timestamp.now(io, .boottime)) {
+        const max_messages = queries_buffer.len * ResolvConf.max_nameservers;
+        {
+            var message_buffer: [max_messages]Io.net.OutgoingMessage = undefined;
+            var message_i: usize = 0;
+            for (queries, answers) |query, *answer| {
+                if (answer.len != 0) continue;
+                for (mapped_nameservers) |*ns| {
+                    message_buffer[message_i] = .{
                         .address = ns,
                         .data_ptr = query.ptr,
                         .data_len = query.len,
                     };
-                    io.vtable.netSend(io.userdata, socket.handle, (&message)[0..1], .{}) catch {};
-                    continue;
-                },
-                else => continue,
+                    message_i += 1;
+                }
             }
+            _ = io.vtable.netSend(io.userdata, socket.handle, message_buffer[0..message_i], .{});
+        }
+
+        const timeout: Io.Timeout = .{ .deadline = now_ts.addDuration(attempt_duration) };
+
+        while (true) {
+            var message_buffer: [max_messages]Io.net.IncomingMessage = undefined;
+            const buf = answer_buffer[answer_buffer_i..];
+            const recv_err, const recv_n = socket.receiveManyTimeout(io, &message_buffer, buf, .{}, timeout);
+            for (message_buffer[0..recv_n]) |*received_message| {
+                const reply = received_message.data;
+                // Ignore non-identifiable packets.
+                if (reply.len < 4) continue;
+
+                // Ignore replies from addresses we didn't send to.
+                const ns = for (mapped_nameservers) |*ns| {
+                    if (received_message.from.eql(ns)) break ns;
+                } else {
+                    continue;
+                };
+
+                // Find which query this answer goes with, if any.
+                const query, const answer = for (queries, answers) |query, *answer| {
+                    if (reply[0] == query[0] and reply[1] == query[1]) break .{ query, answer };
+                } else {
+                    continue;
+                };
+                if (answer.len != 0) continue;
+
+                // Only accept positive or negative responses; retry immediately on
+                // server failure, and ignore all other codes such as refusal.
+                switch (reply[3] & 15) {
+                    0, 3 => {
+                        answer.* = reply;
+                        answer_buffer_i += reply.len;
+                        answers_remaining -= 1;
+                        if (answer_buffer.len - answer_buffer_i == 0) break :send;
+                        if (answers_remaining == 0) break :send;
+                    },
+                    2 => {
+                        var retry_message: Io.net.OutgoingMessage = .{
+                            .address = ns,
+                            .data_ptr = query.ptr,
+                            .data_len = query.len,
+                        };
+                        _ = io.vtable.netSend(io.userdata, socket.handle, (&retry_message)[0..1], .{});
+                        continue;
+                    },
+                    else => continue,
+                }
+            }
+            if (recv_err) |err| switch (err) {
+                error.Canceled => return error.Canceled,
+                error.Timeout => continue :send,
+                else => continue,
+            };
         }
     } else {
         return error.NameServerFailure;
