@@ -187,7 +187,7 @@ pub fn cwd() Dir {
     } else if (native_os == .wasi) {
         return .{ .fd = std.options.wasiCwd() };
     } else {
-        return .{ .fd = posix.AT.FDCWD };
+        return .{ .fd = posix.AT.fdcwd };
     }
 }
 
