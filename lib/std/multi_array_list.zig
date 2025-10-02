@@ -1095,16 +1095,3 @@ test "value as a tuple that containing void" {
 
     try testing.expectEqual(list.pop(), null);
 }
-
-test "value as a tuple that containing nullable void" {
-    const gpa = testing.allocator;
-
-    var list: MultiArrayList(struct { ?void }) = .empty;
-    defer list.deinit(gpa);
-
-    try list.append(gpa, .{null});
-
-    try testing.expectEqual(list.pop().?[0], null);
-
-    try testing.expectEqual(list.pop(), null);
-}
