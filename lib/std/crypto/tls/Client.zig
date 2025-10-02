@@ -1277,7 +1277,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
         },
         .application_data => {
             r.end += cleartext.len;
-            return 0;
+            return cleartext.len;
         },
         else => return failRead(c, error.TlsUnexpectedMessage),
     }
