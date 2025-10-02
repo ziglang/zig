@@ -4087,8 +4087,9 @@ pub const linger = switch (native_os) {
     },
     else => void,
 };
+
 pub const msghdr = switch (native_os) {
-    .linux => linux.msghdr,
+    .linux => if (@bitSizeOf(usize) > @bitSizeOf(i32) and builtin.abi.isMusl()) posix_msghdr else linux.msghdr,
     .openbsd,
     .emscripten,
     .dragonfly,
@@ -4102,36 +4103,24 @@ pub const msghdr = switch (native_os) {
     .tvos,
     .visionos,
     .watchos,
-    => extern struct {
-        /// optional address
-        name: ?*sockaddr,
-        /// size of address
-        namelen: socklen_t,
-        /// scatter/gather array
-        iov: [*]iovec,
-        /// # elements in iov
-        iovlen: i32,
-        /// ancillary data
-        control: ?*anyopaque,
-        /// ancillary data buffer len
-        controllen: socklen_t,
-        /// flags on received message
-        flags: i32,
-    },
-    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L74-L82
-    .serenity => extern struct {
-        name: ?*anyopaque,
-        namelen: socklen_t,
-        iov: [*]iovec,
-        iovlen: c_int,
-        control: ?*anyopaque,
-        controllen: socklen_t,
-        flags: c_int,
-    },
+    .serenity, // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L74-L82
+    => private.posix_msghdr,
     else => void,
 };
+
+/// https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/sys_socket.h.html
+const posix_msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: u32,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: u32,
+};
+
 pub const msghdr_const = switch (native_os) {
-    .linux => linux.msghdr_const,
+    .linux => if (@bitSizeOf(usize) > @bitSizeOf(i32) and builtin.abi.isMusl()) posix_msghdr_const else linux.msghdr_const,
     .openbsd,
     .emscripten,
     .dragonfly,
@@ -4145,36 +4134,25 @@ pub const msghdr_const = switch (native_os) {
     .tvos,
     .visionos,
     .watchos,
-    => extern struct {
-        /// optional address
-        name: ?*const sockaddr,
-        /// size of address
-        namelen: socklen_t,
-        /// scatter/gather array
-        iov: [*]const iovec_const,
-        /// # elements in iov
-        iovlen: u32,
-        /// ancillary data
-        control: ?*const anyopaque,
-        /// ancillary data buffer len
-        controllen: socklen_t,
-        /// flags on received message
-        flags: i32,
-    },
-    .serenity => extern struct {
-        name: ?*const anyopaque,
-        namelen: socklen_t,
-        iov: [*]const iovec_const,
-        iovlen: c_uint,
-        control: ?*const anyopaque,
-        controllen: socklen_t,
-        flags: c_int,
-    },
+    .serenity,
+    => posix_msghdr_const,
     else => void,
 };
+
+const posix_msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]const iovec_const,
+    iovlen: u32,
+    control: ?*const anyopaque,
+    controllen: socklen_t,
+    flags: u32,
+};
+
 pub const cmsghdr = switch (native_os) {
+    .linux => if (@bitSizeOf(usize) > @bitSizeOf(i32) and builtin.abi.isMusl()) posix_cmsghdr else linux.cmsghdr,
     // https://github.com/emscripten-core/emscripten/blob/96371ed7888fc78c040179f4d4faa82a6a07a116/system/lib/libc/musl/include/sys/socket.h#L44
-    .linux, .emscripten => linux.cmsghdr,
+    .emscripten => linux.cmsghdr,
     // https://github.com/freebsd/freebsd-src/blob/b197d2abcb6895d78bc9df8404e374397aa44748/sys/sys/socket.h#L492
     .freebsd,
     // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/107c0518337ba90e7fa49e74845d8d44320c9a6d/sys/sys/socket.h#L452
@@ -4196,13 +4174,17 @@ pub const cmsghdr = switch (native_os) {
     .tvos,
     .visionos,
     .watchos,
-    => extern struct {
-        len: socklen_t,
-        level: c_int,
-        type: c_int,
-    },
+    => posix_cmsghdr,
+
     else => void,
 };
+
+const posix_cmsghdr = extern struct {
+    len: socklen_t,
+    level: c_int,
+    type: c_int,
+};
+
 pub const nfds_t = switch (native_os) {
     .linux => linux.nfds_t,
     .emscripten => emscripten.nfds_t,

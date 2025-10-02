@@ -9840,8 +9840,10 @@ pub const msghdr = extern struct {
     name: ?*sockaddr,
     namelen: socklen_t,
     iov: [*]iovec,
+    /// The kernel and glibc use `usize` for this field; POSIX and musl use `c_int`.
     iovlen: usize,
     control: ?*anyopaque,
+    /// The kernel and glibc use `usize` for this field; POSIX and musl use `socklen_t`.
     controllen: usize,
     flags: u32,
 };
@@ -9858,6 +9860,7 @@ pub const msghdr_const = extern struct {
 
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=b320789d6883cc00ac78ce83bccbfe7ed58afcf0#n105
 pub const cmsghdr = extern struct {
+    /// The kernel and glibc use `usize` for this field; musl uses `socklen_t`.
     len: usize,
     level: i32,
     type: i32,
