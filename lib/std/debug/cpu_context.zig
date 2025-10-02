@@ -4,10 +4,12 @@
 pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuContext"))
     root.debug.CpuContext
 else switch (native_arch) {
+    .aarch64, .aarch64_be => Aarch64,
+    .arm, .armeb, .thumb, .thumbeb => Arm,
+    .loongarch32, .loongarch64 => LoongArch,
+    .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .x86 => X86,
     .x86_64 => X86_64,
-    .arm, .armeb, .thumb, .thumbeb => Arm,
-    .aarch64, .aarch64_be => Aarch64,
     else => noreturn,
 };
 
@@ -21,7 +23,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
     const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
     return switch (native_arch) {
         .x86 => switch (native_os) {
-            .linux, .netbsd, .solaris, .illumos => .{ .gprs = .init(.{
+            .linux, .netbsd, .illumos => .{ .gprs = .init(.{
                 .eax = uc.mcontext.gregs[std.posix.REG.EAX],
                 .ecx = uc.mcontext.gregs[std.posix.REG.ECX],
                 .edx = uc.mcontext.gregs[std.posix.REG.EDX],
@@ -92,7 +94,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
                 .r15 = @bitCast(uc.sc_r15),
                 .rip = @bitCast(uc.sc_rip),
             }) },
-            .macos, .ios => .{ .gprs = .init(.{
+            .driverkit, .macos, .ios => .{ .gprs = .init(.{
                 .rax = uc.mcontext.ss.rax,
                 .rdx = uc.mcontext.ss.rdx,
                 .rcx = uc.mcontext.ss.rcx,
@@ -137,7 +139,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             else => null,
         },
         .aarch64, .aarch64_be => switch (builtin.os.tag) {
-            .macos, .ios, .tvos, .watchos, .visionos => .{
+            .driverkit, .macos, .ios, .tvos, .watchos, .visionos => .{
                 .x = uc.mcontext.ss.regs ++ @as([2]u64, .{
                     uc.mcontext.ss.fp, // x29 = fp
                     uc.mcontext.ss.lr, // x30 = lr
@@ -170,6 +172,20 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
                 .x = uc.mcontext.regs,
                 .sp = uc.mcontext.sp,
                 .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .loongarch64 => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.regs, // includes r0 (hardwired zero)
+                .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .riscv32, .riscv64 => switch (builtin.os.tag) {
+            .linux => .{
+                .r = [1]usize{0} ++ uc.mcontext.gregs[1..].*, // r0 position is used for pc; replace with zero
+                .pc = uc.mcontext.gregs[0],
             },
             else => null,
         },
@@ -209,7 +225,7 @@ pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
             .r15 = ctx.R15,
             .rip = ctx.Rip,
         }) },
-        .aarch64, .aarch64_be => .{
+        .aarch64 => .{
             .x = ctx.DUMMYUNIONNAME.X[0..31].*,
             .sp = ctx.Sp,
             .pc = ctx.Pc,
@@ -371,7 +387,6 @@ pub const Arm = struct {
     pub fn dwarfRegisterBytes(ctx: *Arm, register_num: u16) DwarfRegisterError![]u8 {
         // DWARF for the Arm(r) Architecture § 4.1 "DWARF register names"
         switch (register_num) {
-            // The order of `Gpr` intentionally matches DWARF's mappings.
             0...15 => return @ptrCast(&ctx.r[register_num]),
 
             64...95 => return error.UnsupportedRegister, // S0 - S31
@@ -444,7 +459,6 @@ pub const Aarch64 = extern struct {
     pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
         // DWARF for the Arm(r) 64-bit Architecture (AArch64) § 4.1 "DWARF register names"
         switch (register_num) {
-            // The order of `Gpr` intentionally matches DWARF's mappings.
             0...30 => return @ptrCast(&ctx.x[register_num]),
             31 => return @ptrCast(&ctx.sp),
             32 => return @ptrCast(&ctx.pc),
@@ -467,11 +481,207 @@ pub const Aarch64 = extern struct {
     }
 };
 
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const LoongArch = extern struct {
+    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
+    r: [32]usize,
+    pc: usize,
+
+    pub inline fn current() LoongArch {
+        var ctx: LoongArch = undefined;
+        asm volatile (if (@sizeOf(usize) == 8)
+                \\ st.d $zero, $t0, 0
+                \\ st.d $ra, $t0, 8
+                \\ st.d $tp, $t0, 16
+                \\ st.d $sp, $t0, 24
+                \\ st.d $a0, $t0, 32
+                \\ st.d $a1, $t0, 40
+                \\ st.d $a2, $t0, 48
+                \\ st.d $a3, $t0, 56
+                \\ st.d $a4, $t0, 64
+                \\ st.d $a5, $t0, 72
+                \\ st.d $a6, $t0, 80
+                \\ st.d $a7, $t0, 88
+                \\ st.d $t0, $t0, 96
+                \\ st.d $t1, $t0, 104
+                \\ st.d $t2, $t0, 112
+                \\ st.d $t3, $t0, 120
+                \\ st.d $t4, $t0, 128
+                \\ st.d $t5, $t0, 136
+                \\ st.d $t6, $t0, 144
+                \\ st.d $t7, $t0, 152
+                \\ st.d $t8, $t0, 160
+                \\ st.d $r21, $t0, 168
+                \\ st.d $fp, $t0, 176
+                \\ st.d $s0, $t0, 184
+                \\ st.d $s1, $t0, 192
+                \\ st.d $s2, $t0, 200
+                \\ st.d $s3, $t0, 208
+                \\ st.d $s4, $t0, 216
+                \\ st.d $s5, $t0, 224
+                \\ st.d $s6, $t0, 232
+                \\ st.d $s7, $t0, 240
+                \\ st.d $s8, $t0, 248
+                \\ bl 1f
+                \\1:
+                \\ st.d $ra, $t0, 256
+                \\ ld.d $ra, $t0, 8
+            else
+                \\ st.w $zero, $t0, 0
+                \\ st.w $ra, $t0, 4
+                \\ st.w $tp, $t0, 8
+                \\ st.w $sp, $t0, 12
+                \\ st.w $a0, $t0, 16
+                \\ st.w $a1, $t0, 20
+                \\ st.w $a2, $t0, 24
+                \\ st.w $a3, $t0, 28
+                \\ st.w $a4, $t0, 32
+                \\ st.w $a5, $t0, 36
+                \\ st.w $a6, $t0, 40
+                \\ st.w $a7, $t0, 44
+                \\ st.w $t0, $t0, 48
+                \\ st.w $t1, $t0, 52
+                \\ st.w $t2, $t0, 56
+                \\ st.w $t3, $t0, 60
+                \\ st.w $t4, $t0, 64
+                \\ st.w $t5, $t0, 68
+                \\ st.w $t6, $t0, 72
+                \\ st.w $t7, $t0, 76
+                \\ st.w $t8, $t0, 80
+                \\ st.w $r21, $t0, 84
+                \\ st.w $fp, $t0, 88
+                \\ st.w $s0, $t0, 92
+                \\ st.w $s1, $t0, 96
+                \\ st.w $s2, $t0, 100
+                \\ st.w $s3, $t0, 104
+                \\ st.w $s4, $t0, 108
+                \\ st.w $s5, $t0, 112
+                \\ st.w $s6, $t0, 116
+                \\ st.w $s7, $t0, 120
+                \\ st.w $s8, $t0, 124
+                \\ bl 1f
+                \\1:
+                \\ st.w $ra, $t0, 128
+                \\ ld.w $ra, $t0, 4
+            :
+            : [gprs] "{$r12}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *LoongArch, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            32 => return @ptrCast(&ctx.pc),
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const Riscv = extern struct {
+    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
+    r: [32]usize,
+    pc: usize,
+
+    pub inline fn current() Riscv {
+        var ctx: Riscv = undefined;
+        asm volatile (if (@sizeOf(usize) == 8)
+                \\ sd zero, 0(t0)
+                \\ sd ra, 8(t0)
+                \\ sd sp, 16(t0)
+                \\ sd gp, 24(t0)
+                \\ sd tp, 32(t0)
+                \\ sd t0, 40(t0)
+                \\ sd t1, 48(t0)
+                \\ sd t2, 56(t0)
+                \\ sd s0, 64(t0)
+                \\ sd s1, 72(t0)
+                \\ sd a0, 80(t0)
+                \\ sd a1, 88(t0)
+                \\ sd a2, 96(t0)
+                \\ sd a3, 104(t0)
+                \\ sd a4, 112(t0)
+                \\ sd a5, 120(t0)
+                \\ sd a6, 128(t0)
+                \\ sd a7, 136(t0)
+                \\ sd s2, 144(t0)
+                \\ sd s3, 152(t0)
+                \\ sd s4, 160(t0)
+                \\ sd s5, 168(t0)
+                \\ sd s6, 176(t0)
+                \\ sd s7, 184(t0)
+                \\ sd s8, 192(t0)
+                \\ sd s9, 200(t0)
+                \\ sd s10, 208(t0)
+                \\ sd s11, 216(t0)
+                \\ sd t3, 224(t0)
+                \\ sd t4, 232(t0)
+                \\ sd t5, 240(t0)
+                \\ sd t6, 248(t0)
+                \\ jal ra, 1f
+                \\1:
+                \\ sd ra, 256(t0)
+                \\ ld ra, 8(t0)
+            else
+                \\ sw zero, 0(t0)
+                \\ sw ra, 4(t0)
+                \\ sw sp, 8(t0)
+                \\ sw gp, 12(t0)
+                \\ sw tp, 16(t0)
+                \\ sw t0, 20(t0)
+                \\ sw t1, 24(t0)
+                \\ sw t2, 28(t0)
+                \\ sw s0, 32(t0)
+                \\ sw s1, 36(t0)
+                \\ sw a0, 40(t0)
+                \\ sw a1, 44(t0)
+                \\ sw a2, 48(t0)
+                \\ sw a3, 52(t0)
+                \\ sw a4, 56(t0)
+                \\ sw a5, 60(t0)
+                \\ sw a6, 64(t0)
+                \\ sw a7, 68(t0)
+                \\ sw s2, 72(t0)
+                \\ sw s3, 76(t0)
+                \\ sw s4, 80(t0)
+                \\ sw s5, 84(t0)
+                \\ sw s6, 88(t0)
+                \\ sw s7, 92(t0)
+                \\ sw s8, 96(t0)
+                \\ sw s9, 100(t0)
+                \\ sw s10, 104(t0)
+                \\ sw s11, 108(t0)
+                \\ sw t3, 112(t0)
+                \\ sw t4, 116(t0)
+                \\ sw t5, 120(t0)
+                \\ sw t6, 124(t0)
+                \\ jal ra, 1f
+                \\1:
+                \\ sw ra, 128(t0)
+                \\ lw ra, 4(t0)
+            :
+            : [gprs] "{t0}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Riscv, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            32 => return @ptrCast(&ctx.pc),
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
 const signal_ucontext_t = switch (native_os) {
     .linux => std.os.linux.ucontext_t,
     .emscripten => std.os.emscripten.ucontext_t,
     .freebsd => std.os.freebsd.ucontext_t,
-    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         onstack: c_int,
         sigmask: std.c.sigset_t,
         stack: std.c.stack_t,

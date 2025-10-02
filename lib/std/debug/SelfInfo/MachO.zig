@@ -371,7 +371,7 @@ fn unwindFrameInner(si: *SelfInfo, gpa: Allocator, context: *UnwindContext) !usi
                 return context.next(gpa, &rules);
             },
         },
-        .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
+        .aarch64 => switch (encoding.mode.arm64) {
             .OLD => return error.UnsupportedDebugInfo,
             .FRAMELESS => ip: {
                 const sp = (try dwarfRegNative(&context.cpu_state, sp_reg_num)).*;
