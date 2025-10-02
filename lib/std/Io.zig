@@ -665,14 +665,14 @@ pub const VTable = struct {
     fileSeekBy: *const fn (?*anyopaque, file: File, offset: i64) File.SeekError!void,
     fileSeekTo: *const fn (?*anyopaque, file: File, offset: u64) File.SeekError!void,
 
-    now: *const fn (?*anyopaque, clockid: std.posix.clockid_t) NowError!Timestamp,
-    sleep: *const fn (?*anyopaque, clockid: std.posix.clockid_t, timeout: Timeout) SleepError!void,
+    now: *const fn (?*anyopaque, Timestamp.Clock) Timestamp.Error!i96,
+    sleep: *const fn (?*anyopaque, Timeout) SleepError!void,
 
     listen: *const fn (?*anyopaque, address: net.IpAddress, options: net.IpAddress.ListenOptions) net.IpAddress.ListenError!net.Server,
     accept: *const fn (?*anyopaque, server: *net.Server) net.Server.AcceptError!net.Stream,
     ipBind: *const fn (?*anyopaque, address: net.IpAddress, options: net.IpAddress.BindOptions) net.IpAddress.BindError!net.Socket,
-    netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) net.Socket.SendError!void,
-    netReceive: *const fn (?*anyopaque, handle: net.Socket.Handle, buffer: []u8, timeout: Timeout) net.Socket.ReceiveTimeoutError!net.ReceivedMessage,
+    netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) net.SendResult,
+    netReceive: *const fn (?*anyopaque, net.Socket.Handle, message_buffer: []net.IncomingMessage, data_buffer: []u8, net.ReceiveFlags, Timeout) struct { ?net.Socket.ReceiveTimeoutError, usize },
     netRead: *const fn (?*anyopaque, src: net.Stream, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Stream, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
     netClose: *const fn (?*anyopaque, handle: net.Socket.Handle) void,
@@ -700,46 +700,135 @@ pub const UnexpectedError = error{
 pub const Dir = @import("Io/Dir.zig");
 pub const File = @import("Io/File.zig");
 
-pub const Timestamp = enum(i96) {
-    _,
+pub const Timestamp = struct {
+    nanoseconds: i96,
+    clock: Clock,
+
+    pub const Clock = enum {
+        /// A settable system-wide clock that measures real (i.e. wall-clock)
+        /// time. This clock is affected by discontinuous jumps in the system
+        /// time (e.g., if the system administrator manually changes the
+        /// clock), and by frequency adjust‐ ments performed by NTP and similar
+        /// applications.
+        /// This clock normally counts the number of seconds since
+        /// 1970-01-01 00:00:00 Coordinated Universal Time (UTC) except that it
+        /// ignores leap seconds; near a leap second it is typically
+        /// adjusted by NTP to stay roughly in sync with UTC.
+        realtime,
+        /// A nonsettable system-wide clock that represents time since some
+        /// unspecified point in the past.
+        ///
+        /// On Linux, corresponds to how long the system has been running since
+        /// it booted.
+        ///
+        /// Not affected by discontinuous jumps in the system time (e.g., if
+        /// the system administrator manually changes the clock), but is
+        /// affected by frequency adjustments. **This clock does not count time
+        /// that the system is suspended.**
+        ///
+        /// Guarantees that the time returned by consecutive calls will not go
+        /// backwards, but successive calls may return identical
+        /// (not-increased) time values.
+        monotonic,
+        /// Identical to `monotonic` except it also includes any time that the
+        /// system is suspended.
+        boottime,
+    };
 
     pub fn durationTo(from: Timestamp, to: Timestamp) Duration {
-        return .{ .nanoseconds = @intFromEnum(to) - @intFromEnum(from) };
+        assert(from.clock == to.clock);
+        return .{ .nanoseconds = to.nanoseconds - from.nanoseconds };
     }
 
     pub fn addDuration(from: Timestamp, duration: Duration) Timestamp {
-        return @enumFromInt(@intFromEnum(from) + duration.nanoseconds);
+        return .{
+            .nanoseconds = from.nanoseconds + duration.nanoseconds,
+            .clock = from.clock,
+        };
     }
 
-    pub fn fromNow(io: Io, clockid: std.posix.clockid_t, duration: Duration) NowError!Timestamp {
-        const now_ts = try now(io, clockid);
+    pub const Error = error{UnsupportedClock} || UnexpectedError;
+
+    /// This function is not cancelable because first of all it does not block,
+    /// but more importantly, the cancelation logic itself may want to check
+    /// the time.
+    pub fn now(io: Io, clock: Clock) Error!Timestamp {
+        return .{
+            .nanoseconds = try io.vtable.now(io.userdata, clock),
+            .clock = clock,
+        };
+    }
+
+    pub fn fromNow(io: Io, clock: Clock, duration: Duration) Error!Timestamp {
+        const now_ts = try now(io, clock);
         return addDuration(now_ts, duration);
     }
 
+    pub fn untilNow(timestamp: Timestamp, io: Io) Error!Duration {
+        const now_ts = try Timestamp.now(io, timestamp.clock);
+        return timestamp.durationTo(now_ts);
+    }
+
+    pub fn durationFromNow(timestamp: Timestamp, io: Io) Error!Duration {
+        const now_ts = try now(io, timestamp.clock);
+        return now_ts.durationTo(timestamp);
+    }
+
+    pub fn toClock(t: Timestamp, io: Io, clock: Clock) Error!Timestamp {
+        if (t.clock == clock) return t;
+        const now_old = try now(io, t.clock);
+        const now_new = try now(io, clock);
+        const duration = now_old.durationTo(t);
+        return now_new.addDuration(duration);
+    }
+
     pub fn compare(lhs: Timestamp, op: std.math.CompareOperator, rhs: Timestamp) bool {
-        return std.math.compare(@intFromEnum(lhs), op, @intFromEnum(rhs));
+        assert(lhs.clock == rhs.clock);
+        return std.math.compare(lhs.nanoseconds, op, rhs.nanoseconds);
     }
 };
+
 pub const Duration = struct {
     nanoseconds: i96,
 
-    pub fn ms(x: u64) Duration {
+    pub fn fromMilliseconds(x: i64) Duration {
         return .{ .nanoseconds = @as(i96, x) * std.time.ns_per_ms };
     }
 
-    pub fn seconds(x: u64) Duration {
+    pub fn fromSeconds(x: i64) Duration {
         return .{ .nanoseconds = @as(i96, x) * std.time.ns_per_s };
     }
+
+    pub fn toMilliseconds(d: Duration) i64 {
+        return @intCast(@divTrunc(d.nanoseconds, std.time.ns_per_ms));
+    }
+
+    pub fn toSeconds(d: Duration) i64 {
+        return @intCast(@divTrunc(d.nanoseconds, std.time.ns_per_s));
+    }
 };
+
+/// Declares under what conditions an operation should return `error.Timeout`.
 pub const Timeout = union(enum) {
     none,
-    duration: Duration,
+    duration: ClockAndDuration,
     deadline: Timestamp,
 
-    pub const Error = error{Timeout};
+    pub const Error = error{ Timeout, UnsupportedClock };
+
+    pub const ClockAndDuration = struct {
+        clock: Timestamp.Clock,
+        duration: Duration,
+    };
+
+    pub fn toDeadline(t: Timeout, io: Io) Timestamp.Error!?Timestamp {
+        return switch (t) {
+            .none => null,
+            .duration => |d| try .fromNow(io, d.clock, d.duration),
+            .deadline => |d| d,
+        };
+    }
 };
-pub const NowError = std.posix.ClockGetTimeError || Cancelable;
-pub const SleepError = error{ UnsupportedClock, Unexpected, Canceled };
 
 pub const AnyFuture = opaque {};
 
@@ -1231,12 +1320,10 @@ pub fn cancelRequested(io: Io) bool {
     return io.vtable.cancelRequested(io.userdata);
 }
 
-pub fn now(io: Io, clockid: std.posix.clockid_t) NowError!Timestamp {
-    return io.vtable.now(io.userdata, clockid);
-}
+pub const SleepError = error{UnsupportedClock} || UnexpectedError || Cancelable;
 
-pub fn sleep(io: Io, clockid: std.posix.clockid_t, timeout: Timeout) SleepError!void {
-    return io.vtable.sleep(io.userdata, clockid, timeout);
+pub fn sleep(io: Io, timeout: Timeout) SleepError!void {
+    return io.vtable.sleep(io.userdata, timeout);
 }
 
 pub fn sleepDuration(io: Io, duration: Duration) SleepError!void {

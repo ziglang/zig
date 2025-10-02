@@ -157,7 +157,7 @@ pub const ReadStreamingError = error{
     ConnectionResetByPeer,
     ConnectionTimedOut,
     NotOpenForReading,
-    SocketNotConnected,
+    SocketUnconnected,
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
     WouldBlock,
