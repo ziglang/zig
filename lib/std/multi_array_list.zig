@@ -614,7 +614,10 @@ pub fn MultiArrayList(comptime T: type) type {
                 .name = fields[i].name ++ "_ptr",
                 .type = *fields[i].type,
                 .default_value_ptr = null,
-                .is_comptime = if (fields[i].type == void) false else fields[i].is_comptime,
+                .is_comptime = if (fields[i].type == void)
+                    false
+                else
+                    fields[i].is_comptime,
                 .alignment = fields[i].alignment,
             };
             break :entry @Type(.{ .@"struct" = .{
@@ -1084,13 +1087,27 @@ test "orderedRemoveMany" {
 }
 
 test "value as a tuple that containing void" {
-    var mal: MultiArrayList(struct { void }) = .empty;
+    const gpa = testing.allocator;
 
-    for (0..5) |_|
-        mal.append(testing.allocator, .{{}}) catch unreachable;
+    var list: MultiArrayList(struct { void }) = .empty;
+    defer list.deinit(gpa);
 
-    for (0..5) |_|
-        try testing.expectEqual(mal.pop().?[0], {});
+    list.append(gpa, .{{}}) catch unreachable;
 
-    try testing.expectEqual(mal.pop(), null);
+    try testing.expectEqual(list.pop().?[0], {});
+
+    try testing.expectEqual(list.pop(), null);
+}
+
+test "value as a tuple that containing nullable void" {
+    const gpa = testing.allocator;
+
+    var list: MultiArrayList(struct { ?void }) = .empty;
+    defer list.deinit(gpa);
+
+    list.append(gpa, .{null}) catch unreachable;
+
+    try testing.expectEqual(list.pop().?[0], null);
+
+    try testing.expectEqual(list.pop(), null);
 }
