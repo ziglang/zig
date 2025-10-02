@@ -256,7 +256,7 @@ pub fn isCygwinPty(file: File) bool {
     // we can use this smaller buffer and just return false on any error from
     // NtQueryInformationFile.
     const num_name_bytes = windows.MAX_PATH * 2;
-    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (name_bytes_offset + num_name_bytes);
+    var name_info_bytes: [name_bytes_offset + num_name_bytes]u8 align(@alignOf(windows.FILE_NAME_INFO)) = @splat(0);
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
     const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @intCast(name_info_bytes.len), .FileNameInformation);

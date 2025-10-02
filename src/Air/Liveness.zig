@@ -619,7 +619,7 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Call, inst_data.payload);
             const args = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra.end..][0..extra.data.args_len]));
             if (args.len + 1 <= bpi - 1) {
-                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
                 buf[0] = callee;
                 @memcpy(buf[1..][0..args.len], args);
                 return analyzeOperands(a, pass, data, inst, buf);
@@ -663,7 +663,7 @@ fn analyzeInst(
             const elements = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[ty_pl.payload..][0..len]));
 
             if (elements.len <= bpi - 1) {
-                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
                 @memcpy(buf[0..elements.len], elements);
                 return analyzeOperands(a, pass, data, inst, buf);
             }
@@ -722,7 +722,7 @@ fn analyzeInst(
             extra_i += inputs.len;
 
             const num_operands = simple: {
-                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
                 var buf_index: usize = 0;
                 for (outputs) |output| {
                     if (output != .none) {
@@ -1417,7 +1417,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
         inst: Air.Inst.Index,
 
         operands_remaining: u32,
-        small: [bpi - 1]Air.Inst.Ref = .{.none} ** (bpi - 1),
+        small: [bpi - 1]Air.Inst.Ref = @splat(.none),
         extra_tombs: []u32,
 
         // Only used in `LivenessPass.main_analysis`

@@ -3330,7 +3330,7 @@ test "big int popcount" {
     try popCountTest(&a, limb_bits * 2 + 1, limb_bits * 2 + 1);
 
     // Check very large numbers.
-    try a.setString(16, "ff00000100000100" ++ ("0000000000000000" ** 62));
+    try a.setString(16, "ff00000100000100" ++ @as([16 * 62]u8, @splat('0')));
     try popCountTest(&a, 4032, 10);
     try popCountTest(&a, 6000, 10);
     a.negate();
@@ -3438,13 +3438,13 @@ test "big int write twos complement +/- zero" {
     // Test zero
 
     m.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, buffer1, &(@as([13]u8, @splat(0)) ++ @as([3]u8, @splat(0xaa))));
     m.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, buffer1, &(@as([13]u8, @splat(0)) ++ @as([3]u8, @splat(0xaa))));
     m.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expect(std.mem.allEqual(u8, buffer1, 0));
     m.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expect(std.mem.allEqual(u8, buffer1, 0));
 
     @memset(buffer1, 0xaa);
     m.positive = false;
@@ -3452,13 +3452,13 @@ test "big int write twos complement +/- zero" {
     // Test negative zero
 
     m.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, buffer1, &(@as([13]u8, @splat(0)) ++ @as([3]u8, @splat(0xaa))));
     m.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, buffer1, &(@as([13]u8, @splat(0)) ++ @as([3]u8, @splat(0xaa))));
     m.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expect(std.mem.allEqual(u8, buffer1, 0));
     m.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expect(std.mem.allEqual(u8, buffer1, 0));
 }
 
 test "big int conversion write twos complement with padding" {
@@ -3535,7 +3535,7 @@ test "big int conversion write twos complement with padding" {
 
     // Test 0
 
-    buffer = &([_]u8{0} ** 16);
+    buffer = &@as([16]u8, @splat(0x00));
     m.readTwosComplement(buffer[0..13], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..13], bit_count, .big, .unsigned);
@@ -3546,7 +3546,7 @@ test "big int conversion write twos complement with padding" {
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
 
     bit_count = 0;
-    buffer = &([_]u8{0xaa} ** 16);
+    buffer = &@as([16]u8, @splat(0xaa));
     m.readTwosComplement(buffer[0..13], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..13], bit_count, .big, .unsigned);
@@ -3569,15 +3569,17 @@ test "big int conversion write twos complement zero" {
     // (3) should ignore any bits from bit_count to 8 * abi_size
 
     const bit_count: usize = 12 * 8 + 1;
-    var buffer: []const u8 = undefined;
 
-    buffer = &([_]u8{0} ** 13);
+    var buffer: []const u8 = undefined;
+    const zeroes: [16]u8 = @splat(0);
+
+    buffer = zeroes[0..13];
     m.readTwosComplement(buffer[0..13], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..13], bit_count, .big, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
 
-    buffer = &([_]u8{0} ** 16);
+    buffer = zeroes[0..16];
     m.readTwosComplement(buffer[0..16], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..16], bit_count, .big, .unsigned);

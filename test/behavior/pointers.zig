@@ -627,7 +627,7 @@ test "pointer to array has explicit alignment" {
             return @alignCast(@as(*[4]Base2, @ptrCast(ptr)));
         }
     };
-    var bases = [_]S.Base{.{ .a = 2 }} ** 4;
+    var bases: [4]S.Base = @splat(.{ .a = 2 });
     const casted = S.func(&bases);
     try expect(casted[0].a == 2);
 }

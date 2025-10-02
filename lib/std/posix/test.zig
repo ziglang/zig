@@ -24,9 +24,9 @@ const tmpDir = std.testing.tmpDir;
 test "WTF-8 to WTF-16 conversion buffer overflows" {
     if (native_os != .windows) return error.SkipZigTest;
 
-    const input_wtf8 = "\u{10FFFF}" ** 16385;
-    try expectError(error.NameTooLong, posix.chdir(input_wtf8));
-    try expectError(error.NameTooLong, posix.chdirZ(input_wtf8));
+    const input_wtf8: [16385][4]u8 = @splat("\u{10FFFF}".*);
+    try expectError(error.NameTooLong, posix.chdir(@ptrCast(&input_wtf8)));
+    try expectError(error.NameTooLong, posix.chdirZ(@ptrCast(&input_wtf8)));
 }
 
 test "check WASI CWD" {
@@ -448,11 +448,11 @@ test "mmap" {
         try testing.expectEqual(@as(usize, 1234), data.len);
 
         // By definition the data returned by mmap is zero-filled
-        try testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+        try testing.expect(mem.eql(u8, data, &@as([1234]u8, @splat(0x00))));
 
         // Make sure the memory is writeable as requested
         @memset(data, 0x55);
-        try testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
+        try testing.expect(mem.eql(u8, data, &@as([1234]u8, @splat(0x55))));
     }
 
     const test_out_file = "os_tmp_test";
@@ -743,7 +743,7 @@ test "writev longer than IOV_MAX" {
     var file = try tmp.dir.createFile("pwritev", .{});
     defer file.close();
 
-    const iovecs = [_]posix.iovec_const{.{ .base = "a", .len = 1 }} ** (posix.IOV_MAX + 1);
+    const iovecs: [posix.IOV_MAX + 1]posix.iovec_const = @splat(.{ .base = "a", .len = 1 });
     const amt = try file.writev(&iovecs);
     try testing.expectEqual(@as(usize, posix.IOV_MAX), amt);
 }

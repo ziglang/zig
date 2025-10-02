@@ -174,7 +174,7 @@ pub fn DebugAllocator(comptime config: Config) type {
     return struct {
         backing_allocator: Allocator = std.heap.page_allocator,
         /// Tracks the active bucket, which is the one that has free slots in it.
-        buckets: [small_bucket_count]?*BucketHeader = [1]?*BucketHeader{null} ** small_bucket_count,
+        buckets: [small_bucket_count]?*BucketHeader = @splat(null),
         large_allocations: LargeAllocTable = .empty,
         total_requested_bytes: @TypeOf(total_requested_bytes_init) = total_requested_bytes_init,
         requested_memory_limit: @TypeOf(requested_memory_limit_init) = requested_memory_limit_init,

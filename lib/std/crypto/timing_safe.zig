@@ -207,8 +207,8 @@ test "eql (vectors)" {
 
 test compare {
     const expectEqual = std.testing.expectEqual;
-    var a = [_]u8{10} ** 32;
-    var b = [_]u8{10} ** 32;
+    var a: [32]u8 = @splat(10);
+    var b: [32]u8 = @splat(10);
     try expectEqual(compare(u8, &a, &b, .big), .eq);
     try expectEqual(compare(u8, &a, &b, .little), .eq);
     a[31] = 1;
@@ -227,7 +227,7 @@ test "add and sub" {
     var a: [len]u8 = undefined;
     var b: [len]u8 = undefined;
     var c: [len]u8 = undefined;
-    const zero = [_]u8{0} ** len;
+    const zero: [len]u8 = @splat(0);
     var iterations: usize = 100;
     while (iterations != 0) : (iterations -= 1) {
         random.bytes(&a);
@@ -261,7 +261,7 @@ test classify {
     declassify(&out);
 
     // Comparing public data in non-constant time is acceptable.
-    try expect(!std.mem.eql(u8, &out, &[_]u8{0} ** out.len));
+    try expect(!std.mem.allEqual(u8, &out, 0));
 
     // Comparing secret data must be done in constant time. The result
     // is going to be considered as secret as well.

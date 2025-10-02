@@ -334,7 +334,7 @@ pub fn innerParse(
             if (.object_begin != try source.next()) return error.UnexpectedToken;
 
             var r: T = undefined;
-            var fields_seen = [_]bool{false} ** structInfo.fields.len;
+            var fields_seen: [structInfo.fields.len]bool = @splat(false);
 
             while (true) {
                 var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
@@ -649,7 +649,7 @@ pub fn innerParseFromValue(
             if (source != .object) return error.UnexpectedToken;
 
             var r: T = undefined;
-            var fields_seen = [_]bool{false} ** structInfo.fields.len;
+            var fields_seen: [structInfo.fields.len]bool = @splat(false);
 
             var it = source.object.iterator();
             while (it.next()) |kv| {

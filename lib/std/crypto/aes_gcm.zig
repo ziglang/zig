@@ -19,7 +19,7 @@ fn AesGcm(comptime Aes: anytype) type {
         pub const nonce_length = 12;
         pub const key_length = Aes.key_bits / 8;
 
-        const zeros = [_]u8{0} ** 16;
+        const zeros: [16]u8 = @splat(0);
 
         /// `c`: The ciphertext buffer to write the encrypted data to.
         /// `tag`: The authentication tag buffer to write the computed tag to.
@@ -118,8 +118,8 @@ const htest = @import("test.zig");
 const testing = std.testing;
 
 test "Aes256Gcm - Empty message and no associated data" {
-    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
-    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
+    const key: [Aes256Gcm.key_length]u8 = @splat(0x69);
+    const nonce: [Aes256Gcm.nonce_length]u8 = @splat(0x42);
     const ad = "";
     const m = "";
     var c: [m.len]u8 = undefined;
@@ -130,8 +130,8 @@ test "Aes256Gcm - Empty message and no associated data" {
 }
 
 test "Aes256Gcm - Associated data only" {
-    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
-    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
+    const key: [Aes256Gcm.key_length]u8 = @splat(0x69);
+    const nonce: [Aes256Gcm.nonce_length]u8 = @splat(0x42);
     const m = "";
     const ad = "Test with associated data";
     var c: [m.len]u8 = undefined;
@@ -142,8 +142,8 @@ test "Aes256Gcm - Associated data only" {
 }
 
 test "Aes256Gcm - Message only" {
-    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
-    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
+    const key: [Aes256Gcm.key_length]u8 = @splat(0x69);
+    const nonce: [Aes256Gcm.nonce_length]u8 = @splat(0x42);
     const m = "Test with message only";
     const ad = "";
     var c: [m.len]u8 = undefined;
@@ -159,8 +159,8 @@ test "Aes256Gcm - Message only" {
 }
 
 test "Aes256Gcm - Message and associated data" {
-    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
-    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
+    const key: [Aes256Gcm.key_length]u8 = @splat(0x69);
+    const nonce: [Aes256Gcm.nonce_length]u8 = @splat(0x42);
     const m = "Test with message";
     const ad = "Test with associated data";
     var c: [m.len]u8 = undefined;

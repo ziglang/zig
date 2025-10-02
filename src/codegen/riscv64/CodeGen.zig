@@ -6268,7 +6268,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
             sym: SymbolOffset,
         };
 
-        var ops: [4]Operand = .{.none} ** 4;
+        var ops: [4]Operand = @splat(.none);
         var last_op = false;
         var op_it = mem.splitAny(u8, mnem_it.rest(), ",(");
         next_op: for (&ops) |*op| {
@@ -6509,7 +6509,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     simple: {
-        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
+        var buf: [Air.Liveness.bpi - 1]Air.Inst.Ref = @splat(.none);
         var buf_index: usize = 0;
         for (outputs) |output| {
             if (output == .none) continue;
@@ -6624,7 +6624,7 @@ fn genInlineMemcpy(
     src_ptr: MCValue,
     len: MCValue,
 ) !void {
-    const regs = try func.register_manager.allocRegs(4, .{null} ** 4, abi.Registers.Integer.temporary);
+    const regs = try func.register_manager.allocRegs(4, @splat(null), abi.Registers.Integer.temporary);
     const locks = func.register_manager.lockRegsAssumeUnused(4, regs);
     defer for (locks) |lock| func.register_manager.unlockReg(lock);
 
@@ -6734,7 +6734,7 @@ fn genInlineMemset(
     src_value: MCValue,
     len: MCValue,
 ) !void {
-    const regs = try func.register_manager.allocRegs(3, .{null} ** 3, abi.Registers.Integer.temporary);
+    const regs = try func.register_manager.allocRegs(3, @splat(null), abi.Registers.Integer.temporary);
     const locks = func.register_manager.lockRegsAssumeUnused(3, regs);
     defer for (locks) |lock| func.register_manager.unlockReg(lock);
 
@@ -8119,7 +8119,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
     };
 
     if (elements.len <= Air.Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
+        var buf: [Air.Liveness.bpi - 1]Air.Inst.Ref = @splat(.none);
         @memcpy(buf[0..elements.len], elements);
         return func.finishAir(inst, result, buf);
     }

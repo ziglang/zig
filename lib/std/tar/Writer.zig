@@ -170,23 +170,25 @@ pub const Header = extern struct {
     // numeric field of width w contains w minus 1 digits, and a null.
     // Reference: https://www.gnu.org/software/tar/manual/html_node/Standard.html
     // POSIX header:                                  byte offset
-    name: [100]u8 = [_]u8{0} ** 100, //                         0
-    mode: [7:0]u8 = default_mode.file, //                     100
-    uid: [7:0]u8 = [_:0]u8{0} ** 7, // unused                 108
-    gid: [7:0]u8 = [_:0]u8{0} ** 7, // unused                 116
-    size: [11:0]u8 = [_:0]u8{'0'} ** 11, //                   124
-    mtime: [11:0]u8 = [_:0]u8{'0'} ** 11, //                  136
-    checksum: [7:0]u8 = [_:0]u8{' '} ** 7, //                 148
-    typeflag: FileType = .regular, //                         156
-    linkname: [100]u8 = [_]u8{0} ** 100, //                   157
-    magic: [6]u8 = [_]u8{ 'u', 's', 't', 'a', 'r', 0 }, //    257
-    version: [2]u8 = [_]u8{ '0', '0' }, //                    263
-    uname: [32]u8 = [_]u8{0} ** 32, // unused                 265
-    gname: [32]u8 = [_]u8{0} ** 32, // unused                 297
-    devmajor: [7:0]u8 = [_:0]u8{0} ** 7, // unused            329
-    devminor: [7:0]u8 = [_:0]u8{0} ** 7, // unused            337
-    prefix: [155]u8 = [_]u8{0} ** 155, //                     345
-    pad: [12]u8 = [_]u8{0} ** 12, // unused                   500
+    // zig fmt: off
+    name: [100]u8      = @splat(0),                       //          0
+    mode: [7:0]u8      = default_mode.file,               //        100
+    uid: [7:0]u8       = @splat(0),                       // unused 108
+    gid: [7:0]u8       = @splat(0),                       // unused 116
+    size: [11:0]u8     = @splat('0'),                     //        124
+    mtime: [11:0]u8    = @splat('0'),                     //        136
+    checksum: [7:0]u8  = @splat(' '),                     //        148
+    typeflag: FileType = .regular,                        //        156
+    linkname: [100]u8  = @splat(0),                       //        157
+    magic: [6]u8       = .{ 'u', 's', 't', 'a', 'r', 0 }, //        257
+    version: [2]u8     = @splat('0'),                     //        263
+    uname: [32]u8      = @splat(0),                       // unused 265
+    gname: [32]u8      = @splat(0),                       // unused 297
+    devmajor: [7:0]u8  = @splat(0),                       // unused 329
+    devminor: [7:0]u8  = @splat(0),                       // unused 337
+    prefix: [155]u8    = @splat(0),                       //        345
+    pad: [12]u8        = @splat(0),                       // unused 500
+    // zig fmt: on
 
     pub const FileType = enum(u8) {
         regular = '0',
@@ -320,26 +322,26 @@ pub const Header = extern struct {
             },
             // no more both fits into name
             .{
-                .in = &.{ "prefix", "0123456789/" ** 8 ++ "basename" },
-                .out = &.{ "prefix", "0123456789/" ** 8 ++ "basename" },
+                .in = &.{ "prefix", strMul("0123456789/", 8) ++ "basename" },
+                .out = &.{ "prefix", strMul("0123456789/", 8) ++ "basename" },
             },
             // put as much as you can into prefix the rest goes into name
             .{
-                .in = &.{ "prefix", "0123456789/" ** 10 ++ "basename" },
-                .out = &.{ "prefix/" ++ "0123456789/" ** 9 ++ "0123456789", "basename" },
+                .in = &.{ "prefix", strMul("0123456789/", 10) ++ "basename" },
+                .out = &.{ "prefix/" ++ strMul("0123456789/", 9) ++ "0123456789", "basename" },
             },
 
             .{
-                .in = &.{ "prefix", "0123456789/" ** 15 ++ "basename" },
-                .out = &.{ "prefix/" ++ "0123456789/" ** 12 ++ "0123456789", "0123456789/0123456789/basename" },
+                .in = &.{ "prefix", strMul("0123456789/", 15) ++ "basename" },
+                .out = &.{ "prefix/" ++ strMul("0123456789/", 12) ++ "0123456789", "0123456789/0123456789/basename" },
             },
             .{
-                .in = &.{ "prefix", "0123456789/" ** 21 ++ "basename" },
-                .out = &.{ "prefix/" ++ "0123456789/" ** 12 ++ "0123456789", "0123456789/" ** 8 ++ "basename" },
+                .in = &.{ "prefix", strMul("0123456789/", 21) ++ "basename" },
+                .out = &.{ "prefix/" ++ strMul("0123456789/", 12) ++ "0123456789", strMul("0123456789/", 8) ++ "basename" },
             },
             .{
-                .in = &.{ "", "012345678/" ** 10 ++ "foo" },
-                .out = &.{ "012345678/" ** 9 ++ "012345678", "foo" },
+                .in = &.{ "", strMul("012345678/", 10) ++ "foo" },
+                .out = &.{ strMul("012345678/", 9) ++ "012345678", "foo" },
             },
         };
 
@@ -356,10 +358,10 @@ pub const Header = extern struct {
             // basename can't fit into name (106 characters)
             .{ .in = &.{ "zig", "test/cases/compile_errors/regression_test_2980_base_type_u32_is_not_type_checked_properly_when_assigning_a_value_within_a_struct.zig" } },
             // cant fit into 255 + sep
-            .{ .in = &.{ "prefix", "0123456789/" ** 22 ++ "basename" } },
+            .{ .in = &.{ "prefix", strMul("0123456789/", 22) ++ "basename" } },
             // can fit but sub_path can't be split (there is no separator)
-            .{ .in = &.{ "prefix", "0123456789" ** 10 ++ "a" } },
-            .{ .in = &.{ "prefix", "0123456789" ** 14 ++ "basename" } },
+            .{ .in = &.{ "prefix", strMul("0123456789", 10) ++ "a" } },
+            .{ .in = &.{ "prefix", strMul("0123456789", 14) ++ "basename" } },
         };
 
         for (error_cases) |case| {
@@ -382,11 +384,11 @@ test "write files" {
         content: []const u8,
     }{
         .{ .path = "foo", .content = "bar" },
-        .{ .path = "a12345678/" ** 10 ++ "foo", .content = "a" ** 511 },
-        .{ .path = "b12345678/" ** 24 ++ "foo", .content = "b" ** 512 },
-        .{ .path = "c12345678/" ** 25 ++ "foo", .content = "c" ** 513 },
-        .{ .path = "d12345678/" ** 51 ++ "foo", .content = "d" ** 1025 },
-        .{ .path = "e123456789" ** 11, .content = "e" },
+        .{ .path = strMul("a12345678/", 10) ++ "foo", .content = &strMul("a", 511) },
+        .{ .path = strMul("b12345678/", 24) ++ "foo", .content = &strMul("b", 512) },
+        .{ .path = strMul("c12345678/", 25) ++ "foo", .content = &strMul("c", 513) },
+        .{ .path = strMul("d12345678/", 51) ++ "foo", .content = &strMul("d", 1025) },
+        .{ .path = &strMul("e123456789", 11), .content = "e" },
     };
 
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
@@ -459,4 +461,11 @@ test "write files" {
         }
         try w.finishPedantically();
     }
+}
+
+/// Only for use in tests
+inline fn strMul(comptime str: []const u8, comptime times: usize) [str.len * times]u8 {
+    var result: [times * str.len]u8 = undefined;
+    for (0..times) |i| @memcpy(result[i * str.len ..][0..str.len], str);
+    return result;
 }

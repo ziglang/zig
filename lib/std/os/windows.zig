@@ -1347,7 +1347,7 @@ pub fn GetFinalPathNameByHandle(
             const MIN_SIZE = @sizeOf(MOUNTMGR_MOUNT_POINT) + MAX_PATH;
             // We initialize the input buffer to all zeros for convenience since
             // `DeviceIoControl` with `IOCTL_MOUNTMGR_QUERY_POINTS` expects this.
-            var input_buf: [MIN_SIZE]u8 align(@alignOf(MOUNTMGR_MOUNT_POINT)) = [_]u8{0} ** MIN_SIZE;
+            var input_buf: [MIN_SIZE]u8 align(@alignOf(MOUNTMGR_MOUNT_POINT)) = @splat(0);
             var output_buf: [MIN_SIZE * 4]u8 align(@alignOf(MOUNTMGR_MOUNT_POINTS)) = undefined;
 
             // This surprising path is a filesystem path to the mount manager on Windows.
@@ -1421,7 +1421,7 @@ pub fn GetFinalPathNameByHandle(
 
                     // 49 is the maximum length accepted by mountmgrIsVolumeName
                     const vol_input_size = @sizeOf(MOUNTMGR_TARGET_NAME) + (49 * 2);
-                    var vol_input_buf: [vol_input_size]u8 align(@alignOf(MOUNTMGR_TARGET_NAME)) = [_]u8{0} ** vol_input_size;
+                    var vol_input_buf: [vol_input_size]u8 align(@alignOf(MOUNTMGR_TARGET_NAME)) = @splat(0);
                     // Note: If the path exceeds MAX_PATH, the Disk Management GUI doesn't accept the full path,
                     // and instead if must be specified using a shortened form (e.g. C:\FOO~1\BAR~1\<...>).
                     // However, just to be sure we can handle any path length, we use PATH_MAX_WIDE here.

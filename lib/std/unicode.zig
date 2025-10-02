@@ -275,7 +275,7 @@ fn utf8ValidateSliceImpl(input: []const u8, comptime surrogates: Surrogates) boo
     const s7 = 0x44; // accept 4, size 4
 
     // Information about the first byte in a UTF-8 sequence.
-    const first = comptime ([_]u8{as} ** 128) ++ ([_]u8{xx} ** 64) ++ [_]u8{
+    const first = comptime @as([128]u8, @splat(as)) ++ @as([64]u8, @splat(xx)) ++ [_]u8{
         xx, xx, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
         s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
         s2, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s4, s3, s3,
@@ -647,7 +647,7 @@ test "validate slice" {
 
     // We skip a variable (based on recommended vector size) chunks of
     // ASCII characters. Let's make sure we're chunking correctly.
-    const str = [_]u8{'a'} ** 550 ++ "\xc0";
+    const str = @as([550]u8, @splat('a')) ++ "\xc0";
     for (0..str.len - 3) |i| {
         try testing.expect(!utf8ValidateSlice(str[i..]));
     }
@@ -1390,7 +1390,7 @@ test "ArrayList functions on a re-used list" {
 fn utf8ToUtf16LeStringLiteralImpl(comptime utf8: []const u8, comptime surrogates: Surrogates) *const [calcUtf16LeLenImpl(utf8, surrogates) catch |err| @compileError(err):0]u16 {
     return comptime blk: {
         const len: usize = calcUtf16LeLenImpl(utf8, surrogates) catch unreachable;
-        var utf16le: [len:0]u16 = [_:0]u16{0} ** len;
+        var utf16le: [len:0]u16 = @splat(0);
         const utf16le_len = utf8ToUtf16LeImpl(&utf16le, utf8[0..], surrogates) catch |err| @compileError(err);
         assert(len == utf16le_len);
         const final = utf16le;
@@ -1636,7 +1636,7 @@ test "validate WTF-8 slice" {
 
     // We skip a variable (based on recommended vector size) chunks of
     // ASCII characters. Let's make sure we're chunking correctly.
-    const str = [_]u8{'a'} ** 550 ++ "\xc0";
+    const str = @as([550]u8, @splat('a')) ++ "\xc0";
     for (0..str.len - 3) |i| {
         try testing.expect(!wtf8ValidateSlice(str[i..]));
     }

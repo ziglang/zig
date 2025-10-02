@@ -261,7 +261,7 @@ test "many uncontended" {
         }
     };
 
-    var runners = [_]Runner{.{}} ** num_threads;
+    var runners: [num_threads]Runner = @splat(.{});
     for (&runners) |*r| r.thread = try Thread.spawn(.{}, Runner.run, .{r});
     for (runners) |r| r.thread.join();
     for (runners) |r| try testing.expectEqual(r.counter.get(), num_increments);

@@ -1935,12 +1935,12 @@ pub fn sigrtmax() u8 {
 
 /// Zig's version of sigemptyset.  Returns initialized sigset_t.
 pub fn sigemptyset() sigset_t {
-    return [_]SigsetElement{0} ** sigset_len;
+    return @splat(0);
 }
 
 /// Zig's version of sigfillset.  Returns initalized sigset_t.
 pub fn sigfillset() sigset_t {
-    return [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
+    return @splat(~@as(SigsetElement, 0));
 }
 
 fn sigset_bit_index(sig: usize) struct { word: usize, mask: SigsetElement } {
@@ -5911,7 +5911,7 @@ pub const sockaddr = extern struct {
         flags: u8,
 
         /// The total size of this structure should be exactly the same as that of struct sockaddr.
-        zero: [3]u8 = [_]u8{0} ** 3,
+        zero: [3]u8 = @splat(0),
         comptime {
             std.debug.assert(@sizeOf(vm) == @sizeOf(sockaddr));
         }
@@ -7184,7 +7184,7 @@ pub const rusage = extern struct {
     nsignals: isize,
     nvcsw: isize,
     nivcsw: isize,
-    __reserved: [16]isize = [1]isize{0} ** 16,
+    __reserved: [16]isize = @splat(0),
 
     pub const SELF = 0;
     pub const CHILDREN = -1;

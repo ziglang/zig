@@ -8692,7 +8692,7 @@ pub fn getUnionType(
     const extra = local.getMutableExtra(gpa);
 
     const align_elements_len = if (ini.flags.any_aligned_fields) (ini.fields_len + 3) / 4 else 0;
-    const align_element: u32 = @bitCast([1]u8{@intFromEnum(Alignment.none)} ** 4);
+    const align_element: u32 = @bitCast(@as([4]u8, @splat(@intFromEnum(Alignment.none))));
     try extra.ensureUnusedCapacity(@typeInfo(Tag.TypeUnion).@"struct".fields.len +
         // TODO: fmt bug
         // zig fmt: off
@@ -8963,7 +8963,7 @@ pub fn getStructType(
     };
 
     const align_elements_len = if (ini.any_aligned_fields) (ini.fields_len + 3) / 4 else 0;
-    const align_element: u32 = @bitCast([1]u8{@intFromEnum(Alignment.none)} ** 4);
+    const align_element: u32 = @bitCast(@as([4]u8, @splat(@intFromEnum(Alignment.none))));
     const comptime_elements_len = if (ini.any_comptime_fields) (ini.fields_len + 31) / 32 else 0;
 
     try extra.ensureUnusedCapacity(@typeInfo(Tag.TypeStruct).@"struct".fields.len +

@@ -138,7 +138,7 @@ const Agg = struct {
 };
 
 const v1 = Value{ .Int = 1234 };
-const v2 = Value{ .Array = [_]u8{3} ** 9 };
+const v2 = Value{ .Array = @splat(3) };
 
 const err = @as(anyerror!Agg, Agg{
     .val1 = v1,
@@ -1191,7 +1191,7 @@ test "extern union most-aligned field is smaller" {
         },
         un: [110]u8,
     };
-    var a: ?U = .{ .un = [_]u8{0} ** 110 };
+    var a: ?U = .{ .un = @splat(0) };
     _ = &a;
     try expect(a != null);
 }

@@ -2772,7 +2772,7 @@ pub const ar_hdr = extern struct {
 fn genSpecialMemberName(comptime name: []const u8) *const [16]u8 {
     assert(name.len <= 16);
     const padding = 16 - name.len;
-    return name ++ &[_]u8{0x20} ** padding;
+    return name ++ &@as([padding]u8, @splat(0x20));
 }
 
 // Archive files start with the ARMAG identifying string.  Then follows a

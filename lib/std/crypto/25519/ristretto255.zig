@@ -183,13 +183,15 @@ test "ristretto255" {
     q = q.dbl().add(p);
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&q.toBytes()}), "E882B131016B52C1D3337080187CF768423EFCCBB517BB495AB812C4160FF44E");
 
-    const s = [_]u8{15} ++ [_]u8{0} ** 31;
+    const s = [_]u8{15} ++ @as([31]u8, @splat(0));
     const w = try p.mul(s);
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&w.toBytes()}), "E0C418F7C8D9C4CDD7395B93EA124F3AD99021BB681DFC3302A9D99A2E53E64E");
 
     try std.testing.expect(p.dbl().dbl().dbl().dbl().equivalent(w.add(p)));
 
-    const h = [_]u8{69} ** 32 ++ [_]u8{42} ** 32;
+    const h69: [32]u8 = @splat(69);
+    const h42: [32]u8 = @splat(42);
+    const h = h69 ++ h42;
     const ph = Ristretto255.fromUniform(h);
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&ph.toBytes()}), "DCCA54E037A4311EFBEEF413ACD21D35276518970B7A61DC88F8587B493D5E19");
 }

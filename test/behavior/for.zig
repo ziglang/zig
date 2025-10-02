@@ -69,7 +69,11 @@ test "basic for loop" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    const expected_result = [_]u8{ 9, 8, 7, 6, 0, 1, 2, 3 } ** 3;
+    const expected_result = [_]u8{
+        9, 8, 7, 6, 0, 1, 2, 3,
+        9, 8, 7, 6, 0, 1, 2, 3,
+        9, 8, 7, 6, 0, 1, 2, 3,
+    };
 
     var buffer: [expected_result.len]u8 = undefined;
     var buf_index: usize = 0;

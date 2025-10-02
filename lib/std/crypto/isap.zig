@@ -42,7 +42,7 @@ pub const IsapA128A = struct {
                     break;
                 }
             } else {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 @memcpy(padded[0..left], m[i..]);
                 padded[left] = 0x80;
                 isap.st.addBytes(&padded);
@@ -169,8 +169,8 @@ pub const IsapA128A = struct {
 };
 
 test "ISAP" {
-    const k = [_]u8{1} ** 16;
-    const n = [_]u8{2} ** 16;
+    const k: [16]u8 = @splat(1);
+    const n: [16]u8 = @splat(2);
     var tag: [16]u8 = undefined;
     const ad = "ad";
     var msg = "test";

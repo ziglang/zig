@@ -388,7 +388,7 @@ pub const rusage = extern struct {
     nsignals: isize,
     nvcsw: isize,
     nivcsw: isize,
-    __reserved: [16]isize = [1]isize{0} ** 16,
+    __reserved: [16]isize = @splat(0),
 
     pub const SELF = 0;
     pub const CHILDREN = -1;
@@ -561,7 +561,7 @@ pub const Sigaction = extern struct {
 
 pub const sigset_t = [1024 / 32]u32;
 pub fn sigemptyset() sigset_t {
-    return [_]u32{0} ** @typeInfo(sigset_t).array.len;
+    return @splat(0);
 }
 pub const siginfo_t = extern struct {
     signo: i32,

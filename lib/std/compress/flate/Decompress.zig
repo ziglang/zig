@@ -720,7 +720,7 @@ fn HuffmanDecoder(
             if (alphabet_size == 286)
                 if (lens[256] == 0) return error.MissingEndOfBlockCode;
 
-            var count = [_]u16{0} ** (@as(usize, max_code_bits) + 1);
+            var count: [max_code_bits]u16 = @splat(0);
             var max: usize = 0;
             for (lens) |n| {
                 if (n == 0) continue;

@@ -830,7 +830,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     };
 
     if (elements.len <= Air.Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
+        var buf: [Air.Liveness.bpi - 1]Air.Inst.Ref = @splat(.none);
         @memcpy(buf[0..elements.len], elements);
         return self.finishAir(inst, result, buf);
     }
@@ -955,7 +955,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     };
 
     simple: {
-        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
+        var buf: [Air.Liveness.bpi - 1]Air.Inst.Ref = @splat(.none);
         var buf_index: usize = 0;
         for (outputs) |output| {
             if (output == .none) continue;
@@ -1358,7 +1358,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const result = info.return_value;
 
     if (args.len + 1 <= Air.Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
+        var buf: [Air.Liveness.bpi - 1]Air.Inst.Ref = @splat(.none);
         buf[0] = callee;
         @memcpy(buf[1..][0..args.len], args);
         return self.finishAir(inst, result, buf);

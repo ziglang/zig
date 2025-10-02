@@ -87,7 +87,7 @@ const CodeDirectory = struct {
         };
         comptime var i = 0;
         inline while (i < n_special_slots) : (i += 1) {
-            cdir.special_slots[i] = [_]u8{0} ** hash_size;
+            cdir.special_slots[i] = @splat(0);
         }
         return cdir;
     }

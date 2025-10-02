@@ -93,13 +93,13 @@ const hashes = [_]Hash{
         .ty = hash.SipHash64(1, 3),
         .name = "siphash64",
         .has_crypto_api = true,
-        .init_u8s = &[_]u8{0} ** 16,
+        .init_u8s = &@as([16]u8, @splat(0)),
     },
     Hash{
         .ty = hash.SipHash128(1, 3),
         .name = "siphash128",
         .has_crypto_api = true,
-        .init_u8s = &[_]u8{0} ** 16,
+        .init_u8s = &@as([16]u8, @splat(0)),
     },
 };
 

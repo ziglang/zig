@@ -61,22 +61,27 @@ pub fn main() !void {
     try stdout.print("pure ASCII strings\n", .{});
     try stdout.flush();
     {
-        const result = try benchmarkCodepointCount("hello" ** 16);
+        const result = try benchmarkCodepointCount(strMul("hello", 16));
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("pure Unicode strings\n", .{});
     try stdout.flush();
     {
-        const result = try benchmarkCodepointCount("こんにちは" ** 16);
+        const result = try benchmarkCodepointCount(strMul("こんにちは", 16));
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("mixed ASCII/Unicode strings\n", .{});
     try stdout.flush();
     {
-        const result = try benchmarkCodepointCount("Hyvää huomenta" ** 16);
+        const result = try benchmarkCodepointCount(strMul("Hyvää huomenta", 16));
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
     try stdout.flush();
+}
+
+inline fn strMul(comptime str: []const u8, comptime times: usize) [str.len * times]u8 {
+    const result: [times][str.len]u8 = @splat(str[0..str.len].*);
+    return @bitCast(result);
 }

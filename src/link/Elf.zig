@@ -3950,7 +3950,7 @@ fn formatPhdr(ctx: FormatPhdr, writer: *std.Io.Writer) std.Io.Writer.Error!void 
     const write = phdr.p_flags & elf.PF_W != 0;
     const read = phdr.p_flags & elf.PF_R != 0;
     const exec = phdr.p_flags & elf.PF_X != 0;
-    var flags: [3]u8 = [_]u8{'_'} ** 3;
+    var flags: [3]u8 = @splat('_');
     if (exec) flags[0] = 'X';
     if (write) flags[1] = 'W';
     if (read) flags[2] = 'R';

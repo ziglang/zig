@@ -2823,7 +2823,7 @@ test "bitcast vector" {
     const u8x32 = @Vector(32, u8);
     const u32x8 = @Vector(8, u32);
 
-    const zerox32: u8x32 = [_]u8{0} ** 32;
+    const zerox32: u8x32 = @splat(0);
     const bigsum: u32x8 = @bitCast(zerox32);
     try std.testing.expectEqual(0, @reduce(.Add, bigsum));
 }

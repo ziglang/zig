@@ -96,9 +96,7 @@ pub fn poll(
         .poll_fds = undefined,
         .windows = if (is_windows) .{
             .first_read_done = false,
-            .overlapped = [1]windows.OVERLAPPED{
-                std.mem.zeroes(windows.OVERLAPPED),
-            } ** enum_fields.len,
+            .overlapped = @splat(std.mem.zeroes(windows.OVERLAPPED)),
             .small_bufs = undefined,
             .active = .{
                 .count = 0,

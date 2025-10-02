@@ -266,14 +266,14 @@ const nesting_test_cases = .{
     .{ null, "{}" },
     .{ error.SyntaxError, "[}" },
     .{ error.SyntaxError, "{]" },
-    .{ null, "[" ** 1000 ++ "]" ** 1000 },
-    .{ null, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1000 },
-    .{ error.SyntaxError, "[" ** 1000 ++ "]" ** 999 ++ "}" },
-    .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 ++ "]" },
-    .{ error.SyntaxError, "[" ** 1000 ++ "]" ** 1001 },
-    .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1001 },
-    .{ error.UnexpectedEndOfInput, "[" ** 1000 ++ "]" ** 999 },
-    .{ error.UnexpectedEndOfInput, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 },
+    .{ null, &strMul("[", 1000) ++ &strMul("]", 1000) },
+    .{ null, &strMul("{\"\":", 1000) ++ "0" ++ &strMul("}", 1000) },
+    .{ error.SyntaxError, &strMul("[", 1000) ++ &strMul("]", 999) ++ "}" },
+    .{ error.SyntaxError, &strMul("{\"\":", 1000) ++ "0" ++ &strMul("}", 999) ++ "]" },
+    .{ error.SyntaxError, &strMul("[", 1000) ++ &strMul("]", 1001) },
+    .{ error.SyntaxError, &strMul("{\"\":", 1000) ++ "0" ++ &strMul("}", 1001) },
+    .{ error.UnexpectedEndOfInput, &strMul("[", 1000) ++ &strMul("]", 999) },
+    .{ error.UnexpectedEndOfInput, &strMul("{\"\":", 1000) ++ "0" ++ &strMul("}", 999) },
 };
 
 test "nesting" {
@@ -422,10 +422,10 @@ test "skipValue" {
 
     // An absurd number of nestings
     const nestings = 1000;
-    try testSkipValue("[" ** nestings ++ "]" ** nestings);
+    try testSkipValue(&strMul("[", nestings) ++ &strMul("]", nestings));
 
     // Would a number token cause problems in a deeply-nested array?
-    try testSkipValue("[" ** nestings ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ "]" ** nestings);
+    try testSkipValue(&strMul("[", nestings) ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ &strMul("]", nestings));
 
     // Mismatched brace/square bracket
     try std.testing.expectError(error.SyntaxError, testSkipValue("[102, 111, 111}"));
@@ -474,9 +474,14 @@ test "enableDiagnostics" {
 
     inline for ([_]comptime_int{ 5, 6, 7, 99 }) |reps| {
         // The error happens 1 byte before the end.
-        const s = "[" ** reps ++ "}";
+        const s = &strMul("[", reps) ++ "}";
         try testDiagnostics(error.SyntaxError, 1, s.len, s.len - 1, s);
     }
+}
+
+inline fn strMul(comptime str: []const u8, comptime times: usize) [str.len * times]u8 {
+    const result: [times][str.len]u8 = @splat(str[0..str.len].*);
+    return @bitCast(result);
 }
 
 test isNumberFormattedLikeAnInteger {

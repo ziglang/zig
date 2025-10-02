@@ -4902,7 +4902,7 @@ fn testDecl(
         .noalias_bits = 0,
 
         // Tests don't have a prototype that needs hashing
-        .proto_hash = .{0} ** 16,
+        .proto_hash = @splat(0),
     });
 
     _ = try decl_block.addBreak(.break_inline, decl_inst, func_inst);
