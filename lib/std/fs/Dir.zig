@@ -2720,7 +2720,7 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         const rc = linux.statx(
             self.fd,
             &sub_path_c,
-            linux.AT.NO_AUTOMOUNT,
+            .{ .no_automount = true },
             .{
                 .type = true,
                 .mode = true,
