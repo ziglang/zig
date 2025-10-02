@@ -614,10 +614,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 .name = fields[i].name ++ "_ptr",
                 .type = *fields[i].type,
                 .default_value_ptr = null,
-                .is_comptime = if (fields[i].type == void)
-                    false
-                else
-                    fields[i].is_comptime,
+                .is_comptime = false,
                 .alignment = fields[i].alignment,
             };
             break :entry @Type(.{ .@"struct" = .{
@@ -1092,7 +1089,7 @@ test "value as a tuple that containing void" {
     var list: MultiArrayList(struct { void }) = .empty;
     defer list.deinit(gpa);
 
-    list.append(gpa, .{{}}) catch unreachable;
+    try list.append(gpa, .{{}});
 
     try testing.expectEqual(list.pop().?[0], {});
 
@@ -1105,7 +1102,7 @@ test "value as a tuple that containing nullable void" {
     var list: MultiArrayList(struct { ?void }) = .empty;
     defer list.deinit(gpa);
 
-    list.append(gpa, .{null}) catch unreachable;
+    try list.append(gpa, .{null});
 
     try testing.expectEqual(list.pop().?[0], null);
 
