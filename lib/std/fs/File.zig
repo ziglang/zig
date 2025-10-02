@@ -564,7 +564,7 @@ pub fn stat(self: File) StatError!Stat {
         const rc = linux.statx(
             self.handle,
             "",
-            linux.AT.EMPTY_PATH,
+            .{ .empty_path = true },
             .{
                 .type = true,
                 .mode = true,

@@ -969,7 +969,7 @@ pub fn shutdown(
     self: *IoUring,
     user_data: u64,
     sockfd: posix.socket_t,
-    how: linux.At,
+    how: linux.Shut,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_shutdown(sockfd, how);
@@ -1330,7 +1330,8 @@ pub fn socket(
     user_data: u64,
     domain: linux.AF,
     socket_type: linux.Sock,
-    protocol: u32,
+    protocol: linux.IpProto,
+    /// flags is unused
     flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
@@ -1344,9 +1345,10 @@ pub fn socket(
 pub fn socket_direct(
     self: *IoUring,
     user_data: u64,
-    domain: u32,
-    socket_type: u32,
-    protocol: u32,
+    domain: linux.AF,
+    socket_type: linux.Sock,
+    protocol: linux.IpProto,
+    /// flags is unused
     flags: u32,
     file_index: u32,
 ) !*Sqe {
@@ -2425,7 +2427,7 @@ test "statx" {
         0xaaaaaaaa,
         tmp.dir.fd,
         path,
-        0,
+        .{},
         .{ .size = true },
         &buf,
     );
@@ -2453,7 +2455,7 @@ test "statx" {
         .flags = .{},
     }, cqe);
 
-    try testing.expect(buf.mask & linux.STATX_SIZE == linux.STATX_SIZE);
+    try testing.expect(buf.mask.size);
     try testing.expectEqual(@as(u64, 6), buf.size);
 }
 
@@ -2608,7 +2610,8 @@ test "shutdown" {
 
     // Socket bound, expect shutdown to work
     {
-        const server = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+        // TODO: update posix later to use Typed Flags
+        const server = try posix.socket(address.any.family, @as(u32, @bitCast(linux.Sock{ .type = .stream, .flags = .{ .cloexec = true } })), 0);
         defer posix.close(server);
         try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
         try posix.bind(server, &address.any, address.getOsSockLen());
@@ -2618,7 +2621,7 @@ test "shutdown" {
         var slen: posix.socklen_t = address.getOsSockLen();
         try posix.getsockname(server, &address.any, &slen);
 
-        const shutdown_sqe = try ring.shutdown(0x445445445, server, linux.SHUT.RD);
+        const shutdown_sqe = try ring.shutdown(0x445445445, server, .rd);
         try testing.expectEqual(Op.SHUTDOWN, shutdown_sqe.opcode);
         try testing.expectEqual(@as(i32, server), shutdown_sqe.fd);
 
@@ -2753,7 +2756,7 @@ test "unlinkat" {
         0x12121212,
         tmp.dir.fd,
         path,
-        0,
+        .{},
     );
     try testing.expectEqual(Op.UNLINKAT, sqe.opcode);
     try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
@@ -2901,7 +2904,7 @@ test "linkat" {
         first_path,
         tmp.dir.fd,
         second_path,
-        0,
+        .{},
     );
     try testing.expectEqual(Op.LINKAT, sqe.opcode);
     try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
@@ -3639,7 +3642,7 @@ test "socket" {
     defer ring.deinit();
 
     // prepare, submit socket operation
-    _ = try ring.socket(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0);
+    _ = try ring.socket(0, linux.AF.INET, .{ .type = .stream }, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     // test completion
@@ -3665,7 +3668,7 @@ test "socket_direct/socket_direct_alloc/close_direct" {
     try ring.register_files(registered_fds[0..]);
 
     // create socket in registered file descriptor at index 0 (last param)
-    _ = try ring.socket_direct(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0, 0);
+    _ = try ring.socket_direct(0, .inet, .{ .type = .stream }, .default, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     var cqe_socket = try ring.copy_cqe();
     try testing.expectEqual(posix.E.SUCCESS, cqe_socket.err());
@@ -4227,7 +4230,10 @@ test "bind/listen/connect" {
     if (!probe.is_supported(.LISTEN)) return error.SkipZigTest;
 
     var addr = net.Address.initIp4([4]u8{ 127, 0, 0, 1 }, 0);
-    const proto: u32 = if (addr.any.family == linux.AF.UNIX) 0 else linux.IPPROTO.TCP;
+    const proto: linux.IpProto = switch (addr.any.family) {
+        .unix => .default,
+        else => .tcp,
+    };
 
     const listen_fd = brk: {
         // Create socket
@@ -4937,12 +4943,12 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         fd: linux.fd_t,
         path: [*:0]const u8,
-        flags: linux.AT,
+        flags: linux.At,
         mask: linux.Statx.Mask,
         buf: *linux.Statx,
     ) void {
-        sqe.prep_rw(.STATX, fd, @intFromPtr(path), @bitCast(mask), @intFromPtr(buf));
-        sqe.rw_flags = flags;
+        sqe.prep_rw(.STATX, fd, @intFromPtr(path), @as(u32, @bitCast(mask)), @intFromPtr(buf));
+        sqe.rw_flags = @bitCast(flags);
     }
 
     pub fn prep_cancel(
@@ -4999,10 +5005,10 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         dir_fd: linux.fd_t,
         path: [*:0]const u8,
-        flags: linux.AT, // TODO: unlink flags only AT_REMOVEDIR
+        flags: linux.At, // TODO: unlink flags only AT_REMOVEDIR
     ) void {
         sqe.prep_rw(.UNLINKAT, dir_fd, @intFromPtr(path), 0, 0);
-        sqe.rw_flags = flags;
+        sqe.rw_flags = @bitCast(flags);
     }
 
     pub fn prep_mkdirat(
@@ -5045,7 +5051,7 @@ pub const Sqe = extern struct {
             @intFromPtr(new_path),
         );
         sqe.len = @bitCast(new_dir_fd);
-        sqe.rw_flags = flags;
+        sqe.rw_flags = @bitCast(flags);
     }
 
     pub fn prep_files_update(
@@ -5091,7 +5097,8 @@ pub const Sqe = extern struct {
         domain: linux.AF,
         socket_type: linux.SOCK,
         protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
-        flags: u32, // flags is unused
+        /// flags is unused
+        flags: u32,
     ) void {
         sqe.prep_rw(.SOCKET, @intCast(domain), 0, protocol, socket_type);
         sqe.rw_flags = flags;
@@ -5100,9 +5107,10 @@ pub const Sqe = extern struct {
     pub fn prep_socket_direct(
         sqe: *Sqe,
         domain: linux.AF,
-        socket_type: linux.SOCK,
+        socket_type: linux.Sock,
         protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
-        flags: u32, // flags is unused
+        /// flags is unused
+        flags: u32,
         file_index: u32,
     ) void {
         prep_socket(sqe, domain, socket_type, protocol, flags);
