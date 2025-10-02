@@ -20048,10 +20048,14 @@ fn arrayInitAnon(
     const types = try sema.arena.alloc(InternPool.Index, operands.len);
     const values = try sema.arena.alloc(InternPool.Index, operands.len);
 
+    var any_comptime = false;
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
         for (operands, 0..) |operand, i| {
-            const operand_src = src; // TODO better source location
+            const operand_src = block.src(.{ .init_elem = .{
+                .init_node_offset = src.offset.node_offset.x,
+                .elem_index = @intCast(i),
+            } });
             const elem = try sema.resolveInst(operand);
             types[i] = sema.typeOf(elem).toIntern();
             if (Type.fromInterned(types[i]).zigTypeTag(zcu) == .@"opaque") {
@@ -20066,6 +20070,7 @@ fn arrayInitAnon(
             }
             if (try sema.resolveValue(elem)) |val| {
                 values[i] = val.toIntern();
+                any_comptime = true;
             } else {
                 values[i] = .none;
                 runtime_src = operand_src;
@@ -20074,9 +20079,21 @@ fn arrayInitAnon(
         break :rs runtime_src;
     };
 
+    // A field can't be `comptime` if it references a `comptime var` but the aggregate can still be comptime-known.
+    // Replace these fields with `.none` only for generating the type.
+    const values_no_comptime = if (!any_comptime) values else blk: {
+        const new_values = try sema.arena.alloc(InternPool.Index, operands.len);
+        for (values, new_values) |val, *new_val| {
+            if (val != .none and Value.fromInterned(val).canMutateComptimeVarState(zcu)) {
+                new_val.* = .none;
+            } else new_val.* = val;
+        }
+        break :blk new_values;
+    };
+
     const tuple_ty: Type = .fromInterned(try ip.getTupleType(gpa, pt.tid, .{
         .types = types,
-        .values = values,
+        .values = values_no_comptime,
     }));
 
     const runtime_src = opt_runtime_src orelse {
@@ -20085,6 +20102,14 @@ fn arrayInitAnon(
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    for (operands, 0..) |operand, i| {
+        const operand_src = block.src(.{ .init_elem = .{
+            .init_node_offset = src.offset.node_offset.x,
+            .elem_index = @intCast(i),
+        } });
+        try sema.validateRuntimeValue(block, operand_src, try sema.resolveInst(operand));
+    }
 
     if (is_ref) {
         const target = sema.pt.zcu.getTarget();
