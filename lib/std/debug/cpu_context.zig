@@ -8,6 +8,7 @@ else switch (native_arch) {
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .loongarch32, .loongarch64 => LoongArch,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
+    .s390x => S390x,
     .x86 => X86,
     .x86_64 => X86_64,
     else => noreturn,
@@ -186,6 +187,17 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             .linux => .{
                 .r = [1]usize{0} ++ uc.mcontext.gregs[1..].*, // r0 position is used for pc; replace with zero
                 .pc = uc.mcontext.gregs[0],
+            },
+            else => null,
+        },
+        .s390x => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.gregs,
+                .f = uc.mcontext.fregs,
+                .psw = .{
+                    .mask = uc.mcontext.psw.mask,
+                    .addr = uc.mcontext.psw.addr,
+                },
             },
             else => null,
         },
@@ -671,6 +683,81 @@ pub const Riscv = extern struct {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             32 => return @ptrCast(&ctx.pc),
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const S390x = extern struct {
+    /// The numbered general-purpose registers r0 - r15.
+    r: [16]u64,
+    /// The numbered floating-point registers f0 - f15. Yes, really - they can be used in DWARF CFI.
+    f: [16]f64,
+    /// The program counter.
+    psw: extern struct {
+        mask: u64,
+        addr: u64,
+    },
+
+    pub inline fn current() S390x {
+        var ctx: S390x = undefined;
+        asm volatile (
+            \\ stmg %%r0, %%r15, 0(%%r2)
+            \\ std %%f0, 128(%%r2)
+            \\ std %%f1, 136(%%r2)
+            \\ std %%f2, 144(%%r2)
+            \\ std %%f3, 152(%%r2)
+            \\ std %%f4, 160(%%r2)
+            \\ std %%f5, 168(%%r2)
+            \\ std %%f6, 176(%%r2)
+            \\ std %%f7, 184(%%r2)
+            \\ std %%f8, 192(%%r2)
+            \\ std %%f9, 200(%%r2)
+            \\ std %%f10, 208(%%r2)
+            \\ std %%f11, 216(%%r2)
+            \\ std %%f12, 224(%%r2)
+            \\ std %%f13, 232(%%r2)
+            \\ std %%f14, 240(%%r2)
+            \\ std %%f15, 248(%%r2)
+            \\ epsw %%r0, %%r1
+            \\ stm %%r0, %%r1, 256(%%r2)
+            \\ larl %%r0, .
+            \\ stg %%r0, 264(%%r2)
+            \\ lg %%r0, 0(%%r2)
+            \\ lg %%r1, 8(%%r2)
+            :
+            : [gprs] "{r2}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *S390x, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...15 => return @ptrCast(&ctx.r[register_num]),
+            // Why???
+            16 => return @ptrCast(&ctx.f[0]),
+            17 => return @ptrCast(&ctx.f[2]),
+            18 => return @ptrCast(&ctx.f[4]),
+            19 => return @ptrCast(&ctx.f[6]),
+            20 => return @ptrCast(&ctx.f[1]),
+            21 => return @ptrCast(&ctx.f[3]),
+            22 => return @ptrCast(&ctx.f[5]),
+            23 => return @ptrCast(&ctx.f[7]),
+            24 => return @ptrCast(&ctx.f[8]),
+            25 => return @ptrCast(&ctx.f[10]),
+            26 => return @ptrCast(&ctx.f[12]),
+            27 => return @ptrCast(&ctx.f[14]),
+            28 => return @ptrCast(&ctx.f[9]),
+            29 => return @ptrCast(&ctx.f[11]),
+            30 => return @ptrCast(&ctx.f[13]),
+            31 => return @ptrCast(&ctx.f[15]),
+            64 => return @ptrCast(&ctx.psw.mask),
+            65 => return @ptrCast(&ctx.psw.addr),
+
+            48...63 => return error.UnsupportedRegister, // a0 - a15
+            68...83 => return error.UnsupportedRegister, // v16 - v31
 
             else => return error.InvalidRegister,
         }

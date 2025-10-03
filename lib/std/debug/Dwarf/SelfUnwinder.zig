@@ -176,7 +176,11 @@ fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheE
             break :cfa try applyOffset(ptr.*, ro.offset);
         },
         .expression => |expr| cfa: {
-            // On all implemented architectures, the CFA is defined to be the previous frame's SP
+            // On most implemented architectures, the CFA is defined to be the previous frame's SP.
+            //
+            // On s390x, it's defined to be SP + 160 (ELF ABI s390x Supplement §1.6.3); however,
+            // what this actually means is that there will be a `def_cfa r15 + 160`, so nothing
+            // special for us to do.
             const prev_cfa_val = (try regNative(&unwinder.cpu_state, sp_reg_num)).*;
             unwinder.expr_vm.reset();
             const value = try unwinder.expr_vm.run(expr, gpa, .{
