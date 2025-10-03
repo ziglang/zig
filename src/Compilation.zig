@@ -7193,6 +7193,9 @@ pub fn addCCArgs(
         }
 
         try argv.append(if (mod.omit_frame_pointer) "-fomit-frame-pointer" else "-fno-omit-frame-pointer");
+        if (target.cpu.arch == .s390x) {
+            try argv.append(if (mod.omit_frame_pointer) "-mbackchain" else "-mno-backchain");
+        }
 
         const ssp_buf_size = mod.stack_protector;
         if (ssp_buf_size != 0) {
@@ -7258,9 +7261,10 @@ pub fn addCCArgs(
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
-                    // We communicate float ABI to Clang through the dedicated options.
+                    // We communicate these to Clang through the dedicated options.
                     if (std.mem.startsWith(u8, llvm_name, "soft-float") or
-                        std.mem.startsWith(u8, llvm_name, "hard-float"))
+                        std.mem.startsWith(u8, llvm_name, "hard-float") or
+                        (target.cpu.arch == .s390x and std.mem.eql(u8, llvm_name, "backchain")))
                         continue;
 
                     // Ignore these until we figure out how to handle the concept of omitting features.

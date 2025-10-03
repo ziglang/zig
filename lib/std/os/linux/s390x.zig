@@ -269,7 +269,12 @@ pub const ucontext_t = extern struct {
 };
 
 pub const mcontext_t = extern struct {
-    __regs1: [18]u64,
-    __regs2: [18]u32,
-    __regs3: [16]f64,
+    psw: extern struct {
+        mask: u64,
+        addr: u64,
+    },
+    gregs: [16]u64,
+    aregs: [16]u32,
+    fpc: u32,
+    fregs: [16]f64,
 };

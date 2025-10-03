@@ -90,6 +90,7 @@ pub const can_unwind: bool = s: {
             .loongarch64,
             .riscv32,
             .riscv64,
+            .s390x,
             .x86,
             .x86_64,
         },
