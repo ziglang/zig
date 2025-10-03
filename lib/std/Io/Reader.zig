@@ -795,13 +795,14 @@ pub fn takeDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
     const buffer = r.buffer[0..r.end];
     const seek = r.seek;
-    if (std.mem.indexOfScalarPos(u8, buffer, seek, delimiter)) |end| {
+    if (std.mem.indexOfScalarPos(u8, buffer, seek, delimiter)) |delimiter_index| {
         @branchHint(.likely);
-        return buffer[seek .. end + 1];
+        return buffer[seek .. delimiter_index + 1];
     }
     // TODO take a parameter for max search length rather than relying on buffer capacity
     try rebase(r, r.buffer.len);
     while (r.buffer.len - r.end != 0) {
+        const existing_buffered_len = r.end - r.seek;
         const end_cap = r.buffer[r.end..];
         var writer: Writer = .fixed(end_cap);
         const n = r.vtable.stream(r, &writer, .limited(end_cap.len)) catch |err| switch (err) {
@@ -809,8 +810,8 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
             else => |e| return e,
         };
         r.end += n;
-        if (std.mem.indexOfScalarPos(u8, end_cap[0..n], 0, delimiter)) |end| {
-            return r.buffer[0 .. r.end - n + end + 1];
+        if (std.mem.indexOfScalarPos(u8, r.buffer[0..r.end], r.seek + existing_buffered_len, delimiter)) |delimiter_index| {
+            return r.buffer[r.seek .. delimiter_index + 1];
         }
     }
     return error.StreamTooLong;
@@ -1601,6 +1602,18 @@ test "readSliceShort with smaller buffer than Reader" {
     try testing.expectEqualStrings(str, &buf);
 }
 
+test "readSliceShort with indirect reader" {
+    var r: Reader = .fixed("HelloFren");
+    var ri_buf: [3]u8 = undefined;
+    var ri: std.testing.ReaderIndirect = .init(&r, &ri_buf);
+    var buf: [5]u8 = undefined;
+    try testing.expectEqual(5, try ri.interface.readSliceShort(&buf));
+    try testing.expectEqualStrings("Hello", buf[0..5]);
+    try testing.expectEqual(4, try ri.interface.readSliceShort(&buf));
+    try testing.expectEqualStrings("Fren", buf[0..4]);
+    try testing.expectEqual(0, try ri.interface.readSliceShort(&buf));
+}
+
 test readVec {
     var r: Reader = .fixed(std.ascii.letters);
     var flat_buffer: [52]u8 = undefined;
@@ -1696,6 +1709,26 @@ test "takeDelimiterInclusive when it rebases" {
         .{ .buffer = written_line },
     });
     const r = &tr.interface;
+    for (0..6) |_| {
+        try std.testing.expectEqualStrings(written_line, try r.takeDelimiterInclusive('\n'));
+    }
+}
+
+test "takeDelimiterInclusive on an indirect reader when it rebases" {
+    const written_line = "ABCDEFGHIJKLMNOPQRSTUVWXYZ\n";
+    var buffer: [128]u8 = undefined;
+    var tr: std.testing.Reader = .init(&buffer, &.{
+        .{ .buffer = written_line[0..4] },
+        .{ .buffer = written_line[4..] },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+    });
+    var indirect_buffer: [128]u8 = undefined;
+    var tri: std.testing.ReaderIndirect = .init(&tr.interface, &indirect_buffer);
+    const r = &tri.interface;
     for (0..6) |_| {
         try std.testing.expectEqualStrings(written_line, try r.takeDelimiterInclusive('\n'));
     }
