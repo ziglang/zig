@@ -527,7 +527,7 @@ const LazyIncludePaths = struct {
     arena: std.mem.Allocator,
     auto_includes_option: cli.Options.AutoIncludes,
     zig_lib_dir: []const u8,
-    target_machine_type: std.coff.MachineType,
+    target_machine_type: std.coff.IMAGE.FILE.MACHINE,
     resolved_include_paths: ?[]const []const u8 = null,
 
     pub fn get(self: *LazyIncludePaths, error_handler: *ErrorHandler) ![]const []const u8 {
@@ -555,11 +555,11 @@ const LazyIncludePaths = struct {
     }
 };
 
-fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8, target_machine_type: std.coff.MachineType) ![]const []const u8 {
+fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8, target_machine_type: std.coff.IMAGE.FILE.MACHINE) ![]const []const u8 {
     if (auto_includes_option == .none) return &[_][]const u8{};
 
     const includes_arch: std.Target.Cpu.Arch = switch (target_machine_type) {
-        .X64 => .x86_64,
+        .AMD64 => .x86_64,
         .I386 => .x86,
         .ARMNT => .thumb,
         .ARM64 => .aarch64,

@@ -1082,7 +1082,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
     };
 }
 
-pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
+pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
     return switch (target.cpu.arch) {
         .arm => .ARM,
         .thumb => .ARMNT,
@@ -1092,7 +1092,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
         .riscv32 => .RISCV32,
         .riscv64 => .RISCV64,
         .x86 => .I386,
-        .x86_64 => .X64,
+        .x86_64 => .AMD64,
 
         .amdgcn,
         .arc,

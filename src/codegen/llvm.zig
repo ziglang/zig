@@ -12103,7 +12103,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: *const st
     return switch (fn_info.cc) {
         .auto => returnTypeByRef(zcu, target, return_type),
         .x86_64_sysv => firstParamSRetSystemV(return_type, zcu, target),
-        .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu, target) == .memory,
+        .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu, target, .ret) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
         .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu) == .indirect,
@@ -12205,7 +12205,7 @@ fn lowerFnRetTy(o: *Object, pt: Zcu.PerThread, fn_info: InternPool.Key.FuncType)
 fn lowerWin64FnRetTy(o: *Object, pt: Zcu.PerThread, fn_info: InternPool.Key.FuncType) Allocator.Error!Builder.Type {
     const zcu = pt.zcu;
     const return_type = Type.fromInterned(fn_info.return_type);
-    switch (x86_64_abi.classifyWindows(return_type, zcu, zcu.getTarget())) {
+    switch (x86_64_abi.classifyWindows(return_type, zcu, zcu.getTarget(), .ret)) {
         .integer => {
             if (isScalar(zcu, return_type)) {
                 return o.lowerType(pt, return_type);
@@ -12476,7 +12476,7 @@ const ParamTypeIterator = struct {
 
     fn nextWin64(it: *ParamTypeIterator, ty: Type) ?Lowering {
         const zcu = it.pt.zcu;
-        switch (x86_64_abi.classifyWindows(ty, zcu, zcu.getTarget())) {
+        switch (x86_64_abi.classifyWindows(ty, zcu, zcu.getTarget(), .arg)) {
             .integer => {
                 if (isScalar(zcu, ty)) {
                     it.zig_index += 1;

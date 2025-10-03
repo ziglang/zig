@@ -2,70 +2,9 @@ const std = @import("std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 
-pub const CoffHeaderFlags = packed struct {
-    /// Image only, Windows CE, and Microsoft Windows NT and later.
-    /// This indicates that the file does not contain base relocations
-    /// and must therefore be loaded at its preferred base address.
-    /// If the base address is not available, the loader reports an error.
-    /// The default behavior of the linker is to strip base relocations
-    /// from executable (EXE) files.
-    RELOCS_STRIPPED: u1 = 0,
-
-    /// Image only. This indicates that the image file is valid and can be run.
-    /// If this flag is not set, it indicates a linker error.
-    EXECUTABLE_IMAGE: u1 = 0,
-
-    /// COFF line numbers have been removed. This flag is deprecated and should be zero.
-    LINE_NUMS_STRIPPED: u1 = 0,
-
-    /// COFF symbol table entries for local symbols have been removed.
-    /// This flag is deprecated and should be zero.
-    LOCAL_SYMS_STRIPPED: u1 = 0,
-
-    /// Obsolete. Aggressively trim working set.
-    /// This flag is deprecated for Windows 2000 and later and must be zero.
-    AGGRESSIVE_WS_TRIM: u1 = 0,
-
-    /// Application can handle > 2-GB addresses.
-    LARGE_ADDRESS_AWARE: u1 = 0,
-
-    /// This flag is reserved for future use.
-    RESERVED: u1 = 0,
-
-    /// Little endian: the least significant bit (LSB) precedes the
-    /// most significant bit (MSB) in memory. This flag is deprecated and should be zero.
-    BYTES_REVERSED_LO: u1 = 0,
-
-    /// Machine is based on a 32-bit-word architecture.
-    @"32BIT_MACHINE": u1 = 0,
-
-    /// Debugging information is removed from the image file.
-    DEBUG_STRIPPED: u1 = 0,
-
-    /// If the image is on removable media, fully load it and copy it to the swap file.
-    REMOVABLE_RUN_FROM_SWAP: u1 = 0,
-
-    /// If the image is on network media, fully load it and copy it to the swap file.
-    NET_RUN_FROM_SWAP: u1 = 0,
-
-    /// The image file is a system file, not a user program.
-    SYSTEM: u1 = 0,
-
-    /// The image file is a dynamic-link library (DLL).
-    /// Such files are considered executable files for almost all purposes,
-    /// although they cannot be directly run.
-    DLL: u1 = 0,
-
-    /// The file should be run only on a uniprocessor machine.
-    UP_SYSTEM_ONLY: u1 = 0,
-
-    /// Big endian: the MSB precedes the LSB in memory. This flag is deprecated and should be zero.
-    BYTES_REVERSED_HI: u1 = 0,
-};
-
-pub const CoffHeader = extern struct {
+pub const Header = extern struct {
     /// The number that identifies the type of target machine.
-    machine: MachineType,
+    machine: IMAGE.FILE.MACHINE,
 
     /// The number of sections. This indicates the size of the section table, which immediately follows the headers.
     number_of_sections: u16,
@@ -88,49 +27,110 @@ pub const CoffHeader = extern struct {
     size_of_optional_header: u16,
 
     /// The flags that indicate the attributes of the file.
-    flags: CoffHeaderFlags,
+    flags: Header.Flags,
+
+    pub const Flags = packed struct(u16) {
+        /// Image only, Windows CE, and Microsoft Windows NT and later.
+        /// This indicates that the file does not contain base relocations
+        /// and must therefore be loaded at its preferred base address.
+        /// If the base address is not available, the loader reports an error.
+        /// The default behavior of the linker is to strip base relocations
+        /// from executable (EXE) files.
+        RELOCS_STRIPPED: bool = false,
+
+        /// Image only. This indicates that the image file is valid and can be run.
+        /// If this flag is not set, it indicates a linker error.
+        EXECUTABLE_IMAGE: bool = false,
+
+        /// COFF line numbers have been removed. This flag is deprecated and should be zero.
+        LINE_NUMS_STRIPPED: bool = false,
+
+        /// COFF symbol table entries for local symbols have been removed.
+        /// This flag is deprecated and should be zero.
+        LOCAL_SYMS_STRIPPED: bool = false,
+
+        /// Obsolete. Aggressively trim working set.
+        /// This flag is deprecated for Windows 2000 and later and must be zero.
+        AGGRESSIVE_WS_TRIM: bool = false,
+
+        /// Application can handle > 2-GB addresses.
+        LARGE_ADDRESS_AWARE: bool = false,
+
+        /// This flag is reserved for future use.
+        RESERVED: bool = false,
+
+        /// Little endian: the least significant bit (LSB) precedes the
+        /// most significant bit (MSB) in memory. This flag is deprecated and should be zero.
+        BYTES_REVERSED_LO: bool = false,
+
+        /// Machine is based on a 32-bit-word architecture.
+        @"32BIT_MACHINE": bool = false,
+
+        /// Debugging information is removed from the image file.
+        DEBUG_STRIPPED: bool = false,
+
+        /// If the image is on removable media, fully load it and copy it to the swap file.
+        REMOVABLE_RUN_FROM_SWAP: bool = false,
+
+        /// If the image is on network media, fully load it and copy it to the swap file.
+        NET_RUN_FROM_SWAP: bool = false,
+
+        /// The image file is a system file, not a user program.
+        SYSTEM: bool = false,
+
+        /// The image file is a dynamic-link library (DLL).
+        /// Such files are considered executable files for almost all purposes,
+        /// although they cannot be directly run.
+        DLL: bool = false,
+
+        /// The file should be run only on a uniprocessor machine.
+        UP_SYSTEM_ONLY: bool = false,
+
+        /// Big endian: the MSB precedes the LSB in memory. This flag is deprecated and should be zero.
+        BYTES_REVERSED_HI: bool = false,
+    };
 };
 
 // OptionalHeader.magic values
 // see https://msdn.microsoft.com/en-us/library/windows/desktop/ms680339(v=vs.85).aspx
-pub const IMAGE_NT_OPTIONAL_HDR32_MAGIC = 0x10b;
-pub const IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20b;
+pub const IMAGE_NT_OPTIONAL_HDR32_MAGIC = @intFromEnum(OptionalHeader.Magic.PE32);
+pub const IMAGE_NT_OPTIONAL_HDR64_MAGIC = @intFromEnum(OptionalHeader.Magic.@"PE32+");
 
-pub const DllFlags = packed struct {
+pub const DllFlags = packed struct(u16) {
     _reserved_0: u5 = 0,
 
     /// Image can handle a high entropy 64-bit virtual address space.
-    HIGH_ENTROPY_VA: u1 = 0,
+    HIGH_ENTROPY_VA: bool = false,
 
     /// DLL can be relocated at load time.
-    DYNAMIC_BASE: u1 = 0,
+    DYNAMIC_BASE: bool = false,
 
     /// Code Integrity checks are enforced.
-    FORCE_INTEGRITY: u1 = 0,
+    FORCE_INTEGRITY: bool = false,
 
     /// Image is NX compatible.
-    NX_COMPAT: u1 = 0,
+    NX_COMPAT: bool = false,
 
     /// Isolation aware, but do not isolate the image.
-    NO_ISOLATION: u1 = 0,
+    NO_ISOLATION: bool = false,
 
     /// Does not use structured exception (SE) handling. No SE handler may be called in this image.
-    NO_SEH: u1 = 0,
+    NO_SEH: bool = false,
 
     /// Do not bind the image.
-    NO_BIND: u1 = 0,
+    NO_BIND: bool = false,
 
     /// Image must execute in an AppContainer.
-    APPCONTAINER: u1 = 0,
+    APPCONTAINER: bool = false,
 
     /// A WDM driver.
-    WDM_DRIVER: u1 = 0,
+    WDM_DRIVER: bool = false,
 
     /// Image supports Control Flow Guard.
-    GUARD_CF: u1 = 0,
+    GUARD_CF: bool = false,
 
     /// Terminal Server aware.
-    TERMINAL_SERVER_AWARE: u1 = 0,
+    TERMINAL_SERVER_AWARE: bool = false,
 };
 
 pub const Subsystem = enum(u16) {
@@ -180,7 +180,7 @@ pub const Subsystem = enum(u16) {
 };
 
 pub const OptionalHeader = extern struct {
-    magic: u16,
+    magic: OptionalHeader.Magic,
     major_linker_version: u8,
     minor_linker_version: u8,
     size_of_code: u32,
@@ -188,71 +188,63 @@ pub const OptionalHeader = extern struct {
     size_of_uninitialized_data: u32,
     address_of_entry_point: u32,
     base_of_code: u32,
-};
 
-pub const OptionalHeaderPE32 = extern struct {
-    magic: u16,
-    major_linker_version: u8,
-    minor_linker_version: u8,
-    size_of_code: u32,
-    size_of_initialized_data: u32,
-    size_of_uninitialized_data: u32,
-    address_of_entry_point: u32,
-    base_of_code: u32,
-    base_of_data: u32,
-    image_base: u32,
-    section_alignment: u32,
-    file_alignment: u32,
-    major_operating_system_version: u16,
-    minor_operating_system_version: u16,
-    major_image_version: u16,
-    minor_image_version: u16,
-    major_subsystem_version: u16,
-    minor_subsystem_version: u16,
-    win32_version_value: u32,
-    size_of_image: u32,
-    size_of_headers: u32,
-    checksum: u32,
-    subsystem: Subsystem,
-    dll_flags: DllFlags,
-    size_of_stack_reserve: u32,
-    size_of_stack_commit: u32,
-    size_of_heap_reserve: u32,
-    size_of_heap_commit: u32,
-    loader_flags: u32,
-    number_of_rva_and_sizes: u32,
-};
+    pub const Magic = enum(u16) {
+        PE32 = 0x10b,
+        @"PE32+" = 0x20b,
+        _,
+    };
 
-pub const OptionalHeaderPE64 = extern struct {
-    magic: u16,
-    major_linker_version: u8,
-    minor_linker_version: u8,
-    size_of_code: u32,
-    size_of_initialized_data: u32,
-    size_of_uninitialized_data: u32,
-    address_of_entry_point: u32,
-    base_of_code: u32,
-    image_base: u64,
-    section_alignment: u32,
-    file_alignment: u32,
-    major_operating_system_version: u16,
-    minor_operating_system_version: u16,
-    major_image_version: u16,
-    minor_image_version: u16,
-    major_subsystem_version: u16,
-    minor_subsystem_version: u16,
-    win32_version_value: u32,
-    size_of_image: u32,
-    size_of_headers: u32,
-    checksum: u32,
-    subsystem: Subsystem,
-    dll_flags: DllFlags,
-    size_of_stack_reserve: u64,
-    size_of_stack_commit: u64,
-    size_of_heap_reserve: u64,
-    size_of_heap_commit: u64,
-    loader_flags: u32,
-    number_of_rva_and_sizes: u32,
+    pub const PE32 = extern struct {
+        standard: OptionalHeader,
+        base_of_data: u32,
+        image_base: u32,
+        section_alignment: u32,
+        file_alignment: u32,
+        major_operating_system_version: u16,
+        minor_operating_system_version: u16,
+        major_image_version: u16,
+        minor_image_version: u16,
+        major_subsystem_version: u16,
+        minor_subsystem_version: u16,
+        win32_version_value: u32,
+        size_of_image: u32,
+        size_of_headers: u32,
+        checksum: u32,
+        subsystem: Subsystem,
+        dll_flags: DllFlags,
+        size_of_stack_reserve: u32,
+        size_of_stack_commit: u32,
+        size_of_heap_reserve: u32,
+        size_of_heap_commit: u32,
+        loader_flags: u32,
+        number_of_rva_and_sizes: u32,
+    };
+
+    pub const @"PE32+" = extern struct {
+        standard: OptionalHeader,
+        image_base: u64,
+        section_alignment: u32,
+        file_alignment: u32,
+        major_operating_system_version: u16,
+        minor_operating_system_version: u16,
+        major_image_version: u16,
+        minor_image_version: u16,
+        major_subsystem_version: u16,
+        minor_subsystem_version: u16,
+        win32_version_value: u32,
+        size_of_image: u32,
+        size_of_headers: u32,
+        checksum: u32,
+        subsystem: Subsystem,
+        dll_flags: DllFlags,
+        size_of_stack_reserve: u64,
+        size_of_stack_commit: u64,
+        size_of_heap_reserve: u64,
+        size_of_heap_commit: u64,
+        loader_flags: u32,
+        number_of_rva_and_sizes: u32,
+    };
 };
 
 pub const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
@@ -319,7 +311,7 @@ pub const BaseRelocationDirectoryEntry = extern struct {
     block_size: u32,
 };
 
-pub const BaseRelocation = packed struct {
+pub const BaseRelocation = packed struct(u16) {
     /// Stored in the remaining 12 bits of the WORD, an offset from the starting address that was specified in the Page RVA field for the block.
     /// This offset specifies where the base relocation is to be applied.
     offset: u12,
@@ -447,12 +439,12 @@ pub const ImportDirectoryEntry = extern struct {
 };
 
 pub const ImportLookupEntry32 = struct {
-    pub const ByName = packed struct {
+    pub const ByName = packed struct(u32) {
         name_table_rva: u31,
         flag: u1 = 0,
     };
 
-    pub const ByOrdinal = packed struct {
+    pub const ByOrdinal = packed struct(u32) {
         ordinal_number: u16,
         unused: u15 = 0,
         flag: u1 = 1,
@@ -472,13 +464,13 @@ pub const ImportLookupEntry32 = struct {
 };
 
 pub const ImportLookupEntry64 = struct {
-    pub const ByName = packed struct {
+    pub const ByName = packed struct(u64) {
         name_table_rva: u31,
         unused: u32 = 0,
         flag: u1 = 0,
     };
 
-    pub const ByOrdinal = packed struct {
+    pub const ByOrdinal = packed struct(u64) {
         ordinal_number: u16,
         unused: u47 = 0,
         flag: u1 = 1,
@@ -519,7 +511,7 @@ pub const SectionHeader = extern struct {
     pointer_to_linenumbers: u32,
     number_of_relocations: u16,
     number_of_linenumbers: u16,
-    flags: SectionHeaderFlags,
+    flags: SectionHeader.Flags,
 
     pub fn getName(self: *align(1) const SectionHeader) ?[]const u8 {
         if (self.name[0] == '/') return null;
@@ -546,109 +538,121 @@ pub const SectionHeader = extern struct {
     }
 
     pub fn isCode(self: SectionHeader) bool {
-        return self.flags.CNT_CODE == 0b1;
+        return self.flags.CNT_CODE;
     }
 
     pub fn isComdat(self: SectionHeader) bool {
-        return self.flags.LNK_COMDAT == 0b1;
+        return self.flags.LNK_COMDAT;
     }
-};
 
-pub const SectionHeaderFlags = packed struct {
-    _reserved_0: u3 = 0,
+    pub const Flags = packed struct(u32) {
+        SCALE_INDEX: bool = false,
 
-    /// The section should not be padded to the next boundary.
-    /// This flag is obsolete and is replaced by IMAGE_SCN_ALIGN_1BYTES.
-    /// This is valid only for object files.
-    TYPE_NO_PAD: u1 = 0,
+        unused1: u2 = 0,
 
-    _reserved_1: u1 = 0,
+        /// The section should not be padded to the next boundary.
+        /// This flag is obsolete and is replaced by `.ALIGN = .@"1BYTES"`.
+        /// This is valid only for object files.
+        TYPE_NO_PAD: bool = false,
 
-    /// The section contains executable code.
-    CNT_CODE: u1 = 0,
+        unused4: u1 = 0,
 
-    /// The section contains initialized data.
-    CNT_INITIALIZED_DATA: u1 = 0,
+        /// The section contains executable code.
+        CNT_CODE: bool = false,
 
-    /// The section contains uninitialized data.
-    CNT_UNINITIALIZED_DATA: u1 = 0,
+        /// The section contains initialized data.
+        CNT_INITIALIZED_DATA: bool = false,
 
-    /// Reserved for future use.
-    LNK_OTHER: u1 = 0,
+        /// The section contains uninitialized data.
+        CNT_UNINITIALIZED_DATA: bool = false,
 
-    /// The section contains comments or other information.
-    /// The .drectve section has this type.
-    /// This is valid for object files only.
-    LNK_INFO: u1 = 0,
+        /// Reserved for future use.
+        LNK_OTHER: bool = false,
 
-    _reserved_2: u1 = 0,
+        /// The section contains comments or other information.
+        /// The .drectve section has this type.
+        /// This is valid for object files only.
+        LNK_INFO: bool = false,
 
-    /// The section will not become part of the image.
-    /// This is valid only for object files.
-    LNK_REMOVE: u1 = 0,
+        unused10: u1 = 0,
 
-    /// The section contains COMDAT data.
-    /// For more information, see COMDAT Sections (Object Only).
-    /// This is valid only for object files.
-    LNK_COMDAT: u1 = 0,
+        /// The section will not become part of the image.
+        /// This is valid only for object files.
+        LNK_REMOVE: bool = false,
 
-    _reserved_3: u2 = 0,
+        /// The section contains COMDAT data.
+        /// For more information, see COMDAT Sections (Object Only).
+        /// This is valid only for object files.
+        LNK_COMDAT: bool = false,
 
-    /// The section contains data referenced through the global pointer (GP).
-    GPREL: u1 = 0,
+        unused13: u2 = 0,
 
-    /// Reserved for future use.
-    MEM_PURGEABLE: u1 = 0,
+        union14: packed union {
+            mask: u1,
+            /// The section contains data referenced through the global pointer (GP).
+            GPREL: bool,
+            MEM_FARDATA: bool,
+        } = .{ .mask = 0 },
 
-    /// Reserved for future use.
-    MEM_16BIT: u1 = 0,
+        unused15: u1 = 0,
 
-    /// Reserved for future use.
-    MEM_LOCKED: u1 = 0,
+        union16: packed union {
+            mask: u1,
+            MEM_PURGEABLE: bool,
+            MEM_16BIT: bool,
+        } = .{ .mask = 0 },
 
-    /// Reserved for future use.
-    MEM_PRELOAD: u1 = 0,
+        /// Reserved for future use.
+        MEM_LOCKED: bool = false,
 
-    /// Takes on multiple values according to flags:
-    /// pub const IMAGE_SCN_ALIGN_1BYTES: u32 = 0x100000;
-    /// pub const IMAGE_SCN_ALIGN_2BYTES: u32 = 0x200000;
-    /// pub const IMAGE_SCN_ALIGN_4BYTES: u32 = 0x300000;
-    /// pub const IMAGE_SCN_ALIGN_8BYTES: u32 = 0x400000;
-    /// pub const IMAGE_SCN_ALIGN_16BYTES: u32 = 0x500000;
-    /// pub const IMAGE_SCN_ALIGN_32BYTES: u32 = 0x600000;
-    /// pub const IMAGE_SCN_ALIGN_64BYTES: u32 = 0x700000;
-    /// pub const IMAGE_SCN_ALIGN_128BYTES: u32 = 0x800000;
-    /// pub const IMAGE_SCN_ALIGN_256BYTES: u32 = 0x900000;
-    /// pub const IMAGE_SCN_ALIGN_512BYTES: u32 = 0xA00000;
-    /// pub const IMAGE_SCN_ALIGN_1024BYTES: u32 = 0xB00000;
-    /// pub const IMAGE_SCN_ALIGN_2048BYTES: u32 = 0xC00000;
-    /// pub const IMAGE_SCN_ALIGN_4096BYTES: u32 = 0xD00000;
-    /// pub const IMAGE_SCN_ALIGN_8192BYTES: u32 = 0xE00000;
-    ALIGN: u4 = 0,
+        /// Reserved for future use.
+        MEM_PRELOAD: bool = false,
 
-    /// The section contains extended relocations.
-    LNK_NRELOC_OVFL: u1 = 0,
+        ALIGN: SectionHeader.Flags.Align = .NONE,
 
-    /// The section can be discarded as needed.
-    MEM_DISCARDABLE: u1 = 0,
+        /// The section contains extended relocations.
+        LNK_NRELOC_OVFL: bool = false,
 
-    /// The section cannot be cached.
-    MEM_NOT_CACHED: u1 = 0,
+        /// The section can be discarded as needed.
+        MEM_DISCARDABLE: bool = false,
 
-    /// The section is not pageable.
-    MEM_NOT_PAGED: u1 = 0,
+        /// The section cannot be cached.
+        MEM_NOT_CACHED: bool = false,
 
-    /// The section can be shared in memory.
-    MEM_SHARED: u1 = 0,
+        /// The section is not pageable.
+        MEM_NOT_PAGED: bool = false,
 
-    /// The section can be executed as code.
-    MEM_EXECUTE: u1 = 0,
+        /// The section can be shared in memory.
+        MEM_SHARED: bool = false,
 
-    /// The section can be read.
-    MEM_READ: u1 = 0,
+        /// The section can be executed as code.
+        MEM_EXECUTE: bool = false,
 
-    /// The section can be written to.
-    MEM_WRITE: u1 = 0,
+        /// The section can be read.
+        MEM_READ: bool = false,
+
+        /// The section can be written to.
+        MEM_WRITE: bool = false,
+
+        pub const Align = enum(u4) {
+            NONE = 0,
+            @"1BYTES" = 1,
+            @"2BYTES" = 2,
+            @"4BYTES" = 3,
+            @"8BYTES" = 4,
+            @"16BYTES" = 5,
+            @"32BYTES" = 6,
+            @"64BYTES" = 7,
+            @"128BYTES" = 8,
+            @"256BYTES" = 9,
+            @"512BYTES" = 10,
+            @"1024BYTES" = 11,
+            @"2048BYTES" = 12,
+            @"4096BYTES" = 13,
+            @"8192BYTES" = 14,
+            _,
+        };
+    };
 };
 
 pub const Symbol = struct {
@@ -691,7 +695,7 @@ pub const SectionNumber = enum(u16) {
     _,
 };
 
-pub const SymType = packed struct {
+pub const SymType = packed struct(u16) {
     complex_type: ComplexType,
     base_type: BaseType,
 };
@@ -982,87 +986,7 @@ pub const DebugInfoDefinition = struct {
     unused_3: [2]u8,
 };
 
-pub const MachineType = enum(u16) {
-    UNKNOWN = 0x0,
-    /// Alpha AXP, 32-bit address space
-    ALPHA = 0x184,
-    /// Alpha 64, 64-bit address space
-    ALPHA64 = 0x284,
-    /// Matsushita AM33
-    AM33 = 0x1d3,
-    /// x64
-    X64 = 0x8664,
-    /// ARM little endian
-    ARM = 0x1c0,
-    /// ARM64 little endian
-    ARM64 = 0xaa64,
-    /// ARM64EC
-    ARM64EC = 0xa641,
-    /// ARM64X
-    ARM64X = 0xa64e,
-    /// ARM Thumb-2 little endian
-    ARMNT = 0x1c4,
-    /// CEE
-    CEE = 0xc0ee,
-    /// CEF
-    CEF = 0xcef,
-    /// Hybrid PE
-    CHPE_X86 = 0x3a64,
-    /// EFI byte code
-    EBC = 0xebc,
-    /// Intel 386 or later processors and compatible processors
-    I386 = 0x14c,
-    /// Intel Itanium processor family
-    IA64 = 0x200,
-    /// LoongArch32
-    LOONGARCH32 = 0x6232,
-    /// LoongArch64
-    LOONGARCH64 = 0x6264,
-    /// Mitsubishi M32R little endian
-    M32R = 0x9041,
-    /// MIPS16
-    MIPS16 = 0x266,
-    /// MIPS with FPU
-    MIPSFPU = 0x366,
-    /// MIPS16 with FPU
-    MIPSFPU16 = 0x466,
-    /// Power PC little endian
-    POWERPC = 0x1f0,
-    /// Power PC with floating point support
-    POWERPCFP = 0x1f1,
-    /// MIPS little endian
-    R3000 = 0x162,
-    /// MIPS little endian
-    R4000 = 0x166,
-    /// MIPS little endian
-    R10000 = 0x168,
-    /// RISC-V 32-bit address space
-    RISCV32 = 0x5032,
-    /// RISC-V 64-bit address space
-    RISCV64 = 0x5064,
-    /// RISC-V 128-bit address space
-    RISCV128 = 0x5128,
-    /// Hitachi SH3
-    SH3 = 0x1a2,
-    /// Hitachi SH3 DSP
-    SH3DSP = 0x1a3,
-    /// SH3E little-endian
-    SH3E = 0x1a4,
-    /// Hitachi SH4
-    SH4 = 0x1a6,
-    /// Hitachi SH5
-    SH5 = 0x1a8,
-    /// Thumb
-    THUMB = 0x1c2,
-    /// Infineon
-    TRICORE = 0x520,
-    /// MIPS little-endian WCE v2
-    WCEMIPSV2 = 0x169,
-
-    _,
-};
-
-pub const CoffError = error{
+pub const Error = error{
     InvalidPEMagic,
     InvalidPEHeader,
     InvalidMachine,
@@ -1104,7 +1028,7 @@ pub const Coff = struct {
 
         // Do some basic validation upfront
         if (is_image) {
-            const coff_header = coff.getCoffHeader();
+            const coff_header = coff.getHeader();
             if (coff_header.size_of_optional_header == 0) return error.MissingPEHeader;
         }
 
@@ -1161,31 +1085,31 @@ pub const Coff = struct {
         return self.data[start .. start + len];
     }
 
-    pub fn getCoffHeader(self: Coff) CoffHeader {
-        return @as(*align(1) const CoffHeader, @ptrCast(self.data[self.coff_header_offset..][0..@sizeOf(CoffHeader)])).*;
+    pub fn getHeader(self: Coff) Header {
+        return @as(*align(1) const Header, @ptrCast(self.data[self.coff_header_offset..][0..@sizeOf(Header)])).*;
     }
 
     pub fn getOptionalHeader(self: Coff) OptionalHeader {
         assert(self.is_image);
-        const offset = self.coff_header_offset + @sizeOf(CoffHeader);
+        const offset = self.coff_header_offset + @sizeOf(Header);
         return @as(*align(1) const OptionalHeader, @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeader)])).*;
     }
 
-    pub fn getOptionalHeader32(self: Coff) OptionalHeaderPE32 {
+    pub fn getOptionalHeader32(self: Coff) OptionalHeader.PE32 {
         assert(self.is_image);
-        const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @as(*align(1) const OptionalHeaderPE32, @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeaderPE32)])).*;
+        const offset = self.coff_header_offset + @sizeOf(Header);
+        return @as(*align(1) const OptionalHeader.PE32, @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeader.PE32)])).*;
     }
 
-    pub fn getOptionalHeader64(self: Coff) OptionalHeaderPE64 {
+    pub fn getOptionalHeader64(self: Coff) OptionalHeader.@"PE32+" {
         assert(self.is_image);
-        const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @as(*align(1) const OptionalHeaderPE64, @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeaderPE64)])).*;
+        const offset = self.coff_header_offset + @sizeOf(Header);
+        return @as(*align(1) const OptionalHeader.@"PE32+", @ptrCast(self.data[offset..][0..@sizeOf(OptionalHeader.@"PE32+")])).*;
     }
 
     pub fn getImageBase(self: Coff) u64 {
         const hdr = self.getOptionalHeader();
-        return switch (hdr.magic) {
+        return switch (@intFromEnum(hdr.magic)) {
             IMAGE_NT_OPTIONAL_HDR32_MAGIC => self.getOptionalHeader32().image_base,
             IMAGE_NT_OPTIONAL_HDR64_MAGIC => self.getOptionalHeader64().image_base,
             else => unreachable, // We assume we have validated the header already
@@ -1194,7 +1118,7 @@ pub const Coff = struct {
 
     pub fn getNumberOfDataDirectories(self: Coff) u32 {
         const hdr = self.getOptionalHeader();
-        return switch (hdr.magic) {
+        return switch (@intFromEnum(hdr.magic)) {
             IMAGE_NT_OPTIONAL_HDR32_MAGIC => self.getOptionalHeader32().number_of_rva_and_sizes,
             IMAGE_NT_OPTIONAL_HDR64_MAGIC => self.getOptionalHeader64().number_of_rva_and_sizes,
             else => unreachable, // We assume we have validated the header already
@@ -1203,17 +1127,17 @@ pub const Coff = struct {
 
     pub fn getDataDirectories(self: *const Coff) []align(1) const ImageDataDirectory {
         const hdr = self.getOptionalHeader();
-        const size: usize = switch (hdr.magic) {
-            IMAGE_NT_OPTIONAL_HDR32_MAGIC => @sizeOf(OptionalHeaderPE32),
-            IMAGE_NT_OPTIONAL_HDR64_MAGIC => @sizeOf(OptionalHeaderPE64),
+        const size: usize = switch (@intFromEnum(hdr.magic)) {
+            IMAGE_NT_OPTIONAL_HDR32_MAGIC => @sizeOf(OptionalHeader.PE32),
+            IMAGE_NT_OPTIONAL_HDR64_MAGIC => @sizeOf(OptionalHeader.@"PE32+"),
             else => unreachable, // We assume we have validated the header already
         };
-        const offset = self.coff_header_offset + @sizeOf(CoffHeader) + size;
+        const offset = self.coff_header_offset + @sizeOf(Header) + size;
         return @as([*]align(1) const ImageDataDirectory, @ptrCast(self.data[offset..]))[0..self.getNumberOfDataDirectories()];
     }
 
     pub fn getSymtab(self: *const Coff) ?Symtab {
-        const coff_header = self.getCoffHeader();
+        const coff_header = self.getHeader();
         if (coff_header.pointer_to_symbol_table == 0) return null;
 
         const offset = coff_header.pointer_to_symbol_table;
@@ -1222,7 +1146,7 @@ pub const Coff = struct {
     }
 
     pub fn getStrtab(self: *const Coff) error{InvalidStrtabSize}!?Strtab {
-        const coff_header = self.getCoffHeader();
+        const coff_header = self.getHeader();
         if (coff_header.pointer_to_symbol_table == 0) return null;
 
         const offset = coff_header.pointer_to_symbol_table + Symbol.sizeOf() * coff_header.number_of_symbols;
@@ -1238,8 +1162,8 @@ pub const Coff = struct {
     }
 
     pub fn getSectionHeaders(self: *const Coff) []align(1) const SectionHeader {
-        const coff_header = self.getCoffHeader();
-        const offset = self.coff_header_offset + @sizeOf(CoffHeader) + coff_header.size_of_optional_header;
+        const coff_header = self.getHeader();
+        const offset = self.coff_header_offset + @sizeOf(Header) + coff_header.size_of_optional_header;
         return @as([*]align(1) const SectionHeader, @ptrCast(self.data.ptr + offset))[0..coff_header.number_of_sections];
     }
 
@@ -1414,14 +1338,14 @@ pub const Strtab = struct {
 };
 
 pub const ImportHeader = extern struct {
-    sig1: MachineType,
+    sig1: IMAGE.FILE.MACHINE,
     sig2: u16,
     version: u16,
-    machine: MachineType,
+    machine: IMAGE.FILE.MACHINE,
     time_date_stamp: u32,
     size_of_data: u32,
     hint: u16,
-    types: packed struct {
+    types: packed struct(u32) {
         type: ImportType,
         name_type: ImportNameType,
         reserved: u11,
@@ -1461,119 +1385,534 @@ pub const Relocation = extern struct {
     type: u16,
 };
 
-pub const ImageRelAmd64 = enum(u16) {
-    /// The relocation is ignored.
-    absolute = 0,
+pub const IMAGE = struct {
+    pub const FILE = struct {
+        /// Machine Types
+        /// The Machine field has one of the following values, which specify the CPU type.
+        /// An image file can be run only on the specified machine or on a system that emulates the specified machine.
+        pub const MACHINE = enum(u16) {
+            /// The content of this field is assumed to be applicable to any machine type
+            UNKNOWN = 0x0,
+            /// Alpha AXP, 32-bit address space
+            ALPHA = 0x184,
+            /// Alpha 64, 64-bit address space
+            ALPHA64 = 0x284,
+            /// Matsushita AM33
+            AM33 = 0x1d3,
+            /// x64
+            AMD64 = 0x8664,
+            /// ARM little endian
+            ARM = 0x1c0,
+            /// ARM64 little endian
+            ARM64 = 0xaa64,
+            /// ABI that enables interoperability between native ARM64 and emulated x64 code.
+            ARM64EC = 0xA641,
+            /// Binary format that allows both native ARM64 and ARM64EC code to coexist in the same file.
+            ARM64X = 0xA64E,
+            /// ARM Thumb-2 little endian
+            ARMNT = 0x1c4,
+            /// EFI byte code
+            EBC = 0xebc,
+            /// Intel 386 or later processors and compatible processors
+            I386 = 0x14c,
+            /// Intel Itanium processor family
+            IA64 = 0x200,
+            /// LoongArch 32-bit processor family
+            LOONGARCH32 = 0x6232,
+            /// LoongArch 64-bit processor family
+            LOONGARCH64 = 0x6264,
+            /// Mitsubishi M32R little endian
+            M32R = 0x9041,
+            /// MIPS16
+            MIPS16 = 0x266,
+            /// MIPS with FPU
+            MIPSFPU = 0x366,
+            /// MIPS16 with FPU
+            MIPSFPU16 = 0x466,
+            /// Power PC little endian
+            POWERPC = 0x1f0,
+            /// Power PC with floating point support
+            POWERPCFP = 0x1f1,
+            /// MIPS I compatible 32-bit big endian
+            R3000BE = 0x160,
+            /// MIPS I compatible 32-bit little endian
+            R3000 = 0x162,
+            /// MIPS III compatible 64-bit little endian
+            R4000 = 0x166,
+            /// MIPS IV compatible 64-bit little endian
+            R10000 = 0x168,
+            /// RISC-V 32-bit address space
+            RISCV32 = 0x5032,
+            /// RISC-V 64-bit address space
+            RISCV64 = 0x5064,
+            /// RISC-V 128-bit address space
+            RISCV128 = 0x5128,
+            /// Hitachi SH3
+            SH3 = 0x1a2,
+            /// Hitachi SH3 DSP
+            SH3DSP = 0x1a3,
+            /// Hitachi SH4
+            SH4 = 0x1a6,
+            /// Hitachi SH5
+            SH5 = 0x1a8,
+            /// Thumb
+            THUMB = 0x1c2,
+            /// MIPS little-endian WCE v2
+            WCEMIPSV2 = 0x169,
+            _,
+            /// AXP 64 (Same as Alpha 64)
+            pub const AXP64: IMAGE.FILE.MACHINE = .ALPHA64;
+        };
+    };
 
-    /// The 64-bit VA of the relocation target.
-    addr64 = 1,
+    pub const REL = struct {
+        /// x64 Processors
+        /// The following relocation type indicators are defined for x64 and compatible processors.
+        pub const AMD64 = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// The 64-bit VA of the relocation target.
+            ADDR64 = 0x0001,
+            /// The 32-bit VA of the relocation target.
+            ADDR32 = 0x0002,
+            /// The 32-bit address without an image base (RVA).
+            ADDR32NB = 0x0003,
+            /// The 32-bit relative address from the byte following the relocation.
+            REL32 = 0x0004,
+            /// The 32-bit address relative to byte distance 1 from the relocation.
+            REL32_1 = 0x0005,
+            /// The 32-bit address relative to byte distance 2 from the relocation.
+            REL32_2 = 0x0006,
+            /// The 32-bit address relative to byte distance 3 from the relocation.
+            REL32_3 = 0x0007,
+            /// The 32-bit address relative to byte distance 4 from the relocation.
+            REL32_4 = 0x0008,
+            /// The 32-bit address relative to byte distance 5 from the relocation.
+            REL32_5 = 0x0009,
+            /// The 16-bit section index of the section that contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000A,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL = 0x000B,
+            /// A 7-bit unsigned offset from the base of the section that contains the target.
+            SECREL7 = 0x000C,
+            /// CLR tokens.
+            TOKEN = 0x000D,
+            /// A 32-bit signed span-dependent value emitted into the object.
+            SREL32 = 0x000E,
+            /// A pair that must immediately follow every span-dependent value.
+            PAIR = 0x000F,
+            /// A 32-bit signed span-dependent value that is applied at link time.
+            SSPAN32 = 0x0010,
+            _,
+        };
 
-    /// The 32-bit VA of the relocation target.
-    addr32 = 2,
+        /// ARM Processors
+        /// The following relocation type indicators are defined for ARM processors.
+        pub const ARM = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// The 32-bit VA of the target.
+            ADDR32 = 0x0001,
+            /// The 32-bit RVA of the target.
+            ADDR32NB = 0x0002,
+            /// The 24-bit relative displacement to the target.
+            BRANCH24 = 0x0003,
+            /// The reference to a subroutine call.
+            /// The reference consists of two 16-bit instructions with 11-bit offsets.
+            BRANCH11 = 0x0004,
+            /// The 32-bit relative address from the byte following the relocation.
+            REL32 = 0x000A,
+            /// The 16-bit section index of the section that contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000E,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL = 0x000F,
+            /// The 32-bit VA of the target.
+            /// This relocation is applied using a MOVW instruction for the low 16 bits followed by a MOVT for the high 16 bits.
+            MOV32 = 0x0010,
+            /// The 32-bit VA of the target.
+            /// This relocation is applied using a MOVW instruction for the low 16 bits followed by a MOVT for the high 16 bits.
+            THUMB_MOV32 = 0x0011,
+            /// The instruction is fixed up with the 21-bit relative displacement to the 2-byte aligned target.
+            /// The least significant bit of the displacement is always zero and is not stored.
+            /// This relocation corresponds to a Thumb-2 32-bit conditional B instruction.
+            THUMB_BRANCH20 = 0x0012,
+            Unused = 0x0013,
+            /// The instruction is fixed up with the 25-bit relative displacement to the 2-byte aligned target.
+            /// The least significant bit of the displacement is zero and is not stored.This relocation corresponds to a Thumb-2 B instruction.
+            THUMB_BRANCH24 = 0x0014,
+            /// The instruction is fixed up with the 25-bit relative displacement to the 4-byte aligned target.
+            /// The low 2 bits of the displacement are zero and are not stored.
+            /// This relocation corresponds to a Thumb-2 BLX instruction.
+            THUMB_BLX23 = 0x0015,
+            /// The relocation is valid only when it immediately follows a ARM_REFHI or THUMB_REFHI.
+            /// Its SymbolTableIndex contains a displacement and not an index into the symbol table.
+            PAIR = 0x0016,
+            _,
+        };
 
-    /// The 32-bit address without an image base.
-    addr32nb = 3,
+        /// ARM64 Processors
+        /// The following relocation type indicators are defined for ARM64 processors.
+        pub const ARM64 = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// The 32-bit VA of the target.
+            ADDR32 = 0x0001,
+            /// The 32-bit RVA of the target.
+            ADDR32NB = 0x0002,
+            /// The 26-bit relative displacement to the target, for B and BL instructions.
+            BRANCH26 = 0x0003,
+            /// The page base of the target, for ADRP instruction.
+            PAGEBASE_REL21 = 0x0004,
+            /// The 12-bit relative displacement to the target, for instruction ADR
+            REL21 = 0x0005,
+            /// The 12-bit page offset of the target, for instructions ADD/ADDS (immediate) with zero shift.
+            PAGEOFFSET_12A = 0x0006,
+            /// The 12-bit page offset of the target, for instruction LDR (indexed, unsigned immediate).
+            PAGEOFFSET_12L = 0x0007,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL = 0x0008,
+            /// Bit 0:11 of section offset of the target, for instructions ADD/ADDS (immediate) with zero shift.
+            SECREL_LOW12A = 0x0009,
+            /// Bit 12:23 of section offset of the target, for instructions ADD/ADDS (immediate) with zero shift.
+            SECREL_HIGH12A = 0x000A,
+            /// Bit 0:11 of section offset of the target, for instruction LDR (indexed, unsigned immediate).
+            SECREL_LOW12L = 0x000B,
+            /// CLR token.
+            TOKEN = 0x000C,
+            /// The 16-bit section index of the section that contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000D,
+            /// The 64-bit VA of the relocation target.
+            ADDR64 = 0x000E,
+            /// The 19-bit offset to the relocation target, for conditional B instruction.
+            BRANCH19 = 0x000F,
+            /// The 14-bit offset to the relocation target, for instructions TBZ and TBNZ.
+            BRANCH14 = 0x0010,
+            /// The 32-bit relative address from the byte following the relocation.
+            REL32 = 0x0011,
+            _,
+        };
 
-    /// The 32-bit relative address from the byte following the relocation.
-    rel32 = 4,
+        /// Hitachi SuperH Processors
+        /// The following relocation type indicators are defined for SH3 and SH4 processors.
+        /// SH5-specific relocations are noted as SHM (SH Media).
+        pub const SH = enum(u16) {
+            /// The relocation is ignored.
+            @"3_ABSOLUTE" = 0x0000,
+            /// A reference to the 16-bit location that contains the VA of the target symbol.
+            @"3_DIRECT16" = 0x0001,
+            /// The 32-bit VA of the target symbol.
+            @"3_DIRECT32" = 0x0002,
+            /// A reference to the 8-bit location that contains the VA of the target symbol.
+            @"3_DIRECT8" = 0x0003,
+            /// A reference to the 8-bit instruction that contains the effective 16-bit VA of the target symbol.
+            @"3_DIRECT8_WORD" = 0x0004,
+            /// A reference to the 8-bit instruction that contains the effective 32-bit VA of the target symbol.
+            @"3_DIRECT8_LONG" = 0x0005,
+            /// A reference to the 8-bit location whose low 4 bits contain the VA of the target symbol.
+            @"3_DIRECT4" = 0x0006,
+            /// A reference to the 8-bit instruction whose low 4 bits contain the effective 16-bit VA of the target symbol.
+            @"3_DIRECT4_WORD" = 0x0007,
+            /// A reference to the 8-bit instruction whose low 4 bits contain the effective 32-bit VA of the target symbol.
+            @"3_DIRECT4_LONG" = 0x0008,
+            /// A reference to the 8-bit instruction that contains the effective 16-bit relative offset of the target symbol.
+            @"3_PCREL8_WORD" = 0x0009,
+            /// A reference to the 8-bit instruction that contains the effective 32-bit relative offset of the target symbol.
+            @"3_PCREL8_LONG" = 0x000A,
+            /// A reference to the 16-bit instruction whose low 12 bits contain the effective 16-bit relative offset of the target symbol.
+            @"3_PCREL12_WORD" = 0x000B,
+            /// A reference to a 32-bit location that is the VA of the section that contains the target symbol.
+            @"3_STARTOF_SECTION" = 0x000C,
+            /// A reference to the 32-bit location that is the size of the section that contains the target symbol.
+            @"3_SIZEOF_SECTION" = 0x000D,
+            /// The 16-bit section index of the section that contains the target.
+            /// This is used to support debugging information.
+            @"3_SECTION" = 0x000E,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            @"3_SECREL" = 0x000F,
+            /// The 32-bit RVA of the target symbol.
+            @"3_DIRECT32_NB" = 0x0010,
+            /// GP relative.
+            @"3_GPREL4_LONG" = 0x0011,
+            /// CLR token.
+            @"3_TOKEN" = 0x0012,
+            /// The offset from the current instruction in longwords.
+            /// If the NOMODE bit is not set, insert the inverse of the low bit at bit 32 to select PTA or PTB.
+            M_PCRELPT = 0x0013,
+            /// The low 16 bits of the 32-bit address.
+            M_REFLO = 0x0014,
+            /// The high 16 bits of the 32-bit address.
+            M_REFHALF = 0x0015,
+            /// The low 16 bits of the relative address.
+            M_RELLO = 0x0016,
+            /// The high 16 bits of the relative address.
+            M_RELHALF = 0x0017,
+            /// The relocation is valid only when it immediately follows a REFHALF, RELHALF, or RELLO relocation.
+            /// The SymbolTableIndex field of the relocation contains a displacement and not an index into the symbol table.
+            M_PAIR = 0x0018,
+            /// The relocation ignores section mode.
+            M_NOMODE = 0x8000,
+            _,
+        };
 
-    /// The 32-bit address relative to byte distance 1 from the relocation.
-    rel32_1 = 5,
+        /// IBM PowerPC Processors
+        /// The following relocation type indicators are defined for PowerPC processors.
+        pub const PPC = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// The 64-bit VA of the target.
+            ADDR64 = 0x0001,
+            /// The 32-bit VA of the target.
+            ADDR32 = 0x0002,
+            /// The low 24 bits of the VA of the target.
+            /// This is valid only when the target symbol is absolute and can be sign-extended to its original value.
+            ADDR24 = 0x0003,
+            /// The low 16 bits of the target's VA.
+            ADDR16 = 0x0004,
+            /// The low 14 bits of the target's VA.
+            /// This is valid only when the target symbol is absolute and can be sign-extended to its original value.
+            ADDR14 = 0x0005,
+            /// A 24-bit PC-relative offset to the symbol's location.
+            REL24 = 0x0006,
+            /// A 14-bit PC-relative offset to the symbol's location.
+            REL14 = 0x0007,
+            /// The 32-bit RVA of the target.
+            ADDR32NB = 0x000A,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL = 0x000B,
+            /// The 16-bit section index of the section that contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000C,
+            /// The 16-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL16 = 0x000F,
+            /// The high 16 bits of the target's 32-bit VA.
+            /// This is used for the first instruction in a two-instruction sequence that loads a full address.
+            /// This relocation must be immediately followed by a PAIR relocation whose SymbolTableIndex contains a signed 16-bit displacement that is added to the upper 16 bits that was taken from the location that is being relocated.
+            REFHI = 0x0010,
+            /// The low 16 bits of the target's VA.
+            REFLO = 0x0011,
+            /// A relocation that is valid only when it immediately follows a REFHI or SECRELHI relocation.
+            /// Its SymbolTableIndex contains a displacement and not an index into the symbol table.
+            PAIR = 0x0012,
+            /// The low 16 bits of the 32-bit offset of the target from the beginning of its section.
+            SECRELLO = 0x0013,
+            /// The 16-bit signed displacement of the target relative to the GP register.
+            GPREL = 0x0015,
+            /// The CLR token.
+            TOKEN = 0x0016,
+            _,
+        };
 
-    /// The 32-bit address relative to byte distance 2 from the relocation.
-    rel32_2 = 6,
+        /// Intel 386 Processors
+        /// The following relocation type indicators are defined for Intel 386 and compatible processors.
+        pub const I386 = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// Not supported.
+            DIR16 = 0x0001,
+            /// Not supported.
+            REL16 = 0x0002,
+            /// The target's 32-bit VA.
+            DIR32 = 0x0006,
+            /// The target's 32-bit RVA.
+            DIR32NB = 0x0007,
+            /// Not supported.
+            SEG12 = 0x0009,
+            /// The 16-bit section index of the section that contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000A,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL = 0x000B,
+            /// The CLR token.
+            TOKEN = 0x000C,
+            /// A 7-bit offset from the base of the section that contains the target.
+            SECREL7 = 0x000D,
+            /// The 32-bit relative displacement to the target.
+            /// This supports the x86 relative branch and call instructions.
+            REL32 = 0x0014,
+            _,
+        };
 
-    /// The 32-bit address relative to byte distance 3 from the relocation.
-    rel32_3 = 7,
+        /// Intel Itanium Processor Family (IPF)
+        /// The following relocation type indicators are defined for the Intel Itanium processor family and compatible processors.
+        /// Note that relocations on instructions use the bundle's offset and slot number for the relocation offset.
+        pub const IA64 = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// The instruction relocation can be followed by an ADDEND relocation whose value is added to the target address before it is inserted into the specified slot in the IMM14 bundle.
+            /// The relocation target must be absolute or the image must be fixed.
+            IMM14 = 0x0001,
+            /// The instruction relocation can be followed by an ADDEND relocation whose value is added to the target address before it is inserted into the specified slot in the IMM22 bundle.
+            /// The relocation target must be absolute or the image must be fixed.
+            IMM22 = 0x0002,
+            /// The slot number of this relocation must be one (1).
+            /// The relocation can be followed by an ADDEND relocation whose value is added to the target address before it is stored in all three slots of the IMM64 bundle.
+            IMM64 = 0x0003,
+            /// The target's 32-bit VA.
+            /// This is supported only for /LARGEADDRESSAWARE:NO images.
+            DIR32 = 0x0004,
+            /// The target's 64-bit VA.
+            DIR64 = 0x0005,
+            /// The instruction is fixed up with the 25-bit relative displacement to the 16-bit aligned target.
+            /// The low 4 bits of the displacement are zero and are not stored.
+            PCREL21B = 0x0006,
+            /// The instruction is fixed up with the 25-bit relative displacement to the 16-bit aligned target.
+            /// The low 4 bits of the displacement, which are zero, are not stored.
+            PCREL21M = 0x0007,
+            /// The LSBs of this relocation's offset must contain the slot number whereas the rest is the bundle address.
+            /// The bundle is fixed up with the 25-bit relative displacement to the 16-bit aligned target.
+            /// The low 4 bits of the displacement are zero and are not stored.
+            PCREL21F = 0x0008,
+            /// The instruction relocation can be followed by an ADDEND relocation whose value is added to the target address and then a 22-bit GP-relative offset that is calculated and applied to the GPREL22 bundle.
+            GPREL22 = 0x0009,
+            /// The instruction is fixed up with the 22-bit GP-relative offset to the target symbol's literal table entry.
+            /// The linker creates this literal table entry based on this relocation and the ADDEND relocation that might follow.
+            LTOFF22 = 0x000A,
+            /// The 16-bit section index of the section contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000B,
+            /// The instruction is fixed up with the 22-bit offset of the target from the beginning of its section.
+            /// This relocation can be followed immediately by an ADDEND relocation, whose Value field contains the 32-bit unsigned offset of the target from the beginning of the section.
+            SECREL22 = 0x000C,
+            /// The slot number for this relocation must be one (1).
+            /// The instruction is fixed up with the 64-bit offset of the target from the beginning of its section.
+            /// This relocation can be followed immediately by an ADDEND relocation whose Value field contains the 32-bit unsigned offset of the target from the beginning of the section.
+            SECREL64I = 0x000D,
+            /// The address of data to be fixed up with the 32-bit offset of the target from the beginning of its section.
+            SECREL32 = 0x000E,
+            /// The target's 32-bit RVA.
+            DIR32NB = 0x0010,
+            /// This is applied to a signed 14-bit immediate that contains the difference between two relocatable targets.
+            /// This is a declarative field for the linker that indicates that the compiler has already emitted this value.
+            SREL14 = 0x0011,
+            /// This is applied to a signed 22-bit immediate that contains the difference between two relocatable targets.
+            /// This is a declarative field for the linker that indicates that the compiler has already emitted this value.
+            SREL22 = 0x0012,
+            /// This is applied to a signed 32-bit immediate that contains the difference between two relocatable values.
+            /// This is a declarative field for the linker that indicates that the compiler has already emitted this value.
+            SREL32 = 0x0013,
+            /// This is applied to an unsigned 32-bit immediate that contains the difference between two relocatable values.
+            /// This is a declarative field for the linker that indicates that the compiler has already emitted this value.
+            UREL32 = 0x0014,
+            /// A 60-bit PC-relative fixup that always stays as a BRL instruction of an MLX bundle.
+            PCREL60X = 0x0015,
+            /// A 60-bit PC-relative fixup.
+            /// If the target displacement fits in a signed 25-bit field, convert the entire bundle to an MBB bundle with NOP.B in slot 1 and a 25-bit BR instruction (with the 4 lowest bits all zero and dropped) in slot 2.
+            PCREL60B = 0x0016,
+            /// A 60-bit PC-relative fixup.
+            /// If the target displacement fits in a signed 25-bit field, convert the entire bundle to an MFB bundle with NOP.F in slot 1 and a 25-bit (4 lowest bits all zero and dropped) BR instruction in slot 2.
+            PCREL60F = 0x0017,
+            /// A 60-bit PC-relative fixup.
+            /// If the target displacement fits in a signed 25-bit field, convert the entire bundle to an MIB bundle with NOP.I in slot 1 and a 25-bit (4 lowest bits all zero and dropped) BR instruction in slot 2.
+            PCREL60I = 0x0018,
+            /// A 60-bit PC-relative fixup.
+            /// If the target displacement fits in a signed 25-bit field, convert the entire bundle to an MMB bundle with NOP.M in slot 1 and a 25-bit (4 lowest bits all zero and dropped) BR instruction in slot 2.
+            PCREL60M = 0x0019,
+            /// A 64-bit GP-relative fixup.
+            IMMGPREL64 = 0x001a,
+            /// A CLR token.
+            TOKEN = 0x001b,
+            /// A 32-bit GP-relative fixup.
+            GPREL32 = 0x001c,
+            /// The relocation is valid only when it immediately follows one of the following relocations: IMM14, IMM22, IMM64, GPREL22, LTOFF22, LTOFF64, SECREL22, SECREL64I, or SECREL32.
+            /// Its value contains the addend to apply to instructions within a bundle, not for data.
+            ADDEND = 0x001F,
+            _,
+        };
 
-    /// The 32-bit address relative to byte distance 4 from the relocation.
-    rel32_4 = 8,
+        /// MIPS Processors
+        /// The following relocation type indicators are defined for MIPS processors.
+        pub const MIPS = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// The high 16 bits of the target's 32-bit VA.
+            REFHALF = 0x0001,
+            /// The target's 32-bit VA.
+            REFWORD = 0x0002,
+            /// The low 26 bits of the target's VA.
+            /// This supports the MIPS J and JAL instructions.
+            JMPADDR = 0x0003,
+            /// The high 16 bits of the target's 32-bit VA.
+            /// This is used for the first instruction in a two-instruction sequence that loads a full address.
+            /// This relocation must be immediately followed by a PAIR relocation whose SymbolTableIndex contains a signed 16-bit displacement that is added to the upper 16 bits that are taken from the location that is being relocated.
+            REFHI = 0x0004,
+            /// The low 16 bits of the target's VA.
+            REFLO = 0x0005,
+            /// A 16-bit signed displacement of the target relative to the GP register.
+            GPREL = 0x0006,
+            /// The same as IMAGE_REL_MIPS_GPREL.
+            LITERAL = 0x0007,
+            /// The 16-bit section index of the section contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000A,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL = 0x000B,
+            /// The low 16 bits of the 32-bit offset of the target from the beginning of its section.
+            SECRELLO = 0x000C,
+            /// The high 16 bits of the 32-bit offset of the target from the beginning of its section.
+            /// An IMAGE_REL_MIPS_PAIR relocation must immediately follow this one.
+            /// The SymbolTableIndex of the PAIR relocation contains a signed 16-bit displacement that is added to the upper 16 bits that are taken from the location that is being relocated.
+            SECRELHI = 0x000D,
+            /// The low 26 bits of the target's VA.
+            /// This supports the MIPS16 JAL instruction.
+            JMPADDR16 = 0x0010,
+            /// The target's 32-bit RVA.
+            REFWORDNB = 0x0022,
+            /// The relocation is valid only when it immediately follows a REFHI or SECRELHI relocation.
+            /// Its SymbolTableIndex contains a displacement and not an index into the symbol table.
+            PAIR = 0x0025,
+            _,
+        };
 
-    /// The 32-bit address relative to byte distance 5 from the relocation.
-    rel32_5 = 9,
-
-    /// The 16-bit section index of the section that contains the target.
-    /// This is used to support debugging information.
-    section = 10,
-
-    /// The 32-bit offset of the target from the beginning of its section.
-    /// This is used to support debugging information and static thread local storage.
-    secrel = 11,
-
-    /// A 7-bit unsigned offset from the base of the section that contains the target.
-    secrel7 = 12,
-
-    /// CLR tokens.
-    token = 13,
-
-    /// A 32-bit signed span-dependent value emitted into the object.
-    srel32 = 14,
-
-    /// A pair that must immediately follow every span-dependent value.
-    pair = 15,
-
-    /// A 32-bit signed span-dependent value that is applied at link time.
-    sspan32 = 16,
-
-    _,
-};
-
-pub const ImageRelArm64 = enum(u16) {
-    /// The relocation is ignored.
-    absolute = 0,
-
-    /// The 32-bit VA of the target.
-    addr32 = 1,
-
-    /// The 32-bit RVA of the target.
-    addr32nb = 2,
-
-    /// The 26-bit relative displacement to the target, for B and BL instructions.
-    branch26 = 3,
-
-    /// The page base of the target, for ADRP instruction.
-    pagebase_rel21 = 4,
-
-    /// The 21-bit relative displacement to the target, for instruction ADR.
-    rel21 = 5,
-
-    /// The 12-bit page offset of the target, for instructions ADD/ADDS (immediate) with zero shift.
-    pageoffset_12a = 6,
-
-    /// The 12-bit page offset of the target, for instruction LDR (indexed, unsigned immediate).
-    pageoffset_12l = 7,
-
-    /// The 32-bit offset of the target from the beginning of its section.
-    /// This is used to support debugging information and static thread local storage.
-    secrel = 8,
-
-    /// Bit 0:11 of section offset of the target for instructions ADD/ADDS (immediate) with zero shift.
-    low12a = 9,
-
-    /// Bit 12:23 of section offset of the target, for instructions ADD/ADDS (immediate) with zero shift.
-    high12a = 10,
-
-    /// Bit 0:11 of section offset of the target, for instruction LDR (indexed, unsigned immediate).
-    low12l = 11,
-
-    /// CLR token.
-    token = 12,
-
-    /// The 16-bit section index of the section that contains the target.
-    /// This is used to support debugging information.
-    section = 13,
-
-    /// The 64-bit VA of the relocation target.
-    addr64 = 14,
-
-    /// The 19-bit offset to the relocation target, for conditional B instruction.
-    branch19 = 15,
-
-    /// The 14-bit offset to the relocation target, for instructions TBZ and TBNZ.
-    branch14 = 16,
-
-    /// The 32-bit relative address from the byte following the relocation.
-    rel32 = 17,
-
-    _,
+        /// Mitsubishi M32R
+        /// The following relocation type indicators are defined for the Mitsubishi M32R processors.
+        pub const M32R = enum(u16) {
+            /// The relocation is ignored.
+            ABSOLUTE = 0x0000,
+            /// The target's 32-bit VA.
+            ADDR32 = 0x0001,
+            /// The target's 32-bit RVA.
+            ADDR32NB = 0x0002,
+            /// The target's 24-bit VA.
+            ADDR24 = 0x0003,
+            /// The target's 16-bit offset from the GP register.
+            GPREL16 = 0x0004,
+            /// The target's 24-bit offset from the program counter (PC), shifted left by 2 bits and sign-extended
+            PCREL24 = 0x0005,
+            /// The target's 16-bit offset from the PC, shifted left by 2 bits and sign-extended
+            PCREL16 = 0x0006,
+            /// The target's 8-bit offset from the PC, shifted left by 2 bits and sign-extended
+            PCREL8 = 0x0007,
+            /// The 16 MSBs of the target VA.
+            REFHALF = 0x0008,
+            /// The 16 MSBs of the target VA, adjusted for LSB sign extension.
+            /// This is used for the first instruction in a two-instruction sequence that loads a full 32-bit address.
+            /// This relocation must be immediately followed by a PAIR relocation whose SymbolTableIndex contains a signed 16-bit displacement that is added to the upper 16 bits that are taken from the location that is being relocated.
+            REFHI = 0x0009,
+            /// The 16 LSBs of the target VA.
+            REFLO = 0x000A,
+            /// The relocation must follow the REFHI relocation.
+            /// Its SymbolTableIndex contains a displacement and not an index into the symbol table.
+            PAIR = 0x000B,
+            /// The 16-bit section index of the section that contains the target.
+            /// This is used to support debugging information.
+            SECTION = 0x000C,
+            /// The 32-bit offset of the target from the beginning of its section.
+            /// This is used to support debugging information and static thread local storage.
+            SECREL = 0x000D,
+            /// The CLR token.
+            TOKEN = 0x000E,
+            _,
+        };
+    };
 };

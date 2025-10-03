@@ -11919,10 +11919,10 @@ pub fn getString(ip: *InternPool, key: []const u8) OptionalNullTerminatedString 
     var map_index = hash;
     while (true) : (map_index += 1) {
         map_index &= map_mask;
-        const entry = map.at(map_index);
-        const index = entry.acquire().unwrap() orelse return null;
+        const entry = &map.entries[map_index];
+        const index = entry.value.unwrap() orelse return .none;
         if (entry.hash != hash) continue;
-        if (index.eqlSlice(key, ip)) return index;
+        if (index.eqlSlice(key, ip)) return index.toOptional();
     }
 }
 
