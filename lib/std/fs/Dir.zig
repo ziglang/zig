@@ -732,16 +732,14 @@ pub const SelectiveWalker = struct {
         });
     }
 
-    pub fn depth(self: *SelectiveWalker) usize {
-        return self.stack.items.len;
-    }
-
     pub fn deinit(self: *SelectiveWalker) void {
         self.name_buffer.deinit(self.allocator);
         self.stack.deinit(self.allocator);
     }
 
     /// Leaves the current directory, continuing walking one level up.
+    /// If the current entry is a directory entry, then the "current directory"
+    /// will pertain to that entry if `enter` is called before `leave`.
     pub fn leave(self: *SelectiveWalker) void {
         var item = self.stack.pop().?;
         if (self.stack.items.len != 0) {
@@ -789,6 +787,13 @@ pub const Walker = struct {
         basename: [:0]const u8,
         path: [:0]const u8,
         kind: Dir.Entry.Kind,
+
+        /// Returns the depth of the entry relative to the initial directory.
+        /// Returns 1 for a direct child of the initial directory, 2 for an entry
+        /// within a direct child of the initial directory, etc.
+        pub fn depth(self: Walker.Entry) usize {
+            return mem.countScalar(u8, self.path, fs.path.sep) + 1;
+        }
     };
 
     const StackItem = struct {

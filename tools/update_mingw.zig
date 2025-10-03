@@ -117,7 +117,7 @@ pub fn main() !void {
         while (try walker.next()) |entry| {
             switch (entry.kind) {
                 .directory => {
-                    switch (walker.depth()) {
+                    switch (entry.depth()) {
                         1 => if (def_dirs.has(entry.basename)) {
                             try walker.enter(entry);
                             continue;
