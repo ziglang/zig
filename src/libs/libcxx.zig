@@ -556,5 +556,4 @@ pub fn addCxxArgs(
             try cflags.append("-D_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION=0");
         }
     }
-    try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
 }
