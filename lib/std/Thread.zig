@@ -73,10 +73,7 @@ pub const ResetEvent = enum(u32) {
     /// timedWait() returns without error.
     pub fn timedWait(re: *ResetEvent, timeout_ns: u64) error{Timeout}!void {
         if (builtin.single_threaded) switch (re.*) {
-            .unset => {
-                sleep(timeout_ns);
-                return error.Timeout;
-            },
+            .unset => return error.Timeout,
             .waiting => unreachable, // Invalid state.
             .is_set => return,
         };
@@ -141,82 +138,6 @@ pub const ResetEvent = enum(u32) {
         @atomicStore(ResetEvent, re, .unset, .monotonic);
     }
 };
-
-/// Spurious wakeups are possible and no precision of timing is guaranteed.
-pub fn sleep(nanoseconds: u64) void {
-    if (builtin.os.tag == .windows) {
-        const big_ms_from_ns = nanoseconds / std.time.ns_per_ms;
-        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
-        windows.kernel32.Sleep(ms);
-        return;
-    }
-
-    if (builtin.os.tag == .wasi) {
-        const w = std.os.wasi;
-        const userdata: w.userdata_t = 0x0123_45678;
-        const clock: w.subscription_clock_t = .{
-            .id = .MONOTONIC,
-            .timeout = nanoseconds,
-            .precision = 0,
-            .flags = 0,
-        };
-        const in: w.subscription_t = .{
-            .userdata = userdata,
-            .u = .{
-                .tag = .CLOCK,
-                .u = .{ .clock = clock },
-            },
-        };
-
-        var event: w.event_t = undefined;
-        var nevents: usize = undefined;
-        _ = w.poll_oneoff(&in, &event, 1, &nevents);
-        return;
-    }
-
-    if (builtin.os.tag == .uefi) {
-        const boot_services = std.os.uefi.system_table.boot_services.?;
-        const us_from_ns = nanoseconds / std.time.ns_per_us;
-        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        boot_services.stall(us) catch unreachable;
-        return;
-    }
-
-    const s = nanoseconds / std.time.ns_per_s;
-    const ns = nanoseconds % std.time.ns_per_s;
-
-    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
-    // since Linux 2.6 and glibc 2.1 anyway.
-    if (builtin.os.tag == .linux) {
-        const linux = std.os.linux;
-
-        var req: linux.timespec = .{
-            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
-            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
-        };
-        var rem: linux.timespec = undefined;
-
-        while (true) {
-            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
-                .SUCCESS => return,
-                .INTR => {
-                    req = rem;
-                    continue;
-                },
-                .FAULT => unreachable,
-                .INVAL => unreachable,
-                .OPNOTSUPP => unreachable,
-                else => return,
-            }
-        }
-    }
-
-    posix.nanosleep(s, ns);
-}
-
-test sleep {
-    sleep(1);
-}
 
 const Thread = @This();
 const Impl = if (native_os == .windows)

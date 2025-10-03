@@ -208,6 +208,9 @@ pub const IpAddress = union(enum) {
         /// System-wide limit on the total number of open files has been reached.
         SystemFdQuotaExceeded,
         SocketModeUnsupported,
+        /// One of the `BindOptions` is not supported by the Io
+        /// implementation.
+        OptionUnsupported,
     } || Io.UnexpectedError || Io.Cancelable;
 
     pub const BindOptions = struct {
@@ -227,6 +230,29 @@ pub const IpAddress = union(enum) {
     /// different addresses.
     pub fn bind(address: IpAddress, io: Io, options: BindOptions) BindError!Socket {
         return io.vtable.ipBind(io.userdata, address, options);
+    }
+
+    pub const ConnectError = error{
+        AddressInUse,
+        AddressUnavailable,
+        AddressFamilyUnsupported,
+        ConnectionPending,
+        ConnectionRefused,
+        ConnectionResetByPeer,
+        AlreadyConnected,
+        HostUnreachable,
+        NetworkUnreachable,
+        ConnectionTimedOut,
+        /// One of the `ConnectOptions` is not supported by the Io
+        /// implementation.
+        OptionUnsupported,
+    } || Io.UnexpectedError || Io.Cancelable;
+
+    pub const ConnectOptions = BindOptions;
+
+    /// Initiates a connection-oriented network stream.
+    pub fn connect(address: IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
+        return io.vtable.ipConnect(io.userdata, address, options);
     }
 };
 
@@ -758,14 +784,6 @@ pub const SendFlags = packed struct(u8) {
     _: u3 = 0,
 };
 
-pub const SendResult = union(enum) {
-    success,
-    fail: struct {
-        err: Socket.SendError,
-        sent: usize,
-    },
-};
-
 pub const Interface = struct {
     /// Value 0 indicates `none`.
     index: u32,
@@ -978,8 +996,9 @@ pub const Socket = struct {
 pub const Stream = struct {
     socket: Socket,
 
-    pub fn close(s: Stream, io: Io) void {
-        return io.vtable.netClose(io.userdata, s.socket);
+    pub fn close(s: *Stream, io: Io) void {
+        io.vtable.netClose(io.userdata, s.socket);
+        s.* = undefined;
     }
 
     pub const Reader = struct {
@@ -996,8 +1015,9 @@ pub const Stream = struct {
             SocketUnconnected,
         } || Io.Cancelable || Io.Writer.Error || error{EndOfStream};
 
-        pub fn init(stream: Stream, buffer: []u8) Reader {
+        pub fn init(stream: Stream, io: Io, buffer: []u8) Reader {
             return .{
+                .io = io,
                 .interface = .{
                     .vtable = &.{
                         .stream = streamImpl,
@@ -1043,8 +1063,9 @@ pub const Stream = struct {
             Unexpected,
         } || Io.Cancelable;
 
-        pub fn init(stream: Stream, buffer: []u8) Writer {
+        pub fn init(stream: Stream, io: Io, buffer: []u8) Writer {
             return .{
+                .io = io,
                 .stream = stream,
                 .interface = .{
                     .vtable = &.{ .drain = drain },
@@ -1062,12 +1083,12 @@ pub const Stream = struct {
         }
     };
 
-    pub fn reader(stream: Stream, buffer: []u8) Reader {
-        return .init(stream, buffer);
+    pub fn reader(stream: Stream, io: Io, buffer: []u8) Reader {
+        return .init(stream, io, buffer);
     }
 
-    pub fn writer(stream: Stream, buffer: []u8) Writer {
-        return .init(stream, buffer);
+    pub fn writer(stream: Stream, io: Io, buffer: []u8) Writer {
+        return .init(stream, io, buffer);
     }
 };
 

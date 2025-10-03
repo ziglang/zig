@@ -145,8 +145,17 @@ pub fn io(pool: *Pool) Io {
             .fileSeekBy = fileSeekBy,
             .fileSeekTo = fileSeekTo,
 
-            .now = now,
-            .sleep = sleep,
+            .now = switch (builtin.os.tag) {
+                .windows => nowWindows,
+                .wasi => nowWasi,
+                else => nowPosix,
+            },
+            .sleep = switch (builtin.os.tag) {
+                .windows => sleepWindows,
+                .wasi => sleepWasi,
+                .linux => sleepLinux,
+                else => sleepPosix,
+            },
 
             .listen = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
@@ -159,6 +168,10 @@ pub fn io(pool: *Pool) Io {
             .ipBind = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
                 else => ipBindPosix,
+            },
+            .ipConnect = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                else => ipConnectPosix,
             },
             .netClose = netClose,
             .netRead = switch (builtin.os.tag) {
@@ -797,16 +810,15 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
     const dest = iovecs_buffer[0..i];
     assert(dest[0].len > 0);
 
-    if (native_os == .wasi and !builtin.link_libc) {
+    if (native_os == .wasi and !builtin.link_libc) while (true) {
         try pool.checkCancel();
         var nread: usize = undefined;
         switch (std.os.wasi.fd_read(file.handle, dest.ptr, dest.len, &nread)) {
             .SUCCESS => return nread,
-            .INTR => unreachable,
-            .INVAL => unreachable,
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
-            .AGAIN => unreachable, // currently not support in WASI
-            .BADF => return error.NotOpenForReading, // can be a race condition
+            .BADF => |err| return errnoBug(err),
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
@@ -817,15 +829,15 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return posix.unexpectedErrno(err),
         }
-    }
+    };
 
     while (true) {
         try pool.checkCancel();
-        const rc = posix.system.readv(file.handle, dest.ptr, dest.len);
+        const rc = posix.system.readv(file.handle, dest.ptr, @intCast(dest.len));
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
@@ -844,14 +856,6 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
 
 fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-
-    const have_pread_but_not_preadv = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku, .serenity => true,
-        else => false,
-    };
-    if (have_pread_but_not_preadv) {
-        @compileError("TODO");
-    }
 
     if (is_windows) {
         const DWORD = windows.DWORD;
@@ -907,6 +911,14 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
         return total;
     }
 
+    const have_pread_but_not_preadv = switch (native_os) {
+        .windows, .haiku, .serenity => true,
+        else => false,
+    };
+    if (have_pread_but_not_preadv) {
+        @compileError("TODO");
+    }
+
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
     var i: usize = 0;
     for (data) |buf| {
@@ -919,15 +931,15 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
     const dest = iovecs_buffer[0..i];
     assert(dest[0].len > 0);
 
-    if (native_os == .wasi and !builtin.link_libc) {
+    if (native_os == .wasi and !builtin.link_libc) while (true) {
         try pool.checkCancel();
         var nread: usize = undefined;
         switch (std.os.wasi.fd_pread(file.handle, dest.ptr, dest.len, offset, &nread)) {
             .SUCCESS => return nread,
-            .INTR => unreachable,
-            .INVAL => unreachable,
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
-            .AGAIN => unreachable,
+            .AGAIN => |err| return errnoBug(err),
             .BADF => return error.NotOpenForReading, // can be a race condition
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
@@ -942,16 +954,16 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return posix.unexpectedErrno(err),
         }
-    }
+    };
 
     const preadv_sym = if (posix.lfs64_abi) posix.system.preadv64 else posix.system.preadv;
     while (true) {
         try pool.checkCancel();
-        const rc = preadv_sym(file.handle, dest.ptr, dest.len, @bitCast(offset));
+        const rc = preadv_sym(file.handle, dest.ptr, @intCast(dest.len), @bitCast(offset));
         switch (posix.errno(rc)) {
             .SUCCESS => return @bitCast(rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
@@ -999,7 +1011,7 @@ fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posi
     };
 }
 
-fn now(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
+fn nowPosix(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     const clock_id: posix.clockid_t = clockToPosix(clock);
@@ -1011,7 +1023,35 @@ fn now(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 
     }
 }
 
-fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
+fn nowWindows(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    _ = pool;
+    switch (clock) {
+        .realtime => {
+            // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds
+            // and uses the NTFS/Windows epoch, which is 1601-01-01.
+            return @as(i96, windows.ntdll.RtlGetSystemTimePrecise()) * 100;
+        },
+        .monotonic, .boottime => {
+            // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
+            return .{ .timestamp = windows.QueryPerformanceCounter() };
+        },
+        .process_cputime_id,
+        .thread_cputime_id,
+        => return error.UnsupportedClock,
+    }
+}
+
+fn nowWasi(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    _ = pool;
+    var ns: std.os.wasi.timestamp_t = undefined;
+    const err = std.os.wasi.clock_time_get(clockToWasi(clock), 1, &ns);
+    if (err != .SUCCESS) return error.Unexpected;
+    return ns;
+}
+
+fn sleepLinux(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     const clock_id: posix.clockid_t = clockToPosix(switch (timeout) {
         .none => .monotonic,
@@ -1037,6 +1077,73 @@ fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
             .INTR => continue,
             .INVAL => return error.UnsupportedClock,
             else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn sleepWindows(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+    const ms = ms: {
+        const duration_and_clock = (try timeout.toDurationFromNow(pool.io())) orelse
+            break :ms std.math.maxInt(windows.DWORD);
+        if (duration_and_clock.clock != .monotonic) return error.UnsupportedClock;
+        break :ms std.math.lossyCast(windows.DWORD, duration_and_clock.duration.toMilliseconds());
+    };
+    windows.kernel32.Sleep(ms);
+}
+
+fn sleepWasi(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    const w = std.os.wasi;
+
+    const clock: w.subscription_clock_t = if (try timeout.toDurationFromNow(pool.io())) |d| .{
+        .id = clockToWasi(d.clock),
+        .timeout = std.math.lossyCast(u64, d.duration.nanoseconds),
+        .precision = 0,
+        .flags = 0,
+    } else .{
+        .id = .MONOTONIC,
+        .timeout = std.math.maxInt(u64),
+        .precision = 0,
+        .flags = 0,
+    };
+    const in: w.subscription_t = .{
+        .userdata = 0,
+        .u = .{
+            .tag = .CLOCK,
+            .u = .{ .clock = clock },
+        },
+    };
+    var event: w.event_t = undefined;
+    var nevents: usize = undefined;
+    _ = w.poll_oneoff(&in, &event, 1, &nevents);
+}
+
+fn sleepPosix(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const sec_type = @typeInfo(posix.timespec).@"struct".fields[0].type;
+    const nsec_type = @typeInfo(posix.timespec).@"struct".fields[1].type;
+
+    var timespec: posix.timespec = t: {
+        const d = (try timeout.toDurationFromNow(pool.io())) orelse break :t .{
+            .sec = std.math.maxInt(sec_type),
+            .nsec = std.math.maxInt(nsec_type),
+        };
+        if (d.clock != .monotonic) return error.UnsupportedClock;
+        const ns = d.duration.nanoseconds;
+        break :t .{
+            .sec = @intCast(@divFloor(ns, std.time.ns_per_s)),
+            .nsec = @intCast(@mod(ns, std.time.ns_per_s)),
+        };
+    };
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.nanosleep(&timespec, &timespec))) {
+            .INTR => continue,
+            else => return, // This prong handles success as well as unexpected errors.
         }
     }
 }
@@ -1091,7 +1198,7 @@ fn listenPosix(
                 errdefer posix.close(fd);
                 if (socket_flags_unsupported) while (true) {
                     try pool.checkCancel();
-                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, posix.FD_CLOEXEC))) {
+                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, @as(usize, posix.FD_CLOEXEC)))) {
                         .SUCCESS => break,
                         .INTR => continue,
                         else => |err| return posix.unexpectedErrno(err),
@@ -1158,6 +1265,37 @@ fn posixBind(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.sockaddr
     }
 }
 
+fn posixConnect(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.connect(socket_fd, addr, addr_len))) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .ADDRINUSE => return error.AddressInUse,
+            .ADDRNOTAVAIL => return error.AddressUnavailable,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .AGAIN, .INPROGRESS => |err| return errnoBug(err),
+            .ALREADY => return error.ConnectionPending,
+            .BADF => |err| return errnoBug(err),
+            .CONNREFUSED => return error.ConnectionRefused,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .FAULT => |err| return errnoBug(err),
+            .ISCONN => return error.AlreadyConnected,
+            .HOSTUNREACH => return error.HostUnreachable,
+            .NETUNREACH => return error.NetworkUnreachable,
+            .NOTSOCK => |err| return errnoBug(err),
+            .PROTOTYPE => |err| return errnoBug(err),
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .CONNABORTED => |err| return errnoBug(err),
+            // UNIX socket error codes:
+            .ACCES => |err| return errnoBug(err),
+            .PERM => |err| return errnoBug(err),
+            .NOENT => |err| return errnoBug(err),
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
 fn posixGetSockName(pool: *Pool, socket_fd: posix.fd_t, addr: *posix.sockaddr, addr_len: *posix.socklen_t) !void {
     while (true) {
         try pool.checkCancel();
@@ -1190,14 +1328,45 @@ fn setSocketOption(pool: *Pool, fd: posix.fd_t, level: i32, opt_name: u32, optio
     }
 }
 
+fn ipConnectPosix(
+    userdata: ?*anyopaque,
+    address: *const Io.net.IpAddress,
+    options: Io.net.IpAddress.BindOptions,
+) Io.net.IpAddress.ConnectError!Io.net.Stream {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const family = posixAddressFamily(address);
+    const socket_fd = try openSocketPosix(pool, family, options);
+    var storage: PosixAddress = undefined;
+    var addr_len = addressToPosix(address, &storage);
+    try posixConnect(pool, socket_fd, &storage.any, addr_len);
+    try posixGetSockName(pool, socket_fd, &storage.any, &addr_len);
+    return .{ .socket = .{
+        .handle = socket_fd,
+        .address = addressFromPosix(&storage),
+    } };
+}
+
 fn ipBindPosix(
     userdata: ?*anyopaque,
-    address: Io.net.IpAddress,
+    address: *const Io.net.IpAddress,
     options: Io.net.IpAddress.BindOptions,
 ) Io.net.IpAddress.BindError!Io.net.Socket {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const family = posixAddressFamily(address);
+    const socket_fd = try openSocketPosix(pool, family, options);
+    errdefer posix.close(socket_fd);
+    var storage: PosixAddress = undefined;
+    var addr_len = addressToPosix(address, &storage);
+    try posixBind(pool, socket_fd, &storage.any, addr_len);
+    try posixGetSockName(pool, socket_fd, &storage.any, &addr_len);
+    return .{
+        .handle = socket_fd,
+        .address = addressFromPosix(&storage),
+    };
+}
+
+fn openSocketPosix(pool: *Pool, family: posix.sa_family_t, options: Io.net.IpAddress.BindOptions) !posix.socket_t {
     const mode = posixSocketMode(options.mode);
-    const family = posixAddressFamily(&address);
     const protocol = posixProtocol(options.protocol);
     const socket_fd = while (true) {
         try pool.checkCancel();
@@ -1209,7 +1378,7 @@ fn ipBindPosix(
                 errdefer posix.close(fd);
                 if (socket_flags_unsupported) while (true) {
                     try pool.checkCancel();
-                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, posix.FD_CLOEXEC))) {
+                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, @as(usize, posix.FD_CLOEXEC)))) {
                         .SUCCESS => break,
                         .INTR => continue,
                         else => |err| return posix.unexpectedErrno(err),
@@ -1229,19 +1398,14 @@ fn ipBindPosix(
             else => |err| return posix.unexpectedErrno(err),
         }
     };
+    errdefer posix.close(socket_fd);
 
     if (options.ip6_only) {
+        if (posix.IPV6 == void) return error.OptionUnsupported;
         try setSocketOption(pool, socket_fd, posix.IPPROTO.IPV6, posix.IPV6.V6ONLY, 0);
     }
 
-    var storage: PosixAddress = undefined;
-    var addr_len = addressToPosix(&address, &storage);
-    try posixBind(pool, socket_fd, &storage.any, addr_len);
-    try posixGetSockName(pool, socket_fd, &storage.any, &addr_len);
-    return .{
-        .handle = socket_fd,
-        .address = addressFromPosix(&storage),
-    };
+    return socket_fd;
 }
 
 const socket_flags_unsupported = builtin.os.tag.isDarwin() or native_os == .haiku; // 💩💩
@@ -1264,7 +1428,7 @@ fn acceptPosix(userdata: ?*anyopaque, server: *Io.net.Server) Io.net.Server.Acce
                 errdefer posix.close(fd);
                 if (!have_accept4) while (true) {
                     try pool.checkCancel();
-                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, posix.FD_CLOEXEC))) {
+                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, @as(usize, posix.FD_CLOEXEC)))) {
                         .SUCCESS => break,
                         .INTR => continue,
                         else => |err| return posix.unexpectedErrno(err),
@@ -1322,29 +1486,118 @@ fn netSend(
     handle: Io.net.Socket.Handle,
     messages: []Io.net.OutgoingMessage,
     flags: Io.net.SendFlags,
-) Io.net.SendResult {
+) struct { ?Io.net.Socket.SendError, usize } {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
 
-    if (have_sendmmsg) {
-        var i: usize = 0;
-        while (messages.len - i != 0) {
-            i += netSendMany(pool, handle, messages[i..], flags) catch |err| return .{ .fail = .{
-                .err = err,
-                .sent = i,
-            } };
-        }
-        return .success;
-    }
+    const posix_flags: u32 =
+        @as(u32, if (flags.confirm) posix.MSG.CONFIRM else 0) |
+        @as(u32, if (flags.dont_route) posix.MSG.DONTROUTE else 0) |
+        @as(u32, if (flags.eor) posix.MSG.EOR else 0) |
+        @as(u32, if (flags.oob) posix.MSG.OOB else 0) |
+        @as(u32, if (flags.fastopen) posix.MSG.FASTOPEN else 0) |
+        posix.MSG.NOSIGNAL;
 
-    try pool.checkCancel();
-    @panic("TODO");
+    var i: usize = 0;
+    while (messages.len - i != 0) {
+        if (have_sendmmsg) {
+            i += netSendMany(pool, handle, messages[i..], posix_flags) catch |err| return .{ err, i };
+            continue;
+        }
+        netSendOne(pool, handle, &messages[i], posix_flags) catch |err| return .{ err, i };
+        i += 1;
+    }
+    return .{ null, i };
+}
+
+fn netSendOne(
+    pool: *Pool,
+    handle: Io.net.Socket.Handle,
+    message: *Io.net.OutgoingMessage,
+    flags: u32,
+) Io.net.Socket.SendError!void {
+    var addr: PosixAddress = undefined;
+    var iovec: posix.iovec = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
+    const msg: posix.msghdr = .{
+        .name = &addr.any,
+        .namelen = addressToPosix(message.address, &addr),
+        .iov = iovec[0..1],
+        .iovlen = 1,
+        .control = @constCast(message.control.ptr),
+        .controllen = message.control.len,
+        .flags = 0,
+    };
+    while (true) {
+        try pool.checkCancel();
+        const rc = posix.system.sendmsg(handle, msg, flags);
+        if (is_windows) {
+            if (rc == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAEACCES => return error.AccessDenied,
+                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                    // TODO: WSAEINPROGRESS, WSAEINTR
+                    .WSAEINVAL => unreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOTCONN => return error.SocketUnconnected,
+                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                message.data_len = @intCast(rc);
+                return;
+            }
+        }
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                message.data_len = @intCast(rc);
+                return;
+            },
+            .ACCES => return error.AccessDenied,
+            .AGAIN => return error.WouldBlock,
+            .ALREADY => return error.FastOpenAlreadyInProgress,
+            .BADF => |err| return errnoBug(err),
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .DESTADDRREQ => |err| return errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err),
+            .ISCONN => |err| return errnoBug(err),
+            .MSGSIZE => return error.MessageTooBig,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTSOCK => |err| return errnoBug(err),
+            .OPNOTSUPP => |err| return errnoBug(err),
+            .PIPE => return error.BrokenPipe,
+            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .LOOP => return error.SymLinkLoop,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOTDIR => return error.NotDir,
+            .HOSTUNREACH => return error.NetworkUnreachable,
+            .NETUNREACH => return error.NetworkUnreachable,
+            .NOTCONN => return error.SocketUnconnected,
+            .NETDOWN => return error.NetworkSubsystemFailed,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn netSendMany(
     pool: *Pool,
     handle: Io.net.Socket.Handle,
     messages: []Io.net.OutgoingMessage,
-    flags: Io.net.SendFlags,
+    flags: u32,
 ) Io.net.Socket.SendError!usize {
     var msg_buffer: [64]std.os.linux.mmsghdr = undefined;
     var addr_buffer: [msg_buffer.len]PosixAddress = undefined;
@@ -1371,17 +1624,9 @@ fn netSendMany(
         };
     }
 
-    const posix_flags: u32 =
-        @as(u32, if (flags.confirm) posix.MSG.CONFIRM else 0) |
-        @as(u32, if (flags.dont_route) posix.MSG.DONTROUTE else 0) |
-        @as(u32, if (flags.eor) posix.MSG.EOR else 0) |
-        @as(u32, if (flags.oob) posix.MSG.OOB else 0) |
-        @as(u32, if (flags.fastopen) posix.MSG.FASTOPEN else 0) |
-        posix.MSG.NOSIGNAL;
-
     while (true) {
         try pool.checkCancel();
-        const rc = posix.system.sendmmsg(handle, clamped_msgs.ptr, @intCast(clamped_msgs.len), posix_flags);
+        const rc = posix.system.sendmmsg(handle, clamped_msgs.ptr, @intCast(clamped_msgs.len), flags);
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 for (clamped_messages[0..rc], clamped_msgs[0..rc]) |*message, *msg| {
@@ -1782,5 +2027,17 @@ fn clockToPosix(clock: Io.Timestamp.Clock) posix.clockid_t {
         .realtime => posix.CLOCK.REALTIME,
         .monotonic => posix.CLOCK.MONOTONIC,
         .boottime => posix.CLOCK.BOOTTIME,
+        .process_cputime_id => posix.CLOCK.PROCESS_CPUTIME_ID,
+        .thread_cputime_id => posix.CLOCK.THREAD_CPUTIME_ID,
+    };
+}
+
+fn clockToWasi(clock: Io.Timestamp.Clock) std.os.wasi.clockid_t {
+    return switch (clock) {
+        .realtime => .REALTIME,
+        .monotonic => .MONOTONIC,
+        .boottime => .MONOTONIC,
+        .process_cputime_id => .PROCESS_CPUTIME_ID,
+        .thread_cputime_id => .THREAD_CPUTIME_ID,
     };
 }
