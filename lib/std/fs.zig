@@ -97,25 +97,6 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 
-/// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`
-/// are absolute. See `Dir.updateFile` for a function that operates on both
-/// absolute and relative paths.
-/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn updateFileAbsolute(
-    source_path: []const u8,
-    dest_path: []const u8,
-    args: Dir.CopyFileOptions,
-) !std.Io.Dir.PrevStatus {
-    assert(path.isAbsolute(source_path));
-    assert(path.isAbsolute(dest_path));
-    const my_cwd = cwd();
-    return Dir.updateFile(my_cwd, source_path, my_cwd, dest_path, args);
-}
-
-test updateFileAbsolute {}
-
 /// Same as `Dir.copyFile`, except asserts that both `source_path` and `dest_path`
 /// are absolute. See `Dir.copyFile` for a function that operates on both
 /// absolute and relative paths.
