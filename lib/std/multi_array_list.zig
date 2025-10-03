@@ -1083,13 +1083,15 @@ test "orderedRemoveMany" {
     try testing.expectEqualSlices(usize, &.{}, list.items(.x));
 }
 
-test "value as a tuple that containing void" {
+test "value as a tuple that containing comptime field" {
     const gpa = testing.allocator;
+
+    // Void default to comptime void = {}
 
     var list: MultiArrayList(struct { void }) = .empty;
     defer list.deinit(gpa);
 
-    try list.append(gpa, .{{}});
+    try list.append(gpa, .{});
 
     try testing.expectEqual(list.pop().?[0], {});
 
