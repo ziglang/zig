@@ -3355,15 +3355,15 @@ pub const Sigaction = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L39-L46
     .serenity => extern struct {
-        pub const handler_fn = *align(1) const fn (c_int) callconv(.c) void;
-        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         handler: extern union {
             handler: ?handler_fn,
             sigaction: ?sigaction_fn,
         },
         mask: sigset_t,
-        flags: c_int,
+        flags: c_uint,
     },
     else => void,
 };
