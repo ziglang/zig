@@ -2,12 +2,12 @@ gpa: Allocator,
 thread_pool: *std.Thread.Pool,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
-listen_address: std.net.Address,
+listen_address: net.IpAddress,
 ttyconf: std.Io.tty.Config,
 root_prog_node: std.Progress.Node,
 watch: bool,
 
-tcp_server: ?std.net.Server,
+tcp_server: ?net.Server,
 serve_thread: ?std.Thread,
 
 base_timestamp: i128,
@@ -56,7 +56,7 @@ pub const Options = struct {
     ttyconf: std.Io.tty.Config,
     root_prog_node: std.Progress.Node,
     watch: bool,
-    listen_address: std.net.Address,
+    listen_address: net.IpAddress,
 };
 pub fn init(opts: Options) WebServer {
     // The upcoming `std.Io` interface should allow us to use `Io.async` and `Io.concurrent`
@@ -244,7 +244,7 @@ pub fn now(s: *const WebServer) i64 {
     return @intCast(std.time.nanoTimestamp() - s.base_timestamp);
 }
 
-fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
+fn accept(ws: *WebServer, connection: net.Server.Connection) void {
     defer connection.stream.close();
 
     var send_buffer: [4096]u8 = undefined;
@@ -851,5 +851,6 @@ const Cache = Build.Cache;
 const Fuzz = Build.Fuzz;
 const abi = Build.abi;
 const http = std.http;
+const net = std.Io.net;
 
 const WebServer = @This();

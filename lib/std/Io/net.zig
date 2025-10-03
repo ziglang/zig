@@ -43,6 +43,14 @@ pub const Protocol = enum(u32) {
     mptcp = 262,
 };
 
+/// Windows 10 added support for unix sockets in build 17063, redstone 4 is the
+/// first release to support them.
+pub const has_unix_sockets = switch (native_os) {
+    .windows => builtin.os.version_range.windows.isAtLeast(.win10_rs4) orelse false,
+    .wasi => false,
+    else => true,
+};
+
 pub const IpAddress = union(enum) {
     ip4: Ip4Address,
     ip6: Ip6Address,
@@ -980,7 +988,13 @@ pub const Stream = struct {
         stream: Stream,
         err: ?Error,
 
-        pub const Error = std.net.Stream.ReadError || Io.Cancelable || Io.Writer.Error || error{EndOfStream};
+        pub const Error = std.posix.ReadError || error{
+            SocketNotBound,
+            MessageTooBig,
+            NetworkSubsystemFailed,
+            ConnectionResetByPeer,
+            SocketUnconnected,
+        } || Io.Cancelable || Io.Writer.Error || error{EndOfStream};
 
         pub fn init(stream: Stream, buffer: []u8) Reader {
             return .{
@@ -1019,7 +1033,15 @@ pub const Stream = struct {
         stream: Stream,
         err: ?Error = null,
 
-        pub const Error = std.net.Stream.WriteError || Io.Cancelable;
+        pub const Error = std.posix.SendMsgError || error{
+            ConnectionResetByPeer,
+            SocketNotBound,
+            MessageTooBig,
+            NetworkSubsystemFailed,
+            SystemResources,
+            SocketUnconnected,
+            Unexpected,
+        } || Io.Cancelable;
 
         pub fn init(stream: Stream, buffer: []u8) Writer {
             return .{
@@ -1096,4 +1118,5 @@ fn testIp6ParseTransform(expected: []const u8, input: []const u8) !void {
 
 test {
     _ = HostName;
+    _ = @import("net/test.zig");
 }

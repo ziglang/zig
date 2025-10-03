@@ -1,6 +1,8 @@
 const File = @This();
 
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+const is_windows = native_os == .windows;
 
 const std = @import("../std.zig");
 const Io = std.Io;
@@ -131,6 +133,18 @@ pub const Stat = struct {
     }
 };
 
+pub fn stdout() File {
+    return .{ .handle = if (is_windows) std.os.windows.peb().ProcessParameters.hStdOutput else std.posix.STDOUT_FILENO };
+}
+
+pub fn stderr() File {
+    return .{ .handle = if (is_windows) std.os.windows.peb().ProcessParameters.hStdError else std.posix.STDERR_FILENO };
+}
+
+pub fn stdin() File {
+    return .{ .handle = if (is_windows) std.os.windows.peb().ProcessParameters.hStdInput else std.posix.STDIN_FILENO };
+}
+
 pub const StatError = std.posix.FStatError || Io.Cancelable;
 
 /// Returns `Stat` containing basic information about the `File`.
@@ -181,6 +195,11 @@ pub const WriteError = std.fs.File.WriteError || Io.Cancelable;
 
 pub fn write(file: File, io: Io, buffer: []const u8) WriteError!usize {
     return @errorCast(file.pwrite(io, buffer, -1));
+}
+
+pub fn writeAll(file: File, io: Io, bytes: []const u8) WriteError!void {
+    var index: usize = 0;
+    while (index < bytes.len) index += try file.write(io, bytes[index..]);
 }
 
 pub const PWriteError = std.fs.File.PWriteError || Io.Cancelable;
@@ -350,7 +369,7 @@ pub const Reader = struct {
         const io = r.io;
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
             },
             .streaming, .streaming_reading => {
                 if (std.posix.SEEK == void) {
@@ -359,7 +378,7 @@ pub const Reader = struct {
                 }
                 const seek_err = r.seek_err orelse e: {
                     if (io.vtable.fileSeekBy(io.userdata, r.file, offset)) |_| {
-                        setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                        setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
                         return;
                     } else |err| {
                         r.seek_err = err;
@@ -384,16 +403,17 @@ pub const Reader = struct {
         const io = r.io;
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, offset);
+                setLogicalPos(r, offset);
             },
             .streaming, .streaming_reading => {
-                if (offset >= r.pos) return Reader.seekBy(r, @intCast(offset - r.pos));
+                const logical_pos = logicalPos(r);
+                if (offset >= logical_pos) return Reader.seekBy(r, @intCast(offset - logical_pos));
                 if (r.seek_err) |err| return err;
                 io.vtable.fileSeekTo(io.userdata, r.file, offset) catch |err| {
                     r.seek_err = err;
                     return err;
                 };
-                setPosAdjustingBuffer(r, offset);
+                setLogicalPos(r, offset);
             },
             .failure => return r.seek_err.?,
         }
@@ -403,7 +423,7 @@ pub const Reader = struct {
         return r.pos - r.interface.bufferedLen();
     }
 
-    fn setPosAdjustingBuffer(r: *Reader, offset: u64) void {
+    fn setLogicalPos(r: *Reader, offset: u64) void {
         const logical_pos = logicalPos(r);
         if (offset < logical_pos or offset >= r.pos) {
             r.interface.seek = 0;
@@ -544,9 +564,10 @@ pub const Reader = struct {
         }
     }
 
+    /// Returns whether the stream is at the logical end.
     pub fn atEnd(r: *Reader) bool {
         // Even if stat fails, size is set when end is encountered.
         const size = r.size orelse return false;
-        return size - r.pos == 0;
+        return size - logicalPos(r) == 0;
     }
 };
