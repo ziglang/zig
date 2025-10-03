@@ -697,7 +697,7 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
     var printed_any_frame = false;
     while (true) switch (it.next()) {
         .switch_to_fp => |unwind_error| {
-            if (StackIterator.fp_unwind_is_safe) continue; // no need to even warn
+            if (StackIterator.abi_requires_backchain or StackIterator.fp_unwind_is_safe) continue; // no need to even warn
             const module_name = di.getModuleName(di_gpa, unwind_error.address) catch "???";
             const caption: []const u8 = switch (unwind_error.err) {
                 error.MissingDebugInfo => "unwind info unavailable",
@@ -855,9 +855,21 @@ const StackIterator = union(enum) {
         }
     }
 
-    /// On aarch64-macos, Apple mandate that the frame pointer is always used.
-    /// TODO: are there any other architectures with guarantees like this?
+    /// <https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms#Respect-the-purpose-of-specific-CPU-registers>
     const fp_unwind_is_safe = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();
+
+    /// On some architectures, we can do FP unwinding even with `-fomit-frame-pointer` due to ABI
+    /// requirements. Typically this is because the ABI requires a backchain regardless of whether
+    /// codegen actually uses a frame pointer for stack frame access.
+    const abi_requires_backchain = switch (builtin.cpu.arch) {
+        .hexagon,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        => true,
+        else => false,
+    };
 
     /// Whether the current unwind strategy is allowed given `allow_unsafe`.
     fn stratOk(it: *const StackIterator, allow_unsafe: bool) bool {
@@ -867,7 +879,7 @@ const StackIterator = union(enum) {
             // immediately regardless of anything. But FPs could also be omitted from a different
             // linked object, so it's not guaranteed to be safe, unless the target specifically
             // requires it.
-            .fp => !builtin.omit_frame_pointer and (fp_unwind_is_safe or allow_unsafe),
+            .fp => abi_requires_backchain or (!builtin.omit_frame_pointer and (fp_unwind_is_safe or allow_unsafe)),
         };
     }
 
