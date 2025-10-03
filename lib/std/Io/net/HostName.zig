@@ -363,17 +363,19 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
             continue;
         }) |record| switch (record.rr) {
             std.posix.RR.A => {
-                if (record.data.len != 4) return error.InvalidDnsARecord;
+                const data = record.packet[record.data_off..][0..record.data_len];
+                if (data.len != 4) return error.InvalidDnsARecord;
                 options.addresses_buffer[addresses_len] = .{ .ip4 = .{
-                    .bytes = record.data[0..4].*,
+                    .bytes = data[0..4].*,
                     .port = options.port,
                 } };
                 addresses_len += 1;
             },
             std.posix.RR.AAAA => {
-                if (record.data.len != 16) return error.InvalidDnsAAAARecord;
+                const data = record.packet[record.data_off..][0..record.data_len];
+                if (data.len != 16) return error.InvalidDnsAAAARecord;
                 options.addresses_buffer[addresses_len] = .{ .ip6 = .{
-                    .bytes = record.data[0..16].*,
+                    .bytes = data[0..16].*,
                     .port = options.port,
                 } };
                 addresses_len += 1;
@@ -575,23 +577,52 @@ pub fn expandDomainName(
 
 pub const DnsResponse = struct {
     bytes: []const u8,
+    bytes_index: u32,
+    answers_remaining: u16,
 
     pub const Answer = struct {
         rr: u8,
-        data: []const u8,
         packet: []const u8,
+        data_off: u32,
+        data_len: u16,
     };
 
     pub const Error = error{InvalidDnsPacket};
 
     pub fn init(r: []const u8) Error!DnsResponse {
         if (r.len < 12) return error.InvalidDnsPacket;
-        return .{ .bytes = r };
+        if ((r[3] & 15) != 0) return .{ .bytes = r, .bytes_index = 3, .answers_remaining = 0 };
+        var i: u32 = 12;
+        var query_count = std.mem.readInt(u16, r[4..6], .big);
+        while (query_count != 0) : (query_count -= 1) {
+            while (i < r.len and r[i] -% 1 < 127) i += 1;
+            if (r.len - i < 6) return error.InvalidDnsPacket;
+            i = i + 5 + @intFromBool(r[i] != 0);
+        }
+        return .{
+            .bytes = r,
+            .bytes_index = i,
+            .answers_remaining = std.mem.readInt(u16, r[6..8], .big),
+        };
     }
 
     pub fn next(dr: *DnsResponse) Error!?Answer {
-        _ = dr;
-        @panic("TODO");
+        if (dr.answers_remaining == 0) return null;
+        dr.answers_remaining -= 1;
+        const r = dr.bytes;
+        var i = dr.bytes_index;
+        while (i < r.len and r[i] -% 1 < 127) i += 1;
+        if (r.len - i < 12) return error.InvalidDnsPacket;
+        i = i + 1 + @intFromBool(r[i] != 0);
+        const len = std.mem.readInt(u16, r[i + 8 ..][0..2], .big);
+        if (i + 10 + len > r.len) return error.InvalidDnsPacket;
+        defer dr.bytes_index = i + 10 + len;
+        return .{
+            .rr = r[i + 1],
+            .packet = r,
+            .data_off = i + 10,
+            .data_len = len,
+        };
     }
 };
 
