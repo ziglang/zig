@@ -1,27 +1,31 @@
 const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
+
 const std = @import("std");
 const http = std.http;
 const mem = std.mem;
-const native_endian = builtin.cpu.arch.endian();
+const net = std.Io.net;
+const Io = std.Io;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const expectError = std.testing.expectError;
 
 test "trailers" {
-    const test_server = try createTestServer(struct {
+    const io = std.testing.io;
+    const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [1024]u8 = undefined;
             var send_buffer: [1024]u8 = undefined;
             var remaining: usize = 1;
             while (remaining != 0) : (remaining -= 1) {
-                const connection = try net_server.accept();
-                defer connection.stream.close();
+                var stream = try net_server.accept(io);
+                defer stream.close(io);
 
-                var connection_br = connection.stream.reader(&recv_buffer);
-                var connection_bw = connection.stream.writer(&send_buffer);
-                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+                var connection_br = stream.reader(io, &recv_buffer);
+                var connection_bw = stream.writer(io, &send_buffer);
+                var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -92,17 +96,18 @@ test "trailers" {
 }
 
 test "HTTP server handles a chunked transfer coding request" {
-    const test_server = try createTestServer(struct {
+    const io = std.testing.io;
+    const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [8192]u8 = undefined;
             var send_buffer: [500]u8 = undefined;
-            const connection = try net_server.accept();
-            defer connection.stream.close();
+            var stream = try net_server.accept(io);
+            defer stream.close(io);
 
-            var connection_br = connection.stream.reader(&recv_buffer);
-            var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+            var connection_br = stream.reader(io, &recv_buffer);
+            var connection_bw = stream.writer(io, &send_buffer);
+            var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
             var request = try server.receiveHead();
 
             try expect(request.head.transfer_encoding == .chunked);
@@ -137,8 +142,8 @@ test "HTTP server handles a chunked transfer coding request" {
         "\r\n";
 
     const gpa = std.testing.allocator;
-    const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
-    defer stream.close();
+    var stream = try net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    defer stream.close(io);
     var stream_writer = stream.writer(&.{});
     try stream_writer.interface.writeAll(request_bytes);
 
@@ -156,19 +161,20 @@ test "HTTP server handles a chunked transfer coding request" {
 }
 
 test "echo content server" {
-    const test_server = try createTestServer(struct {
+    const io = std.testing.io;
+    const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [1024]u8 = undefined;
             var send_buffer: [100]u8 = undefined;
 
             accept: while (!test_server.shutting_down) {
-                const connection = try net_server.accept();
-                defer connection.stream.close();
+                var stream = try net_server.accept(io);
+                defer stream.close(io);
 
-                var connection_br = connection.stream.reader(&recv_buffer);
-                var connection_bw = connection.stream.writer(&send_buffer);
-                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+                var connection_br = stream.reader(io, &recv_buffer);
+                var connection_bw = stream.writer(io, &send_buffer);
+                var http_server = http.Server.init(&connection_br.interface, &connection_bw.interface);
 
                 while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
@@ -243,6 +249,8 @@ test "echo content server" {
 }
 
 test "Server.Request.respondStreaming non-chunked, unknown content-length" {
+    const io = std.testing.io;
+
     if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/21457
         return error.SkipZigTest;
@@ -250,19 +258,19 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 
     // In this case, the response is expected to stream until the connection is
     // closed, indicating the end of the body.
-    const test_server = try createTestServer(struct {
+    const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [1000]u8 = undefined;
             var send_buffer: [500]u8 = undefined;
             var remaining: usize = 1;
             while (remaining != 0) : (remaining -= 1) {
-                const connection = try net_server.accept();
-                defer connection.stream.close();
+                var stream = try net_server.accept(io);
+                defer stream.close(io);
 
-                var connection_br = connection.stream.reader(&recv_buffer);
-                var connection_bw = connection.stream.writer(&send_buffer);
-                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+                var connection_br = stream.reader(io, &recv_buffer);
+                var connection_bw = stream.writer(io, &send_buffer);
+                var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -287,8 +295,8 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 
     const request_bytes = "GET /foo HTTP/1.1\r\n\r\n";
     const gpa = std.testing.allocator;
-    const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
-    defer stream.close();
+    var stream = try net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    defer stream.close(io);
     var stream_writer = stream.writer(&.{});
     try stream_writer.interface.writeAll(request_bytes);
 
@@ -316,19 +324,21 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 }
 
 test "receiving arbitrary http headers from the client" {
-    const test_server = try createTestServer(struct {
+    const io = std.testing.io;
+
+    const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [666]u8 = undefined;
             var send_buffer: [777]u8 = undefined;
             var remaining: usize = 1;
             while (remaining != 0) : (remaining -= 1) {
-                const connection = try net_server.accept();
-                defer connection.stream.close();
+                var stream = try net_server.accept(io);
+                defer stream.close(io);
 
-                var connection_br = connection.stream.reader(&recv_buffer);
-                var connection_bw = connection.stream.writer(&send_buffer);
-                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+                var connection_br = stream.reader(io, &recv_buffer);
+                var connection_bw = stream.writer(io, &send_buffer);
+                var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -357,8 +367,8 @@ test "receiving arbitrary http headers from the client" {
         "aoeu:  asdf \r\n" ++
         "\r\n";
     const gpa = std.testing.allocator;
-    const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
-    defer stream.close();
+    var stream = try net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    defer stream.close(io);
     var stream_writer = stream.writer(&.{});
     try stream_writer.interface.writeAll(request_bytes);
 
@@ -376,24 +386,26 @@ test "receiving arbitrary http headers from the client" {
 }
 
 test "general client/server API coverage" {
+    const io = std.testing.io;
+
     if (builtin.os.tag == .windows) {
         // This test was never passing on Windows.
         return error.SkipZigTest;
     }
 
-    const test_server = try createTestServer(struct {
+    const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [1024]u8 = undefined;
             var send_buffer: [100]u8 = undefined;
 
             outer: while (!test_server.shutting_down) {
-                var connection = try net_server.accept();
-                defer connection.stream.close();
+                var stream = try net_server.accept(io);
+                defer stream.close(io);
 
-                var connection_br = connection.stream.reader(&recv_buffer);
-                var connection_bw = connection.stream.writer(&send_buffer);
-                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+                var connection_br = stream.reader(io, &recv_buffer);
+                var connection_bw = stream.writer(io, &send_buffer);
+                var http_server = http.Server.init(&connection_br.interface, &connection_bw.interface);
 
                 while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
@@ -530,7 +542,7 @@ test "general client/server API coverage" {
         }
 
         fn getUnusedTcpPort() !u16 {
-            const addr = try std.net.Address.parseIp("127.0.0.1", 0);
+            const addr = try net.IpAddress.parse("127.0.0.1", 0);
             var s = try addr.listen(.{});
             defer s.deinit();
             return s.listen_address.in.getPort();
@@ -867,18 +879,20 @@ test "general client/server API coverage" {
 }
 
 test "Server streams both reading and writing" {
-    const test_server = try createTestServer(struct {
+    const io = std.testing.io;
+
+    const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [1024]u8 = undefined;
             var send_buffer: [777]u8 = undefined;
 
-            const connection = try net_server.accept();
-            defer connection.stream.close();
+            var stream = try net_server.accept(io);
+            defer stream.close(io);
 
-            var connection_br = connection.stream.reader(&recv_buffer);
-            var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+            var connection_br = stream.reader(io, &recv_buffer);
+            var connection_bw = stream.writer(io, &send_buffer);
+            var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
             var request = try server.receiveHead();
             var read_buffer: [100]u8 = undefined;
             var br = try request.readerExpectContinue(&read_buffer);
@@ -1077,11 +1091,11 @@ fn echoTests(client: *http.Client, port: u16) !void {
 const TestServer = struct {
     shutting_down: bool,
     server_thread: std.Thread,
-    net_server: std.net.Server,
+    net_server: net.Server,
 
     fn destroy(self: *@This()) void {
         self.shutting_down = true;
-        const conn = std.net.tcpConnectToAddress(self.net_server.listen_address) catch @panic("shutdown failure");
+        const conn = net.tcpConnectToAddress(self.net_server.listen_address) catch @panic("shutdown failure");
         conn.close();
 
         self.server_thread.join();
@@ -1090,21 +1104,21 @@ const TestServer = struct {
     }
 
     fn port(self: @This()) u16 {
-        return self.net_server.listen_address.in.getPort();
+        return self.net_server.socket.address.getPort();
     }
 };
 
-fn createTestServer(S: type) !*TestServer {
+fn createTestServer(io: Io, S: type) !*TestServer {
     if (builtin.single_threaded) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }
 
-    const address = try std.net.Address.parseIp("127.0.0.1", 0);
+    const address = try net.IpAddress.parse("127.0.0.1", 0);
     const test_server = try std.testing.allocator.create(TestServer);
     test_server.* = .{
-        .net_server = try address.listen(.{ .reuse_address = true }),
+        .net_server = try address.listen(io, .{ .reuse_address = true }),
         .shutting_down = false,
         .server_thread = try std.Thread.spawn(.{}, S.run, .{test_server}),
     };
@@ -1112,18 +1126,19 @@ fn createTestServer(S: type) !*TestServer {
 }
 
 test "redirect to different connection" {
-    const test_server_new = try createTestServer(struct {
+    const io = std.testing.io;
+    const test_server_new = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [888]u8 = undefined;
             var send_buffer: [777]u8 = undefined;
 
-            const connection = try net_server.accept();
-            defer connection.stream.close();
+            var stream = try net_server.accept(io);
+            defer stream.close(io);
 
-            var connection_br = connection.stream.reader(&recv_buffer);
-            var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+            var connection_br = stream.reader(io, &recv_buffer);
+            var connection_bw = stream.writer(io, &send_buffer);
+            var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
             var request = try server.receiveHead();
             try expectEqualStrings(request.head.target, "/ok");
             try request.respond("good job, you pass", .{});
@@ -1136,23 +1151,23 @@ test "redirect to different connection" {
     };
     global.other_port = test_server_new.port();
 
-    const test_server_orig = try createTestServer(struct {
+    const test_server_orig = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
             const net_server = &test_server.net_server;
             var recv_buffer: [999]u8 = undefined;
             var send_buffer: [100]u8 = undefined;
 
-            const connection = try net_server.accept();
-            defer connection.stream.close();
+            var stream = try net_server.accept(io);
+            defer stream.close(io);
 
             var loc_buf: [50]u8 = undefined;
             const new_loc = try std.fmt.bufPrint(&loc_buf, "http://127.0.0.1:{d}/ok", .{
                 global.other_port.?,
             });
 
-            var connection_br = connection.stream.reader(&recv_buffer);
-            var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+            var connection_br = stream.reader(io, &recv_buffer);
+            var connection_bw = stream.writer(io, &send_buffer);
+            var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
             var request = try server.receiveHead();
             try expectEqualStrings(request.head.target, "/help");
             try request.respond("", .{
@@ -1167,7 +1182,10 @@ test "redirect to different connection" {
 
     const gpa = std.testing.allocator;
 
-    var client: http.Client = .{ .allocator = gpa };
+    var client: http.Client = .{
+        .allocator = gpa,
+        .io = io,
+    };
     defer client.deinit();
 
     var loc_buf: [100]u8 = undefined;

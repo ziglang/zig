@@ -670,8 +670,9 @@ pub const VTable = struct {
 
     listen: *const fn (?*anyopaque, address: net.IpAddress, options: net.IpAddress.ListenOptions) net.IpAddress.ListenError!net.Server,
     accept: *const fn (?*anyopaque, server: *net.Server) net.Server.AcceptError!net.Stream,
-    ipBind: *const fn (?*anyopaque, address: net.IpAddress, options: net.IpAddress.BindOptions) net.IpAddress.BindError!net.Socket,
-    netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) net.SendResult,
+    ipBind: *const fn (?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.BindOptions) net.IpAddress.BindError!net.Socket,
+    ipConnect: *const fn (?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.ConnectOptions) net.IpAddress.ConnectError!net.Stream,
+    netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) struct { ?net.Socket.SendError, usize },
     netReceive: *const fn (?*anyopaque, net.Socket.Handle, message_buffer: []net.IncomingMessage, data_buffer: []u8, net.ReceiveFlags, Timeout) struct { ?net.Socket.ReceiveTimeoutError, usize },
     netRead: *const fn (?*anyopaque, src: net.Stream, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Stream, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
@@ -710,10 +711,14 @@ pub const Timestamp = struct {
         /// time (e.g., if the system administrator manually changes the
         /// clock), and by frequency adjust‐ ments performed by NTP and similar
         /// applications.
-        /// This clock normally counts the number of seconds since
-        /// 1970-01-01 00:00:00 Coordinated Universal Time (UTC) except that it
-        /// ignores leap seconds; near a leap second it is typically
-        /// adjusted by NTP to stay roughly in sync with UTC.
+        ///
+        /// This clock normally counts the number of seconds since 1970-01-01
+        /// 00:00:00 Coordinated Universal Time (UTC) except that it ignores
+        /// leap seconds; near a leap second it is typically adjusted by NTP to
+        /// stay roughly in sync with UTC.
+        ///
+        /// The epoch is implementation-defined. For example NTFS/Windows uses
+        /// 1601-01-01.
         realtime,
         /// A nonsettable system-wide clock that represents time since some
         /// unspecified point in the past.
@@ -729,10 +734,16 @@ pub const Timestamp = struct {
         /// Guarantees that the time returned by consecutive calls will not go
         /// backwards, but successive calls may return identical
         /// (not-increased) time values.
+        ///
+        /// May or may not include time the system is suspended, but
+        /// implementations should exclude that time if possible.
         monotonic,
         /// Identical to `monotonic` except it also includes any time that the
-        /// system is suspended.
+        /// system is suspended, if possible. However, it may be implemented
+        /// identically to `monotonic`.
         boottime,
+        process_cputime_id,
+        thread_cputime_id,
     };
 
     pub fn durationTo(from: Timestamp, to: Timestamp) Duration {
@@ -791,6 +802,12 @@ pub const Timestamp = struct {
 pub const Duration = struct {
     nanoseconds: i96,
 
+    pub const max: Duration = .{ .nanoseconds = std.math.maxInt(i96) };
+
+    pub fn fromNanoseconds(x: i96) Duration {
+        return .{ .nanoseconds = x };
+    }
+
     pub fn fromMilliseconds(x: i64) Duration {
         return .{ .nanoseconds = @as(i96, x) * std.time.ns_per_ms };
     }
@@ -805,6 +822,10 @@ pub const Duration = struct {
 
     pub fn toSeconds(d: Duration) i64 {
         return @intCast(@divTrunc(d.nanoseconds, std.time.ns_per_s));
+    }
+
+    pub fn sleep(duration: Duration, io: Io) SleepError!void {
+        return io.vtable.sleep(io.userdata, .{ .duration = .{ .duration = duration, .clock = .monotonic } });
     }
 };
 
@@ -827,6 +848,18 @@ pub const Timeout = union(enum) {
             .duration => |d| try .fromNow(io, d.clock, d.duration),
             .deadline => |d| d,
         };
+    }
+
+    pub fn toDurationFromNow(t: Timeout, io: Io) Timestamp.Error!?ClockAndDuration {
+        return switch (t) {
+            .none => null,
+            .duration => |d| d,
+            .deadline => |d| .{ .clock = d.clock, .duration = try d.durationFromNow(io) },
+        };
+    }
+
+    pub fn sleep(timeout: Timeout, io: Io) SleepError!void {
+        return io.vtable.sleep(io.userdata, timeout);
     }
 };
 
@@ -1321,14 +1354,6 @@ pub fn cancelRequested(io: Io) bool {
 }
 
 pub const SleepError = error{UnsupportedClock} || UnexpectedError || Cancelable;
-
-pub fn sleep(io: Io, timeout: Timeout) SleepError!void {
-    return io.vtable.sleep(io.userdata, timeout);
-}
-
-pub fn sleepDuration(io: Io, duration: Duration) SleepError!void {
-    return io.vtable.sleep(io.userdata, .MONOTONIC, .{ .duration = duration });
-}
 
 /// Given a struct with each field a `*Future`, returns a union with the same
 /// fields, each field type the future's result.
