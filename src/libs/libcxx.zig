@@ -406,6 +406,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try addCxxArgs(comp, arena, &cflags);
 
         try cflags.append("-DNDEBUG");
+        try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
