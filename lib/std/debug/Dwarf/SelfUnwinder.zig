@@ -197,9 +197,13 @@ fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheE
     // If unspecified, we'll use the default rule for the return address register, which is
     // typically equivalent to `.undefined` (meaning there is no return address), but may be
     // overriden by ABIs.
-    var has_return_address: bool = builtin.cpu.arch.isAARCH64() and
-        return_address_register >= 19 and
-        return_address_register <= 28;
+    var has_return_address: bool = switch (builtin.cpu.arch) {
+        // DWARF for the Arm 64-bit Architecture (AArch64) §4.3, p1
+        .aarch64, .aarch64_be => return_address_register >= 19 and return_address_register <= 28,
+        // ELF ABI s390x Supplement §1.6.4
+        .s390x => return_address_register >= 6 and return_address_register <= 15,
+        else => false,
+    };
 
     // Create a copy of the CPU state, to which we will apply the new rules.
     var new_cpu_state = unwinder.cpu_state;
