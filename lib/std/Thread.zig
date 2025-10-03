@@ -71,7 +71,7 @@ pub const ResetEvent = enum(u32) {
     ///
     /// The memory accesses before the set() can be said to happen before
     /// timedWait() returns without error.
-    pub fn timedWait(re: *ResetEvent, timeout_ns: u64) void {
+    pub fn timedWait(re: *ResetEvent, timeout_ns: u64) error{Timeout}!void {
         if (builtin.single_threaded) switch (re.*) {
             .unset => {
                 sleep(timeout_ns);
@@ -1774,9 +1774,9 @@ test "setName, getName" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Context = struct {
-        start_wait_event: ResetEvent = .{},
-        test_done_event: ResetEvent = .{},
-        thread_done_event: ResetEvent = .{},
+        start_wait_event: ResetEvent = .unset,
+        test_done_event: ResetEvent = .unset,
+        thread_done_event: ResetEvent = .unset,
 
         done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
         thread: Thread = undefined,
@@ -1843,7 +1843,7 @@ test join {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event = ResetEvent{};
+    var event: ResetEvent = .unset;
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.join();
@@ -1855,7 +1855,7 @@ test detach {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event = ResetEvent{};
+    var event: ResetEvent = .unset;
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.detach();
@@ -1902,8 +1902,7 @@ fn testTls() !void {
 }
 
 test "ResetEvent smoke test" {
-    // make sure the event is unset
-    var event = ResetEvent{};
+    var event: ResetEvent = .unset;
     try testing.expectEqual(false, event.isSet());
 
     // make sure the event gets set
@@ -1932,8 +1931,8 @@ test "ResetEvent signaling" {
     }
 
     const Context = struct {
-        in: ResetEvent = .{},
-        out: ResetEvent = .{},
+        in: ResetEvent = .unset,
+        out: ResetEvent = .unset,
         value: usize = 0,
 
         fn input(self: *@This()) !void {
@@ -1994,7 +1993,7 @@ test "ResetEvent broadcast" {
 
     const num_threads = 10;
     const Barrier = struct {
-        event: ResetEvent = .{},
+        event: ResetEvent = .unset,
         counter: std.atomic.Value(usize) = std.atomic.Value(usize).init(num_threads),
 
         fn wait(self: *@This()) void {
