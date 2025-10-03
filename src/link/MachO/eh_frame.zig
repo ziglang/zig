@@ -26,24 +26,24 @@ pub const Cie = struct {
 
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
-                const enc = try reader.takeByte();
-                if (enc != DW_EH_PE.pcrel | DW_EH_PE.absptr) {
+                const enc: DW.EH.PE = @bitCast(try reader.takeByte());
+                if (enc != @as(DW.EH.PE, .{ .type = .absptr, .rel = .pcrel })) {
                     @panic("unexpected pointer encoding"); // TODO error
                 }
             },
             'P' => {
-                const enc = try reader.takeByte();
-                if (enc != DW_EH_PE.pcrel | DW_EH_PE.indirect | DW_EH_PE.sdata4) {
+                const enc: DW.EH.PE = @bitCast(try reader.takeByte());
+                if (enc != @as(DW.EH.PE, .{ .type = .sdata4, .rel = .pcrel, .indirect = true })) {
                     @panic("unexpected personality pointer encoding"); // TODO error
                 }
                 _ = try reader.takeInt(u32, .little); // personality pointer
             },
             'L' => {
-                const enc = try reader.takeByte();
-                switch (enc & DW_EH_PE.type_mask) {
-                    DW_EH_PE.sdata4 => cie.lsda_size = .p32,
-                    DW_EH_PE.absptr => cie.lsda_size = .p64,
-                    else => unreachable, // TODO error
+                const enc: DW.EH.PE = @bitCast(try reader.takeByte());
+                switch (enc.type) {
+                    .sdata4 => cie.lsda_size = .p32,
+                    .absptr => cie.lsda_size = .p64,
+                    else => @panic("unexpected lsda encoding"), // TODO error
                 }
             },
             else => @panic("unexpected augmentation string"), // TODO error
@@ -505,7 +505,7 @@ const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
-const DW_EH_PE = std.dwarf.EH.PE;
+const DW = std.dwarf;
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");

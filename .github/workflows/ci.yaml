@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/x86_64-linux-debug.sh
   x86_64-linux-debug-llvm:
@@ -26,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/x86_64-linux-debug-llvm.sh
   x86_64-linux-release:
@@ -34,6 +38,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/x86_64-linux-release.sh
   aarch64-linux-debug:
@@ -41,6 +47,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/aarch64-linux-debug.sh
   aarch64-linux-release:
@@ -48,43 +56,45 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: sh ci/aarch64-linux-release.sh
   aarch64-macos-debug:
     runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/aarch64-macos-debug.sh
   aarch64-macos-release:
     runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/aarch64-macos-release.sh
   x86_64-windows-debug:
     timeout-minutes: 420
     runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/x86_64-windows-debug.ps1
   x86_64-windows-release:
     timeout-minutes: 420
     runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
         run: ci/x86_64-windows-release.ps1

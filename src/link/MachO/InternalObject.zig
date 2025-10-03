@@ -69,9 +69,9 @@ pub fn initSymbols(self: *InternalObject, macho_file: *MachO) !void {
             const nlist = obj.symtab.addOneAssumeCapacity();
             nlist.* = .{
                 .n_strx = name.pos,
-                .n_type = args.type,
+                .n_type = @bitCast(args.type),
                 .n_sect = 0,
-                .n_desc = args.desc,
+                .n_desc = @bitCast(args.desc),
                 .n_value = 0,
             };
             symbol.nlist_idx = nlist_idx;
@@ -143,7 +143,7 @@ pub fn resolveSymbols(self: *InternalObject, macho_file: *MachO) !void {
         }
         global.* = gop.index;
 
-        if (nlist.undf()) continue;
+        if (nlist.n_type.bits.type == .undf) continue;
         if (gop.ref.getFile(macho_file) == null) {
             gop.ref.* = .{ .index = @intCast(i), .file = self.index };
             continue;
@@ -171,7 +171,7 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
         const object = macho_file.getFile(index).?.object;
         for (object.symbols.items, 0..) |sym, i| {
             const nlist = object.symtab.items(.nlist)[i];
-            if (!nlist.undf() or !nlist.ext()) continue;
+            if (nlist.n_type.bits.type != .undf or !nlist.n_type.bits.ext) continue;
             const ref = object.getSymbolRef(@intCast(i), macho_file);
             if (ref.getFile(macho_file) != null) continue;
             const name = sym.getName(macho_file);
@@ -206,9 +206,9 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
         const nlist = self.symtab.addOneAssumeCapacity();
         nlist.* = .{
             .n_strx = name_str.pos,
-            .n_type = macho.N_SECT,
+            .n_type = .{ .bits = .{ .ext = false, .type = .sect, .pext = false, .is_stab = 0 } },
             .n_sect = 0,
-            .n_desc = 0,
+            .n_desc = @bitCast(@as(u16, 0)),
             .n_value = 0,
         };
         sym.nlist_idx = nlist_idx;
@@ -226,7 +226,7 @@ pub fn markLive(self: *InternalObject, macho_file: *MachO) void {
 
     for (0..self.symbols.items.len) |i| {
         const nlist = self.symtab.items[i];
-        if (!nlist.ext()) continue;
+        if (!nlist.n_type.bits.ext) continue;
 
         const ref = self.getSymbolRef(@intCast(i), macho_file);
         const file = ref.getFile(macho_file) orelse continue;
@@ -273,9 +273,9 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     const nlist = try self.symtab.addOne(gpa);
     nlist.* = .{
         .n_strx = name_str.pos,
-        .n_type = macho.N_SECT,
+        .n_type = .{ .bits = .{ .ext = false, .type = .sect, .pext = false, .is_stab = 0 } },
         .n_sect = @intCast(n_sect + 1),
-        .n_desc = 0,
+        .n_desc = @bitCast(@as(u16, 0)),
         .n_value = 0,
     };
     sym.nlist_idx = nlist_idx;
@@ -326,9 +326,9 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
     const nlist = try self.symtab.addOne(gpa);
     nlist.* = .{
         .n_strx = 0,
-        .n_type = macho.N_SECT,
+        .n_type = .{ .bits = .{ .ext = false, .type = .sect, .pext = false, .is_stab = 0 } },
         .n_sect = @intCast(n_sect + 1),
-        .n_desc = 0,
+        .n_desc = @bitCast(@as(u16, 0)),
         .n_value = 0,
     };
     sym.nlist_idx = nlist_idx;
@@ -352,8 +352,8 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
 
         for (object.symbols.items, 0..) |sym, i| {
             const nlist = object.symtab.items(.nlist)[i];
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
+            if (!nlist.n_type.bits.ext) continue;
+            if (nlist.n_type.bits.type != .undf) continue;
 
             const ref = object.getSymbolRef(@intCast(i), macho_file);
             if (ref.getFile(macho_file) != null) continue;
@@ -381,9 +381,9 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
         const nlist = try self.symtab.addOne(gpa);
         nlist.* = .{
             .n_strx = name_str.pos,
-            .n_type = macho.N_SECT | macho.N_EXT | macho.N_PEXT,
+            .n_type = .{ .bits = .{ .ext = true, .type = .sect, .pext = true, .is_stab = 0 } },
             .n_sect = 0,
-            .n_desc = 0,
+            .n_desc = @bitCast(@as(u16, 0)),
             .n_value = 0,
         };
         sym.nlist_idx = nlist_idx;

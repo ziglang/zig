@@ -7035,205 +7035,6 @@ pub const timezone = switch (native_os) {
     else => void,
 };
 
-pub const ucontext_t = switch (native_os) {
-    .linux => linux.ucontext_t, // std.os.linux.ucontext_t is currently glibc-compatible, but it should probably not be.
-    .emscripten => emscripten.ucontext_t,
-    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        onstack: c_int,
-        sigmask: sigset_t,
-        stack: stack_t,
-        link: ?*ucontext_t,
-        mcsize: u64,
-        mcontext: *mcontext_t,
-        __mcontext_data: mcontext_t,
-    },
-    .freebsd => extern struct {
-        sigmask: sigset_t,
-        mcontext: mcontext_t,
-        link: ?*ucontext_t,
-        stack: stack_t,
-        flags: c_int,
-        __spare__: [4]c_int,
-    },
-    .solaris, .illumos => extern struct {
-        flags: u64,
-        link: ?*ucontext_t,
-        sigmask: sigset_t,
-        stack: stack_t,
-        mcontext: mcontext_t,
-        brand_data: [3]?*anyopaque,
-        filler: [2]i64,
-    },
-    .netbsd => extern struct {
-        flags: u32,
-        link: ?*ucontext_t,
-        sigmask: sigset_t,
-        stack: stack_t,
-        mcontext: mcontext_t,
-        __pad: [
-            switch (builtin.cpu.arch) {
-                .x86 => 4,
-                .mips, .mipsel, .mips64, .mips64el => 14,
-                .arm, .armeb, .thumb, .thumbeb => 1,
-                .sparc, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
-                else => 0,
-            }
-        ]u32,
-    },
-    .dragonfly => extern struct {
-        sigmask: sigset_t,
-        mcontext: mcontext_t,
-        link: ?*ucontext_t,
-        stack: stack_t,
-        cofunc: ?*fn (?*ucontext_t, ?*anyopaque) void,
-        arg: ?*void,
-        _spare: [4]c_int,
-    },
-    // https://github.com/SerenityOS/serenity/blob/87eac0e424cff4a1f941fb704b9362a08654c24d/Kernel/API/POSIX/ucontext.h#L19-L24
-    .haiku, .serenity => extern struct {
-        link: ?*ucontext_t,
-        sigmask: sigset_t,
-        stack: stack_t,
-        mcontext: mcontext_t,
-    },
-    .openbsd => openbsd.ucontext_t,
-    else => void,
-};
-pub const mcontext_t = switch (native_os) {
-    .linux => linux.mcontext_t,
-    .emscripten => emscripten.mcontext_t,
-    .macos, .ios, .tvos, .watchos, .visionos => darwin.mcontext_t,
-    .freebsd => switch (builtin.cpu.arch) {
-        .x86_64 => extern struct {
-            onstack: u64,
-            rdi: u64,
-            rsi: u64,
-            rdx: u64,
-            rcx: u64,
-            r8: u64,
-            r9: u64,
-            rax: u64,
-            rbx: u64,
-            rbp: u64,
-            r10: u64,
-            r11: u64,
-            r12: u64,
-            r13: u64,
-            r14: u64,
-            r15: u64,
-            trapno: u32,
-            fs: u16,
-            gs: u16,
-            addr: u64,
-            flags: u32,
-            es: u16,
-            ds: u16,
-            err: u64,
-            rip: u64,
-            cs: u64,
-            rflags: u64,
-            rsp: u64,
-            ss: u64,
-            len: u64,
-            fpformat: u64,
-            ownedfp: u64,
-            fpstate: [64]u64 align(16),
-            fsbase: u64,
-            gsbase: u64,
-            xfpustate: u64,
-            xfpustate_len: u64,
-            spare: [4]u64,
-        },
-        .aarch64 => extern struct {
-            gpregs: extern struct {
-                x: [30]u64,
-                lr: u64,
-                sp: u64,
-                elr: u64,
-                spsr: u32,
-                _pad: u32,
-            },
-            fpregs: extern struct {
-                q: [32]u128,
-                sr: u32,
-                cr: u32,
-                flags: u32,
-                _pad: u32,
-            },
-            flags: u32,
-            _pad: u32,
-            _spare: [8]u64,
-        },
-        else => struct {},
-    },
-    .solaris, .illumos => extern struct {
-        gregs: [28]u64,
-        fpregs: solaris.fpregset_t,
-    },
-    .netbsd => switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be => extern struct {
-            gregs: [35]u64,
-            fregs: [528]u8 align(16),
-            spare: [8]u64,
-        },
-        .x86 => extern struct {
-            gregs: [19]u32,
-            fpregs: [161]u32,
-            mc_tlsbase: u32,
-        },
-        .x86_64 => extern struct {
-            gregs: [26]u64,
-            mc_tlsbase: u64,
-            fpregs: [512]u8 align(8),
-        },
-        else => struct {},
-    },
-    .dragonfly => dragonfly.mcontext_t,
-    .haiku => haiku.mcontext_t,
-    .serenity => switch (native_arch) {
-        // https://github.com/SerenityOS/serenity/blob/200e91cd7f1ec5453799a2720d4dc114a59cc289/Kernel/Arch/aarch64/mcontext.h#L15-L19
-        .aarch64 => extern struct {
-            x: [31]u64,
-            sp: u64,
-            pc: u64,
-        },
-        // https://github.com/SerenityOS/serenity/blob/66f8d0f031ef25c409dbb4fecaa454800fecae0f/Kernel/Arch/riscv64/mcontext.h#L15-L18
-        .riscv64 => extern struct {
-            x: [31]u64,
-            pc: u64,
-        },
-        // https://github.com/SerenityOS/serenity/blob/7b9ea3efdec9f86a1042893e8107d0b23aad8727/Kernel/Arch/x86_64/mcontext.h#L15-L40
-        .x86_64 => extern struct {
-            rax: u64,
-            rcx: u64,
-            rdx: u64,
-            rbx: u64,
-            rsp: u64,
-            rbp: u64,
-            rsi: u64,
-            rdi: u64,
-            rip: u64,
-            r8: u64,
-            r9: u64,
-            r10: u64,
-            r11: u64,
-            r12: u64,
-            r13: u64,
-            r14: u64,
-            r15: u64,
-            rflags: u64,
-            cs: u32,
-            ss: u32,
-            ds: u32,
-            es: u32,
-            fs: u32,
-            gs: u32,
-        },
-        else => struct {},
-    },
-    else => void,
-};
-
 pub const user_desc = switch (native_os) {
     .linux => linux.user_desc,
     else => void,
@@ -11193,6 +10994,9 @@ pub extern "c" fn dlclose(handle: *anyopaque) c_int;
 pub extern "c" fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
 pub extern "c" fn dlerror() ?[*:0]u8;
 
+pub const dladdr = if (native_os.isDarwin()) darwin.dladdr else {};
+pub const dl_info = if (native_os.isDarwin()) darwin.dl_info else {};
+
 pub extern "c" fn sync() void;
 pub extern "c" fn syncfs(fd: c_int) c_int;
 pub extern "c" fn fsync(fd: c_int) c_int;
@@ -11237,13 +11041,6 @@ pub const LC = enum(c_int) {
 };
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
-
-pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd or builtin.target.os.tag == .haiku)
-{} // libc does not implement getcontext
-    else if (native_os == .linux and builtin.target.abi.isMusl())
-        linux.getcontext
-    else
-        private.getcontext;
 
 pub const max_align_t = if (native_abi == .msvc or native_abi == .itanium)
     f64
@@ -11668,7 +11465,6 @@ const private = struct {
     extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: mode_t) c_int;
 
     extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
-    extern "c" fn getcontext(ucp: *ucontext_t) c_int;
 
     extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
     extern "c" fn getentropy(buffer: [*]u8, size: usize) c_int;
