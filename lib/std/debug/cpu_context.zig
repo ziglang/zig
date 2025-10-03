@@ -57,7 +57,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
                 .r15 = uc.mcontext.gregs[std.posix.REG.R15],
                 .rip = uc.mcontext.gregs[std.posix.REG.RIP],
             }) },
-            .freebsd => .{ .gprs = .init(.{
+            .freebsd, .serenity => .{ .gprs = .init(.{
                 .rax = uc.mcontext.rax,
                 .rdx = uc.mcontext.rdx,
                 .rcx = uc.mcontext.rcx,
@@ -174,6 +174,11 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
                 .sp = uc.mcontext.sp,
                 .pc = uc.mcontext.pc,
             },
+            .serenity => .{
+                .x = uc.mcontext.x,
+                .sp = uc.mcontext.sp,
+                .pc = uc.mcontext.pc,
+            },
             else => null,
         },
         .loongarch64 => switch (builtin.os.tag) {
@@ -187,6 +192,10 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             .linux => .{
                 .r = [1]usize{0} ++ uc.mcontext.gregs[1..].*, // r0 position is used for pc; replace with zero
                 .pc = uc.mcontext.gregs[0],
+            },
+            .serenity => if (native_arch == .riscv32) null else .{
+                .r = [1]u64{0} ++ uc.mcontext.x,
+                .pc = uc.mcontext.pc,
             },
             else => null,
         },

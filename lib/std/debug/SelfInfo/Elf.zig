@@ -114,6 +114,11 @@ pub const can_unwind: bool = s: {
             .x86,
             .x86_64,
         },
+        .serenity => &.{
+            .x86_64,
+            .aarch64,
+            .riscv64,
+        },
         else => unreachable,
     };
     for (archs) |a| {

@@ -1276,6 +1276,7 @@ pub const have_segfault_handling_support = switch (native_os) {
     .windows,
     .freebsd,
     .openbsd,
+    .serenity,
     => true,
 
     else => false,
@@ -1359,7 +1360,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
         }
         const addr: usize = switch (native_os) {
             .linux => @intFromPtr(info.fields.sigfault.addr),
-            .freebsd, .macos => @intFromPtr(info.addr),
+            .freebsd, .macos, .serenity => @intFromPtr(info.addr),
             .netbsd => @intFromPtr(info.info.reason.fault.addr),
             .openbsd => @intFromPtr(info.data.fault.addr),
             .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
