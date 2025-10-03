@@ -183,7 +183,7 @@ pub const Element = struct {
         }
     };
 
-    pub const DecodeError = error{InvalidLength} || std.Io.Reader.Error;
+    pub const DecodeError = error{ InvalidLength, EndOfStream, ReadFailed };
 
     /// Safely decode a DER/BER/CER element at `index`:
     /// - Ensures length uses shortest form
