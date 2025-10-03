@@ -6,16 +6,16 @@ const testing = std.testing;
 
 test "parse and render IP addresses at comptime" {
     comptime {
-        const ipv6addr = net.IpAddress.parseIp("::1", 0) catch unreachable;
+        const ipv6addr = net.IpAddress.parse("::1", 0) catch unreachable;
         try std.testing.expectFmt("[::1]:0", "{f}", .{ipv6addr});
 
-        const ipv4addr = net.IpAddress.parseIp("127.0.0.1", 0) catch unreachable;
+        const ipv4addr = net.IpAddress.parse("127.0.0.1", 0) catch unreachable;
         try std.testing.expectFmt("127.0.0.1:0", "{f}", .{ipv4addr});
 
-        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.parseIp("::123.123.123.123", 0));
-        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.parseIp("127.01.0.1", 0));
-        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.resolveIp("::123.123.123.123", 0));
-        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.resolveIp("127.01.0.1", 0));
+        try testing.expectError(error.ParseFailed, net.IpAddress.parse("::123.123.123.123", 0));
+        try testing.expectError(error.ParseFailed, net.IpAddress.parse("127.01.0.1", 0));
+        try testing.expectError(error.ParseFailed, net.IpAddress.resolveIp("::123.123.123.123", 0));
+        try testing.expectError(error.ParseFailed, net.IpAddress.resolveIp("127.01.0.1", 0));
     }
 }
 
@@ -161,8 +161,8 @@ test "resolve DNS" {
 
     // Resolve localhost, this should not fail.
     {
-        const localhost_v4 = try net.IpAddress.parseIp("127.0.0.1", 80);
-        const localhost_v6 = try net.IpAddress.parseIp("::2", 80);
+        const localhost_v4 = try net.IpAddress.parse("127.0.0.1", 80);
+        const localhost_v6 = try net.IpAddress.parse("::2", 80);
 
         const result = try net.getAddressList(testing.allocator, "localhost", 80);
         defer result.deinit();
@@ -198,7 +198,7 @@ test "listen on a port, send bytes, receive bytes" {
 
     // Try only the IPv4 variant as some CI builders have no IPv6 localhost
     // configured.
-    const localhost = try net.IpAddress.parseIp("127.0.0.1", 0);
+    const localhost = try net.IpAddress.parse("127.0.0.1", 0);
 
     var server = try localhost.listen(.{});
     defer server.deinit();
@@ -232,7 +232,7 @@ test "listen on an in use port" {
         return error.SkipZigTest;
     }
 
-    const localhost = try net.IpAddress.parseIp("127.0.0.1", 0);
+    const localhost = try net.IpAddress.parse("127.0.0.1", 0);
 
     var server1 = try localhost.listen(.{ .reuse_address = true });
     defer server1.deinit();
@@ -351,7 +351,7 @@ test "non-blocking tcp server" {
         return error.SkipZigTest;
     }
 
-    const localhost = try net.IpAddress.parseIp("127.0.0.1", 0);
+    const localhost = try net.IpAddress.parse("127.0.0.1", 0);
     var server = localhost.listen(.{ .force_nonblocking = true });
     defer server.deinit();
 

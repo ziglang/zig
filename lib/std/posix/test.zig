@@ -637,7 +637,7 @@ test "shutdown socket" {
         error.SocketUnconnected => {},
         else => |e| return e,
     };
-    std.net.Stream.close(.{ .handle = sock });
+    std.posix.close(sock);
 }
 
 test "sigrtmin/max" {

@@ -1317,6 +1317,8 @@ fn testGetCurrentFileTimestamp(dir: fs.Dir) !i128 {
 }
 
 test "cache file and then recall it" {
+    const io = std.testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1328,7 +1330,7 @@ test "cache file and then recall it" {
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
     while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.Thread.sleep(1);
+        try std.Io.Duration.sleep(.fromNanoseconds(1), io);
     }
 
     var digest1: HexDigest = undefined;
@@ -1378,6 +1380,8 @@ test "cache file and then recall it" {
 }
 
 test "check that changing a file makes cache fail" {
+    const io = std.testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1391,7 +1395,7 @@ test "check that changing a file makes cache fail" {
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
     while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.Thread.sleep(1);
+        try std.Io.Duration.sleep(.fromNanoseconds(1), io);
     }
 
     var digest1: HexDigest = undefined;
@@ -1490,6 +1494,8 @@ test "no file inputs" {
 }
 
 test "Manifest with files added after initial hash work" {
+    const io = std.testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1503,7 +1509,7 @@ test "Manifest with files added after initial hash work" {
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
     while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.Thread.sleep(1);
+        try std.Io.Duration.sleep(.fromNanoseconds(1), io);
     }
 
     var digest1: HexDigest = undefined;
@@ -1553,7 +1559,7 @@ test "Manifest with files added after initial hash work" {
         // Wait for file timestamps to tick
         const initial_time2 = try testGetCurrentFileTimestamp(tmp.dir);
         while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time2) {
-            std.Thread.sleep(1);
+            try std.Io.Duration.sleep(.fromNanoseconds(1), io);
         }
 
         {
