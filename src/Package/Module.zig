@@ -343,7 +343,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
                 // See https://github.com/ziglang/zig/issues/23539
                 if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
 
-                const is_enabled = target.cpu.features.isEnabled(feature.index);
+                var is_enabled = target.cpu.features.isEnabled(feature.index);
+                if (target.cpu.arch == .s390x and @as(std.Target.s390x.Feature, @enumFromInt(feature.index)) == .backchain) {
+                    is_enabled = !omit_frame_pointer;
+                }
 
                 if (is_enabled) {
                     try buf.ensureUnusedCapacity(2 + llvm_name.len);
