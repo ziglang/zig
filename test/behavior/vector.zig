@@ -7,16 +7,46 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "implicit cast vector to array - bool" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
-            const a: @Vector(4, bool) = [_]bool{ true, false, true, false };
-            const result_array: [4]bool = a;
-            try expect(mem.eql(bool, &result_array, &[4]bool{ true, false, true, false }));
+            {
+                var v: @Vector(4, bool) = undefined;
+                v = .{ true, false, true, false };
+                const a: [4]bool = v;
+                try expect(mem.eql(bool, &a, &.{ true, false, true, false }));
+            }
+            {
+                var v: @Vector(25, bool) = undefined;
+                v = .{ false, false, false, false, true, true, false, false, false, true, false, true, false, false, true, false, false, true, false, false, true, true, true, false, false };
+                const a: [25]bool = v;
+                try expect(mem.eql(bool, &a, &.{ false, false, false, false, true, true, false, false, false, true, false, true, false, false, true, false, false, true, false, false, true, true, true, false, false }));
+            }
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "implicit cast array to vector - bool" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                var a: [4]bool = undefined;
+                a = .{ true, false, false, true };
+                const v: @Vector(4, bool) = a;
+                try expect(mem.eql(bool, &@as([4]bool, v), &.{ true, false, false, true }));
+            }
+            {
+                var a: [25]bool = undefined;
+                a = .{ true, false, false, true, false, false, false, false, false, true, true, true, true, false, false, false, false, true, false, false, false, true, true, true, false };
+                const v: @Vector(25, bool) = a;
+                try expect(mem.eql(bool, &@as([25]bool, v), &.{ true, false, false, true, false, false, false, false, false, true, true, true, true, false, false, false, false, true, false, false, false, true, true, true, false }));
+            }
         }
     };
     try S.doTheTest();
@@ -606,7 +636,7 @@ test "vector bitwise not operator" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.cpu.arch == .aarch64_be) {
+    if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) {
         // https://github.com/ziglang/zig/issues/24061
         return error.SkipZigTest;
     }
@@ -645,7 +675,7 @@ test "vector boolean not operator" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.cpu.arch == .aarch64_be) {
+    if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) {
         // https://github.com/ziglang/zig/issues/24061
         return error.SkipZigTest;
     }
