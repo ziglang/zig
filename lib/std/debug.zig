@@ -951,7 +951,7 @@ const StackIterator = union(enum) {
 
     /// Offset of the saved return address wrt the frame pointer.
     const ra_offset = off: {
-        if (native_arch == .powerpc64le) break :off 2 * @sizeOf(usize);
+        if (native_arch.isPowerPC64()) break :off 2 * @sizeOf(usize);
         // On s390x, r14 is the link register and we need to grab it from its customary slot in the
         // register save area (ELF ABI s390x Supplement §1.2.2.2).
         if (native_arch == .s390x) break :off 14 * @sizeOf(usize);
