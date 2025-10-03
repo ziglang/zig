@@ -1,38 +1,38 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const net = std.net;
+const net = std.Io.net;
 const mem = std.mem;
 const testing = std.testing;
 
 test "parse and render IP addresses at comptime" {
     comptime {
-        const ipv6addr = net.Address.parseIp("::1", 0) catch unreachable;
+        const ipv6addr = net.IpAddress.parseIp("::1", 0) catch unreachable;
         try std.testing.expectFmt("[::1]:0", "{f}", .{ipv6addr});
 
-        const ipv4addr = net.Address.parseIp("127.0.0.1", 0) catch unreachable;
+        const ipv4addr = net.IpAddress.parseIp("127.0.0.1", 0) catch unreachable;
         try std.testing.expectFmt("127.0.0.1:0", "{f}", .{ipv4addr});
 
-        try testing.expectError(error.InvalidIpAddressFormat, net.Address.parseIp("::123.123.123.123", 0));
-        try testing.expectError(error.InvalidIpAddressFormat, net.Address.parseIp("127.01.0.1", 0));
-        try testing.expectError(error.InvalidIpAddressFormat, net.Address.resolveIp("::123.123.123.123", 0));
-        try testing.expectError(error.InvalidIpAddressFormat, net.Address.resolveIp("127.01.0.1", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.parseIp("::123.123.123.123", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.parseIp("127.01.0.1", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.resolveIp("::123.123.123.123", 0));
+        try testing.expectError(error.InvalidIpAddressFormat, net.IpAddress.resolveIp("127.01.0.1", 0));
     }
 }
 
 test "format IPv6 address with no zero runs" {
-    const addr = try std.net.Address.parseIp6("2001:db8:1:2:3:4:5:6", 0);
+    const addr = try std.net.IpAddress.parseIp6("2001:db8:1:2:3:4:5:6", 0);
     try std.testing.expectFmt("[2001:db8:1:2:3:4:5:6]:0", "{f}", .{addr});
 }
 
 test "parse IPv6 addresses and check compressed form" {
     try std.testing.expectFmt("[2001:db8::1:0:0:2]:0", "{f}", .{
-        try std.net.Address.parseIp6("2001:0db8:0000:0000:0001:0000:0000:0002", 0),
+        try std.net.IpAddress.parseIp6("2001:0db8:0000:0000:0001:0000:0000:0002", 0),
     });
     try std.testing.expectFmt("[2001:db8::1:2]:0", "{f}", .{
-        try std.net.Address.parseIp6("2001:0db8:0000:0000:0000:0000:0001:0002", 0),
+        try std.net.IpAddress.parseIp6("2001:0db8:0000:0000:0000:0000:0001:0002", 0),
     });
     try std.testing.expectFmt("[2001:db8:1:0:1::2]:0", "{f}", .{
-        try std.net.Address.parseIp6("2001:0db8:0001:0000:0001:0000:0000:0002", 0),
+        try std.net.IpAddress.parseIp6("2001:0db8:0001:0000:0001:0000:0000:0002", 0),
     });
 }
 
@@ -44,7 +44,7 @@ test "parse IPv6 address, check raw bytes" {
         0x00, 0x00, 0x00, 0x02, // :0000:0002
     };
 
-    const addr = try std.net.Address.parseIp6("2001:db8:0000:0000:0001:0000:0000:0002", 0);
+    const addr = try std.net.IpAddress.parseIp6("2001:db8:0000:0000:0001:0000:0000:0002", 0);
 
     const actual_raw = addr.in6.sa.addr[0..];
     try std.testing.expectEqualSlices(u8, expected_raw[0..], actual_raw);
@@ -77,30 +77,30 @@ test "parse and render IPv6 addresses" {
         "::ffff:123.5.123.5",
     };
     for (ips, 0..) |ip, i| {
-        const addr = net.Address.parseIp6(ip, 0) catch unreachable;
+        const addr = net.IpAddress.parseIp6(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
         if (builtin.os.tag == .linux) {
-            const addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
+            const addr_via_resolve = net.IpAddress.resolveIp6(ip, 0) catch unreachable;
             var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr_via_resolve}) catch unreachable;
             try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
         }
     }
 
-    try testing.expectError(error.InvalidCharacter, net.Address.parseIp6(":::", 0));
-    try testing.expectError(error.Overflow, net.Address.parseIp6("FF001::FB", 0));
-    try testing.expectError(error.InvalidCharacter, net.Address.parseIp6("FF01::Fb:zig", 0));
-    try testing.expectError(error.InvalidEnd, net.Address.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
-    try testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
-    try testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
-    try testing.expectError(error.Incomplete, net.Address.parseIp6("1", 0));
+    try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6(":::", 0));
+    try testing.expectError(error.Overflow, net.IpAddress.parseIp6("FF001::FB", 0));
+    try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6("FF01::Fb:zig", 0));
+    try testing.expectError(error.InvalidEnd, net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
+    try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("FF01:", 0));
+    try testing.expectError(error.InvalidIpv4Mapping, net.IpAddress.parseIp6("::123.123.123.123", 0));
+    try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("1", 0));
     // TODO Make this test pass on other operating systems.
     if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin() or builtin.os.tag == .windows) {
-        try testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
+        try testing.expectError(error.Incomplete, net.IpAddress.resolveIp6("ff01::fb%", 0));
         // Assumes IFNAMESIZE will always be a multiple of 2
-        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
-        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
+        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
+        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6("ff01::fb%12345678901234", 0));
     }
 }
 
@@ -111,7 +111,7 @@ test "invalid but parseable IPv6 scope ids" {
         return error.SkipZigTest;
     }
 
-    try testing.expectError(error.InterfaceNotFound, net.Address.resolveIp6("ff01::fb%123s45678901234", 0));
+    try testing.expectError(error.InterfaceNotFound, net.IpAddress.resolveIp6("ff01::fb%123s45678901234", 0));
 }
 
 test "parse and render IPv4 addresses" {
@@ -123,17 +123,17 @@ test "parse and render IPv4 addresses" {
         "123.255.0.91",
         "127.0.0.1",
     }) |ip| {
-        const addr = net.Address.parseIp4(ip, 0) catch unreachable;
+        const addr = net.IpAddress.parseIp4(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
 
-    try testing.expectError(error.Overflow, net.Address.parseIp4("256.0.0.1", 0));
-    try testing.expectError(error.InvalidCharacter, net.Address.parseIp4("x.0.0.1", 0));
-    try testing.expectError(error.InvalidEnd, net.Address.parseIp4("127.0.0.1.1", 0));
-    try testing.expectError(error.Incomplete, net.Address.parseIp4("127.0.0.", 0));
-    try testing.expectError(error.InvalidCharacter, net.Address.parseIp4("100..0.1", 0));
-    try testing.expectError(error.NonCanonical, net.Address.parseIp4("127.01.0.1", 0));
+    try testing.expectError(error.Overflow, net.IpAddress.parseIp4("256.0.0.1", 0));
+    try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp4("x.0.0.1", 0));
+    try testing.expectError(error.InvalidEnd, net.IpAddress.parseIp4("127.0.0.1.1", 0));
+    try testing.expectError(error.Incomplete, net.IpAddress.parseIp4("127.0.0.", 0));
+    try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp4("100..0.1", 0));
+    try testing.expectError(error.NonCanonical, net.IpAddress.parseIp4("127.01.0.1", 0));
 }
 
 test "parse and render UNIX addresses" {
@@ -161,8 +161,8 @@ test "resolve DNS" {
 
     // Resolve localhost, this should not fail.
     {
-        const localhost_v4 = try net.Address.parseIp("127.0.0.1", 80);
-        const localhost_v6 = try net.Address.parseIp("::2", 80);
+        const localhost_v4 = try net.IpAddress.parseIp("127.0.0.1", 80);
+        const localhost_v6 = try net.IpAddress.parseIp("::2", 80);
 
         const result = try net.getAddressList(testing.allocator, "localhost", 80);
         defer result.deinit();
@@ -198,13 +198,13 @@ test "listen on a port, send bytes, receive bytes" {
 
     // Try only the IPv4 variant as some CI builders have no IPv6 localhost
     // configured.
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+    const localhost = try net.IpAddress.parseIp("127.0.0.1", 0);
 
     var server = try localhost.listen(.{});
     defer server.deinit();
 
     const S = struct {
-        fn clientFn(server_address: net.Address) !void {
+        fn clientFn(server_address: net.IpAddress) !void {
             const socket = try net.tcpConnectToAddress(server_address);
             defer socket.close();
 
@@ -232,7 +232,7 @@ test "listen on an in use port" {
         return error.SkipZigTest;
     }
 
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+    const localhost = try net.IpAddress.parseIp("127.0.0.1", 0);
 
     var server1 = try localhost.listen(.{ .reuse_address = true });
     defer server1.deinit();
@@ -253,7 +253,7 @@ fn testClientToHost(allocator: mem.Allocator, name: []const u8, port: u16) anyer
     try testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
 
-fn testClient(addr: net.Address) anyerror!void {
+fn testClient(addr: net.IpAddress) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const socket_file = try net.tcpConnectToAddress(addr);
@@ -290,7 +290,7 @@ test "listen on a unix socket, send bytes, receive bytes" {
     const socket_path = try generateFileName("socket.unix");
     defer testing.allocator.free(socket_path);
 
-    const socket_addr = try net.Address.initUnix(socket_path);
+    const socket_addr = try net.IpAddress.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
 
     var server = try socket_addr.listen(.{});
@@ -351,7 +351,7 @@ test "non-blocking tcp server" {
         return error.SkipZigTest;
     }
 
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+    const localhost = try net.IpAddress.parseIp("127.0.0.1", 0);
     var server = localhost.listen(.{ .force_nonblocking = true });
     defer server.deinit();
 

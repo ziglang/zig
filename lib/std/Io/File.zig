@@ -1,6 +1,8 @@
 const File = @This();
 
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+const is_windows = native_os == .windows;
 
 const std = @import("../std.zig");
 const Io = std.Io;
@@ -131,6 +133,18 @@ pub const Stat = struct {
     }
 };
 
+pub fn stdout() File {
+    return .{ .handle = if (is_windows) std.os.windows.peb().ProcessParameters.hStdOutput else std.posix.STDOUT_FILENO };
+}
+
+pub fn stderr() File {
+    return .{ .handle = if (is_windows) std.os.windows.peb().ProcessParameters.hStdError else std.posix.STDERR_FILENO };
+}
+
+pub fn stdin() File {
+    return .{ .handle = if (is_windows) std.os.windows.peb().ProcessParameters.hStdInput else std.posix.STDIN_FILENO };
+}
+
 pub const StatError = std.posix.FStatError || Io.Cancelable;
 
 /// Returns `Stat` containing basic information about the `File`.
@@ -181,6 +195,11 @@ pub const WriteError = std.fs.File.WriteError || Io.Cancelable;
 
 pub fn write(file: File, io: Io, buffer: []const u8) WriteError!usize {
     return @errorCast(file.pwrite(io, buffer, -1));
+}
+
+pub fn writeAll(file: File, io: Io, bytes: []const u8) WriteError!void {
+    var index: usize = 0;
+    while (index < bytes.len) index += try file.write(io, bytes[index..]);
 }
 
 pub const PWriteError = std.fs.File.PWriteError || Io.Cancelable;
