@@ -3140,8 +3140,17 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
     },
+    // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal.h
     // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal_numbers.h
     .serenity => struct {
+        pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+        pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+        pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+
+        pub const BLOCK = 1;
+        pub const UNBLOCK = 2;
+        pub const SETMASK = 3;
+
         pub const INVAL = 0;
         pub const HUP = 1;
         pub const INT = 2;
