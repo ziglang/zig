@@ -2195,7 +2195,7 @@ fn dependencyInner(
         sub_builder.runBuild(bz) catch @panic("unhandled error");
 
         if (sub_builder.validateUserInputDidItFail()) {
-            std.debug.dumpCurrentStackTrace(@returnAddress());
+            std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
         }
     }
 

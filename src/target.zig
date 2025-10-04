@@ -233,7 +233,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 
 pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.CompilerBackend) bool {
     return switch (ofmt) {
-        .elf => switch (backend) {
+        .elf, .coff => switch (backend) {
             .stage2_x86_64 => true,
             else => false,
         },
@@ -375,11 +375,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
         else => {},
     }
     return switch (zigBackend(target, false)) {
-        .stage2_aarch64 => .yes,
-        .stage2_x86_64 => switch (target.ofmt) {
-            .elf, .macho => .yes,
-            else => .llvm_only,
-        },
+        .stage2_aarch64, .stage2_x86_64 => .yes,
         else => .llvm_only,
     };
 }
@@ -516,7 +512,7 @@ pub fn defaultUnwindTables(target: *const std.Target, libunwind: bool, libtsan: 
     if (target.os.tag.isDarwin()) return .async;
     if (libunwind) return .async;
     if (libtsan) return .async;
-    if (std.debug.Dwarf.abi.supportsUnwinding(target)) return .async;
+    if (std.debug.Dwarf.supportsUnwinding(target)) return .async;
     return .none;
 }
 

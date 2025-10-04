@@ -28,6 +28,7 @@ const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
+const crash_report = @import("../crash_report.zig");
 const Zir = std.zig.Zir;
 const Zoir = std.zig.Zoir;
 const ZonGen = std.zig.ZonGen;
@@ -4389,6 +4390,9 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
 /// codegen thread, depending on whether the backend supports `Zcu.Feature.separate_thread`.
 pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
     const zcu = pt.zcu;
+
+    crash_report.CodegenFunc.start(zcu, func_index);
+    defer crash_report.CodegenFunc.stop(func_index);
 
     var timer = zcu.comp.startTimer();
 

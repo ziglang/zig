@@ -6,11 +6,13 @@ const OptimizeMode = std.builtin.OptimizeMode;
 const Step = std.Build.Step;
 
 // Cases
+const error_traces = @import("error_traces.zig");
 const stack_traces = @import("stack_traces.zig");
 const llvm_ir = @import("llvm_ir.zig");
 const libc = @import("libc.zig");
 
 // Implementations
+pub const ErrorTracesContext = @import("src/ErrorTrace.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
 pub const LlvmIrContext = @import("src/LlvmIr.zig");
@@ -1176,6 +1178,7 @@ const test_targets = blk: {
                 .abi = .musl,
             },
             .link_libc = true,
+            .use_llvm = true,
             .use_lld = false,
         },
 
@@ -1856,31 +1859,94 @@ const c_abi_targets = blk: {
     };
 };
 
+/// For stack trace tests, we only test native, because external executors are pretty unreliable at
+/// stack tracing. However, if there's a 32-bit equivalent target which the host can trivially run,
+/// we may as well at least test that!
+fn nativeAndCompatible32bit(b: *std.Build, skip_non_native: bool) []const std.Build.ResolvedTarget {
+    const host = b.graph.host.result;
+    const only_native = (&b.graph.host)[0..1];
+    if (skip_non_native) return only_native;
+    const arch32: std.Target.Cpu.Arch = switch (host.os.tag) {
+        .windows => switch (host.cpu.arch) {
+            .x86_64 => .x86,
+            .aarch64 => .thumb,
+            .aarch64_be => .thumbeb,
+            else => return only_native,
+        },
+        .freebsd => switch (host.cpu.arch) {
+            .aarch64 => .arm,
+            .aarch64_be => .armeb,
+            else => return only_native,
+        },
+        .linux, .netbsd => switch (host.cpu.arch) {
+            .x86_64 => .x86,
+            .aarch64 => .arm,
+            .aarch64_be => .armeb,
+            else => return only_native,
+        },
+        else => return only_native,
+    };
+    return b.graph.arena.dupe(std.Build.ResolvedTarget, &.{
+        b.graph.host,
+        b.resolveTargetQuery(.{ .cpu_arch = arch32, .os_tag = host.os.tag }),
+    }) catch @panic("OOM");
+}
+
 pub fn addStackTraceTests(
     b: *std.Build,
     test_filters: []const []const u8,
-    optimize_modes: []const OptimizeMode,
+    skip_non_native: bool,
 ) *Step {
-    const check_exe = b.addExecutable(.{
-        .name = "check-stack-trace",
+    const convert_exe = b.addExecutable(.{
+        .name = "convert-stack-trace",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("test/src/check-stack-trace.zig"),
+            .root_source_file = b.path("test/src/convert-stack-trace.zig"),
             .target = b.graph.host,
             .optimize = .Debug,
         }),
     });
 
     const cases = b.allocator.create(StackTracesContext) catch @panic("OOM");
+
     cases.* = .{
         .b = b,
         .step = b.step("test-stack-traces", "Run the stack trace tests"),
-        .test_index = 0,
         .test_filters = test_filters,
-        .optimize_modes = optimize_modes,
-        .check_exe = check_exe,
+        .targets = nativeAndCompatible32bit(b, skip_non_native),
+        .convert_exe = convert_exe,
     };
 
     stack_traces.addCases(cases);
+
+    return cases.step;
+}
+
+pub fn addErrorTraceTests(
+    b: *std.Build,
+    test_filters: []const []const u8,
+    optimize_modes: []const OptimizeMode,
+    skip_non_native: bool,
+) *Step {
+    const convert_exe = b.addExecutable(.{
+        .name = "convert-stack-trace",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/src/convert-stack-trace.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+
+    const cases = b.allocator.create(ErrorTracesContext) catch @panic("OOM");
+    cases.* = .{
+        .b = b,
+        .step = b.step("test-error-traces", "Run the error trace tests"),
+        .test_filters = test_filters,
+        .targets = nativeAndCompatible32bit(b, skip_non_native),
+        .optimize_modes = optimize_modes,
+        .convert_exe = convert_exe,
+    };
+
+    error_traces.addCases(cases);
 
     return cases.step;
 }

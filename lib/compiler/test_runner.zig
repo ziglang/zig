@@ -141,7 +141,7 @@ fn mainServer() !void {
                     else => {
                         fail = true;
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
                     },
                 };
@@ -183,7 +183,7 @@ fn mainServer() !void {
                     error.SkipZigTest => return,
                     else => {
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
                         std.debug.print("failed with error.{t}\n", .{err});
                         std.process.exit(1);
@@ -262,7 +262,7 @@ fn mainTerminal() void {
                     std.debug.print("FAIL ({t})\n", .{err});
                 }
                 if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
+                    std.debug.dumpStackTrace(trace);
                 }
                 test_node.end();
             },
@@ -399,7 +399,7 @@ pub fn fuzz(
                 error.SkipZigTest => return,
                 else => {
                     std.debug.lockStdErr();
-                    if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+                    if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace);
                     std.debug.print("failed with error.{t}\n", .{err});
                     std.process.exit(1);
                 },

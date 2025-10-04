@@ -1884,6 +1884,16 @@ fn initSyntheticSections(self: *Elf) !void {
     const ptr_size = self.ptrWidthBytes();
     const shared_objects = self.shared_objects.values();
 
+    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
+        .Exe => true,
+        .Lib => comp.config.link_mode == .dynamic,
+        .Obj => false,
+    };
+    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib and !target.dynamic_linker.eql(.none);
+
+    const needs_interp = have_dynamic_linker and
+        (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker);
+
     const needs_eh_frame = blk: {
         if (self.zigObjectPtr()) |zo|
             if (zo.eh_frame_index != null) break :blk true;
@@ -1891,6 +1901,7 @@ fn initSyntheticSections(self: *Elf) !void {
             if (self.file(index).?.object.cies.items.len > 0) break true;
         } else false;
     };
+
     if (needs_eh_frame) {
         if (self.section_indexes.eh_frame == null) {
             self.section_indexes.eh_frame = self.sectionByName(".eh_frame") orelse try self.addSection(.{
@@ -1922,13 +1933,17 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.section_indexes.got_plt == null) {
-        self.section_indexes.got_plt = try self.addSection(.{
-            .name = try self.insertShString(".got.plt"),
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .addralign = @alignOf(u64),
-        });
+    if (have_dynamic_linker) {
+        if (self.section_indexes.got_plt == null) {
+            self.section_indexes.got_plt = try self.addSection(.{
+                .name = try self.insertShString(".got.plt"),
+                .type = elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                .addralign = @alignOf(u64),
+            });
+        }
+    } else {
+        assert(self.plt.symbols.items.len == 0);
     }
 
     const needs_rela_dyn = blk: {
@@ -1988,16 +2003,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
         });
     }
-
-    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
-        .Exe => true,
-        .Lib => comp.config.link_mode == .dynamic,
-        .Obj => false,
-    };
-    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib and !target.dynamic_linker.eql(.none);
-
-    const needs_interp = have_dynamic_linker and
-        (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker);
 
     if (needs_interp and self.section_indexes.interp == null) {
         self.section_indexes.interp = try self.addSection(.{

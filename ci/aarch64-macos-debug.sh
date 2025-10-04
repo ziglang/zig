@@ -3,11 +3,8 @@
 set -x
 set -e
 
-# Script assumes the presence of the following:
-# s3cmd
-
 ZIGDIR="$PWD"
-TARGET="$ARCH-macos-none"
+TARGET="aarch64-macos-none"
 MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.16.0-dev.104+689461e31"
 PREFIX="$HOME/$CACHE_BASENAME"
@@ -20,11 +17,6 @@ if [ ! -d "$PREFIX" ]; then
 fi
 
 cd $ZIGDIR
-
-# Make the `zig version` number consistent.
-# This will affect the cmake command below.
-git fetch --unshallow || true
-git fetch --tags
 
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just

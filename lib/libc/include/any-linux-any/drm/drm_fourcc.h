@@ -210,6 +210,10 @@ extern "C" {
 #define DRM_FORMAT_RGBA1010102	fourcc_code('R', 'A', '3', '0') /* [31:0] R:G:B:A 10:10:10:2 little endian */
 #define DRM_FORMAT_BGRA1010102	fourcc_code('B', 'A', '3', '0') /* [31:0] B:G:R:A 10:10:10:2 little endian */
 
+/* 48 bpp RGB */
+#define DRM_FORMAT_RGB161616 fourcc_code('R', 'G', '4', '8') /* [47:0] R:G:B 16:16:16 little endian */
+#define DRM_FORMAT_BGR161616 fourcc_code('B', 'G', '4', '8') /* [47:0] B:G:R 16:16:16 little endian */
+
 /* 64 bpp RGB */
 #define DRM_FORMAT_XRGB16161616	fourcc_code('X', 'R', '4', '8') /* [63:0] x:R:G:B 16:16:16:16 little endian */
 #define DRM_FORMAT_XBGR16161616	fourcc_code('X', 'B', '4', '8') /* [63:0] x:B:G:R 16:16:16:16 little endian */
@@ -218,7 +222,7 @@ extern "C" {
 #define DRM_FORMAT_ABGR16161616	fourcc_code('A', 'B', '4', '8') /* [63:0] A:B:G:R 16:16:16:16 little endian */
 
 /*
- * Floating point 64bpp RGB
+ * Half-Floating point - 16b/component
  * IEEE 754-2008 binary16 half-precision float
  * [15:0] sign:exponent:mantissa 1:5:10
  */
@@ -227,6 +231,20 @@ extern "C" {
 
 #define DRM_FORMAT_ARGB16161616F fourcc_code('A', 'R', '4', 'H') /* [63:0] A:R:G:B 16:16:16:16 little endian */
 #define DRM_FORMAT_ABGR16161616F fourcc_code('A', 'B', '4', 'H') /* [63:0] A:B:G:R 16:16:16:16 little endian */
+
+#define DRM_FORMAT_R16F          fourcc_code('R', ' ', ' ', 'H') /* [15:0] R 16 little endian */
+#define DRM_FORMAT_GR1616F       fourcc_code('G', 'R', ' ', 'H') /* [31:0] G:R 16:16 little endian */
+#define DRM_FORMAT_BGR161616F    fourcc_code('B', 'G', 'R', 'H') /* [47:0] B:G:R 16:16:16 little endian */
+
+/*
+ * Floating point - 32b/component
+ * IEEE 754-2008 binary32 float
+ * [31:0] sign:exponent:mantissa 1:8:23
+ */
+#define DRM_FORMAT_R32F          fourcc_code('R', ' ', ' ', 'F') /* [31:0] R 32 little endian */
+#define DRM_FORMAT_GR3232F       fourcc_code('G', 'R', ' ', 'F') /* [63:0] R:G 32:32 little endian */
+#define DRM_FORMAT_BGR323232F    fourcc_code('B', 'G', 'R', 'F') /* [95:0] R:G:B 32:32:32 little endian */
+#define DRM_FORMAT_ABGR32323232F fourcc_code('A', 'B', '8', 'F') /* [127:0] R:G:B:A 32:32:32:32 little endian */
 
 /*
  * RGBA format with 10-bit components packed in 64-bit per pixel, with 6 bits
@@ -378,6 +396,42 @@ extern "C" {
 #define DRM_FORMAT_Q401		fourcc_code('Q', '4', '0', '1')
 
 /*
+ * 3 plane YCbCr LSB aligned
+ * In order to use these formats in a similar fashion to MSB aligned ones
+ * implementation can multiply the values by 2^6=64. For that reason the padding
+ * must only contain zeros.
+ * index 0 = Y plane, [15:0] z:Y [6:10] little endian
+ * index 1 = Cr plane, [15:0] z:Cr [6:10] little endian
+ * index 2 = Cb plane, [15:0] z:Cb [6:10] little endian
+ */
+#define DRM_FORMAT_S010	fourcc_code('S', '0', '1', '0') /* 2x2 subsampled Cb (1) and Cr (2) planes 10 bits per channel */
+#define DRM_FORMAT_S210	fourcc_code('S', '2', '1', '0') /* 2x1 subsampled Cb (1) and Cr (2) planes 10 bits per channel */
+#define DRM_FORMAT_S410	fourcc_code('S', '4', '1', '0') /* non-subsampled Cb (1) and Cr (2) planes 10 bits per channel */
+
+/*
+ * 3 plane YCbCr LSB aligned
+ * In order to use these formats in a similar fashion to MSB aligned ones
+ * implementation can multiply the values by 2^4=16. For that reason the padding
+ * must only contain zeros.
+ * index 0 = Y plane, [15:0] z:Y [4:12] little endian
+ * index 1 = Cr plane, [15:0] z:Cr [4:12] little endian
+ * index 2 = Cb plane, [15:0] z:Cb [4:12] little endian
+ */
+#define DRM_FORMAT_S012	fourcc_code('S', '0', '1', '2') /* 2x2 subsampled Cb (1) and Cr (2) planes 12 bits per channel */
+#define DRM_FORMAT_S212	fourcc_code('S', '2', '1', '2') /* 2x1 subsampled Cb (1) and Cr (2) planes 12 bits per channel */
+#define DRM_FORMAT_S412	fourcc_code('S', '4', '1', '2') /* non-subsampled Cb (1) and Cr (2) planes 12 bits per channel */
+
+/*
+ * 3 plane YCbCr
+ * index 0 = Y plane, [15:0] Y little endian
+ * index 1 = Cr plane, [15:0] Cr little endian
+ * index 2 = Cb plane, [15:0] Cb little endian
+ */
+#define DRM_FORMAT_S016	fourcc_code('S', '0', '1', '6') /* 2x2 subsampled Cb (1) and Cr (2) planes 16 bits per channel */
+#define DRM_FORMAT_S216	fourcc_code('S', '2', '1', '6') /* 2x1 subsampled Cb (1) and Cr (2) planes 16 bits per channel */
+#define DRM_FORMAT_S416	fourcc_code('S', '4', '1', '6') /* non-subsampled Cb (1) and Cr (2) planes 16 bits per channel */
+
+/*
  * 3 plane YCbCr
  * index 0: Y plane, [7:0] Y
  * index 1: Cb plane, [7:0] Cb
@@ -421,6 +475,8 @@ extern "C" {
 #define DRM_FORMAT_MOD_VENDOR_ARM     0x08
 #define DRM_FORMAT_MOD_VENDOR_ALLWINNER 0x09
 #define DRM_FORMAT_MOD_VENDOR_AMLOGIC 0x0a
+#define DRM_FORMAT_MOD_VENDOR_MTK     0x0b
+#define DRM_FORMAT_MOD_VENDOR_APPLE   0x0c
 
 /* add more to the end as needed */
 
@@ -1452,6 +1508,90 @@ drm_fourcc_canonicalize_nvidia_format_mod(__u64 modifier)
  * the scatter layout.
  */
 #define AMLOGIC_FBC_OPTION_MEM_SAVING		(1ULL << 0)
+
+/* MediaTek modifiers
+ * Bits  Parameter                Notes
+ * ----- ------------------------ ---------------------------------------------
+ *   7: 0 TILE LAYOUT              Values are MTK_FMT_MOD_TILE_*
+ *  15: 8 COMPRESSION              Values are MTK_FMT_MOD_COMPRESS_*
+ *  23:16 10 BIT LAYOUT            Values are MTK_FMT_MOD_10BIT_LAYOUT_*
+ *
+ */
+
+#define DRM_FORMAT_MOD_MTK(__flags)		fourcc_mod_code(MTK, __flags)
+
+/*
+ * MediaTek Tiled Modifier
+ * The lowest 8 bits of the modifier is used to specify the tiling
+ * layout. Only the 16L_32S tiling is used for now, but we define an
+ * "untiled" version and leave room for future expansion.
+ */
+#define MTK_FMT_MOD_TILE_MASK     0xf
+#define MTK_FMT_MOD_TILE_NONE     0x0
+#define MTK_FMT_MOD_TILE_16L32S   0x1
+
+/*
+ * Bits 8-15 specify compression options
+ */
+#define MTK_FMT_MOD_COMPRESS_MASK (0xf << 8)
+#define MTK_FMT_MOD_COMPRESS_NONE (0x0 << 8)
+#define MTK_FMT_MOD_COMPRESS_V1   (0x1 << 8)
+
+/*
+ * Bits 16-23 specify how the bits of 10 bit formats are
+ * stored out in memory
+ */
+#define MTK_FMT_MOD_10BIT_LAYOUT_MASK      (0xf << 16)
+#define MTK_FMT_MOD_10BIT_LAYOUT_PACKED    (0x0 << 16)
+#define MTK_FMT_MOD_10BIT_LAYOUT_LSBTILED  (0x1 << 16)
+#define MTK_FMT_MOD_10BIT_LAYOUT_LSBRASTER (0x2 << 16)
+
+/* alias for the most common tiling format */
+#define DRM_FORMAT_MOD_MTK_16L_32S_TILE  DRM_FORMAT_MOD_MTK(MTK_FMT_MOD_TILE_16L32S)
+
+/*
+ * Apple GPU-tiled layouts.
+ *
+ * Apple GPUs support nonlinear tilings with optional lossless compression.
+ *
+ * GPU-tiled images are divided into 16KiB tiles:
+ *
+ *     Bytes per pixel  Tile size
+ *     ---------------  ---------
+ *                   1  128x128
+ *                   2  128x64
+ *                   4  64x64
+ *                   8  64x32
+ *                  16  32x32
+ *
+ * Tiles are raster-order. Pixels within a tile are interleaved (Morton order).
+ *
+ * Compressed images pad the body to 128-bytes and are immediately followed by a
+ * metadata section. The metadata section rounds the image dimensions to
+ * powers-of-two and contains 8 bytes for each 16x16 compression subtile.
+ * Subtiles are interleaved (Morton order).
+ *
+ * All images are 128-byte aligned.
+ *
+ * These layouts fundamentally do not have meaningful strides. No matter how we
+ * specify strides for these layouts, userspace unaware of Apple image layouts
+ * will be unable to use correctly the specified stride for any purpose.
+ * Userspace aware of the image layouts do not use strides. The most "correct"
+ * convention would be setting the image stride to 0. Unfortunately, some
+ * software assumes the stride is at least (width * bytes per pixel). We
+ * therefore require that stride equals (width * bytes per pixel). Since the
+ * stride is arbitrary here, we pick the simplest convention.
+ *
+ * Although containing two sections, compressed image layouts are treated in
+ * software as a single plane. This is modelled after AFBC, a similar
+ * scheme. Attempting to separate the sections to be "explicit" in DRM would
+ * only generate more confusion, as software does not treat the image this way.
+ *
+ * For detailed information on the hardware image layouts, see
+ * https://docs.mesa3d.org/drivers/asahi.html#image-layouts
+ */
+#define DRM_FORMAT_MOD_APPLE_GPU_TILED fourcc_mod_code(APPLE, 1)
+#define DRM_FORMAT_MOD_APPLE_GPU_TILED_COMPRESSED fourcc_mod_code(APPLE, 2)
 
 /*
  * AMD modifiers

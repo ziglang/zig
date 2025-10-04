@@ -1,0 +1,148 @@
+name: ci
+on:
+  pull_request:
+  # push:
+  #   branches:
+  #     - master
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  # https://codeberg.org/forgejo/forgejo/issues/9244
+  TERM: dumb
+jobs:
+  aarch64-linux-debug:
+    runs-on: [self-hosted, aarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-linux-debug.sh
+        timeout-minutes: 120
+  aarch64-linux-release:
+    runs-on: [self-hosted, aarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-linux-release.sh
+        timeout-minutes: 120
+  loongarch64-linux-debug:
+    runs-on: [self-hosted, loongarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/loongarch64-linux-debug.sh
+        timeout-minutes: 180
+  loongarch64-linux-release:
+    runs-on: [self-hosted, loongarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/loongarch64-linux-release.sh
+        timeout-minutes: 180
+  riscv64-linux-debug:
+    # if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, riscv64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/riscv64-linux-debug.sh
+        timeout-minutes: 420
+  riscv64-linux-release:
+    # if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, riscv64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/riscv64-linux-release.sh
+        timeout-minutes: 420
+  x86_64-freebsd-debug:
+    runs-on: [self-hosted, x86_64-freebsd]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-freebsd-debug.sh
+        timeout-minutes: 120
+  x86_64-freebsd-release:
+    runs-on: [self-hosted, x86_64-freebsd]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-freebsd-release.sh
+        timeout-minutes: 120
+  x86_64-linux-debug:
+    runs-on: [self-hosted, x86_64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-linux-debug.sh
+        timeout-minutes: 240
+  x86_64-linux-debug-llvm:
+    runs-on: [self-hosted, x86_64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-linux-debug-llvm.sh
+        timeout-minutes: 480
+  x86_64-linux-release:
+    runs-on: [self-hosted, x86_64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-linux-release.sh
+        timeout-minutes: 420
+  x86_64-windows-debug:
+    runs-on: [self-hosted, x86_64-windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: ci/x86_64-windows-debug.ps1
+        timeout-minutes: 180
+  x86_64-windows-release:
+    runs-on: [self-hosted, x86_64-windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: ci/x86_64-windows-release.ps1
+        timeout-minutes: 180

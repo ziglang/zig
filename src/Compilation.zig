@@ -256,8 +256,8 @@ test_filters: []const []const u8,
 
 link_task_wait_group: WaitGroup = .{},
 link_prog_node: std.Progress.Node = .none,
-link_uav_prog_node: std.Progress.Node = .none,
-link_lazy_prog_node: std.Progress.Node = .none,
+link_const_prog_node: std.Progress.Node = .none,
+link_synth_prog_node: std.Progress.Node = .none,
 
 llvm_opt_bisect_limit: c_int,
 
@@ -1982,13 +1982,13 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
             };
             if (have_zcu and (!need_llvm or use_llvm)) {
                 if (output_mode == .Obj) break :s .zcu;
-                if (options.config.use_new_linker) break :s .zcu;
                 switch (target_util.zigBackend(target, use_llvm)) {
                     else => {},
                     .stage2_aarch64, .stage2_x86_64 => if (target.ofmt == .coff) {
                         break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
                     },
                 }
+                if (options.config.use_new_linker) break :s .zcu;
             }
             if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
@@ -3081,22 +3081,30 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
         comp.link_prog_node = main_progress_node.start("Linking", 0);
         if (lf.cast(.elf2)) |elf| {
             comp.link_prog_node.increaseEstimatedTotalItems(3);
-            comp.link_uav_prog_node = comp.link_prog_node.start("Constants", 0);
-            comp.link_lazy_prog_node = comp.link_prog_node.start("Synthetics", 0);
+            comp.link_const_prog_node = comp.link_prog_node.start("Constants", 0);
+            comp.link_synth_prog_node = comp.link_prog_node.start("Synthetics", 0);
             elf.mf.update_prog_node = comp.link_prog_node.start("Relocations", elf.mf.updates.items.len);
+        } else if (lf.cast(.coff2)) |coff| {
+            comp.link_prog_node.increaseEstimatedTotalItems(3);
+            comp.link_const_prog_node = comp.link_prog_node.start("Constants", 0);
+            comp.link_synth_prog_node = comp.link_prog_node.start("Synthetics", 0);
+            coff.mf.update_prog_node = comp.link_prog_node.start("Relocations", coff.mf.updates.items.len);
         }
     }
     defer {
         comp.link_prog_node.end();
         comp.link_prog_node = .none;
-        comp.link_uav_prog_node.end();
-        comp.link_uav_prog_node = .none;
-        comp.link_lazy_prog_node.end();
-        comp.link_lazy_prog_node = .none;
+        comp.link_const_prog_node.end();
+        comp.link_const_prog_node = .none;
+        comp.link_synth_prog_node.end();
+        comp.link_synth_prog_node = .none;
         if (comp.bin_file) |lf| {
             if (lf.cast(.elf2)) |elf| {
                 elf.mf.update_prog_node.end();
                 elf.mf.update_prog_node = .none;
+            } else if (lf.cast(.coff2)) |coff| {
+                coff.mf.update_prog_node.end();
+                coff.mf.update_prog_node = .none;
             }
         }
     }
@@ -3218,7 +3226,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     .root_dir = comp.dirs.local_cache,
                     .sub_path = try fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
-                const result: link.File.OpenError!void = switch (need_writable_dance) {
+                const result: (link.File.OpenError || error{HotSwapUnavailableOnHostOperatingSystem})!void = switch (need_writable_dance) {
                     .no => {},
                     .lf_only => lf.makeWritable(),
                     .lf_and_debug => res: {
@@ -7193,6 +7201,9 @@ pub fn addCCArgs(
         }
 
         try argv.append(if (mod.omit_frame_pointer) "-fomit-frame-pointer" else "-fno-omit-frame-pointer");
+        if (target.cpu.arch == .s390x) {
+            try argv.append(if (mod.omit_frame_pointer) "-mbackchain" else "-mno-backchain");
+        }
 
         const ssp_buf_size = mod.stack_protector;
         if (ssp_buf_size != 0) {
@@ -7258,9 +7269,10 @@ pub fn addCCArgs(
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
-                    // We communicate float ABI to Clang through the dedicated options.
+                    // We communicate these to Clang through the dedicated options.
                     if (std.mem.startsWith(u8, llvm_name, "soft-float") or
-                        std.mem.startsWith(u8, llvm_name, "hard-float"))
+                        std.mem.startsWith(u8, llvm_name, "hard-float") or
+                        (target.cpu.arch == .s390x and std.mem.eql(u8, llvm_name, "backchain")))
                         continue;
 
                     // Ignore these until we figure out how to handle the concept of omitting features.

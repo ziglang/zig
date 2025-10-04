@@ -144,53 +144,6 @@ pub const TCIO = enum(u32) {
     ION = 4,
 };
 
-pub const ucontext_t = switch (builtin.cpu.arch) {
-    .x86_64 => extern struct {
-        sc_rdi: c_long,
-        sc_rsi: c_long,
-        sc_rdx: c_long,
-        sc_rcx: c_long,
-        sc_r8: c_long,
-        sc_r9: c_long,
-        sc_r10: c_long,
-        sc_r11: c_long,
-        sc_r12: c_long,
-        sc_r13: c_long,
-        sc_r14: c_long,
-        sc_r15: c_long,
-        sc_rbp: c_long,
-        sc_rbx: c_long,
-        sc_rax: c_long,
-        sc_gs: c_long,
-        sc_fs: c_long,
-        sc_es: c_long,
-        sc_ds: c_long,
-        sc_trapno: c_long,
-        sc_err: c_long,
-        sc_rip: c_long,
-        sc_cs: c_long,
-        sc_rflags: c_long,
-        sc_rsp: c_long,
-        sc_ss: c_long,
-
-        sc_fpstate: *anyopaque, // struct fxsave64 *
-        __sc_unused: c_int,
-        sc_mask: c_int,
-        sc_cookie: c_long,
-    },
-    .aarch64 => extern struct {
-        __sc_unused: c_int,
-        sc_mask: c_int,
-        sc_sp: c_ulong,
-        sc_lr: c_ulong,
-        sc_elr: c_ulong,
-        sc_spsr: c_ulong,
-        sc_x: [30]c_ulong,
-        sc_cookie: c_long,
-    },
-    else => @compileError("missing ucontext_t type definition"),
-};
-
 pub const E = enum(u16) {
     /// No error occurred.
     SUCCESS = 0,

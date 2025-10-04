@@ -34,17 +34,28 @@ pub fn init(file: std.fs.File, gpa: std.mem.Allocator) !MappedFile {
         .writers = .{},
     };
     errdefer mf.deinit(gpa);
-    const size: u64, const blksize = if (is_windows)
-        .{ try windows.GetFileSizeEx(file.handle), 1 }
-    else stat: {
+    const size: u64, const block_size = stat: {
+        if (is_windows) {
+            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            break :stat .{
+                try windows.GetFileSizeEx(file.handle),
+                switch (windows.ntdll.NtQuerySystemInformation(
+                    .SystemBasicInformation,
+                    &sbi,
+                    @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                    null,
+                )) {
+                    .SUCCESS => @max(sbi.PageSize, sbi.AllocationGranularity),
+                    else => std.heap.page_size_max,
+                },
+            };
+        }
         const stat = try std.posix.fstat(mf.file.handle);
         if (!std.posix.S.ISREG(stat.mode)) return error.PathAlreadyExists;
-        break :stat .{ @bitCast(stat.size), stat.blksize };
+        break :stat .{ @bitCast(stat.size), @max(std.heap.pageSize(), stat.blksize) };
     };
     mf.flags = .{
-        .block_size = .fromByteUnits(
-            std.math.ceilPowerOfTwoAssert(usize, @max(std.heap.pageSize(), blksize)),
-        ),
+        .block_size = .fromByteUnits(std.math.ceilPowerOfTwoAssert(usize, block_size)),
         .copy_file_range_unsupported = false,
         .fallocate_insert_range_unsupported = false,
         .fallocate_punch_hole_unsupported = false,
@@ -90,9 +101,11 @@ pub const Node = extern struct {
         resized: bool,
         /// Whether this node might contain non-zero bytes.
         has_content: bool,
+        /// Whether a moved event on this node bubbles down to children.
+        bubbles_moved: bool,
         unused: @Type(.{ .int = .{
             .signedness = .unsigned,
-            .bits = 32 - @bitSizeOf(std.mem.Alignment) - 5,
+            .bits = 32 - @bitSizeOf(std.mem.Alignment) - 6,
         } }) = 0,
     };
 
@@ -136,6 +149,25 @@ pub const Node = extern struct {
             return &mf.nodes.items[@intFromEnum(ni)];
         }
 
+        pub fn parent(ni: Node.Index, mf: *const MappedFile) Node.Index {
+            return ni.get(mf).parent;
+        }
+
+        pub const ChildIterator = struct {
+            mf: *const MappedFile,
+            ni: Node.Index,
+
+            pub fn next(it: *ChildIterator) ?Node.Index {
+                const ni = it.ni;
+                if (ni == .none) return null;
+                it.ni = ni.get(it.mf).next;
+                return ni;
+            }
+        };
+        pub fn children(ni: Node.Index, mf: *const MappedFile) ChildIterator {
+            return .{ .mf = mf, .ni = ni.get(mf).first };
+        }
+
         pub fn childrenMoved(ni: Node.Index, gpa: std.mem.Allocator, mf: *MappedFile) !void {
             var child_ni = ni.get(mf).last;
             while (child_ni != .none) {
@@ -147,9 +179,10 @@ pub const Node = extern struct {
         pub fn hasMoved(ni: Node.Index, mf: *const MappedFile) bool {
             var parent_ni = ni;
             while (parent_ni != Node.Index.root) {
-                const parent = parent_ni.get(mf);
-                if (parent.flags.moved) return true;
-                parent_ni = parent.parent;
+                const parent_node = parent_ni.get(mf);
+                if (!parent_node.flags.bubbles_moved) break;
+                if (parent_node.flags.moved) return true;
+                parent_ni = parent_node.parent;
             }
             return false;
         }
@@ -163,12 +196,7 @@ pub const Node = extern struct {
             return node_moved.*;
         }
         fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
-            var parent_ni = ni;
-            while (parent_ni != Node.Index.root) {
-                const parent_node = parent_ni.get(mf);
-                if (parent_node.flags.moved) return;
-                parent_ni = parent_node.parent;
-            }
+            if (ni.hasMoved(mf)) return;
             const node = ni.get(mf);
             node.flags.moved = true;
             if (node.flags.resized) return;
@@ -242,10 +270,10 @@ pub const Node = extern struct {
             var offset, const size = ni.location(mf).resolve(mf);
             var parent_ni = ni;
             while (true) {
-                const parent = parent_ni.get(mf);
-                if (set_has_content) parent.flags.has_content = true;
+                const parent_node = parent_ni.get(mf);
+                if (set_has_content) parent_node.flags.has_content = true;
                 if (parent_ni == .none) break;
-                parent_ni = parent.parent;
+                parent_ni = parent_node.parent;
                 offset += parent_ni.location(mf).resolve(mf)[0];
             }
             return .{ .offset = offset, .size = size };
@@ -449,6 +477,7 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
             .moved = true,
             .resized = true,
             .has_content = false,
+            .bubbles_moved = opts.add_node.bubbles_moved,
         },
         .location_payload = location_payload,
     };
@@ -471,6 +500,7 @@ pub const AddNodeOptions = struct {
     fixed: bool = false,
     moved: bool = false,
     resized: bool = false,
+    bubbles_moved: bool = true,
 };
 
 pub fn addOnlyChildNode(
