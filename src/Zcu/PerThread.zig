@@ -2460,10 +2460,10 @@ fn updateEmbedFileInner(
 
     // The loaded bytes of the file, including a sentinel 0 byte.
     const ip_str: InternPool.String = str: {
-        const strings = ip.getLocal(tid).getMutableStrings(gpa);
-        const old_len = strings.mutate.len;
-        errdefer strings.shrinkRetainingCapacity(old_len);
-        const bytes = (try strings.addManyAsSlice(size_plus_one))[0];
+        const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+        const old_len = string_bytes.mutate.len;
+        errdefer string_bytes.shrinkRetainingCapacity(old_len);
+        const bytes = (try string_bytes.addManyAsSlice(size_plus_one))[0];
         var fr = file.reader(&.{});
         fr.size = stat.size;
         fr.interface.readSliceAll(bytes[0..size]) catch |err| switch (err) {

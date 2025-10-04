@@ -1115,8 +1115,8 @@ pub const File = struct {
     pub fn internFullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
-        const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-        var w: Writer = .fixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
+        const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(gpa);
+        var w: Writer = .fixed((try string_bytes.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
         file.renderFullyQualifiedName(&w) catch unreachable;
         assert(w.end == w.buffer.len);
         return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(w.end), .no_embedded_nulls);
