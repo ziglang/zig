@@ -2824,9 +2824,6 @@ fn zirTupleDecl(
                 }
                 break :init field_init_val.toIntern();
             }
-            if (try sema.typeHasOnePossibleValue(field_type)) |opv| {
-                break :init opv.toIntern();
-            }
             break :init .none;
         };
     }
@@ -21479,18 +21476,8 @@ fn reifyTuple(
             return sema.fail(block, src, "non-comptime tuple fields cannot specify default initialization value", .{});
         }
 
-        const default_or_opv: InternPool.Index = default: {
-            if (field_default_value != .none) {
-                break :default field_default_value;
-            }
-            if (try sema.typeHasOnePossibleValue(field_type)) |opv| {
-                break :default opv.toIntern();
-            }
-            break :default .none;
-        };
-
         field_ty.* = field_type.toIntern();
-        field_init.* = default_or_opv;
+        field_init.* = field_default_value;
     }
 
     return Air.internedToRef(try zcu.intern_pool.getTupleType(gpa, pt.tid, .{
@@ -36282,13 +36269,31 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 },
 
                 .tuple_type => |tuple| {
-                    for (tuple.values.get(ip)) |val| {
-                        if (val == .none) return null;
+                    try ty.resolveLayout(pt);
+
+                    if (tuple.types.len == 0) {
+                        return try pt.aggregateValue(ty, &.{});
                     }
-                    // In this case the struct has all comptime-known fields and
-                    // therefore has one possible value.
-                    // TODO: write something like getCoercedInts to avoid needing to dupe
-                    return try pt.aggregateValue(ty, try sema.arena.dupe(InternPool.Index, tuple.values.get(ip)));
+
+                    const field_vals = try sema.arena.alloc(
+                        InternPool.Index,
+                        tuple.types.len,
+                    );
+                    for (
+                        field_vals,
+                        tuple.types.get(ip),
+                        tuple.values.get(ip),
+                    ) |*field_val, field_ty, field_comptime_val| {
+                        if (field_comptime_val != .none) {
+                            field_val.* = field_comptime_val;
+                            continue;
+                        }
+                        if (try sema.typeHasOnePossibleValue(.fromInterned(field_ty))) |opv| {
+                            field_val.* = opv.toIntern();
+                        } else return null;
+                    }
+
+                    return try pt.aggregateValue(ty, field_vals);
                 },
 
                 .union_type => {
