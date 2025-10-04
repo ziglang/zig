@@ -50,6 +50,7 @@ state: State,
 max_rss: usize,
 
 result_error_msgs: ArrayList([]const u8),
+result_skip_reason: ?[]const u8 = null,
 result_error_bundle: std.zig.ErrorBundle,
 result_stderr: []const u8,
 result_cached: bool,
