@@ -15,10 +15,6 @@
         .test_runner_module_imports = .{
             .path = "test_runner_module_imports",
         },
-        // https://github.com/ziglang/zig/issues/17483
-        //.issue_13970 = .{
-        //    .path = "issue_13970",
-        //},
         .shared_library = .{
             .path = "shared_library",
         },
