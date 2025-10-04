@@ -196,7 +196,7 @@ pub const TrackedInst = extern struct {
             pub fn wrap(unwrapped: Unwrapped, ip: *const InternPool) TrackedInst.Index {
                 assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
                 assert(unwrapped.index <= ip.getIndexMask(u32));
-                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
                     unwrapped.index);
             }
         };
@@ -494,7 +494,7 @@ pub const ComptimeUnit = extern struct {
             fn wrap(unwrapped: Unwrapped, ip: *const InternPool) ComptimeUnit.Id {
                 assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
                 assert(unwrapped.index <= ip.getIndexMask(u32));
-                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
                     unwrapped.index);
             }
         };
@@ -713,7 +713,7 @@ pub const Nav = struct {
             fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Nav.Index {
                 assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
                 assert(unwrapped.index <= ip.getIndexMask(u32));
-                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
                     unwrapped.index);
             }
         };
@@ -1061,6 +1061,7 @@ const Local = struct {
         extra: ListMutate,
         limbs: ListMutate,
         strings: ListMutate,
+        string_bytes: ListMutate,
         tracked_insts: ListMutate,
         files: ListMutate,
         maps: ListMutate,
@@ -1075,6 +1076,7 @@ const Local = struct {
         extra: Extra,
         limbs: Limbs,
         strings: Strings,
+        string_bytes: StringBytes,
         tracked_insts: TrackedInsts,
         files: List(File),
         maps: Maps,
@@ -1098,7 +1100,8 @@ const Local = struct {
         @sizeOf(u64) => List(struct { u64 }),
         else => @compileError("unsupported host"),
     };
-    const Strings = List(struct { u8 });
+    const Strings = List(struct { u32 });
+    const StringBytes = List(struct { u8 });
     const TrackedInsts = List(struct { TrackedInst.MaybeLost });
     const Maps = List(struct { FieldMap });
     const Navs = List(Nav.Repr);
@@ -1428,17 +1431,27 @@ const Local = struct {
         };
     }
 
-    /// In order to store references to strings in fewer bytes, we copy all
-    /// string bytes into here. String bytes can be null. It is up to whomever
-    /// is referencing the data here whether they want to store both index and length,
-    /// thus allowing null bytes, or store only index, and use null-termination. The
-    /// `strings` array is agnostic to either usage.
+    /// A list of offsets into `string_bytes` for each string.
     pub fn getMutableStrings(local: *Local, gpa: Allocator) Strings.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
             .mutate = &local.mutate.strings,
             .list = &local.shared.strings,
+        };
+    }
+
+    /// In order to store references to strings in fewer bytes, we copy all
+    /// string bytes into here. String bytes can be null. It is up to whomever
+    /// is referencing the data here whether they want to store both index and length,
+    /// thus allowing null bytes, or store only index, and use null-termination. The
+    /// `strings_bytes` array is agnostic to either usage.
+    pub fn getMutableStringBytes(local: *Local, gpa: Allocator) StringBytes.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.string_bytes,
+            .list = &local.shared.string_bytes,
         };
     }
 
@@ -1611,7 +1624,7 @@ const Shard = struct {
 };
 
 fn getTidMask(ip: *const InternPool) u32 {
-    return (@as(u32, 1) << ip.tid_width) - 1;
+    return @shlExact(@as(u32, 1), ip.tid_width) - 1;
 }
 
 fn getIndexMask(ip: *const InternPool, comptime BackingInt: type) u32 {
@@ -1652,7 +1665,7 @@ pub const MapIndex = enum(u32) {
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) MapIndex {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
             assert(unwrapped.index <= ip.getIndexMask(u32));
-            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+            return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
                 unwrapped.index);
         }
     };
@@ -1678,7 +1691,7 @@ pub const NamespaceIndex = enum(u32) {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
             assert(unwrapped.bucket_index <= ip.getIndexMask(u32) >> Local.namespaces_bucket_width);
             assert(unwrapped.index <= Local.namespaces_bucket_mask);
-            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+            return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
                 unwrapped.bucket_index << Local.namespaces_bucket_width |
                 unwrapped.index);
         }
@@ -1721,7 +1734,7 @@ pub const FileIndex = enum(u32) {
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) FileIndex {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
             assert(unwrapped.index <= ip.getIndexMask(u32));
-            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+            return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
                 unwrapped.index);
         }
     };
@@ -1780,7 +1793,8 @@ pub const String = enum(u32) {
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) String {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
             assert(unwrapped.index <= ip.getIndexMask(u32));
-            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 | unwrapped.index);
+            return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
+                unwrapped.index);
         }
     };
     fn unwrap(string: String, ip: *const InternPool) Unwrapped {
@@ -1791,9 +1805,11 @@ pub const String = enum(u32) {
     }
 
     fn toOverlongSlice(string: String, ip: *const InternPool) []const u8 {
-        const unwrapped_string = string.unwrap(ip);
-        const strings = ip.getLocalShared(unwrapped_string.tid).strings.acquire();
-        return strings.view().items(.@"0")[unwrapped_string.index..];
+        const unwrapped = string.unwrap(ip);
+        const local_shared = ip.getLocalShared(unwrapped.tid);
+        const strings = local_shared.strings.acquire().view().items(.@"0");
+        const string_bytes = local_shared.string_bytes.acquire().view().items(.@"0");
+        return string_bytes[strings[unwrapped.index]..];
     }
 
     const debug_state = InternPool.debug_state;
@@ -1848,12 +1864,18 @@ pub const NullTerminatedString = enum(u32) {
     }
 
     pub fn toSlice(string: NullTerminatedString, ip: *const InternPool) [:0]const u8 {
-        const overlong_slice = string.toString().toOverlongSlice(ip);
-        return overlong_slice[0..std.mem.indexOfScalar(u8, overlong_slice, 0).? :0];
+        const unwrapped = string.toString().unwrap(ip);
+        const local_shared = ip.getLocalShared(unwrapped.tid);
+        const strings = local_shared.strings.acquire().view().items(.@"0");
+        const string_bytes = local_shared.string_bytes.acquire().view().items(.@"0");
+        return string_bytes[strings[unwrapped.index] .. strings[unwrapped.index + 1] - 1 :0];
     }
 
     pub fn length(string: NullTerminatedString, ip: *const InternPool) u32 {
-        return @intCast(string.toSlice(ip).len);
+        const unwrapped = string.toString().unwrap(ip);
+        const local_shared = ip.getLocalShared(unwrapped.tid);
+        const strings = local_shared.strings.acquire().view().items(.@"0");
+        return strings[unwrapped.index + 1] - 1 - strings[unwrapped.index];
     }
 
     pub fn eqlSlice(string: NullTerminatedString, slice: []const u8, ip: *const InternPool) bool {
@@ -4767,7 +4789,8 @@ pub const Index = enum(u32) {
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Index {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
             assert(unwrapped.index <= ip.getIndexMask(u30));
-            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_30 | unwrapped.index);
+            return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_30) |
+                unwrapped.index);
         }
 
         pub fn getExtra(unwrapped: Unwrapped, ip: *const InternPool) Local.Extra {
@@ -6795,6 +6818,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = .empty,
             .limbs = .empty,
             .strings = .empty,
+            .string_bytes = .empty,
             .tracked_insts = .empty,
             .files = .empty,
             .maps = .empty,
@@ -6810,6 +6834,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = .empty,
             .limbs = .empty,
             .strings = .empty,
+            .string_bytes = .empty,
             .tracked_insts = .empty,
             .files = .empty,
             .maps = .empty,
@@ -6819,6 +6844,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .namespaces = .empty,
         },
     });
+    for (ip.locals) |*local| try local.getMutableStrings(gpa).append(.{0});
 
     ip.tid_width = @intCast(std.math.log2_int_ceil(usize, used_threads));
     ip.tid_shift_30 = if (single_threaded) 0 else 30 - ip.tid_width;
@@ -8523,30 +8549,30 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             }
 
             if (child == .u8_type) bytes: {
-                const strings = ip.getLocal(tid).getMutableStrings(gpa);
-                const start = strings.mutate.len;
-                try strings.ensureUnusedCapacity(@intCast(len_including_sentinel + 1));
+                const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+                const start = string_bytes.mutate.len;
+                try string_bytes.ensureUnusedCapacity(@intCast(len_including_sentinel + 1));
                 try extra.ensureUnusedCapacity(@typeInfo(Bytes).@"struct".fields.len);
                 switch (aggregate.storage) {
-                    .bytes => |bytes| strings.appendSliceAssumeCapacity(.{bytes.toSlice(len, ip)}),
+                    .bytes => |bytes| string_bytes.appendSliceAssumeCapacity(.{bytes.toSlice(len, ip)}),
                     .elems => |elems| for (elems[0..@intCast(len)]) |elem| switch (ip.indexToKey(elem)) {
                         .undef => {
-                            strings.shrinkRetainingCapacity(start);
+                            string_bytes.shrinkRetainingCapacity(start);
                             break :bytes;
                         },
-                        .int => |int| strings.appendAssumeCapacity(.{@intCast(int.storage.u64)}),
+                        .int => |int| string_bytes.appendAssumeCapacity(.{@intCast(int.storage.u64)}),
                         else => unreachable,
                     },
                     .repeated_elem => |elem| switch (ip.indexToKey(elem)) {
                         .undef => break :bytes,
                         .int => |int| @memset(
-                            strings.addManyAsSliceAssumeCapacity(@intCast(len))[0],
+                            string_bytes.addManyAsSliceAssumeCapacity(@intCast(len))[0],
                             @intCast(int.storage.u64),
                         ),
                         else => unreachable,
                     },
                 }
-                if (sentinel != .none) strings.appendAssumeCapacity(.{
+                if (sentinel != .none) string_bytes.appendAssumeCapacity(.{
                     @intCast(ip.indexToKey(sentinel).int.storage.u64),
                 });
                 const string = try ip.getOrPutTrailingString(
@@ -11762,10 +11788,10 @@ pub fn getOrPutString(
     slice: []const u8,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
-    const strings = ip.getLocal(tid).getMutableStrings(gpa);
-    try strings.ensureUnusedCapacity(slice.len + 1);
-    strings.appendSliceAssumeCapacity(.{slice});
-    strings.appendAssumeCapacity(.{0});
+    const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+    try string_bytes.ensureUnusedCapacity(slice.len + 1);
+    string_bytes.appendSliceAssumeCapacity(.{slice});
+    string_bytes.appendAssumeCapacity(.{0});
     return ip.getOrPutTrailingString(gpa, tid, @intCast(slice.len + 1), embedded_nulls);
 }
 
@@ -11780,8 +11806,8 @@ pub fn getOrPutStringFmt(
     // ensure that references to strings in args do not get invalidated
     const format_z = format ++ .{0};
     const len: u32 = @intCast(std.fmt.count(format_z, args));
-    const strings = ip.getLocal(tid).getMutableStrings(gpa);
-    const slice = try strings.addManyAsSlice(len);
+    const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+    const slice = try string_bytes.addManyAsSlice(len);
     assert((std.fmt.bufPrint(slice[0], format_z, args) catch unreachable).len == len);
     return ip.getOrPutTrailingString(gpa, tid, len, embedded_nulls);
 }
@@ -11805,21 +11831,27 @@ pub fn getOrPutTrailingString(
     len: u32,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
-    const strings = ip.getLocal(tid).getMutableStrings(gpa);
-    const start: u32 = @intCast(strings.mutate.len - len);
-    if (len > 0 and strings.view().items(.@"0")[strings.mutate.len - 1] == 0) {
-        strings.mutate.len -= 1;
+    const local = ip.getLocal(tid);
+    const strings = local.getMutableStrings(gpa);
+    try strings.ensureUnusedCapacity(1);
+    const string_bytes = local.getMutableStringBytes(gpa);
+    const start: u32 = @intCast(string_bytes.mutate.len - len);
+    if (len > 0 and string_bytes.view().items(.@"0")[string_bytes.mutate.len - 1] == 0) {
+        string_bytes.mutate.len -= 1;
     } else {
-        try strings.ensureUnusedCapacity(1);
+        try string_bytes.ensureUnusedCapacity(1);
     }
-    const key: []const u8 = strings.view().items(.@"0")[start..];
-    const value: embedded_nulls.StringType() =
-        @enumFromInt(@intFromEnum((String.Unwrapped{ .tid = tid, .index = start }).wrap(ip)));
+    const key: []const u8 = string_bytes.view().items(.@"0")[start..];
+    const value: embedded_nulls.StringType() = @enumFromInt(@intFromEnum((String.Unwrapped{
+        .tid = tid,
+        .index = strings.mutate.len - 1,
+    }).wrap(ip)));
     const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
     switch (embedded_nulls) {
         .no_embedded_nulls => assert(!has_embedded_null),
         .maybe_embedded_nulls => if (has_embedded_null) {
-            strings.appendAssumeCapacity(.{0});
+            string_bytes.appendAssumeCapacity(.{0});
+            strings.appendAssumeCapacity(.{string_bytes.mutate.len});
             return value;
         },
     }
@@ -11837,7 +11869,7 @@ pub fn getOrPutTrailingString(
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
         if (!index.eqlSlice(key, ip)) continue;
-        strings.shrinkRetainingCapacity(start);
+        string_bytes.shrinkRetainingCapacity(start);
         return @enumFromInt(@intFromEnum(index));
     }
     shard.mutate.string_map.mutex.lock();
@@ -11853,19 +11885,20 @@ pub fn getOrPutTrailingString(
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
         if (!index.eqlSlice(key, ip)) continue;
-        strings.shrinkRetainingCapacity(start);
+        string_bytes.shrinkRetainingCapacity(start);
         return @enumFromInt(@intFromEnum(index));
     }
     defer shard.mutate.string_map.len += 1;
     const map_header = map.header().*;
     if (shard.mutate.string_map.len < map_header.capacity * 3 / 5) {
-        strings.appendAssumeCapacity(.{0});
+        string_bytes.appendAssumeCapacity(.{0});
+        strings.appendAssumeCapacity(.{string_bytes.mutate.len});
         const entry = &map.entries[map_index];
         entry.hash = hash;
         entry.release(@enumFromInt(@intFromEnum(value)));
         return value;
     }
-    const arena_state = &ip.getLocal(tid).mutate.arena;
+    const arena_state = &local.mutate.arena;
     var arena = arena_state.promote(gpa);
     defer arena_state.* = arena.state;
     const new_map_capacity = map_header.capacity * 2;
@@ -11901,7 +11934,8 @@ pub fn getOrPutTrailingString(
         map_index &= new_map_mask;
         if (map.entries[map_index].value == .none) break;
     }
-    strings.appendAssumeCapacity(.{0});
+    string_bytes.appendAssumeCapacity(.{0});
+    strings.appendAssumeCapacity(.{string_bytes.mutate.len});
     map.entries[map_index] = .{
         .value = @enumFromInt(@intFromEnum(value)),
         .hash = hash,
