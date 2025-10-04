@@ -1,4 +1,4 @@
-$TARGET = "$($Env:ARCH)-windows-gnu"
+$TARGET = "x86_64-windows-gnu"
 $ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.16.0-dev.104+689461e31"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
@@ -20,14 +20,6 @@ function CheckLastExitCode {
         exit 1
     }
     return 0
-}
-
-# Make the `zig version` number consistent.
-# This will affect the `zig build` command below which uses `git describe`.
-git fetch --tags
-
-if ((git rev-parse --is-shallow-repository) -eq "true") {
-    git fetch --unshallow # `git describe` won't work on a shallow repo
 }
 
 # Override the cache directories because they won't actually help other CI runs

@@ -5,19 +5,13 @@
 set -x
 set -e
 
-ARCH="$(uname -m)"
-TARGET="$ARCH-linux-musl"
+TARGET="riscv64-linux-musl"
 MCPU="spacemit_x60"
 CACHE_BASENAME="zig+llvm+lld+clang-riscv64-linux-musl-0.16.0-dev.104+689461e31"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
 export PATH="$HOME/local/bin:$PATH"
-
-# Make the `zig version` number consistent.
-# This will affect the cmake command below.
-git fetch --unshallow || true
-git fetch --tags
 
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
@@ -49,7 +43,7 @@ unset CXX
 ninja install
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
-stage3-debug/bin/zig build test-cases test-modules test-unit test-c-abi test-stack-traces test-llvm-ir \
+stage3-debug/bin/zig build test-cases test-modules test-unit test-c-abi test-stack-traces test-error-traces test-llvm-ir \
   --maxrss 68719476736 \
   -Dstatic-llvm \
   -Dskip-non-native \

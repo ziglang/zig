@@ -78,13 +78,15 @@ pub fn defaultQueryPageSize() usize {
     };
     var size = global.cached_result.load(.unordered);
     if (size > 0) return size;
-    size = switch (builtin.os.tag) {
-        .linux => if (builtin.link_libc) @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE))) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
+    size = size: switch (builtin.os.tag) {
+        .linux => if (builtin.link_libc)
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
+        else
+            std.os.linux.getauxval(std.elf.AT_PAGESZ),
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
-            if (task_port == std.c.TASK.NULL)
-                break :blk 0;
+            if (task_port == std.c.TASK.NULL) break :size 0;
             var info_count = std.c.TASK.VM.INFO_COUNT;
             var vm_info: std.c.task_vm_info_data_t = undefined;
             vm_info.page_size = 0;
@@ -94,21 +96,28 @@ pub fn defaultQueryPageSize() usize {
                 @as(std.c.task_info_t, @ptrCast(&vm_info)),
                 &info_count,
             );
-            assert(vm_info.page_size != 0);
-            break :blk @intCast(vm_info.page_size);
+            break :size @intCast(vm_info.page_size);
         },
-        .windows => blk: {
-            var info: std.os.windows.SYSTEM_INFO = undefined;
-            std.os.windows.kernel32.GetSystemInfo(&info);
-            break :blk info.dwPageSize;
+        .windows => {
+            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            switch (windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            )) {
+                .SUCCESS => break :size sbi.PageSize,
+                else => break :size 0,
+            }
         },
         else => if (builtin.link_libc)
-            @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
         else if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
             @compileError("unsupported target: freestanding/other")
         else
             @compileError("pageSize on " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " is not supported without linking libc, using the default implementation"),
     };
+    if (size == 0) size = page_size_max;
 
     assert(size >= page_size_min);
     assert(size <= page_size_max);

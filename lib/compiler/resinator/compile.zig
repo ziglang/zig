@@ -695,7 +695,7 @@ pub const Compiler = struct {
                         }
 
                         try file_reader.seekTo(entry.data_offset_from_start_of_file);
-                        var header_bytes = (file_reader.interface.takeArray(16) catch {
+                        var header_bytes: [16]u8 align(@alignOf(ico.BitmapHeader)) = (file_reader.interface.takeArray(16) catch {
                             return self.iconReadError(
                                 error.UnexpectedEOF,
                                 filename_utf8,

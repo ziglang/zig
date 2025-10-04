@@ -168,7 +168,7 @@ pub fn parseNameOrOrdinal(allocator: Allocator, reader: *std.Io.Reader) !NameOrO
 }
 
 pub const CoffOptions = struct {
-    target: std.coff.MachineType = .X64,
+    target: std.coff.IMAGE.FILE.MACHINE = .AMD64,
     /// If true, zeroes will be written to all timestamp fields
     reproducible: bool = true,
     /// If true, the MEM_WRITE flag will not be set in the .rsrc section header
@@ -210,19 +210,19 @@ pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []cons
     const lengths = resource_tree.dataLengths();
     const byte_size_of_relocation = 10;
     const relocations_len: u32 = @intCast(byte_size_of_relocation * resources.len);
-    const pointer_to_rsrc01_data = @sizeOf(std.coff.CoffHeader) + (@sizeOf(std.coff.SectionHeader) * 2);
+    const pointer_to_rsrc01_data = @sizeOf(std.coff.Header) + (@sizeOf(std.coff.SectionHeader) * 2);
     const pointer_to_relocations = pointer_to_rsrc01_data + lengths.rsrc01;
     const pointer_to_rsrc02_data = pointer_to_relocations + relocations_len;
     const pointer_to_symbol_table = pointer_to_rsrc02_data + lengths.rsrc02;
 
     const timestamp: i64 = if (options.reproducible) 0 else std.time.timestamp();
     const size_of_optional_header = 0;
-    const machine_type: std.coff.MachineType = options.target;
-    const flags = std.coff.CoffHeaderFlags{
-        .@"32BIT_MACHINE" = 1,
+    const machine_type: std.coff.IMAGE.FILE.MACHINE = options.target;
+    const flags = std.coff.Header.Flags{
+        .@"32BIT_MACHINE" = true,
     };
     const number_of_symbols = 5 + @as(u32, @intCast(resources.len)) + @intFromBool(options.define_external_symbol != null);
-    const coff_header = std.coff.CoffHeader{
+    const coff_header = std.coff.Header{
         .machine = machine_type,
         .number_of_sections = 2,
         .time_date_stamp = @as(u32, @truncate(@as(u64, @bitCast(timestamp)))),
@@ -245,9 +245,9 @@ pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []cons
         .number_of_relocations = @intCast(resources.len),
         .number_of_linenumbers = 0,
         .flags = .{
-            .CNT_INITIALIZED_DATA = 1,
-            .MEM_WRITE = @intFromBool(!options.read_only),
-            .MEM_READ = 1,
+            .CNT_INITIALIZED_DATA = true,
+            .MEM_WRITE = !options.read_only,
+            .MEM_READ = true,
         },
     };
     try writer.writeStruct(rsrc01_header, .little);
@@ -263,9 +263,9 @@ pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []cons
         .number_of_relocations = 0,
         .number_of_linenumbers = 0,
         .flags = .{
-            .CNT_INITIALIZED_DATA = 1,
-            .MEM_WRITE = @intFromBool(!options.read_only),
-            .MEM_READ = 1,
+            .CNT_INITIALIZED_DATA = true,
+            .MEM_WRITE = !options.read_only,
+            .MEM_READ = true,
         },
     };
     try writer.writeStruct(rsrc02_header, .little);
@@ -1005,9 +1005,9 @@ pub const supported_targets = struct {
         x86_64,
         aarch64,
 
-        pub fn toCoffMachineType(arch: Arch) std.coff.MachineType {
+        pub fn toCoffMachineType(arch: Arch) std.coff.IMAGE.FILE.MACHINE {
             return switch (arch) {
-                .x64, .amd64, .x86_64 => .X64,
+                .x64, .amd64, .x86_64 => .AMD64,
                 .x86, .i386 => .I386,
                 .arm, .armnt => .ARMNT,
                 .arm64, .aarch64 => .ARM64,
@@ -1079,26 +1079,26 @@ pub const supported_targets = struct {
     };
 
     // https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#type-indicators
-    pub fn rvaRelocationTypeIndicator(target: std.coff.MachineType) ?u16 {
+    pub fn rvaRelocationTypeIndicator(target: std.coff.IMAGE.FILE.MACHINE) ?u16 {
         return switch (target) {
-            .X64 => 0x3, // IMAGE_REL_AMD64_ADDR32NB
-            .I386 => 0x7, // IMAGE_REL_I386_DIR32NB
-            .ARMNT => 0x2, // IMAGE_REL_ARM_ADDR32NB
-            .ARM64, .ARM64EC, .ARM64X => 0x2, // IMAGE_REL_ARM64_ADDR32NB
-            .IA64 => 0x10, // IMAGE_REL_IA64_DIR32NB
+            .AMD64 => @intFromEnum(std.coff.IMAGE.REL.AMD64.ADDR32NB),
+            .I386 => @intFromEnum(std.coff.IMAGE.REL.I386.DIR32NB),
+            .ARMNT => @intFromEnum(std.coff.IMAGE.REL.ARM.ADDR32NB),
+            .ARM64, .ARM64EC, .ARM64X => @intFromEnum(std.coff.IMAGE.REL.ARM64.ADDR32NB),
+            .IA64 => @intFromEnum(std.coff.IMAGE.REL.IA64.DIR32NB),
             .EBC => 0x1, // This is what cvtres.exe writes for this target, unsure where it comes from
             else => null,
         };
     }
 
-    pub fn isSupported(target: std.coff.MachineType) bool {
+    pub fn isSupported(target: std.coff.IMAGE.FILE.MACHINE) bool {
         return rvaRelocationTypeIndicator(target) != null;
     }
 
     comptime {
         // Enforce two things:
         // 1. Arch enum field names are all lowercase (necessary for how fromStringIgnoreCase is implemented)
-        // 2. All enum fields in Arch have an associated RVA relocation type when converted to a coff.MachineType
+        // 2. All enum fields in Arch have an associated RVA relocation type when converted to a coff.IMAGE.FILE.MACHINE
         for (@typeInfo(Arch).@"enum".fields) |enum_field| {
             const all_lower = all_lower: for (enum_field.name) |c| {
                 if (std.ascii.isUpper(c)) break :all_lower false;

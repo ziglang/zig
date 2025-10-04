@@ -1510,8 +1510,16 @@ static inline zig_u128 zig_shl_u128(zig_u128 lhs, uint8_t rhs) {
 }
 
 static inline zig_i128 zig_shr_i128(zig_i128 lhs, uint8_t rhs) {
+    // This works around a GCC miscompilation, but it has the side benefit of
+    // emitting better code. It is behind the `#if` because it depends on
+    // arithmetic right shift, which is implementation-defined in C, but should
+    // be guaranteed on any GCC-compatible compiler.
+#if defined(zig_gnuc)
+    return lhs >> rhs;
+#else
     zig_i128 sign_mask = lhs < zig_make_i128(0, 0) ? -zig_make_i128(0, 1) : zig_make_i128(0, 0);
     return ((lhs ^ sign_mask) >> rhs) ^ sign_mask;
+#endif
 }
 
 static inline zig_i128 zig_shl_i128(zig_i128 lhs, uint8_t rhs) {

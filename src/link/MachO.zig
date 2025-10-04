@@ -4149,9 +4149,9 @@ pub const SymtabCtx = struct {
 
 pub const null_sym = macho.nlist_64{
     .n_strx = 0,
-    .n_type = 0,
+    .n_type = @bitCast(@as(u8, 0)),
     .n_sect = 0,
-    .n_desc = 0,
+    .n_desc = @bitCast(@as(u16, 0)),
     .n_value = 0,
 };
 
@@ -5070,7 +5070,7 @@ pub fn getKernError(err: std.c.kern_return_t) KernE {
 pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(.{});
     }
     return error.Unexpected;
 }
