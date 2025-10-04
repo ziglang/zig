@@ -442,7 +442,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             ra: usize,
         ) bool {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
+            if (mem.sliceOwnsPtr(u8, &self.buffer, @ptrCast(buf.ptr))) {
                 return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, alignment, new_len, ra);
             } else {
                 return self.fallback_allocator.rawResize(buf, alignment, new_len, ra);
@@ -457,7 +457,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             return_address: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(context));
-            if (self.fixed_buffer_allocator.ownsPtr(memory.ptr)) {
+            if (mem.sliceOwnsPtr(u8, &self.buffer, @ptrCast(memory.ptr))) {
                 return FixedBufferAllocator.remap(&self.fixed_buffer_allocator, memory, alignment, new_len, return_address);
             } else {
                 return self.fallback_allocator.rawRemap(memory, alignment, new_len, return_address);
@@ -471,7 +471,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             ra: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
+            if (mem.sliceOwnsPtr(u8, &self.buffer, @ptrCast(buf.ptr))) {
                 return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, alignment, ra);
             } else {
                 return self.fallback_allocator.rawFree(buf, alignment, ra);

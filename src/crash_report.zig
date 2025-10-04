@@ -77,6 +77,7 @@ fn dumpStatusReport() !void {
     const anal = zir_state orelse return;
     // Note: We have the panic mutex here, so we can safely use the global crash heap.
     var fba = std.heap.FixedBufferAllocator.init(&crash_heap);
+    const fba_initial_state = fba.savestate();
     const allocator = fba.allocator();
 
     var stderr_fw = std.fs.File.stderr().writer(&.{});
@@ -114,7 +115,7 @@ fn dumpStatusReport() !void {
 
     var parent = anal.parent;
     while (parent) |curr| {
-        fba.reset();
+        fba.restore(fba_initial_state);
         const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
         try stderr.print("  in {f}\n", .{cur_block_file.path.fmt(zcu.comp)});
         _, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {

@@ -1,22 +1,23 @@
 const std = @import("../std.zig");
-const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const mem = std.mem;
+const Alignment = std.mem.Alignment;
+const Allocator = std.mem.Allocator;
+const safety = std.debug.runtime_safety;
 
-const FixedBufferAllocator = @This();
+start: if (safety) [*]u8 else void,
+bump: [*]u8,
+end: [*]u8,
 
-end_index: usize,
-buffer: []u8,
-
-pub fn init(buffer: []u8) FixedBufferAllocator {
+pub fn init(buffer: []u8) @This() {
     return .{
-        .buffer = buffer,
-        .end_index = 0,
+        .start = if (safety) buffer.ptr else {},
+        .bump = buffer.ptr,
+        .end = buffer.ptr + buffer.len,
     };
 }
 
 /// Using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe.
-pub fn allocator(self: *FixedBufferAllocator) Allocator {
+pub fn allocator(self: *@This()) Allocator {
     return .{
         .ptr = self,
         .vtable = &.{
@@ -29,9 +30,8 @@ pub fn allocator(self: *FixedBufferAllocator) Allocator {
 }
 
 /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
-///
 /// Using this at the same time as the interface returned by `allocator` is not thread safe.
-pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
+pub fn threadSafeAllocator(self: *@This()) Allocator {
     return .{
         .ptr = self,
         .vtable = &.{
@@ -43,188 +43,219 @@ pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
     };
 }
 
-pub fn ownsPtr(self: *FixedBufferAllocator, ptr: [*]u8) bool {
-    return sliceContainsPtr(self.buffer, ptr);
+/// Save the current state of the bump allocator
+pub fn savestate(self: *@This()) usize {
+    return @intFromPtr(self.bump);
 }
 
-pub fn ownsSlice(self: *FixedBufferAllocator, slice: []u8) bool {
-    return sliceContainsSlice(self.buffer, slice);
+/// Restore a previously saved allocator state (see savestate).
+/// Use @intFromPtr(buffer.ptr) to reset the bump allocator.
+pub fn restore(self: *@This(), state: usize) void {
+    if (safety) assert(state >= @intFromPtr(self.start));
+    assert(state <= @intFromPtr(self.end));
+    self.bump = @ptrFromInt(state);
 }
 
-/// This has false negatives when the last allocation had an
-/// adjusted_index. In such case we won't be able to determine what the
-/// last allocation was because the alignForward operation done in alloc is
-/// not reversible.
-pub fn isLastAllocation(self: *FixedBufferAllocator, buf: []u8) bool {
-    return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
-}
+pub fn alloc(
+    ctx: *anyopaque,
+    length: usize,
+    alignment: Alignment,
+    _: usize,
+) ?[*]u8 {
+    const self: *@This() = @alignCast(@ptrCast(ctx));
 
-pub fn alloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
-    const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-    _ = ra;
-    const ptr_align = alignment.toByteUnits();
-    const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
-    const adjusted_index = self.end_index + adjust_off;
-    const new_end_index = adjusted_index + n;
-    if (new_end_index > self.buffer.len) return null;
-    self.end_index = new_end_index;
-    return self.buffer.ptr + adjusted_index;
+    if (@inComptime()) {
+        // Alignment greater than 1 requires us to know the self.bump
+        // pointer value, which is not currently possible at comptime.
+        assert(alignment == .@"1" or alignment == .@"0");
+        const address = self.bump;
+        self.bump += length;
+        return address;
+    }
+
+    // Forward alignment is slightly more expensive than backwards alignment,
+    // but in exchange we can grow our last allocation without wasting memory.
+    const aligned = alignment.forward(@intFromPtr(self.bump));
+    const end_addr, const overflow = @addWithOverflow(aligned, length);
+
+    // Guard against overflowing a usize, not just exceeding the end pointer.
+    // Bitwise OR is used here as short-circuiting emits another branch.
+    const exceed = end_addr > @intFromPtr(self.end);
+    if ((overflow == 1) | exceed) return null;
+
+    self.bump = @ptrFromInt(end_addr);
+    return @ptrFromInt(aligned);
 }
 
 pub fn resize(
     ctx: *anyopaque,
-    buf: []u8,
-    alignment: mem.Alignment,
-    new_size: usize,
-    return_address: usize,
+    memory: []u8,
+    _: Alignment,
+    new_length: usize,
+    _: usize,
 ) bool {
-    const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-    _ = alignment;
-    _ = return_address;
-    assert(@inComptime() or self.ownsSlice(buf));
+    const self: *@This() = @alignCast(@ptrCast(ctx));
 
-    if (!self.isLastAllocation(buf)) {
-        if (new_size > buf.len) return false;
-        return true;
-    }
+    // We cannot compare pointer values at comptime, which is
+    // required to see if growing an allocation would OOM.
+    const shrinking = new_length <= memory.len;
+    if (@inComptime()) return shrinking;
 
-    if (new_size <= buf.len) {
-        const sub = buf.len - new_size;
-        self.end_index -= sub;
-        return true;
-    }
+    // Allocating memory sets the bump pointer to the next free address.
+    // If memory is not the most recent allocation, it cannot be grown.
+    if (memory.ptr + memory.len != self.bump) return shrinking;
 
-    const add = new_size - buf.len;
-    if (add + self.end_index > self.buffer.len) return false;
+    const alloc_base = @intFromPtr(memory.ptr);
+    if (safety) assert(alloc_base >= @intFromPtr(self.start));
+    assert(alloc_base <= @intFromPtr(self.bump));
 
-    self.end_index += add;
+    // For the most recent allocation, we can OOM iff we are not shrinking the
+    // allocation, and alloc_base + new_length exceeds or overflows self.end.
+    const end_addr, const overflow = @addWithOverflow(alloc_base, new_length);
+    const exceed = end_addr > @intFromPtr(self.end);
+    if (!shrinking and ((overflow == 1) | exceed)) return false;
+
+    self.bump = @ptrFromInt(end_addr);
     return true;
 }
 
 pub fn remap(
-    context: *anyopaque,
+    ctx: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
-    new_len: usize,
-    return_address: usize,
+    _: Alignment,
+    new_length: usize,
+    _: usize,
 ) ?[*]u8 {
-    return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
+    if (resize(ctx, memory, undefined, new_length, undefined)) {
+        return memory.ptr;
+    } else {
+        return null;
+    }
 }
 
 pub fn free(
     ctx: *anyopaque,
-    buf: []u8,
-    alignment: mem.Alignment,
-    return_address: usize,
+    memory: []u8,
+    _: Alignment,
+    _: usize,
 ) void {
-    const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-    _ = alignment;
-    _ = return_address;
-    assert(@inComptime() or self.ownsSlice(buf));
+    const self: *@This() = @alignCast(@ptrCast(ctx));
 
-    if (self.isLastAllocation(buf)) {
-        self.end_index -= buf.len;
-    }
+    // Only the last allocation can be freed, and only fully
+    // if the alignment cost for it's allocation was a noop.
+    if (memory.ptr + memory.len != self.bump) return;
+    self.bump = self.bump - memory.len;
+
+    // The safety checks below verify that we own the memory just freed.
+    // We cannot run these safety checks at comptime due to @intFromPtr.
+    if (@inComptime()) return;
+
+    const alloc_base = @intFromPtr(memory.ptr);
+    if (safety) assert(alloc_base >= @intFromPtr(self.start));
+    assert(alloc_base <= @intFromPtr(self.bump));
 }
 
-fn threadSafeAlloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
-    const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-    _ = ra;
-    const ptr_align = alignment.toByteUnits();
-    var end_index = @atomicLoad(usize, &self.end_index, .seq_cst);
+fn threadSafeAlloc(
+    ctx: *anyopaque,
+    length: usize,
+    alignment: Alignment,
+    _: usize,
+) ?[*]u8 {
+    const self: *@This() = @alignCast(@ptrCast(ctx));
+
+    var old_bump: [*]u8 = @atomicLoad([*]u8, &self.bump, .seq_cst);
     while (true) {
-        const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;
-        const adjusted_index = end_index + adjust_off;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > self.buffer.len) return null;
-        end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .seq_cst, .seq_cst) orelse
-            return self.buffer[adjusted_index..new_end_index].ptr;
+        const aligned = alignment.forward(@intFromPtr(old_bump));
+        const end_addr, const overflow = @addWithOverflow(aligned, length);
+
+        const exceed = end_addr > @intFromPtr(self.end);
+        if ((overflow == 1) | exceed) return null;
+
+        const new_bump: [*]u8 = @ptrFromInt(end_addr);
+        if (@cmpxchgWeak([*]u8, &self.bump, old_bump, new_bump, .seq_cst, .seq_cst)) |prev| {
+            old_bump = prev;
+            continue;
+        }
+
+        return @ptrFromInt(aligned);
     }
 }
 
-pub fn reset(self: *FixedBufferAllocator) void {
-    self.end_index = 0;
+test "BumpAllocator" {
+    var buffer: [1 << 20]u8 = undefined;
+    var bump_allocator: @This() = .init(&buffer);
+    const gpa = bump_allocator.allocator();
+
+    try std.heap.testAllocator(gpa);
+    try std.heap.testAllocatorAligned(gpa);
+    try std.heap.testAllocatorAlignedShrink(gpa);
+    try std.heap.testAllocatorLargeAlignment(gpa);
 }
 
-fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
-    return @intFromPtr(ptr) >= @intFromPtr(container.ptr) and
-        @intFromPtr(ptr) < (@intFromPtr(container.ptr) + container.len);
-}
+test "savestate and restore" {
+    var buffer: [256]u8 = undefined;
+    var bump_allocator: @This() = .init(&buffer);
+    const gpa = bump_allocator.allocator();
 
-fn sliceContainsSlice(container: []u8, slice: []u8) bool {
-    return @intFromPtr(slice.ptr) >= @intFromPtr(container.ptr) and
-        (@intFromPtr(slice.ptr) + slice.len) <= (@intFromPtr(container.ptr) + container.len);
-}
+    const state_before = bump_allocator.savestate();
+    _ = try gpa.alloc(u8, buffer.len);
 
-var test_fixed_buffer_allocator_memory: [800000 * @sizeOf(u64)]u8 = undefined;
-
-test FixedBufferAllocator {
-    var fixed_buffer_allocator = mem.validationWrap(FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]));
-    const a = fixed_buffer_allocator.allocator();
-
-    try std.heap.testAllocator(a);
-    try std.heap.testAllocatorAligned(a);
-    try std.heap.testAllocatorLargeAlignment(a);
-    try std.heap.testAllocatorAlignedShrink(a);
-}
-
-test reset {
-    var buf: [8]u8 align(@alignOf(u64)) = undefined;
-    var fba = FixedBufferAllocator.init(buf[0..]);
-    const a = fba.allocator();
-
-    const X = 0xeeeeeeeeeeeeeeee;
-    const Y = 0xffffffffffffffff;
-
-    const x = try a.create(u64);
-    x.* = X;
-    try std.testing.expectError(error.OutOfMemory, a.create(u64));
-
-    fba.reset();
-    const y = try a.create(u64);
-    y.* = Y;
-
-    // we expect Y to have overwritten X.
-    try std.testing.expect(x.* == y.*);
-    try std.testing.expect(y.* == Y);
+    bump_allocator.restore(state_before);
+    _ = try gpa.alloc(u8, buffer.len);
 }
 
 test "reuse memory on realloc" {
-    var small_fixed_buffer: [10]u8 = undefined;
-    // check if we re-use the memory
-    {
-        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
-        const a = fixed_buffer_allocator.allocator();
+    var buffer: [10]u8 = undefined;
+    var bump_allocator: @This() = .init(&buffer);
+    const gpa = bump_allocator.allocator();
 
-        const slice0 = try a.alloc(u8, 5);
-        try std.testing.expect(slice0.len == 5);
-        const slice1 = try a.realloc(slice0, 10);
-        try std.testing.expect(slice1.ptr == slice0.ptr);
-        try std.testing.expect(slice1.len == 10);
-        try std.testing.expectError(error.OutOfMemory, a.realloc(slice1, 11));
-    }
-    // check that we don't re-use the memory if it's not the most recent block
-    {
-        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
-        const a = fixed_buffer_allocator.allocator();
+    const slice_0 = try gpa.alloc(u8, 5);
+    const slice_1 = try gpa.realloc(slice_0, 10);
+    try std.testing.expect(slice_1.ptr == slice_0.ptr);
+}
 
-        var slice0 = try a.alloc(u8, 2);
-        slice0[0] = 1;
-        slice0[1] = 2;
-        const slice1 = try a.alloc(u8, 2);
-        const slice2 = try a.realloc(slice0, 4);
-        try std.testing.expect(slice0.ptr != slice2.ptr);
-        try std.testing.expect(slice1.ptr != slice2.ptr);
-        try std.testing.expect(slice2[0] == 1);
-        try std.testing.expect(slice2[1] == 2);
+test "don't grow one allocation into another" {
+    var buffer: [10]u8 = undefined;
+    var bump_allocator: @This() = .init(&buffer);
+    const gpa = bump_allocator.allocator();
+
+    const slice_0 = try gpa.alloc(u8, 3);
+    const slice_1 = try gpa.alloc(u8, 3);
+    const slice_2 = try gpa.realloc(slice_0, 4);
+    try std.testing.expect(slice_2.ptr == slice_1.ptr + 3);
+}
+
+test "avoid integer overflow for obscene allocations" {
+    var buffer: [10]u8 = undefined;
+    var bump_allocator: @This() = .init(&buffer);
+    const gpa = bump_allocator.allocator();
+
+    _ = try gpa.alloc(u8, 5);
+    const problem = gpa.alloc(u8, std.math.maxInt(usize));
+    try std.testing.expectError(error.OutOfMemory, problem);
+}
+
+test "works at comptime for alignments <= 1" {
+    comptime {
+        var buffer: [256]u8 = undefined;
+        var bump_allocator: @This() = .init(&buffer);
+        const gpa = bump_allocator.allocator();
+
+        var list: std.ArrayList(u8) = .empty;
+        defer list.deinit(gpa);
+        for ("Hello, World!\n") |byte| {
+            try list.append(gpa, byte);
+        }
     }
 }
 
 test "thread safe version" {
-    var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
+    var buffer: [1 << 20]u8 = undefined;
+    var bump_allocator: @This() = .init(&buffer);
+    const gpa = bump_allocator.threadSafeAllocator();
 
-    try std.heap.testAllocator(fixed_buffer_allocator.threadSafeAllocator());
-    try std.heap.testAllocatorAligned(fixed_buffer_allocator.threadSafeAllocator());
-    try std.heap.testAllocatorLargeAlignment(fixed_buffer_allocator.threadSafeAllocator());
-    try std.heap.testAllocatorAlignedShrink(fixed_buffer_allocator.threadSafeAllocator());
+    try std.heap.testAllocator(gpa);
+    try std.heap.testAllocatorAligned(gpa);
+    try std.heap.testAllocatorAlignedShrink(gpa);
+    try std.heap.testAllocatorLargeAlignment(gpa);
 }
