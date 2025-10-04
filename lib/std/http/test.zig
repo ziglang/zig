@@ -930,6 +930,38 @@ test "Server streams both reading and writing" {
     try expectEqualStrings("ONE FISH", body);
 }
 
+test "chunked body writer drains in moderation" {
+    // Test inspired by a bug in one of Io.Writer's write helpers.
+    //
+    // The fix doesn't touch the HTTP code, but the BodyWriter is
+    // from what I can tell the only affected code in std.
+    //
+    // Possibly the cause of https://github.com/ziglang/zig/issues/24944
+    // wherein the `zig std` server on Windows, due to lack of sendfile,
+    // drains the streaming sources tarball by doing vector writes
+    // of file contents in the chunked body stream.
+
+    var peer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer peer.deinit();
+
+    const chunk_capacity = 5;
+
+    var bw: std.http.BodyWriter = .{
+        .http_protocol_output = &peer.writer,
+        .state = .{ .chunk_len = chunk_capacity + "\r\n".len },
+        .writer = .{
+            .buffer = &.{},
+            .vtable = &.{
+                .drain = std.http.BodyWriter.chunkedDrain,
+            },
+        },
+    };
+
+    _ = try bw.writer.writeVec(&.{ "great", "...not" });
+
+    try std.testing.expectEqualStrings("great", peer.written());
+}
+
 fn echoTests(client: *http.Client, port: u16) !void {
     const gpa = std.testing.allocator;
     var location_buffer: [100]u8 = undefined;
