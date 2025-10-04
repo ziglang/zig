@@ -81,6 +81,16 @@ pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]cons
 }
 
 pub const can_unwind: bool = s: {
+    // The DWARF code can't deal with ILP32 ABIs yet: https://github.com/ziglang/zig/issues/25447
+    switch (builtin.target.abi) {
+        .gnuabin32,
+        .muslabin32,
+        .gnux32,
+        .muslx32,
+        => break :s false,
+        else => {},
+    }
+
     // Notably, we are yet to support unwinding on ARM. There, unwinding is not done through
     // `.eh_frame`, but instead with the `.ARM.exidx` section, which has a different format.
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
