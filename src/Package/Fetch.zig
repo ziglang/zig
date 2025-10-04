@@ -93,11 +93,7 @@ latest_commit: ?git.Oid,
 /// the root source file.
 module: ?*Package.Module,
 
-/// The number of times an HTTP request will retry if it fails
-retry_count: u16 = 3,
-
-/// The delay in milliseconds between HTTP request retries
-retry_delay_ms: u32 = 500,
+retry: Retry = .{},
 
 pub const LazyStatus = enum {
     /// Not lazy.
@@ -330,6 +326,88 @@ pub const RunError = error{
     /// `error_bundle` field.
     FetchFailed,
 };
+
+pub const Retry = struct {
+    /// The number of failed attempts that have been done so far.
+    ///
+    /// Starts at 0, and increases by one each time an attempt fails.
+    cur_retries: u16 = 0,
+    /// The maximum number of times the operation should be retried.
+    ///
+    /// 0 means it should never retry.
+    max_retries: u16 = 3,
+    /// Hard cap of how many milliseconds to wait between retries.
+    const MAX_RETRY_SLEEP_MS = 10 * 1000;
+    /// Minimum time a jittered retry delay could be
+    const MIN_RETRY_JITTER_MS = 500;
+    /// Maximum time a jittered retry delay could be
+    const MAX_RETRY_JITTER_MS = 1500;
+
+    fn calcRetryDelayMs(r: *Retry) i64 {
+        if (r.cur_retries == 0) {
+            return std.crypto.random.intRangeAtMost(i64, MIN_RETRY_JITTER_MS, MAX_RETRY_JITTER_MS);
+        }
+        return @min(r.cur_retries * 3 * 1000, MAX_RETRY_SLEEP_MS);
+    }
+
+    fn callWithRetries(
+        r: *Retry,
+        io: Io,
+        comptime FunctionType: type,
+        callback: FunctionType,
+        args: anytype,
+    ) @typeInfo(FunctionType).@"fn".return_type.? {
+        while (true) {
+            return @call(.auto, callback, args) catch |err| {
+                if (maybeSpurious(err) and r.cur_retries < r.max_retries) {
+                    const delay = Io.Duration.fromMilliseconds(r.calcRetryDelayMs());
+                    io.sleep(delay, .awake) catch |sleep_err| switch (sleep_err) {
+                        // If canceled, cotinue to retry
+                        Io.Cancelable.Canceled => {},
+                        // TODO: Find a better solution than silently not retrying
+                        else => return err,
+                    };
+                    r.cur_retries += 1;
+                    continue;
+                }
+                return err;
+            };
+        }
+    }
+};
+
+const BadHttpStatus = error{
+    MaybeSpurious,
+    NonSpurious,
+};
+
+fn maybeSpurious(err: anyerror) bool {
+    return switch (err) {
+        // tcp errors
+        std.http.Client.ConnectTcpError.Timeout,
+        std.http.Client.ConnectTcpError.ConnectionResetByPeer,
+        std.http.Client.ConnectTcpError.ConnectionRefused,
+        std.http.Client.ConnectTcpError.NetworkUnreachable,
+        std.http.Client.ConnectTcpError.AddressInUse,
+        std.http.Client.ConnectTcpError.NameServerFailure,
+        std.http.Client.ConnectTcpError.SystemResources,
+
+        // io errors
+        std.http.Client.Request.ReceiveHeadError.WriteFailed,
+        std.http.Client.Request.ReceiveHeadError.ReadFailed,
+
+        // http errors
+        std.http.Client.Request.ReceiveHeadError.HttpRequestTruncated,
+        std.http.Client.Request.ReceiveHeadError.HttpConnectionClosing,
+        std.http.Client.Request.ReceiveHeadError.HttpChunkTruncated,
+        std.http.Client.Request.ReceiveHeadError.HttpChunkInvalid,
+        BadHttpStatus.MaybeSpurious,
+
+        Allocator.Error.OutOfMemory,
+        => true,
+        else => false,
+    };
+}
 
 pub fn run(f: *Fetch) RunError!void {
     const io = f.io;
@@ -999,10 +1077,10 @@ const init_resource_buffer_size = git.Packet.max_data_length;
 
 fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) RunError!void {
     const io = f.io;
-    const arena = f.arena.allocator();
     const eb = &f.error_bundle;
 
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
+        const arena = f.arena.allocator();
         const path = try uri.path.toRawMaybeAlloc(arena);
         const file = f.parent_package_root.openFile(path, .{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString("unable to open '{f}{s}': {t}", .{
@@ -1013,162 +1091,130 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
         return;
     }
 
-    const http_client = f.job_queue.http_client;
-
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
-        var retries_left = f.retry_count;
-        resource.* = .{ .http_request = .{
-            .request = while (true) {
-                break http_client.request(.GET, uri, .{}) catch |err| {
-                    if (retries_left > 0) {
-                        std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
-                        retries_left -= 1;
-                        continue;
-                    }
-                    return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err}));
-                };
-            },
-            .response = undefined,
-            .transfer_buffer = reader_buffer,
-            .decompress_buffer = &.{},
-            .decompress = undefined,
-        } };
-        const request = &resource.http_request.request;
-        errdefer request.deinit();
-
-        while (true) {
-            request.sendBodiless() catch |err| {
-                if (retries_left > 0) {
-                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
-                    retries_left -= 1;
-                    continue;
-                }
-                return f.fail(f.location_tok, try eb.printString("HTTP request failed: {t}", .{err}));
-            };
-
-            var redirect_buffer: [1024]u8 = undefined;
-            const response = &resource.http_request.response;
-            response.* = request.receiveHead(&redirect_buffer) catch |err| switch (err) {
-                error.ReadFailed => {
-                    return f.fail(f.location_tok, try eb.printString("HTTP response read failure: {t}", .{
-                        request.connection.?.getReadError().?,
-                    }));
-                },
-                else => |e| return f.fail(f.location_tok, try eb.printString("invalid HTTP response: {t}", .{e})),
-            };
-
-            if (response.head.status != .ok) {
-                if (retries_left > 0) {
-                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
-                    retries_left -= 1;
-                    continue;
-                }
-                return f.fail(f.location_tok, try eb.printString(
-                    "bad HTTP response code: '{d} {s}'",
-                    .{ response.head.status, response.head.status.phrase() orelse "" },
-                ));
-            }
-
-            resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
-            return;
-        }
+        f.retry.callWithRetries(f.io, @TypeOf(initHttpResource), initHttpResource, .{ f, uri, resource, reader_buffer }) catch |err| {
+            const status = resource.http_request.response.head.status;
+            return f.fail(f.location_tok, switch (err) {
+                BadHttpStatus.MaybeSpurious, BadHttpStatus.NonSpurious => try eb.printString("Failed with bad HTTP status code: {d} -> {}", .{ status, status }),
+                else => try eb.printString("Failed to fetch HTTP resource {s}: {t}", .{ uri.path.percent_encoded, err }),
+            });
+        };
+        return;
     }
 
     if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or
         ascii.eqlIgnoreCase(uri.scheme, "git+https"))
     {
-        var retries_left = f.retry_count;
-        var transport_uri = uri;
-        transport_uri.scheme = uri.scheme["git+".len..];
-        var session = while (true) {
-            break git.Session.init(arena, http_client, transport_uri, reader_buffer) catch |err| {
-                if (retries_left > 0) {
-                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
-                    retries_left -= 1;
-                    continue;
-                }
-                return f.fail(
-                    f.location_tok,
-                    try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
-                );
-            };
+        f.retry.callWithRetries(f.io, @TypeOf(initGitResource), initGitResource, .{ f, uri, resource, reader_buffer }) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("Failed to fetch git resource {s}: {t}", .{ uri.path.percent_encoded, err }));
         };
-
-        const want_oid = want_oid: {
-            const want_ref =
-                if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
-            if (git.Oid.parseAny(want_ref)) |oid| break :want_oid oid else |_| {}
-
-            const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
-            const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
-
-            var ref_iterator: git.Session.RefIterator = undefined;
-            session.listRefs(&ref_iterator, .{
-                .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
-                .include_peeled = true,
-                .buffer = reader_buffer,
-            }) catch |err| return f.fail(f.location_tok, try eb.printString("unable to list refs: {t}", .{err}));
-            defer ref_iterator.deinit();
-            while (ref_iterator.next() catch |err| {
-                return f.fail(f.location_tok, try eb.printString(
-                    "unable to iterate refs: {s}",
-                    .{@errorName(err)},
-                ));
-            }) |ref| {
-                if (std.mem.eql(u8, ref.name, want_ref) or
-                    std.mem.eql(u8, ref.name, want_ref_head) or
-                    std.mem.eql(u8, ref.name, want_ref_tag))
-                {
-                    break :want_oid ref.peeled orelse ref.oid;
-                }
-            }
-            return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
-        };
-        if (f.use_latest_commit) {
-            f.latest_commit = want_oid;
-        } else if (uri.fragment == null) {
-            const notes_len = 1;
-            try eb.addRootErrorMessage(.{
-                .msg = try eb.addString("url field is missing an explicit ref"),
-                .src_loc = try f.srcLoc(f.location_tok),
-                .notes_len = notes_len,
-            });
-            const notes_start = try eb.reserveNotes(notes_len);
-            eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
-                    uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
-                    want_oid,
-                }),
-            }));
-            return error.FetchFailed;
-        }
-
-        var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
-        resource.* = .{ .git = .{
-            .session = session,
-            .fetch_stream = undefined,
-            .want_oid = want_oid,
-        } };
-        const fetch_stream = &resource.git.fetch_stream;
-        while (true) {
-            break session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
-                if (retries_left > 0) {
-                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
-                    retries_left -= 1;
-                    continue;
-                }
-                return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
-            };
-        }
-        errdefer fetch_stream.deinit(fetch_stream);
-
         return;
     }
 
     return f.fail(f.location_tok, try eb.printString("unsupported URL scheme: {s}", .{uri.scheme}));
+}
+
+fn initHttpResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) !void {
+    const arena = f.arena.allocator();
+    const http_client = f.job_queue.http_client;
+
+    resource.* = .{ .http_request = .{
+        .request = try http_client.request(.GET, uri, .{}),
+        .response = undefined,
+        .transfer_buffer = reader_buffer,
+        .decompress_buffer = &.{},
+        .decompress = undefined,
+    } };
+    const request = &resource.http_request.request;
+    errdefer request.deinit();
+
+    try request.sendBodiless();
+
+    var redirect_buffer: [1024]u8 = undefined;
+    const response = &resource.http_request.response;
+    response.* = try request.receiveHead(&redirect_buffer);
+    const status = response.head.status;
+
+    if (@intFromEnum(status) >= 500 or status == .too_many_requests or status == .not_found) {
+        return BadHttpStatus.MaybeSpurious;
+    } else if (status != .ok) {
+        return BadHttpStatus.NonSpurious;
+    }
+
+    resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+}
+
+fn initGitResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) !void {
+    const eb = &f.error_bundle;
+
+    const arena = f.arena.allocator();
+    const http_client = f.job_queue.http_client;
+
+    var transport_uri = uri;
+    transport_uri.scheme = uri.scheme["git+".len..];
+    var session = try git.Session.init(arena, http_client, transport_uri, reader_buffer);
+
+    const want_oid = want_oid: {
+        const want_ref =
+            if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
+        if (git.Oid.parseAny(want_ref)) |oid| break :want_oid oid else |_| {}
+
+        const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
+        const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
+
+        var ref_iterator: git.Session.RefIterator = undefined;
+        session.listRefs(&ref_iterator, .{
+            .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
+            .include_peeled = true,
+            .buffer = reader_buffer,
+        }) catch |err| return f.fail(f.location_tok, try eb.printString("unable to list refs: {t}", .{err}));
+        defer ref_iterator.deinit();
+        while (ref_iterator.next() catch |err| {
+            return f.fail(f.location_tok, try eb.printString(
+                "unable to iterate refs: {s}",
+                .{@errorName(err)},
+            ));
+        }) |ref| {
+            if (std.mem.eql(u8, ref.name, want_ref) or
+                std.mem.eql(u8, ref.name, want_ref_head) or
+                std.mem.eql(u8, ref.name, want_ref_tag))
+            {
+                break :want_oid ref.peeled orelse ref.oid;
+            }
+        }
+        return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
+    };
+    if (f.use_latest_commit) {
+        f.latest_commit = want_oid;
+    } else if (uri.fragment == null) {
+        const notes_len = 1;
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.addString("url field is missing an explicit ref"),
+            .src_loc = try f.srcLoc(f.location_tok),
+            .notes_len = notes_len,
+        });
+        const notes_start = try eb.reserveNotes(notes_len);
+        eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
+            .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
+                uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
+                want_oid,
+            }),
+        }));
+        return error.FetchFailed;
+    }
+
+    var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
+    _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
+    resource.* = .{ .git = .{
+        .session = session,
+        .fetch_stream = undefined,
+        .want_oid = want_oid,
+    } };
+    const fetch_stream = &resource.git.fetch_stream;
+    try session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer);
+    errdefer fetch_stream.deinit(fetch_stream);
 }
 
 fn unpackResource(
