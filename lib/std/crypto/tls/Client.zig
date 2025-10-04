@@ -930,7 +930,10 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
 fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
     const c: *Client = @alignCast(@fieldParentPtr("writer", w));
     const output = c.output;
-    const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
+    // Don't request more than the buffer can provide - this prevents infinite loops
+    // when write_buffer_size is smaller than min_buffer_len
+    const requested = @min(min_buffer_len, output.buffer.len);
+    const ciphertext_buf = try output.writableSliceGreedy(requested);
     var ciphertext_end: usize = 0;
     var total_clear: usize = 0;
     done: {
@@ -942,7 +945,6 @@ fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize 
             if (prepared.cleartext_len < buf.len) break :done;
         }
         for (data[0 .. data.len - 1]) |buf| {
-            if (buf.len < min_buffer_len) break :done;
             const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
             total_clear += prepared.cleartext_len;
             ciphertext_end += prepared.ciphertext_end;
@@ -950,7 +952,6 @@ fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize 
         }
         const buf = data[data.len - 1];
         for (0..splat) |_| {
-            if (buf.len < min_buffer_len) break :done;
             const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
             total_clear += prepared.cleartext_len;
             ciphertext_end += prepared.ciphertext_end;
@@ -964,7 +965,8 @@ fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize 
 fn flush(w: *Writer) Writer.Error!void {
     const c: *Client = @alignCast(@fieldParentPtr("writer", w));
     const output = c.output;
-    const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
+    const requested = @min(min_buffer_len, output.buffer.len);
+    const ciphertext_buf = try output.writableSliceGreedy(requested);
     const prepared = prepareCiphertextRecord(c, ciphertext_buf, w.buffered(), .application_data);
     output.advance(prepared.ciphertext_end);
     w.end = 0;
@@ -976,7 +978,8 @@ fn flush(w: *Writer) Writer.Error!void {
 pub fn end(c: *Client) Writer.Error!void {
     try flush(&c.writer);
     const output = c.output;
-    const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
+    const requested = @min(min_buffer_len, output.buffer.len);
+    const ciphertext_buf = try output.writableSliceGreedy(requested);
     const prepared = prepareCiphertextRecord(c, ciphertext_buf, &tls.close_notify_alert, .alert);
     output.advance(prepared.ciphertext_end);
 }
