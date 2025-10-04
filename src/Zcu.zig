@@ -2023,7 +2023,7 @@ pub const SrcLoc = struct {
             },
             .tuple_field_type, .tuple_field_init => |field_info| {
                 const tree = try src_loc.file_scope.getTree(zcu);
-                const node = src_loc.base_node;
+                const node = field_info.tuple_decl_node_offset.toAbsolute(src_loc.base_node);
                 var buf: [2]Ast.Node.Index = undefined;
                 const container_decl = tree.fullContainerDecl(&buf, node) orelse
                     return tree.nodeToSpan(node);

@@ -8050,6 +8050,10 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     const tracy = trace(@src());
     defer tracy.end();
 
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.ArrayTypeSentinel, inst_data.payload_index).data;
     const len_src = block.src(.{ .node_offset_array_type_len = inst_data.src_node });
@@ -8061,7 +8065,11 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     const uncasted_sentinel = try sema.resolveInst(extra.sentinel);
     const sentinel = try sema.coerce(block, elem_type, uncasted_sentinel, sentinel_src);
     const sentinel_val = try sema.resolveConstDefinedValue(block, sentinel_src, sentinel, .{ .simple = .array_sentinel });
-    const array_ty = try sema.pt.arrayType(.{
+    if (sentinel_val.canMutateComptimeVarState(zcu)) {
+        const sentinel_name = try ip.getOrPutString(sema.gpa, pt.tid, "sentinel", .no_embedded_nulls);
+        return sema.failWithContainsReferenceToComptimeVar(block, sentinel_src, sentinel_name, "sentinel", sentinel_val);
+    }
+    const array_ty = try pt.arrayType(.{
         .len = len,
         .sentinel = sentinel_val.toIntern(),
         .child = elem_type.toIntern(),
@@ -19021,6 +19029,8 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].ptr_type;
     const extra = sema.code.extraData(Zir.Inst.PtrType, inst_data.payload_index);
     const elem_ty_src = block.src(.{ .node_offset_ptr_elem = extra.data.src_node });
@@ -19055,6 +19065,10 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const coerced = try sema.coerce(block, elem_ty, try sema.resolveInst(ref), sentinel_src);
         const val = try sema.resolveConstDefinedValue(block, sentinel_src, coerced, .{ .simple = .pointer_sentinel });
         try checkSentinelType(sema, block, sentinel_src, elem_ty);
+        if (val.canMutateComptimeVarState(zcu)) {
+            const sentinel_name = try ip.getOrPutString(sema.gpa, pt.tid, "sentinel", .no_embedded_nulls);
+            return sema.failWithContainsReferenceToComptimeVar(block, sentinel_src, sentinel_name, "sentinel", val);
+        }
         break :blk val.toIntern();
     } else .none;
 
@@ -20580,6 +20594,10 @@ fn zirReify(
                     const ptr_ty = try pt.singleMutPtrType(elem_ty);
                     const sent_val = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
                     try sema.checkSentinelType(block, src, elem_ty);
+                    if (sent_val.canMutateComptimeVarState(zcu)) {
+                        const sentinel_name = try ip.getOrPutString(gpa, pt.tid, "sentinel_ptr", .no_embedded_nulls);
+                        return sema.failWithContainsReferenceToComptimeVar(block, src, sentinel_name, "sentinel", sent_val);
+                    }
                     break :s sent_val.toIntern();
                 }
                 break :s .none;
@@ -20645,7 +20663,12 @@ fn zirReify(
             const sentinel = if (sentinel_val.optionalValue(zcu)) |p| blk: {
                 const ptr_ty = try pt.singleMutPtrType(child_ty);
                 try sema.checkSentinelType(block, src, child_ty);
-                break :blk (try sema.pointerDeref(block, src, p, ptr_ty)).?;
+                const sentinel = (try sema.pointerDeref(block, src, p, ptr_ty)).?;
+                if (sentinel.canMutateComptimeVarState(zcu)) {
+                    const sentinel_name = try ip.getOrPutString(gpa, pt.tid, "sentinel_ptr", .no_embedded_nulls);
+                    return sema.failWithContainsReferenceToComptimeVar(block, src, sentinel_name, "sentinel", sentinel);
+                }
+                break :blk sentinel;
             } else null;
 
             const ty = try pt.arrayType(.{
@@ -21387,6 +21410,9 @@ fn reifyTuple(
                 src,
                 .{ .simple = .tuple_field_default_value },
             );
+            if (val.canMutateComptimeVarState(zcu)) {
+                return sema.failWithContainsReferenceToComptimeVar(block, src, field_name, "field default value", val);
+            }
             // Resolve the value so that lazy values do not create distinct types.
             break :d (try sema.resolveLazyValue(val)).toIntern();
         } else .none;
@@ -21500,6 +21526,9 @@ fn reifyStruct(
                 src,
                 .{ .simple = .struct_field_default_value },
             );
+            if (val.canMutateComptimeVarState(zcu)) {
+                return sema.failWithContainsReferenceToComptimeVar(block, src, field_name, "field default value", val);
+            }
             // Resolve the value so that lazy values do not create distinct types.
             break :d (try sema.resolveLazyValue(val)).toIntern();
         } else .none;
