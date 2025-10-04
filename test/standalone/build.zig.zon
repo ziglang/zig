@@ -138,11 +138,6 @@
         .issue_12706 = .{
             .path = "issue_12706",
         },
-        // TODO This test is disabled for doing naughty things in the build script.
-        // The logic needs to get moved to a child process instead of build.zig.
-        //.sigpipe = .{
-        //    .path = "sigpipe",
-        //},
         .strip_empty_loop = .{
             .path = "strip_empty_loop",
         },
