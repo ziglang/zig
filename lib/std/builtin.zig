@@ -6,32 +6,6 @@ const root = @import("root");
 
 pub const assembly = @import("builtin/assembly.zig");
 
-/// `explicit_subsystem` is missing when the subsystem is automatically detected,
-/// so Zig standard library has the subsystem detection logic here. This should generally be
-/// used rather than `explicit_subsystem`.
-/// On non-Windows targets, this is `null`.
-pub const subsystem: ?std.Target.SubSystem = blk: {
-    if (@hasDecl(builtin, "explicit_subsystem")) break :blk builtin.explicit_subsystem;
-    switch (builtin.os.tag) {
-        .windows => {
-            if (builtin.is_test) {
-                break :blk std.Target.SubSystem.Console;
-            }
-            if (@hasDecl(root, "main") or
-                @hasDecl(root, "WinMain") or
-                @hasDecl(root, "wWinMain") or
-                @hasDecl(root, "WinMainCRTStartup") or
-                @hasDecl(root, "wWinMainCRTStartup"))
-            {
-                break :blk std.Target.SubSystem.Windows;
-            } else {
-                break :blk std.Target.SubSystem.Console;
-            }
-        },
-        else => break :blk null,
-    }
-};
-
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const StackTrace = struct {
