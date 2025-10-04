@@ -855,6 +855,18 @@ const StackIterator = union(enum) {
         }
     }
 
+    /// Some architectures make FP unwinding too impractical. For example, due to its very silly ABI
+    /// design decisions, it's not possible to do generic FP unwinding on MIPS; we would need to do
+    /// a complicated code scanning algorithm instead. At that point, we may as well just use DWARF.
+    const fp_unwind_is_impossible = switch (builtin.cpu.arch) {
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        => true,
+        else => false,
+    };
+
     /// <https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms#Respect-the-purpose-of-specific-CPU-registers>
     const fp_unwind_is_safe = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();
 
@@ -879,7 +891,14 @@ const StackIterator = union(enum) {
             // immediately regardless of anything. But FPs could also be omitted from a different
             // linked object, so it's not guaranteed to be safe, unless the target specifically
             // requires it.
-            .fp => abi_requires_backchain or (!builtin.omit_frame_pointer and (fp_unwind_is_safe or allow_unsafe)),
+            .fp => s: {
+                if (fp_unwind_is_impossible) break :s false;
+                if (abi_requires_backchain) break :s true;
+                if (builtin.omit_frame_pointer) break :s false;
+                if (fp_unwind_is_safe) break :s true;
+                if (allow_unsafe) break :s true;
+                break :s false;
+            },
         };
     }
 
