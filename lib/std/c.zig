@@ -3140,8 +3140,17 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
     },
+    // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal.h
     // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal_numbers.h
     .serenity => struct {
+        pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+        pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+        pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+
+        pub const BLOCK = 1;
+        pub const UNBLOCK = 2;
+        pub const SETMASK = 3;
+
         pub const INVAL = 0;
         pub const HUP = 1;
         pub const INT = 2;
@@ -3346,15 +3355,15 @@ pub const Sigaction = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L39-L46
     .serenity => extern struct {
-        pub const handler_fn = *align(1) const fn (c_int) callconv(.c) void;
-        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         handler: extern union {
             handler: ?handler_fn,
             sigaction: ?sigaction_fn,
         },
         mask: sigset_t,
-        flags: c_int,
+        flags: c_uint,
     },
     else => void,
 };
