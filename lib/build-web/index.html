@@ -139,6 +139,19 @@
         <div><slot name="llvm-pass-timings"></slot></div>
       </details>
     </div>
+    <div id="runTestReport">
+      <table class="time-stats">
+        <thead>
+          <tr>
+            <th scope="col">Test Name</th>
+            <th scope="col">Duration</th>
+          </tr>
+        </thead>
+        <!-- HTML does not allow placing a 'slot' inside of a 'tbody' for backwards-compatibility
+          reasons, so we unfortunately must template on the `id` here. -->
+        <tbody id="runTestTableBody"></tbody>
+      </div>
+    </div>
   </details>
 </template>
 

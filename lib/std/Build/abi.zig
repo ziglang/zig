@@ -56,6 +56,7 @@ pub const ToClientTag = enum(u8) {
     // `--time-report`
     time_report_generic_result,
     time_report_compile_result,
+    time_report_run_test_result,
 
     _,
 };
@@ -341,5 +342,20 @@ pub const time_report = struct {
                 .real_ns_link_flush = 0,
             };
         };
+    };
+
+    /// WebSocket server->client.
+    ///
+    /// Sent after a `Step.Run` for a Zig test executable finishes, providing the test's time report.
+    ///
+    /// Trailing:
+    /// * for each `tests_len`:
+    ///   * `test_ns: u64` (nanoseconds spent running this test)
+    /// * for each `tests_len`:
+    ///   * `name` (null-terminated UTF-8 string)
+    pub const RunTestResult = extern struct {
+        tag: ToClientTag = .time_report_run_test_result,
+        step_idx: u32 align(1),
+        tests_len: u32 align(1),
     };
 };
