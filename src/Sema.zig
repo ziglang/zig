@@ -25309,7 +25309,6 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const elem = try sema.coerce(block, dest_elem_ty, uncoerced_elem, value_src);
 
     const runtime_src = rs: {
-        const ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr) orelse break :rs dest_src;
         const len_air_ref = try sema.fieldVal(block, src, dest_ptr, try ip.getOrPutString(gpa, pt.tid, "len", .no_embedded_nulls), dest_src);
         const len_val = (try sema.resolveDefinedValue(block, dest_src, len_air_ref)) orelse break :rs dest_src;
         const len_u64 = try len_val.toUnsignedIntSema(pt);
@@ -25319,6 +25318,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             return;
         }
 
+        const ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr) orelse break :rs dest_src;
         if (!sema.isComptimeMutablePtr(ptr_val)) break :rs dest_src;
         const elem_val = try sema.resolveValue(elem) orelse break :rs value_src;
         const array_ty = try pt.arrayType(.{

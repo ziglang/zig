@@ -174,3 +174,8 @@ test "zero keys with @memset" {
     try expect(!Keys.keys.left);
     try expect(!Keys.keys.right);
 }
+
+test "@memset with zero-length array" {
+    var array: [0]usize = undefined;
+    @memset(&array, 0);
+}
