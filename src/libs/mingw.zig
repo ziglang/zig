@@ -10,6 +10,13 @@ const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
 const Cache = std.Build.Cache;
 const dev = @import("../dev.zig");
+const def = @import("mingw/def.zig");
+const implib = @import("mingw/implib.zig");
+
+test {
+    _ = def;
+    _ = implib;
+}
 
 pub const CrtFile = enum {
     crt2_o,
@@ -290,11 +297,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     var o_dir = try comp.dirs.global_cache.handle.makeOpenPath(o_sub_path, .{});
     defer o_dir.close();
 
-    const final_def_basename = try std.fmt.allocPrint(arena, "{s}.def", .{lib_name});
-    const def_final_path = try comp.dirs.global_cache.join(arena, &[_][]const u8{
-        "o", &digest, final_def_basename,
-    });
-
     const aro = @import("aro");
     var diagnostics: aro.Diagnostics = .{
         .output = .{ .to_list = .{ .arena = .init(gpa) } },
@@ -312,7 +314,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         defer std.debug.unlockStderrWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
-        nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
     }
 
     try aro_comp.include_dirs.append(gpa, include_dir);
@@ -339,32 +340,46 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         }
     }
 
-    {
-        // new scope to ensure definition file is written before passing the path to WriteImportLibrary
-        const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
-        defer def_final_file.close();
-        var buffer: [1024]u8 = undefined;
-        var file_writer = def_final_file.writer(&buffer);
-        try pp.prettyPrintTokens(&file_writer.interface, .result_only);
-        try file_writer.interface.flush();
-    }
+    const members = members: {
+        var aw: std.Io.Writer.Allocating = .init(gpa);
+        errdefer aw.deinit();
+        try pp.prettyPrintTokens(&aw.writer, .result_only);
+
+        const input = try aw.toOwnedSliceSentinel(0);
+        defer gpa.free(input);
+
+        const machine_type = target.toCoffMachine();
+        var def_diagnostics: def.Diagnostics = undefined;
+        var module_def = def.parse(gpa, input, machine_type, .mingw, &def_diagnostics) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.ParseError => {
+                var buffer: [64]u8 = undefined;
+                const w = std.debug.lockStderrWriter(&buffer);
+                defer std.debug.unlockStderrWriter();
+                try w.writeAll("error: ");
+                try def_diagnostics.writeMsg(w, input);
+                try w.writeByte('\n');
+                return error.WritingImportLibFailed;
+            },
+        };
+        defer module_def.deinit();
+
+        module_def.fixupForImportLibraryGeneration(machine_type);
+
+        break :members try implib.getMembers(gpa, module_def, machine_type);
+    };
+    defer members.deinit();
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
     errdefer gpa.free(lib_final_path);
 
-    if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
-    const llvm_bindings = @import("../codegen/llvm/bindings.zig");
-    const def_final_path_z = try arena.dupeZ(u8, def_final_path);
-    const lib_final_path_z = try comp.dirs.global_cache.joinZ(arena, &.{lib_final_path});
-    if (llvm_bindings.WriteImportLibrary(
-        def_final_path_z.ptr,
-        @intFromEnum(target.toCoffMachine()),
-        lib_final_path_z.ptr,
-        true,
-    )) {
-        // TODO surface a proper error here
-        log.err("unable to turn {s}.def into {s}.lib", .{ lib_name, lib_name });
-        return error.WritingImportLibFailed;
+    {
+        const lib_final_file = try o_dir.createFile(final_lib_basename, .{ .truncate = true });
+        defer lib_final_file.close();
+        var buffer: [1024]u8 = undefined;
+        var file_writer = lib_final_file.writer(&buffer);
+        try implib.writeCoffArchive(gpa, &file_writer.interface, members);
+        try file_writer.interface.flush();
     }
 
     man.writeManifest() catch |err| {

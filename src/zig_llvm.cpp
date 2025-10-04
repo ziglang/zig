@@ -39,9 +39,6 @@
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Object/Archive.h>
 #include <llvm/Object/ArchiveWriter.h>
-#include <llvm/Object/COFF.h>
-#include <llvm/Object/COFFImportFile.h>
-#include <llvm/Object/COFFModuleDefinition.h>
 #include <llvm/PassRegistry.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
@@ -473,62 +470,6 @@ bool ZigLLVMGetBrokenDebugInfo(LLVMContextRef context_ref) {
 
 void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     cl::ParseCommandLineOptions(argc, argv);
-}
-
-bool ZigLLVMWriteImportLibrary(const char *def_path, unsigned int coff_machine,
-    const char *output_lib_path, bool kill_at)
-{
-    COFF::MachineTypes machine = static_cast<COFF::MachineTypes>(coff_machine);
-
-    auto bufOrErr = MemoryBuffer::getFile(def_path);
-    if (!bufOrErr) {
-        return false;
-    }
-
-    MemoryBuffer& buf = *bufOrErr.get();
-    Expected<object::COFFModuleDefinition> def =
-        object::parseCOFFModuleDefinition(buf, machine, /* MingwDef */ true);
-
-    if (!def) {
-        return true;
-    }
-
-    // The exports-juggling code below is ripped from LLVM's DlltoolDriver.cpp
-
-    // If ExtName is set (if the "ExtName = Name" syntax was used), overwrite
-    // Name with ExtName and clear ExtName. When only creating an import
-    // library and not linking, the internal name is irrelevant. This avoids
-    // cases where writeImportLibrary tries to transplant decoration from
-    // symbol decoration onto ExtName.
-    for (object::COFFShortExport& E : def->Exports) {
-        if (!E.ExtName.empty()) {
-            E.Name = E.ExtName;
-            E.ExtName.clear();
-        }
-    }
-
-    if (kill_at) {
-        for (object::COFFShortExport& E : def->Exports) {
-            if (!E.ImportName.empty() || (!E.Name.empty() && E.Name[0] == '?'))
-                continue;
-            if (machine == COFF::IMAGE_FILE_MACHINE_I386) {
-                // By making sure E.SymbolName != E.Name for decorated symbols,
-                // writeImportLibrary writes these symbols with the type
-                // IMPORT_NAME_UNDECORATE.
-                E.SymbolName = E.Name;
-            }
-            // Trim off the trailing decoration. Symbols will always have a
-            // starting prefix here (either _ for cdecl/stdcall, @ for fastcall
-            // or ? for C++ functions). Vectorcall functions won't have any
-            // fixed prefix, but the function base name will still be at least
-            // one char.
-            E.Name = E.Name.substr(0, E.Name.find('@', 1));
-        }
-    }
-
-    return static_cast<bool>(
-        object::writeImportLibrary(def->OutputFile, output_lib_path,
-                                   def->Exports, machine, /* MinGW */ true));
 }
 
 bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size_t file_name_count,
