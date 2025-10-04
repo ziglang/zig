@@ -95,7 +95,20 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
             }
         }
 
-        pub const ResetMode = std.heap.ArenaAllocator.ResetMode;
+        pub const ResetMode = union(enum) {
+            /// Releases all allocated memory in the arena.
+            free_all,
+            /// This will pre-heat the memory pool for future allocations by allocating a
+            /// large enough buffer to accomodate the highest amount of actively allocated items
+            /// in the past. Preheating will speed up the allocation process by invoking the
+            /// backing allocator less often than before. If `reset()` is used in a loop, this
+            /// means if the highest amount of actively allocated items is never being surpassed,
+            /// no memory allocations are performed anymore.
+            retain_capacity,
+            /// This is the same as `retain_capacity`, but the memory will be shrunk to
+            /// only hold at most this value of items.
+            retain_with_limit: usize,
+        };
 
         /// Resets the memory pool and destroys all allocated items.
         /// This can be used to batch-destroy all objects without invalidating the memory pool.
@@ -107,14 +120,21 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         ///
         /// NOTE: If `mode` is `free_all`, the function will always return `true`.
         pub fn reset(pool: *Pool, mode: ResetMode) bool {
-            // TODO: Potentially store all allocated objects in a list as well, allowing to
-            //       just move them into the free list instead of actually releasing the memory.
-
-            const reset_successful = pool.arena.reset(mode);
-
+            const ArenaResetMode = std.heap.ArenaAllocator.ResetMode;
+            const arena_mode = switch (mode) {
+                .free_all => .free_all,
+                .retain_capacity => .retain_capacity,
+                .retain_with_limit => |limit| ArenaResetMode{ .retain_with_limit = limit * item_size },
+            };
             pool.free_list = null;
-
-            return reset_successful;
+            if (!pool.arena.reset(arena_mode)) return false;
+            // When the backing arena allocator is being reset to
+            // a capacity greater than 0, then its internals consists
+            // of a *single* buffer node of said capacity. This means,
+            // we can safely pre-heat without causing additional allocations.
+            const arena_capacity = pool.arena.queryCapacity() / item_size;
+            if (arena_capacity != 0) pool.preheat(arena_capacity) catch unreachable;
+            return true;
         }
 
         /// Creates a new item and adds it to the memory pool.
@@ -216,4 +236,26 @@ test "greater than pointer manual alignment" {
 
     const foo: *align(16) Foo = try pool.create();
     _ = foo;
+}
+
+test "reset" {
+    const pool_extra = MemoryPoolExtra(u32, .{ .growable = false });
+    var pool = try pool_extra.initPreheated(std.testing.allocator, 3);
+    defer pool.deinit();
+
+    try std.testing.expect(pool.create() != error.OutOfMemory);
+    try std.testing.expect(pool.create() != error.OutOfMemory);
+    try std.testing.expect(pool.create() != error.OutOfMemory);
+    try std.testing.expect(pool.create() == error.OutOfMemory);
+
+    try std.testing.expect(pool.reset(.{ .retain_with_limit = 2 }));
+
+    try std.testing.expect(pool.create() != error.OutOfMemory);
+    try std.testing.expect(pool.create() != error.OutOfMemory);
+    try std.testing.expect(pool.create() == error.OutOfMemory);
+
+    try std.testing.expect(pool.reset(.{ .retain_with_limit = 1 }));
+
+    try std.testing.expect(pool.create() != error.OutOfMemory);
+    try std.testing.expect(pool.create() == error.OutOfMemory);
 }
