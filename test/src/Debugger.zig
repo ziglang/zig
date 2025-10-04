@@ -2299,12 +2299,12 @@ fn addTest(
     const commands_wf = db.b.addWriteFiles();
     const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target.test_name_suffix }));
     run.addArgs(db_argv1);
-    run.addFileArg(commands_wf.add(
+    run.addFileArg(.{ .lazy_path = commands_wf.add(
         db.b.fmt("{s}.cmd", .{name}),
         db.b.fmt("{s}\n\n{s}\n\nquit {d}\n", .{ db_commands, commands, success }),
-    ));
+    ) });
     run.addArgs(db_argv2);
-    run.addArtifactArg(exe);
+    run.addArtifactArg(.{ .artifact = exe });
     for (expected_output) |expected| run.addCheck(.{ .expect_stdout_match = db.b.fmt("{s}\n", .{expected}) });
     run.addCheck(.{ .expect_term = .{ .Exited = success } });
     run.setStdIn(.{ .bytes = "" });
