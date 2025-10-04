@@ -91,7 +91,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("regression/lseek-large.c", false, .{});
     cases.addLibcTestCase("regression/malloc-0.c", true, .{});
     // "regression/malloc-brk-fail.c": QEMU OOM
-    cases.addLibcTestCase("regression/malloc-oom.c", false, .{}); // wasi-libc: requires t_memfill
+    // cases.addLibcTestCase("regression/malloc-oom.c", false, .{}); // wasi-libc: requires t_memfill; QEMU OOM
     cases.addLibcTestCase("regression/mbsrtowcs-overflow.c", true, .{});
     cases.addLibcTestCase("regression/memmem-oob-read.c", true, .{});
     cases.addLibcTestCase("regression/memmem-oob.c", true, .{});
