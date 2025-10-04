@@ -375,7 +375,7 @@ pub fn __sqrtx(x: f80) callconv(.c) f80 {
     // compute nearest rounded result:
     // the nearest result to 63 bits is either s or s+0x1p-63,
     // we can decide by comparing (2^63 s + 0.5)^2 to 2^126 m
-    const d0 = (m << 48) -% s[2] *% s[2];
+    const d0 = (m << 48) -% mul80_tail(s[2], s[2]);
     const d1 = s[2] -% d0;
     const d2 = d1 +% s[2] +% 1;
     s[2] += d1 >> 79;
@@ -554,6 +554,14 @@ inline fn mul128(a: u128, b: u128) u128 {
     const bhi = b >> 64;
     const blo = b & 0xFFFF_FFFF_FFFF_FFFF;
     return ahi * bhi + (ahi * blo >> 64) + (alo * bhi >> 64);
+}
+
+inline fn mul80_tail(a: u80, b: u80) u80 {
+    const ahi = a >> 40;
+    const alo = a & 0xFF_FFFF_FFFF;
+    const bhi = b >> 40;
+    const blo = b & 0xFF_FFFF_FFFF;
+    return alo * blo +% ((ahi * blo) << 40) +% ((alo * bhi) << 40);
 }
 
 test "__sqrth" {
