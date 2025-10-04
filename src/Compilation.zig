@@ -3684,6 +3684,7 @@ const Header = extern struct {
             items_len: u32,
             extra_len: u32,
             limbs_len: u32,
+            strings_len: u32,
             string_bytes_len: u32,
             tracked_insts_len: u32,
             files_len: u32,
@@ -3732,7 +3733,8 @@ pub fn saveState(comp: *Compilation) !void {
                 .items_len = @intCast(local.mutate.items.len),
                 .extra_len = @intCast(local.mutate.extra.len),
                 .limbs_len = @intCast(local.mutate.limbs.len),
-                .string_bytes_len = @intCast(local.mutate.strings.len),
+                .strings_len = @intCast(local.mutate.strings.len),
+                .string_bytes_len = @intCast(local.mutate.string_bytes.len),
                 .tracked_insts_len = @intCast(local.mutate.tracked_insts.len),
                 .files_len = @intCast(local.mutate.files.len),
             },
@@ -3775,8 +3777,11 @@ pub fn saveState(comp: *Compilation) !void {
                 addBuf(&bufs, @ptrCast(local.shared.items.view().items(.data)[0..pt_header.intern_pool.items_len]));
                 addBuf(&bufs, @ptrCast(local.shared.items.view().items(.tag)[0..pt_header.intern_pool.items_len]));
             }
+            if (pt_header.intern_pool.strings_len > 0) {
+                addBuf(&bufs, @ptrCast(local.shared.strings.view().items(.@"0")[0..pt_header.intern_pool.strings_len]));
+            }
             if (pt_header.intern_pool.string_bytes_len > 0) {
-                addBuf(&bufs, local.shared.strings.view().items(.@"0")[0..pt_header.intern_pool.string_bytes_len]);
+                addBuf(&bufs, local.shared.string_bytes.view().items(.@"0")[0..pt_header.intern_pool.string_bytes_len]);
             }
             if (pt_header.intern_pool.tracked_insts_len > 0) {
                 addBuf(&bufs, @ptrCast(local.shared.tracked_insts.view().items(.@"0")[0..pt_header.intern_pool.tracked_insts_len]));
