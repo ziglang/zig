@@ -16,7 +16,6 @@ pub fn init(buffer: []u8) @This() {
     };
 }
 
-/// Using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe.
 pub fn allocator(self: *@This()) Allocator {
     return .{
         .ptr = self,
@@ -31,6 +30,7 @@ pub fn allocator(self: *@This()) Allocator {
 
 /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
 /// Using this at the same time as the interface returned by `allocator` is not thread safe.
+/// Deprecated; to be removed after 0.16.0 is tagged.
 pub fn threadSafeAllocator(self: *@This()) Allocator {
     return .{
         .ptr = self,
@@ -155,6 +155,7 @@ pub fn free(
     assert(alloc_base <= @intFromPtr(self.bump));
 }
 
+/// Deprecated; to be removed after 0.16.0 is tagged.
 fn threadSafeAlloc(
     ctx: *anyopaque,
     length: usize,
@@ -249,6 +250,7 @@ test "works at comptime for alignments <= 1" {
     }
 }
 
+// Deprecated; to be removed after 0.16.0 is tagged.
 test "thread safe version" {
     var buffer: [1 << 20]u8 = undefined;
     var bump_allocator: @This() = .init(&buffer);
