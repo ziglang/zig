@@ -602,3 +602,24 @@ test "field pointer of underaligned tuple" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "OPV tuple fields aren't comptime" {
+    const T = struct { void };
+    const t_info = @typeInfo(T);
+    try expect(!t_info.@"struct".fields[0].is_comptime);
+
+    const T2 = @Type(.{ .@"struct" = .{
+        .layout = .auto,
+        .fields = &.{.{
+            .name = "0",
+            .type = void,
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = @alignOf(void),
+        }},
+        .decls = &.{},
+        .is_tuple = true,
+    } });
+    const t2_info = @typeInfo(T2);
+    try expect(!t2_info.@"struct".fields[0].is_comptime);
+}
