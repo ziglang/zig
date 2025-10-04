@@ -813,6 +813,29 @@ test "POSIX file locking with fcntl" {
     }
 }
 
+test "posix getpid" {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+
+    try expect(posix.getpid() != 0);
+}
+
+test "posix getppid" {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+    if (native_os == .plan9 and !builtin.link_libc) return error.SkipZigTest; // No `getppid()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `getppid()`.
+
+    const parent = posix.getpid();
+    const child = try posix.fork();
+    if (child == 0)
+        posix.exit(if (parent == posix.getppid()) 0 else 1);
+
+    const result = posix.waitpid(child, 0);
+    try expect(result.pid == child);
+    try expect(result.status == 0);
+}
+
 test "rename smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
