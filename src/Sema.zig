@@ -11338,7 +11338,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 });
             }
             try sema.validateRuntimeValue(block, operand_src, maybe_ptr);
-            const operand_alloc = if (extra.data.bits.any_non_inline_capture) a: {
+            const operand_alloc = if (extra.data.bits.any_non_inline_capture or
+                extra.data.bits.any_has_tag_capture)
+            a: {
                 const operand_ptr_ty = try pt.singleMutPtrType(sema.typeOf(maybe_ptr));
                 const operand_alloc = try block.addTy(.alloc, operand_ptr_ty);
                 _ = try block.addBinOp(.store, operand_alloc, maybe_ptr);

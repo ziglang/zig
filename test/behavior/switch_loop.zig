@@ -273,3 +273,30 @@ test "switch loop on non-exhaustive enum" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "switch loop with discarded tag capture" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = struct {
+        const U = union(enum) {
+            a: u32,
+            b: u32,
+            c: u32,
+        };
+
+        fn doTheTest() void {
+            const a: U = .{ .a = 10 };
+            blk: switch (a) {
+                inline .b => |_, tag| {
+                    _ = tag;
+                    continue :blk .{ .c = 20 };
+                },
+                else => {},
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
