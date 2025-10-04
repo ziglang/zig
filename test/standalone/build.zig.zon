@@ -143,10 +143,6 @@
         //.sigpipe = .{
         //    .path = "sigpipe",
         //},
-        // TODO restore this test
-        //.options = .{
-        //    .path = "options",
-        //},
         .strip_empty_loop = .{
             .path = "strip_empty_loop",
         },
