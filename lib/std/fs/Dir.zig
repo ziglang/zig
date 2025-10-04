@@ -663,35 +663,17 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
     }
 }
 
-pub const Walker = struct {
-    stack: std.ArrayListUnmanaged(StackItem),
+pub const SelectiveWalker = struct {
+    stack: std.ArrayListUnmanaged(Walker.StackItem),
     name_buffer: std.ArrayListUnmanaged(u8),
     allocator: Allocator,
-
-    pub const Entry = struct {
-        /// The containing directory. This can be used to operate directly on `basename`
-        /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
-        /// The directory remains open until `next` or `deinit` is called.
-        dir: Dir,
-        basename: [:0]const u8,
-        path: [:0]const u8,
-        kind: Dir.Entry.Kind,
-    };
-
-    const StackItem = struct {
-        iter: Dir.Iterator,
-        dirname_len: usize,
-    };
 
     /// After each call to this function, and on deinit(), the memory returned
     /// from this function becomes invalid. A copy must be made in order to keep
     /// a reference to the path.
-    pub fn next(self: *Walker) !?Walker.Entry {
-        const gpa = self.allocator;
-        while (self.stack.items.len != 0) {
-            // `top` and `containing` become invalid after appending to `self.stack`
-            var top = &self.stack.items[self.stack.items.len - 1];
-            var containing = top;
+    pub fn next(self: *SelectiveWalker) !?Walker.Entry {
+        while (self.stack.items.len > 0) {
+            const top = &self.stack.items[self.stack.items.len - 1];
             var dirname_len = top.dirname_len;
             if (top.iter.next() catch |err| {
                 // If we get an error, then we want the user to be able to continue
@@ -703,36 +685,22 @@ pub const Walker = struct {
                     item.iter.dir.close();
                 }
                 return err;
-            }) |base| {
+            }) |entry| {
                 self.name_buffer.shrinkRetainingCapacity(dirname_len);
                 if (self.name_buffer.items.len != 0) {
-                    try self.name_buffer.append(gpa, fs.path.sep);
+                    try self.name_buffer.append(self.allocator, fs.path.sep);
                     dirname_len += 1;
                 }
-                try self.name_buffer.ensureUnusedCapacity(gpa, base.name.len + 1);
-                self.name_buffer.appendSliceAssumeCapacity(base.name);
+                try self.name_buffer.ensureUnusedCapacity(self.allocator, entry.name.len + 1);
+                self.name_buffer.appendSliceAssumeCapacity(entry.name);
                 self.name_buffer.appendAssumeCapacity(0);
-                if (base.kind == .directory) {
-                    var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
-                        error.NameTooLong => unreachable, // no path sep in base.name
-                        else => |e| return e,
-                    };
-                    {
-                        errdefer new_dir.close();
-                        try self.stack.append(gpa, .{
-                            .iter = new_dir.iterateAssumeFirstIteration(),
-                            .dirname_len = self.name_buffer.items.len - 1,
-                        });
-                        top = &self.stack.items[self.stack.items.len - 1];
-                        containing = &self.stack.items[self.stack.items.len - 2];
-                    }
-                }
-                return .{
-                    .dir = containing.iter.dir,
+                const walker_entry: Walker.Entry = .{
+                    .dir = top.iter.dir,
                     .basename = self.name_buffer.items[dirname_len .. self.name_buffer.items.len - 1 :0],
                     .path = self.name_buffer.items[0 .. self.name_buffer.items.len - 1 :0],
-                    .kind = base.kind,
+                    .kind = entry.kind,
                 };
+                return walker_entry;
             } else {
                 var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
@@ -743,16 +711,116 @@ pub const Walker = struct {
         return null;
     }
 
-    pub fn deinit(self: *Walker) void {
-        const gpa = self.allocator;
-        // Close any remaining directories except the initial one (which is always at index 0)
-        if (self.stack.items.len > 1) {
-            for (self.stack.items[1..]) |*item| {
-                item.iter.dir.close();
-            }
+    /// Traverses into the directory, continuing walking one level down.
+    pub fn enter(self: *SelectiveWalker, entry: Walker.Entry) !void {
+        if (entry.kind != .directory) {
+            @branchHint(.cold);
+            return;
         }
-        self.stack.deinit(gpa);
-        self.name_buffer.deinit(gpa);
+
+        var new_dir = entry.dir.openDir(entry.basename, .{ .iterate = true }) catch |err| {
+            switch (err) {
+                error.NameTooLong => unreachable,
+                else => |e| return e,
+            }
+        };
+        errdefer new_dir.close();
+
+        try self.stack.append(self.allocator, .{
+            .iter = new_dir.iterateAssumeFirstIteration(),
+            .dirname_len = self.name_buffer.items.len - 1,
+        });
+    }
+
+    pub fn deinit(self: *SelectiveWalker) void {
+        self.name_buffer.deinit(self.allocator);
+        self.stack.deinit(self.allocator);
+    }
+
+    /// Leaves the current directory, continuing walking one level up.
+    /// If the current entry is a directory entry, then the "current directory"
+    /// will pertain to that entry if `enter` is called before `leave`.
+    pub fn leave(self: *SelectiveWalker) void {
+        var item = self.stack.pop().?;
+        if (self.stack.items.len != 0) {
+            @branchHint(.likely);
+            item.iter.dir.close();
+        }
+    }
+};
+
+/// Recursively iterates over a directory, but requires the user to
+/// opt-in to recursing into each directory entry.
+///
+/// `self` must have been opened with `OpenOptions{.iterate = true}`.
+///
+/// `Walker.deinit` releases allocated memory and directory handles.
+///
+/// The order of returned file system entries is undefined.
+///
+/// `self` will not be closed after walking it.
+///
+/// See also `walk`.
+pub fn walkSelectively(self: Dir, allocator: Allocator) !SelectiveWalker {
+    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .empty;
+
+    try stack.append(allocator, .{
+        .iter = self.iterate(),
+        .dirname_len = 0,
+    });
+
+    return .{
+        .stack = stack,
+        .name_buffer = .{},
+        .allocator = allocator,
+    };
+}
+
+pub const Walker = struct {
+    inner: SelectiveWalker,
+
+    pub const Entry = struct {
+        /// The containing directory. This can be used to operate directly on `basename`
+        /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
+        /// The directory remains open until `next` or `deinit` is called.
+        dir: Dir,
+        basename: [:0]const u8,
+        path: [:0]const u8,
+        kind: Dir.Entry.Kind,
+
+        /// Returns the depth of the entry relative to the initial directory.
+        /// Returns 1 for a direct child of the initial directory, 2 for an entry
+        /// within a direct child of the initial directory, etc.
+        pub fn depth(self: Walker.Entry) usize {
+            return mem.countScalar(u8, self.path, fs.path.sep) + 1;
+        }
+    };
+
+    const StackItem = struct {
+        iter: Dir.Iterator,
+        dirname_len: usize,
+    };
+
+    /// After each call to this function, and on deinit(), the memory returned
+    /// from this function becomes invalid. A copy must be made in order to keep
+    /// a reference to the path.
+    pub fn next(self: *Walker) !?Walker.Entry {
+        const entry = try self.inner.next();
+        if (entry != null and entry.?.kind == .directory) {
+            try self.inner.enter(entry.?);
+        }
+        return entry;
+    }
+
+    pub fn deinit(self: *Walker) void {
+        self.inner.deinit();
+    }
+
+    /// Leaves the current directory, continuing walking one level up.
+    /// If the current entry is a directory entry, then the "current directory"
+    /// is the directory pertaining to the current entry.
+    pub fn leave(self: *Walker) void {
+        self.inner.leave();
     }
 };
 
@@ -765,18 +833,11 @@ pub const Walker = struct {
 /// The order of returned file system entries is undefined.
 ///
 /// `self` will not be closed after walking it.
+///
+/// See also `walkSelectively`.
 pub fn walk(self: Dir, allocator: Allocator) Allocator.Error!Walker {
-    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .empty;
-
-    try stack.append(allocator, .{
-        .iter = self.iterate(),
-        .dirname_len = 0,
-    });
-
     return .{
-        .stack = stack,
-        .name_buffer = .{},
-        .allocator = allocator,
+        .inner = try walkSelectively(self, allocator),
     };
 }
 
