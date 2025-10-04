@@ -2581,15 +2581,27 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
             },
 
             .tuple_type => |tuple| {
-                for (tuple.values.get(ip)) |val| {
-                    if (val == .none) return null;
+                if (tuple.types.len == 0) {
+                    return try pt.aggregateValue(ty, &.{});
                 }
-                // In this case the struct has all comptime-known fields and
-                // therefore has one possible value.
-                // TODO: write something like getCoercedInts to avoid needing to dupe
-                const duped_values = try zcu.gpa.dupe(InternPool.Index, tuple.values.get(ip));
-                defer zcu.gpa.free(duped_values);
-                return try pt.aggregateValue(ty, duped_values);
+
+                const field_vals = try zcu.gpa.alloc(
+                    InternPool.Index,
+                    tuple.types.len,
+                );
+                defer zcu.gpa.free(field_vals);
+                for (field_vals, 0..) |*field_val, i| {
+                    if (tuple.values.get(ip)[i] != .none) {
+                        field_val.* = tuple.values.get(ip)[i];
+                        continue;
+                    }
+                    const field_ty: Type = .fromInterned(tuple.types.get(ip)[i]);
+                    if (try field_ty.onePossibleValue(pt)) |field_opv| {
+                        field_val.* = field_opv.toIntern();
+                    } else return null;
+                }
+
+                return try pt.aggregateValue(ty, field_vals);
             },
 
             .union_type => {
@@ -2630,24 +2642,22 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                     .auto, .explicit => {
                         if (Type.fromInterned(enum_type.tag_ty).hasRuntimeBits(zcu)) return null;
 
-                        switch (enum_type.names.len) {
-                            0 => {
-                                const only = try pt.intern(.{ .empty_enum_value = ty.toIntern() });
-                                return Value.fromInterned(only);
-                            },
-                            1 => {
-                                if (enum_type.values.len == 0) {
-                                    const only = try pt.intern(.{ .enum_tag = .{
-                                        .ty = ty.toIntern(),
-                                        .int = (try pt.intValue(.fromInterned(enum_type.tag_ty), 0)).toIntern(),
-                                    } });
-                                    return Value.fromInterned(only);
-                                } else {
-                                    return Value.fromInterned(enum_type.values.get(ip)[0]);
-                                }
-                            },
+                        return Value.fromInterned(switch (enum_type.names.len) {
+                            0 => try pt.intern(.{ .empty_enum_value = ty.toIntern() }),
+                            1 => try pt.intern(.{ .enum_tag = .{
+                                .ty = ty.toIntern(),
+                                .int = if (enum_type.values.len == 0)
+                                    (try pt.intValue(.fromInterned(enum_type.tag_ty), 0)).toIntern()
+                                else
+                                    try ip.getCoercedInts(
+                                        zcu.gpa,
+                                        pt.tid,
+                                        ip.indexToKey(enum_type.values.get(ip)[0]).int,
+                                        enum_type.tag_ty,
+                                    ),
+                            } }),
                             else => return null,
-                        }
+                        });
                     },
                 }
             },
