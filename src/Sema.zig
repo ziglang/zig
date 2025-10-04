@@ -2824,9 +2824,6 @@ fn zirTupleDecl(
                 }
                 break :init field_init_val.toIntern();
             }
-            if (try sema.typeHasOnePossibleValue(field_type)) |opv| {
-                break :init opv.toIntern();
-            }
             break :init .none;
         };
     }
@@ -36228,13 +36225,28 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 },
 
                 .tuple_type => |tuple| {
-                    for (tuple.values.get(ip)) |val| {
-                        if (val == .none) return null;
+                    try ty.resolveLayout(pt);
+
+                    if (tuple.types.len == 0) {
+                        return try pt.aggregateValue(ty, &.{});
                     }
-                    // In this case the struct has all comptime-known fields and
-                    // therefore has one possible value.
-                    // TODO: write something like getCoercedInts to avoid needing to dupe
-                    return try pt.aggregateValue(ty, try sema.arena.dupe(InternPool.Index, tuple.values.get(ip)));
+
+                    const field_vals = try sema.arena.alloc(
+                        InternPool.Index,
+                        tuple.types.len,
+                    );
+                    for (field_vals, 0..) |*field_val, i| {
+                        if (tuple.values.get(ip)[i] != .none) {
+                            field_val.* = tuple.values.get(ip)[i];
+                            continue;
+                        }
+                        const field_ty: Type = .fromInterned(tuple.types.get(ip)[i]);
+                        if (try sema.typeHasOnePossibleValue(field_ty)) |field_opv| {
+                            field_val.* = field_opv.toIntern();
+                        } else return null;
+                    }
+
+                    return try pt.aggregateValue(ty, field_vals);
                 },
 
                 .union_type => {
