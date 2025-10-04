@@ -614,7 +614,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 .name = fields[i].name ++ "_ptr",
                 .type = *fields[i].type,
                 .default_value_ptr = null,
-                .is_comptime = fields[i].is_comptime,
+                .is_comptime = false,
                 .alignment = fields[i].alignment,
             };
             break :entry @Type(.{ .@"struct" = .{
@@ -1081,4 +1081,19 @@ test "orderedRemoveMany" {
 
     list.orderedRemoveMany(&.{0});
     try testing.expectEqualSlices(usize, &.{}, list.items(.x));
+}
+
+test "value as a tuple that containing comptime field" {
+    const gpa = testing.allocator;
+
+    // Void default to comptime void = {}
+
+    var list: MultiArrayList(struct { void }) = .empty;
+    defer list.deinit(gpa);
+
+    try list.append(gpa, .{});
+
+    try testing.expectEqual(list.pop().?[0], {});
+
+    try testing.expectEqual(list.pop(), null);
 }
