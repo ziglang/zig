@@ -10,8 +10,10 @@ const windows = std.os.windows;
 const Alignment = std.mem.Alignment;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
+pub const BumpAllocator = @import("heap/BumpAllocator.zig");
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
-pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
+/// Deprecated; to be removed after 0.16.0 is tagged.
+pub const FixedBufferAllocator = BumpAllocator;
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
 pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
@@ -989,8 +991,8 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
 test {
     _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
+    _ = BumpAllocator;
     _ = GeneralPurposeAllocator;
-    _ = FixedBufferAllocator;
     _ = ThreadSafeAllocator;
     _ = SbrkAllocator;
     if (builtin.target.cpu.arch.isWasm()) {
