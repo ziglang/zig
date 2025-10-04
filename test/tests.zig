@@ -2204,7 +2204,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-Dstring=hello",
         });
         run_test.addArg("--build-file");
-        run_test.addFileArg(b.path("test/standalone/options/build.zig"));
+        run_test.addFileArg(b.path("test/cli/options/build.zig"));
         run_test.addArg("--cache-dir");
         run_test.addFileArg(.{ .cwd_relative = b.cache_root.join(b.allocator, &.{}) catch @panic("OOM") });
         run_test.setName("test build options");
