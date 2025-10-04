@@ -1394,6 +1394,8 @@ pub const ConnectTcpError = Allocator.Error || error{
     HostLacksNetworkAddresses,
     UnexpectedConnectFailure,
     TlsInitializationFailed,
+    AddressInUse,
+    SystemResources,
 };
 
 /// Reuses a `Connection` if one matching `host` and `port` is already open.
@@ -1440,6 +1442,8 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
         error.NameServerFailure => return error.NameServerFailure,
         error.UnknownHostName => return error.UnknownHostName,
         error.HostLacksNetworkAddresses => return error.HostLacksNetworkAddresses,
+        error.AddressInUse => return error.AddressInUse,
+        error.SystemResources => return error.SystemResources,
         else => return error.UnexpectedConnectFailure,
     };
     errdefer stream.close();
