@@ -486,6 +486,15 @@ test "tuple with comptime fields with non empty initializer" {
     _ = a;
 }
 
+test "anon tuple field referencing comptime var isn't comptime" {
+    comptime var a: u8 = 0;
+    const tuple = .{&a};
+    // field isn't comptime but tuple is still comptime-known
+    comptime assert(@TypeOf(tuple) == struct { *u8 });
+    a = 1;
+    comptime assert(tuple[0].* == 1);
+}
+
 test "tuple with runtime value coerced into a slice with a sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
