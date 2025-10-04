@@ -126,15 +126,15 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
                 .retain_capacity => .retain_capacity,
                 .retain_with_limit => |limit| ArenaResetMode{ .retain_with_limit = limit * item_size },
             };
-            const reset_successful = pool.arena.reset(arena_mode);
             pool.free_list = null;
+            if (!pool.arena.reset(arena_mode)) return false;
             // When the backing arena allocator is being reset to
             // a capacity greater than 0, then its internals consists
             // of a *single* buffer node of said capacity. This means,
             // we can safely pre-heat without causing additional allocations.
             const arena_capacity = pool.arena.queryCapacity() / item_size;
             if (arena_capacity != 0) pool.preheat(arena_capacity) catch unreachable;
-            return reset_successful;
+            return true;
         }
 
         /// Creates a new item and adds it to the memory pool.
