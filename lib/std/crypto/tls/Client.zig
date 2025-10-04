@@ -942,7 +942,6 @@ fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize 
             if (prepared.cleartext_len < buf.len) break :done;
         }
         for (data[0 .. data.len - 1]) |buf| {
-            if (buf.len < min_buffer_len) break :done;
             const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
             total_clear += prepared.cleartext_len;
             ciphertext_end += prepared.ciphertext_end;
@@ -950,7 +949,6 @@ fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize 
         }
         const buf = data[data.len - 1];
         for (0..splat) |_| {
-            if (buf.len < min_buffer_len) break :done;
             const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
             total_clear += prepared.cleartext_len;
             ciphertext_end += prepared.ciphertext_end;
