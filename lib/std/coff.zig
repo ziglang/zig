@@ -1359,7 +1359,7 @@ pub const ImportHeader = extern struct {
     time_date_stamp: u32,
     size_of_data: u32,
     hint: u16,
-    types: packed struct(u32) {
+    types: packed struct(u16) {
         type: ImportType,
         name_type: ImportNameType,
         reserved: u11,
