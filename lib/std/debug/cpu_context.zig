@@ -6,6 +6,7 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
     .arm, .armeb, .thumb, .thumbeb => Arm,
+    .hexagon => Hexagon,
     .loongarch32, .loongarch64 => LoongArch,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .s390x => S390x,
@@ -177,6 +178,13 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             .serenity => .{
                 .x = uc.mcontext.x,
                 .sp = uc.mcontext.sp,
+                .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .hexagon => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.gregs,
                 .pc = uc.mcontext.pc,
             },
             else => null,
@@ -496,6 +504,74 @@ pub const Aarch64 = extern struct {
             48...63 => return error.UnsupportedRegister, // P0 - P15
             64...95 => return error.UnsupportedRegister, // V0 - V31
             96...127 => return error.UnsupportedRegister, // Z0 - Z31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const Hexagon = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    pc: u32,
+
+    pub inline fn current() Hexagon {
+        var ctx: Hexagon = undefined;
+        asm volatile (
+            \\ memw(r0 + #0) = r0
+            \\ memw(r0 + #4) = r1
+            \\ memw(r0 + #8) = r2
+            \\ memw(r0 + #12) = r3
+            \\ memw(r0 + #16) = r4
+            \\ memw(r0 + #20) = r5
+            \\ memw(r0 + #24) = r6
+            \\ memw(r0 + #28) = r7
+            \\ memw(r0 + #32) = r8
+            \\ memw(r0 + #36) = r9
+            \\ memw(r0 + #40) = r10
+            \\ memw(r0 + #44) = r11
+            \\ memw(r0 + #48) = r12
+            \\ memw(r0 + #52) = r13
+            \\ memw(r0 + #56) = r14
+            \\ memw(r0 + #60) = r15
+            \\ memw(r0 + #64) = r16
+            \\ memw(r0 + #68) = r17
+            \\ memw(r0 + #72) = r18
+            \\ memw(r0 + #76) = r19
+            \\ memw(r0 + #80) = r20
+            \\ memw(r0 + #84) = r21
+            \\ memw(r0 + #88) = r22
+            \\ memw(r0 + #92) = r23
+            \\ memw(r0 + #96) = r24
+            \\ memw(r0 + #100) = r25
+            \\ memw(r0 + #104) = r26
+            \\ memw(r0 + #108) = r27
+            \\ memw(r0 + #112) = r28
+            \\ memw(r0 + #116) = r29
+            \\ memw(r0 + #120) = r30
+            \\ memw(r0 + #124) = r31
+            \\ r1 = pc
+            \\ memw(r0 + #128) = r1
+            \\ r1 = memw(r0 + #4)
+            :
+            : [gprs] "{r0}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Hexagon, register_num: u16) DwarfRegisterError![]u8 {
+        // Sourced from LLVM's HexagonRegisterInfo.td, which disagrees with LLDB...
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            76 => return @ptrCast(&ctx.pc),
+
+            // This is probably covering some numbers that aren't actually mapped, but seriously,
+            // look at that file. I really can't be bothered to make it more precise.
+            32...75 => return error.UnsupportedRegister,
+            77...259 => return error.UnsupportedRegister,
+            // 999999...1000030 => return error.UnsupportedRegister,
+            // 9999999...10000030 => return error.UnsupportedRegister,
 
             else => return error.InvalidRegister,
         }
