@@ -1328,7 +1328,7 @@ pub fn unregister_files(self: *IoUring) !void {
 pub fn socket(
     self: *IoUring,
     user_data: u64,
-    domain: linux.AF,
+    domain: linux.Af,
     socket_type: linux.Sock,
     protocol: linux.IpProto,
     /// flags is unused
@@ -1345,7 +1345,7 @@ pub fn socket(
 pub fn socket_direct(
     self: *IoUring,
     user_data: u64,
-    domain: linux.AF,
+    domain: linux.Af,
     socket_type: linux.Sock,
     protocol: linux.IpProto,
     /// flags is unused
@@ -2657,7 +2657,7 @@ test "shutdown" {
         const server = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
         defer posix.close(server);
 
-        const shutdown_sqe = ring.shutdown(0x445445445, server, linux.SHUT.RD) catch |err| switch (err) {
+        const shutdown_sqe = ring.shutdown(0x445445445, server, .rd) catch |err| switch (err) {
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         };
         try testing.expectEqual(Op.SHUTDOWN, shutdown_sqe.opcode);
@@ -3339,7 +3339,7 @@ fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
     // Submit 1 accept
     var accept_addr: posix.sockaddr = undefined;
     var accept_addr_len: posix.socklen_t = @sizeOf(@TypeOf(accept_addr));
-    _ = try ring.accept(0xaaaaaaaa, listener_socket, &accept_addr, &accept_addr_len, 0);
+    _ = try ring.accept(0xaaaaaaaa, listener_socket, &accept_addr, &accept_addr_len, .{});
 
     // Create a TCP client socket
     const client = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
@@ -3417,7 +3417,7 @@ test "accept multishot" {
     var addr: posix.sockaddr = undefined;
     var addr_len: posix.socklen_t = @sizeOf(@TypeOf(addr));
     const userdata: u64 = 0xaaaaaaaa;
-    _ = try ring.accept_multishot(userdata, listener_socket, &addr, &addr_len, 0);
+    _ = try ring.accept_multishot(userdata, listener_socket, &addr, &addr_len, .{});
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     var nr: usize = 4; // number of clients to connect
@@ -3525,7 +3525,7 @@ test "accept_direct" {
             const buffer_send: []const u8 = data[0 .. data.len - i]; // make it different at each loop
 
             // submit accept, will chose registered fd and return index in cqe
-            _ = try ring.accept_direct(accept_userdata, listener_socket, null, null, 0);
+            _ = try ring.accept_direct(accept_userdata, listener_socket, null, null, .{});
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
             // connect
@@ -3608,7 +3608,7 @@ test "accept_multishot_direct" {
     for (0..2) |_| {
         // submit multishot accept
         // Will chose registered fd and return index of the selected registered file in cqe.
-        _ = try ring.accept_multishot_direct(accept_userdata, listener_socket, null, null, 0);
+        _ = try ring.accept_multishot_direct(accept_userdata, listener_socket, null, null, .{});
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         for (registered_fds) |_| {
@@ -3654,7 +3654,7 @@ test "socket" {
     defer ring.deinit();
 
     // prepare, submit socket operation
-    _ = try ring.socket(0, linux.AF.INET, .{ .type = .stream }, 0, 0);
+    _ = try ring.socket(0, .{ .inet = true }, .{ .type = .stream }, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     // test completion
@@ -3687,7 +3687,7 @@ test "socket_direct/socket_direct_alloc/close_direct" {
     try testing.expect(cqe_socket.res == 0);
 
     // create socket in registered file descriptor at index 1 (last param)
-    _ = try ring.socket_direct(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0, 1);
+    _ = try ring.socket_direct(0, linux.Af.INET, posix.SOCK.STREAM, 0, 0, 1);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe_socket = try ring.copy_cqe();
     try testing.expectEqual(posix.E.SUCCESS, cqe_socket.err());
@@ -3695,7 +3695,7 @@ test "socket_direct/socket_direct_alloc/close_direct" {
 
     // create socket in kernel chosen file descriptor index (_alloc version)
     // completion res has index from registered files
-    _ = try ring.socket_direct_alloc(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0);
+    _ = try ring.socket_direct_alloc(0, linux.Af.INET, posix.SOCK.STREAM, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe_socket = try ring.copy_cqe();
     try testing.expectEqual(posix.E.SUCCESS, cqe_socket.err());
@@ -5114,21 +5114,21 @@ pub const Sqe = extern struct {
 
     pub fn prep_socket(
         sqe: *Sqe,
-        domain: linux.AF,
-        socket_type: linux.SOCK,
-        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        domain: linux.Af,
+        socket_type: linux.Sock,
+        protocol: linux.IpProto, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
         /// flags is unused
         flags: u32,
     ) void {
-        sqe.prep_rw(.SOCKET, @intCast(domain), 0, protocol, socket_type);
+        sqe.prep_rw(.SOCKET, @intCast(domain), 0, @intFromEnum(protocol), @intCast(@as(u32, @bitCast(socket_type))));
         sqe.rw_flags = flags;
     }
 
     pub fn prep_socket_direct(
         sqe: *Sqe,
-        domain: linux.AF,
+        domain: linux.Af,
         socket_type: linux.Sock,
-        protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
+        protocol: linux.IpProto, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
         /// flags is unused
         flags: u32,
         file_index: u32,
@@ -5139,7 +5139,7 @@ pub const Sqe = extern struct {
 
     pub fn prep_socket_direct_alloc(
         sqe: *Sqe,
-        domain: linux.AF,
+        domain: linux.Af,
         socket_type: linux.SOCK,
         protocol: u32, // Enumerate https://github.com/kraj/musl/blob/kraj/master/src/network/proto.c#L7
         flags: u32, // flags is unused
