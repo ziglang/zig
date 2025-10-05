@@ -1706,12 +1706,24 @@ test count {
 
 /// Returns the number of needles inside the haystack
 pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
+    const n = haystack.len;
+    if (n < 1) return 0;
     var i: usize = 0;
     var found: usize = 0;
 
-    while (findScalarPos(T, haystack, i, needle)) |idx| {
-        i = idx + 1;
-        found += 1;
+    if (std.simd.suggestVectorLength(u8)) |block_size| {
+        const Block = @Vector(block_size, u8);
+
+        const letter_mask: Block = @splat(needle);
+        while (i + block_size <= n) : (i += block_size) {
+            const haystack_block: Block = haystack[i..][0..block_size].*;
+            found += std.simd.countTrues(letter_mask == haystack_block);
+        }
+        if (i == n) return found;
+    }
+
+    for (haystack[i..n]) |item| {
+        found += @intFromBool(item == needle);
     }
 
     return found;
