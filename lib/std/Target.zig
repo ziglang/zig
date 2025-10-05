@@ -2463,9 +2463,9 @@ pub const DynamicLinker = struct {
                         => init("/lib/ld.so.1"),
                         else => none,
                     },
-                    // TODO: ELFv2 ABI (`/lib64/ld64.so.2`) opt-in support.
-                    .powerpc64 => if (abi == .gnu) init("/lib64/ld64.so.1") else none,
-                    .powerpc64le => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
+                    .powerpc64,
+                    .powerpc64le,
+                    => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
 
                     .riscv32,
                     .riscv64,
