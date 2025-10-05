@@ -1,6 +1,8 @@
 base: link.File,
 mf: MappedFile,
+known: Node.Known,
 nodes: std.MultiArrayList(Node),
+phdrs: std.ArrayList(MappedFile.Node.Index),
 symtab: std.ArrayList(Symbol),
 shstrtab: StringTable,
 strtab: StringTable,
@@ -85,23 +87,15 @@ pub const Node = union(enum) {
         }
     };
 
-    pub const Tag = @typeInfo(Node).@"union".tag_type.?;
+    pub const Known = struct {
+        pub const rodata: MappedFile.Node.Index = @enumFromInt(1);
+        pub const ehdr: MappedFile.Node.Index = @enumFromInt(2);
+        pub const phdr: MappedFile.Node.Index = @enumFromInt(3);
+        pub const shdr: MappedFile.Node.Index = @enumFromInt(4);
+        pub const text: MappedFile.Node.Index = @enumFromInt(5);
+        pub const data: MappedFile.Node.Index = @enumFromInt(6);
 
-    const known_count = @typeInfo(@TypeOf(known)).@"struct".fields.len;
-    const known = known: {
-        const Known = enum {
-            file,
-            seg_rodata,
-            ehdr,
-            phdr,
-            shdr,
-            seg_text,
-            seg_data,
-        };
-        var mut_known: std.enums.EnumFieldStruct(Known, MappedFile.Node.Index, null) = undefined;
-        for (@typeInfo(Known).@"enum".fields) |field|
-            @field(mut_known, field.name) = @enumFromInt(field.value);
-        break :known mut_known;
+        tls: MappedFile.Node.Index,
     };
 
     comptime {
@@ -231,6 +225,21 @@ pub const Symbol = struct {
             }
         }
 
+        pub fn flushMoved(si: Symbol.Index, elf: *Elf) void {
+            const value = elf.computeNodeVAddr(si.node(elf));
+            switch (elf.symPtr(si)) {
+                inline else => |sym, class| {
+                    elf.targetStore(&sym.value, @intCast(value));
+                    if (si == elf.entry_hack) {
+                        @branchHint(.unlikely);
+                        @field(elf.ehdrPtr(), @tagName(class)).entry = sym.value;
+                    }
+                },
+            }
+            si.applyLocationRelocs(elf);
+            si.applyTargetRelocs(elf);
+        }
+
         pub fn applyLocationRelocs(si: Symbol.Index, elf: *Elf) void {
             for (elf.relocs.items[@intFromEnum(si.get(elf).loc_relocs)..]) |*reloc| {
                 if (reloc.loc != si) break;
@@ -290,8 +299,8 @@ pub const Reloc = extern struct {
     };
 
     pub fn apply(reloc: *const Reloc, elf: *Elf) void {
-        const target_endian = elf.targetEndian();
-        switch (reloc.loc.get(elf).ni) {
+        const loc_ni = reloc.loc.get(elf).ni;
+        switch (loc_ni) {
             .none => return,
             else => |ni| if (ni.hasMoved(&elf.mf)) return,
         }
@@ -299,68 +308,47 @@ pub const Reloc = extern struct {
             .none => return,
             else => |ni| if (ni.hasMoved(&elf.mf)) return,
         }
-        switch (elf.shdrSlice()) {
-            inline else => |shdr, class| {
-                const sym = @field(elf.symSlice(), @tagName(class));
-                const loc_sym = &sym[@intFromEnum(reloc.loc)];
-                const loc_shndx =
-                    std.mem.toNative(@TypeOf(loc_sym.shndx), loc_sym.shndx, target_endian);
+        const loc_slice = loc_ni.slice(&elf.mf)[@intCast(reloc.offset)..];
+        const target_endian = elf.targetEndian();
+        switch (elf.symtabSlice()) {
+            inline else => |symtab, class| {
+                const loc_sym = &symtab[@intFromEnum(reloc.loc)];
+                const loc_shndx = elf.targetLoad(&loc_sym.shndx);
                 assert(loc_shndx != std.elf.SHN_UNDEF);
-                const loc_sh = &shdr[loc_shndx];
-                const loc_value = std.mem.toNative(
-                    @TypeOf(loc_sym.value),
-                    loc_sym.value,
-                    target_endian,
-                ) + reloc.offset;
-                const loc_sh_addr =
-                    std.mem.toNative(@TypeOf(loc_sh.addr), loc_sh.addr, target_endian);
-                const loc_sh_offset =
-                    std.mem.toNative(@TypeOf(loc_sh.offset), loc_sh.offset, target_endian);
-                const loc_file_offset: usize = @intCast(loc_value - loc_sh_addr + loc_sh_offset);
-                const target_sym = &sym[@intFromEnum(reloc.target)];
-                const target_value = std.mem.toNative(
-                    @TypeOf(target_sym.value),
-                    target_sym.value,
-                    target_endian,
-                ) +% @as(u64, @bitCast(reloc.addend));
+                const loc_value = elf.targetLoad(&loc_sym.value) + reloc.offset;
+                const target_sym = &symtab[@intFromEnum(reloc.target)];
+                const target_value =
+                    elf.targetLoad(&target_sym.value) +% @as(u64, @bitCast(reloc.addend));
                 switch (elf.ehdrField(.machine)) {
                     else => |machine| @panic(@tagName(machine)),
                     .X86_64 => switch (reloc.type.X86_64) {
                         else => |kind| @panic(@tagName(kind)),
                         .@"64" => std.mem.writeInt(
                             u64,
-                            elf.mf.contents[loc_file_offset..][0..8],
+                            loc_slice[0..8],
                             target_value,
                             target_endian,
                         ),
                         .PC32 => std.mem.writeInt(
                             i32,
-                            elf.mf.contents[loc_file_offset..][0..4],
+                            loc_slice[0..4],
                             @intCast(@as(i64, @bitCast(target_value -% loc_value))),
                             target_endian,
                         ),
                         .@"32" => std.mem.writeInt(
                             u32,
-                            elf.mf.contents[loc_file_offset..][0..4],
+                            loc_slice[0..4],
                             @intCast(target_value),
                             target_endian,
                         ),
                         .TPOFF32 => {
                             const phdr = @field(elf.phdrSlice(), @tagName(class));
-                            const ph = &phdr[4];
-                            assert(std.mem.toNative(
-                                @TypeOf(ph.type),
-                                ph.type,
-                                target_endian,
-                            ) == std.elf.PT_TLS);
+                            const ph = &phdr[elf.getNode(elf.known.tls).segment];
+                            assert(elf.targetLoad(&ph.type) == std.elf.PT_TLS);
                             std.mem.writeInt(
                                 i32,
-                                elf.mf.contents[loc_file_offset..][0..4],
-                                @intCast(@as(i64, @bitCast(target_value -% std.mem.toNative(
-                                    @TypeOf(ph.memsz),
-                                    ph.memsz,
-                                    target_endian,
-                                )))),
+                                loc_slice[0..4],
+                                @intCast(@as(i64, @bitCast(target_value -% elf.targetLoad(&ph.memsz)))),
                                 target_endian,
                             );
                         },
@@ -475,7 +463,11 @@ fn create(
             .stack_size = 0,
         },
         .mf = try .init(file, comp.gpa),
+        .known = .{
+            .tls = .none,
+        },
         .nodes = .empty,
+        .phdrs = .empty,
         .symtab = .empty,
         .shstrtab = .{
             .map = .empty,
@@ -488,7 +480,7 @@ fn create(
         .globals = .empty,
         .navs = .empty,
         .uavs = .empty,
-        .lazy = .initFill(.{
+        .lazy = comptime .initFill(.{
             .map = .empty,
             .pending_index = 0,
         }),
@@ -498,18 +490,7 @@ fn create(
     };
     errdefer elf.deinit();
 
-    switch (class) {
-        .NONE, _ => unreachable,
-        inline else => |ct_class| try elf.initHeaders(
-            ct_class,
-            data,
-            osabi,
-            @"type",
-            machine,
-            maybe_interp,
-        ),
-    }
-
+    try elf.initHeaders(class, data, osabi, @"type", machine, maybe_interp);
     return elf;
 }
 
@@ -517,6 +498,7 @@ pub fn deinit(elf: *Elf) void {
     const gpa = elf.base.comp.gpa;
     elf.mf.deinit(gpa);
     elf.nodes.deinit(gpa);
+    elf.phdrs.deinit(gpa);
     elf.symtab.deinit(gpa);
     elf.shstrtab.map.deinit(gpa);
     elf.strtab.map.deinit(gpa);
@@ -531,7 +513,7 @@ pub fn deinit(elf: *Elf) void {
 
 fn initHeaders(
     elf: *Elf,
-    comptime class: std.elf.CLASS,
+    class: std.elf.CLASS,
     data: std.elf.DATA,
     osabi: std.elf.OSABI,
     @"type": std.elf.ET,
@@ -540,16 +522,10 @@ fn initHeaders(
 ) !void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
-    const ElfN = switch (class) {
-        .NONE, _ => comptime unreachable,
-        .@"32" => std.elf.Elf32,
-        .@"64" => std.elf.Elf64,
-    };
-    const addr_align: std.mem.Alignment = comptime .fromByteUnits(@sizeOf(ElfN.Addr));
-    const target_endian: std.builtin.Endian = switch (data) {
+    const addr_align: std.mem.Alignment = switch (class) {
         .NONE, _ => unreachable,
-        .@"2LSB" => .little,
-        .@"2MSB" => .big,
+        .@"32" => .@"4",
+        .@"64" => .@"8",
     };
 
     var phnum: u32 = 0;
@@ -570,218 +546,257 @@ fn initHeaders(
         break :phndx phnum;
     } else undefined;
 
-    try elf.nodes.ensureTotalCapacity(gpa, Node.known_count);
+    const expected_nodes_len = 15;
+    try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
+    try elf.phdrs.resize(gpa, phnum);
     elf.nodes.appendAssumeCapacity(.file);
 
-    const seg_rodata_ni = Node.known.seg_rodata;
-    assert(seg_rodata_ni == try elf.mf.addOnlyChildNode(gpa, .root, .{
+    assert(Node.Known.rodata == try elf.mf.addOnlyChildNode(gpa, .root, .{
         .alignment = elf.mf.flags.block_size,
         .fixed = true,
         .moved = true,
+        .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = rodata_phndx });
+    elf.phdrs.items[rodata_phndx] = Node.Known.rodata;
 
-    const ehdr_ni = Node.known.ehdr;
-    assert(ehdr_ni == try elf.mf.addOnlyChildNode(gpa, seg_rodata_ni, .{
-        .size = @sizeOf(ElfN.Ehdr),
-        .alignment = addr_align,
-        .fixed = true,
-    }));
-    elf.nodes.appendAssumeCapacity(.ehdr);
-    {
-        const ehdr: *ElfN.Ehdr = @ptrCast(@alignCast(ehdr_ni.slice(&elf.mf)));
-        const EI = std.elf.EI;
-        @memcpy(ehdr.ident[0..std.elf.MAGIC.len], std.elf.MAGIC);
-        ehdr.ident[EI.CLASS] = @intFromEnum(class);
-        ehdr.ident[EI.DATA] = @intFromEnum(data);
-        ehdr.ident[EI.VERSION] = 1;
-        ehdr.ident[EI.OSABI] = @intFromEnum(osabi);
-        ehdr.ident[EI.ABIVERSION] = 0;
-        @memset(ehdr.ident[EI.PAD..], 0);
-        ehdr.type = @"type";
-        ehdr.machine = machine;
-        ehdr.version = 1;
-        ehdr.entry = 0;
-        ehdr.phoff = 0;
-        ehdr.shoff = 0;
-        ehdr.flags = 0;
-        ehdr.ehsize = @sizeOf(ElfN.Ehdr);
-        ehdr.phentsize = @sizeOf(ElfN.Phdr);
-        ehdr.phnum = @min(phnum, std.elf.PN_XNUM);
-        ehdr.shentsize = @sizeOf(ElfN.Shdr);
-        ehdr.shnum = 1;
-        ehdr.shstrndx = 0;
-        if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Ehdr, ehdr);
+    switch (class) {
+        .NONE, _ => unreachable,
+        inline else => |ct_class| {
+            const ElfN = switch (ct_class) {
+                .NONE, _ => comptime unreachable,
+                .@"32" => std.elf.Elf32,
+                .@"64" => std.elf.Elf64,
+            };
+
+            assert(Node.Known.ehdr == try elf.mf.addOnlyChildNode(gpa, Node.Known.rodata, .{
+                .size = @sizeOf(ElfN.Ehdr),
+                .alignment = addr_align,
+                .fixed = true,
+            }));
+            elf.nodes.appendAssumeCapacity(.ehdr);
+
+            const ehdr: *ElfN.Ehdr = @ptrCast(@alignCast(Node.Known.ehdr.slice(&elf.mf)));
+            const EI = std.elf.EI;
+            @memcpy(ehdr.ident[0..std.elf.MAGIC.len], std.elf.MAGIC);
+            ehdr.ident[EI.CLASS] = @intFromEnum(class);
+            ehdr.ident[EI.DATA] = @intFromEnum(data);
+            ehdr.ident[EI.VERSION] = 1;
+            ehdr.ident[EI.OSABI] = @intFromEnum(osabi);
+            ehdr.ident[EI.ABIVERSION] = 0;
+            @memset(ehdr.ident[EI.PAD..], 0);
+            ehdr.type = @"type";
+            ehdr.machine = machine;
+            ehdr.version = 1;
+            ehdr.entry = 0;
+            ehdr.phoff = 0;
+            ehdr.shoff = 0;
+            ehdr.flags = 0;
+            ehdr.ehsize = @sizeOf(ElfN.Ehdr);
+            ehdr.phentsize = @sizeOf(ElfN.Phdr);
+            ehdr.phnum = @min(phnum, std.elf.PN_XNUM);
+            ehdr.shentsize = @sizeOf(ElfN.Shdr);
+            ehdr.shnum = 1;
+            ehdr.shstrndx = std.elf.SHN_UNDEF;
+            if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(ElfN.Ehdr, ehdr);
+        },
     }
 
-    const phdr_ni = Node.known.phdr;
-    assert(phdr_ni == try elf.mf.addLastChildNode(gpa, seg_rodata_ni, .{
-        .size = @sizeOf(ElfN.Phdr) * phnum,
+    assert(Node.Known.phdr == try elf.mf.addLastChildNode(gpa, Node.Known.rodata, .{
+        .size = elf.ehdrField(.phentsize) * elf.ehdrField(.phnum),
         .alignment = addr_align,
         .moved = true,
         .resized = true,
+        .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = phdr_phndx });
+    elf.phdrs.items[phdr_phndx] = Node.Known.phdr;
 
-    const shdr_ni = Node.known.shdr;
-    assert(shdr_ni == try elf.mf.addLastChildNode(gpa, seg_rodata_ni, .{
-        .size = @sizeOf(ElfN.Shdr),
+    assert(Node.Known.shdr == try elf.mf.addLastChildNode(gpa, Node.Known.rodata, .{
+        .size = elf.ehdrField(.shentsize) * elf.ehdrField(.shnum),
         .alignment = addr_align,
     }));
     elf.nodes.appendAssumeCapacity(.shdr);
 
-    const seg_text_ni = Node.known.seg_text;
-    assert(seg_text_ni == try elf.mf.addLastChildNode(gpa, .root, .{
+    assert(Node.Known.text == try elf.mf.addLastChildNode(gpa, .root, .{
         .alignment = elf.mf.flags.block_size,
         .moved = true,
+        .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = text_phndx });
+    elf.phdrs.items[text_phndx] = Node.Known.text;
 
-    const seg_data_ni = Node.known.seg_data;
-    assert(seg_data_ni == try elf.mf.addLastChildNode(gpa, .root, .{
+    assert(Node.Known.data == try elf.mf.addLastChildNode(gpa, .root, .{
         .alignment = elf.mf.flags.block_size,
         .moved = true,
+        .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = data_phndx });
+    elf.phdrs.items[data_phndx] = Node.Known.data;
 
-    assert(elf.nodes.len == Node.known_count);
+    var ph_vaddr: u32 = switch (elf.ehdrField(.type)) {
+        else => 0,
+        .EXEC => switch (elf.ehdrField(.machine)) {
+            .@"386" => 0x400000,
+            .AARCH64, .X86_64 => 0x200000,
+            .PPC, .PPC64 => 0x10000000,
+            .S390, .S390_OLD => 0x1000000,
+            .OLD_SPARCV9, .SPARCV9 => 0x100000,
+            else => 0x10000,
+        },
+    };
+    switch (class) {
+        .NONE, _ => unreachable,
+        inline else => |ct_class| {
+            const ElfN = switch (ct_class) {
+                .NONE, _ => comptime unreachable,
+                .@"32" => std.elf.Elf32,
+                .@"64" => std.elf.Elf64,
+            };
+            const target_endian = elf.targetEndian();
 
-    {
-        const phdr: []ElfN.Phdr = @ptrCast(@alignCast(phdr_ni.slice(&elf.mf)));
-        const ph_phdr = &phdr[phdr_phndx];
-        ph_phdr.* = .{
-            .type = std.elf.PT_PHDR,
-            .offset = 0,
-            .vaddr = 0,
-            .paddr = 0,
-            .filesz = 0,
-            .memsz = 0,
-            .flags = .{ .R = true },
-            .@"align" = @intCast(phdr_ni.alignment(&elf.mf).toByteUnits()),
-        };
-        if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_phdr);
-
-        if (maybe_interp) |_| {
-            const ph_interp = &phdr[interp_phndx];
-            ph_interp.* = .{
-                .type = std.elf.PT_INTERP,
+            const phdr: []ElfN.Phdr = @ptrCast(@alignCast(Node.Known.phdr.slice(&elf.mf)));
+            const ph_phdr = &phdr[phdr_phndx];
+            ph_phdr.* = .{
+                .type = std.elf.PT_PHDR,
                 .offset = 0,
                 .vaddr = 0,
                 .paddr = 0,
                 .filesz = 0,
                 .memsz = 0,
                 .flags = .{ .R = true },
-                .@"align" = 1,
+                .@"align" = @intCast(Node.Known.phdr.alignment(&elf.mf).toByteUnits()),
             };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_interp);
-        }
+            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_phdr);
 
-        const ph_rodata = &phdr[rodata_phndx];
-        ph_rodata.* = .{
-            .type = std.elf.PT_NULL,
-            .offset = 0,
-            .vaddr = 0,
-            .paddr = 0,
-            .filesz = 0,
-            .memsz = 0,
-            .flags = .{ .R = true },
-            .@"align" = @intCast(seg_rodata_ni.alignment(&elf.mf).toByteUnits()),
-        };
-        if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_rodata);
+            if (maybe_interp) |_| {
+                const ph_interp = &phdr[interp_phndx];
+                ph_interp.* = .{
+                    .type = std.elf.PT_INTERP,
+                    .offset = 0,
+                    .vaddr = 0,
+                    .paddr = 0,
+                    .filesz = 0,
+                    .memsz = 0,
+                    .flags = .{ .R = true },
+                    .@"align" = 1,
+                };
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_interp);
+            }
 
-        const ph_text = &phdr[text_phndx];
-        ph_text.* = .{
-            .type = std.elf.PT_NULL,
-            .offset = 0,
-            .vaddr = 0,
-            .paddr = 0,
-            .filesz = 0,
-            .memsz = 0,
-            .flags = .{ .R = true, .X = true },
-            .@"align" = @intCast(seg_text_ni.alignment(&elf.mf).toByteUnits()),
-        };
-        if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_text);
-
-        const ph_data = &phdr[data_phndx];
-        ph_data.* = .{
-            .type = std.elf.PT_NULL,
-            .offset = 0,
-            .vaddr = 0,
-            .paddr = 0,
-            .filesz = 0,
-            .memsz = 0,
-            .flags = .{ .R = true, .W = true },
-            .@"align" = @intCast(seg_data_ni.alignment(&elf.mf).toByteUnits()),
-        };
-        if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_data);
-
-        if (comp.config.any_non_single_threaded) {
-            const ph_tls = &phdr[tls_phndx];
-            ph_tls.* = .{
-                .type = std.elf.PT_TLS,
+            _, const rodata_size = Node.Known.rodata.location(&elf.mf).resolve(&elf.mf);
+            const ph_rodata = &phdr[rodata_phndx];
+            ph_rodata.* = .{
+                .type = std.elf.PT_NULL,
                 .offset = 0,
-                .vaddr = 0,
-                .paddr = 0,
-                .filesz = 0,
-                .memsz = 0,
+                .vaddr = ph_vaddr,
+                .paddr = ph_vaddr,
+                .filesz = @intCast(rodata_size),
+                .memsz = @intCast(rodata_size),
                 .flags = .{ .R = true },
-                .@"align" = @intCast(elf.mf.flags.block_size.toByteUnits()),
+                .@"align" = @intCast(Node.Known.rodata.alignment(&elf.mf).toByteUnits()),
             };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_tls);
-        }
+            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_rodata);
+            ph_vaddr += @intCast(rodata_size);
 
-        const sh_null: *ElfN.Shdr = @ptrCast(@alignCast(shdr_ni.slice(&elf.mf)));
-        sh_null.* = .{
-            .name = try elf.string(.shstrtab, ""),
-            .type = std.elf.SHT_NULL,
-            .flags = .{ .shf = .{} },
-            .addr = 0,
-            .offset = 0,
-            .size = 0,
-            .link = 0,
-            .info = if (phnum >= std.elf.PN_XNUM) phnum else 0,
-            .addralign = 0,
-            .entsize = 0,
-        };
-        if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Shdr, sh_null);
-    }
+            _, const text_size = Node.Known.text.location(&elf.mf).resolve(&elf.mf);
+            const ph_text = &phdr[text_phndx];
+            ph_text.* = .{
+                .type = std.elf.PT_NULL,
+                .offset = 0,
+                .vaddr = ph_vaddr,
+                .paddr = ph_vaddr,
+                .filesz = @intCast(text_size),
+                .memsz = @intCast(text_size),
+                .flags = .{ .R = true, .X = true },
+                .@"align" = @intCast(Node.Known.text.alignment(&elf.mf).toByteUnits()),
+            };
+            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_text);
+            ph_vaddr += @intCast(text_size);
 
-    try elf.symtab.ensureTotalCapacity(gpa, 1);
-    elf.symtab.addOneAssumeCapacity().* = .{
-        .ni = .none,
-        .loc_relocs = .none,
-        .target_relocs = .none,
-        .unused = 0,
-    };
-    assert(try elf.addSection(seg_rodata_ni, .{
-        .type = std.elf.SHT_SYMTAB,
-        .addralign = addr_align,
-        .entsize = @sizeOf(ElfN.Sym),
-    }) == .symtab);
-    const symtab: *ElfN.Sym = @ptrCast(@alignCast(Symbol.Index.symtab.node(elf).slice(&elf.mf)));
-    symtab.* = .{
-        .name = try elf.string(.strtab, ""),
-        .value = 0,
-        .size = 0,
-        .info = .{
-            .type = .NOTYPE,
-            .bind = .LOCAL,
+            _, const data_size = Node.Known.data.location(&elf.mf).resolve(&elf.mf);
+            const ph_data = &phdr[data_phndx];
+            ph_data.* = .{
+                .type = std.elf.PT_NULL,
+                .offset = 0,
+                .vaddr = ph_vaddr,
+                .paddr = ph_vaddr,
+                .filesz = @intCast(data_size),
+                .memsz = @intCast(data_size),
+                .flags = .{ .R = true, .W = true },
+                .@"align" = @intCast(Node.Known.data.alignment(&elf.mf).toByteUnits()),
+            };
+            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_data);
+            ph_vaddr += @intCast(data_size);
+
+            if (comp.config.any_non_single_threaded) {
+                const ph_tls = &phdr[tls_phndx];
+                ph_tls.* = .{
+                    .type = std.elf.PT_TLS,
+                    .offset = 0,
+                    .vaddr = 0,
+                    .paddr = 0,
+                    .filesz = 0,
+                    .memsz = 0,
+                    .flags = .{ .R = true },
+                    .@"align" = @intCast(elf.mf.flags.block_size.toByteUnits()),
+                };
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_tls);
+            }
+
+            const sh_null: *ElfN.Shdr = @ptrCast(@alignCast(Node.Known.shdr.slice(&elf.mf)));
+            sh_null.* = .{
+                .name = try elf.string(.shstrtab, ""),
+                .type = std.elf.SHT_NULL,
+                .flags = .{ .shf = .{} },
+                .addr = 0,
+                .offset = 0,
+                .size = 0,
+                .link = 0,
+                .info = if (phnum >= std.elf.PN_XNUM) phnum else 0,
+                .addralign = 0,
+                .entsize = 0,
+            };
+            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Shdr, sh_null);
+
+            try elf.symtab.ensureTotalCapacity(gpa, 1);
+            elf.symtab.addOneAssumeCapacity().* = .{
+                .ni = .none,
+                .loc_relocs = .none,
+                .target_relocs = .none,
+                .unused = 0,
+            };
+            assert(try elf.addSection(Node.Known.rodata, .{
+                .type = std.elf.SHT_SYMTAB,
+                .addralign = addr_align,
+                .entsize = @sizeOf(ElfN.Sym),
+            }) == .symtab);
+
+            const symtab: *ElfN.Sym = @ptrCast(@alignCast(Symbol.Index.symtab.node(elf).slice(&elf.mf)));
+            symtab.* = .{
+                .name = try elf.string(.strtab, ""),
+                .value = 0,
+                .size = 0,
+                .info = .{
+                    .type = .NOTYPE,
+                    .bind = .LOCAL,
+                },
+                .other = .{
+                    .visibility = .DEFAULT,
+                },
+                .shndx = std.elf.SHN_UNDEF,
+            };
+
+            const ehdr = @field(elf.ehdrPtr(), @tagName(ct_class));
+            ehdr.shstrndx = ehdr.shnum;
         },
-        .other = .{
-            .visibility = .DEFAULT,
-        },
-        .shndx = std.elf.SHN_UNDEF,
-    };
-    {
-        const ehdr = @field(elf.ehdrPtr(), @tagName(class));
-        ehdr.shstrndx = ehdr.shnum;
     }
-    assert(try elf.addSection(seg_rodata_ni, .{
+    assert(try elf.addSection(Node.Known.rodata, .{
         .type = std.elf.SHT_STRTAB,
         .addralign = elf.mf.flags.block_size,
         .entsize = 1,
     }) == .shstrtab);
-    assert(try elf.addSection(seg_rodata_ni, .{
+    assert(try elf.addSection(Node.Known.rodata, .{
         .type = std.elf.SHT_STRTAB,
         .addralign = elf.mf.flags.block_size,
         .entsize = 1,
@@ -793,45 +808,17 @@ fn initHeaders(
     Symbol.Index.shstrtab.node(elf).slice(&elf.mf)[0] = 0;
     Symbol.Index.strtab.node(elf).slice(&elf.mf)[0] = 0;
 
-    assert(try elf.addSection(seg_rodata_ni, .{
-        .name = ".rodata",
-        .flags = .{ .ALLOC = true },
-        .addralign = elf.mf.flags.block_size,
-    }) == .rodata);
-    assert(try elf.addSection(seg_text_ni, .{
-        .name = ".text",
-        .flags = .{ .ALLOC = true, .EXECINSTR = true },
-        .addralign = elf.mf.flags.block_size,
-    }) == .text);
-    assert(try elf.addSection(seg_data_ni, .{
-        .name = ".data",
-        .flags = .{ .WRITE = true, .ALLOC = true },
-        .addralign = elf.mf.flags.block_size,
-    }) == .data);
-    if (comp.config.any_non_single_threaded) {
-        try elf.nodes.ensureUnusedCapacity(gpa, 1);
-        const seg_tls_ni = try elf.mf.addLastChildNode(gpa, seg_data_ni, .{
-            .alignment = elf.mf.flags.block_size,
-            .moved = true,
-        });
-        elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
-
-        assert(try elf.addSection(seg_tls_ni, .{
-            .name = ".tdata",
-            .flags = .{ .WRITE = true, .ALLOC = true, .TLS = true },
-            .addralign = elf.mf.flags.block_size,
-        }) == .tdata);
-    }
     if (maybe_interp) |interp| {
         try elf.nodes.ensureUnusedCapacity(gpa, 1);
-        const seg_interp_ni = try elf.mf.addLastChildNode(gpa, seg_rodata_ni, .{
+        const interp_ni = try elf.mf.addLastChildNode(gpa, Node.Known.rodata, .{
             .size = interp.len + 1,
             .moved = true,
             .resized = true,
         });
         elf.nodes.appendAssumeCapacity(.{ .segment = interp_phndx });
+        elf.phdrs.items[interp_phndx] = interp_ni;
 
-        const sec_interp_si = try elf.addSection(seg_interp_ni, .{
+        const sec_interp_si = try elf.addSection(interp_ni, .{
             .name = ".interp",
             .size = @intCast(interp.len + 1),
             .flags = .{ .ALLOC = true },
@@ -840,28 +827,99 @@ fn initHeaders(
         @memcpy(sec_interp[0..interp.len], interp);
         sec_interp[interp.len] = 0;
     }
+    assert(try elf.addSection(Node.Known.rodata, .{
+        .name = ".rodata",
+        .flags = .{ .ALLOC = true },
+        .addralign = elf.mf.flags.block_size,
+    }) == .rodata);
+    assert(try elf.addSection(Node.Known.text, .{
+        .name = ".text",
+        .flags = .{ .ALLOC = true, .EXECINSTR = true },
+        .addralign = elf.mf.flags.block_size,
+    }) == .text);
+    assert(try elf.addSection(Node.Known.data, .{
+        .name = ".data",
+        .flags = .{ .WRITE = true, .ALLOC = true },
+        .addralign = elf.mf.flags.block_size,
+    }) == .data);
+    if (comp.config.any_non_single_threaded) {
+        try elf.nodes.ensureUnusedCapacity(gpa, 1);
+        elf.known.tls = try elf.mf.addLastChildNode(gpa, Node.Known.rodata, .{
+            .alignment = elf.mf.flags.block_size,
+            .moved = true,
+        });
+        elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
+        elf.phdrs.items[tls_phndx] = elf.known.tls;
+
+        assert(try elf.addSection(elf.known.tls, .{
+            .name = ".tdata",
+            .flags = .{ .WRITE = true, .ALLOC = true, .TLS = true },
+            .addralign = elf.mf.flags.block_size,
+        }) == .tdata);
+    }
+    assert(elf.nodes.len == expected_nodes_len);
 }
 
-fn getNode(elf: *Elf, ni: MappedFile.Node.Index) Node {
+fn getNode(elf: *const Elf, ni: MappedFile.Node.Index) Node {
     return elf.nodes.get(@intFromEnum(ni));
 }
+fn computeNodeVAddr(elf: *Elf, ni: MappedFile.Node.Index) u64 {
+    const parent_vaddr = parent_vaddr: {
+        const parent_si = switch (elf.getNode(ni.parent(&elf.mf))) {
+            .file, .ehdr, .shdr => unreachable,
+            .segment => |phndx| break :parent_vaddr switch (elf.phdrSlice()) {
+                inline else => |ph| elf.targetLoad(&ph[phndx].vaddr),
+            },
+            .section => |si| si,
+            inline .nav, .uav, .lazy_code, .lazy_const_data => |mi| mi.symbol(elf),
+        };
+        break :parent_vaddr switch (elf.symPtr(parent_si)) {
+            inline else => |sym| elf.targetLoad(&sym.value),
+        };
+    };
+    const offset, _ = ni.location(&elf.mf).resolve(&elf.mf);
+    return parent_vaddr + offset;
+}
 
-pub fn identClass(elf: *Elf) std.elf.CLASS {
+pub fn identClass(elf: *const Elf) std.elf.CLASS {
     return @enumFromInt(elf.mf.contents[std.elf.EI.CLASS]);
 }
-
-pub fn identData(elf: *Elf) std.elf.DATA {
+pub fn identData(elf: *const Elf) std.elf.DATA {
     return @enumFromInt(elf.mf.contents[std.elf.EI.DATA]);
 }
-fn endianForData(data: std.elf.DATA) std.builtin.Endian {
-    return switch (data) {
+
+pub fn targetEndian(elf: *const Elf) std.builtin.Endian {
+    return switch (elf.identData()) {
         .NONE, _ => unreachable,
         .@"2LSB" => .little,
         .@"2MSB" => .big,
     };
 }
-pub fn targetEndian(elf: *Elf) std.builtin.Endian {
-    return endianForData(elf.identData());
+fn targetLoad(elf: *const Elf, ptr: anytype) @typeInfo(@TypeOf(ptr)).pointer.child {
+    const Child = @typeInfo(@TypeOf(ptr)).pointer.child;
+    return switch (@typeInfo(Child)) {
+        else => @compileError(@typeName(Child)),
+        .int => std.mem.toNative(Child, ptr.*, elf.targetEndian()),
+        .@"enum" => |@"enum"| @enumFromInt(elf.targetLoad(@as(*@"enum".tag_type, @ptrCast(ptr)))),
+        .@"struct" => |@"struct"| @bitCast(
+            elf.targetLoad(@as(*@"struct".backing_integer.?, @ptrCast(ptr))),
+        ),
+    };
+}
+fn targetStore(elf: *const Elf, ptr: anytype, val: @typeInfo(@TypeOf(ptr)).pointer.child) void {
+    const Child = @typeInfo(@TypeOf(ptr)).pointer.child;
+    return switch (@typeInfo(Child)) {
+        else => @compileError(@typeName(Child)),
+        .int => ptr.* = std.mem.nativeTo(Child, val, elf.targetEndian()),
+        .@"enum" => |@"enum"| elf.targetStore(
+            @as(*@"enum".tag_type, @ptrCast(ptr)),
+            @intFromEnum(val),
+        ),
+        .@"struct" => |@"struct"| elf.targetStore(
+            @as(*@"struct".backing_integer.?, @ptrCast(ptr)),
+            @bitCast(val),
+        ),
+    };
 }
 
 pub const EhdrPtr = union(std.elf.CLASS) {
@@ -870,7 +928,7 @@ pub const EhdrPtr = union(std.elf.CLASS) {
     @"64": *std.elf.Elf64.Ehdr,
 };
 pub fn ehdrPtr(elf: *Elf) EhdrPtr {
-    const slice = Node.known.ehdr.slice(&elf.mf);
+    const slice = Node.Known.ehdr.slice(&elf.mf);
     return switch (elf.identClass()) {
         .NONE, _ => unreachable,
         inline else => |class| @unionInit(
@@ -882,25 +940,11 @@ pub fn ehdrPtr(elf: *Elf) EhdrPtr {
 }
 pub fn ehdrField(
     elf: *Elf,
-    comptime field: enum { type, machine },
-) @FieldType(std.elf.Elf32.Ehdr, @tagName(field)) {
-    return @enumFromInt(std.mem.toNative(
-        @typeInfo(@FieldType(std.elf.Elf32.Ehdr, @tagName(field))).@"enum".tag_type,
-        @intFromEnum(switch (elf.ehdrPtr()) {
-            inline else => |ehdr| @field(ehdr, @tagName(field)),
-        }),
-        elf.targetEndian(),
-    ));
-}
-
-fn baseAddrForType(@"type": std.elf.ET) u64 {
-    return switch (@"type") {
-        else => 0,
-        .EXEC => 0x1000000,
+    comptime field: std.meta.FieldEnum(std.elf.Elf64.Ehdr),
+) @FieldType(std.elf.Elf64.Ehdr, @tagName(field)) {
+    return switch (elf.ehdrPtr()) {
+        inline else => |ehdr| elf.targetLoad(&@field(ehdr, @tagName(field))),
     };
-}
-pub fn baseAddr(elf: *Elf) u64 {
-    return baseAddrForType(elf.ehdrField(.type));
 }
 
 pub const PhdrSlice = union(std.elf.CLASS) {
@@ -909,7 +953,7 @@ pub const PhdrSlice = union(std.elf.CLASS) {
     @"64": []std.elf.Elf64.Phdr,
 };
 pub fn phdrSlice(elf: *Elf) PhdrSlice {
-    const slice = Node.known.phdr.slice(&elf.mf);
+    const slice = Node.Known.phdr.slice(&elf.mf);
     return switch (elf.identClass()) {
         .NONE, _ => unreachable,
         inline else => |class| @unionInit(
@@ -926,7 +970,7 @@ pub const ShdrSlice = union(std.elf.CLASS) {
     @"64": []std.elf.Elf64.Shdr,
 };
 pub fn shdrSlice(elf: *Elf) ShdrSlice {
-    const slice = Node.known.shdr.slice(&elf.mf);
+    const slice = Node.Known.shdr.slice(&elf.mf);
     return switch (elf.identClass()) {
         .NONE, _ => unreachable,
         inline else => |class| @unionInit(
@@ -937,17 +981,17 @@ pub fn shdrSlice(elf: *Elf) ShdrSlice {
     };
 }
 
-pub const SymSlice = union(std.elf.CLASS) {
+pub const SymtabSlice = union(std.elf.CLASS) {
     NONE: noreturn,
     @"32": []std.elf.Elf32.Sym,
     @"64": []std.elf.Elf64.Sym,
 };
-pub fn symSlice(elf: *Elf) SymSlice {
+pub fn symtabSlice(elf: *Elf) SymtabSlice {
     const slice = Symbol.Index.symtab.node(elf).slice(&elf.mf);
     return switch (elf.identClass()) {
         .NONE, _ => unreachable,
         inline else => |class| @unionInit(
-            SymSlice,
+            SymtabSlice,
             @tagName(class),
             @ptrCast(@alignCast(slice)),
         ),
@@ -960,7 +1004,7 @@ pub const SymPtr = union(std.elf.CLASS) {
     @"64": *std.elf.Elf64.Sym,
 };
 pub fn symPtr(elf: *Elf, si: Symbol.Index) SymPtr {
-    return switch (elf.symSlice()) {
+    return switch (elf.symtabSlice()) {
         inline else => |sym, class| @unionInit(SymPtr, @tagName(class), &sym[@intFromEnum(si)]),
     };
 }
@@ -1123,7 +1167,9 @@ pub fn getVAddr(elf: *Elf, reloc_info: link.File.RelocInfo, target_si: Symbol.In
             } },
         },
     );
-    return 0;
+    return switch (elf.symPtr(target_si)) {
+        inline else => |sym| elf.targetLoad(&sym.value),
+    };
 }
 
 fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
@@ -1135,21 +1181,19 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
     entsize: std.elf.Word = 0,
 }) !Symbol.Index {
     const gpa = elf.base.comp.gpa;
-    const target_endian = elf.targetEndian();
     try elf.nodes.ensureUnusedCapacity(gpa, 1);
     try elf.symtab.ensureUnusedCapacity(gpa, 1);
 
     const shstrtab_entry = try elf.string(.shstrtab, opts.name);
     const shndx, const shdr_size = shndx: switch (elf.ehdrPtr()) {
         inline else => |ehdr| {
-            const shentsize = std.mem.toNative(@TypeOf(ehdr.shentsize), ehdr.shentsize, target_endian);
-            const shndx = std.mem.toNative(@TypeOf(ehdr.shnum), ehdr.shnum, target_endian);
+            const shndx = elf.targetLoad(&ehdr.shnum);
             const shnum = shndx + 1;
-            ehdr.shnum = std.mem.nativeTo(@TypeOf(ehdr.shnum), shnum, target_endian);
-            break :shndx .{ shndx, shentsize * shnum };
+            elf.targetStore(&ehdr.shnum, shnum);
+            break :shndx .{ shndx, elf.targetLoad(&ehdr.shentsize) * shnum };
         },
     };
-    try Node.known.shdr.resize(&elf.mf, gpa, shdr_size);
+    try Node.Known.shdr.resize(&elf.mf, gpa, shdr_size);
     const ni = try elf.mf.addLastChildNode(gpa, segment_ni, .{
         .alignment = opts.addralign,
         .size = opts.size,
@@ -1179,7 +1223,7 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
                 .addralign = @intCast(opts.addralign.toByteUnits()),
                 .entsize = opts.entsize,
             };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(@TypeOf(sh.*), sh);
+            if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(@TypeOf(sh.*), sh);
         },
     }
     return si;
@@ -1188,37 +1232,29 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
 fn renameSection(elf: *Elf, si: Symbol.Index, name: []const u8) !void {
     const strtab_entry = try elf.string(.strtab, name);
     const shstrtab_entry = try elf.string(.shstrtab, name);
-    const target_endian = elf.targetEndian();
     switch (elf.shdrSlice()) {
         inline else => |shdr, class| {
             const sym = @field(elf.symPtr(si), @tagName(class));
-            sym.name = std.mem.nativeTo(@TypeOf(sym.name), strtab_entry, target_endian);
-            const shndx = std.mem.toNative(@TypeOf(sym.shndx), sym.shndx, target_endian);
-            const sh = &shdr[shndx];
-            sh.name = std.mem.nativeTo(@TypeOf(sh.name), shstrtab_entry, target_endian);
+            elf.targetStore(&sym.name, strtab_entry);
+            const sh = &shdr[elf.targetLoad(&sym.shndx)];
+            elf.targetStore(&sh.name, shstrtab_entry);
         },
     }
 }
 
 fn linkSections(elf: *Elf, si: Symbol.Index, link_si: Symbol.Index) !void {
-    const target_endian = elf.targetEndian();
     switch (elf.shdrSlice()) {
-        inline else => |shdr, class| {
-            const sym = @field(elf.symPtr(si), @tagName(class));
-            const shndx = std.mem.toNative(@TypeOf(sym.shndx), sym.shndx, target_endian);
-            shdr[shndx].link = @field(elf.symPtr(link_si), @tagName(class)).shndx;
-        },
+        inline else => |shdr, class| shdr[
+            elf.targetLoad(&@field(elf.symPtr(si), @tagName(class)).shndx)
+        ].link = @field(elf.symPtr(link_si), @tagName(class)).shndx,
     }
 }
 
 fn sectionName(elf: *Elf, si: Symbol.Index) [:0]const u8 {
-    const target_endian = elf.targetEndian();
-    const name = Symbol.Index.shstrtab.node(elf).slice(&elf.mf)[name: switch (elf.shdrSlice()) {
-        inline else => |shndx, class| {
-            const sym = @field(elf.symPtr(si), @tagName(class));
-            const sh = &shndx[std.mem.toNative(@TypeOf(sym.shndx), sym.shndx, target_endian)];
-            break :name std.mem.toNative(@TypeOf(sh.name), sh.name, target_endian);
-        },
+    const name = Symbol.Index.shstrtab.node(elf).slice(&elf.mf)[switch (elf.shdrSlice()) {
+        inline else => |shndx, class| elf.targetLoad(
+            &shndx[elf.targetLoad(&@field(elf.symPtr(si), @tagName(class)).shndx)].name,
+        ),
     }..];
     return name[0..std.mem.indexOfScalar(u8, name, 0).? :0];
 }
@@ -1243,7 +1279,7 @@ pub fn addReloc(
 ) !void {
     const gpa = elf.base.comp.gpa;
     const target = target_si.get(elf);
-    const ri: link.File.Elf2.Reloc.Index = @enumFromInt(elf.relocs.items.len);
+    const ri: Reloc.Index = @enumFromInt(elf.relocs.items.len);
     (try elf.relocs.addOne(gpa)).* = .{
         .type = @"type",
         .prev = .none,
@@ -1332,10 +1368,8 @@ fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index)
         error.WriteFailed => return error.OutOfMemory,
         else => |e| return e,
     };
-    const target_endian = elf.targetEndian();
     switch (elf.symPtr(si)) {
-        inline else => |sym| sym.size =
-            std.mem.nativeTo(@TypeOf(sym.size), @intCast(nw.interface.end), target_endian),
+        inline else => |sym| elf.targetStore(&sym.size, @intCast(nw.interface.end)),
     }
     si.applyLocationRelocs(elf);
 }
@@ -1463,10 +1497,8 @@ fn updateFuncInner(
         error.WriteFailed => return nw.err.?,
         else => |e| return e,
     };
-    const target_endian = elf.targetEndian();
     switch (elf.symPtr(si)) {
-        inline else => |sym| sym.size =
-            std.mem.nativeTo(@TypeOf(sym.size), @intCast(nw.interface.end), target_endian),
+        inline else => |sym| elf.targetStore(&sym.size, @intCast(nw.interface.end)),
     }
     si.applyLocationRelocs(elf);
 }
@@ -1634,10 +1666,8 @@ fn flushUav(
         error.WriteFailed => return error.OutOfMemory,
         else => |e| return e,
     };
-    const target_endian = elf.targetEndian();
     switch (elf.symPtr(si)) {
-        inline else => |sym| sym.size =
-            std.mem.nativeTo(@TypeOf(sym.size), @intCast(nw.interface.end), target_endian),
+        inline else => |sym| elf.targetStore(&sym.size, @intCast(nw.interface.end)),
     }
     si.applyLocationRelocs(elf);
 }
@@ -1689,167 +1719,121 @@ fn flushLazy(elf: *Elf, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
         .none,
         .{ .atom_index = @intFromEnum(si) },
     );
-    const target_endian = elf.targetEndian();
     switch (elf.symPtr(si)) {
-        inline else => |sym| sym.size =
-            std.mem.nativeTo(@TypeOf(sym.size), @intCast(nw.interface.end), target_endian),
+        inline else => |sym| elf.targetStore(&sym.size, @intCast(nw.interface.end)),
     }
     si.applyLocationRelocs(elf);
 }
 
 fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
-    const target_endian = elf.targetEndian();
-    const file_offset = ni.fileLocation(&elf.mf, false).offset;
-    const node = elf.getNode(ni);
-    switch (node) {
-        else => |tag| @panic(@tagName(tag)),
-        .ehdr => assert(file_offset == 0),
+    switch (elf.getNode(ni)) {
+        .file => unreachable,
+        .ehdr => assert(ni.fileLocation(&elf.mf, false).offset == 0),
         .shdr => switch (elf.ehdrPtr()) {
-            inline else => |ehdr| ehdr.shoff =
-                std.mem.nativeTo(@TypeOf(ehdr.shoff), @intCast(file_offset), target_endian),
+            inline else => |ehdr| elf.targetStore(
+                &ehdr.shoff,
+                @intCast(ni.fileLocation(&elf.mf, false).offset),
+            ),
         },
         .segment => |phndx| switch (elf.phdrSlice()) {
             inline else => |phdr, class| {
                 const ph = &phdr[phndx];
-                switch (std.mem.toNative(@TypeOf(ph.type), ph.type, target_endian)) {
+                elf.targetStore(&ph.offset, @intCast(ni.fileLocation(&elf.mf, false).offset));
+                switch (elf.targetLoad(&ph.type)) {
                     else => unreachable,
-                    std.elf.PT_NULL, std.elf.PT_LOAD, std.elf.PT_DYNAMIC, std.elf.PT_INTERP => {},
-                    std.elf.PT_PHDR => {
-                        const ehdr = @field(elf.ehdrPtr(), @tagName(class));
-                        ehdr.phoff =
-                            std.mem.nativeTo(@TypeOf(ehdr.phoff), @intCast(file_offset), target_endian);
-                    },
+                    std.elf.PT_NULL, std.elf.PT_LOAD => return,
+                    std.elf.PT_DYNAMIC, std.elf.PT_INTERP => {},
+                    std.elf.PT_PHDR => @field(elf.ehdrPtr(), @tagName(class)).phoff = ph.offset,
                     std.elf.PT_TLS => {},
                 }
-                ph.offset = std.mem.nativeTo(@TypeOf(ph.offset), @intCast(file_offset), target_endian);
-                ph.vaddr = std.mem.nativeTo(
-                    @TypeOf(ph.vaddr),
-                    @intCast(elf.baseAddr() + file_offset),
-                    target_endian,
-                );
+                elf.targetStore(&ph.vaddr, @intCast(elf.computeNodeVAddr(ni)));
                 ph.paddr = ph.vaddr;
             },
         },
         .section => |si| switch (elf.shdrSlice()) {
             inline else => |shdr, class| {
                 const sym = @field(elf.symPtr(si), @tagName(class));
-                const shndx = std.mem.toNative(@TypeOf(sym.shndx), sym.shndx, target_endian);
-                const sh = &shdr[shndx];
-                const flags: @TypeOf(sh.flags) = @bitCast(std.mem.toNative(
-                    @typeInfo(@TypeOf(sh.flags)).@"struct".backing_integer.?,
-                    @bitCast(sh.flags),
-                    target_endian,
-                ));
-                if (flags.shf.ALLOC) {
-                    sym.value = std.mem.nativeTo(
-                        @TypeOf(sym.value),
-                        @intCast(elf.baseAddr() + file_offset),
-                        target_endian,
-                    );
-                    sh.addr = sym.value;
+                const sh = &shdr[elf.targetLoad(&sym.shndx)];
+                elf.targetStore(&sh.offset, @intCast(ni.fileLocation(&elf.mf, false).offset));
+                const flags = elf.targetLoad(&sh.flags).shf;
+                if (flags.ALLOC) {
+                    elf.targetStore(&sh.addr, @intCast(elf.computeNodeVAddr(ni)));
+                    if (!flags.TLS) sym.value = sh.addr;
                 }
-                sh.offset = std.mem.nativeTo(@TypeOf(sh.offset), @intCast(file_offset), target_endian);
             },
         },
-        .nav, .uav, .lazy_code, .lazy_const_data => {
-            const si = switch (node) {
-                else => unreachable,
-                inline .nav, .uav, .lazy_code, .lazy_const_data => |mi| mi.symbol(elf),
-            };
-            switch (elf.shdrSlice()) {
-                inline else => |shdr, class| {
-                    const sym = @field(elf.symPtr(si), @tagName(class));
-                    const sh = &shdr[std.mem.toNative(@TypeOf(sym.shndx), sym.shndx, target_endian)];
-                    const flags: @TypeOf(sh.flags) = @bitCast(std.mem.toNative(
-                        @typeInfo(@TypeOf(sh.flags)).@"struct".backing_integer.?,
-                        @bitCast(sh.flags),
-                        target_endian,
-                    ));
-                    const sh_addr = if (flags.shf.TLS)
-                        0
-                    else
-                        std.mem.toNative(@TypeOf(sh.addr), sh.addr, target_endian);
-                    const sh_offset = std.mem.toNative(@TypeOf(sh.offset), sh.offset, target_endian);
-                    sym.value = std.mem.nativeTo(
-                        @TypeOf(sym.value),
-                        @intCast(file_offset - sh_offset + sh_addr),
-                        target_endian,
-                    );
-                    if (si == elf.entry_hack) @field(elf.ehdrPtr(), @tagName(class)).entry = sym.value;
-                },
-            }
-            si.applyLocationRelocs(elf);
-            si.applyTargetRelocs(elf);
-        },
+        inline .nav, .uav, .lazy_code, .lazy_const_data => |mi| mi.symbol(elf).flushMoved(elf),
     }
     try ni.childrenMoved(elf.base.comp.gpa, &elf.mf);
 }
 
 fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) !void {
-    const target_endian = elf.targetEndian();
     _, const size = ni.location(&elf.mf).resolve(&elf.mf);
-    const node = elf.getNode(ni);
-    switch (node) {
-        else => |tag| @panic(@tagName(tag)),
-        .file, .shdr => {},
+    switch (elf.getNode(ni)) {
+        .file => {},
+        .ehdr => unreachable,
+        .shdr => {},
         .segment => |phndx| switch (elf.phdrSlice()) {
             inline else => |phdr| {
+                assert(elf.phdrs.items[phndx] == ni);
                 const ph = &phdr[phndx];
-                ph.filesz = std.mem.nativeTo(@TypeOf(ph.filesz), @intCast(size), target_endian);
-                ph.memsz = ph.filesz;
-                switch (std.mem.toNative(@TypeOf(ph.type), ph.type, target_endian)) {
-                    else => unreachable,
-                    std.elf.PT_NULL => {
-                        if (size > 0) ph.type = std.mem.nativeTo(
-                            @TypeOf(ph.type),
-                            std.elf.PT_LOAD,
-                            target_endian,
-                        );
-                    },
-                    std.elf.PT_LOAD => {
-                        if (size == 0) ph.type = std.mem.nativeTo(
-                            @TypeOf(ph.type),
-                            std.elf.PT_NULL,
-                            target_endian,
-                        );
-                    },
-                    std.elf.PT_DYNAMIC, std.elf.PT_INTERP, std.elf.PT_PHDR => {},
-                    std.elf.PT_TLS => try ni.childrenMoved(elf.base.comp.gpa, &elf.mf),
+                elf.targetStore(&ph.filesz, @intCast(size));
+                if (size > elf.targetLoad(&ph.memsz)) {
+                    const memsz = ni.alignment(&elf.mf).forward(@intCast(size * 4));
+                    elf.targetStore(&ph.memsz, @intCast(memsz));
+                    switch (elf.targetLoad(&ph.type)) {
+                        else => unreachable,
+                        std.elf.PT_NULL => if (size > 0) elf.targetStore(&ph.type, std.elf.PT_LOAD),
+                        std.elf.PT_LOAD => if (size == 0) elf.targetStore(&ph.type, std.elf.PT_NULL),
+                        std.elf.PT_DYNAMIC, std.elf.PT_INTERP, std.elf.PT_PHDR => return,
+                        std.elf.PT_TLS => return ni.childrenMoved(elf.base.comp.gpa, &elf.mf),
+                    }
+                    var vaddr = elf.targetLoad(&ph.vaddr);
+                    var new_phndx = phndx;
+                    for (phdr[phndx + 1 ..], phndx + 1..) |*next_ph, next_phndx| {
+                        switch (elf.targetLoad(&next_ph.type)) {
+                            else => unreachable,
+                            std.elf.PT_NULL, std.elf.PT_LOAD => {},
+                            std.elf.PT_DYNAMIC,
+                            std.elf.PT_INTERP,
+                            std.elf.PT_PHDR,
+                            std.elf.PT_TLS,
+                            => break,
+                        }
+                        const next_vaddr = elf.targetLoad(&next_ph.vaddr);
+                        if (vaddr + memsz <= next_vaddr) break;
+                        vaddr = next_vaddr + elf.targetLoad(&next_ph.memsz);
+                        std.mem.swap(@TypeOf(ph.*), &phdr[new_phndx], next_ph);
+                        const next_ni = elf.phdrs.items[next_phndx];
+                        elf.phdrs.items[new_phndx] = next_ni;
+                        elf.nodes.items(.data)[@intFromEnum(next_ni)] = .{ .segment = new_phndx };
+                        new_phndx = @intCast(next_phndx);
+                    }
+                    if (new_phndx != phndx) {
+                        const new_ph = &phdr[new_phndx];
+                        elf.targetStore(&new_ph.vaddr, vaddr);
+                        new_ph.paddr = new_ph.vaddr;
+                        elf.phdrs.items[new_phndx] = ni;
+                        elf.nodes.items(.data)[@intFromEnum(ni)] = .{ .segment = new_phndx };
+                        try ni.childrenMoved(elf.base.comp.gpa, &elf.mf);
+                    }
                 }
             },
         },
-        .section => |si| switch (elf.shdrSlice()) {
-            inline else => |shdr, class| {
-                const sym = @field(elf.symPtr(si), @tagName(class));
-                const shndx = std.mem.toNative(@TypeOf(sym.shndx), sym.shndx, target_endian);
-                const sh = &shdr[shndx];
-                switch (std.mem.toNative(@TypeOf(sh.type), sh.type, target_endian)) {
+        .section => |si| switch (elf.symPtr(si)) {
+            inline else => |sym, class| {
+                const sh = &@field(elf.shdrSlice(), @tagName(class))[elf.targetLoad(&sym.shndx)];
+                elf.targetStore(&sh.size, @intCast(size));
+                switch (elf.targetLoad(&sh.type)) {
                     else => unreachable,
-                    std.elf.SHT_NULL => {
-                        if (size > 0) sh.type = std.mem.nativeTo(
-                            @TypeOf(sh.type),
-                            std.elf.SHT_PROGBITS,
-                            target_endian,
-                        );
-                    },
-                    std.elf.SHT_PROGBITS => {
-                        if (size == 0) sh.type = std.mem.nativeTo(
-                            @TypeOf(sh.type),
-                            std.elf.SHT_NULL,
-                            target_endian,
-                        );
-                    },
-                    std.elf.SHT_SYMTAB => sh.info = std.mem.nativeTo(
-                        @TypeOf(sh.info),
-                        @intCast(@divExact(
-                            size,
-                            std.mem.toNative(@TypeOf(sh.entsize), sh.entsize, target_endian),
-                        )),
-                        target_endian,
+                    std.elf.SHT_NULL => if (size > 0) elf.targetStore(&sh.type, std.elf.SHT_PROGBITS),
+                    std.elf.SHT_PROGBITS => if (size == 0) elf.targetStore(&sh.type, std.elf.SHT_NULL),
+                    std.elf.SHT_SYMTAB => elf.targetStore(
+                        &sh.info,
+                        @intCast(@divExact(size, elf.targetLoad(&sh.entsize))),
                     ),
                     std.elf.SHT_STRTAB => {},
                 }
-                sh.size = std.mem.nativeTo(@TypeOf(sh.size), @intCast(size), target_endian);
             },
         },
         .nav, .uav, .lazy_code, .lazy_const_data => {},

@@ -561,6 +561,7 @@ set(ZIG_STAGE2_SOURCES
     src/libs/libunwind.zig
     src/link.zig
     src/link/C.zig
+    src/link/Coff.zig
     src/link/Dwarf.zig
     src/link/Elf.zig
     src/link/Elf/Archive.zig
