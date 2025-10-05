@@ -1711,15 +1711,21 @@ pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
     var i: usize = 0;
     var found: usize = 0;
 
-    if (std.simd.suggestVectorLength(u8)) |block_size| {
-        const Block = @Vector(block_size, T);
+    if (use_vectors_for_comparison and
+        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
+        !@inComptime() and
+        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
+        if (std.simd.suggestVectorLength(T)) |block_size| {
+            const Block = @Vector(block_size, T);
 
-        const letter_mask: Block = @splat(needle);
-        while (n - i >= block_size) : (i += block_size) {
-            const haystack_block: Block = haystack[i..][0..block_size].*;
-            found += std.simd.countTrues(letter_mask == haystack_block);
+            const letter_mask: Block = @splat(needle);
+            while (n - i >= block_size) : (i += block_size) {
+                const haystack_block: Block = haystack[i..][0..block_size].*;
+                found += std.simd.countTrues(letter_mask == haystack_block);
+            }
+            if (i == n) return found;
         }
-        if (i == n) return found;
     }
 
     for (haystack[i..n]) |item| {
