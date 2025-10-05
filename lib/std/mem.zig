@@ -1712,7 +1712,7 @@ pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
     var found: usize = 0;
 
     if (std.simd.suggestVectorLength(u8)) |block_size| {
-        const Block = @Vector(block_size, u8);
+        const Block = @Vector(block_size, T);
 
         const letter_mask: Block = @splat(needle);
         while (i + block_size <= n) : (i += block_size) {
