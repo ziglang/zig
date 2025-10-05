@@ -3476,6 +3476,7 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
+/// Deprecated alias to At
 pub const AT = At;
 /// matches AT_* and AT_STATX_*
 pub const At = packed struct(u32) {
@@ -3516,6 +3517,44 @@ pub const At = packed struct(u32) {
     /// Do whatever stat() does
     /// This is the default and is very much filesystem-specific
     pub const statx_sync_as_stat: At = .{};
+
+    // DEPRECATED ALIASES
+    //
+    //
+    /// Special value used to indicate openat should use the current working directory
+    pub const FDCWD = fdcwd;
+
+    /// Do not follow symbolic links
+    pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+
+    /// Remove directory instead of unlinking file
+    pub const REMOVEDIR: u32 = @bitCast(At{ .removedir_or_handle_fid = .{ .removedir = true } });
+
+    pub const HANDLE_FID = At{ .removedir_or_handle_fid = .{ .handle_fid = true } };
+
+    /// Follow symbolic links.
+    pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+
+    /// Suppress terminal automount traversal
+    pub const NO_AUTOMOUNT: u32 = @bitCast(At{ .no_automount = true });
+
+    /// Allow empty relative pathname
+    pub const EMPTY_PATH: u32 = @bitCast(At{ .empty_path = true });
+
+    /// Type of synchronisation required from statx()
+    pub const STATX_SYNC_TYPE: u32 = @bitCast(statx_sync_type);
+
+    /// - Do whatever stat() does
+    pub const STATX_SYNC_AS_STAT: u32 = @bitCast(statx_sync_as_stat);
+
+    /// - Force the attributes to be sync'd with the server
+    pub const STATX_FORCE_SYNC: u32 = @bitCast(At{ .statx_force_sync = true });
+
+    /// - Don't sync attributes with the server
+    pub const STATX_DONT_SYNC: u32 = @bitCast(At{ .statx_dont_sync = true });
+
+    /// Apply to the entire subtree
+    pub const RECURSIVE: u32 = @bitCast(At{ .recursive = true });
 };
 
 pub const FALLOC = struct {
@@ -3672,6 +3711,14 @@ pub const W = packed struct(u32) {
     _unused: u20 = 0,
     nowait: bool = false,
     _unused_1: u7 = 0,
+
+    // Deprecated aliases
+    pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+    pub const UNTRACED: u32 = @bitCast(W{ .untraced_or_stopped = .{ .untraced = true } });
+    pub const STOPPED: u32 = @bitCast(W{ .untraced_or_stopped = .{ .stopped = true } });
+    pub const EXITED: u32 = @bitCast(W{ .exited = true });
+    pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+    pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
 
     pub fn EXITSTATUS(s: W) u8 {
         return @intCast((@as(u32, @bitCast(s)) & 0xff00) >> 8);
@@ -3893,6 +3940,7 @@ pub const SEEK = struct {
     pub const END = 2;
 };
 
+/// Deprecated alias to Shut
 pub const SHUT = Shut;
 /// enum sock_shutdown_cmd - Shutdown types
 /// matches SHUT_* in kenel
@@ -3905,16 +3953,22 @@ pub const Shut = enum(u32) {
     rdwr = 2,
 
     _,
+
+    // deprecated constants of the fields
+    pub const RD: u32 = @intFromEnum(Shut.rd);
+    pub const WR: u32 = @intFromEnum(Shut.wd);
+    pub const RDWR: u32 = @intFromEnum(Shut.rdwr);
 };
 
 pub const SOCK = Sock;
 /// SOCK_* Socket type and flags
 pub const Sock = packed struct(u32) {
-    type: Type,
+    type: Type = .default,
     flags: Flags = .{},
 
     /// matches sock_type in kernel
     pub const Type = enum(u7) {
+        default = 0,
         stream = if (is_mips) 2 else 1,
         dgram = if (is_mips) 1 else 2,
         raw = 3,
@@ -3946,6 +4000,17 @@ pub const Sock = packed struct(u32) {
         cloexec: bool = false,
         _2: u12 = 0,
     };
+
+    // Deprecated aliases for SOCK
+    pub const STREAM: u32 = @intFromEnum(Type.stream);
+    pub const DGRAM: u32 = @intFromEnum(Type.dgram);
+    pub const RAW: u32 = @intFromEnum(Type.raw);
+    pub const RDM: u32 = @intFromEnum(Type.rdm);
+    pub const SEQPACKET: u32 = @intFromEnum(Type.seqpacket);
+    pub const DCCP: u32 = @intFromEnum(Type.dccp);
+    pub const PACKET: u32 = @intFromEnum(Type.packet);
+    pub const CLOEXEC: u32 = (@as(u25, @bitCast(Flags{ .cloexec = true })) << 7);
+    pub const NONBLOCK: u32 = (@as(u25, @bitCast(Flags{ .nonblock = true })) << 7);
 };
 
 pub const TCP = struct {
@@ -4048,8 +4113,13 @@ pub const UDP_ENCAP = struct {
     pub const RXRPC = 6;
 };
 
+// Deprecated Alias
+pub const AF = Af;
+pub const PF = Af;
+/// Protocol Family (same values as Protocol Family)
+pub const Pf = Af;
 /// Address Family
-pub const AF = enum(u16) {
+pub const Af = enum(u16) {
     unspec = 0,
     unix = 1,
     inet = 2,
@@ -4099,13 +4169,61 @@ pub const AF = enum(u16) {
     _,
 
     // Aliases
-    pub const local = AF.unix;
-    pub const file = AF.unix;
-    pub const netlink = AF.route;
-};
+    pub const local = Af.unix;
+    pub const file = Af.unix;
+    pub const netlink = Af.route;
 
-/// Protocol Family (same values as Protocol Family)
-pub const PF = AF;
+    // Deprecated constants for backward compatibility
+    pub const UNSPEC: u16 = @intFromEnum(Af.unspec);
+    pub const UNIX: u16 = @intFromEnum(Af.unix);
+    pub const LOCAL: u16 = @intFromEnum(local);
+    pub const FILE: u16 = @intFromEnum(file);
+    pub const INET: u16 = @intFromEnum(Af.inet);
+    pub const AX25: u16 = @intFromEnum(Af.ax25);
+    pub const IPX: u16 = @intFromEnum(Af.ipx);
+    pub const APPLETALK: u16 = @intFromEnum(Af.appletalk);
+    pub const NETROM: u16 = @intFromEnum(Af.netrom);
+    pub const BRIDGE: u16 = @intFromEnum(Af.bridge);
+    pub const ATMPVC: u16 = @intFromEnum(Af.atmpvc);
+    pub const X25: u16 = @intFromEnum(Af.x25);
+    pub const INET6: u16 = @intFromEnum(Af.inet6);
+    pub const ROSE: u16 = @intFromEnum(Af.rose);
+    pub const DECnet: u16 = @intFromEnum(Af.decnet);
+    pub const NETBEUI: u16 = @intFromEnum(Af.netbeui);
+    pub const SECURITY: u16 = @intFromEnum(Af.security);
+    pub const KEY: u16 = @intFromEnum(Af.key);
+    pub const ROUTE: u16 = @intFromEnum(Af.route);
+    pub const NETLINK: u16 = @intFromEnum(netlink);
+    pub const PACKET: u16 = @intFromEnum(Af.packet);
+    pub const ASH: u16 = @intFromEnum(Af.ash);
+    pub const ECONET: u16 = @intFromEnum(Af.econet);
+    pub const ATMSVC: u16 = @intFromEnum(Af.atmsvc);
+    pub const RDS: u16 = @intFromEnum(Af.rds);
+    pub const SNA: u16 = @intFromEnum(Af.sna);
+    pub const IRDA: u16 = @intFromEnum(Af.irda);
+    pub const PPPOX: u16 = @intFromEnum(Af.pppox);
+    pub const WANPIPE: u16 = @intFromEnum(Af.wanpipe);
+    pub const LLC: u16 = @intFromEnum(Af.llc);
+    pub const IB: u16 = @intFromEnum(Af.ib);
+    pub const MPLS: u16 = @intFromEnum(Af.mpls);
+    pub const CAN: u16 = @intFromEnum(Af.can);
+    pub const TIPC: u16 = @intFromEnum(Af.tipc);
+    pub const BLUETOOTH: u16 = @intFromEnum(Af.bluetooth);
+    pub const IUCV: u16 = @intFromEnum(Af.iucv);
+    pub const RXRPC: u16 = @intFromEnum(Af.rxrpc);
+    pub const ISDN: u16 = @intFromEnum(Af.isdn);
+    pub const PHONET: u16 = @intFromEnum(Af.phonet);
+    pub const IEEE802154: u16 = @intFromEnum(Af.ieee802154);
+    pub const CAIF: u16 = @intFromEnum(Af.caif);
+    pub const ALG: u16 = @intFromEnum(Af.alg);
+    pub const NFC: u16 = @intFromEnum(Af.nfc);
+    pub const VSOCK: u16 = @intFromEnum(Af.vsock);
+    pub const KCM: u16 = @intFromEnum(Af.kcm);
+    pub const QIPCRTR: u16 = @intFromEnum(Af.qipcrtr);
+    pub const SMC: u16 = @intFromEnum(Af.smc);
+    pub const XDP: u16 = @intFromEnum(Af.xdp);
+    pub const MAX: u16 = @intFromEnum(Af.max);
+};
 
 pub const SO = if (is_mips) struct {
     pub const DEBUG = 1;
@@ -5863,7 +5981,8 @@ pub const signalfd_siginfo = extern struct {
 };
 
 pub const in_port_t = u16;
-pub const sa_family_t = AF;
+// TODO: change to AF type
+pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
 pub const sockaddr = extern struct {
@@ -5883,7 +6002,7 @@ pub const sockaddr = extern struct {
 
     /// IPv4 socket address
     pub const in = extern struct {
-        family: sa_family_t = AF.INET,
+        family: sa_family_t = Af.INET,
         port: in_port_t,
         addr: u32,
         zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -5891,7 +6010,7 @@ pub const sockaddr = extern struct {
 
     /// IPv6 socket address
     pub const in6 = extern struct {
-        family: sa_family_t = AF.INET6,
+        family: sa_family_t = Af.INET6,
         port: in_port_t,
         flowinfo: u32,
         addr: [16]u8,
@@ -5900,13 +6019,13 @@ pub const sockaddr = extern struct {
 
     /// UNIX domain socket address
     pub const un = extern struct {
-        family: sa_family_t = AF.UNIX,
+        family: sa_family_t = Af.UNIX,
         path: [108]u8,
     };
 
     /// Packet socket address
     pub const ll = extern struct {
-        family: sa_family_t = AF.PACKET,
+        family: sa_family_t = Af.PACKET,
         protocol: u16,
         ifindex: i32,
         hatype: u16,
@@ -5917,7 +6036,7 @@ pub const sockaddr = extern struct {
 
     /// Netlink socket address
     pub const nl = extern struct {
-        family: sa_family_t = AF.NETLINK,
+        family: sa_family_t = Af.NETLINK,
         __pad1: c_ushort = 0,
 
         /// port ID
@@ -5928,7 +6047,7 @@ pub const sockaddr = extern struct {
     };
 
     pub const xdp = extern struct {
-        family: u16 = AF.XDP,
+        family: u16 = Af.XDP,
         flags: u16,
         ifindex: u32,
         queue_id: u32,
@@ -5937,7 +6056,7 @@ pub const sockaddr = extern struct {
 
     /// Address structure for vSockets
     pub const vm = extern struct {
-        family: sa_family_t = AF.VSOCK,
+        family: sa_family_t = Af.VSOCK,
         reserved1: u16 = 0,
         port: u32,
         cid: u32,
@@ -7111,6 +7230,38 @@ pub const Statx = extern struct {
     };
 };
 
+// DEPRECATED aliases to Statx.Mask and Statx.Attr
+const STATX_TYPE: u32 = @bitCast(Statx.Mask{ .type = true });
+const STATX_MODE: u32 = @bitCast(Statx.Mask{ .mode = true });
+const STATX_NLINK: u32 = @bitCast(Statx.Mask{ .nlink = true });
+const STATX_UID: u32 = @bitCast(Statx.Mask{ .uid = true });
+const STATX_GID: u32 = @bitCast(Statx.Mask{ .gid = true });
+const STATX_ATIME: u32 = @bitCast(Statx.Mask{ .atime = true });
+const STATX_MTIME: u32 = @bitCast(Statx.Mask{ .mtime = true });
+const STATX_CTIME: u32 = @bitCast(Statx.Mask{ .ctime = true });
+const STATX_INO: u32 = @bitCast(Statx.Mask{ .ino = true });
+const STATX_SIZE: u32 = @bitCast(Statx.Mask{ .size = true });
+const STATX_BLOCKS: u32 = @bitCast(Statx.Mask{ .blocks = true });
+const STATX_BASIC_STATS: u32 = @bitCast(Statx.Mask.basic_stats);
+const STATX_BTIME: u32 = @bitCast(Statx.Mask{ .btime = true });
+const STATX_MNT_ID: u32 = @bitCast(Statx.Mask{ .mnt_id = true });
+const STATX_DIOALIGN: u32 = @bitCast(Statx.Mask{ .dioalign = true });
+const STATX_MNT_ID_UNIQUE: u32 = @bitCast(Statx.Mask{ .mnt_id_unique = true });
+const STATX_SUBVOL: u32 = @bitCast(Statx.Mask{ .subvol = true });
+const STATX_WRITE_ATOMIC: u32 = @bitCast(Statx.Mask{ .write_atomic = true });
+const STATX_DIO_READ_ALIGN: u32 = @bitCast(Statx.Mask{ .dio_read_align = true });
+
+const STATX_ATTR_COMPRESSED: u64 = @bitCast(Statx.Attr{ .compressed = true });
+const STATX_ATTR_IMMUTABLE: u64 = @bitCast(Statx.Attr{ .immutable = true });
+const STATX_ATTR_APPEND: u64 = @bitCast(Statx.Attr{ .append = true });
+const STATX_ATTR_NODUMP: u64 = @bitCast(Statx.Attr{ .nodump = true });
+const STATX_ATTR_ENCRYPTED: u64 = @bitCast(Statx.Attr{ .encrypted = true });
+const STATX_ATTR_AUTOMOUNT: u64 = @bitCast(Statx.Attr{ .automount = true });
+const STATX_ATTR_MOUNT_ROOT: u64 = @bitCast(Statx.Attr{ .mount_root = true });
+const STATX_ATTR_VERITY: u64 = @bitCast(Statx.Attr{ .verity = true });
+const STATX_ATTR_DAX: u64 = @bitCast(Statx.Attr{ .dax = true });
+const STATX_ATTR_WRITE_ATOMIC: u64 = @bitCast(Statx.Attr{ .write_atomic = true });
+
 pub const addrinfo = extern struct {
     flags: AI,
     family: i32,
@@ -7136,6 +7287,8 @@ pub const AI = packed struct(u32) {
 
 pub const IPPORT_RESERVED = 1024;
 
+/// Deprecated alias to IpProto
+pub const IPPROTO = IpProto;
 /// IP Protocol numbers
 pub const IpProto = enum(u16) {
     ip = 0,
@@ -7175,6 +7328,42 @@ pub const IpProto = enum(u16) {
     // Aliases
     pub const hopopts = IpProto.ip;
     pub const default = IpProto.ip;
+
+    // Deprecated constants use enum instead
+    // Legacy constants for backward compatibility
+    pub const IP: u16 = @intFromEnum(IpProto.ip);
+    pub const HOPOPTS: u16 = @intFromEnum(hopopts);
+    pub const ICMP: u16 = @intFromEnum(IpProto.icmp);
+    pub const IGMP: u16 = @intFromEnum(IpProto.igmp);
+    pub const IPIP: u16 = @intFromEnum(IpProto.ipip);
+    pub const TCP: u16 = @intFromEnum(IpProto.tcp);
+    pub const EGP: u16 = @intFromEnum(IpProto.egp);
+    pub const PUP: u16 = @intFromEnum(IpProto.pup);
+    pub const UDP: u16 = @intFromEnum(IpProto.udp);
+    pub const IDP: u16 = @intFromEnum(IpProto.idp);
+    pub const TP: u16 = @intFromEnum(IpProto.tp);
+    pub const DCCP: u16 = @intFromEnum(IpProto.dccp);
+    pub const IPV6: u16 = @intFromEnum(IpProto.ipv6);
+    pub const ROUTING: u16 = @intFromEnum(IpProto.routing);
+    pub const FRAGMENT: u16 = @intFromEnum(IpProto.fragment);
+    pub const RSVP: u16 = @intFromEnum(IpProto.rsvp);
+    pub const GRE: u16 = @intFromEnum(IpProto.gre);
+    pub const ESP: u16 = @intFromEnum(IpProto.esp);
+    pub const AH: u16 = @intFromEnum(IpProto.ah);
+    pub const ICMPV6: u16 = @intFromEnum(IpProto.icmpv6);
+    pub const NONE: u16 = @intFromEnum(IpProto.none);
+    pub const DSTOPTS: u16 = @intFromEnum(IpProto.DSTOPTS);
+    pub const MTP: u16 = @intFromEnum(IpProto.mtp);
+    pub const BEETPH: u16 = @intFromEnum(IpProto.beetph);
+    pub const ENCAP: u16 = @intFromEnum(IpProto.encap);
+    pub const PIM: u16 = @intFromEnum(IpProto.pim);
+    pub const COMP: u16 = @intFromEnum(IpProto.comp);
+    pub const SCTP: u16 = @intFromEnum(IpProto.sctp);
+    pub const MH: u16 = @intFromEnum(IpProto.mh);
+    pub const UDPLITE: u16 = @intFromEnum(IpProto.udplite);
+    pub const MPLS: u16 = @intFromEnum(IpProto.mpls);
+    pub const RAW: u16 = @intFromEnum(IpProto.raw);
+    pub const MAX: u16 = @intFromEnum(IpProto.max);
 };
 
 pub const tcp_repair_opt = extern struct {
