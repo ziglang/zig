@@ -801,7 +801,7 @@ const test_targets = blk: {
             .link_libc = true,
             .extra_target = true,
         },
-        // Requires ELFv1 linker support.
+        // glibc's build-many-glibcs.py currently only builds this target for ELFv1.
         // .{
         //     .target = .{
         //         .cpu_arch = .powerpc64,

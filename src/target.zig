@@ -631,14 +631,6 @@ pub fn isDynamicAMDGCNFeature(target: *const std.Target, feature: std.Target.Cpu
 }
 
 pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
-    // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
-    // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
-    // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
-    // that. With this hack, `powerpc64-linux-none` will at least work.
-    //
-    // Once our self-hosted linker can handle both ABIs, this hack should go away.
-    if (target.cpu.arch == .powerpc64) return "elfv2";
-
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => "aapcs",
         .loongarch64 => switch (target.abi) {
@@ -656,15 +648,7 @@ pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
             .gnuabin32, .muslabin32 => "n32",
             else => "n64",
         },
-        .powerpc64 => switch (target.os.tag) {
-            .freebsd => if (target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false)
-                "elfv2"
-            else
-                "elfv1",
-            .openbsd => "elfv2",
-            else => if (target.abi.isMusl()) "elfv2" else "elfv1",
-        },
-        .powerpc64le => "elfv2",
+        .powerpc64, .powerpc64le => "elfv2", // We do not support ELFv1.
         .riscv64, .riscv64be => if (target.cpu.has(.riscv, .e))
             "lp64e"
         else if (target.cpu.has(.riscv, .d))
