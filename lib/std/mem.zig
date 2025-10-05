@@ -1715,7 +1715,7 @@ pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
         const Block = @Vector(block_size, T);
 
         const letter_mask: Block = @splat(needle);
-        while (i + block_size <= n) : (i += block_size) {
+        while (n - i >= block_size) : (i += block_size) {
             const haystack_block: Block = haystack[i..][0..block_size].*;
             found += std.simd.countTrues(letter_mask == haystack_block);
         }
