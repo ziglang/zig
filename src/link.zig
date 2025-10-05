@@ -1265,7 +1265,7 @@ pub const File = struct {
 
     pub const Lld = @import("link/Lld.zig");
     pub const C = @import("link/C.zig");
-    pub const Coff2 = @import("link/Coff2.zig");
+    pub const Coff2 = @import("link/Coff.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const Elf2 = @import("link/Elf2.zig");
     pub const MachO = @import("link/MachO.zig");

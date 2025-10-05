@@ -2718,35 +2718,17 @@ pub fn destroy(comp: *Compilation) void {
         }
         comp.crt_files.deinit(gpa);
     }
-
-    if (comp.libunwind_static_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (comp.libcxx_static_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (comp.libcxxabi_static_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (comp.compiler_rt_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (comp.compiler_rt_obj) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (comp.ubsan_rt_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (comp.ubsan_rt_obj) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (comp.fuzzer_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-
-    if (comp.zigc_static_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
+    if (comp.libcxx_static_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.libcxxabi_static_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.libunwind_static_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.tsan_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.ubsan_rt_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.ubsan_rt_obj) |*crt_file| crt_file.deinit(gpa);
+    if (comp.zigc_static_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.compiler_rt_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.compiler_rt_obj) |*crt_file| crt_file.deinit(gpa);
+    if (comp.compiler_rt_dyn_lib) |*crt_file| crt_file.deinit(gpa);
+    if (comp.fuzzer_lib) |*crt_file| crt_file.deinit(gpa);
 
     if (comp.glibc_so_files) |*glibc_file| {
         glibc_file.deinit(gpa);
