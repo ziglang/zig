@@ -508,16 +508,16 @@ pub const Object = struct {
     gpa: Allocator,
     builder: Builder,
 
-    debug_compile_unit: Builder.Metadata,
+    debug_compile_unit: Builder.Metadata.Optional,
 
-    debug_enums_fwd_ref: Builder.Metadata,
-    debug_globals_fwd_ref: Builder.Metadata,
+    debug_enums_fwd_ref: Builder.Metadata.Optional,
+    debug_globals_fwd_ref: Builder.Metadata.Optional,
 
     debug_enums: std.ArrayListUnmanaged(Builder.Metadata),
     debug_globals: std.ArrayListUnmanaged(Builder.Metadata),
 
     debug_file_map: std.AutoHashMapUnmanaged(Zcu.File.Index, Builder.Metadata),
-    debug_type_map: std.AutoHashMapUnmanaged(Type, Builder.Metadata),
+    debug_type_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Metadata),
 
     debug_unresolved_namespace_scopes: std.AutoArrayHashMapUnmanaged(InternPool.NamespaceIndex, Builder.Metadata),
 
@@ -630,9 +630,13 @@ pub const Object = struct {
                     .{ .optimized = comp.root_mod.optimize_mode != .Debug },
                 );
 
-                try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
-                break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
-            } else .{.none} ** 3;
+                try builder.addNamedMetadata(try builder.string("llvm.dbg.cu"), &.{debug_compile_unit});
+                break :debug_info .{
+                    debug_compile_unit.toOptional(),
+                    debug_enums_fwd_ref.toOptional(),
+                    debug_globals_fwd_ref.toOptional(),
+                };
+            } else .{Builder.Metadata.Optional.none} ** 3;
 
         const obj = try arena.create(Object);
         obj.* = .{
@@ -816,17 +820,17 @@ pub const Object = struct {
                         const namespace = zcu.namespacePtr(namespace_index);
                         const debug_type = try o.lowerDebugType(pt, Type.fromInterned(namespace.owner_type));
 
-                        o.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
+                        o.builder.resolveDebugForwardReference(fwd_ref, debug_type);
                     }
                 }
 
-                o.builder.debugForwardReferenceSetType(
-                    o.debug_enums_fwd_ref,
+                o.builder.resolveDebugForwardReference(
+                    o.debug_enums_fwd_ref.unwrap().?,
                     try o.builder.metadataTuple(o.debug_enums.items),
                 );
 
-                o.builder.debugForwardReferenceSetType(
-                    o.debug_globals_fwd_ref,
+                o.builder.resolveDebugForwardReference(
+                    o.debug_globals_fwd_ref.unwrap().?,
                     try o.builder.metadataTuple(o.debug_globals.items),
                 );
             }
@@ -842,36 +846,34 @@ pub const Object = struct {
             const behavior_min = try o.builder.metadataConstant(try o.builder.intConst(.i32, 8));
 
             if (target_util.llvmMachineAbi(&comp.root_mod.resolved_target.result)) |abi| {
-                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                     behavior_error,
-                    try o.builder.metadataString("target-abi"),
-                    try o.builder.metadataConstant(
-                        try o.builder.stringConst(try o.builder.string(abi)),
-                    ),
-                ));
+                    (try o.builder.metadataString("target-abi")).toMetadata(),
+                    (try o.builder.metadataString(abi)).toMetadata(),
+                }));
             }
 
             const pic_level = target_util.picLevel(&comp.root_mod.resolved_target.result);
             if (comp.root_mod.pic) {
-                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                     behavior_min,
-                    try o.builder.metadataString("PIC Level"),
+                    (try o.builder.metadataString("PIC Level")).toMetadata(),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, pic_level)),
-                ));
+                }));
             }
 
             if (comp.config.pie) {
-                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                     behavior_max,
-                    try o.builder.metadataString("PIE Level"),
+                    (try o.builder.metadataString("PIE Level")).toMetadata(),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, pic_level)),
-                ));
+                }));
             }
 
             if (comp.root_mod.code_model != .default) {
-                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                     behavior_error,
-                    try o.builder.metadataString("Code Model"),
+                    (try o.builder.metadataString("Code Model")).toMetadata(),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(
                         i32,
                         switch (codeModel(comp.root_mod.code_model, &comp.root_mod.resolved_target.result)) {
@@ -883,39 +885,39 @@ pub const Object = struct {
                             .large => 4,
                         },
                     ))),
-                ));
+                }));
             }
 
             if (!o.builder.strip) {
-                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                     behavior_warning,
-                    try o.builder.metadataString("Debug Info Version"),
+                    (try o.builder.metadataString("Debug Info Version")).toMetadata(),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, 3)),
-                ));
+                }));
 
                 switch (comp.config.debug_format) {
                     .strip => unreachable,
                     .dwarf => |f| {
-                        module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                        module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                             behavior_max,
-                            try o.builder.metadataString("Dwarf Version"),
+                            (try o.builder.metadataString("Dwarf Version")).toMetadata(),
                             try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
-                        ));
+                        }));
 
                         if (f == .@"64") {
-                            module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                            module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                                 behavior_max,
-                                try o.builder.metadataString("DWARF64"),
+                                (try o.builder.metadataString("DWARF64")).toMetadata(),
                                 try o.builder.metadataConstant(.@"1"),
-                            ));
+                            }));
                         }
                     },
                     .code_view => {
-                        module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                        module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                             behavior_warning,
-                            try o.builder.metadataString("CodeView"),
+                            (try o.builder.metadataString("CodeView")).toMetadata(),
                             try o.builder.metadataConstant(.@"1"),
-                        ));
+                        }));
                     },
                 }
             }
@@ -925,14 +927,14 @@ pub const Object = struct {
                 // Add the "RegCallv4" flag so that any functions using `x86_regcallcc` use regcall
                 // v4, which is essentially a requirement on Windows. See corresponding logic in
                 // `toLlvmCallConvTag`.
-                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
                     behavior_max,
-                    try o.builder.metadataString("RegCallv4"),
+                    (try o.builder.metadataString("RegCallv4")).toMetadata(),
                     try o.builder.metadataConstant(.@"1"),
-                ));
+                }));
             }
 
-            try o.builder.metadataNamed(try o.builder.metadataString("llvm.module.flags"), module_flags.items);
+            try o.builder.addNamedMetadata(try o.builder.string("llvm.module.flags"), module_flags.items);
         }
 
         const target_triple_sentinel =
@@ -1477,11 +1479,11 @@ pub const Object = struct {
                         .LocalToUnit = is_internal_linkage,
                     },
                 },
-                o.debug_compile_unit,
+                o.debug_compile_unit.unwrap().?,
             );
             function_index.setSubprogram(subprogram, &o.builder);
             break :debug_info .{ file, subprogram };
-        } else .{.none} ** 2;
+        } else .{undefined} ** 2;
 
         const fuzz: ?FuncGen.Fuzz = f: {
             if (!owner_mod.fuzz) break :f null;
@@ -1807,7 +1809,7 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
 
-        if (o.debug_type_map.get(ty)) |debug_type| return debug_type;
+        if (o.debug_type_map.get(ty.toIntern())) |debug_type| return debug_type;
 
         switch (ty.zigTypeTag(zcu)) {
             .void,
@@ -1817,7 +1819,7 @@ pub const Object = struct {
                     try o.builder.metadataString("void"),
                     0,
                 );
-                try o.debug_type_map.put(gpa, ty, debug_void_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_void_type);
                 return debug_void_type;
             },
             .int => {
@@ -1831,13 +1833,13 @@ pub const Object = struct {
                     .signed => try o.builder.debugSignedType(builder_name, debug_bits),
                     .unsigned => try o.builder.debugUnsignedType(builder_name, debug_bits),
                 };
-                try o.debug_type_map.put(gpa, ty, debug_int_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_int_type);
                 return debug_int_type;
             },
             .@"enum" => {
                 if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     const debug_enum_type = try o.makeEmptyNamespaceDebugType(pt, ty);
-                    try o.debug_type_map.put(gpa, ty, debug_enum_type);
+                    try o.debug_type_map.put(gpa, ty.toIntern(), debug_enum_type);
                     return debug_enum_type;
                 }
 
@@ -1884,7 +1886,7 @@ pub const Object = struct {
                     try o.builder.metadataTuple(enumerators),
                 );
 
-                try o.debug_type_map.put(gpa, ty, debug_enum_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_enum_type);
                 try o.debug_enums.append(gpa, debug_enum_type);
                 return debug_enum_type;
             },
@@ -1896,7 +1898,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     bits,
                 );
-                try o.debug_type_map.put(gpa, ty, debug_float_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_float_type);
                 return debug_float_type;
             },
             .bool => {
@@ -1904,7 +1906,7 @@ pub const Object = struct {
                     try o.builder.metadataString("bool"),
                     8, // lldb cannot handle non-byte sized types
                 );
-                try o.debug_type_map.put(gpa, ty, debug_bool_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_bool_type);
                 return debug_bool_type;
             },
             .pointer => {
@@ -1936,14 +1938,14 @@ pub const Object = struct {
                         },
                     });
                     const debug_ptr_type = try o.lowerDebugType(pt, bland_ptr_ty);
-                    try o.debug_type_map.put(gpa, ty, debug_ptr_type);
+                    try o.debug_type_map.put(gpa, ty.toIntern(), debug_ptr_type);
                     return debug_ptr_type;
                 }
 
                 const debug_fwd_ref = try o.builder.debugForwardReference();
 
                 // Set as forward reference while the type is lowered in case it references itself
-                try o.debug_type_map.put(gpa, ty, debug_fwd_ref);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_fwd_ref);
 
                 if (ty.isSlice(zcu)) {
                     const ptr_ty = ty.slicePtrFieldType(zcu);
@@ -1962,7 +1964,7 @@ pub const Object = struct {
 
                     const debug_ptr_type = try o.builder.debugMemberType(
                         try o.builder.metadataString("ptr"),
-                        .none, // File
+                        null, // File
                         debug_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(pt, ptr_ty),
@@ -1973,7 +1975,7 @@ pub const Object = struct {
 
                     const debug_len_type = try o.builder.debugMemberType(
                         try o.builder.metadataString("len"),
-                        .none, // File
+                        null, // File
                         debug_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(pt, len_ty),
@@ -1984,10 +1986,10 @@ pub const Object = struct {
 
                     const debug_slice_type = try o.builder.debugStructType(
                         try o.builder.metadataString(name),
-                        .none, // File
-                        o.debug_compile_unit, // Scope
+                        null, // File
+                        o.debug_compile_unit.unwrap().?, // Scope
                         line,
-                        .none, // Underlying type
+                        null, // Underlying type
                         ty.abiSize(zcu) * 8,
                         (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                         try o.builder.metadataTuple(&.{
@@ -1996,10 +1998,10 @@ pub const Object = struct {
                         }),
                     );
 
-                    o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_slice_type);
+                    o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_slice_type);
 
                     // Set to real type now that it has been lowered fully
-                    const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                    const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                     map_ptr.* = debug_slice_type;
 
                     return debug_slice_type;
@@ -2012,8 +2014,8 @@ pub const Object = struct {
 
                 const debug_ptr_type = try o.builder.debugPointerType(
                     try o.builder.metadataString(name),
-                    .none, // File
-                    .none, // Scope
+                    null, // File
+                    null, // Scope
                     0, // Line
                     debug_elem_ty,
                     target.ptrBitWidth(),
@@ -2021,10 +2023,10 @@ pub const Object = struct {
                     0, // Offset
                 );
 
-                o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_ptr_type);
+                o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_ptr_type);
 
                 // Set to real type now that it has been lowered fully
-                const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                 map_ptr.* = debug_ptr_type;
 
                 return debug_ptr_type;
@@ -2035,7 +2037,7 @@ pub const Object = struct {
                         try o.builder.metadataString("anyopaque"),
                         0,
                     );
-                    try o.debug_type_map.put(gpa, ty, debug_opaque_type);
+                    try o.debug_type_map.put(gpa, ty.toIntern(), debug_opaque_type);
                     return debug_opaque_type;
                 }
 
@@ -2053,19 +2055,19 @@ pub const Object = struct {
                     file,
                     scope,
                     ty.typeDeclSrcLine(zcu).? + 1, // Line
-                    .none, // Underlying type
+                    null, // Underlying type
                     0, // Size
                     0, // Align
-                    .none, // Fields
+                    null, // Fields
                 );
-                try o.debug_type_map.put(gpa, ty, debug_opaque_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_opaque_type);
                 return debug_opaque_type;
             },
             .array => {
                 const debug_array_type = try o.builder.debugArrayType(
-                    .none, // Name
-                    .none, // File
-                    .none, // Scope
+                    null, // Name
+                    null, // File
+                    null, // Scope
                     0, // Line
                     try o.lowerDebugType(pt, ty.childType(zcu)),
                     ty.abiSize(zcu) * 8,
@@ -2077,7 +2079,7 @@ pub const Object = struct {
                         ),
                     }),
                 );
-                try o.debug_type_map.put(gpa, ty, debug_array_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_array_type);
                 return debug_array_type;
             },
             .vector => {
@@ -2106,9 +2108,9 @@ pub const Object = struct {
                 };
 
                 const debug_vector_type = try o.builder.debugVectorType(
-                    .none, // Name
-                    .none, // File
-                    .none, // Scope
+                    null, // Name
+                    null, // File
+                    null, // Scope
                     0, // Line
                     debug_elem_type,
                     ty.abiSize(zcu) * 8,
@@ -2121,7 +2123,7 @@ pub const Object = struct {
                     }),
                 );
 
-                try o.debug_type_map.put(gpa, ty, debug_vector_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_vector_type);
                 return debug_vector_type;
             },
             .optional => {
@@ -2133,22 +2135,22 @@ pub const Object = struct {
                         try o.builder.metadataString(name),
                         8,
                     );
-                    try o.debug_type_map.put(gpa, ty, debug_bool_type);
+                    try o.debug_type_map.put(gpa, ty.toIntern(), debug_bool_type);
                     return debug_bool_type;
                 }
 
                 const debug_fwd_ref = try o.builder.debugForwardReference();
 
                 // Set as forward reference while the type is lowered in case it references itself
-                try o.debug_type_map.put(gpa, ty, debug_fwd_ref);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_fwd_ref);
 
                 if (ty.optionalReprIsPayload(zcu)) {
                     const debug_optional_type = try o.lowerDebugType(pt, child_ty);
 
-                    o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_optional_type);
+                    o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_optional_type);
 
                     // Set to real type now that it has been lowered fully
-                    const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                    const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                     map_ptr.* = debug_optional_type;
 
                     return debug_optional_type;
@@ -2163,7 +2165,7 @@ pub const Object = struct {
 
                 const debug_data_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("data"),
-                    .none, // File
+                    null, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(pt, child_ty),
@@ -2174,7 +2176,7 @@ pub const Object = struct {
 
                 const debug_some_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("some"),
-                    .none,
+                    null,
                     debug_fwd_ref,
                     0,
                     try o.lowerDebugType(pt, non_null_ty),
@@ -2185,10 +2187,10 @@ pub const Object = struct {
 
                 const debug_optional_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    .none, // File
-                    o.debug_compile_unit, // Scope
+                    null, // File
+                    o.debug_compile_unit.unwrap().?, // Scope
                     0, // Line
-                    .none, // Underlying type
+                    null, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.metadataTuple(&.{
@@ -2197,10 +2199,10 @@ pub const Object = struct {
                     }),
                 );
 
-                o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_optional_type);
+                o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_optional_type);
 
                 // Set to real type now that it has been lowered fully
-                const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                 map_ptr.* = debug_optional_type;
 
                 return debug_optional_type;
@@ -2210,7 +2212,7 @@ pub const Object = struct {
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     // TODO: Maybe remove?
                     const debug_error_union_type = try o.lowerDebugType(pt, Type.anyerror);
-                    try o.debug_type_map.put(gpa, ty, debug_error_union_type);
+                    try o.debug_type_map.put(gpa, ty.toIntern(), debug_error_union_type);
                     return debug_error_union_type;
                 }
 
@@ -2243,7 +2245,7 @@ pub const Object = struct {
                 var fields: [2]Builder.Metadata = undefined;
                 fields[error_index] = try o.builder.debugMemberType(
                     try o.builder.metadataString("tag"),
-                    .none, // File
+                    null, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(pt, Type.anyerror),
@@ -2253,7 +2255,7 @@ pub const Object = struct {
                 );
                 fields[payload_index] = try o.builder.debugMemberType(
                     try o.builder.metadataString("value"),
-                    .none, // File
+                    null, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(pt, payload_ty),
@@ -2264,18 +2266,18 @@ pub const Object = struct {
 
                 const debug_error_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    .none, // File
-                    o.debug_compile_unit, // Sope
+                    null, // File
+                    o.debug_compile_unit.unwrap().?, // Sope
                     0, // Line
-                    .none, // Underlying type
+                    null, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.metadataTuple(&fields),
                 );
 
-                o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_error_union_type);
+                o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_error_union_type);
 
-                try o.debug_type_map.put(gpa, ty, debug_error_union_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_error_union_type);
                 return debug_error_union_type;
             },
             .error_set => {
@@ -2283,7 +2285,7 @@ pub const Object = struct {
                     try o.builder.metadataString("anyerror"),
                     16,
                 );
-                try o.debug_type_map.put(gpa, ty, debug_error_set);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_error_set);
                 return debug_error_set;
             },
             .@"struct" => {
@@ -2299,7 +2301,7 @@ pub const Object = struct {
                             .signed => try o.builder.debugSignedType(builder_name, ty.abiSize(zcu) * 8),
                             .unsigned => try o.builder.debugUnsignedType(builder_name, ty.abiSize(zcu) * 8),
                         };
-                        try o.debug_type_map.put(gpa, ty, debug_int_type);
+                        try o.debug_type_map.put(gpa, ty.toIntern(), debug_int_type);
                         return debug_int_type;
                     }
                 }
@@ -2329,7 +2331,7 @@ pub const Object = struct {
 
                             fields.appendAssumeCapacity(try o.builder.debugMemberType(
                                 try o.builder.metadataString(field_name),
-                                .none, // File
+                                null, // File
                                 debug_fwd_ref,
                                 0,
                                 try o.lowerDebugType(pt, Type.fromInterned(field_ty)),
@@ -2341,18 +2343,18 @@ pub const Object = struct {
 
                         const debug_struct_type = try o.builder.debugStructType(
                             try o.builder.metadataString(name),
-                            .none, // File
-                            o.debug_compile_unit, // Scope
+                            null, // File
+                            o.debug_compile_unit.unwrap().?, // Scope
                             0, // Line
-                            .none, // Underlying type
+                            null, // Underlying type
                             ty.abiSize(zcu) * 8,
                             (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                             try o.builder.metadataTuple(fields.items),
                         );
 
-                        o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_struct_type);
+                        o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_struct_type);
 
-                        try o.debug_type_map.put(gpa, ty, debug_struct_type);
+                        try o.debug_type_map.put(gpa, ty.toIntern(), debug_struct_type);
                         return debug_struct_type;
                     },
                     .struct_type => {
@@ -2365,7 +2367,7 @@ pub const Object = struct {
                             // rather than changing the frontend to unnecessarily resolve the
                             // struct field types.
                             const debug_struct_type = try o.makeEmptyNamespaceDebugType(pt, ty);
-                            try o.debug_type_map.put(gpa, ty, debug_struct_type);
+                            try o.debug_type_map.put(gpa, ty.toIntern(), debug_struct_type);
                             return debug_struct_type;
                         }
                     },
@@ -2374,7 +2376,7 @@ pub const Object = struct {
 
                 if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     const debug_struct_type = try o.makeEmptyNamespaceDebugType(pt, ty);
-                    try o.debug_type_map.put(gpa, ty, debug_struct_type);
+                    try o.debug_type_map.put(gpa, ty.toIntern(), debug_struct_type);
                     return debug_struct_type;
                 }
 
@@ -2388,7 +2390,7 @@ pub const Object = struct {
                 const debug_fwd_ref = try o.builder.debugForwardReference();
 
                 // Set as forward reference while the type is lowered in case it references itself
-                try o.debug_type_map.put(gpa, ty, debug_fwd_ref);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_fwd_ref);
 
                 comptime assert(struct_layout_version == 2);
                 var it = struct_type.iterateRuntimeOrder(ip);
@@ -2402,7 +2404,7 @@ pub const Object = struct {
                         try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(field_name.toSlice(ip)),
-                        .none, // File
+                        null, // File
                         debug_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(pt, field_ty),
@@ -2414,19 +2416,19 @@ pub const Object = struct {
 
                 const debug_struct_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    .none, // File
-                    o.debug_compile_unit, // Scope
+                    null, // File
+                    o.debug_compile_unit.unwrap().?, // Scope
                     0, // Line
-                    .none, // Underlying type
+                    null, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.metadataTuple(fields.items),
                 );
 
-                o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_struct_type);
+                o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_struct_type);
 
                 // Set to real type now that it has been lowered fully
-                const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                 map_ptr.* = debug_struct_type;
 
                 return debug_struct_type;
@@ -2441,7 +2443,7 @@ pub const Object = struct {
                     !union_type.haveLayout(ip))
                 {
                     const debug_union_type = try o.makeEmptyNamespaceDebugType(pt, ty);
-                    try o.debug_type_map.put(gpa, ty, debug_union_type);
+                    try o.debug_type_map.put(gpa, ty.toIntern(), debug_union_type);
                     return debug_union_type;
                 }
 
@@ -2450,15 +2452,15 @@ pub const Object = struct {
                 const debug_fwd_ref = try o.builder.debugForwardReference();
 
                 // Set as forward reference while the type is lowered in case it references itself
-                try o.debug_type_map.put(gpa, ty, debug_fwd_ref);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_fwd_ref);
 
                 if (layout.payload_size == 0) {
                     const debug_union_type = try o.builder.debugStructType(
                         try o.builder.metadataString(name),
-                        .none, // File
-                        o.debug_compile_unit, // Scope
+                        null, // File
+                        o.debug_compile_unit.unwrap().?, // Scope
                         0, // Line
-                        .none, // Underlying type
+                        null, // Underlying type
                         ty.abiSize(zcu) * 8,
                         (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                         try o.builder.metadataTuple(
@@ -2467,7 +2469,7 @@ pub const Object = struct {
                     );
 
                     // Set to real type now that it has been lowered fully
-                    const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                    const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                     map_ptr.* = debug_union_type;
 
                     return debug_union_type;
@@ -2498,7 +2500,7 @@ pub const Object = struct {
                     const field_name = tag_type.names.get(ip)[field_index];
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(field_name.toSlice(ip)),
-                        .none, // File
+                        null, // File
                         debug_union_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(pt, Type.fromInterned(field_ty)),
@@ -2517,20 +2519,20 @@ pub const Object = struct {
 
                 const debug_union_type = try o.builder.debugUnionType(
                     try o.builder.metadataString(union_name),
-                    .none, // File
-                    o.debug_compile_unit, // Scope
+                    null, // File
+                    o.debug_compile_unit.unwrap().?, // Scope
                     0, // Line
-                    .none, // Underlying type
+                    null, // Underlying type
                     layout.payload_size * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.metadataTuple(fields.items),
                 );
 
-                o.builder.debugForwardReferenceSetType(debug_union_fwd_ref, debug_union_type);
+                o.builder.resolveDebugForwardReference(debug_union_fwd_ref, debug_union_type);
 
                 if (layout.tag_size == 0) {
                     // Set to real type now that it has been lowered fully
-                    const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                    const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                     map_ptr.* = debug_union_type;
 
                     return debug_union_type;
@@ -2548,7 +2550,7 @@ pub const Object = struct {
 
                 const debug_tag_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("tag"),
-                    .none, // File
+                    null, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(pt, Type.fromInterned(union_type.enum_tag_ty)),
@@ -2559,7 +2561,7 @@ pub const Object = struct {
 
                 const debug_payload_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("payload"),
-                    .none, // File
+                    null, // File
                     debug_fwd_ref,
                     0, // Line
                     debug_union_type,
@@ -2576,19 +2578,19 @@ pub const Object = struct {
 
                 const debug_tagged_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    .none, // File
-                    o.debug_compile_unit, // Scope
+                    null, // File
+                    o.debug_compile_unit.unwrap().?, // Scope
                     0, // Line
-                    .none, // Underlying type
+                    null, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.metadataTuple(&full_fields),
                 );
 
-                o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_tagged_union_type);
+                o.builder.resolveDebugForwardReference(debug_fwd_ref, debug_tagged_union_type);
 
                 // Set to real type now that it has been lowered fully
-                const map_ptr = o.debug_type_map.getPtr(ty) orelse unreachable;
+                const map_ptr = o.debug_type_map.getPtr(ty.toIntern()) orelse unreachable;
                 map_ptr.* = debug_tagged_union_type;
 
                 return debug_tagged_union_type;
@@ -2636,7 +2638,7 @@ pub const Object = struct {
                     try o.builder.metadataTuple(debug_param_types.items),
                 );
 
-                try o.debug_type_map.put(gpa, ty, debug_function_type);
+                try o.debug_type_map.put(gpa, ty.toIntern(), debug_function_type);
                 return debug_function_type;
             },
             .comptime_int => unreachable,
@@ -2676,10 +2678,10 @@ pub const Object = struct {
             file,
             scope,
             ty.typeDeclSrcLine(zcu).? + 1,
-            .none,
+            null,
             0,
             0,
-            .none,
+            null,
         );
     }
 
@@ -4687,7 +4689,7 @@ pub const FuncGen = struct {
     file: Builder.Metadata,
     scope: Builder.Metadata,
 
-    inlined: Builder.DebugLocation = .no_location,
+    inlined_at: Builder.Metadata.Optional = .none,
 
     base_line: u32,
     prev_dbg_line: c_uint,
@@ -5156,16 +5158,18 @@ pub const FuncGen = struct {
     ) Error!void {
         if (self.wip.strip) return self.genBody(body, coverage_point);
 
+        const old_debug_location = self.wip.debug_location;
         const old_file = self.file;
-        const old_inlined = self.inlined;
+        const old_inlined_at = self.inlined_at;
         const old_base_line = self.base_line;
-        const old_scope = self.scope;
         defer if (maybe_inline_func) |_| {
-            self.wip.debug_location = self.inlined;
+            self.wip.debug_location = old_debug_location;
             self.file = old_file;
-            self.inlined = old_inlined;
+            self.inlined_at = old_inlined_at;
             self.base_line = old_base_line;
         };
+
+        const old_scope = self.scope;
         defer self.scope = old_scope;
 
         if (maybe_inline_func) |inline_func| {
@@ -5181,8 +5185,9 @@ pub const FuncGen = struct {
 
             self.file = try o.getDebugFile(pt, file_scope);
 
-            const line_number = zcu.navSrcLine(func.owner_nav) + 1;
-            self.inlined = self.wip.debug_location;
+            self.base_line = zcu.navSrcLine(func.owner_nav);
+            const line_number = self.base_line + 1;
+            self.inlined_at = try self.wip.debug_location.toMetadata(&o.builder);
 
             const fn_ty = try pt.funcType(.{
                 .param_types = &.{},
@@ -5201,23 +5206,11 @@ pub const FuncGen = struct {
                     .sp_flags = .{
                         .Optimized = mod.optimize_mode != .Debug,
                         .Definition = true,
-                        // TODO: we can't know this at this point, since the function could be exported later!
-                        .LocalToUnit = true,
+                        .LocalToUnit = true, // inline functions cannot be exported
                     },
                 },
-                o.debug_compile_unit,
+                o.debug_compile_unit.unwrap().?,
             );
-
-            self.base_line = zcu.navSrcLine(func.owner_nav);
-            const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
-            self.wip.debug_location = .{
-                .location = .{
-                    .line = line_number,
-                    .column = 0,
-                    .scope = self.scope,
-                    .inlined_at = inlined_at_location,
-                },
-            };
         }
 
         self.scope = try self.ng.object.builder.debugLexicalBlock(
@@ -5226,15 +5219,12 @@ pub const FuncGen = struct {
             self.prev_dbg_line,
             self.prev_dbg_column,
         );
-
-        switch (self.wip.debug_location) {
-            .location => |*l| l.scope = self.scope,
-            .no_location => {},
-        }
-        defer switch (self.wip.debug_location) {
-            .location => |*l| l.scope = old_scope,
-            .no_location => {},
-        };
+        self.wip.debug_location = .{ .location = .{
+            .line = self.prev_dbg_line,
+            .column = self.prev_dbg_column,
+            .scope = self.scope.toOptional(),
+            .inlined_at = self.inlined_at,
+        } };
 
         try self.genBody(body, coverage_point);
     }
@@ -6516,8 +6506,13 @@ pub const FuncGen = struct {
                 break :llvm_cases_len len;
             };
 
-            var weights = try self.gpa.alloc(Builder.Metadata, llvm_cases_len + 1);
+            var weights = try self.gpa.alloc(Builder.Metadata, 1 + llvm_cases_len + 1);
             defer self.gpa.free(weights);
+            var weight_idx: usize = 0;
+
+            const branch_weights_str = try o.builder.metadataString("branch_weights");
+            weights[weight_idx] = branch_weights_str.toMetadata();
+            weight_idx += 1;
 
             const else_weight: u32 = switch (switch_br.getElseHint()) {
                 .unpredictable => unreachable,
@@ -6525,9 +6520,9 @@ pub const FuncGen = struct {
                 .likely => 2000,
                 .unlikely => 1,
             };
-            weights[0] = try o.builder.metadataConstant(try o.builder.intConst(.i32, else_weight));
+            weights[weight_idx] = try o.builder.metadataConstant(try o.builder.intConst(.i32, else_weight));
+            weight_idx += 1;
 
-            var weight_idx: usize = 1;
             var it = switch_br.iterateCases();
             while (it.next()) |case| {
                 const weight_val: u32 = switch (switch_br.getHint(case.idx)) {
@@ -6542,10 +6537,7 @@ pub const FuncGen = struct {
             }
 
             assert(weight_idx == weights.len);
-
-            const branch_weights_str = try o.builder.metadataString("branch_weights");
-            const tuple = try o.builder.strTuple(branch_weights_str, weights);
-            break :weights @enumFromInt(@intFromEnum(tuple));
+            break :weights .fromMetadata(try o.builder.metadataTuple(weights));
         };
 
         const dispatch_info: SwitchDispatchInfo = .{
@@ -7102,14 +7094,12 @@ pub const FuncGen = struct {
         self.prev_dbg_line = @intCast(self.base_line + dbg_stmt.line + 1);
         self.prev_dbg_column = @intCast(dbg_stmt.column + 1);
 
-        self.wip.debug_location = .{
-            .location = .{
-                .line = self.prev_dbg_line,
-                .column = self.prev_dbg_column,
-                .scope = self.scope,
-                .inlined_at = try self.inlined.toMetadata(self.wip.builder),
-            },
-        };
+        self.wip.debug_location = .{ .location = .{
+            .line = self.prev_dbg_line,
+            .column = self.prev_dbg_column,
+            .scope = self.scope.toOptional(),
+            .inlined_at = self.inlined_at,
+        } };
 
         return .none;
     }
@@ -7167,9 +7157,10 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(pl_op.operand);
         const operand_ty = self.typeOf(pl_op.operand);
         const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-
+        const name_slice = name.toSlice(self.air);
+        const metadata_name = if (name_slice.len > 0) try o.builder.metadataString(name_slice) else null;
         const debug_local_var = if (is_arg) try o.builder.debugParameter(
-            try o.builder.metadataString(name.toSlice(self.air)),
+            metadata_name,
             self.file,
             self.scope,
             self.prev_dbg_line,
@@ -7179,7 +7170,7 @@ pub const FuncGen = struct {
                 break :arg_no self.arg_inline_index;
             },
         ) else try o.builder.debugLocalVar(
-            try o.builder.metadataString(name.toSlice(self.air)),
+            metadata_name,
             self.file,
             self.scope,
             self.prev_dbg_line,
@@ -9547,7 +9538,7 @@ pub const FuncGen = struct {
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.metadataString(name),
+            if (name.len > 0) try o.builder.metadataString(name) else null,
             self.file,
             self.scope,
             lbrace_line,
@@ -9556,14 +9547,12 @@ pub const FuncGen = struct {
         );
 
         const old_location = self.wip.debug_location;
-        self.wip.debug_location = .{
-            .location = .{
-                .line = lbrace_line,
-                .column = lbrace_col,
-                .scope = self.scope,
-                .inlined_at = .none,
-            },
-        };
+        self.wip.debug_location = .{ .location = .{
+            .line = lbrace_line,
+            .column = lbrace_col,
+            .scope = self.scope.toOptional(),
+            .inlined_at = .none,
+        } };
 
         if (isByRef(inst_ty, zcu)) {
             _ = try self.wip.callIntrinsic(
@@ -12614,11 +12603,7 @@ fn iterateParamTypes(object: *Object, pt: Zcu.PerThread, fn_info: InternPool.Key
     };
 }
 
-fn ccAbiPromoteInt(
-    cc: std.builtin.CallingConvention,
-    zcu: *Zcu,
-    ty: Type,
-) ?std.builtin.Signedness {
+fn ccAbiPromoteInt(cc: std.builtin.CallingConvention, zcu: *Zcu, ty: Type) ?std.builtin.Signedness {
     const target = zcu.getTarget();
     switch (cc) {
         .auto, .@"inline", .async => return null,
