@@ -4972,28 +4972,88 @@ pub const ETH = struct {
     };
 };
 
-pub const MSG = struct {
-    pub const OOB = 0x0001;
-    pub const PEEK = 0x0002;
-    pub const DONTROUTE = 0x0004;
-    pub const CTRUNC = 0x0008;
-    pub const PROXY = 0x0010;
-    pub const TRUNC = 0x0020;
-    pub const DONTWAIT = 0x0040;
-    pub const EOR = 0x0080;
-    pub const WAITALL = 0x0100;
-    pub const FIN = 0x0200;
-    pub const SYN = 0x0400;
-    pub const CONFIRM = 0x0800;
-    pub const RST = 0x1000;
-    pub const ERRQUEUE = 0x2000;
-    pub const NOSIGNAL = 0x4000;
-    pub const MORE = 0x8000;
-    pub const WAITFORONE = 0x10000;
-    pub const BATCH = 0x40000;
-    pub const ZEROCOPY = 0x4000000;
-    pub const FASTOPEN = 0x20000000;
-    pub const CMSG_CLOEXEC = 0x40000000;
+// Deprecated alias for Msg
+pub const MSG = Msg;
+pub const Msg = packed struct(u32) {
+    /// Process out-of-band data
+    oob: bool = false,
+    /// Peek at incoming message
+    peek: bool = false,
+    /// Send without using routing tables
+    dontroute: bool = false,
+    /// Control data truncated
+    ctrunc: bool = false,
+    /// Do not send. Only probe path (e.g. for MTU)
+    probe: bool = false,
+    /// Normal data truncated
+    trunc: bool = false,
+    /// Nonblocking I/O
+    dontwait: bool = false,
+    /// End of record
+    eor: bool = false,
+    /// Wait for a full request
+    waitall: bool = false,
+    /// FIN flag
+    fin: bool = false,
+    /// SYN flag
+    syn: bool = false,
+    /// Confirm path validity
+    confirm: bool = false,
+    /// RST flag
+    rst: bool = false,
+    /// Fetch message from error queue
+    errqueue: bool = false,
+    /// Do not generate SIGPIPE
+    nosignal: bool = false,
+    /// Sender will send more
+    more: bool = false,
+    /// recvmmsg(): block until 1+ packets available
+    waitforone: bool = false,
+    _18: u1 = 0,
+    /// sendmmsg(): more messages coming
+    batch: bool = false,
+    /// sendpage() internal: page frags are not shared
+    no_shared_frags: bool = false,
+    /// sendpage() internal: page may carry plain text and require encryption
+    sendpage_decrypted: bool = false,
+    _22: u4 = 0,
+    // COMMIT: new flags
+    /// Receive devmem skbs as cmsg
+    sock_devmem: bool = false,
+    /// Use user data in kernel path
+    zerocopy: bool = false,
+    /// Splice the pages from the iterator in sendmsg()
+    splice_pages: bool = false,
+    _29: u1 = 0,
+    /// Send data in TCP SYN
+    fastopen: bool = false,
+    /// Set close_on_exec for file descriptor received through SCM_RIGHTS
+    cmsg_cloexec: bool = false,
+    _: u1 = 0,
+
+    // DEPRECATED CONSTANTS
+    pub const OOB: u32 = @bitCast(Msg{ .oob = true });
+    pub const PEEK: u32 = @bitCast(Msg{ .peek = true });
+    pub const DONTROUTE: u32 = @bitCast(Msg{ .dontroute = true });
+    pub const CTRUNC: u32 = @bitCast(Msg{ .ctrunc = true });
+    // fix typo PROBE not PROXY
+    pub const PROBE: u32 = @bitCast(Msg{ .probe = true });
+    pub const TRUNC: u32 = @bitCast(Msg{ .trunc = true });
+    pub const DONTWAIT: u32 = @bitCast(Msg{ .dontwait = true });
+    pub const EOR: u32 = @bitCast(Msg{ .eor = true });
+    pub const WAITALL: u32 = @bitCast(Msg{ .waitall = true });
+    pub const FIN: u32 = @bitCast(Msg{ .fin = true });
+    pub const SYN: u32 = @bitCast(Msg{ .syn = true });
+    pub const CONFIRM: u32 = @bitCast(Msg{ .confirm = true });
+    pub const RST: u32 = @bitCast(Msg{ .rst = true });
+    pub const ERRQUEUE: u32 = @bitCast(Msg{ .errqueue = true });
+    pub const NOSIGNAL: u32 = @bitCast(Msg{ .nosignal = true });
+    pub const MORE: u32 = @bitCast(Msg{ .more = true });
+    pub const WAITFORONE: u32 = @bitCast(Msg{ .waitforone = true });
+    pub const BATCH: u32 = @bitCast(Msg{ .batch = true });
+    pub const ZEROCOPY: u32 = @bitCast(Msg{ .zerocopy = true });
+    pub const FASTOPEN: u32 = @bitCast(Msg{ .fastopen = true });
+    pub const CMSG_CLOEXEC: u32 = @bitCast(Msg{ .cmsg_cloexec = true });
 };
 
 pub const DT = struct {
