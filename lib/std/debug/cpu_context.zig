@@ -581,12 +581,14 @@ pub const Hexagon = extern struct {
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
 pub const LoongArch = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
-    r: [32]usize,
-    pc: usize,
+    r: [32]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch == .loongarch64) u64 else u32;
 
     pub inline fn current() LoongArch {
         var ctx: LoongArch = undefined;
-        asm volatile (if (@sizeOf(usize) == 8)
+        asm volatile (if (Gpr == u64)
                 \\ st.d $zero, $t0, 0
                 \\ st.d $ra, $t0, 8
                 \\ st.d $tp, $t0, 16
@@ -679,12 +681,14 @@ pub const LoongArch = extern struct {
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
 pub const Riscv = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
-    r: [32]usize,
-    pc: usize,
+    r: [32]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch.isRiscv64()) u64 else u32;
 
     pub inline fn current() Riscv {
         var ctx: Riscv = undefined;
-        asm volatile (if (@sizeOf(usize) == 8)
+        asm volatile (if (Gpr == u64)
                 \\ sd zero, 0(t0)
                 \\ sd ra, 8(t0)
                 \\ sd sp, 16(t0)
