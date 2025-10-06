@@ -8,6 +8,7 @@ else switch (native_arch) {
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .hexagon => Hexagon,
     .loongarch32, .loongarch64 => LoongArch,
+    .mips, .mipsel, .mips64, .mips64el => Mips,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .s390x => S390x,
     .x86 => X86,
@@ -190,6 +191,25 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             else => null,
         },
         .loongarch64 => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.regs, // includes r0 (hardwired zero)
+                .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .mips, .mipsel => switch (builtin.os.tag) {
+            // The O32 kABI uses 64-bit fields for some reason...
+            .linux => .{
+                .r = s: {
+                    var regs: [32]Mips.Gpr = undefined;
+                    for (uc.mcontext.regs, 0..) |r, i| regs[i] = @truncate(r); // includes r0 (hardwired zero)
+                    break :s regs;
+                },
+                .pc = @truncate(uc.mcontext.pc),
+            },
+            else => null,
+        },
+        .mips64, .mips64el => switch (builtin.os.tag) {
             .linux => .{
                 .r = uc.mcontext.regs, // includes r0 (hardwired zero)
                 .pc = uc.mcontext.pc,
@@ -672,6 +692,116 @@ pub const LoongArch = extern struct {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             32 => return @ptrCast(&ctx.pc),
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const Mips = extern struct {
+    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
+    r: [32]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch.isMIPS64()) u64 else u32;
+
+    pub inline fn current() Mips {
+        var ctx: Mips = undefined;
+        asm volatile (if (Gpr == u64)
+                \\ .set push
+                \\ .set noat
+                \\ .set noreorder
+                \\ .set nomacro
+                \\ sd $zero, 0($t0)
+                \\ sd $at, 8($t0)
+                \\ sd $v0, 16($t0)
+                \\ sd $v1, 24($t0)
+                \\ sd $a0, 32($t0)
+                \\ sd $a1, 40($t0)
+                \\ sd $a2, 48($t0)
+                \\ sd $a3, 56($t0)
+                \\ sd $a4, 64($t0)
+                \\ sd $a5, 72($t0)
+                \\ sd $a6, 80($t0)
+                \\ sd $a7, 88($t0)
+                \\ sd $t0, 96($t0)
+                \\ sd $t1, 104($t0)
+                \\ sd $t2, 112($t0)
+                \\ sd $t3, 120($t0)
+                \\ sd $s0, 128($t0)
+                \\ sd $s1, 136($t0)
+                \\ sd $s2, 144($t0)
+                \\ sd $s3, 152($t0)
+                \\ sd $s4, 160($t0)
+                \\ sd $s5, 168($t0)
+                \\ sd $s6, 176($t0)
+                \\ sd $s7, 184($t0)
+                \\ sd $t8, 192($t0)
+                \\ sd $t9, 200($t0)
+                \\ sd $k0, 208($t0)
+                \\ sd $k1, 216($t0)
+                \\ sd $gp, 224($t0)
+                \\ sd $sp, 232($t0)
+                \\ sd $fp, 240($t0)
+                \\ sd $ra, 248($t0)
+                \\ bal 1f
+                \\1:
+                \\ sd $ra, 256($t0)
+                \\ ld $ra, 248($t0)
+                \\ .set pop
+            else
+                \\ .set push
+                \\ .set noat
+                \\ .set noreorder
+                \\ .set nomacro
+                \\ sw $zero, 0($t4)
+                \\ sw $at, 4($t4)
+                \\ sw $v0, 8($t4)
+                \\ sw $v1, 12($t4)
+                \\ sw $a0, 16($t4)
+                \\ sw $a1, 20($t4)
+                \\ sw $a2, 24($t4)
+                \\ sw $a3, 28($t4)
+                \\ sw $t0, 32($t4)
+                \\ sw $t1, 36($t4)
+                \\ sw $t2, 40($t4)
+                \\ sw $t3, 44($t4)
+                \\ sw $t4, 48($t4)
+                \\ sw $t5, 52($t4)
+                \\ sw $t6, 56($t4)
+                \\ sw $t7, 60($t4)
+                \\ sw $s0, 64($t4)
+                \\ sw $s1, 68($t4)
+                \\ sw $s2, 72($t4)
+                \\ sw $s3, 76($t4)
+                \\ sw $s4, 80($t4)
+                \\ sw $s5, 84($t4)
+                \\ sw $s6, 88($t4)
+                \\ sw $s7, 92($t4)
+                \\ sw $t8, 96($t4)
+                \\ sw $t9, 100($t4)
+                \\ sw $k0, 104($t4)
+                \\ sw $k1, 108($t4)
+                \\ sw $gp, 112($t4)
+                \\ sw $sp, 116($t4)
+                \\ sw $fp, 120($t4)
+                \\ sw $ra, 124($t4)
+                \\ bal 1f
+                \\1:
+                \\ sw $ra, 128($t4)
+                \\ lw $ra, 124($t4)
+                \\ .set pop
+            :
+            : [gprs] "{$12}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Mips, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            37 => return @ptrCast(&ctx.pc),
 
             else => return error.InvalidRegister,
         }
