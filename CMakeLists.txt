@@ -10,6 +10,14 @@ if(NOT CMAKE_INSTALL_PREFIX)
       "Directory to install zig to" FORCE)
 endif()
 
+if (UNIX)
+    # Ccache temporarily stores its output in the XDG Runtime Directory
+    # which is the size of 10% of physical RAM, in most cases this will 
+    # use up the entire space during stage 2 compilation and cause
+    # other applications to be starved of resources.
+    set(ENV{CCACHE_DISABLE} "true")
+endif()
+
 # CMake recognizes the CMAKE_PREFIX_PATH environment variable for some things,
 # and also the CMAKE_PREFIX_PATH cache variable for other things. However, it
 # does not relate these two things, i.e. if the environment variable is set,
