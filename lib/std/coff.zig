@@ -528,13 +528,11 @@ pub const SectionHeader = extern struct {
 
     /// Applicable only to section headers in COFF objects.
     pub fn getAlignment(self: SectionHeader) ?u16 {
-        if (self.flags.ALIGN == 0) return null;
-        return std.math.powi(u16, 2, self.flags.ALIGN - 1) catch unreachable;
+        return self.flags.ALIGN.toByteUnits();
     }
 
     pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
-        assert(new_alignment > 0 and new_alignment <= 8192);
-        self.flags.ALIGN = @intCast(std.math.log2(new_alignment));
+        self.flags.ALIGN = .fromByteUnits(new_alignment);
     }
 
     pub fn isCode(self: SectionHeader) bool {
@@ -651,6 +649,16 @@ pub const SectionHeader = extern struct {
             @"4096BYTES" = 13,
             @"8192BYTES" = 14,
             _,
+
+            pub fn toByteUnits(a: Align) ?u16 {
+                if (a == .NONE) return null;
+                return @as(u16, 1) << (@intFromEnum(a) - 1);
+            }
+
+            pub fn fromByteUnits(n: u16) Align {
+                std.debug.assert(std.math.isPowerOfTwo(n));
+                return @enumFromInt(@ctz(n) + 1);
+            }
         };
     };
 };
@@ -925,6 +933,10 @@ pub const WeakExternalDefinition = struct {
     flag: WeakExternalFlag,
 
     unused: [10]u8,
+
+    pub fn sizeOf() usize {
+        return 18;
+    }
 };
 
 // https://github.com/tpn/winsdk-10/blob/master/Include/10.0.16299.0/km/ntimage.h
@@ -1338,14 +1350,16 @@ pub const Strtab = struct {
 };
 
 pub const ImportHeader = extern struct {
-    sig1: IMAGE.FILE.MACHINE,
-    sig2: u16,
+    /// Must be IMAGE_FILE_MACHINE_UNKNOWN
+    sig1: IMAGE.FILE.MACHINE = .UNKNOWN,
+    /// Must be 0xFFFF
+    sig2: u16 = 0xFFFF,
     version: u16,
     machine: IMAGE.FILE.MACHINE,
     time_date_stamp: u32,
     size_of_data: u32,
     hint: u16,
-    types: packed struct(u32) {
+    types: packed struct(u16) {
         type: ImportType,
         name_type: ImportNameType,
         reserved: u11,
