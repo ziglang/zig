@@ -1432,7 +1432,7 @@ pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
         .aarch64, .aarch64_be => 32,
         .arm, .armeb, .thumb, .thumbeb => 15,
         .hexagon => 76,
-        .loongarch32, .loongarch64 => 32,
+        .loongarch32, .loongarch64 => 64,
         .mips, .mipsel, .mips64, .mips64el => 37,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => 357,
         .riscv32, .riscv32be, .riscv64, .riscv64be => 32,
