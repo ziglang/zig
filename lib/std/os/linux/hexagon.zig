@@ -254,13 +254,13 @@ pub const mcontext_t = extern struct {
     badva: u32,
     cs0: u32,
     cs1: u32,
-    _pad2: u32,
+    _pad1: u32,
 };
 
 pub const ucontext_t = extern struct {
-    flags: usize,
+    flags: u32,
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: [2]u32,
+    sigmask: sigset_t,
 };
