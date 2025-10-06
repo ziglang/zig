@@ -186,7 +186,7 @@ pub const IpAddress = union(enum) {
     /// Waits for a TCP connection. When using this API, `bind` does not need
     /// to be called. The returned `Server` has an open `stream`.
     pub fn listen(address: IpAddress, io: Io, options: ListenOptions) ListenError!Server {
-        return io.vtable.tcpListen(io.userdata, address, options);
+        return io.vtable.listen(io.userdata, address, options);
     }
 
     pub const BindError = error{
@@ -236,6 +236,8 @@ pub const IpAddress = union(enum) {
         AddressInUse,
         AddressUnavailable,
         AddressFamilyUnsupported,
+        /// Insufficient memory or other resource internal to the operating system.
+        SystemResources,
         ConnectionPending,
         ConnectionRefused,
         ConnectionResetByPeer,
@@ -246,12 +248,23 @@ pub const IpAddress = union(enum) {
         /// One of the `ConnectOptions` is not supported by the Io
         /// implementation.
         OptionUnsupported,
-    } || Io.UnexpectedError || Io.Cancelable;
+        /// Per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+        /// System-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+        ProtocolUnsupportedBySystem,
+        ProtocolUnsupportedByAddressFamily,
+        SocketModeUnsupported,
+    } || Io.Timeout.Error || Io.UnexpectedError || Io.Cancelable;
 
-    pub const ConnectOptions = BindOptions;
+    pub const ConnectOptions = struct {
+        mode: Socket.Mode,
+        protocol: ?Protocol = null,
+        timeout: Io.Timeout = .none,
+    };
 
     /// Initiates a connection-oriented network stream.
-    pub fn connect(address: IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
+    pub fn connect(address: *const IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
         return io.vtable.ipConnect(io.userdata, address, options);
     }
 };
@@ -997,7 +1010,7 @@ pub const Stream = struct {
     socket: Socket,
 
     pub fn close(s: *Stream, io: Io) void {
-        io.vtable.netClose(io.userdata, s.socket);
+        io.vtable.netClose(io.userdata, s.socket.handle);
         s.* = undefined;
     }
 
@@ -1040,10 +1053,13 @@ pub const Stream = struct {
             return n;
         }
 
-        fn readVec(io_r: *Reader, data: [][]u8) Io.Reader.Error!usize {
+        fn readVec(io_r: *Io.Reader, data: [][]u8) Io.Reader.Error!usize {
             const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
             const io = r.io;
-            return io.vtable.netReadVec(io.vtable.userdata, r.stream, io_r, data);
+            return io.vtable.netRead(io.userdata, r.stream, data) catch |err| {
+                r.err = err;
+                return error.ReadFailed;
+            };
         }
     };
 
@@ -1078,7 +1094,10 @@ pub const Stream = struct {
             const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
             const io = w.io;
             const buffered = io_w.buffered();
-            const n = try io.vtable.netWrite(io.vtable.userdata, w.stream, buffered, data, splat);
+            const n = io.vtable.netWrite(io.userdata, w.stream, buffered, data, splat) catch |err| {
+                w.err = err;
+                return error.WriteFailed;
+            };
             return io_w.consume(n);
         }
     };
@@ -1104,7 +1123,7 @@ pub const Server = struct {
 
     /// Blocks until a client connects to the server.
     pub fn accept(s: *Server, io: Io) AcceptError!Stream {
-        return io.vtable.accept(io, s);
+        return io.vtable.accept(io.userdata, s);
     }
 };
 

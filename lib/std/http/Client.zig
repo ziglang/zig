@@ -15,6 +15,7 @@ const assert = std.debug.assert;
 const Io = std.Io;
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
+const HostName = std.Io.net.HostName;
 
 const Client = @This();
 
@@ -69,7 +70,7 @@ pub const ConnectionPool = struct {
 
     /// The criteria for a connection to be considered a match.
     pub const Criteria = struct {
-        host: []const u8,
+        host: HostName,
         port: u16,
         protocol: Protocol,
     };
@@ -89,7 +90,7 @@ pub const ConnectionPool = struct {
             if (connection.port != criteria.port) continue;
 
             // Domain names are case-insensitive (RFC 5890, Section 2.3.2.4)
-            if (!std.ascii.eqlIgnoreCase(connection.host(), criteria.host)) continue;
+            if (!connection.host().eql(criteria.host)) continue;
 
             pool.acquireUnsafe(connection);
             return connection;
@@ -118,19 +119,19 @@ pub const ConnectionPool = struct {
     /// If the connection is marked as closing, it will be closed instead.
     ///
     /// Threadsafe.
-    pub fn release(pool: *ConnectionPool, connection: *Connection) void {
+    pub fn release(pool: *ConnectionPool, connection: *Connection, io: Io) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
         pool.used.remove(&connection.pool_node);
 
-        if (connection.closing or pool.free_size == 0) return connection.destroy();
+        if (connection.closing or pool.free_size == 0) return connection.destroy(io);
 
         if (pool.free_len >= pool.free_size) {
             const popped: *Connection = @alignCast(@fieldParentPtr("pool_node", pool.free.popFirst().?));
             pool.free_len -= 1;
 
-            popped.destroy();
+            popped.destroy(io);
         }
 
         if (connection.proxied) {
@@ -178,21 +179,21 @@ pub const ConnectionPool = struct {
     /// All future operations on the connection pool will deadlock.
     ///
     /// Threadsafe.
-    pub fn deinit(pool: *ConnectionPool) void {
+    pub fn deinit(pool: *ConnectionPool, io: Io) void {
         pool.mutex.lock();
 
         var next = pool.free.first;
         while (next) |node| {
             const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             next = node.next;
-            connection.destroy();
+            connection.destroy(io);
         }
 
         next = pool.used.first;
         while (next) |node| {
             const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             next = node.next;
-            connection.destroy();
+            connection.destroy(io);
         }
 
         pool.* = undefined;
@@ -242,19 +243,19 @@ pub const Connection = struct {
 
         fn create(
             client: *Client,
-            remote_host: []const u8,
+            remote_host: HostName,
             port: u16,
             stream: Io.net.Stream,
         ) error{OutOfMemory}!*Plain {
             const gpa = client.allocator;
-            const alloc_len = allocLen(client, remote_host.len);
+            const alloc_len = allocLen(client, remote_host.bytes.len);
             const base = try gpa.alignedAlloc(u8, .of(Plain), alloc_len);
             errdefer gpa.free(base);
-            const host_buffer = base[@sizeOf(Plain)..][0..remote_host.len];
+            const host_buffer = base[@sizeOf(Plain)..][0..remote_host.bytes.len];
             const socket_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.read_buffer_size];
             const socket_write_buffer = socket_read_buffer.ptr[socket_read_buffer.len..][0..client.write_buffer_size];
             assert(base.ptr + alloc_len == socket_write_buffer.ptr + socket_write_buffer.len);
-            @memcpy(host_buffer, remote_host);
+            @memcpy(host_buffer, remote_host.bytes);
             const plain: *Plain = @ptrCast(base);
             plain.* = .{
                 .connection = .{
@@ -263,7 +264,7 @@ pub const Connection = struct {
                     .stream_reader = stream.reader(socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
-                    .host_len = @intCast(remote_host.len),
+                    .host_len = @intCast(remote_host.bytes.len),
                     .proxied = false,
                     .closing = false,
                     .protocol = .plain,
@@ -283,9 +284,9 @@ pub const Connection = struct {
             return @sizeOf(Plain) + host_len + client.read_buffer_size + client.write_buffer_size;
         }
 
-        fn host(plain: *Plain) []u8 {
+        fn host(plain: *Plain) HostName {
             const base: [*]u8 = @ptrCast(plain);
-            return base[@sizeOf(Plain)..][0..plain.connection.host_len];
+            return .{ .bytes = base[@sizeOf(Plain)..][0..plain.connection.host_len] };
         }
     };
 
@@ -295,15 +296,15 @@ pub const Connection = struct {
 
         fn create(
             client: *Client,
-            remote_host: []const u8,
+            remote_host: HostName,
             port: u16,
             stream: Io.net.Stream,
         ) error{ OutOfMemory, TlsInitializationFailed }!*Tls {
             const gpa = client.allocator;
-            const alloc_len = allocLen(client, remote_host.len);
+            const alloc_len = allocLen(client, remote_host.bytes.len);
             const base = try gpa.alignedAlloc(u8, .of(Tls), alloc_len);
             errdefer gpa.free(base);
-            const host_buffer = base[@sizeOf(Tls)..][0..remote_host.len];
+            const host_buffer = base[@sizeOf(Tls)..][0..remote_host.bytes.len];
             // The TLS client wants enough buffer for the max encrypted frame
             // size, and the HTTP body reader wants enough buffer for the
             // entire HTTP header. This means we need a combined upper bound.
@@ -313,7 +314,7 @@ pub const Connection = struct {
             const socket_write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
             const socket_read_buffer = socket_write_buffer.ptr[socket_write_buffer.len..][0..client.tls_buffer_size];
             assert(base.ptr + alloc_len == socket_read_buffer.ptr + socket_read_buffer.len);
-            @memcpy(host_buffer, remote_host);
+            @memcpy(host_buffer, remote_host.bytes);
             const tls: *Tls = @ptrCast(base);
             tls.* = .{
                 .connection = .{
@@ -322,17 +323,17 @@ pub const Connection = struct {
                     .stream_reader = stream.reader(socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
-                    .host_len = @intCast(remote_host.len),
+                    .host_len = @intCast(remote_host.bytes.len),
                     .proxied = false,
                     .closing = false,
                     .protocol = .tls,
                 },
                 // TODO data race here on ca_bundle if the user sets next_https_rescan_certs to true
                 .client = std.crypto.tls.Client.init(
-                    tls.connection.stream_reader.interface(),
+                    &tls.connection.stream_reader.interface,
                     &tls.connection.stream_writer.interface,
                     .{
-                        .host = .{ .explicit = remote_host },
+                        .host = .{ .explicit = remote_host.bytes },
                         .ca = .{ .bundle = client.ca_bundle },
                         .ssl_key_log = client.ssl_key_log,
                         .read_buffer = tls_read_buffer,
@@ -359,9 +360,9 @@ pub const Connection = struct {
                 client.write_buffer_size + client.tls_buffer_size;
         }
 
-        fn host(tls: *Tls) []u8 {
+        fn host(tls: *Tls) HostName {
             const base: [*]u8 = @ptrCast(tls);
-            return base[@sizeOf(Tls)..][0..tls.connection.host_len];
+            return .{ .bytes = base[@sizeOf(Tls)..][0..tls.connection.host_len] };
         }
     };
 
@@ -384,7 +385,7 @@ pub const Connection = struct {
         return c.stream_reader.stream;
     }
 
-    pub fn host(c: *Connection) []u8 {
+    pub fn host(c: *Connection) HostName {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
@@ -400,8 +401,8 @@ pub const Connection = struct {
 
     /// If this is called without calling `flush` or `end`, data will be
     /// dropped unsent.
-    pub fn destroy(c: *Connection) void {
-        c.getStream().close();
+    pub fn destroy(c: *Connection, io: Io) void {
+        c.stream_reader.stream.close(io);
         switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
@@ -437,7 +438,7 @@ pub const Connection = struct {
                 const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 return &tls.client.reader;
             },
-            .plain => c.stream_reader.interface(),
+            .plain => &c.stream_reader.interface,
         };
     }
 
@@ -866,6 +867,7 @@ pub const Request = struct {
 
     /// Returns the request's `Connection` back to the pool of the `Client`.
     pub fn deinit(r: *Request) void {
+        const io = r.client.io;
         if (r.connection) |connection| {
             connection.closing = connection.closing or switch (r.reader.state) {
                 .ready => false,
@@ -880,7 +882,7 @@ pub const Request = struct {
                 },
                 else => true,
             };
-            r.client.connection_pool.release(connection);
+            r.client.connection_pool.release(connection, io);
         }
         r.* = undefined;
     }
@@ -1182,6 +1184,7 @@ pub const Request = struct {
     ///
     /// `aux_buf` must outlive accesses to `Request.uri`.
     fn redirect(r: *Request, head: *const Response.Head, aux_buf: *[]u8) !void {
+        const io = r.client.io;
         const new_location = head.location orelse return error.HttpRedirectLocationMissing;
         if (new_location.len > aux_buf.*.len) return error.HttpRedirectLocationOversize;
         const location = aux_buf.*[0..new_location.len];
@@ -1204,13 +1207,13 @@ pub const Request = struct {
         const protocol = Protocol.fromUri(new_uri) orelse return error.UnsupportedUriScheme;
         const old_connection = r.connection.?;
         const old_host = old_connection.host();
-        var new_host_name_buffer: [Uri.host_name_max]u8 = undefined;
+        var new_host_name_buffer: [HostName.max_len]u8 = undefined;
         const new_host = try new_uri.getHost(&new_host_name_buffer);
         const keep_privileged_headers =
             std.ascii.eqlIgnoreCase(r.uri.scheme, new_uri.scheme) and
-            sameParentDomain(old_host, new_host);
+            old_host.sameParentDomain(new_host);
 
-        r.client.connection_pool.release(old_connection);
+        r.client.connection_pool.release(old_connection, io);
         r.connection = null;
 
         if (!keep_privileged_headers) {
@@ -1266,7 +1269,7 @@ pub const Request = struct {
 
 pub const Proxy = struct {
     protocol: Protocol,
-    host: []const u8,
+    host: HostName,
     authorization: ?[]const u8,
     port: u16,
     supports_connect: bool,
@@ -1277,9 +1280,10 @@ pub const Proxy = struct {
 /// All pending requests must be de-initialized and all active connections released
 /// before calling this function.
 pub fn deinit(client: *Client) void {
+    const io = client.io;
     assert(client.connection_pool.used.first == null); // There are still active requests.
 
-    client.connection_pool.deinit();
+    client.connection_pool.deinit(io);
     if (!disable_tls) client.ca_bundle.deinit(client.allocator);
 
     client.* = undefined;
@@ -1385,7 +1389,7 @@ pub const basic_authorization = struct {
     }
 };
 
-pub const ConnectTcpError = Allocator.Error || error{
+pub const ConnectTcpError = error{
     ConnectionRefused,
     NetworkUnreachable,
     ConnectionTimedOut,
@@ -1393,17 +1397,16 @@ pub const ConnectTcpError = Allocator.Error || error{
     TemporaryNameServerFailure,
     NameServerFailure,
     UnknownHostName,
-    HostLacksNetworkAddresses,
     UnexpectedConnectFailure,
     TlsInitializationFailed,
-};
+} || Allocator.Error || Io.Cancelable;
 
 /// Reuses a `Connection` if one matching `host` and `port` is already open.
 ///
 /// Threadsafe.
 pub fn connectTcp(
     client: *Client,
-    host: []const u8,
+    host: HostName,
     port: u16,
     protocol: Protocol,
 ) ConnectTcpError!*Connection {
@@ -1411,16 +1414,17 @@ pub fn connectTcp(
 }
 
 pub const ConnectTcpOptions = struct {
-    host: Io.net.HostName,
+    host: HostName,
     port: u16,
     protocol: Protocol,
 
-    proxied_host: ?[]const u8 = null,
+    proxied_host: ?HostName = null,
     proxied_port: ?u16 = null,
+    timeout: Io.Timeout = .none,
 };
 
 pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcpError!*Connection {
-    const host = options.host_name;
+    const host = options.host;
     const port = options.port;
     const protocol = options.protocol;
 
@@ -1433,17 +1437,15 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
         .protocol = protocol,
     })) |conn| return conn;
 
-    const stream = host.connectTcp(client.io, port) catch |err| switch (err) {
+    const stream = host.connect(client.io, port, .{ .mode = .stream }) catch |err| switch (err) {
         error.ConnectionRefused => return error.ConnectionRefused,
         error.NetworkUnreachable => return error.NetworkUnreachable,
         error.ConnectionTimedOut => return error.ConnectionTimedOut,
         error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
-        error.TemporaryNameServerFailure => return error.TemporaryNameServerFailure,
         error.NameServerFailure => return error.NameServerFailure,
         error.UnknownHostName => return error.UnknownHostName,
-        error.HostLacksNetworkAddresses => return error.HostLacksNetworkAddresses,
         error.Canceled => return error.Canceled,
-        else => return error.UnexpectedConnectFailure,
+        //else => return error.UnexpectedConnectFailure,
     };
     errdefer stream.close();
 
@@ -1479,7 +1481,7 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     errdefer client.allocator.destroy(conn);
     conn.* = .{ .data = undefined };
 
-    const stream = try std.net.connectUnixSocket(path);
+    const stream = try Io.net.connectUnixSocket(path);
     errdefer stream.close();
 
     conn.data = .{
@@ -1504,9 +1506,10 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
 pub fn connectProxied(
     client: *Client,
     proxy: *Proxy,
-    proxied_host: []const u8,
+    proxied_host: HostName,
     proxied_port: u16,
 ) !*Connection {
+    const io = client.io;
     if (!proxy.supports_connect) return error.TunnelNotSupported;
 
     if (client.connection_pool.findConnection(.{
@@ -1526,12 +1529,12 @@ pub fn connectProxied(
         });
         errdefer {
             connection.closing = true;
-            client.connection_pool.release(connection);
+            client.connection_pool.release(connection, io);
         }
 
         var req = client.request(.CONNECT, .{
             .scheme = "http",
-            .host = .{ .raw = proxied_host },
+            .host = .{ .raw = proxied_host.bytes },
             .port = proxied_port,
         }, .{
             .redirect_behavior = .unhandled,
@@ -1576,7 +1579,7 @@ pub const ConnectError = ConnectTcpError || RequestError;
 /// This function is threadsafe.
 pub fn connect(
     client: *Client,
-    host: []const u8,
+    host: HostName,
     port: u16,
     protocol: Protocol,
 ) ConnectError!*Connection {
@@ -1586,9 +1589,7 @@ pub fn connect(
     } orelse return client.connectTcp(host, port, protocol);
 
     // Prevent proxying through itself.
-    if (std.ascii.eqlIgnoreCase(proxy.host, host) and
-        proxy.port == port and proxy.protocol == protocol)
-    {
+    if (proxy.host.eql(host) and proxy.port == port and proxy.protocol == protocol) {
         return client.connectTcp(host, port, protocol);
     }
 
@@ -1608,7 +1609,6 @@ pub fn connect(
 pub const RequestError = ConnectTcpError || error{
     UnsupportedUriScheme,
     UriMissingHost,
-    UriHostTooLong,
     CertificateBundleLoadFailure,
 };
 
@@ -1697,7 +1697,7 @@ pub fn request(
     }
 
     const connection = options.connection orelse c: {
-        var host_name_buffer: [Uri.host_name_max]u8 = undefined;
+        var host_name_buffer: [HostName.max_len]u8 = undefined;
         const host_name = try uri.getHost(&host_name_buffer);
         break :c try client.connect(host_name, uriPort(uri, protocol), protocol);
     };
@@ -1833,20 +1833,6 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     };
 
     return .{ .status = response.head.status };
-}
-
-pub fn sameParentDomain(parent_host: []const u8, child_host: []const u8) bool {
-    if (!std.ascii.endsWithIgnoreCase(child_host, parent_host)) return false;
-    if (child_host.len == parent_host.len) return true;
-    if (parent_host.len > child_host.len) return false;
-    return child_host[child_host.len - parent_host.len - 1] == '.';
-}
-
-test sameParentDomain {
-    try testing.expect(!sameParentDomain("foo.com", "bar.com"));
-    try testing.expect(sameParentDomain("foo.com", "foo.com"));
-    try testing.expect(sameParentDomain("foo.com", "bar.foo.com"));
-    try testing.expect(!sameParentDomain("bar.foo.com", "foo.com"));
 }
 
 test {
