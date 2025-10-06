@@ -9,6 +9,8 @@ const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 const timespec = std.os.linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
@@ -235,5 +237,30 @@ pub const Elf_Symndx = u32;
 
 pub const VDSO = void;
 
-/// TODO
-pub const ucontext_t = void;
+pub const mcontext_t = extern struct {
+    gregs: [32]u32 align(8),
+    sa0: u32,
+    lc0: u32,
+    sa1: u32,
+    lc1: u32,
+    m0: u32,
+    m1: u32,
+    usr: u32,
+    p3_0: u32,
+    gp: u32,
+    ugp: u32,
+    pc: u32,
+    cause: u32,
+    badva: u32,
+    cs0: u32,
+    cs1: u32,
+    _pad2: u32,
+};
+
+pub const ucontext_t = extern struct {
+    flags: usize,
+    link: ?*ucontext_t,
+    stack: stack_t,
+    mcontext: mcontext_t,
+    sigmask: [2]u32,
+};
