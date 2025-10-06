@@ -1,45 +1,48 @@
-//! Uniform Resource Identifier (URI) parsing roughly adhering to <https://tools.ietf.org/html/rfc3986>.
-//! Does not do perfect grammar and character class checking, but should be robust against URIs in the wild.
+//! Uniform Resource Identifier (URI) parsing roughly adhering to
+//! <https://tools.ietf.org/html/rfc3986>. Does not do perfect grammar and
+//! character class checking, but should be robust against URIs in the wild.
 
 const std = @import("std.zig");
 const testing = std.testing;
 const Uri = @This();
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
+const HostName = std.Io.net.HostName;
 
 scheme: []const u8,
 user: ?Component = null,
 password: ?Component = null,
+/// If non-null, already validated.
 host: ?Component = null,
 port: ?u16 = null,
 path: Component = Component.empty,
 query: ?Component = null,
 fragment: ?Component = null,
 
-pub const host_name_max = 255;
+pub const GetHostError = error{UriMissingHost};
 
 /// Returned value may point into `buffer` or be the original string.
 ///
-/// Suggested buffer length: `host_name_max`.
-///
 /// See also:
 /// * `getHostAlloc`
-pub fn getHost(uri: Uri, buffer: []u8) error{ UriMissingHost, UriHostTooLong }![]const u8 {
+pub fn getHost(uri: Uri, buffer: *[HostName.max_len]u8) GetHostError!HostName {
     const component = uri.host orelse return error.UriMissingHost;
-    return component.toRaw(buffer) catch |err| switch (err) {
-        error.NoSpaceLeft => return error.UriHostTooLong,
+    const bytes = component.toRaw(buffer) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable, // `host` already validated.
     };
+    return .{ .bytes = bytes };
 }
+
+pub const GetHostAllocError = GetHostError || error{OutOfMemory};
 
 /// Returned value may point into `buffer` or be the original string.
 ///
 /// See also:
 /// * `getHost`
-pub fn getHostAlloc(uri: Uri, arena: Allocator) error{ UriMissingHost, UriHostTooLong, OutOfMemory }![]const u8 {
+pub fn getHostAlloc(uri: Uri, arena: Allocator) GetHostAllocError![]const u8 {
     const component = uri.host orelse return error.UriMissingHost;
-    const result = try component.toRawMaybeAlloc(arena);
-    if (result.len > host_name_max) return error.UriHostTooLong;
-    return result;
+    const bytes = try component.toRawMaybeAlloc(arena);
+    return .{ .bytes = bytes };
 }
 
 pub const Component = union(enum) {
@@ -397,7 +400,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = new_parsed.scheme,
         .user = new_parsed.user,
         .password = new_parsed.password,
-        .host = new_parsed.host,
+        .host = try validateHost(new_parsed.host),
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
         .query = new_parsed.query,
@@ -408,7 +411,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = base.scheme,
         .user = new_parsed.user,
         .password = new_parsed.password,
-        .host = host,
+        .host = try validateHost(host),
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
         .query = new_parsed.query,
@@ -430,12 +433,17 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = base.scheme,
         .user = base.user,
         .password = base.password,
-        .host = base.host,
+        .host = try validateHost(base.host),
         .port = base.port,
         .path = path,
         .query = query,
         .fragment = new_parsed.fragment,
     };
+}
+
+fn validateHost(bytes: []const u8) []const u8 {
+    try HostName.validate(bytes);
+    return bytes;
 }
 
 /// In-place implementation of RFC 3986, Section 5.2.4.

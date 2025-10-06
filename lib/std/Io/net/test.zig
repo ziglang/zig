@@ -7,32 +7,30 @@ const testing = std.testing;
 test "parse and render IP addresses at comptime" {
     comptime {
         const ipv6addr = net.IpAddress.parse("::1", 0) catch unreachable;
-        try std.testing.expectFmt("[::1]:0", "{f}", .{ipv6addr});
+        try testing.expectFmt("[::1]:0", "{f}", .{ipv6addr});
 
         const ipv4addr = net.IpAddress.parse("127.0.0.1", 0) catch unreachable;
-        try std.testing.expectFmt("127.0.0.1:0", "{f}", .{ipv4addr});
+        try testing.expectFmt("127.0.0.1:0", "{f}", .{ipv4addr});
 
         try testing.expectError(error.ParseFailed, net.IpAddress.parse("::123.123.123.123", 0));
         try testing.expectError(error.ParseFailed, net.IpAddress.parse("127.01.0.1", 0));
-        try testing.expectError(error.ParseFailed, net.IpAddress.resolveIp("::123.123.123.123", 0));
-        try testing.expectError(error.ParseFailed, net.IpAddress.resolveIp("127.01.0.1", 0));
     }
 }
 
 test "format IPv6 address with no zero runs" {
-    const addr = try std.net.IpAddress.parseIp6("2001:db8:1:2:3:4:5:6", 0);
-    try std.testing.expectFmt("[2001:db8:1:2:3:4:5:6]:0", "{f}", .{addr});
+    const addr = try net.IpAddress.parseIp6("2001:db8:1:2:3:4:5:6", 0);
+    try testing.expectFmt("[2001:db8:1:2:3:4:5:6]:0", "{f}", .{addr});
 }
 
 test "parse IPv6 addresses and check compressed form" {
-    try std.testing.expectFmt("[2001:db8::1:0:0:2]:0", "{f}", .{
-        try std.net.IpAddress.parseIp6("2001:0db8:0000:0000:0001:0000:0000:0002", 0),
+    try testing.expectFmt("[2001:db8::1:0:0:2]:0", "{f}", .{
+        try net.IpAddress.parseIp6("2001:0db8:0000:0000:0001:0000:0000:0002", 0),
     });
-    try std.testing.expectFmt("[2001:db8::1:2]:0", "{f}", .{
-        try std.net.IpAddress.parseIp6("2001:0db8:0000:0000:0000:0000:0001:0002", 0),
+    try testing.expectFmt("[2001:db8::1:2]:0", "{f}", .{
+        try net.IpAddress.parseIp6("2001:0db8:0000:0000:0000:0000:0001:0002", 0),
     });
-    try std.testing.expectFmt("[2001:db8:1:0:1::2]:0", "{f}", .{
-        try std.net.IpAddress.parseIp6("2001:0db8:0001:0000:0001:0000:0000:0002", 0),
+    try testing.expectFmt("[2001:db8:1:0:1::2]:0", "{f}", .{
+        try net.IpAddress.parseIp6("2001:0db8:0001:0000:0001:0000:0000:0002", 0),
     });
 }
 
@@ -43,14 +41,14 @@ test "parse IPv6 address, check raw bytes" {
         0x00, 0x01, 0x00, 0x00, // :0001:0000
         0x00, 0x00, 0x00, 0x02, // :0000:0002
     };
-
-    const addr = try std.net.IpAddress.parseIp6("2001:db8:0000:0000:0001:0000:0000:0002", 0);
-
-    const actual_raw = addr.in6.sa.addr[0..];
-    try std.testing.expectEqualSlices(u8, expected_raw[0..], actual_raw);
+    const addr = try net.IpAddress.parseIp6("2001:db8:0000:0000:0001:0000:0000:0002", 0);
+    try testing.expectEqualSlices(u8, &expected_raw, &addr.ip6.bytes);
 }
 
 test "parse and render IPv6 addresses" {
+    // TODO make this test parsing and rendering only, then it doesn't need I/O
+    const io = testing.io;
+
     var buffer: [100]u8 = undefined;
     const ips = [_][]const u8{
         "FF01:0:0:0:0:0:0:FB",
@@ -79,12 +77,12 @@ test "parse and render IPv6 addresses" {
     for (ips, 0..) |ip, i| {
         const addr = net.IpAddress.parseIp6(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
-        try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
+        try testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
         if (builtin.os.tag == .linux) {
-            const addr_via_resolve = net.IpAddress.resolveIp6(ip, 0) catch unreachable;
+            const addr_via_resolve = net.IpAddress.resolveIp6(io, ip, 0) catch unreachable;
             var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr_via_resolve}) catch unreachable;
-            try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
+            try testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
         }
     }
 
@@ -97,21 +95,23 @@ test "parse and render IPv6 addresses" {
     try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("1", 0));
     // TODO Make this test pass on other operating systems.
     if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin() or builtin.os.tag == .windows) {
-        try testing.expectError(error.Incomplete, net.IpAddress.resolveIp6("ff01::fb%", 0));
+        try testing.expectError(error.Incomplete, net.IpAddress.resolveIp6(io, "ff01::fb%", 0));
         // Assumes IFNAMESIZE will always be a multiple of 2
-        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
-        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6("ff01::fb%12345678901234", 0));
+        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6(io, "ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
+        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6(io, "ff01::fb%12345678901234", 0));
     }
 }
 
 test "invalid but parseable IPv6 scope ids" {
+    const io = testing.io;
+
     if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin() and builtin.os.tag != .windows) {
         // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
         // TODO Make this test pass on other operating systems.
         return error.SkipZigTest;
     }
 
-    try testing.expectError(error.InterfaceNotFound, net.IpAddress.resolveIp6("ff01::fb%123s45678901234", 0));
+    try testing.expectError(error.InterfaceNotFound, net.IpAddress.resolveIp6(io, "ff01::fb%123s45678901234", 0));
 }
 
 test "parse and render IPv4 addresses" {
@@ -125,7 +125,7 @@ test "parse and render IPv4 addresses" {
     }) |ip| {
         const addr = net.IpAddress.parseIp4(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
-        try std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
+        try testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
 
     try testing.expectError(error.Overflow, net.IpAddress.parseIp4("256.0.0.1", 0));
@@ -136,56 +136,51 @@ test "parse and render IPv4 addresses" {
     try testing.expectError(error.NonCanonical, net.IpAddress.parseIp4("127.01.0.1", 0));
 }
 
-test "parse and render UNIX addresses" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-    if (!net.has_unix_sockets) return error.SkipZigTest;
-
-    const addr = net.Address.initUnix("/tmp/testpath") catch unreachable;
-    try std.testing.expectFmt("/tmp/testpath", "{f}", .{addr});
-
-    const too_long = [_]u8{'a'} ** 200;
-    try testing.expectError(error.NameTooLong, net.Address.initUnix(too_long[0..]));
-}
-
 test "resolve DNS" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.os.tag == .windows) {
-        _ = try std.os.windows.WSAStartup(2, 2);
-    }
-    defer {
-        if (builtin.os.tag == .windows) {
-            std.os.windows.WSACleanup() catch unreachable;
-        }
-    }
+    const io = testing.io;
 
     // Resolve localhost, this should not fail.
     {
         const localhost_v4 = try net.IpAddress.parse("127.0.0.1", 80);
         const localhost_v6 = try net.IpAddress.parse("::2", 80);
 
-        const result = try net.getAddressList(testing.allocator, "localhost", 80);
-        defer result.deinit();
-        for (result.addrs) |addr| {
-            if (addr.eql(localhost_v4) or addr.eql(localhost_v6)) break;
+        var addresses_buffer: [8]net.IpAddress = undefined;
+        var canon_name_buffer: [net.HostName.max_len]u8 = undefined;
+        const result = try net.HostName.lookup(try .init("localhost"), io, .{
+            .port = 80,
+            .addresses_buffer = &addresses_buffer,
+            .canonical_name_buffer = &canon_name_buffer,
+        });
+        for (addresses_buffer[0..result.addresses_len]) |addr| {
+            if (addr.eql(&localhost_v4) or addr.eql(&localhost_v6)) break;
         } else @panic("unexpected address for localhost");
     }
 
     {
         // The tests are required to work even when there is no Internet connection,
         // so some of these errors we must accept and skip the test.
-        const result = net.getAddressList(testing.allocator, "example.com", 80) catch |err| switch (err) {
+        var addresses_buffer: [8]net.IpAddress = undefined;
+        var canon_name_buffer: [net.HostName.max_len]u8 = undefined;
+        const result = net.HostName.lookup(try .init("example.com"), io, .{
+            .port = 80,
+            .addresses_buffer = &addresses_buffer,
+            .canonical_name_buffer = &canon_name_buffer,
+        }) catch |err| switch (err) {
             error.UnknownHostName => return error.SkipZigTest,
-            error.TemporaryNameServerFailure => return error.SkipZigTest,
+            error.NameServerFailure => return error.SkipZigTest,
             else => return err,
         };
-        result.deinit();
+        _ = result;
     }
 }
 
 test "listen on a port, send bytes, receive bytes" {
     if (builtin.single_threaded) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const io = testing.io;
 
     if (builtin.os.tag == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
@@ -198,28 +193,28 @@ test "listen on a port, send bytes, receive bytes" {
 
     // Try only the IPv4 variant as some CI builders have no IPv6 localhost
     // configured.
-    const localhost = try net.IpAddress.parse("127.0.0.1", 0);
+    const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
 
-    var server = try localhost.listen(.{});
-    defer server.deinit();
+    var server = try localhost.listen(io, .{});
+    defer server.deinit(io);
 
     const S = struct {
         fn clientFn(server_address: net.IpAddress) !void {
-            const socket = try net.tcpConnectToAddress(server_address);
-            defer socket.close();
+            var stream = try server_address.connect(io, .{ .mode = .stream });
+            defer stream.close(io);
 
-            var stream_writer = socket.writer(&.{});
+            var stream_writer = stream.writer(io, &.{});
             try stream_writer.interface.writeAll("Hello world!");
         }
     };
 
-    const t = try std.Thread.spawn(.{}, S.clientFn, .{server.listen_address});
+    const t = try std.Thread.spawn(.{}, S.clientFn, .{server.socket.address});
     defer t.join();
 
-    var client = try server.accept();
-    defer client.stream.close();
+    var client = try server.accept(io);
+    defer client.stream.close(io);
     var buf: [16]u8 = undefined;
-    var stream_reader = client.stream.reader(&.{});
+    var stream_reader = client.stream.reader(io, &.{});
     const n = try stream_reader.interface().readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
@@ -232,13 +227,15 @@ test "listen on an in use port" {
         return error.SkipZigTest;
     }
 
-    const localhost = try net.IpAddress.parse("127.0.0.1", 0);
+    const io = testing.io;
 
-    var server1 = try localhost.listen(.{ .reuse_address = true });
-    defer server1.deinit();
+    const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
 
-    var server2 = try server1.listen_address.listen(.{ .reuse_address = true });
-    defer server2.deinit();
+    var server1 = try localhost.listen(io, .{ .reuse_address = true });
+    defer server1.deinit(io);
+
+    var server2 = try server1.socket.address.listen(io, .{ .reuse_address = true });
+    defer server2.deinit(io);
 }
 
 fn testClientToHost(allocator: mem.Allocator, name: []const u8, port: u16) anyerror!void {
@@ -268,15 +265,19 @@ fn testClient(addr: net.IpAddress) anyerror!void {
 fn testServer(server: *net.Server) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    var client = try server.accept();
+    const io = testing.io;
 
-    const stream = client.stream.writer();
+    var client = try server.accept(io);
+
+    const stream = client.stream.writer(io);
     try stream.print("hello from server\n", .{});
 }
 
 test "listen on a unix socket, send bytes, receive bytes" {
     if (builtin.single_threaded) return error.SkipZigTest;
     if (!net.has_unix_sockets) return error.SkipZigTest;
+
+    const io = testing.io;
 
     if (builtin.os.tag == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
@@ -293,15 +294,15 @@ test "listen on a unix socket, send bytes, receive bytes" {
     const socket_addr = try net.IpAddress.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
 
-    var server = try socket_addr.listen(.{});
-    defer server.deinit();
+    var server = try socket_addr.listen(io, .{});
+    defer server.deinit(io);
 
     const S = struct {
         fn clientFn(path: []const u8) !void {
-            const socket = try net.connectUnixSocket(path);
-            defer socket.close();
+            var stream = try net.connectUnixSocket(path);
+            defer stream.close(io);
 
-            var stream_writer = socket.writer(&.{});
+            var stream_writer = stream.writer(io, &.{});
             try stream_writer.interface.writeAll("Hello world!");
         }
     };
@@ -309,10 +310,10 @@ test "listen on a unix socket, send bytes, receive bytes" {
     const t = try std.Thread.spawn(.{}, S.clientFn, .{socket_path});
     defer t.join();
 
-    var client = try server.accept();
-    defer client.stream.close();
+    var client = try server.accept(io);
+    defer client.stream.close(io);
     var buf: [16]u8 = undefined;
-    var stream_reader = client.stream.reader(&.{});
+    var stream_reader = client.stream.reader(io, &.{});
     const n = try stream_reader.interface().readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
@@ -324,14 +325,16 @@ test "listen on a unix socket with reuse_address option" {
     // Windows doesn't implement reuse port option.
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
+    const io = testing.io;
+
     const socket_path = try generateFileName("socket.unix");
     defer testing.allocator.free(socket_path);
 
     const socket_addr = try net.Address.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
 
-    var server = try socket_addr.listen(.{ .reuse_address = true });
-    server.deinit();
+    var server = try socket_addr.listen(io, .{ .reuse_address = true });
+    server.deinit(io);
 }
 
 fn generateFileName(base_name: []const u8) ![]const u8 {
@@ -351,19 +354,21 @@ test "non-blocking tcp server" {
         return error.SkipZigTest;
     }
 
-    const localhost = try net.IpAddress.parse("127.0.0.1", 0);
-    var server = localhost.listen(.{ .force_nonblocking = true });
-    defer server.deinit();
+    const io = testing.io;
 
-    const accept_err = server.accept();
+    const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
+    var server = localhost.listen(io, .{ .force_nonblocking = true });
+    defer server.deinit(io);
+
+    const accept_err = server.accept(io);
     try testing.expectError(error.WouldBlock, accept_err);
 
-    const socket_file = try net.tcpConnectToAddress(server.listen_address);
+    const socket_file = try net.tcpConnectToAddress(server.socket.address);
     defer socket_file.close();
 
-    var client = try server.accept();
-    defer client.stream.close();
-    const stream = client.stream.writer();
+    var client = try server.accept(io);
+    defer client.stream.close(io);
+    const stream = client.stream.writer(io);
     try stream.print("hello from server\n", .{});
 
     var buf: [100]u8 = undefined;

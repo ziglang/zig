@@ -19,12 +19,12 @@ bytes: []const u8,
 
 pub const max_len = 255;
 
-pub const InitError = error{
+pub const ValidateError = error{
     NameTooLong,
     InvalidHostName,
 };
 
-pub fn init(bytes: []const u8) InitError!HostName {
+pub fn validate(bytes: []const u8) ValidateError!void {
     if (bytes.len > max_len) return error.NameTooLong;
     if (!std.unicode.utf8ValidateSlice(bytes)) return error.InvalidHostName;
     for (bytes) |byte| {
@@ -33,10 +33,34 @@ pub fn init(bytes: []const u8) InitError!HostName {
         }
         return error.InvalidHostName;
     }
+}
+
+pub fn init(bytes: []const u8) ValidateError!HostName {
+    try validate(bytes);
     return .{ .bytes = bytes };
 }
 
-/// TODO add a retry field here
+pub fn sameParentDomain(parent_host: HostName, child_host: HostName) bool {
+    const parent_bytes = parent_host.bytes;
+    const child_bytes = child_host.bytes;
+    if (!std.ascii.endsWithIgnoreCase(child_bytes, parent_bytes)) return false;
+    if (child_bytes.len == parent_bytes.len) return true;
+    if (parent_bytes.len > child_bytes.len) return false;
+    return child_bytes[child_bytes.len - parent_bytes.len - 1] == '.';
+}
+
+test sameParentDomain {
+    try std.testing.expect(!sameParentDomain(try .init("foo.com"), try .init("bar.com")));
+    try std.testing.expect(sameParentDomain(try .init("foo.com"), try .init("foo.com")));
+    try std.testing.expect(sameParentDomain(try .init("foo.com"), try .init("bar.foo.com")));
+    try std.testing.expect(!sameParentDomain(try .init("bar.foo.com"), try .init("foo.com")));
+}
+
+/// Domain names are case-insensitive (RFC 5890, Section 2.3.2.4)
+pub fn eql(a: HostName, b: HostName) bool {
+    return std.ascii.eqlIgnoreCase(a.bytes, b.bytes);
+}
+
 pub const LookupOptions = struct {
     port: u16,
     /// Must have at least length 2.
@@ -266,15 +290,15 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
     var answers_remaining = answers.len;
     for (answers) |*answer| answer.len = 0;
 
-    // boottime is chosen because time the computer is suspended should count
+    // boot clock is chosen because time the computer is suspended should count
     // against time spent waiting for external messages to arrive.
-    var now_ts = try Io.Timestamp.now(io, .boottime);
+    var now_ts = try Io.Timestamp.now(io, .boot);
     const final_ts = now_ts.addDuration(.fromSeconds(rc.timeout_seconds));
     const attempt_duration: Io.Duration = .{
         .nanoseconds = std.time.ns_per_s * @as(usize, rc.timeout_seconds) / rc.attempts,
     };
 
-    send: while (now_ts.compare(.lt, final_ts)) : (now_ts = try Io.Timestamp.now(io, .boottime)) {
+    send: while (now_ts.compare(.lt, final_ts)) : (now_ts = try Io.Timestamp.now(io, .boot)) {
         const max_messages = queries_buffer.len * ResolvConf.max_nameservers;
         {
             var message_buffer: [max_messages]Io.net.OutgoingMessage = undefined;
@@ -518,7 +542,7 @@ fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u
     return n;
 }
 
-pub const ExpandError = error{InvalidDnsPacket} || InitError;
+pub const ExpandError = error{InvalidDnsPacket} || ValidateError;
 
 /// Decompresses a DNS name.
 ///
@@ -618,22 +642,36 @@ pub const DnsResponse = struct {
     }
 };
 
-pub const ConnectTcpError = LookupError || IpAddress.ConnectTcpError;
+pub const ConnectError = LookupError || IpAddress.ConnectError;
 
-pub fn connectTcp(host_name: HostName, io: Io, port: u16) ConnectTcpError!Stream {
+pub fn connect(
+    host_name: HostName,
+    io: Io,
+    port: u16,
+    options: IpAddress.ConnectOptions,
+) ConnectError!Stream {
     var addresses_buffer: [32]IpAddress = undefined;
+    var canonical_name_buffer: [HostName.max_len]u8 = undefined;
 
-    const results = try lookup(host_name, .{
+    const results = try lookup(host_name, io, .{
         .port = port,
         .addresses_buffer = &addresses_buffer,
-        .canonical_name_buffer = &.{},
+        .canonical_name_buffer = &canonical_name_buffer,
     });
     const addresses = addresses_buffer[0..results.addresses_len];
 
     if (addresses.len == 0) return error.UnknownHostName;
 
-    for (addresses) |addr| {
-        return addr.connectTcp(io) catch |err| switch (err) {
+    // TODO instead of serially, use a Select API to send out
+    // the connections simultaneously and then keep the first
+    // successful one, canceling the rest.
+
+    // TODO On Linux this should additionally use an Io.Queue based
+    // DNS resolution API in order to send out a connection after
+    // each DNS response before waiting for the rest of them.
+
+    for (addresses) |*addr| {
+        return addr.connect(io, options) catch |err| switch (err) {
             error.ConnectionRefused => continue,
             else => |e| return e,
         };
