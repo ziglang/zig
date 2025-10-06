@@ -719,31 +719,38 @@ pub const Timestamp = struct {
         ///
         /// The epoch is implementation-defined. For example NTFS/Windows uses
         /// 1601-01-01.
-        realtime,
+        real,
         /// A nonsettable system-wide clock that represents time since some
         /// unspecified point in the past.
         ///
-        /// On Linux, corresponds to how long the system has been running since
-        /// it booted.
-        ///
-        /// Not affected by discontinuous jumps in the system time (e.g., if
-        /// the system administrator manually changes the clock), but is
-        /// affected by frequency adjustments. **This clock does not count time
-        /// that the system is suspended.**
-        ///
-        /// Guarantees that the time returned by consecutive calls will not go
-        /// backwards, but successive calls may return identical
+        /// Monotonic: Guarantees that the time returned by consecutive calls
+        /// will not go backwards, but successive calls may return identical
         /// (not-increased) time values.
         ///
-        /// May or may not include time the system is suspended, but
-        /// implementations should exclude that time if possible.
-        monotonic,
-        /// Identical to `monotonic` except it also includes any time that the
-        /// system is suspended, if possible. However, it may be implemented
-        /// identically to `monotonic`.
-        boottime,
-        process_cputime_id,
-        thread_cputime_id,
+        /// Not affected by discontinuous jumps in the system time (e.g., if
+        /// the system administrator manually changes the clock), but may be
+        /// affected by frequency adjustments.
+        ///
+        /// This clock expresses intent to **exclude time that the system is
+        /// suspended**. However, implementations may be unable to satisify
+        /// this, and may include that time.
+        ///
+        /// * On Linux, corresponds `CLOCK_MONOTONIC`.
+        /// * On macOS, corresponds to `CLOCK_UPTIME_RAW`.
+        awake,
+        /// Identical to `awake` except it expresses intent to include time
+        /// that the system is suspended, however, it may be implemented
+        /// identically to `awake`.
+        ///
+        /// * On Linux, corresponds `CLOCK_BOOTTIME`.
+        /// * On macOS, corresponds to `CLOCK_MONOTONIC_RAW`.
+        boot,
+        /// Tracks the amount of CPU in user or kernel mode used by the calling
+        /// process.
+        cpu_process,
+        /// Tracks the amount of CPU in user or kernel mode used by the calling
+        /// thread.
+        cpu_thread,
     };
 
     pub fn durationTo(from: Timestamp, to: Timestamp) Duration {
@@ -825,7 +832,7 @@ pub const Duration = struct {
     }
 
     pub fn sleep(duration: Duration, io: Io) SleepError!void {
-        return io.vtable.sleep(io.userdata, .{ .duration = .{ .duration = duration, .clock = .monotonic } });
+        return io.vtable.sleep(io.userdata, .{ .duration = .{ .duration = duration, .clock = .awake } });
     }
 };
 

@@ -2281,7 +2281,7 @@ test "seekTo flushes buffered data" {
     }
 
     var read_buffer: [16]u8 = undefined;
-    var file_reader: std.Io.File.Reader = .init(file, io, &read_buffer);
+    var file_reader: std.Io.File.Reader = .initAdapted(file, io, &read_buffer);
 
     var buf: [4]u8 = undefined;
     try file_reader.interface.readSliceAll(&buf);

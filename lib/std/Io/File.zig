@@ -319,6 +319,11 @@ pub const Reader = struct {
         };
     }
 
+    /// Takes a legacy `std.fs.File` to help with upgrading.
+    pub fn initAdapted(file: std.fs.File, io: Io, buffer: []u8) Reader {
+        return .init(.{ .handle = file.handle }, io, buffer);
+    }
+
     pub fn initSize(file: File, io: Io, buffer: []u8, size: ?u64) Reader {
         return .{
             .io = io,

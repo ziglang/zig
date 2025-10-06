@@ -53,7 +53,7 @@ test "trailers" {
 
     const gpa = std.testing.allocator;
 
-    var client: http.Client = .{ .allocator = gpa };
+    var client: http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
 
     const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/trailer", .{
@@ -141,12 +141,13 @@ test "HTTP server handles a chunked transfer coding request" {
         "0\r\n" ++
         "\r\n";
 
-    const gpa = std.testing.allocator;
-    var stream = try net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    const host_name: net.HostName = try .init("127.0.0.1");
+    var stream = try host_name.connect(io, test_server.port(), .{ .mode = .stream });
     defer stream.close(io);
-    var stream_writer = stream.writer(&.{});
+    var stream_writer = stream.writer(io, &.{});
     try stream_writer.interface.writeAll(request_bytes);
 
+    const gpa = std.testing.allocator;
     const expected_response =
         "HTTP/1.1 200 OK\r\n" ++
         "connection: close\r\n" ++
@@ -154,8 +155,8 @@ test "HTTP server handles a chunked transfer coding request" {
         "content-type: text/plain\r\n" ++
         "\r\n" ++
         "message from server!\n";
-    var stream_reader = stream.reader(&.{});
-    const response = try stream_reader.interface().allocRemaining(gpa, .limited(expected_response.len + 1));
+    var stream_reader = stream.reader(io, &.{});
+    const response = try stream_reader.interface.allocRemaining(gpa, .limited(expected_response.len + 1));
     defer gpa.free(response);
     try expectEqualStrings(expected_response, response);
 }
@@ -241,7 +242,7 @@ test "echo content server" {
     defer test_server.destroy();
 
     {
-        var client: http.Client = .{ .allocator = std.testing.allocator };
+        var client: http.Client = .{ .allocator = std.testing.allocator, .io = io };
         defer client.deinit();
 
         try echoTests(&client, test_server.port());
@@ -294,14 +295,15 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     defer test_server.destroy();
 
     const request_bytes = "GET /foo HTTP/1.1\r\n\r\n";
-    const gpa = std.testing.allocator;
-    var stream = try net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    const host_name: net.HostName = try .init("127.0.0.1");
+    var stream = try host_name.connect(io, test_server.port(), .{ .mode = .stream });
     defer stream.close(io);
-    var stream_writer = stream.writer(&.{});
+    var stream_writer = stream.writer(io, &.{});
     try stream_writer.interface.writeAll(request_bytes);
 
-    var stream_reader = stream.reader(&.{});
-    const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
+    var stream_reader = stream.reader(io, &.{});
+    const gpa = std.testing.allocator;
+    const response = try stream_reader.interface.allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
     var expected_response = std.array_list.Managed(u8).init(gpa);
@@ -366,14 +368,15 @@ test "receiving arbitrary http headers from the client" {
         "CoNneCtIoN:close\r\n" ++
         "aoeu:  asdf \r\n" ++
         "\r\n";
-    const gpa = std.testing.allocator;
-    var stream = try net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    const host_name: net.HostName = try .init("127.0.0.1");
+    var stream = try host_name.connect(io, test_server.port(), .{ .mode = .stream });
     defer stream.close(io);
-    var stream_writer = stream.writer(&.{});
+    var stream_writer = stream.writer(io, &.{});
     try stream_writer.interface.writeAll(request_bytes);
 
-    var stream_reader = stream.reader(&.{});
-    const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
+    var stream_reader = stream.reader(io, &.{});
+    const gpa = std.testing.allocator;
+    const response = try stream_reader.interface.allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
     var expected_response = std.array_list.Managed(u8).init(gpa);
@@ -413,7 +416,7 @@ test "general client/server API coverage" {
                         else => |e| return e,
                     };
 
-                    try handleRequest(&request, net_server.listen_address.getPort());
+                    try handleRequest(&request, net_server.socket.address.getPort());
                 }
             }
         }
@@ -543,9 +546,9 @@ test "general client/server API coverage" {
 
         fn getUnusedTcpPort() !u16 {
             const addr = try net.IpAddress.parse("127.0.0.1", 0);
-            var s = try addr.listen(.{});
-            defer s.deinit();
-            return s.listen_address.in.getPort();
+            var s = try addr.listen(io, .{});
+            defer s.deinit(io);
+            return s.socket.address.getPort();
         }
     });
     defer test_server.destroy();
@@ -553,7 +556,7 @@ test "general client/server API coverage" {
     const log = std.log.scoped(.client);
 
     const gpa = std.testing.allocator;
-    var client: http.Client = .{ .allocator = gpa };
+    var client: http.Client = .{ .allocator = gpa, .io = io };
     defer client.deinit();
 
     const port = test_server.port();
@@ -918,7 +921,10 @@ test "Server streams both reading and writing" {
     });
     defer test_server.destroy();
 
-    var client: http.Client = .{ .allocator = std.testing.allocator };
+    var client: http.Client = .{
+        .allocator = std.testing.allocator,
+        .io = io,
+    };
     defer client.deinit();
 
     var redirect_buffer: [555]u8 = undefined;
@@ -1089,17 +1095,20 @@ fn echoTests(client: *http.Client, port: u16) !void {
 }
 
 const TestServer = struct {
+    io: Io,
     shutting_down: bool,
     server_thread: std.Thread,
     net_server: net.Server,
 
     fn destroy(self: *@This()) void {
+        const io = self.io;
         self.shutting_down = true;
-        const conn = net.tcpConnectToAddress(self.net_server.listen_address) catch @panic("shutdown failure");
-        conn.close();
+        var stream = self.net_server.socket.address.connect(io, .{ .mode = .stream }) catch
+            @panic("shutdown failure");
+        stream.close(io);
 
         self.server_thread.join();
-        self.net_server.deinit();
+        self.net_server.deinit(io);
         std.testing.allocator.destroy(self);
     }
 
@@ -1118,6 +1127,7 @@ fn createTestServer(io: Io, S: type) !*TestServer {
     const address = try net.IpAddress.parse("127.0.0.1", 0);
     const test_server = try std.testing.allocator.create(TestServer);
     test_server.* = .{
+        .io = io,
         .net_server = try address.listen(io, .{ .reuse_address = true }),
         .shutting_down = false,
         .server_thread = try std.Thread.spawn(.{}, S.run, .{test_server}),

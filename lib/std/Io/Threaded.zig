@@ -1032,7 +1032,7 @@ fn nowWindows(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Err
             // and uses the NTFS/Windows epoch, which is 1601-01-01.
             return @as(i96, windows.ntdll.RtlGetSystemTimePrecise()) * 100;
         },
-        .monotonic, .boottime => {
+        .monotonic, .uptime => {
             // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
             return .{ .timestamp = windows.QueryPerformanceCounter() };
         },
@@ -1132,7 +1132,8 @@ fn sleepPosix(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
             .sec = std.math.maxInt(sec_type),
             .nsec = std.math.maxInt(nsec_type),
         };
-        if (d.clock != .monotonic) return error.UnsupportedClock;
+        // TODO check which clock nanosleep uses on this host
+        // and return error.UnsupportedClock if it does not match
         const ns = d.duration.nanoseconds;
         break :t .{
             .sec = @intCast(@divFloor(ns, std.time.ns_per_s)),
@@ -1331,11 +1332,15 @@ fn setSocketOption(pool: *Pool, fd: posix.fd_t, level: i32, opt_name: u32, optio
 fn ipConnectPosix(
     userdata: ?*anyopaque,
     address: *const Io.net.IpAddress,
-    options: Io.net.IpAddress.BindOptions,
+    options: Io.net.IpAddress.ConnectOptions,
 ) Io.net.IpAddress.ConnectError!Io.net.Stream {
+    if (options.timeout != .none) @panic("TODO");
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(address);
-    const socket_fd = try openSocketPosix(pool, family, options);
+    const socket_fd = try openSocketPosix(pool, family, .{
+        .mode = options.mode,
+        .protocol = options.protocol,
+    });
     var storage: PosixAddress = undefined;
     var addr_len = addressToPosix(address, &storage);
     try posixConnect(pool, socket_fd, &storage.any, addr_len);
@@ -1490,11 +1495,11 @@ fn netSend(
     const pool: *Pool = @ptrCast(@alignCast(userdata));
 
     const posix_flags: u32 =
-        @as(u32, if (flags.confirm) posix.MSG.CONFIRM else 0) |
+        @as(u32, if (@hasDecl(posix.MSG, "CONFIRM") and flags.confirm) posix.MSG.CONFIRM else 0) |
         @as(u32, if (flags.dont_route) posix.MSG.DONTROUTE else 0) |
         @as(u32, if (flags.eor) posix.MSG.EOR else 0) |
         @as(u32, if (flags.oob) posix.MSG.OOB else 0) |
-        @as(u32, if (flags.fastopen) posix.MSG.FASTOPEN else 0) |
+        @as(u32, if (@hasDecl(posix.MSG, "FASTOPEN") and flags.fastopen) posix.MSG.FASTOPEN else 0) |
         posix.MSG.NOSIGNAL;
 
     var i: usize = 0;
@@ -2024,11 +2029,17 @@ fn recoverableOsBugDetected() void {
 
 fn clockToPosix(clock: Io.Timestamp.Clock) posix.clockid_t {
     return switch (clock) {
-        .realtime => posix.CLOCK.REALTIME,
-        .monotonic => posix.CLOCK.MONOTONIC,
-        .boottime => posix.CLOCK.BOOTTIME,
-        .process_cputime_id => posix.CLOCK.PROCESS_CPUTIME_ID,
-        .thread_cputime_id => posix.CLOCK.THREAD_CPUTIME_ID,
+        .real => posix.CLOCK.REALTIME,
+        .awake => switch (builtin.os.tag) {
+            .macos, .ios, .watchos, .tvos => posix.CLOCK.UPTIME_RAW,
+            else => posix.CLOCK.MONOTONIC,
+        },
+        .boot => switch (builtin.os.tag) {
+            .macos, .ios, .watchos, .tvos => posix.CLOCK.MONOTONIC_RAW,
+            else => posix.CLOCK.BOOTTIME,
+        },
+        .cpu_process => posix.CLOCK.PROCESS_CPUTIME_ID,
+        .cpu_thread => posix.CLOCK.THREAD_CPUTIME_ID,
     };
 }
 
@@ -2036,7 +2047,7 @@ fn clockToWasi(clock: Io.Timestamp.Clock) std.os.wasi.clockid_t {
     return switch (clock) {
         .realtime => .REALTIME,
         .monotonic => .MONOTONIC,
-        .boottime => .MONOTONIC,
+        .uptime => .MONOTONIC,
         .process_cputime_id => .PROCESS_CPUTIME_ID,
         .thread_cputime_id => .THREAD_CPUTIME_ID,
     };
