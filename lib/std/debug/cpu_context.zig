@@ -9,6 +9,7 @@ else switch (native_arch) {
     .hexagon => Hexagon,
     .loongarch32, .loongarch64 => LoongArch,
     .mips, .mipsel, .mips64, .mips64el => Mips,
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .s390x => S390x,
     .x86 => X86,
@@ -213,6 +214,14 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             .linux => .{
                 .r = uc.mcontext.regs, // includes r0 (hardwired zero)
                 .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.gp_regs[0..32].*,
+                .pc = uc.mcontext.gp_regs[32],
+                .lr = uc.mcontext.gp_regs[36],
             },
             else => null,
         },
@@ -802,6 +811,114 @@ pub const Mips = extern struct {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             37 => return @ptrCast(&ctx.pc),
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+pub const Powerpc = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]Gpr,
+    pc: Gpr,
+    lr: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch.isPowerPC64()) u64 else u32;
+
+    pub inline fn current() Powerpc {
+        var ctx: Powerpc = undefined;
+        asm volatile (if (Gpr == u64)
+                \\ std 0, 0(10)
+                \\ std 1, 8(10)
+                \\ std 2, 16(10)
+                \\ std 3, 24(10)
+                \\ std 4, 32(10)
+                \\ std 5, 40(10)
+                \\ std 6, 48(10)
+                \\ std 7, 56(10)
+                \\ std 8, 64(10)
+                \\ std 9, 72(10)
+                \\ std 10, 80(10)
+                \\ std 11, 88(10)
+                \\ std 12, 96(10)
+                \\ std 13, 104(10)
+                \\ std 14, 112(10)
+                \\ std 15, 120(10)
+                \\ std 16, 128(10)
+                \\ std 17, 136(10)
+                \\ std 18, 144(10)
+                \\ std 19, 152(10)
+                \\ std 20, 160(10)
+                \\ std 21, 168(10)
+                \\ std 22, 176(10)
+                \\ std 23, 184(10)
+                \\ std 24, 192(10)
+                \\ std 25, 200(10)
+                \\ std 26, 208(10)
+                \\ std 27, 216(10)
+                \\ std 28, 224(10)
+                \\ std 29, 232(10)
+                \\ std 30, 240(10)
+                \\ std 31, 248(10)
+                \\ mflr 8
+                \\ std 8, 264(10)
+                \\ bl 1f
+                \\1:
+                \\ mflr 8
+                \\ std 8, 256(10)
+                \\ ld 8, 64(10)
+            else
+                \\ stw 0, 0(10)
+                \\ stw 1, 4(10)
+                \\ stw 2, 8(10)
+                \\ stw 3, 12(10)
+                \\ stw 4, 16(10)
+                \\ stw 5, 20(10)
+                \\ stw 6, 24(10)
+                \\ stw 7, 28(10)
+                \\ stw 8, 32(10)
+                \\ stw 9, 36(10)
+                \\ stw 10, 40(10)
+                \\ stw 11, 44(10)
+                \\ stw 12, 48(10)
+                \\ stw 13, 52(10)
+                \\ stw 14, 56(10)
+                \\ stw 15, 60(10)
+                \\ stw 16, 64(10)
+                \\ stw 17, 68(10)
+                \\ stw 18, 72(10)
+                \\ stw 19, 76(10)
+                \\ stw 20, 80(10)
+                \\ stw 21, 84(10)
+                \\ stw 22, 88(10)
+                \\ stw 23, 92(10)
+                \\ stw 24, 96(10)
+                \\ stw 25, 100(10)
+                \\ stw 26, 104(10)
+                \\ stw 27, 108(10)
+                \\ stw 28, 112(10)
+                \\ stw 29, 116(10)
+                \\ stw 30, 120(10)
+                \\ stw 31, 124(10)
+                \\ mflr 8
+                \\ stw 8, 132(10)
+                \\ bl 1f
+                \\1:
+                \\ mflr 8
+                \\ stw 8, 128(10)
+                \\ lwz 8, 32(10)
+            :
+            : [gprs] "{r10}" (&ctx),
+            : .{ .lr = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Powerpc, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            65 => return @ptrCast(&ctx.lr),
+            357 => return @ptrCast(&ctx.pc),
 
             else => return error.InvalidRegister,
         }
