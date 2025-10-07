@@ -1,5 +1,7 @@
-const std = @import("std.zig");
 const builtin = @import("builtin");
+
+const std = @import("std.zig");
+const Io = std.Io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
@@ -110,6 +112,7 @@ pub const ReleaseMode = enum {
 /// Shared state among all Build instances.
 /// Settings that are here rather than in Build are not configurable per-package.
 pub const Graph = struct {
+    io: Io,
     arena: Allocator,
     system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
@@ -2666,9 +2669,10 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
         // Hot path. This is faster than querying the native CPU and OS again.
         return b.graph.host;
     }
+    const io = b.graph.io;
     return .{
         .query = query,
-        .result = std.zig.system.resolveTargetQuery(query) catch
+        .result = std.zig.system.resolveTargetQuery(io, query) catch
             @panic("unable to resolve target query"),
     };
 }

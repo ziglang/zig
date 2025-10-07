@@ -532,6 +532,8 @@ const Arg = struct {
 test Options {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
+    const io = std.testing.io;
+
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
@@ -546,7 +548,7 @@ test Options {
         .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
         .host = .{
             .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(.{}),
+            .result = try std.zig.system.resolveTargetQuery(io, .{}),
         },
         .zig_lib_directory = std.Build.Cache.Directory.cwd(),
         .time_report = false,

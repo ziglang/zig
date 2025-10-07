@@ -38,6 +38,10 @@ pub fn main() !void {
 
     const args = try process.argsAlloc(arena);
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     // skip my own exe name
     var arg_idx: usize = 1;
 
@@ -68,6 +72,7 @@ pub fn main() !void {
     };
 
     var graph: std.Build.Graph = .{
+        .io = io,
         .arena = arena,
         .cache = .{
             .gpa = arena,

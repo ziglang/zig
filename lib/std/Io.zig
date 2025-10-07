@@ -738,9 +738,9 @@ pub const Timestamp = struct {
         /// * On Linux, corresponds `CLOCK_MONOTONIC`.
         /// * On macOS, corresponds to `CLOCK_UPTIME_RAW`.
         awake,
-        /// Identical to `awake` except it expresses intent to include time
-        /// that the system is suspended, however, it may be implemented
-        /// identically to `awake`.
+        /// Identical to `awake` except it expresses intent to **include time
+        /// that the system is suspended**, however, due to limitations it may
+        /// behave identically to `awake`.
         ///
         /// * On Linux, corresponds `CLOCK_BOOTTIME`.
         /// * On macOS, corresponds to `CLOCK_MONOTONIC_RAW`.
