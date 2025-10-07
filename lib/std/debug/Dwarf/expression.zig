@@ -1160,22 +1160,19 @@ test "basics" {
 
         mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
         (try regNative(&cpu_context, fp_reg_num)).* = 1;
-        (try regNative(&cpu_context, sp_reg_num)).* = 2;
-        (try regNative(&cpu_context, ip_reg_num)).* = 3;
+        (try regNative(&cpu_context, ip_reg_num)).* = 2;
 
         try b.writeBreg(writer, fp_reg_num, @as(usize, 100));
-        try b.writeBreg(writer, sp_reg_num, @as(usize, 200));
-        try b.writeBregx(writer, ip_reg_num, @as(usize, 300));
-        try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
+        try b.writeBregx(writer, ip_reg_num, @as(usize, 200));
+        try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 300));
 
         _ = try stack_machine.run(program.written(), allocator, context, 0);
 
         const regval_type = stack_machine.stack.pop().?.regval_type;
-        try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
+        try testing.expectEqual(@as(usize, 300), regval_type.type_offset);
         try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
         try testing.expectEqual(@as(usize, 0xee), regval_type.value);
 
-        try testing.expectEqual(@as(usize, 303), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(usize, 202), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(usize, 101), stack_machine.stack.pop().?.generic);
     }
