@@ -2524,7 +2524,10 @@ pub const LazyPath = union(enum) {
                 .up = gen.up,
                 .sub_path = dupePathInner(allocator, gen.sub_path),
             } },
-            .dependency => |dep| .{ .dependency = dep },
+            .dependency => |dep| .{ .dependency = .{
+                .dependency = dep.dependency,
+                .sub_path = dupePathInner(allocator, dep.sub_path),
+            } },
         };
     }
 };
