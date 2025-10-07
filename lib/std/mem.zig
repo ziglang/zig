@@ -4103,7 +4103,9 @@ pub fn replaceScalar(comptime T: type, slice: []T, match: T, replacement: T) voi
     }
 }
 
-/// Collapse consecutive duplicate elements into one entry.
+/// Collapse all consecutive occurrences of `elem` into one entry.
+///
+/// See also `collapseRepeatsAll`
 pub fn collapseRepeatsLen(comptime T: type, slice: []T, elem: T) usize {
     if (slice.len == 0) return 0;
     var write_idx: usize = 1;
@@ -4117,7 +4119,9 @@ pub fn collapseRepeatsLen(comptime T: type, slice: []T, elem: T) usize {
     return write_idx;
 }
 
-/// Collapse consecutive duplicate elements into one entry.
+/// Collapse all consecutive occurrences of `elem` into one entry.
+///
+/// See also `collapseRepeatsAll`
 pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) []T {
     return slice[0..collapseRepeatsLen(T, slice, elem)];
 }
