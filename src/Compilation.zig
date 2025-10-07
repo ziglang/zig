@@ -3398,7 +3398,7 @@ fn flush(
 /// Linker backends which do not have this requirement can fall back to the simple
 /// implementation at the bottom of this function.
 /// This function is only called when CacheMode is `whole`.
-fn renameTmpIntoCache(
+pub fn renameTmpIntoCache(
     cache_directory: Cache.Directory,
     tmp_dir_sub_path: []const u8,
     o_sub_path: []const u8,
@@ -6684,7 +6684,7 @@ pub fn addTranslateCCArgs(
 
     try argv.appendSlice(&.{ "-x", "c" });
 
-    const resource_path = try comp.dirs.zig_lib.join(arena, &.{"compiler/aro/include"});
+    const resource_path = try comp.dirs.zig_lib.join(arena, &.{ "compiler", "aro", "include" });
     try argv.appendSlice(&.{ "-isystem", resource_path });
 
     try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, owner_mod, .aro);
