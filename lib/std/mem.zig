@@ -4141,6 +4141,42 @@ test collapseRepeats {
     try testCollapseRepeats("//a///a////", '/', "/a/a/");
 }
 
+/// Collapse consecutive duplicates into one entry.
+///
+/// See also `collapseRepeats`
+pub fn collapseRepeatsAll(comptime T: type, slice: []T) []T {
+    if (slice.len == 0) return slice;
+
+    var write_index: usize = 1;
+    for (slice[0 .. slice.len - 1], slice[1..]) |elem, next| {
+        if (elem != next) {
+            slice[write_index] = next;
+            write_index += 1;
+        }
+    }
+    return slice[0..write_index];
+}
+
+test collapseRepeatsAll {
+    try std.testing.expectEqualSlices(u8, &.{}, collapseRepeatsAll(u8, &.{}));
+    {
+        var array: [1]u8 = .{0};
+        try std.testing.expectEqualSlices(u8, &.{0}, collapseRepeatsAll(u8, &array));
+    }
+    {
+        var array: [2]u8 = .{ 0, 0 };
+        try std.testing.expectEqualSlices(u8, &.{0}, collapseRepeatsAll(u8, &array));
+    }
+    {
+        var array: [2]u8 = .{ 0, 1 };
+        try std.testing.expectEqualSlices(u8, &.{ 0, 1 }, collapseRepeatsAll(u8, &array));
+    }
+    {
+        var array: [10]u8 = .{ 1, 0, 1, 1, 10, 10, 10, 0, 0, 0 };
+        try std.testing.expectEqualSlices(u8, &.{ 1, 0, 1, 10, 0 }, collapseRepeatsAll(u8, &array));
+    }
+}
+
 /// Calculate the size needed in an output buffer to perform a replacement.
 /// The needle must not be empty.
 pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, replacement: []const T) usize {
