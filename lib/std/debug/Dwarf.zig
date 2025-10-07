@@ -1434,7 +1434,7 @@ pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
         .hexagon => 76,
         .loongarch32, .loongarch64 => 64,
         .mips, .mipsel, .mips64, .mips64el => 37,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 357,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 67,
         .riscv32, .riscv32be, .riscv64, .riscv64be => 65,
         .s390x => 65,
         .x86 => 8,

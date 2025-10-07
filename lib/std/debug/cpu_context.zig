@@ -918,7 +918,7 @@ pub const Powerpc = extern struct {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             65 => return @ptrCast(&ctx.lr),
-            357 => return @ptrCast(&ctx.pc),
+            67 => return @ptrCast(&ctx.pc),
 
             else => return error.InvalidRegister,
         }
