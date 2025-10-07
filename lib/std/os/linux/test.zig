@@ -93,7 +93,7 @@ test "statx" {
     if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
 
     var stat_buf: linux.Stat = undefined;
-    switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, .{ .empty_path = true }))) {
+    switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, @as(u32, @bitCast(linux.At{ .empty_path = true }))))) {
         .SUCCESS => {},
         else => unreachable,
     }
