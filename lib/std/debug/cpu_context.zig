@@ -297,7 +297,7 @@ pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
     };
 }
 
-pub const X86 = struct {
+const X86 = struct {
     /// The first 8 registers here intentionally match the order of registers in the x86 instruction
     /// encoding. This order is inherited by the PUSHA instruction and the DWARF register mappings,
     /// among other things.
@@ -356,7 +356,7 @@ pub const X86 = struct {
     }
 };
 
-pub const X86_64 = struct {
+const X86_64 = struct {
     /// The order here intentionally matches the order of the DWARF register mappings. It's unclear
     /// where those mappings actually originated from---the ordering of the first 4 registers seems
     /// quite unusual---but it is currently convenient for us to match DWARF.
@@ -426,7 +426,7 @@ pub const X86_64 = struct {
     }
 };
 
-pub const Arm = struct {
+const Arm = struct {
     /// The numbered general-purpose registers R0 - R15.
     r: [16]u32,
 
@@ -480,7 +480,7 @@ pub const Arm = struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Aarch64 = extern struct {
+const Aarch64 = extern struct {
     /// The numbered general-purpose registers X0 - X30.
     x: [31]u64,
     sp: u64,
@@ -542,7 +542,7 @@ pub const Aarch64 = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Hexagon = extern struct {
+const Hexagon = extern struct {
     /// The numbered general-purpose registers r0 - r31.
     r: [32]u32,
     pc: u32,
@@ -610,7 +610,7 @@ pub const Hexagon = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const LoongArch = extern struct {
+const LoongArch = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
     r: [32]Gpr,
     pc: Gpr,
@@ -712,7 +712,7 @@ pub const LoongArch = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Mips = extern struct {
+const Mips = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
     r: [32]Gpr,
     pc: Gpr,
@@ -834,7 +834,7 @@ pub const Mips = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Powerpc = extern struct {
+const Powerpc = extern struct {
     /// The numbered general-purpose registers r0 - r31.
     r: [32]Gpr,
     pc: Gpr,
@@ -990,7 +990,7 @@ pub const Powerpc = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Riscv = extern struct {
+const Riscv = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
     r: [32]Gpr,
     pc: Gpr,
@@ -1096,7 +1096,7 @@ pub const Riscv = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const S390x = extern struct {
+const S390x = extern struct {
     /// The numbered general-purpose registers r0 - r15.
     r: [16]u64,
     /// The program counter.
