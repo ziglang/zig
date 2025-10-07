@@ -25,10 +25,10 @@ pub fn rejectNonCanonical(s: CompressedScalar) NonCanonicalError!void {
     var n: u8 = 1;
     var i: usize = 31;
     while (true) : (i -= 1) {
-        const xs = @as(u16, s[i]);
-        const xfield_order_s = @as(u16, field_order_s[i]);
-        c |= @as(u8, @intCast(((xs -% xfield_order_s) >> 8) & n));
-        n &= @as(u8, @intCast(((xs ^ xfield_order_s) -% 1) >> 8));
+        const xs: u16 = s[i];
+        const xfield_order_s: u16 = field_order_s[i];
+        c |= @intCast(((xs -% xfield_order_s) >> 8) & n);
+        n &= @intCast(((xs ^ xfield_order_s) -% 1) >> 8);
         if (i == 0) break;
     }
     if (c == 0) {

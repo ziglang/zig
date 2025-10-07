@@ -156,7 +156,21 @@ pub const Ed25519 = struct {
         fn init(sig: Signature, public_key: PublicKey) InitError!Verifier {
             const r = sig.r;
             const s = sig.s;
-            try Curve.scalar.rejectNonCanonical(s);
+
+            // If none of the top 4 bits are set, then the scalar fits into S \in [0, 2^252),
+            // which is a tighter range than [0, L), about [0, 2^252.5). In this case
+            // we can "succeed-fast" and skip the full canonical check
+            if (s[31] & 0b11110000 != 0) {
+                // Assuming canonical and IID scalars, the chance of the 252nd bit being set is roughly 1/2^128.
+                @branchHint(.unlikely);
+
+                // If any of the top 3 bits are set, the scalar representation must be invalid.
+                if (s[31] & 0b11100000 != 0) return error.NonCanonical;
+
+                // The only thing left to do here is the full rejection.
+                try Curve.scalar.rejectNonCanonical(s);
+            }
+
             const a = try Curve.fromBytes(public_key.bytes);
             try a.rejectIdentity();
             try Curve.rejectNonCanonical(r);
