@@ -4092,7 +4092,11 @@ fn serve(
                     var output: Compilation.CImportResult = undefined;
                     try cmdTranslateC(comp, arena, &output, file_system_inputs, main_progress_node);
                     defer output.deinit(gpa);
-                    try server.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+
+                    if (file_system_inputs.items.len != 0) {
+                        try server.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+                    }
+
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
                     } else {
@@ -4100,6 +4104,7 @@ fn serve(
                             .flags = .{ .cache_hit = output.cache_hit },
                         });
                     }
+
                     continue;
                 }
 
@@ -4567,6 +4572,19 @@ fn cmdTranslateC(
         var stdout: []u8 = undefined;
         try translateC(comp.gpa, arena, argv.items, prog_node, &stdout);
 
+        if (out_dep_path) |dep_file_path| add_deps: {
+            const dep_basename = fs.path.basename(dep_file_path);
+            // Add the files depended on to the cache system, if a dep file was emitted
+            man.addDepFilePost(cache_tmp_dir, dep_basename) catch |err| switch (err) {
+                error.FileNotFound => break :add_deps,
+                else => |e| return e,
+            };
+            // Just to save disk space, we delete the file because it is never needed again.
+            cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+                warn("failed to delete '{s}': {t}", .{ dep_file_path, err });
+            };
+        }
+
         if (stdout.len > 0) {
             var reader: std.Io.Reader = .fixed(stdout);
             const MessageHeader = std.zig.Server.Message.Header;
@@ -4590,27 +4608,16 @@ fn cmdTranslateC(
                     };
 
                     if (fancy_output) |p| {
+                        if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
                         p.errors = error_bundle;
                         return;
                     } else {
                         error_bundle.renderToStdErr(color.renderOptions());
                         process.exit(1);
                     }
-
-                    return error.AnalysisFail;
                 },
                 else => unreachable, // No other messagse are sent
             }
-        }
-
-        if (out_dep_path) |dep_file_path| {
-            const dep_basename = fs.path.basename(dep_file_path);
-            // Add the files depended on to the cache system.
-            try man.addDepFilePost(cache_tmp_dir, dep_basename);
-            // Just to save disk space, we delete the file because it is never needed again.
-            cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                warn("failed to delete '{s}': {t}", .{ dep_file_path, err });
-            };
         }
 
         const bin_digest = man.finalBin();

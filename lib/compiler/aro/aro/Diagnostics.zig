@@ -587,9 +587,12 @@ pub fn toErrorBundle(
     defer cur_notes.deinit(gpa);
     for (d.output.to_list.messages.items) |msg| {
         switch (msg.kind) {
-            // Clear the current error so that notes don't bleed into unassociated errors
             .off, .warning => {
-                cur_err = null;
+                if (cur_err) |err| {
+                    try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
+                    // Clear the current error so that notes don't bleed into unassociated errors
+                    cur_err = null;
+                }
                 continue;
             },
             .note => if (cur_err == null) continue,

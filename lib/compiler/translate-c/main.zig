@@ -88,7 +88,7 @@ pub fn main() u8 {
 }
 
 fn serveErrorBundle(arena: std.mem.Allocator, diagnostics: *const aro.Diagnostics) !void {
-    const error_bundle = try diagnostics.toErrorBundle(arena, "failed during translation");
+    const error_bundle = try diagnostics.toErrorBundle(arena, "translation failure");
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     var server: std.zig.Server = .{
