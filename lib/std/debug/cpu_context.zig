@@ -341,7 +341,7 @@ pub const X86 = struct {
             // x86-macos is a deprecated target which is not supported by the Zig Standard Library.
             0...8 => return @ptrCast(&ctx.gprs.values[register_num]),
 
-            9 => return error.UnsupportedRegister, // rflags
+            9 => return error.UnsupportedRegister, // eflags
             11...18 => return error.UnsupportedRegister, // st0 - st7
             21...28 => return error.UnsupportedRegister, // xmm0 - xmm7
             29...36 => return error.UnsupportedRegister, // mm0 - mm7
@@ -349,7 +349,7 @@ pub const X86 = struct {
             40...45 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
             48 => return error.UnsupportedRegister, // tr
             49 => return error.UnsupportedRegister, // ldtr
-            93...94 => return error.UnsupportedRegister, // fs.base, gs.base
+            93...100 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
 
             else => return error.InvalidRegister,
         }
@@ -417,6 +417,9 @@ pub const X86_64 = struct {
             64 => return error.UnsupportedRegister, // mxcsr
             65 => return error.UnsupportedRegister, // fcw
             66 => return error.UnsupportedRegister, // fsw
+            67...82 => return error.UnsupportedRegister, // xmm16 - xmm31 (AVX-512)
+            118...125 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
+            130...145 => return error.UnsupportedRegister, // r16 - r31 (APX)
 
             else => return error.InvalidRegister,
         }
@@ -520,13 +523,13 @@ pub const Aarch64 = extern struct {
             31 => return @ptrCast(&ctx.sp),
             32 => return @ptrCast(&ctx.pc),
 
-            33 => return error.UnsupportedRegister, // ELF_mode
+            33 => return error.UnsupportedRegister, // ELR_mode
             34 => return error.UnsupportedRegister, // RA_SIGN_STATE
             35 => return error.UnsupportedRegister, // TPIDRRO_ELO
-            36 => return error.UnsupportedRegister, // RPIDR_ELO
-            37 => return error.UnsupportedRegister, // RPIDR_EL1
-            38 => return error.UnsupportedRegister, // RPIDR_EL2
-            39 => return error.UnsupportedRegister, // RPIDR_EL3
+            36 => return error.UnsupportedRegister, // TPIDR_ELO
+            37 => return error.UnsupportedRegister, // TPIDR_EL1
+            38 => return error.UnsupportedRegister, // TPIDR_EL2
+            39 => return error.UnsupportedRegister, // TPIDR_EL3
             46 => return error.UnsupportedRegister, // VG
             47 => return error.UnsupportedRegister, // FFR
             48...63 => return error.UnsupportedRegister, // P0 - P15
@@ -701,6 +704,8 @@ pub const LoongArch = extern struct {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             64 => return @ptrCast(&ctx.pc),
 
+            32...63 => return error.UnsupportedRegister, // f0 - f31
+
             else => return error.InvalidRegister,
         }
     }
@@ -811,6 +816,18 @@ pub const Mips = extern struct {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             66 => return @ptrCast(&ctx.pc),
 
+            // Who the hell knows what numbers exist for this architecture? What's an ABI
+            // specification anyway? We don't need that nonsense.
+            32...63 => return error.UnsupportedRegister, // f0 - f31, w0 - w31
+            64 => return error.UnsupportedRegister, // hi0 (ac0)
+            65 => return error.UnsupportedRegister, // lo0 (ac0)
+            176 => return error.UnsupportedRegister, // hi1 (ac1)
+            177 => return error.UnsupportedRegister, // lo1 (ac1)
+            178 => return error.UnsupportedRegister, // hi2 (ac2)
+            179 => return error.UnsupportedRegister, // lo2 (ac2)
+            180 => return error.UnsupportedRegister, // hi3 (ac3)
+            181 => return error.UnsupportedRegister, // lo3 (ac3)
+
             else => return error.InvalidRegister,
         }
     }
@@ -914,10 +931,58 @@ pub const Powerpc = extern struct {
     }
 
     pub fn dwarfRegisterBytes(ctx: *Powerpc, register_num: u16) DwarfRegisterError![]u8 {
+        // References:
+        //
+        // * System V Application Binary Interface - PowerPC Processor Supplement §3-46
+        // * Power Architecture 32-bit Application Binary Interface Supplement 1.0 - Linux & Embedded §3.4
+        // * 64-bit ELF V2 ABI Specification - Power Architecture Revision 1.5 §2.4
+        // * ??? AIX?
+        //
+        // Are we having fun yet?
+
+        if (Gpr == u64) switch (register_num) {
+            65 => return @ptrCast(&ctx.lr), // lr
+
+            66 => return error.UnsupportedRegister, // ctr
+            68...75 => return error.UnsupportedRegister, // cr0 - cr7
+            76 => return error.UnsupportedRegister, // xer
+            77...108 => return error.UnsupportedRegister, // vr0 - vr31
+            109 => return error.UnsupportedRegister, // vrsave (LLVM)
+            110 => return error.UnsupportedRegister, // vscr
+            114 => return error.UnsupportedRegister, // tfhar
+            115 => return error.UnsupportedRegister, // tfiar
+            116 => return error.UnsupportedRegister, // texasr
+
+            else => {},
+        } else switch (register_num) {
+            65 => return @ptrCast(&ctx.lr), // fpscr (SVR4 / EABI), or lr if you ask LLVM
+            108 => return @ptrCast(&ctx.lr),
+
+            64 => return error.UnsupportedRegister, // cr
+            66 => return error.UnsupportedRegister, // msr (SVR4 / EABI), or ctr if you ask LLVM
+            68...75 => return error.UnsupportedRegister, // cr0 - cr7 if you ask LLVM
+            76 => return error.UnsupportedRegister, // xer if you ask LLVM
+            99 => return error.UnsupportedRegister, // acc
+            100 => return error.UnsupportedRegister, // mq
+            101 => return error.UnsupportedRegister, // xer
+            102...107 => return error.UnsupportedRegister, // SPRs
+            109 => return error.UnsupportedRegister, // ctr
+            110...111 => return error.UnsupportedRegister, // SPRs
+            112 => return error.UnsupportedRegister, // spefscr
+            113...1123 => return error.UnsupportedRegister, // SPRs
+            1124...1155 => return error.UnsupportedRegister, // SPE v0 - v31
+            1200...1231 => return error.UnsupportedRegister, // SPE upper r0 - r31
+            3072...4095 => return error.UnsupportedRegister, // DCRs
+            4096...5120 => return error.UnsupportedRegister, // PMRs
+
+            else => {},
+        }
+
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
-            65 => return @ptrCast(&ctx.lr),
             67 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
 
             else => return error.InvalidRegister,
         }
@@ -1019,6 +1084,12 @@ pub const Riscv = extern struct {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             65 => return @ptrCast(&ctx.pc),
 
+            32...63 => return error.UnsupportedRegister, // f0 - f31
+            64 => return error.UnsupportedRegister, // Alternate Frame Return Column
+            96...127 => return error.UnsupportedRegister, // v0 - v31
+            3072...4095 => return error.UnsupportedRegister, // Custom extensions
+            4096...8191 => return error.UnsupportedRegister, // CSRs
+
             else => return error.InvalidRegister,
         }
     }
@@ -1057,7 +1128,9 @@ pub const S390x = extern struct {
             65 => return @ptrCast(&ctx.psw.addr),
 
             16...31 => return error.UnsupportedRegister, // f0 - f15
+            32...47 => return error.UnsupportedRegister, // cr0 - cr15
             48...63 => return error.UnsupportedRegister, // a0 - a15
+            66...67 => return error.UnsupportedRegister, // z/OS stuff???
             68...83 => return error.UnsupportedRegister, // v16 - v31
 
             else => return error.InvalidRegister,
