@@ -1707,13 +1707,10 @@ test count {
 /// Returns the number of needles inside the haystack
 pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
     const n = haystack.len;
-    if (n < 1) return 0;
     var i: usize = 0;
     var found: usize = 0;
 
     if (use_vectors_for_comparison and
-        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
-        !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
         if (std.simd.suggestVectorLength(T)) |block_size| {
@@ -1724,7 +1721,6 @@ pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
                 const haystack_block: Block = haystack[i..][0..block_size].*;
                 found += std.simd.countTrues(letter_mask == haystack_block);
             }
-            if (i == n) return found;
         }
     }
 
