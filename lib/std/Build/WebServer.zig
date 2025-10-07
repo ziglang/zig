@@ -516,6 +516,7 @@ pub fn serveTarFile(
 }
 
 fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.OptimizeMode) !Cache.Path {
+    const io = ws.graph.io;
     const root_name = "build-web";
     const arch_os_abi = "wasm32-freestanding";
     const cpu_features = "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext";
@@ -659,7 +660,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     };
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
-        .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+        .target = &(std.zig.system.resolveTargetQuery(io, std.Build.parseTargetQuery(.{
             .arch_os_abi = arch_os_abi,
             .cpu_features = cpu_features,
         }) catch unreachable) catch unreachable),

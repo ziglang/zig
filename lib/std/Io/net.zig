@@ -228,7 +228,7 @@ pub const IpAddress = union(enum) {
     ///
     /// One bound `Socket` can be used to receive messages from multiple
     /// different addresses.
-    pub fn bind(address: IpAddress, io: Io, options: BindOptions) BindError!Socket {
+    pub fn bind(address: *const IpAddress, io: Io, options: BindOptions) BindError!Socket {
         return io.vtable.ipBind(io.userdata, address, options);
     }
 

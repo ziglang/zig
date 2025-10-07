@@ -1054,7 +1054,7 @@ fn nowWasi(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!
 fn sleepLinux(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     const clock_id: posix.clockid_t = clockToPosix(switch (timeout) {
-        .none => .monotonic,
+        .none => .awake,
         .duration => |d| d.clock,
         .deadline => |d| d.clock,
     });
@@ -1087,7 +1087,6 @@ fn sleepWindows(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const ms = ms: {
         const duration_and_clock = (try timeout.toDurationFromNow(pool.io())) orelse
             break :ms std.math.maxInt(windows.DWORD);
-        if (duration_and_clock.clock != .monotonic) return error.UnsupportedClock;
         break :ms std.math.lossyCast(windows.DWORD, duration_and_clock.duration.toMilliseconds());
     };
     windows.kernel32.Sleep(ms);
@@ -1132,8 +1131,6 @@ fn sleepPosix(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
             .sec = std.math.maxInt(sec_type),
             .nsec = std.math.maxInt(nsec_type),
         };
-        // TODO check which clock nanosleep uses on this host
-        // and return error.UnsupportedClock if it does not match
         const ns = d.duration.nanoseconds;
         break :t .{
             .sec = @intCast(@divFloor(ns, std.time.ns_per_s)),
@@ -2046,9 +2043,9 @@ fn clockToPosix(clock: Io.Timestamp.Clock) posix.clockid_t {
 fn clockToWasi(clock: Io.Timestamp.Clock) std.os.wasi.clockid_t {
     return switch (clock) {
         .realtime => .REALTIME,
-        .monotonic => .MONOTONIC,
-        .uptime => .MONOTONIC,
-        .process_cputime_id => .PROCESS_CPUTIME_ID,
-        .thread_cputime_id => .THREAD_CPUTIME_ID,
+        .awake => .MONOTONIC,
+        .boot => .MONOTONIC,
+        .cpu_process => .PROCESS_CPUTIME_ID,
+        .cpu_thread => .THREAD_CPUTIME_ID,
     };
 }

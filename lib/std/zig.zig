@@ -6,6 +6,7 @@ const std = @import("std.zig");
 const tokenizer = @import("zig/tokenizer.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const Writer = std.Io.Writer;
 
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
@@ -52,9 +53,9 @@ pub const Color = enum {
     /// Assume stderr is a terminal.
     on,
 
-    pub fn get_tty_conf(color: Color) std.Io.tty.Config {
+    pub fn get_tty_conf(color: Color) Io.tty.Config {
         return switch (color) {
-            .auto => std.Io.tty.detectConfig(std.fs.File.stderr()),
+            .auto => Io.tty.detectConfig(std.fs.File.stderr()),
             .on => .escape_codes,
             .off => .no_color,
         };
@@ -323,7 +324,7 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
 
-    pub fn format(id: BuildId, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    pub fn format(id: BuildId, writer: *Writer) Writer.Error!void {
         switch (id) {
             .none, .fast, .uuid, .sha1, .md5 => {
                 try writer.writeAll(@tagName(id));
@@ -620,8 +621,8 @@ pub fn putAstErrorsIntoBundle(
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
 }
 
-pub fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
-    return std.zig.system.resolveTargetQuery(target_query) catch |err|
+pub fn resolveTargetQueryOrFatal(io: Io, target_query: std.Target.Query) std.Target {
+    return std.zig.system.resolveTargetQuery(io, target_query) catch |err|
         std.process.fatal("unable to resolve target: {s}", .{@errorName(err)});
 }
 
