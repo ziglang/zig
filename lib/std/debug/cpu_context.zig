@@ -810,7 +810,7 @@ pub const Mips = extern struct {
     pub fn dwarfRegisterBytes(ctx: *Mips, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
-            37 => return @ptrCast(&ctx.pc),
+            66 => return @ptrCast(&ctx.pc),
 
             else => return error.InvalidRegister,
         }
