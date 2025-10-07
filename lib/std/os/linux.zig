@@ -2237,15 +2237,16 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     }
 }
 
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: At) usize {
+// TODO: flags is At Flags
+pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
     if (native_arch == .riscv32 or native_arch.isLoongArch()) {
         // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No fstatat syscall on this architecture.");
     } else if (@hasField(SYS, "fstatat64")) {
-        return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), @as(u32, @bitCast(flags)));
+        return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
     } else {
-        return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), @as(u32, @bitCast(flags)));
+        return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
     }
 }
 
@@ -3983,22 +3984,22 @@ pub const Sock = packed struct(u32) {
     // bit range is (8 - 32] of the u32
     /// Flags for socket, socketpair, accept4
     pub const Flags = if (is_sparc) packed struct(u25) {
-        _: u7 = 0, // start from u7 since Type comes before Flags
+        _8: u7 = 0, // start from u7 since Type comes before Flags
         nonblock: bool = false,
-        _1: u7 = 0,
+        _16: u7 = 0,
         cloexec: bool = false,
-        _2: u9 = 0,
+        _24: u9 = 0,
     } else if (is_mips) packed struct(u25) {
         nonblock: bool = false,
-        _: u11 = 0,
+        _9: u11 = 0,
         cloexec: bool = false,
-        _1: u12 = 0,
+        _21: u12 = 0,
     } else packed struct(u25) {
-        _: u4 = 0,
+        _8: u4 = 0,
         nonblock: bool = false,
-        _1: u7 = 0,
+        _13: u7 = 0,
         cloexec: bool = false,
-        _2: u12 = 0,
+        _21: u12 = 0,
     };
 
     // Deprecated aliases for SOCK
