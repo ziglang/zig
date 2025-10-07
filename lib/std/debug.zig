@@ -697,7 +697,10 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
     var printed_any_frame = false;
     while (true) switch (it.next()) {
         .switch_to_fp => |unwind_error| {
-            if (StackIterator.abi_requires_backchain or StackIterator.fp_unwind_is_safe) continue; // no need to even warn
+            switch (StackIterator.fp_usability) {
+                .useless, .unsafe => {},
+                .safe, .ideal => continue, // no need to even warn
+            }
             const module_name = di.getModuleName(di_gpa, unwind_error.address) catch "???";
             const caption: []const u8 = switch (unwind_error.err) {
                 error.MissingDebugInfo => "unwind info unavailable",
@@ -840,7 +843,8 @@ const StackIterator = union(enum) {
         if (!(builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) and
             SelfInfo != void and
             SelfInfo.can_unwind and
-            cpu_context.Native != noreturn)
+            cpu_context.Native != noreturn and
+            fp_usability != .ideal)
         {
             // We don't need `di_first` here, because our PC is in `std.debug`; we're only interested
             // in our caller's frame and above.
@@ -855,32 +859,41 @@ const StackIterator = union(enum) {
         }
     }
 
-    /// Some architectures make FP unwinding too impractical. For example, due to its very silly ABI
-    /// design decisions, it's not possible to do generic FP unwinding on MIPS; we would need to do
-    /// a complicated code scanning algorithm instead. At that point, we may as well just use DWARF.
-    const fp_unwind_is_impossible = switch (builtin.cpu.arch) {
+    const FpUsability = enum {
+        /// FP unwinding is impractical on this target. For example, due to its very silly ABI
+        /// design decisions, it's not possible to do generic FP unwinding on MIPS without a
+        /// complicated code scanning algorithm.
+        useless,
+        /// FP unwinding is unsafe on this target; we may crash when doing so. We will only perform
+        /// FP unwinding in the case of crashes/panics, or if the user opts in.
+        unsafe,
+        /// FP unwinding is guaranteed to be safe on this target. We will do so if unwinding with
+        /// debug info does not work, and if this compilation has frame pointers enabled.
+        safe,
+        /// FP unwinding is the best option on this target. This is usually because the ABI requires
+        /// a backchain pointer, thus making it always available, safe, and fast.
+        ideal,
+    };
+
+    const fp_usability: FpUsability = switch (builtin.target.cpu.arch) {
         .mips,
         .mipsel,
         .mips64,
         .mips64el,
-        => true,
-        else => false,
-    };
-
-    /// <https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms#Respect-the-purpose-of-specific-CPU-registers>
-    const fp_unwind_is_safe = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();
-
-    /// On some architectures, we can do FP unwinding even with `-fomit-frame-pointer` due to ABI
-    /// requirements. Typically this is because the ABI requires a backchain regardless of whether
-    /// codegen actually uses a frame pointer for stack frame access.
-    const abi_requires_backchain = switch (builtin.cpu.arch) {
+        => .useless,
         .hexagon,
+        // The PowerPC ABIs don't actually strictly require a backchain pointer; they allow omitting
+        // it when full unwind info is present. Despite this, both GCC and Clang always enforce the
+        // presence of the backchain pointer no matter what options they are given. This seems to be
+        // a case of "the spec is only a polite suggestion", except it works in our favor this time!
         .powerpc,
         .powerpcle,
         .powerpc64,
         .powerpc64le,
-        => true,
-        else => false,
+        => .ideal,
+        // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms#Respect-the-purpose-of-specific-CPU-registers
+        .aarch64 => if (builtin.target.os.tag.isDarwin()) .safe else .unsafe,
+        else => .unsafe,
     };
 
     /// Whether the current unwind strategy is allowed given `allow_unsafe`.
@@ -891,13 +904,11 @@ const StackIterator = union(enum) {
             // immediately regardless of anything. But FPs could also be omitted from a different
             // linked object, so it's not guaranteed to be safe, unless the target specifically
             // requires it.
-            .fp => s: {
-                if (fp_unwind_is_impossible) break :s false;
-                if (abi_requires_backchain) break :s true;
-                if (builtin.omit_frame_pointer) break :s false;
-                if (fp_unwind_is_safe) break :s true;
-                if (allow_unsafe) break :s true;
-                break :s false;
+            .fp => switch (fp_usability) {
+                .useless => false,
+                .unsafe => allow_unsafe and !builtin.omit_frame_pointer,
+                .safe => !builtin.omit_frame_pointer,
+                .ideal => true,
             },
         };
     }
