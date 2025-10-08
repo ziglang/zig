@@ -8,6 +8,8 @@ else switch (native_arch) {
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .hexagon => Hexagon,
     .loongarch32, .loongarch64 => LoongArch,
+    .mips, .mipsel, .mips64, .mips64el => Mips,
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .s390x => S390x,
     .x86 => X86,
@@ -196,6 +198,33 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             },
             else => null,
         },
+        .mips, .mipsel => switch (builtin.os.tag) {
+            // The O32 kABI uses 64-bit fields for some reason...
+            .linux => .{
+                .r = s: {
+                    var regs: [32]Mips.Gpr = undefined;
+                    for (uc.mcontext.regs, 0..) |r, i| regs[i] = @truncate(r); // includes r0 (hardwired zero)
+                    break :s regs;
+                },
+                .pc = @truncate(uc.mcontext.pc),
+            },
+            else => null,
+        },
+        .mips64, .mips64el => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.regs, // includes r0 (hardwired zero)
+                .pc = uc.mcontext.pc,
+            },
+            else => null,
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (builtin.os.tag) {
+            .linux => .{
+                .r = uc.mcontext.gp_regs[0..32].*,
+                .pc = uc.mcontext.gp_regs[32],
+                .lr = uc.mcontext.gp_regs[36],
+            },
+            else => null,
+        },
         .riscv32, .riscv64 => switch (builtin.os.tag) {
             .linux => .{
                 .r = [1]usize{0} ++ uc.mcontext.gregs[1..].*, // r0 position is used for pc; replace with zero
@@ -210,7 +239,6 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         .s390x => switch (builtin.os.tag) {
             .linux => .{
                 .r = uc.mcontext.gregs,
-                .f = uc.mcontext.fregs,
                 .psw = .{
                     .mask = uc.mcontext.psw.mask,
                     .addr = uc.mcontext.psw.addr,
@@ -269,7 +297,7 @@ pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
     };
 }
 
-pub const X86 = struct {
+const X86 = struct {
     /// The first 8 registers here intentionally match the order of registers in the x86 instruction
     /// encoding. This order is inherited by the PUSHA instruction and the DWARF register mappings,
     /// among other things.
@@ -313,7 +341,7 @@ pub const X86 = struct {
             // x86-macos is a deprecated target which is not supported by the Zig Standard Library.
             0...8 => return @ptrCast(&ctx.gprs.values[register_num]),
 
-            9 => return error.UnsupportedRegister, // rflags
+            9 => return error.UnsupportedRegister, // eflags
             11...18 => return error.UnsupportedRegister, // st0 - st7
             21...28 => return error.UnsupportedRegister, // xmm0 - xmm7
             29...36 => return error.UnsupportedRegister, // mm0 - mm7
@@ -321,14 +349,14 @@ pub const X86 = struct {
             40...45 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
             48 => return error.UnsupportedRegister, // tr
             49 => return error.UnsupportedRegister, // ldtr
-            93...94 => return error.UnsupportedRegister, // fs.base, gs.base
+            93...100 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
 
             else => return error.InvalidRegister,
         }
     }
 };
 
-pub const X86_64 = struct {
+const X86_64 = struct {
     /// The order here intentionally matches the order of the DWARF register mappings. It's unclear
     /// where those mappings actually originated from---the ordering of the first 4 registers seems
     /// quite unusual---but it is currently convenient for us to match DWARF.
@@ -389,13 +417,16 @@ pub const X86_64 = struct {
             64 => return error.UnsupportedRegister, // mxcsr
             65 => return error.UnsupportedRegister, // fcw
             66 => return error.UnsupportedRegister, // fsw
+            67...82 => return error.UnsupportedRegister, // xmm16 - xmm31 (AVX-512)
+            118...125 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
+            130...145 => return error.UnsupportedRegister, // r16 - r31 (APX)
 
             else => return error.InvalidRegister,
         }
     }
 };
 
-pub const Arm = struct {
+const Arm = struct {
     /// The numbered general-purpose registers R0 - R15.
     r: [16]u32,
 
@@ -449,7 +480,7 @@ pub const Arm = struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Aarch64 = extern struct {
+const Aarch64 = extern struct {
     /// The numbered general-purpose registers X0 - X30.
     x: [31]u64,
     sp: u64,
@@ -492,13 +523,13 @@ pub const Aarch64 = extern struct {
             31 => return @ptrCast(&ctx.sp),
             32 => return @ptrCast(&ctx.pc),
 
-            33 => return error.UnsupportedRegister, // ELF_mode
+            33 => return error.UnsupportedRegister, // ELR_mode
             34 => return error.UnsupportedRegister, // RA_SIGN_STATE
             35 => return error.UnsupportedRegister, // TPIDRRO_ELO
-            36 => return error.UnsupportedRegister, // RPIDR_ELO
-            37 => return error.UnsupportedRegister, // RPIDR_EL1
-            38 => return error.UnsupportedRegister, // RPIDR_EL2
-            39 => return error.UnsupportedRegister, // RPIDR_EL3
+            36 => return error.UnsupportedRegister, // TPIDR_ELO
+            37 => return error.UnsupportedRegister, // TPIDR_EL1
+            38 => return error.UnsupportedRegister, // TPIDR_EL2
+            39 => return error.UnsupportedRegister, // TPIDR_EL3
             46 => return error.UnsupportedRegister, // VG
             47 => return error.UnsupportedRegister, // FFR
             48...63 => return error.UnsupportedRegister, // P0 - P15
@@ -511,7 +542,7 @@ pub const Aarch64 = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Hexagon = extern struct {
+const Hexagon = extern struct {
     /// The numbered general-purpose registers r0 - r31.
     r: [32]u32,
     pc: u32,
@@ -579,14 +610,16 @@ pub const Hexagon = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const LoongArch = extern struct {
+const LoongArch = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
-    r: [32]usize,
-    pc: usize,
+    r: [32]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch == .loongarch64) u64 else u32;
 
     pub inline fn current() LoongArch {
         var ctx: LoongArch = undefined;
-        asm volatile (if (@sizeOf(usize) == 8)
+        asm volatile (if (Gpr == u64)
                 \\ st.d $zero, $t0, 0
                 \\ st.d $ra, $t0, 8
                 \\ st.d $tp, $t0, 16
@@ -669,7 +702,9 @@ pub const LoongArch = extern struct {
     pub fn dwarfRegisterBytes(ctx: *LoongArch, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
-            32 => return @ptrCast(&ctx.pc),
+            64 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
 
             else => return error.InvalidRegister,
         }
@@ -677,14 +712,294 @@ pub const LoongArch = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const Riscv = extern struct {
+const Mips = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
-    r: [32]usize,
-    pc: usize,
+    r: [32]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch.isMIPS64()) u64 else u32;
+
+    pub inline fn current() Mips {
+        var ctx: Mips = undefined;
+        asm volatile (if (Gpr == u64)
+                \\ .set push
+                \\ .set noat
+                \\ .set noreorder
+                \\ .set nomacro
+                \\ sd $zero, 0($t0)
+                \\ sd $at, 8($t0)
+                \\ sd $v0, 16($t0)
+                \\ sd $v1, 24($t0)
+                \\ sd $a0, 32($t0)
+                \\ sd $a1, 40($t0)
+                \\ sd $a2, 48($t0)
+                \\ sd $a3, 56($t0)
+                \\ sd $a4, 64($t0)
+                \\ sd $a5, 72($t0)
+                \\ sd $a6, 80($t0)
+                \\ sd $a7, 88($t0)
+                \\ sd $t0, 96($t0)
+                \\ sd $t1, 104($t0)
+                \\ sd $t2, 112($t0)
+                \\ sd $t3, 120($t0)
+                \\ sd $s0, 128($t0)
+                \\ sd $s1, 136($t0)
+                \\ sd $s2, 144($t0)
+                \\ sd $s3, 152($t0)
+                \\ sd $s4, 160($t0)
+                \\ sd $s5, 168($t0)
+                \\ sd $s6, 176($t0)
+                \\ sd $s7, 184($t0)
+                \\ sd $t8, 192($t0)
+                \\ sd $t9, 200($t0)
+                \\ sd $k0, 208($t0)
+                \\ sd $k1, 216($t0)
+                \\ sd $gp, 224($t0)
+                \\ sd $sp, 232($t0)
+                \\ sd $fp, 240($t0)
+                \\ sd $ra, 248($t0)
+                \\ bal 1f
+                \\1:
+                \\ sd $ra, 256($t0)
+                \\ ld $ra, 248($t0)
+                \\ .set pop
+            else
+                \\ .set push
+                \\ .set noat
+                \\ .set noreorder
+                \\ .set nomacro
+                \\ sw $zero, 0($t4)
+                \\ sw $at, 4($t4)
+                \\ sw $v0, 8($t4)
+                \\ sw $v1, 12($t4)
+                \\ sw $a0, 16($t4)
+                \\ sw $a1, 20($t4)
+                \\ sw $a2, 24($t4)
+                \\ sw $a3, 28($t4)
+                \\ sw $t0, 32($t4)
+                \\ sw $t1, 36($t4)
+                \\ sw $t2, 40($t4)
+                \\ sw $t3, 44($t4)
+                \\ sw $t4, 48($t4)
+                \\ sw $t5, 52($t4)
+                \\ sw $t6, 56($t4)
+                \\ sw $t7, 60($t4)
+                \\ sw $s0, 64($t4)
+                \\ sw $s1, 68($t4)
+                \\ sw $s2, 72($t4)
+                \\ sw $s3, 76($t4)
+                \\ sw $s4, 80($t4)
+                \\ sw $s5, 84($t4)
+                \\ sw $s6, 88($t4)
+                \\ sw $s7, 92($t4)
+                \\ sw $t8, 96($t4)
+                \\ sw $t9, 100($t4)
+                \\ sw $k0, 104($t4)
+                \\ sw $k1, 108($t4)
+                \\ sw $gp, 112($t4)
+                \\ sw $sp, 116($t4)
+                \\ sw $fp, 120($t4)
+                \\ sw $ra, 124($t4)
+                \\ bal 1f
+                \\1:
+                \\ sw $ra, 128($t4)
+                \\ lw $ra, 124($t4)
+                \\ .set pop
+            :
+            : [gprs] "{$12}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Mips, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            66 => return @ptrCast(&ctx.pc),
+
+            // Who the hell knows what numbers exist for this architecture? What's an ABI
+            // specification anyway? We don't need that nonsense.
+            32...63 => return error.UnsupportedRegister, // f0 - f31, w0 - w31
+            64 => return error.UnsupportedRegister, // hi0 (ac0)
+            65 => return error.UnsupportedRegister, // lo0 (ac0)
+            176 => return error.UnsupportedRegister, // hi1 (ac1)
+            177 => return error.UnsupportedRegister, // lo1 (ac1)
+            178 => return error.UnsupportedRegister, // hi2 (ac2)
+            179 => return error.UnsupportedRegister, // lo2 (ac2)
+            180 => return error.UnsupportedRegister, // hi3 (ac3)
+            181 => return error.UnsupportedRegister, // lo3 (ac3)
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Powerpc = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]Gpr,
+    pc: Gpr,
+    lr: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch.isPowerPC64()) u64 else u32;
+
+    pub inline fn current() Powerpc {
+        var ctx: Powerpc = undefined;
+        asm volatile (if (Gpr == u64)
+                \\ std 0, 0(10)
+                \\ std 1, 8(10)
+                \\ std 2, 16(10)
+                \\ std 3, 24(10)
+                \\ std 4, 32(10)
+                \\ std 5, 40(10)
+                \\ std 6, 48(10)
+                \\ std 7, 56(10)
+                \\ std 8, 64(10)
+                \\ std 9, 72(10)
+                \\ std 10, 80(10)
+                \\ std 11, 88(10)
+                \\ std 12, 96(10)
+                \\ std 13, 104(10)
+                \\ std 14, 112(10)
+                \\ std 15, 120(10)
+                \\ std 16, 128(10)
+                \\ std 17, 136(10)
+                \\ std 18, 144(10)
+                \\ std 19, 152(10)
+                \\ std 20, 160(10)
+                \\ std 21, 168(10)
+                \\ std 22, 176(10)
+                \\ std 23, 184(10)
+                \\ std 24, 192(10)
+                \\ std 25, 200(10)
+                \\ std 26, 208(10)
+                \\ std 27, 216(10)
+                \\ std 28, 224(10)
+                \\ std 29, 232(10)
+                \\ std 30, 240(10)
+                \\ std 31, 248(10)
+                \\ mflr 8
+                \\ std 8, 264(10)
+                \\ bl 1f
+                \\1:
+                \\ mflr 8
+                \\ std 8, 256(10)
+                \\ ld 8, 64(10)
+            else
+                \\ stw 0, 0(10)
+                \\ stw 1, 4(10)
+                \\ stw 2, 8(10)
+                \\ stw 3, 12(10)
+                \\ stw 4, 16(10)
+                \\ stw 5, 20(10)
+                \\ stw 6, 24(10)
+                \\ stw 7, 28(10)
+                \\ stw 8, 32(10)
+                \\ stw 9, 36(10)
+                \\ stw 10, 40(10)
+                \\ stw 11, 44(10)
+                \\ stw 12, 48(10)
+                \\ stw 13, 52(10)
+                \\ stw 14, 56(10)
+                \\ stw 15, 60(10)
+                \\ stw 16, 64(10)
+                \\ stw 17, 68(10)
+                \\ stw 18, 72(10)
+                \\ stw 19, 76(10)
+                \\ stw 20, 80(10)
+                \\ stw 21, 84(10)
+                \\ stw 22, 88(10)
+                \\ stw 23, 92(10)
+                \\ stw 24, 96(10)
+                \\ stw 25, 100(10)
+                \\ stw 26, 104(10)
+                \\ stw 27, 108(10)
+                \\ stw 28, 112(10)
+                \\ stw 29, 116(10)
+                \\ stw 30, 120(10)
+                \\ stw 31, 124(10)
+                \\ mflr 8
+                \\ stw 8, 132(10)
+                \\ bl 1f
+                \\1:
+                \\ mflr 8
+                \\ stw 8, 128(10)
+                \\ lwz 8, 32(10)
+            :
+            : [gprs] "{r10}" (&ctx),
+            : .{ .lr = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Powerpc, register_num: u16) DwarfRegisterError![]u8 {
+        // References:
+        //
+        // * System V Application Binary Interface - PowerPC Processor Supplement §3-46
+        // * Power Architecture 32-bit Application Binary Interface Supplement 1.0 - Linux & Embedded §3.4
+        // * 64-bit ELF V2 ABI Specification - Power Architecture Revision 1.5 §2.4
+        // * ??? AIX?
+        //
+        // Are we having fun yet?
+
+        if (Gpr == u64) switch (register_num) {
+            65 => return @ptrCast(&ctx.lr), // lr
+
+            66 => return error.UnsupportedRegister, // ctr
+            68...75 => return error.UnsupportedRegister, // cr0 - cr7
+            76 => return error.UnsupportedRegister, // xer
+            77...108 => return error.UnsupportedRegister, // vr0 - vr31
+            109 => return error.UnsupportedRegister, // vrsave (LLVM)
+            110 => return error.UnsupportedRegister, // vscr
+            114 => return error.UnsupportedRegister, // tfhar
+            115 => return error.UnsupportedRegister, // tfiar
+            116 => return error.UnsupportedRegister, // texasr
+
+            else => {},
+        } else switch (register_num) {
+            65 => return @ptrCast(&ctx.lr), // fpscr (SVR4 / EABI), or lr if you ask LLVM
+            108 => return @ptrCast(&ctx.lr),
+
+            64 => return error.UnsupportedRegister, // cr
+            66 => return error.UnsupportedRegister, // msr (SVR4 / EABI), or ctr if you ask LLVM
+            68...75 => return error.UnsupportedRegister, // cr0 - cr7 if you ask LLVM
+            76 => return error.UnsupportedRegister, // xer if you ask LLVM
+            99 => return error.UnsupportedRegister, // acc
+            100 => return error.UnsupportedRegister, // mq
+            101 => return error.UnsupportedRegister, // xer
+            102...107 => return error.UnsupportedRegister, // SPRs
+            109 => return error.UnsupportedRegister, // ctr
+            110...111 => return error.UnsupportedRegister, // SPRs
+            112 => return error.UnsupportedRegister, // spefscr
+            113...1123 => return error.UnsupportedRegister, // SPRs
+            1124...1155 => return error.UnsupportedRegister, // SPE v0 - v31
+            1200...1231 => return error.UnsupportedRegister, // SPE upper r0 - r31
+            3072...4095 => return error.UnsupportedRegister, // DCRs
+            4096...5120 => return error.UnsupportedRegister, // PMRs
+
+            else => {},
+        }
+
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            67 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Riscv = extern struct {
+    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
+    r: [32]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (builtin.target.cpu.arch.isRiscv64()) u64 else u32;
 
     pub inline fn current() Riscv {
         var ctx: Riscv = undefined;
-        asm volatile (if (@sizeOf(usize) == 8)
+        asm volatile (if (Gpr == u64)
                 \\ sd zero, 0(t0)
                 \\ sd ra, 8(t0)
                 \\ sd sp, 16(t0)
@@ -767,7 +1082,13 @@ pub const Riscv = extern struct {
     pub fn dwarfRegisterBytes(ctx: *Riscv, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
-            32 => return @ptrCast(&ctx.pc),
+            65 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
+            64 => return error.UnsupportedRegister, // Alternate Frame Return Column
+            96...127 => return error.UnsupportedRegister, // v0 - v31
+            3072...4095 => return error.UnsupportedRegister, // Custom extensions
+            4096...8191 => return error.UnsupportedRegister, // CSRs
 
             else => return error.InvalidRegister,
         }
@@ -775,11 +1096,9 @@ pub const Riscv = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-pub const S390x = extern struct {
+const S390x = extern struct {
     /// The numbered general-purpose registers r0 - r15.
     r: [16]u64,
-    /// The numbered floating-point registers f0 - f15. Yes, really - they can be used in DWARF CFI.
-    f: [16]f64,
     /// The program counter.
     psw: extern struct {
         mask: u64,
@@ -790,26 +1109,10 @@ pub const S390x = extern struct {
         var ctx: S390x = undefined;
         asm volatile (
             \\ stmg %%r0, %%r15, 0(%%r2)
-            \\ std %%f0, 128(%%r2)
-            \\ std %%f1, 136(%%r2)
-            \\ std %%f2, 144(%%r2)
-            \\ std %%f3, 152(%%r2)
-            \\ std %%f4, 160(%%r2)
-            \\ std %%f5, 168(%%r2)
-            \\ std %%f6, 176(%%r2)
-            \\ std %%f7, 184(%%r2)
-            \\ std %%f8, 192(%%r2)
-            \\ std %%f9, 200(%%r2)
-            \\ std %%f10, 208(%%r2)
-            \\ std %%f11, 216(%%r2)
-            \\ std %%f12, 224(%%r2)
-            \\ std %%f13, 232(%%r2)
-            \\ std %%f14, 240(%%r2)
-            \\ std %%f15, 248(%%r2)
             \\ epsw %%r0, %%r1
-            \\ stm %%r0, %%r1, 256(%%r2)
+            \\ stm %%r0, %%r1, 128(%%r2)
             \\ larl %%r0, .
-            \\ stg %%r0, 264(%%r2)
+            \\ stg %%r0, 136(%%r2)
             \\ lg %%r0, 0(%%r2)
             \\ lg %%r1, 8(%%r2)
             :
@@ -821,27 +1124,13 @@ pub const S390x = extern struct {
     pub fn dwarfRegisterBytes(ctx: *S390x, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...15 => return @ptrCast(&ctx.r[register_num]),
-            // Why???
-            16 => return @ptrCast(&ctx.f[0]),
-            17 => return @ptrCast(&ctx.f[2]),
-            18 => return @ptrCast(&ctx.f[4]),
-            19 => return @ptrCast(&ctx.f[6]),
-            20 => return @ptrCast(&ctx.f[1]),
-            21 => return @ptrCast(&ctx.f[3]),
-            22 => return @ptrCast(&ctx.f[5]),
-            23 => return @ptrCast(&ctx.f[7]),
-            24 => return @ptrCast(&ctx.f[8]),
-            25 => return @ptrCast(&ctx.f[10]),
-            26 => return @ptrCast(&ctx.f[12]),
-            27 => return @ptrCast(&ctx.f[14]),
-            28 => return @ptrCast(&ctx.f[9]),
-            29 => return @ptrCast(&ctx.f[11]),
-            30 => return @ptrCast(&ctx.f[13]),
-            31 => return @ptrCast(&ctx.f[15]),
             64 => return @ptrCast(&ctx.psw.mask),
             65 => return @ptrCast(&ctx.psw.addr),
 
+            16...31 => return error.UnsupportedRegister, // f0 - f15
+            32...47 => return error.UnsupportedRegister, // cr0 - cr15
             48...63 => return error.UnsupportedRegister, // a0 - a15
+            66...67 => return error.UnsupportedRegister, // z/OS stuff???
             68...83 => return error.UnsupportedRegister, // v16 - v31
 
             else => return error.InvalidRegister,

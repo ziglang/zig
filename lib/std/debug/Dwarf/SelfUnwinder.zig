@@ -229,8 +229,10 @@ fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheE
         } = switch (rule) {
             .default => val: {
                 // The default rule is typically equivalent to `.undefined`, but ABIs may override it.
-                if (builtin.cpu.arch.isAARCH64() and register >= 19 and register <= 28) {
-                    break :val .same;
+                switch (builtin.target.cpu.arch) {
+                    .aarch64, .aarch64_be => if (register >= 19 and register <= 28) break :val .same,
+                    .s390x => if (register >= 6 and register <= 15) break :val .same,
+                    else => {},
                 }
                 break :val .undefined;
             },

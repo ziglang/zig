@@ -623,7 +623,7 @@ pub const StackUnwindOptions = struct {
 /// the given buffer, so `addr_buf` must have a lifetime at least equal to the `StackTrace`.
 ///
 /// See `writeCurrentStackTrace` to immediately print the trace instead of capturing it.
-pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) std.builtin.StackTrace {
+pub noinline fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) std.builtin.StackTrace {
     const empty_trace: std.builtin.StackTrace = .{ .index = 0, .instruction_addresses = &.{} };
     if (!std.options.allow_stack_tracing) return empty_trace;
     var it = StackIterator.init(options.context) catch return empty_trace;
@@ -661,7 +661,7 @@ pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) 
 /// Write the current stack trace to `writer`, annotated with source locations.
 ///
 /// See `captureCurrentStackTrace` to capture the trace addresses into a buffer instead of printing.
-pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
     if (!std.options.allow_stack_tracing) {
         tty_config.setColor(writer, .dim) catch {};
         try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
