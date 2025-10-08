@@ -2291,24 +2291,12 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_single_threaded and test_target.single_threaded == true)
             continue;
 
-        // TODO get compiler-rt tests passing for self-hosted backends.
-        if (((target.cpu.arch != .x86_64 and target.cpu.arch != .aarch64) or target.ofmt == .coff) and
-            test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
-            continue;
-
-        // TODO get zigc tests passing for other self-hosted backends.
-        if (target.cpu.arch != .x86_64 and
-            test_target.use_llvm == false and mem.eql(u8, options.name, "zigc"))
-            continue;
-
-        // TODO get std lib tests passing for other self-hosted backends.
-        if ((target.cpu.arch != .x86_64 or target.os.tag != .linux) and
-            test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
-            continue;
-
-        if (target.cpu.arch != .x86_64 and
-            test_target.use_llvm == false and mem.eql(u8, options.name, "c-import"))
-            continue;
+        if (!would_use_llvm and target.cpu.arch == .aarch64) {
+            // TODO get std tests passing for the aarch64 self-hosted backend.
+            if (mem.eql(u8, options.name, "std")) continue;
+            // TODO get zigc tests passing for the aarch64 self-hosted backend.
+            if (mem.eql(u8, options.name, "zigc")) continue;
+        }
 
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
@@ -2362,7 +2350,7 @@ fn addOneModuleTest(
     const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
     const backend_suffix = if (test_target.use_llvm == true)
         "-llvm"
-    else if (target.ofmt == std.Target.ObjectFormat.c)
+    else if (target.ofmt == .c)
         "-cbe"
     else if (test_target.use_llvm == false)
         "-selfhosted"
@@ -2389,7 +2377,7 @@ fn addOneModuleTest(
         use_pic,
     });
 
-    if (target.ofmt == std.Target.ObjectFormat.c) {
+    if (target.ofmt == .c) {
         var altered_query = test_target.target;
         altered_query.ofmt = null;
 

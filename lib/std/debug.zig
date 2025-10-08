@@ -468,10 +468,6 @@ const use_trap_panic = switch (builtin.zig_backend) {
     .stage2_wasm,
     .stage2_x86,
     => true,
-    .stage2_x86_64 => switch (builtin.target.ofmt) {
-        .elf, .macho => false,
-        else => true,
-    },
     else => false,
 };
 
@@ -483,22 +479,6 @@ pub fn defaultPanic(
     @branchHint(.cold);
 
     if (use_trap_panic) @trap();
-
-    switch (builtin.zig_backend) {
-        .stage2_aarch64,
-        .stage2_arm,
-        .stage2_powerpc,
-        .stage2_riscv64,
-        .stage2_spirv,
-        .stage2_wasm,
-        .stage2_x86,
-        => @trap(),
-        .stage2_x86_64 => switch (builtin.target.ofmt) {
-            .elf, .macho => {},
-            else => @trap(),
-        },
-        else => {},
-    }
 
     switch (builtin.os.tag) {
         .freestanding, .other => {

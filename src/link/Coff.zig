@@ -9,7 +9,9 @@ strings: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ),
 string_bytes: std.ArrayList(u8),
-section_table: std.ArrayList(Symbol.Index),
+image_section_table: std.ArrayList(Symbol.Index),
+pseudo_section_table: std.AutoArrayHashMapUnmanaged(String, Symbol.Index),
+object_section_table: std.AutoArrayHashMapUnmanaged(String, Symbol.Index),
 symbol_table: std.ArrayList(Symbol),
 globals: std.AutoArrayHashMapUnmanaged(GlobalName, Symbol.Index),
 global_pending_index: u32,
@@ -24,8 +26,6 @@ pending_uavs: std.AutoArrayHashMapUnmanaged(Node.UavMapIndex, struct {
     src_loc: Zcu.LazySrcLoc,
 }),
 relocs: std.ArrayList(Reloc),
-/// This is hiding actual bugs with global symbols! Reconsider once they are implemented correctly.
-entry_hack: Symbol.Index,
 
 pub const default_file_alignment: u16 = 0x200;
 pub const default_size_of_stack_reserve: u32 = 0x1000000;
@@ -102,16 +102,44 @@ pub const Node = union(enum) {
     optional_header,
     data_directories,
     section_table,
-    section: Symbol.Index,
+    image_section: Symbol.Index,
+
     import_directory_table,
     import_lookup_table: ImportTable.Index,
     import_address_table: ImportTable.Index,
     import_hint_name_table: ImportTable.Index,
+
+    pseudo_section: PseudoSectionMapIndex,
+    object_section: ObjectSectionMapIndex,
     global: GlobalMapIndex,
     nav: NavMapIndex,
     uav: UavMapIndex,
     lazy_code: LazyMapRef.Index(.code),
     lazy_const_data: LazyMapRef.Index(.const_data),
+
+    pub const PseudoSectionMapIndex = enum(u32) {
+        _,
+
+        pub fn name(psmi: PseudoSectionMapIndex, coff: *const Coff) String {
+            return coff.pseudo_section_table.keys()[@intFromEnum(psmi)];
+        }
+
+        pub fn symbol(psmi: PseudoSectionMapIndex, coff: *const Coff) Symbol.Index {
+            return coff.pseudo_section_table.values()[@intFromEnum(psmi)];
+        }
+    };
+
+    pub const ObjectSectionMapIndex = enum(u32) {
+        _,
+
+        pub fn name(osmi: ObjectSectionMapIndex, coff: *const Coff) String {
+            return coff.object_section_table.keys()[@intFromEnum(osmi)];
+        }
+
+        pub fn symbol(osmi: ObjectSectionMapIndex, coff: *const Coff) Symbol.Index {
+            return coff.object_section_table.values()[@intFromEnum(osmi)];
+        }
+    };
 
     pub const GlobalMapIndex = enum(u32) {
         _,
@@ -204,27 +232,6 @@ pub const Node = union(enum) {
     }
 };
 
-pub const DataDirectory = enum {
-    export_table,
-    import_table,
-    resorce_table,
-    exception_table,
-    certificate_table,
-    base_relocation_table,
-    debug,
-    architecture,
-    global_ptr,
-    tls_table,
-    load_config_table,
-    bound_import,
-    import_address_table,
-    delay_import_descriptor,
-    clr_runtime_header,
-    reserved,
-
-    pub const len = @typeInfo(DataDirectory).@"enum".fields.len;
-};
-
 pub const ImportTable = struct {
     ni: MappedFile.Node.Index,
     entries: std.AutoArrayHashMapUnmanaged(void, Entry),
@@ -264,9 +271,18 @@ pub const ImportTable = struct {
 };
 
 pub const String = enum(u32) {
+    @".data" = 0,
+    @".idata" = 6,
+    @".rdata" = 13,
+    @".text" = 20,
+    @".tls$" = 26,
     _,
 
     pub const Optional = enum(u32) {
+        @".data" = @intFromEnum(String.@".data"),
+        @".rdata" = @intFromEnum(String.@".rdata"),
+        @".text" = @intFromEnum(String.@".text"),
+        @".tls$" = @intFromEnum(String.@".tls$"),
         none = std.math.maxInt(u32),
         _,
 
@@ -318,7 +334,7 @@ pub const Symbol = struct {
         }
 
         pub fn symbol(sn: SectionNumber, coff: *const Coff) Symbol.Index {
-            return coff.section_table.items[sn.toIndex()];
+            return coff.image_section_table.items[sn.toIndex()];
         }
 
         pub fn header(sn: SectionNumber, coff: *Coff) *std.coff.SectionHeader {
@@ -329,7 +345,6 @@ pub const Symbol = struct {
     pub const Index = enum(u32) {
         null,
         data,
-        idata,
         rdata,
         text,
         _,
@@ -349,10 +364,6 @@ pub const Symbol = struct {
         pub fn flushMoved(si: Symbol.Index, coff: *Coff) void {
             const sym = si.get(coff);
             sym.rva = coff.computeNodeRva(sym.ni);
-            if (si == coff.entry_hack) {
-                @branchHint(.unlikely);
-                coff.targetStore(&coff.optionalHeaderStandardPtr().address_of_entry_point, sym.rva);
-            }
             si.applyLocationRelocs(coff);
             si.applyTargetRelocs(coff);
         }
@@ -493,6 +504,12 @@ pub const Reloc = extern struct {
                     @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 9)))),
                     target_endian,
                 ),
+                .SECREL => std.mem.writeInt(
+                    u32,
+                    loc_slice[0..4],
+                    coff.computeNodeSectionOffset(target_sym.ni),
+                    target_endian,
+                ),
             },
             .I386 => switch (reloc.type.I386) {
                 else => |kind| @panic(@tagName(kind)),
@@ -525,6 +542,12 @@ pub const Reloc = extern struct {
                     i32,
                     loc_slice[0..4],
                     @intCast(@as(i64, @bitCast(target_rva -% (loc_sym.rva + reloc.offset + 4)))),
+                    target_endian,
+                ),
+                .SECREL => std.mem.writeInt(
+                    u32,
+                    loc_slice[0..4],
+                    coff.computeNodeSectionOffset(target_sym.ni),
                     target_endian,
                 ),
             },
@@ -634,7 +657,9 @@ fn create(
         },
         .strings = .empty,
         .string_bytes = .empty,
-        .section_table = .empty,
+        .image_section_table = .empty,
+        .pseudo_section_table = .empty,
+        .object_section_table = .empty,
         .symbol_table = .empty,
         .globals = .empty,
         .global_pending_index = 0,
@@ -646,9 +671,16 @@ fn create(
         }),
         .pending_uavs = .empty,
         .relocs = .empty,
-        .entry_hack = .null,
     };
     errdefer coff.deinit();
+
+    {
+        const strings = std.enums.values(String);
+        try coff.strings.ensureTotalCapacityContext(comp.gpa, @intCast(strings.len), .{
+            .bytes = &coff.string_bytes,
+        });
+        for (strings) |string| assert(try coff.getOrPutString(@tagName(string)) == string);
+    }
 
     try coff.initHeaders(
         is_image,
@@ -669,7 +701,9 @@ pub fn deinit(coff: *Coff) void {
     coff.import_table.entries.deinit(gpa);
     coff.strings.deinit(gpa);
     coff.string_bytes.deinit(gpa);
-    coff.section_table.deinit(gpa);
+    coff.image_section_table.deinit(gpa);
+    coff.pseudo_section_table.deinit(gpa);
+    coff.object_section_table.deinit(gpa);
     coff.symbol_table.deinit(gpa);
     coff.globals.deinit(gpa);
     coff.navs.deinit(gpa);
@@ -692,19 +726,21 @@ fn initHeaders(
 ) !void {
     const comp = coff.base.comp;
     const gpa = comp.gpa;
-    const file_align: std.mem.Alignment = comptime .fromByteUnits(default_file_alignment);
     const target_endian = coff.targetEndian();
+    const file_align: std.mem.Alignment = comptime .fromByteUnits(default_file_alignment);
 
     const optional_header_size: u16 = if (is_image) switch (magic) {
         _ => unreachable,
         inline else => |ct_magic| @sizeOf(@field(std.coff.OptionalHeader, @tagName(ct_magic))),
     } else 0;
     const data_directories_size: u16 = if (is_image)
-        @sizeOf(std.coff.ImageDataDirectory) * DataDirectory.len
+        @sizeOf(std.coff.ImageDataDirectory) * std.coff.IMAGE.DIRECTORY_ENTRY.len
     else
         0;
 
-    try coff.nodes.ensureTotalCapacity(gpa, Node.known_count);
+    const expected_nodes_len = Node.known_count + 6 +
+        @as(usize, @intFromBool(comp.config.any_non_single_threaded)) * 2;
+    try coff.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     coff.nodes.appendAssumeCapacity(.file);
 
     const header_ni = Node.known.header;
@@ -762,108 +798,110 @@ fn initHeaders(
         .fixed = true,
     }));
     coff.nodes.appendAssumeCapacity(.optional_header);
-    coff.targetStore(&coff.optionalHeaderStandardPtr().magic, magic);
-    if (is_image) switch (coff.optionalHeaderPtr()) {
-        .PE32 => |optional_header| {
-            optional_header.* = .{
-                .standard = .{
-                    .magic = .PE32,
-                    .major_linker_version = 0,
-                    .minor_linker_version = 0,
-                    .size_of_code = 0,
-                    .size_of_initialized_data = 0,
-                    .size_of_uninitialized_data = 0,
-                    .address_of_entry_point = 0,
-                    .base_of_code = 0,
-                },
-                .base_of_data = 0,
-                .image_base = switch (coff.base.comp.config.output_mode) {
-                    .Exe => 0x400000,
-                    .Lib => switch (coff.base.comp.config.link_mode) {
-                        .static => 0,
-                        .dynamic => 0x10000000,
+    if (is_image) {
+        coff.targetStore(&coff.optionalHeaderStandardPtr().magic, magic);
+        switch (coff.optionalHeaderPtr()) {
+            .PE32 => |optional_header| {
+                optional_header.* = .{
+                    .standard = .{
+                        .magic = .PE32,
+                        .major_linker_version = 0,
+                        .minor_linker_version = 0,
+                        .size_of_code = 0,
+                        .size_of_initialized_data = 0,
+                        .size_of_uninitialized_data = 0,
+                        .address_of_entry_point = 0,
+                        .base_of_code = 0,
                     },
-                    .Obj => 0,
-                },
-                .section_alignment = @intCast(section_align.toByteUnits()),
-                .file_alignment = @intCast(file_align.toByteUnits()),
-                .major_operating_system_version = 6,
-                .minor_operating_system_version = 0,
-                .major_image_version = 0,
-                .minor_image_version = 0,
-                .major_subsystem_version = major_subsystem_version,
-                .minor_subsystem_version = minor_subsystem_version,
-                .win32_version_value = 0,
-                .size_of_image = 0,
-                .size_of_headers = 0,
-                .checksum = 0,
-                .subsystem = .WINDOWS_CUI,
-                .dll_flags = .{
-                    .HIGH_ENTROPY_VA = true,
-                    .DYNAMIC_BASE = true,
-                    .TERMINAL_SERVER_AWARE = true,
-                    .NX_COMPAT = true,
-                },
-                .size_of_stack_reserve = default_size_of_stack_reserve,
-                .size_of_stack_commit = default_size_of_stack_commit,
-                .size_of_heap_reserve = default_size_of_heap_reserve,
-                .size_of_heap_commit = default_size_of_heap_commit,
-                .loader_flags = 0,
-                .number_of_rva_and_sizes = DataDirectory.len,
-            };
-            if (target_endian != native_endian)
-                std.mem.byteSwapAllFields(std.coff.OptionalHeader.PE32, optional_header);
-        },
-        .@"PE32+" => |optional_header| {
-            optional_header.* = .{
-                .standard = .{
-                    .magic = .@"PE32+",
-                    .major_linker_version = 0,
-                    .minor_linker_version = 0,
-                    .size_of_code = 0,
-                    .size_of_initialized_data = 0,
-                    .size_of_uninitialized_data = 0,
-                    .address_of_entry_point = 0,
-                    .base_of_code = 0,
-                },
-                .image_base = switch (coff.base.comp.config.output_mode) {
-                    .Exe => 0x140000000,
-                    .Lib => switch (coff.base.comp.config.link_mode) {
-                        .static => 0,
-                        .dynamic => 0x180000000,
+                    .base_of_data = 0,
+                    .image_base = switch (coff.base.comp.config.output_mode) {
+                        .Exe => 0x400000,
+                        .Lib => switch (coff.base.comp.config.link_mode) {
+                            .static => 0,
+                            .dynamic => 0x10000000,
+                        },
+                        .Obj => 0,
                     },
-                    .Obj => 0,
-                },
-                .section_alignment = @intCast(section_align.toByteUnits()),
-                .file_alignment = @intCast(file_align.toByteUnits()),
-                .major_operating_system_version = 6,
-                .minor_operating_system_version = 0,
-                .major_image_version = 0,
-                .minor_image_version = 0,
-                .major_subsystem_version = major_subsystem_version,
-                .minor_subsystem_version = minor_subsystem_version,
-                .win32_version_value = 0,
-                .size_of_image = 0,
-                .size_of_headers = 0,
-                .checksum = 0,
-                .subsystem = .WINDOWS_CUI,
-                .dll_flags = .{
-                    .HIGH_ENTROPY_VA = true,
-                    .DYNAMIC_BASE = true,
-                    .TERMINAL_SERVER_AWARE = true,
-                    .NX_COMPAT = true,
-                },
-                .size_of_stack_reserve = default_size_of_stack_reserve,
-                .size_of_stack_commit = default_size_of_stack_commit,
-                .size_of_heap_reserve = default_size_of_heap_reserve,
-                .size_of_heap_commit = default_size_of_heap_commit,
-                .loader_flags = 0,
-                .number_of_rva_and_sizes = DataDirectory.len,
-            };
-            if (target_endian != native_endian)
-                std.mem.byteSwapAllFields(std.coff.OptionalHeader.@"PE32+", optional_header);
-        },
-    };
+                    .section_alignment = @intCast(section_align.toByteUnits()),
+                    .file_alignment = @intCast(file_align.toByteUnits()),
+                    .major_operating_system_version = 6,
+                    .minor_operating_system_version = 0,
+                    .major_image_version = 0,
+                    .minor_image_version = 0,
+                    .major_subsystem_version = major_subsystem_version,
+                    .minor_subsystem_version = minor_subsystem_version,
+                    .win32_version_value = 0,
+                    .size_of_image = 0,
+                    .size_of_headers = 0,
+                    .checksum = 0,
+                    .subsystem = .WINDOWS_CUI,
+                    .dll_flags = .{
+                        .HIGH_ENTROPY_VA = true,
+                        .DYNAMIC_BASE = true,
+                        .TERMINAL_SERVER_AWARE = true,
+                        .NX_COMPAT = true,
+                    },
+                    .size_of_stack_reserve = default_size_of_stack_reserve,
+                    .size_of_stack_commit = default_size_of_stack_commit,
+                    .size_of_heap_reserve = default_size_of_heap_reserve,
+                    .size_of_heap_commit = default_size_of_heap_commit,
+                    .loader_flags = 0,
+                    .number_of_rva_and_sizes = std.coff.IMAGE.DIRECTORY_ENTRY.len,
+                };
+                if (target_endian != native_endian)
+                    std.mem.byteSwapAllFields(std.coff.OptionalHeader.PE32, optional_header);
+            },
+            .@"PE32+" => |optional_header| {
+                optional_header.* = .{
+                    .standard = .{
+                        .magic = .@"PE32+",
+                        .major_linker_version = 0,
+                        .minor_linker_version = 0,
+                        .size_of_code = 0,
+                        .size_of_initialized_data = 0,
+                        .size_of_uninitialized_data = 0,
+                        .address_of_entry_point = 0,
+                        .base_of_code = 0,
+                    },
+                    .image_base = switch (coff.base.comp.config.output_mode) {
+                        .Exe => 0x140000000,
+                        .Lib => switch (coff.base.comp.config.link_mode) {
+                            .static => 0,
+                            .dynamic => 0x180000000,
+                        },
+                        .Obj => 0,
+                    },
+                    .section_alignment = @intCast(section_align.toByteUnits()),
+                    .file_alignment = @intCast(file_align.toByteUnits()),
+                    .major_operating_system_version = 6,
+                    .minor_operating_system_version = 0,
+                    .major_image_version = 0,
+                    .minor_image_version = 0,
+                    .major_subsystem_version = major_subsystem_version,
+                    .minor_subsystem_version = minor_subsystem_version,
+                    .win32_version_value = 0,
+                    .size_of_image = 0,
+                    .size_of_headers = 0,
+                    .checksum = 0,
+                    .subsystem = .WINDOWS_CUI,
+                    .dll_flags = .{
+                        .HIGH_ENTROPY_VA = true,
+                        .DYNAMIC_BASE = true,
+                        .TERMINAL_SERVER_AWARE = true,
+                        .NX_COMPAT = true,
+                    },
+                    .size_of_stack_reserve = default_size_of_stack_reserve,
+                    .size_of_stack_commit = default_size_of_stack_commit,
+                    .size_of_heap_reserve = default_size_of_heap_reserve,
+                    .size_of_heap_commit = default_size_of_heap_commit,
+                    .loader_flags = 0,
+                    .number_of_rva_and_sizes = std.coff.IMAGE.DIRECTORY_ENTRY.len,
+                };
+                if (target_endian != native_endian)
+                    std.mem.byteSwapAllFields(std.coff.OptionalHeader.@"PE32+", optional_header);
+            },
+        }
+    }
 
     const data_directories_ni = Node.known.data_directories;
     assert(data_directories_ni == try coff.mf.addLastChildNode(gpa, header_ni, .{
@@ -875,8 +913,10 @@ fn initHeaders(
     {
         const data_directories = coff.dataDirectorySlice();
         @memset(data_directories, .{ .virtual_address = 0, .size = 0 });
-        if (target_endian != native_endian)
-            std.mem.byteSwapAllFields([DataDirectory.len]std.coff.ImageDataDirectory, data_directories);
+        if (target_endian != native_endian) std.mem.byteSwapAllFields(
+            [std.coff.IMAGE.DIRECTORY_ENTRY.len]std.coff.ImageDataDirectory,
+            data_directories,
+        );
     }
 
     const section_table_ni = Node.known.section_table;
@@ -902,10 +942,6 @@ fn initHeaders(
         .MEM_READ = true,
         .MEM_WRITE = true,
     }) == .data);
-    assert(try coff.addSection(".idata", .{
-        .CNT_INITIALIZED_DATA = true,
-        .MEM_READ = true,
-    }) == .idata);
     assert(try coff.addSection(".rdata", .{
         .CNT_INITIALIZED_DATA = true,
         .MEM_READ = true,
@@ -915,13 +951,26 @@ fn initHeaders(
         .MEM_EXECUTE = true,
         .MEM_READ = true,
     }) == .text);
+
     coff.import_table.ni = try coff.mf.addLastChildNode(
         gpa,
-        Symbol.Index.idata.node(coff),
-        .{ .alignment = .@"4" },
+        (try coff.objectSectionMapIndex(
+            .@".idata",
+            coff.mf.flags.block_size,
+            .{ .read = true },
+        )).symbol(coff).node(coff),
+        .{ .alignment = .@"4", .moved = true },
     );
     coff.nodes.appendAssumeCapacity(.import_directory_table);
-    assert(coff.symbol_table.items.len == Symbol.Index.known_count);
+
+    // While tls variables allocated at runtime are writable, the template itself is not
+    if (comp.config.any_non_single_threaded) _ = try coff.objectSectionMapIndex(
+        .@".tls$",
+        coff.mf.flags.block_size,
+        .{ .read = true },
+    );
+
+    assert(coff.nodes.len == expected_nodes_len);
 }
 
 fn getNode(coff: *const Coff, ni: MappedFile.Node.Index) Node {
@@ -938,8 +987,10 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             .data_directories,
             .section_table,
             => unreachable,
-            .section => |si| si,
-            .import_directory_table => unreachable,
+            .image_section => |si| si,
+            .import_directory_table => break :parent_rva coff.targetLoad(
+                &coff.dataDirectoryPtr(.IMPORT).virtual_address,
+            ),
             .import_lookup_table => |import_index| break :parent_rva coff.targetLoad(
                 &coff.importDirectoryEntryPtr(import_index).import_lookup_table_rva,
             ),
@@ -949,12 +1000,33 @@ fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
             .import_hint_name_table => |import_index| break :parent_rva coff.targetLoad(
                 &coff.importDirectoryEntryPtr(import_index).name_rva,
             ),
-            inline .global, .nav, .uav, .lazy_code, .lazy_const_data => |mi| mi.symbol(coff),
+            inline .pseudo_section,
+            .object_section,
+            .global,
+            .nav,
+            .uav,
+            .lazy_code,
+            .lazy_const_data,
+            => |mi| mi.symbol(coff),
         };
         break :parent_rva parent_si.get(coff).rva;
     };
     const offset, _ = ni.location(&coff.mf).resolve(&coff.mf);
     return @intCast(parent_rva + offset);
+}
+fn computeNodeSectionOffset(coff: *Coff, ni: MappedFile.Node.Index) u32 {
+    var section_offset: u32 = 0;
+    var parent_ni = ni;
+    while (true) {
+        const offset, _ = parent_ni.location(&coff.mf).resolve(&coff.mf);
+        section_offset += @intCast(offset);
+        parent_ni = parent_ni.parent(&coff.mf);
+        switch (coff.getNode(parent_ni)) {
+            else => unreachable,
+            .image_section, .pseudo_section => return section_offset,
+            .object_section => {},
+        }
+    }
 }
 
 pub inline fn targetEndian(_: *const Coff) std.builtin.Endian {
@@ -1021,11 +1093,16 @@ pub fn optionalHeaderField(
     };
 }
 
-pub fn dataDirectorySlice(coff: *Coff) *[DataDirectory.len]std.coff.ImageDataDirectory {
+pub fn dataDirectorySlice(
+    coff: *Coff,
+) *[std.coff.IMAGE.DIRECTORY_ENTRY.len]std.coff.ImageDataDirectory {
     return @ptrCast(@alignCast(Node.known.data_directories.slice(&coff.mf)));
 }
-pub fn dataDirectoryPtr(coff: *Coff, data_directory: DataDirectory) *std.coff.ImageDataDirectory {
-    return &coff.dataDirectorySlice()[@intFromEnum(data_directory)];
+pub fn dataDirectoryPtr(
+    coff: *Coff,
+    entry: std.coff.IMAGE.DIRECTORY_ENTRY,
+) *std.coff.ImageDataDirectory {
+    return &coff.dataDirectorySlice()[@intFromEnum(entry)];
 }
 
 pub fn sectionTableSlice(coff: *Coff) []std.coff.SectionHeader {
@@ -1060,13 +1137,22 @@ fn initSymbolAssumeCapacity(coff: *Coff) !Symbol.Index {
 }
 
 fn getOrPutString(coff: *Coff, string: []const u8) !String {
+    try coff.ensureUnusedStringCapacity(string.len);
+    return coff.getOrPutStringAssumeCapacity(string);
+}
+fn getOrPutOptionalString(coff: *Coff, string: ?[]const u8) !String.Optional {
+    return (try coff.getOrPutString(string orelse return .none)).toOptional();
+}
+
+fn ensureUnusedStringCapacity(coff: *Coff, len: usize) !void {
     const gpa = coff.base.comp.gpa;
-    try coff.string_bytes.ensureUnusedCapacity(gpa, string.len + 1);
-    const gop = try coff.strings.getOrPutContextAdapted(
-        gpa,
+    try coff.strings.ensureUnusedCapacityContext(gpa, 1, .{ .bytes = &coff.string_bytes });
+    try coff.string_bytes.ensureUnusedCapacity(gpa, len + 1);
+}
+fn getOrPutStringAssumeCapacity(coff: *Coff, string: []const u8) String {
+    const gop = coff.strings.getOrPutAssumeCapacityAdapted(
         string,
         std.hash_map.StringIndexAdapter{ .bytes = &coff.string_bytes },
-        .{ .bytes = &coff.string_bytes },
     );
     if (!gop.found_existing) {
         gop.key_ptr.* = @intCast(coff.string_bytes.items.len);
@@ -1075,10 +1161,6 @@ fn getOrPutString(coff: *Coff, string: []const u8) !String {
         coff.string_bytes.appendAssumeCapacity(0);
     }
     return @enumFromInt(gop.key_ptr.*);
-}
-
-fn getOrPutOptionalString(coff: *Coff, string: ?[]const u8) !String.Optional {
-    return (try coff.getOrPutString(string orelse return .none)).toOptional();
 }
 
 pub fn globalSymbol(coff: *Coff, name: []const u8, lib_name: ?[]const u8) !Symbol.Index {
@@ -1095,6 +1177,43 @@ pub fn globalSymbol(coff: *Coff, name: []const u8, lib_name: ?[]const u8) !Symbo
     return sym_gop.value_ptr.*;
 }
 
+fn navSection(
+    coff: *Coff,
+    zcu: *Zcu,
+    nav_fr: @FieldType(@FieldType(InternPool.Nav, "status"), "fully_resolved"),
+) !Symbol.Index {
+    const ip = &zcu.intern_pool;
+    const default: String, const attributes: ObjectSectionAttributes =
+        switch (ip.indexToKey(nav_fr.val)) {
+            else => .{ .@".rdata", .{ .read = true } },
+            .variable => |variable| if (variable.is_threadlocal and
+                coff.base.comp.config.any_non_single_threaded)
+                .{ .@".tls$", .{ .read = true, .write = true } }
+            else
+                .{ .@".data", .{ .read = true, .write = true } },
+            .@"extern" => |@"extern"| if (@"extern".is_threadlocal and
+                coff.base.comp.config.any_non_single_threaded)
+                .{ .@".tls$", .{ .read = true, .write = true } }
+            else if (ip.isFunctionType(@"extern".ty))
+                .{ .@".text", .{ .read = true, .execute = true } }
+            else if (@"extern".is_const)
+                .{ .@".rdata", .{ .read = true } }
+            else
+                .{ .@".data", .{ .read = true, .write = true } },
+            .func => .{ .@".text", .{ .read = true, .execute = true } },
+        };
+    return (try coff.objectSectionMapIndex(
+        (try coff.getOrPutOptionalString(nav_fr.@"linksection".toSlice(ip))).unwrap() orelse default,
+        switch (nav_fr.@"linksection") {
+            .none => coff.mf.flags.block_size,
+            else => switch (nav_fr.alignment) {
+                .none => Type.fromInterned(ip.typeOf(nav_fr.val)).abiAlignment(zcu),
+                else => |alignment| alignment,
+            }.toStdMem(),
+        },
+        attributes,
+    )).symbol(coff);
+}
 fn navMapIndex(coff: *Coff, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavMapIndex {
     const gpa = zcu.gpa;
     try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
@@ -1171,7 +1290,7 @@ pub fn getVAddr(coff: *Coff, reloc_info: link.File.RelocInfo, target_si: Symbol.
 fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags) !Symbol.Index {
     const gpa = coff.base.comp.gpa;
     try coff.nodes.ensureUnusedCapacity(gpa, 1);
-    try coff.section_table.ensureUnusedCapacity(gpa, 1);
+    try coff.image_section_table.ensureUnusedCapacity(gpa, 1);
     try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
 
     const coff_header = coff.headerPtr();
@@ -1189,13 +1308,13 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
         .bubbles_moved = false,
     });
     const si = coff.addSymbolAssumeCapacity();
-    coff.section_table.appendAssumeCapacity(si);
-    coff.nodes.appendAssumeCapacity(.{ .section = si });
+    coff.image_section_table.appendAssumeCapacity(si);
+    coff.nodes.appendAssumeCapacity(.{ .image_section = si });
     const section_table = coff.sectionTableSlice();
     const virtual_size = coff.optionalHeaderField(.section_alignment);
     const rva: u32 = switch (section_index) {
         0 => @intCast(Node.known.header.location(&coff.mf).resolve(&coff.mf)[1]),
-        else => coff.section_table.items[section_index - 1].get(coff).rva +
+        else => coff.image_section_table.items[section_index - 1].get(coff).rva +
             coff.targetLoad(&section_table[section_index - 1].virtual_size),
     };
     {
@@ -1228,6 +1347,99 @@ fn addSection(coff: *Coff, name: []const u8, flags: std.coff.SectionHeader.Flags
         ),
     }
     return si;
+}
+
+const ObjectSectionAttributes = packed struct {
+    read: bool = false,
+    write: bool = false,
+    execute: bool = false,
+    shared: bool = false,
+    nopage: bool = false,
+    nocache: bool = false,
+    discard: bool = false,
+    remove: bool = false,
+};
+fn pseudoSectionMapIndex(
+    coff: *Coff,
+    name: String,
+    alignment: std.mem.Alignment,
+    attributes: ObjectSectionAttributes,
+) !Node.PseudoSectionMapIndex {
+    const gpa = coff.base.comp.gpa;
+    const pseudo_section_gop = try coff.pseudo_section_table.getOrPut(gpa, name);
+    const psmi: Node.PseudoSectionMapIndex = @enumFromInt(pseudo_section_gop.index);
+    if (!pseudo_section_gop.found_existing) {
+        const parent: Symbol.Index = if (attributes.execute)
+            .text
+        else if (attributes.write)
+            .data
+        else
+            .rdata;
+        try coff.nodes.ensureUnusedCapacity(gpa, 1);
+        try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+        const ni = try coff.mf.addLastChildNode(gpa, parent.node(coff), .{ .alignment = alignment });
+        const si = coff.addSymbolAssumeCapacity();
+        pseudo_section_gop.value_ptr.* = si;
+        const sym = si.get(coff);
+        sym.ni = ni;
+        sym.rva = coff.computeNodeRva(ni);
+        sym.section_number = parent.get(coff).section_number;
+        assert(sym.loc_relocs == .none);
+        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        coff.nodes.appendAssumeCapacity(.{ .pseudo_section = psmi });
+    }
+    return psmi;
+}
+fn objectSectionMapIndex(
+    coff: *Coff,
+    name: String,
+    alignment: std.mem.Alignment,
+    attributes: ObjectSectionAttributes,
+) !Node.ObjectSectionMapIndex {
+    const gpa = coff.base.comp.gpa;
+    const object_section_gop = try coff.object_section_table.getOrPut(gpa, name);
+    const osmi: Node.ObjectSectionMapIndex = @enumFromInt(object_section_gop.index);
+    if (!object_section_gop.found_existing) {
+        try coff.ensureUnusedStringCapacity(name.toSlice(coff).len);
+        const name_slice = name.toSlice(coff);
+        const parent = (try coff.pseudoSectionMapIndex(coff.getOrPutStringAssumeCapacity(
+            name_slice[0 .. std.mem.indexOfScalar(u8, name_slice, '$') orelse name_slice.len],
+        ), alignment, attributes)).symbol(coff);
+        try coff.nodes.ensureUnusedCapacity(gpa, 1);
+        try coff.symbol_table.ensureUnusedCapacity(gpa, 1);
+        const parent_ni = parent.node(coff);
+        var prev_ni: MappedFile.Node.Index = .none;
+        var next_it = parent_ni.children(&coff.mf);
+        while (next_it.next()) |next_ni| switch (std.mem.order(
+            u8,
+            name_slice,
+            coff.getNode(next_ni).object_section.name(coff).toSlice(coff),
+        )) {
+            .lt => break,
+            .eq => unreachable,
+            .gt => prev_ni = next_ni,
+        };
+        const ni = switch (prev_ni) {
+            .none => try coff.mf.addFirstChildNode(gpa, parent_ni, .{
+                .alignment = alignment,
+                .fixed = true,
+            }),
+            else => try coff.mf.addNodeAfter(gpa, prev_ni, .{
+                .alignment = alignment,
+                .fixed = true,
+            }),
+        };
+        const si = coff.addSymbolAssumeCapacity();
+        object_section_gop.value_ptr.* = si;
+        const sym = si.get(coff);
+        sym.ni = ni;
+        sym.rva = coff.computeNodeRva(ni);
+        sym.section_number = parent.get(coff).section_number;
+        assert(sym.loc_relocs == .none);
+        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        coff.nodes.appendAssumeCapacity(.{ .object_section = osmi });
+    }
+    return osmi;
 }
 
 pub fn addReloc(
@@ -1279,53 +1491,73 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
 
     const nav = ip.getNav(nav_index);
     const nav_val = nav.status.fully_resolved.val;
-    const nav_init, const is_threadlocal = switch (ip.indexToKey(nav_val)) {
-        else => .{ nav_val, false },
-        .variable => |variable| .{ variable.init, variable.is_threadlocal },
-        .@"extern" => return,
-        .func => .{ .none, false },
+    const nav_init = switch (ip.indexToKey(nav_val)) {
+        else => nav_val,
+        .variable => |variable| variable.init,
+        .@"extern", .func => .none,
     };
     if (nav_init == .none or !Type.fromInterned(ip.typeOf(nav_init)).hasRuntimeBits(zcu)) return;
 
     const nmi = try coff.navMapIndex(zcu, nav_index);
     const si = nmi.symbol(coff);
     const ni = ni: {
-        const sym = si.get(coff);
-        switch (sym.ni) {
+        switch (si.get(coff).ni) {
             .none => {
+                const sec_si = try coff.navSection(zcu, nav.status.fully_resolved);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
-                _ = is_threadlocal;
-                const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.data.node(coff), .{
+                const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
                     .alignment = pt.navAlignment(nav_index).toStdMem(),
                     .moved = true,
                 });
                 coff.nodes.appendAssumeCapacity(.{ .nav = nmi });
+                const sym = si.get(coff);
                 sym.ni = ni;
-                sym.section_number = Symbol.Index.data.get(coff).section_number;
+                sym.section_number = sec_si.get(coff).section_number;
             },
             else => si.deleteLocationRelocs(coff),
         }
+        const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
         break :ni sym.ni;
     };
 
-    var nw: MappedFile.Node.Writer = undefined;
-    ni.writer(&coff.mf, gpa, &nw);
-    defer nw.deinit();
-    codegen.generateSymbol(
-        &coff.base,
-        pt,
-        zcu.navSrcLoc(nav_index),
-        .fromInterned(nav_init),
-        &nw.interface,
-        .{ .atom_index = @intFromEnum(si) },
-    ) catch |err| switch (err) {
-        error.WriteFailed => return error.OutOfMemory,
-        else => |e| return e,
-    };
-    si.get(coff).size = @intCast(nw.interface.end);
-    si.applyLocationRelocs(coff);
+    {
+        var nw: MappedFile.Node.Writer = undefined;
+        ni.writer(&coff.mf, gpa, &nw);
+        defer nw.deinit();
+        codegen.generateSymbol(
+            &coff.base,
+            pt,
+            zcu.navSrcLoc(nav_index),
+            .fromInterned(nav_init),
+            &nw.interface,
+            .{ .atom_index = @intFromEnum(si) },
+        ) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
+        si.get(coff).size = @intCast(nw.interface.end);
+        si.applyLocationRelocs(coff);
+    }
+
+    if (nav.status.fully_resolved.@"linksection".unwrap()) |_| {
+        try ni.resize(&coff.mf, gpa, si.get(coff).size);
+        var parent_ni = ni;
+        while (true) {
+            parent_ni = parent_ni.parent(&coff.mf);
+            switch (coff.getNode(parent_ni)) {
+                else => unreachable,
+                .image_section, .pseudo_section => break,
+                .object_section => {
+                    var child_it = parent_ni.reverseChildren(&coff.mf);
+                    const last_offset, const last_size =
+                        child_it.next().?.location(&coff.mf).resolve(&coff.mf);
+                    try parent_ni.resize(&coff.mf, gpa, last_offset + last_size);
+                },
+            }
+        }
+    }
 }
 
 pub fn lowerUav(
@@ -1394,13 +1626,13 @@ fn updateFuncInner(
     const si = nmi.symbol(coff);
     log.debug("updateFunc({f}) = {d}", .{ nav.fqn.fmt(ip), si });
     const ni = ni: {
-        const sym = si.get(coff);
-        switch (sym.ni) {
+        switch (si.get(coff).ni) {
             .none => {
+                const sec_si = try coff.navSection(zcu, nav.status.fully_resolved);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
                 const mod = zcu.navFileScope(func.owner_nav).mod.?;
                 const target = &mod.resolved_target.result;
-                const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.text.node(coff), .{
+                const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
                     .alignment = switch (nav.status.fully_resolved.alignment) {
                         .none => switch (mod.optimize_mode) {
                             .Debug,
@@ -1414,11 +1646,13 @@ fn updateFuncInner(
                     .moved = true,
                 });
                 coff.nodes.appendAssumeCapacity(.{ .nav = nmi });
+                const sym = si.get(coff);
                 sym.ni = ni;
-                sym.section_number = Symbol.Index.text.get(coff).section_number;
+                sym.section_number = sec_si.get(coff).section_number;
             },
             else => si.deleteLocationRelocs(coff),
         }
+        const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
         break :ni sym.ni;
@@ -1492,11 +1726,8 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     const comp = coff.base.comp;
     task: {
         while (coff.pending_uavs.pop()) |pending_uav| {
-            const sub_prog_node = coff.idleProgNode(
-                tid,
-                comp.link_const_prog_node,
-                .{ .uav = pending_uav.key },
-            );
+            const sub_prog_node =
+                coff.idleProgNode(tid, comp.link_const_prog_node, .{ .uav = pending_uav.key });
             defer sub_prog_node.end();
             coff.flushUav(
                 .{ .zcu = coff.base.comp.zcu.?, .tid = tid },
@@ -1561,7 +1792,8 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             const clean_moved = ni.cleanMoved(&coff.mf);
             const clean_resized = ni.cleanResized(&coff.mf);
             if (clean_moved or clean_resized) {
-                const sub_prog_node = coff.idleProgNode(tid, coff.mf.update_prog_node, coff.getNode(ni));
+                const sub_prog_node =
+                    coff.idleProgNode(tid, coff.mf.update_prog_node, coff.getNode(ni));
                 defer sub_prog_node.end();
                 if (clean_moved) try coff.flushMoved(ni);
                 if (clean_resized) try coff.flushResized(ni);
@@ -1584,7 +1816,9 @@ fn idleProgNode(
     var name: [std.Progress.Node.max_name_len]u8 = undefined;
     return prog_node.start(name: switch (node) {
         else => |tag| @tagName(tag),
-        .section => |si| std.mem.sliceTo(&si.get(coff).section_number.header(coff).name, 0),
+        .image_section => |si| std.mem.sliceTo(&si.get(coff).section_number.header(coff).name, 0),
+        inline .pseudo_section, .object_section => |smi| smi.name(coff).toSlice(coff),
+        .global => |gmi| gmi.globalName(coff).name.toSlice(coff),
         .nav => |nmi| {
             const ip = &coff.base.comp.zcu.?.intern_pool;
             break :name ip.getNav(nmi.navIndex(coff)).fqn.toSlice(ip);
@@ -1611,23 +1845,30 @@ fn flushUav(
     const uav_val = umi.uavValue(coff);
     const si = umi.symbol(coff);
     const ni = ni: {
-        const sym = si.get(coff);
-        switch (sym.ni) {
+        switch (si.get(coff).ni) {
             .none => {
+                const sec_si = (try coff.objectSectionMapIndex(
+                    .@".rdata",
+                    coff.mf.flags.block_size,
+                    .{ .read = true },
+                )).symbol(coff);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
-                const ni = try coff.mf.addLastChildNode(gpa, Symbol.Index.data.node(coff), .{
+                const sym = si.get(coff);
+                const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
                     .alignment = uav_align.toStdMem(),
                     .moved = true,
                 });
                 coff.nodes.appendAssumeCapacity(.{ .uav = umi });
                 sym.ni = ni;
-                sym.section_number = Symbol.Index.data.get(coff).section_number;
+                sym.section_number = sec_si.get(coff).section_number;
             },
             else => {
-                if (sym.ni.alignment(&coff.mf).order(uav_align.toStdMem()).compare(.gte)) return;
+                if (si.get(coff).ni.alignment(&coff.mf).order(uav_align.toStdMem()).compare(.gte))
+                    return;
                 si.deleteLocationRelocs(coff);
             },
         }
+        const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
         sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
         break :ni sym.ni;
@@ -1684,7 +1925,7 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
             );
             const import_hint_name_table_len =
                 import_hint_name_align.forward(lib_name.len + ".dll".len + 1);
-            const idata_section_ni = Symbol.Index.idata.node(coff);
+            const idata_section_ni = coff.import_table.ni.parent(&coff.mf);
             const import_lookup_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
                 .size = addr_size * 2,
                 .alignment = addr_align,
@@ -1701,7 +1942,8 @@ fn flushGlobal(coff: *Coff, pt: Zcu.PerThread, gmi: Node.GlobalMapIndex) !void {
                 import_address_table_sym.ni = import_address_table_ni;
                 assert(import_address_table_sym.loc_relocs == .none);
                 import_address_table_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
-                import_address_table_sym.section_number = Symbol.Index.idata.get(coff).section_number;
+                import_address_table_sym.section_number =
+                    coff.getNode(idata_section_ni).object_section.symbol(coff).get(coff).section_number;
             }
             const import_hint_name_table_ni = try coff.mf.addLastChildNode(gpa, idata_section_ni, .{
                 .size = import_hint_name_table_len,
@@ -1873,12 +2115,12 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         .data_directories,
         .section_table,
         => unreachable,
-        .section => |si| return coff.targetStore(
+        .image_section => |si| return coff.targetStore(
             &si.get(coff).section_number.header(coff).pointer_to_raw_data,
             @intCast(ni.fileLocation(&coff.mf, false).offset),
         ),
         .import_directory_table => coff.targetStore(
-            &coff.dataDirectoryPtr(.import_table).virtual_address,
+            &coff.dataDirectoryPtr(.IMPORT).virtual_address,
             coff.computeNodeRva(ni),
         ),
         .import_lookup_table => |import_index| coff.targetStore(
@@ -1939,7 +2181,9 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 import_hint_name_index += 2;
             }
         },
-        inline .global,
+        inline .pseudo_section,
+        .object_section,
+        .global,
         .nav,
         .uav,
         .lazy_code,
@@ -1960,7 +2204,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
                     @intCast(size),
                 ),
             }
-            if (size > coff.section_table.items[0].get(coff).rva) try coff.virtualSlide(
+            if (size > coff.image_section_table.items[0].get(coff).rva) try coff.virtualSlide(
                 0,
                 std.mem.alignForward(
                     u32,
@@ -1971,7 +2215,7 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
         },
         .signature, .coff_header, .optional_header, .data_directories => unreachable,
         .section_table => {},
-        .section => |si| {
+        .image_section => |si| {
             const sym = si.get(coff);
             const section_index = sym.section_number.toIndex();
             const section = &coff.sectionTableSlice()[section_index];
@@ -1987,24 +2231,20 @@ fn flushResized(coff: *Coff, ni: MappedFile.Node.Index) !void {
             }
         },
         .import_directory_table => coff.targetStore(
-            &coff.dataDirectoryPtr(.import_table).size,
+            &coff.dataDirectoryPtr(.IMPORT).size,
             @intCast(size),
         ),
-        .import_lookup_table,
-        .import_address_table,
-        .import_hint_name_table,
-        .global,
-        .nav,
-        .uav,
-        .lazy_code,
-        .lazy_const_data,
-        => {},
+        .import_lookup_table, .import_address_table, .import_hint_name_table => {},
+        inline .pseudo_section,
+        .object_section,
+        => |smi| smi.symbol(coff).get(coff).size = @intCast(size),
+        .global, .nav, .uav, .lazy_code, .lazy_const_data => {},
     }
 }
 fn virtualSlide(coff: *Coff, start_section_index: usize, start_rva: u32) !void {
     var rva = start_rva;
     for (
-        coff.section_table.items[start_section_index..],
+        coff.image_section_table.items[start_section_index..],
         coff.sectionTableSlice()[start_section_index..],
     ) |section_si, *section| {
         const section_sym = section_si.get(coff);
@@ -2078,8 +2318,12 @@ fn updateExportsInner(
         export_sym.section_number = exported_sym.section_number;
         export_si.applyTargetRelocs(coff);
         if (@"export".opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
-            coff.entry_hack = exported_si;
             coff.optionalHeaderStandardPtr().address_of_entry_point = exported_sym.rva;
+        } else if (@"export".opts.name.eqlSlice("_tls_used", ip)) {
+            const tls_directory = coff.dataDirectoryPtr(.TLS);
+            tls_directory.* = .{ .virtual_address = exported_sym.rva, .size = exported_sym.size };
+            if (coff.targetEndian() != native_endian)
+                std.mem.byteSwapAllFields(std.coff.ImageDataDirectory, tls_directory);
         }
     }
 }
@@ -2108,7 +2352,7 @@ pub fn printNode(
     try w.writeAll(@tagName(node));
     switch (node) {
         else => {},
-        .section => |si| try w.print("({s})", .{
+        .image_section => |si| try w.print("({s})", .{
             std.mem.sliceTo(&si.get(coff).section_number.header(coff).name, 0),
         }),
         .import_lookup_table,
@@ -2116,6 +2360,9 @@ pub fn printNode(
         .import_hint_name_table,
         => |import_index| try w.print("({s})", .{
             std.mem.sliceTo(import_index.get(coff).import_hint_name_table_ni.sliceConst(&coff.mf), 0),
+        }),
+        inline .pseudo_section, .object_section => |smi| try w.print("({s})", .{
+            smi.name(coff).toSlice(coff),
         }),
         .global => |gmi| {
             const gn = gmi.globalName(coff);

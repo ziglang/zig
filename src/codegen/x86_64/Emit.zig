@@ -386,6 +386,82 @@ pub fn emitMir(emit: *Emit) Error!void {
                             }, emit.lower.target), &.{});
                         },
                         else => unreachable,
+                    } else if (emit.bin_file.cast(.coff2)) |coff| {
+                        switch (emit.lower.target.cpu.arch) {
+                            else => unreachable,
+                            .x86 => {
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = .eax },
+                                    .{ .mem = .initSib(.qword, .{
+                                        .base = .{ .reg = .fs },
+                                        .disp = 4 * 11,
+                                    }) },
+                                }, emit.lower.target), &.{});
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = .edi },
+                                    .{ .mem = .initSib(.dword, .{}) },
+                                }, emit.lower.target), &.{.{
+                                    .op_index = 1,
+                                    .target = .{
+                                        .index = @intFromEnum(
+                                            try coff.globalSymbol("__tls_index", null),
+                                        ),
+                                        .is_extern = false,
+                                        .type = .symbol,
+                                    },
+                                }});
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = .eax },
+                                    .{ .mem = .initSib(.dword, .{
+                                        .base = .{ .reg = .eax },
+                                        .scale_index = .{ .index = .edi, .scale = 4 },
+                                    }) },
+                                }, emit.lower.target), &.{});
+                                try emit.encodeInst(try .new(.none, lowered_inst.encoding.mnemonic, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[1].mem.sib.ptr_size, .{
+                                        .base = .{ .reg = .eax },
+                                        .disp = std.math.minInt(i32),
+                                    }) },
+                                }, emit.lower.target), reloc_info);
+                            },
+                            .x86_64 => {
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = .rax },
+                                    .{ .mem = .initSib(.qword, .{
+                                        .base = .{ .reg = .gs },
+                                        .disp = 8 * 11,
+                                    }) },
+                                }, emit.lower.target), &.{});
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = .edi },
+                                    .{ .mem = .initRip(.dword, 0) },
+                                }, emit.lower.target), &.{.{
+                                    .op_index = 1,
+                                    .target = .{
+                                        .index = @intFromEnum(
+                                            try coff.globalSymbol("_tls_index", null),
+                                        ),
+                                        .is_extern = false,
+                                        .type = .symbol,
+                                    },
+                                }});
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = .rax },
+                                    .{ .mem = .initSib(.qword, .{
+                                        .base = .{ .reg = .rax },
+                                        .scale_index = .{ .index = .rdi, .scale = 8 },
+                                    }) },
+                                }, emit.lower.target), &.{});
+                                try emit.encodeInst(try .new(.none, lowered_inst.encoding.mnemonic, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[1].mem.sib.ptr_size, .{
+                                        .base = .{ .reg = .rax },
+                                        .disp = std.math.minInt(i32),
+                                    }) },
+                                }, emit.lower.target), reloc_info);
+                            },
+                        }
                     } else return emit.fail("TODO implement relocs for {s}", .{
                         @tagName(emit.bin_file.tag),
                     });
@@ -870,7 +946,13 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
                     .symbolnum = @intCast(reloc.target.index),
                 },
             });
-        } else return emit.fail("TODO implement {s} reloc for {s}", .{
+        } else if (emit.bin_file.cast(.coff2)) |coff| try coff.addReloc(
+            @enumFromInt(emit.atom_index),
+            end_offset - 4,
+            @enumFromInt(reloc.target.index),
+            reloc.off,
+            .{ .AMD64 = .SECREL },
+        ) else return emit.fail("TODO implement {s} reloc for {s}", .{
             @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
         }),
     };
