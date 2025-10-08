@@ -1322,13 +1322,15 @@ pub const Reader = struct {
             },
             .positional_reading => {
                 const dest = limit.slice(try w.writableSliceGreedy(1));
-                const n = try readPositional(r, dest);
+                var data: [1][]u8 = .{dest};
+                const n = try readVecPositional(r, &data);
                 w.advance(n);
                 return n;
             },
             .streaming_reading => {
                 const dest = limit.slice(try w.writableSliceGreedy(1));
-                const n = try readStreaming(r, dest);
+                var data: [1][]u8 = .{dest};
+                const n = try readVecStreaming(r, &data);
                 w.advance(n);
                 return n;
             },
@@ -1339,92 +1341,98 @@ pub const Reader = struct {
     fn readVec(io_reader: *std.Io.Reader, data: [][]u8) std.Io.Reader.Error!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         switch (r.mode) {
-            .positional, .positional_reading => {
-                if (is_windows) {
-                    // Unfortunately, `ReadFileScatter` cannot be used since it
-                    // requires page alignment.
-                    if (io_reader.seek == io_reader.end) {
-                        io_reader.seek = 0;
-                        io_reader.end = 0;
-                    }
-                    const first = data[0];
-                    if (first.len >= io_reader.buffer.len - io_reader.end) {
-                        return readPositional(r, first);
-                    } else {
-                        io_reader.end += try readPositional(r, io_reader.buffer[io_reader.end..]);
-                        return 0;
-                    }
-                }
-                var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-                const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
-                const dest = iovecs_buffer[0..dest_n];
-                assert(dest[0].len > 0);
-                const n = posix.preadv(r.file.handle, dest, r.pos) catch |err| switch (err) {
-                    error.Unseekable => {
-                        r.mode = r.mode.toStreaming();
-                        const pos = r.pos;
-                        if (pos != 0) {
-                            r.pos = 0;
-                            r.seekBy(@intCast(pos)) catch {
-                                r.mode = .failure;
-                                return error.ReadFailed;
-                            };
-                        }
-                        return 0;
-                    },
-                    else => |e| {
-                        r.err = e;
-                        return error.ReadFailed;
-                    },
-                };
-                if (n == 0) {
-                    r.size = r.pos;
-                    return error.EndOfStream;
-                }
-                r.pos += n;
-                if (n > data_size) {
-                    io_reader.end += n - data_size;
-                    return data_size;
-                }
-                return n;
-            },
-            .streaming, .streaming_reading => {
-                if (is_windows) {
-                    // Unfortunately, `ReadFileScatter` cannot be used since it
-                    // requires page alignment.
-                    if (io_reader.seek == io_reader.end) {
-                        io_reader.seek = 0;
-                        io_reader.end = 0;
-                    }
-                    const first = data[0];
-                    if (first.len >= io_reader.buffer.len - io_reader.end) {
-                        return readStreaming(r, first);
-                    } else {
-                        io_reader.end += try readStreaming(r, io_reader.buffer[io_reader.end..]);
-                        return 0;
-                    }
-                }
-                var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-                const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
-                const dest = iovecs_buffer[0..dest_n];
-                assert(dest[0].len > 0);
-                const n = posix.readv(r.file.handle, dest) catch |err| {
-                    r.err = err;
-                    return error.ReadFailed;
-                };
-                if (n == 0) {
-                    r.size = r.pos;
-                    return error.EndOfStream;
-                }
-                r.pos += n;
-                if (n > data_size) {
-                    io_reader.end += n - data_size;
-                    return data_size;
-                }
-                return n;
-            },
+            .positional, .positional_reading => return readVecPositional(r, data),
+            .streaming, .streaming_reading => return readVecStreaming(r, data),
             .failure => return error.ReadFailed,
         }
+    }
+
+    fn readVecPositional(r: *Reader, data: [][]u8) std.Io.Reader.Error!usize {
+        const io_reader = &r.interface;
+        if (is_windows) {
+            // Unfortunately, `ReadFileScatter` cannot be used since it
+            // requires page alignment.
+            if (io_reader.seek == io_reader.end) {
+                io_reader.seek = 0;
+                io_reader.end = 0;
+            }
+            const first = data[0];
+            if (first.len >= io_reader.buffer.len - io_reader.end) {
+                return readPositional(r, first);
+            } else {
+                io_reader.end += try readPositional(r, io_reader.buffer[io_reader.end..]);
+                return 0;
+            }
+        }
+        var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
+        const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
+        const dest = iovecs_buffer[0..dest_n];
+        assert(dest[0].len > 0);
+        const n = posix.preadv(r.file.handle, dest, r.pos) catch |err| switch (err) {
+            error.Unseekable => {
+                r.mode = r.mode.toStreaming();
+                const pos = r.pos;
+                if (pos != 0) {
+                    r.pos = 0;
+                    r.seekBy(@intCast(pos)) catch {
+                        r.mode = .failure;
+                        return error.ReadFailed;
+                    };
+                }
+                return 0;
+            },
+            else => |e| {
+                r.err = e;
+                return error.ReadFailed;
+            },
+        };
+        if (n == 0) {
+            r.size = r.pos;
+            return error.EndOfStream;
+        }
+        r.pos += n;
+        if (n > data_size) {
+            io_reader.end += n - data_size;
+            return data_size;
+        }
+        return n;
+    }
+
+    fn readVecStreaming(r: *Reader, data: [][]u8) std.Io.Reader.Error!usize {
+        const io_reader = &r.interface;
+        if (is_windows) {
+            // Unfortunately, `ReadFileScatter` cannot be used since it
+            // requires page alignment.
+            if (io_reader.seek == io_reader.end) {
+                io_reader.seek = 0;
+                io_reader.end = 0;
+            }
+            const first = data[0];
+            if (first.len >= io_reader.buffer.len - io_reader.end) {
+                return readStreaming(r, first);
+            } else {
+                io_reader.end += try readStreaming(r, io_reader.buffer[io_reader.end..]);
+                return 0;
+            }
+        }
+        var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
+        const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
+        const dest = iovecs_buffer[0..dest_n];
+        assert(dest[0].len > 0);
+        const n = posix.readv(r.file.handle, dest) catch |err| {
+            r.err = err;
+            return error.ReadFailed;
+        };
+        if (n == 0) {
+            r.size = r.pos;
+            return error.EndOfStream;
+        }
+        r.pos += n;
+        if (n > data_size) {
+            io_reader.end += n - data_size;
+            return data_size;
+        }
+        return n;
     }
 
     fn discard(io_reader: *std.Io.Reader, limit: std.Io.Limit) std.Io.Reader.Error!usize {
@@ -1493,7 +1501,7 @@ pub const Reader = struct {
         }
     }
 
-    pub fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
+    fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
             error.Unseekable => {
                 r.mode = r.mode.toStreaming();
@@ -1520,7 +1528,7 @@ pub const Reader = struct {
         return n;
     }
 
-    pub fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
+    fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.read(dest) catch |err| {
             r.err = err;
             return error.ReadFailed;
@@ -1531,14 +1539,6 @@ pub const Reader = struct {
         }
         r.pos += n;
         return n;
-    }
-
-    pub fn read(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
-        switch (r.mode) {
-            .positional, .positional_reading => return readPositional(r, dest),
-            .streaming, .streaming_reading => return readStreaming(r, dest),
-            .failure => return error.ReadFailed,
-        }
     }
 
     pub fn atEnd(r: *Reader) bool {
