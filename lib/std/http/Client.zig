@@ -985,36 +985,36 @@ pub const Request = struct {
         try w.writeAll(@tagName(r.version));
         try w.writeAll("\r\n");
 
-        if (try emitOverridableHeader("host: ", r.headers.host, w)) {
-            try w.writeAll("host: ");
+        if (try emitOverridableHeader("Host: ", r.headers.host, w)) {
+            try w.writeAll("Host: ");
             try uri.writeToStream(w, .{ .authority = true });
             try w.writeAll("\r\n");
         }
 
-        if (try emitOverridableHeader("authorization: ", r.headers.authorization, w)) {
+        if (try emitOverridableHeader("Authorization: ", r.headers.authorization, w)) {
             if (uri.user != null or uri.password != null) {
-                try w.writeAll("authorization: ");
+                try w.writeAll("Authorization: ");
                 try basic_authorization.write(uri, w);
                 try w.writeAll("\r\n");
             }
         }
 
-        if (try emitOverridableHeader("user-agent: ", r.headers.user_agent, w)) {
-            try w.writeAll("user-agent: zig/");
+        if (try emitOverridableHeader("User-Agent: ", r.headers.user_agent, w)) {
+            try w.writeAll("User-Agent: zig/");
             try w.writeAll(builtin.zig_version_string);
             try w.writeAll(" (std.http)\r\n");
         }
 
-        if (try emitOverridableHeader("connection: ", r.headers.connection, w)) {
+        if (try emitOverridableHeader("Connection: ", r.headers.connection, w)) {
             if (r.keep_alive) {
-                try w.writeAll("connection: keep-alive\r\n");
+                try w.writeAll("Connection: keep-alive\r\n");
             } else {
-                try w.writeAll("connection: close\r\n");
+                try w.writeAll("Connection: close\r\n");
             }
         }
 
-        if (try emitOverridableHeader("accept-encoding: ", r.headers.accept_encoding, w)) {
-            try w.writeAll("accept-encoding: ");
+        if (try emitOverridableHeader("Accept-Encoding: ", r.headers.accept_encoding, w)) {
+            try w.writeAll("Accept-Encoding: ");
             for (r.accept_encoding, 0..) |enabled, i| {
                 if (!enabled) continue;
                 const tag: http.ContentEncoding = @enumFromInt(i);
@@ -1029,12 +1029,12 @@ pub const Request = struct {
         }
 
         switch (r.transfer_encoding) {
-            .chunked => try w.writeAll("transfer-encoding: chunked\r\n"),
-            .content_length => |len| try w.print("content-length: {d}\r\n", .{len}),
+            .chunked => try w.writeAll("Transfer-Encoding: chunked\r\n"),
+            .content_length => |len| try w.print("Content-Length: {d}\r\n", .{len}),
             .none => {},
         }
 
-        if (try emitOverridableHeader("content-type: ", r.headers.content_type, w)) {
+        if (try emitOverridableHeader("Content-Type: ", r.headers.content_type, w)) {
             // The default is to omit content-type if not provided because
             // "application/octet-stream" is redundant.
         }
@@ -1055,7 +1055,7 @@ pub const Request = struct {
             } orelse break :proxy;
 
             const authorization = proxy.authorization orelse break :proxy;
-            try w.writeAll("proxy-authorization: ");
+            try w.writeAll("Proxy-Authorization: ");
             try w.writeAll(authorization);
             try w.writeAll("\r\n");
         }
