@@ -1242,7 +1242,7 @@ pub const Reader = struct {
     pub fn seekBy(r: *Reader, offset: i64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
             },
             .streaming, .streaming_reading => {
                 if (posix.SEEK == void) {
@@ -1251,7 +1251,7 @@ pub const Reader = struct {
                 }
                 const seek_err = r.seek_err orelse e: {
                     if (posix.lseek_CUR(r.file.handle, offset)) |_| {
-                        setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                        setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
                         return;
                     } else |err| {
                         r.seek_err = err;
@@ -1275,16 +1275,16 @@ pub const Reader = struct {
     pub fn seekTo(r: *Reader, offset: u64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, offset);
+                setLogicalPos(r, offset);
             },
             .streaming, .streaming_reading => {
-                if (offset >= r.pos) return Reader.seekBy(r, @intCast(offset - r.pos));
+                if (offset >= r.pos) return Reader.seekBy(r, @intCast(offset - logicalPos(r)));
                 if (r.seek_err) |err| return err;
                 posix.lseek_SET(r.file.handle, offset) catch |err| {
                     r.seek_err = err;
                     return err;
                 };
-                setPosAdjustingBuffer(r, offset);
+                setLogicalPos(r, offset);
             },
             .failure => return r.seek_err.?,
         }
@@ -1294,7 +1294,7 @@ pub const Reader = struct {
         return r.pos - r.interface.bufferedLen();
     }
 
-    fn setPosAdjustingBuffer(r: *Reader, offset: u64) void {
+    fn setLogicalPos(r: *Reader, offset: u64) void {
         const logical_pos = logicalPos(r);
         if (offset < logical_pos or offset >= r.pos) {
             r.interface.seek = 0;
@@ -1855,7 +1855,7 @@ pub const Writer = struct {
                 return error.EndOfStream;
             }
             const consumed = io_w.consume(@intCast(sbytes));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            file_reader.seekBy(@intCast(consumed)) catch return error.ReadFailed;
             return consumed;
         }
 
@@ -1916,7 +1916,7 @@ pub const Writer = struct {
                 return error.EndOfStream;
             }
             const consumed = io_w.consume(@bitCast(len));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            file_reader.seekBy(@intCast(consumed)) catch return error.ReadFailed;
             return consumed;
         }
 
@@ -2049,7 +2049,7 @@ pub const Writer = struct {
         reader_buffered: []const u8,
     ) std.Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
-        file_reader.seekTo(file_reader.pos + n) catch return error.ReadFailed;
+        file_reader.seekBy(@intCast(n)) catch return error.ReadFailed;
         return n;
     }
 
