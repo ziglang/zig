@@ -81,12 +81,13 @@ pub fn build(b: *std.Build) !void {
     docs_step.dependOn(langref_step);
     docs_step.dependOn(std_docs_step);
 
+    const test_default_only = b.option(bool, "test-default-only", "Limit test matrix to exactly one target configuration") orelse false;
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
-    const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
+    const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse test_default_only;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
-    const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
+    const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse test_default_only;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
@@ -449,6 +450,7 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .test_default_only = test_default_only,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
@@ -471,6 +473,7 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .test_default_only = test_default_only,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
@@ -492,6 +495,7 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .test_default_only = test_default_only,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
@@ -513,6 +517,7 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .test_default_only = test_default_only,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
