@@ -64,7 +64,7 @@ jobs:
           fetch-depth: 0
       - name: Build and Test
         run: sh ci/riscv64-linux-debug.sh
-        timeout-minutes: 420
+        timeout-minutes: 480
   riscv64-linux-release:
     # if: github.event_name != 'pull_request'
     runs-on: [self-hosted, riscv64-linux]
