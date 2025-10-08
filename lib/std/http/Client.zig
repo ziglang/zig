@@ -247,6 +247,7 @@ pub const Connection = struct {
             port: u16,
             stream: Io.net.Stream,
         ) error{OutOfMemory}!*Plain {
+            const io = client.io;
             const gpa = client.allocator;
             const alloc_len = allocLen(client, remote_host.bytes.len);
             const base = try gpa.alignedAlloc(u8, .of(Plain), alloc_len);
@@ -260,8 +261,8 @@ pub const Connection = struct {
             plain.* = .{
                 .connection = .{
                     .client = client,
-                    .stream_writer = stream.writer(socket_write_buffer),
-                    .stream_reader = stream.reader(socket_read_buffer),
+                    .stream_writer = stream.writer(io, socket_write_buffer),
+                    .stream_reader = stream.reader(io, socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.bytes.len),
@@ -300,6 +301,7 @@ pub const Connection = struct {
             port: u16,
             stream: Io.net.Stream,
         ) error{ OutOfMemory, TlsInitializationFailed }!*Tls {
+            const io = client.io;
             const gpa = client.allocator;
             const alloc_len = allocLen(client, remote_host.bytes.len);
             const base = try gpa.alignedAlloc(u8, .of(Tls), alloc_len);
@@ -316,11 +318,14 @@ pub const Connection = struct {
             assert(base.ptr + alloc_len == socket_read_buffer.ptr + socket_read_buffer.len);
             @memcpy(host_buffer, remote_host.bytes);
             const tls: *Tls = @ptrCast(base);
+            var random_buffer: [176]u8 = undefined;
+            std.crypto.random.bytes(&random_buffer);
+            const now_ts = if (Io.Timestamp.now(io, .real)) |ts| ts.toSeconds() else |_| return error.TlsInitializationFailed;
             tls.* = .{
                 .connection = .{
                     .client = client,
-                    .stream_writer = stream.writer(tls_write_buffer),
-                    .stream_reader = stream.reader(socket_read_buffer),
+                    .stream_writer = stream.writer(io, tls_write_buffer),
+                    .stream_reader = stream.reader(io, socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.bytes.len),
@@ -338,6 +343,8 @@ pub const Connection = struct {
                         .ssl_key_log = client.ssl_key_log,
                         .read_buffer = tls_read_buffer,
                         .write_buffer = socket_write_buffer,
+                        .entropy = &random_buffer,
+                        .realtime_now_seconds = now_ts,
                         // This is appropriate for HTTPS because the HTTP headers contain
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
@@ -1390,16 +1397,8 @@ pub const basic_authorization = struct {
 };
 
 pub const ConnectTcpError = error{
-    ConnectionRefused,
-    NetworkUnreachable,
-    ConnectionTimedOut,
-    ConnectionResetByPeer,
-    TemporaryNameServerFailure,
-    NameServerFailure,
-    UnknownHostName,
-    UnexpectedConnectFailure,
     TlsInitializationFailed,
-} || Allocator.Error || Io.Cancelable;
+} || Allocator.Error || HostName.ConnectError;
 
 /// Reuses a `Connection` if one matching `host` and `port` is already open.
 ///
@@ -1424,6 +1423,7 @@ pub const ConnectTcpOptions = struct {
 };
 
 pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcpError!*Connection {
+    const io = client.io;
     const host = options.host;
     const port = options.port;
     const protocol = options.protocol;
@@ -1437,22 +1437,17 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
         .protocol = protocol,
     })) |conn| return conn;
 
-    const stream = host.connect(client.io, port, .{ .mode = .stream }) catch |err| switch (err) {
-        error.ConnectionRefused => return error.ConnectionRefused,
-        error.NetworkUnreachable => return error.NetworkUnreachable,
-        error.ConnectionTimedOut => return error.ConnectionTimedOut,
-        error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
-        error.NameServerFailure => return error.NameServerFailure,
-        error.UnknownHostName => return error.UnknownHostName,
-        error.Canceled => return error.Canceled,
-        //else => return error.UnexpectedConnectFailure,
-    };
-    errdefer stream.close();
+    var stream = try host.connect(io, port, .{ .mode = .stream });
+    errdefer stream.close(io);
 
     switch (protocol) {
         .tls => {
             if (disable_tls) return error.TlsInitializationFailed;
-            const tc = try Connection.Tls.create(client, proxied_host, proxied_port, stream);
+            const tc = Connection.Tls.create(client, proxied_host, proxied_port, stream) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                error.Unexpected => |e| return e,
+                error.UnsupportedClock => return error.TlsInitializationFailed,
+            };
             client.connection_pool.addUsed(&tc.connection);
             return &tc.connection;
         },

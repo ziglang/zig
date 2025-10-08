@@ -1,7 +1,9 @@
+const Writer = @This();
+
 const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Writer = @This();
 
 const block_size = @sizeOf(Header);
 
@@ -14,7 +16,7 @@ pub const Options = struct {
     mtime: u64 = 0,
 };
 
-underlying_writer: *std.Io.Writer,
+underlying_writer: *Io.Writer,
 prefix: []const u8 = "",
 mtime_now: u64 = 0,
 
@@ -36,12 +38,12 @@ pub fn writeDir(w: *Writer, sub_path: []const u8, options: Options) Error!void {
     try w.writeHeader(.directory, sub_path, "", 0, options);
 }
 
-pub const WriteFileError = std.Io.Writer.FileError || Error || std.fs.File.Reader.SizeError;
+pub const WriteFileError = Io.Writer.FileError || Error || Io.File.Reader.SizeError;
 
 pub fn writeFile(
     w: *Writer,
     sub_path: []const u8,
-    file_reader: *std.fs.File.Reader,
+    file_reader: *Io.File.Reader,
     stat_mtime: i128,
 ) WriteFileError!void {
     const size = try file_reader.getSize();
@@ -58,7 +60,7 @@ pub fn writeFile(
     try w.writePadding64(size);
 }
 
-pub const WriteFileStreamError = Error || std.Io.Reader.StreamError;
+pub const WriteFileStreamError = Error || Io.Reader.StreamError;
 
 /// Writes file reading file content from `reader`. Reads exactly `size` bytes
 /// from `reader`, or returns `error.EndOfStream`.
@@ -66,7 +68,7 @@ pub fn writeFileStream(
     w: *Writer,
     sub_path: []const u8,
     size: u64,
-    reader: *std.Io.Reader,
+    reader: *Io.Reader,
     options: Options,
 ) WriteFileStreamError!void {
     try w.writeHeader(.regular, sub_path, "", size, options);
@@ -136,15 +138,15 @@ fn writeExtendedHeader(w: *Writer, typeflag: Header.FileType, buffers: []const [
     try w.writePadding(len);
 }
 
-fn writePadding(w: *Writer, bytes: usize) std.Io.Writer.Error!void {
+fn writePadding(w: *Writer, bytes: usize) Io.Writer.Error!void {
     return writePaddingPos(w, bytes % block_size);
 }
 
-fn writePadding64(w: *Writer, bytes: u64) std.Io.Writer.Error!void {
+fn writePadding64(w: *Writer, bytes: u64) Io.Writer.Error!void {
     return writePaddingPos(w, @intCast(bytes % block_size));
 }
 
-fn writePaddingPos(w: *Writer, pos: usize) std.Io.Writer.Error!void {
+fn writePaddingPos(w: *Writer, pos: usize) Io.Writer.Error!void {
     if (pos == 0) return;
     try w.underlying_writer.splatByteAll(0, block_size - pos);
 }
@@ -153,7 +155,7 @@ fn writePaddingPos(w: *Writer, pos: usize) std.Io.Writer.Error!void {
 /// "reasonable system must not assume that such a block exists when reading an
 /// archive". Therefore, the Zig standard library recommends to not call this
 /// function.
-pub fn finishPedantically(w: *Writer) std.Io.Writer.Error!void {
+pub fn finishPedantically(w: *Writer) Io.Writer.Error!void {
     try w.underlying_writer.splatByteAll(0, block_size * 2);
 }
 
@@ -248,7 +250,7 @@ pub const Header = extern struct {
         try octal(&w.checksum, checksum);
     }
 
-    pub fn write(h: *Header, bw: *std.Io.Writer) error{ OctalOverflow, WriteFailed }!void {
+    pub fn write(h: *Header, bw: *Io.Writer) error{ OctalOverflow, WriteFailed }!void {
         try h.updateChecksum();
         try bw.writeAll(std.mem.asBytes(h));
     }
@@ -396,14 +398,14 @@ test "write files" {
     {
         const root = "root";
 
-        var output: std.Io.Writer.Allocating = .init(testing.allocator);
+        var output: Io.Writer.Allocating = .init(testing.allocator);
         var w: Writer = .{ .underlying_writer = &output.writer };
         defer output.deinit();
         try w.setRoot(root);
         for (files) |file|
             try w.writeFileBytes(file.path, file.content, .{});
 
-        var input: std.Io.Reader = .fixed(output.written());
+        var input: Io.Reader = .fixed(output.written());
         var it: std.tar.Iterator = .init(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
@@ -424,7 +426,7 @@ test "write files" {
             try testing.expectEqual('/', actual.name[root.len..][0]);
             try testing.expectEqualStrings(expected.path, actual.name[root.len + 1 ..]);
 
-            var content: std.Io.Writer.Allocating = .init(testing.allocator);
+            var content: Io.Writer.Allocating = .init(testing.allocator);
             defer content.deinit();
             try it.streamRemaining(actual, &content.writer);
             try testing.expectEqualSlices(u8, expected.content, content.written());
@@ -432,15 +434,15 @@ test "write files" {
     }
     // without root
     {
-        var output: std.Io.Writer.Allocating = .init(testing.allocator);
+        var output: Io.Writer.Allocating = .init(testing.allocator);
         var w: Writer = .{ .underlying_writer = &output.writer };
         defer output.deinit();
         for (files) |file| {
-            var content: std.Io.Reader = .fixed(file.content);
+            var content: Io.Reader = .fixed(file.content);
             try w.writeFileStream(file.path, file.content.len, &content, .{});
         }
 
-        var input: std.Io.Reader = .fixed(output.written());
+        var input: Io.Reader = .fixed(output.written());
         var it: std.tar.Iterator = .init(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
@@ -452,7 +454,7 @@ test "write files" {
             const expected = files[i];
             try testing.expectEqualStrings(expected.path, actual.name);
 
-            var content: std.Io.Writer.Allocating = .init(testing.allocator);
+            var content: Io.Writer.Allocating = .init(testing.allocator);
             defer content.deinit();
             try it.streamRemaining(actual, &content.writer);
             try testing.expectEqualSlices(u8, expected.content, content.written());
