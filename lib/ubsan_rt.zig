@@ -120,12 +120,6 @@ const Value = extern struct {
     }
 
     pub fn format(value: Value, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        // Work around x86_64 backend limitation.
-        if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
-            try writer.writeAll("(unknown)");
-            return;
-        }
-
         switch (value.td.kind) {
             .integer => {
                 if (value.td.isSigned()) {
@@ -624,10 +618,11 @@ fn exportHandler(
     handler: anytype,
     comptime sym_name: []const u8,
 ) void {
-    // Work around x86_64 backend limitation.
-    const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
-    const N = "__ubsan_handle_" ++ sym_name;
-    @export(handler, .{ .name = N, .linkage = linkage, .visibility = if (linkage == .internal) .default else .hidden });
+    @export(handler, .{
+        .name = "__ubsan_handle_" ++ sym_name,
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
 }
 
 fn exportHandlerWithAbort(
@@ -635,16 +630,16 @@ fn exportHandlerWithAbort(
     abort_handler: anytype,
     comptime sym_name: []const u8,
 ) void {
-    // Work around x86_64 backend limitation.
-    const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
-    {
-        const N = "__ubsan_handle_" ++ sym_name;
-        @export(handler, .{ .name = N, .linkage = linkage, .visibility = if (linkage == .internal) .default else .hidden });
-    }
-    {
-        const N = "__ubsan_handle_" ++ sym_name ++ "_abort";
-        @export(abort_handler, .{ .name = N, .linkage = linkage, .visibility = if (linkage == .internal) .default else .hidden });
-    }
+    @export(handler, .{
+        .name = "__ubsan_handle_" ++ sym_name,
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
+    @export(abort_handler, .{
+        .name = "__ubsan_handle_" ++ sym_name ++ "_abort",
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
 }
 
 const can_build_ubsan = switch (builtin.zig_backend) {

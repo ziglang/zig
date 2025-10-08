@@ -1985,7 +1985,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                 switch (target_util.zigBackend(target, use_llvm)) {
                     else => {},
                     .stage2_aarch64, .stage2_x86_64 => if (target.ofmt == .coff) {
-                        break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+                        break :s if (is_exe_or_dyn_lib and build_options.have_llvm) .dyn_lib else .zcu;
                     },
                 }
                 if (options.config.use_new_linker) break :s .zcu;
