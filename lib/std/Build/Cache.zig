@@ -3,8 +3,10 @@
 //! not to withstand attacks using specially-crafted input.
 
 const Cache = @This();
-const std = @import("std");
 const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const crypto = std.crypto;
 const fs = std.fs;
 const assert = std.debug.assert;
@@ -15,6 +17,7 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.cache);
 
 gpa: Allocator,
+io: Io,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
 /// This value is accessed from multiple threads, protected by mutex.
@@ -661,9 +664,10 @@ pub const Manifest = struct {
         },
     } {
         const gpa = self.cache.gpa;
+        const io = self.cache.io;
         const input_file_count = self.files.entries.len;
         var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
-        var manifest_reader = self.manifest_file.?.reader(&tiny_buffer); // Reads positionally from zero.
+        var manifest_reader = self.manifest_file.?.reader(io, &tiny_buffer); // Reads positionally from zero.
         const limit: std.Io.Limit = .limited(manifest_file_size_max);
         const file_contents = manifest_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -1337,7 +1341,8 @@ test "cache file and then recall it" {
     var digest2: HexDigest = undefined;
 
     {
-        var cache = Cache{
+        var cache: Cache = .{
+            .io = io,
             .gpa = testing.allocator,
             .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
@@ -1402,7 +1407,8 @@ test "check that changing a file makes cache fail" {
     var digest2: HexDigest = undefined;
 
     {
-        var cache = Cache{
+        var cache: Cache = .{
+            .io = io,
             .gpa = testing.allocator,
             .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
@@ -1451,6 +1457,8 @@ test "check that changing a file makes cache fail" {
 }
 
 test "no file inputs" {
+    const io = testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1459,7 +1467,8 @@ test "no file inputs" {
     var digest1: HexDigest = undefined;
     var digest2: HexDigest = undefined;
 
-    var cache = Cache{
+    var cache: Cache = .{
+        .io = io,
         .gpa = testing.allocator,
         .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
     };
@@ -1517,7 +1526,8 @@ test "Manifest with files added after initial hash work" {
     var digest3: HexDigest = undefined;
 
     {
-        var cache = Cache{
+        var cache: Cache = .{
+            .io = io,
             .gpa = testing.allocator,
             .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };

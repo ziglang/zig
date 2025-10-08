@@ -3,14 +3,15 @@ thread_pool: *std.Thread.Pool,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
 listen_address: net.IpAddress,
-ttyconf: std.Io.tty.Config,
+ttyconf: Io.tty.Config,
 root_prog_node: std.Progress.Node,
 watch: bool,
 
 tcp_server: ?net.Server,
 serve_thread: ?std.Thread,
 
-base_timestamp: i128,
+/// Uses `Io.Clock.awake`.
+base_timestamp: i96,
 /// The "step name" data which trails `abi.Hello`, for the steps in `all_steps`.
 step_names_trailing: []u8,
 
@@ -53,15 +54,17 @@ pub const Options = struct {
     thread_pool: *std.Thread.Pool,
     graph: *const std.Build.Graph,
     all_steps: []const *Build.Step,
-    ttyconf: std.Io.tty.Config,
+    ttyconf: Io.tty.Config,
     root_prog_node: std.Progress.Node,
     watch: bool,
     listen_address: net.IpAddress,
+    base_timestamp: Io.Timestamp,
 };
 pub fn init(opts: Options) WebServer {
-    // The upcoming `std.Io` interface should allow us to use `Io.async` and `Io.concurrent`
+    // The upcoming `Io` interface should allow us to use `Io.async` and `Io.concurrent`
     // instead of threads, so that the web server can function in single-threaded builds.
     comptime assert(!builtin.single_threaded);
+    assert(opts.base_timestamp.clock == .awake);
 
     const all_steps = opts.all_steps;
 
@@ -106,7 +109,7 @@ pub fn init(opts: Options) WebServer {
         .tcp_server = null,
         .serve_thread = null,
 
-        .base_timestamp = std.time.nanoTimestamp(),
+        .base_timestamp = opts.base_timestamp.nanoseconds,
         .step_names_trailing = step_names_trailing,
 
         .step_status_bits = step_status_bits,
@@ -147,32 +150,34 @@ pub fn deinit(ws: *WebServer) void {
 pub fn start(ws: *WebServer) error{AlreadyReported}!void {
     assert(ws.tcp_server == null);
     assert(ws.serve_thread == null);
+    const io = ws.graph.io;
 
-    ws.tcp_server = ws.listen_address.listen(.{ .reuse_address = true }) catch |err| {
+    ws.tcp_server = ws.listen_address.listen(io, .{ .reuse_address = true }) catch |err| {
         log.err("failed to listen to port {d}: {s}", .{ ws.listen_address.getPort(), @errorName(err) });
         return error.AlreadyReported;
     };
     ws.serve_thread = std.Thread.spawn(.{}, serve, .{ws}) catch |err| {
         log.err("unable to spawn web server thread: {s}", .{@errorName(err)});
-        ws.tcp_server.?.deinit();
+        ws.tcp_server.?.deinit(io);
         ws.tcp_server = null;
         return error.AlreadyReported;
     };
 
-    log.info("web interface listening at http://{f}/", .{ws.tcp_server.?.listen_address});
+    log.info("web interface listening at http://{f}/", .{ws.tcp_server.?.socket.address});
     if (ws.listen_address.getPort() == 0) {
-        log.info("hint: pass '--webui={f}' to use the same port next time", .{ws.tcp_server.?.listen_address});
+        log.info("hint: pass '--webui={f}' to use the same port next time", .{ws.tcp_server.?.socket.address});
     }
 }
 fn serve(ws: *WebServer) void {
+    const io = ws.graph.io;
     while (true) {
-        const connection = ws.tcp_server.?.accept() catch |err| {
+        var stream = ws.tcp_server.?.accept(io) catch |err| {
             log.err("failed to accept connection: {s}", .{@errorName(err)});
             return;
         };
-        _ = std.Thread.spawn(.{}, accept, .{ ws, connection }) catch |err| {
+        _ = std.Thread.spawn(.{}, accept, .{ ws, stream }) catch |err| {
             log.err("unable to spawn connection thread: {s}", .{@errorName(err)});
-            connection.stream.close();
+            stream.close(io);
             continue;
         };
     }
@@ -227,6 +232,7 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
 
         ws.fuzz = Fuzz.init(
             ws.gpa,
+            ws.graph.io,
             ws.thread_pool,
             ws.all_steps,
             ws.root_prog_node,
@@ -241,17 +247,25 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
 }
 
 pub fn now(s: *const WebServer) i64 {
-    return @intCast(std.time.nanoTimestamp() - s.base_timestamp);
+    const io = s.graph.io;
+    const base: Io.Timestamp = .{ .nanoseconds = s.base_timestamp, .clock = .awake };
+    const ts = Io.Timestamp.now(io, base.clock) catch base;
+    return @intCast(base.durationTo(ts).toNanoseconds());
 }
 
-fn accept(ws: *WebServer, connection: net.Server.Connection) void {
-    defer connection.stream.close();
-
+fn accept(ws: *WebServer, stream: net.Stream) void {
+    const io = ws.graph.io;
+    defer {
+        // `net.Stream.close` wants to helpfully overwrite `stream` with
+        // `undefined`, but it cannot do so since it is an immutable parameter.
+        var copy = stream;
+        copy.close(io);
+    }
     var send_buffer: [4096]u8 = undefined;
     var recv_buffer: [4096]u8 = undefined;
-    var connection_reader = connection.stream.reader(&recv_buffer);
-    var connection_writer = connection.stream.writer(&send_buffer);
-    var server: http.Server = .init(connection_reader.interface(), &connection_writer.interface);
+    var connection_reader = stream.reader(io, &recv_buffer);
+    var connection_writer = stream.writer(io, &send_buffer);
+    var server: http.Server = .init(&connection_reader.interface, &connection_writer.interface);
 
     while (true) {
         var request = server.receiveHead() catch |err| switch (err) {
@@ -466,12 +480,9 @@ pub fn serveFile(
         },
     });
 }
-pub fn serveTarFile(
-    ws: *WebServer,
-    request: *http.Server.Request,
-    paths: []const Cache.Path,
-) !void {
+pub fn serveTarFile(ws: *WebServer, request: *http.Server.Request, paths: []const Cache.Path) !void {
     const gpa = ws.gpa;
+    const io = ws.graph.io;
 
     var send_buffer: [0x4000]u8 = undefined;
     var response = try request.respondStreaming(&send_buffer, .{
@@ -496,7 +507,7 @@ pub fn serveTarFile(
         defer file.close();
         const stat = try file.stat();
         var read_buffer: [1024]u8 = undefined;
-        var file_reader: std.fs.File.Reader = .initSize(file, &read_buffer, stat.size);
+        var file_reader: Io.File.Reader = .initSize(file.adaptToNewApi(), io, &read_buffer, stat.size);
 
         // TODO: this logic is completely bogus -- obviously so, because `path.root_dir.path` can
         // be cwd-relative. This is also related to why linkification doesn't work in the fuzzer UI:
@@ -566,7 +577,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     child.stderr_behavior = .Pipe;
     try child.spawn();
 
-    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -842,7 +853,10 @@ const cache_control_header: http.Header = .{
 };
 
 const builtin = @import("builtin");
+
 const std = @import("std");
+const Io = std.Io;
+const net = std.Io.net;
 const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.web_server);
@@ -852,6 +866,5 @@ const Cache = Build.Cache;
 const Fuzz = Build.Fuzz;
 const abi = Build.abi;
 const http = std.http;
-const net = std.Io.net;
 
 const WebServer = @This();

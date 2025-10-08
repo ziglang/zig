@@ -434,7 +434,7 @@ const Module = struct {
             };
             errdefer pdb_file.close();
 
-            const pdb_reader = try arena.create(std.fs.File.Reader);
+            const pdb_reader = try arena.create(Io.File.Reader);
             pdb_reader.* = pdb_file.reader(try arena.alloc(u8, 4096));
 
             var pdb = Pdb.init(gpa, pdb_reader) catch |err| switch (err) {
@@ -544,6 +544,7 @@ fn findModule(si: *SelfInfo, gpa: Allocator, address: usize) error{ MissingDebug
 }
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
 const Pdb = std.debug.Pdb;

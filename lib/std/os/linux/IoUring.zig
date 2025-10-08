@@ -3,7 +3,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
-const net = std.net;
+const net = std.Io.net;
 const posix = std.posix;
 const linux = std.os.linux;
 const testing = std.testing;
@@ -2361,19 +2361,22 @@ test "sendmsg/recvmsg" {
     };
     defer ring.deinit();
 
-    var address_server = try net.Address.parseIp4("127.0.0.1", 0);
+    var address_server: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
 
-    const server = try posix.socket(address_server.any.family, posix.SOCK.DGRAM, 0);
+    const server = try posix.socket(address_server.family, posix.SOCK.DGRAM, 0);
     defer posix.close(server);
     try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEPORT, &mem.toBytes(@as(c_int, 1)));
     try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-    try posix.bind(server, &address_server.any, address_server.getOsSockLen());
+    try posix.bind(server, addrAny(&address_server), @sizeOf(linux.sockaddr.in));
 
     // set address_server to the OS-chosen IP/port.
-    var slen: posix.socklen_t = address_server.getOsSockLen();
-    try posix.getsockname(server, &address_server.any, &slen);
+    var slen: posix.socklen_t = @sizeOf(linux.sockaddr.in);
+    try posix.getsockname(server, addrAny(&address_server), &slen);
 
-    const client = try posix.socket(address_server.any.family, posix.SOCK.DGRAM, 0);
+    const client = try posix.socket(address_server.family, posix.SOCK.DGRAM, 0);
     defer posix.close(client);
 
     const buffer_send = [_]u8{42} ** 128;
@@ -2381,8 +2384,8 @@ test "sendmsg/recvmsg" {
         posix.iovec_const{ .base = &buffer_send, .len = buffer_send.len },
     };
     const msg_send: posix.msghdr_const = .{
-        .name = &address_server.any,
-        .namelen = address_server.getOsSockLen(),
+        .name = addrAny(&address_server),
+        .namelen = @sizeOf(linux.sockaddr.in),
         .iov = &iovecs_send,
         .iovlen = 1,
         .control = null,
@@ -2398,11 +2401,13 @@ test "sendmsg/recvmsg" {
     var iovecs_recv = [_]posix.iovec{
         posix.iovec{ .base = &buffer_recv, .len = buffer_recv.len },
     };
-    const addr = [_]u8{0} ** 4;
-    var address_recv = net.Address.initIp4(addr, 0);
+    var address_recv: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = 0,
+    };
     var msg_recv: posix.msghdr = .{
-        .name = &address_recv.any,
-        .namelen = address_recv.getOsSockLen(),
+        .name = addrAny(&address_recv),
+        .namelen = @sizeOf(linux.sockaddr.in),
         .iov = &iovecs_recv,
         .iovlen = 1,
         .control = null,
@@ -2441,6 +2446,8 @@ test "sendmsg/recvmsg" {
 test "timeout (after a relative time)" {
     if (!is_linux) return error.SkipZigTest;
 
+    const io = testing.io;
+
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2452,12 +2459,12 @@ test "timeout (after a relative time)" {
     const margin = 5;
     const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1000000 };
 
-    const started = std.time.milliTimestamp();
+    const started = try std.Io.Timestamp.now(io, .awake);
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe.opcode);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     const cqe = try ring.copy_cqe();
-    const stopped = std.time.milliTimestamp();
+    const stopped = try std.Io.Timestamp.now(io, .awake);
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x55555555,
@@ -2466,7 +2473,8 @@ test "timeout (after a relative time)" {
     }, cqe);
 
     // Tests should not depend on timings: skip test if outside margin.
-    if (!std.math.approxEqAbs(f64, ms, @as(f64, @floatFromInt(stopped - started)), margin)) return error.SkipZigTest;
+    const ms_elapsed = started.durationTo(stopped).toMilliseconds();
+    if (ms_elapsed > margin) return error.SkipZigTest;
 }
 
 test "timeout (after a number of completions)" {
@@ -2861,19 +2869,22 @@ test "shutdown" {
     };
     defer ring.deinit();
 
-    var address = try net.Address.parseIp4("127.0.0.1", 0);
+    var address: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
 
     // Socket bound, expect shutdown to work
     {
-        const server = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+        const server = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
         defer posix.close(server);
         try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-        try posix.bind(server, &address.any, address.getOsSockLen());
+        try posix.bind(server, addrAny(&address), @sizeOf(linux.sockaddr.in));
         try posix.listen(server, 1);
 
         // set address to the OS-chosen IP/port.
-        var slen: posix.socklen_t = address.getOsSockLen();
-        try posix.getsockname(server, &address.any, &slen);
+        var slen: posix.socklen_t = @sizeOf(linux.sockaddr.in);
+        try posix.getsockname(server, addrAny(&address), &slen);
 
         const shutdown_sqe = try ring.shutdown(0x445445445, server, linux.SHUT.RD);
         try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
@@ -2898,7 +2909,7 @@ test "shutdown" {
 
     // Socket not bound, expect to fail with ENOTCONN
     {
-        const server = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+        const server = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
         defer posix.close(server);
 
         const shutdown_sqe = ring.shutdown(0x445445445, server, linux.SHUT.RD) catch |err| switch (err) {
@@ -2966,22 +2977,11 @@ test "renameat" {
     }, cqe);
 
     // Validate that the old file doesn't exist anymore
-    {
-        _ = tmp.dir.openFile(old_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => std.debug.panic("unexpected error: {}", .{err}),
-        };
-    }
+    try testing.expectError(error.FileNotFound, tmp.dir.openFile(old_path, .{}));
 
     // Validate that the new file exists with the proper content
-    {
-        const new_file = try tmp.dir.openFile(new_path, .{});
-        defer new_file.close();
-
-        var new_file_data: [16]u8 = undefined;
-        const bytes_read = try new_file.readAll(&new_file_data);
-        try testing.expectEqualStrings("hello", new_file_data[0..bytes_read]);
-    }
+    var new_file_data: [16]u8 = undefined;
+    try testing.expectEqualStrings("hello", try tmp.dir.readFile(new_path, &new_file_data));
 }
 
 test "unlinkat" {
@@ -3179,12 +3179,8 @@ test "linkat" {
     }, cqe);
 
     // Validate the second file
-    const second_file = try tmp.dir.openFile(second_path, .{});
-    defer second_file.close();
-
     var second_file_data: [16]u8 = undefined;
-    const bytes_read = try second_file.readAll(&second_file_data);
-    try testing.expectEqualStrings("hello", second_file_data[0..bytes_read]);
+    try testing.expectEqualStrings("hello", try tmp.dir.readFile(second_path, &second_file_data));
 }
 
 test "provide_buffers: read" {
@@ -3588,7 +3584,10 @@ const SocketTestHarness = struct {
 
 fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
     // Create a TCP server socket
-    var address = try net.Address.parseIp4("127.0.0.1", 0);
+    var address: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
     const listener_socket = try createListenerSocket(&address);
     errdefer posix.close(listener_socket);
 
@@ -3598,9 +3597,9 @@ fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
     _ = try ring.accept(0xaaaaaaaa, listener_socket, &accept_addr, &accept_addr_len, 0);
 
     // Create a TCP client socket
-    const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+    const client = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
     errdefer posix.close(client);
-    _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
+    _ = try ring.connect(0xcccccccc, client, addrAny(&address), @sizeOf(linux.sockaddr.in));
 
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
@@ -3636,18 +3635,18 @@ fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
     };
 }
 
-fn createListenerSocket(address: *net.Address) !posix.socket_t {
+fn createListenerSocket(address: *linux.sockaddr.in) !posix.socket_t {
     const kernel_backlog = 1;
-    const listener_socket = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+    const listener_socket = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
     errdefer posix.close(listener_socket);
 
     try posix.setsockopt(listener_socket, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-    try posix.bind(listener_socket, &address.any, address.getOsSockLen());
+    try posix.bind(listener_socket, addrAny(address), @sizeOf(linux.sockaddr.in));
     try posix.listen(listener_socket, kernel_backlog);
 
     // set address to the OS-chosen IP/port.
-    var slen: posix.socklen_t = address.getOsSockLen();
-    try posix.getsockname(listener_socket, &address.any, &slen);
+    var slen: posix.socklen_t = @sizeOf(linux.sockaddr.in);
+    try posix.getsockname(listener_socket, addrAny(address), &slen);
 
     return listener_socket;
 }
@@ -3662,7 +3661,10 @@ test "accept multishot" {
     };
     defer ring.deinit();
 
-    var address = try net.Address.parseIp4("127.0.0.1", 0);
+    var address: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
     const listener_socket = try createListenerSocket(&address);
     defer posix.close(listener_socket);
 
@@ -3676,9 +3678,9 @@ test "accept multishot" {
     var nr: usize = 4; // number of clients to connect
     while (nr > 0) : (nr -= 1) {
         // connect client
-        const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+        const client = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
         errdefer posix.close(client);
-        try posix.connect(client, &address.any, address.getOsSockLen());
+        try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
 
         // test accept completion
         var cqe = try ring.copy_cqe();
@@ -3756,7 +3758,10 @@ test "accept_direct" {
         else => return err,
     };
     defer ring.deinit();
-    var address = try net.Address.parseIp4("127.0.0.1", 0);
+    var address: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
 
     // register direct file descriptors
     var registered_fds = [_]posix.fd_t{-1} ** 2;
@@ -3779,8 +3784,8 @@ test "accept_direct" {
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
             // connect
-            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
             defer posix.close(client);
 
             // accept completion
@@ -3813,8 +3818,8 @@ test "accept_direct" {
             _ = try ring.accept_direct(accept_userdata, listener_socket, null, null, 0);
             try testing.expectEqual(@as(u32, 1), try ring.submit());
             // connect
-            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
             defer posix.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
@@ -3837,7 +3842,10 @@ test "accept_multishot_direct" {
     };
     defer ring.deinit();
 
-    var address = try net.Address.parseIp4("127.0.0.1", 0);
+    var address: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
 
     var registered_fds = [_]posix.fd_t{-1} ** 2;
     try ring.register_files(registered_fds[0..]);
@@ -3855,8 +3863,8 @@ test "accept_multishot_direct" {
 
         for (registered_fds) |_| {
             // connect
-            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
             defer posix.close(client);
 
             // accept completion
@@ -3870,8 +3878,8 @@ test "accept_multishot_direct" {
         // Multishot is terminated (more flag is not set).
         {
             // connect
-            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
             defer posix.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
@@ -3944,7 +3952,10 @@ test "socket_direct/socket_direct_alloc/close_direct" {
     try testing.expect(cqe_socket.res == 2); // returns registered file index
 
     // use sockets from registered_fds in connect operation
-    var address = try net.Address.parseIp4("127.0.0.1", 0);
+    var address: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
     const listener_socket = try createListenerSocket(&address);
     defer posix.close(listener_socket);
     const accept_userdata: u64 = 0xaaaaaaaa;
@@ -3954,7 +3965,7 @@ test "socket_direct/socket_direct_alloc/close_direct" {
         // prepare accept
         _ = try ring.accept(accept_userdata, listener_socket, null, null, 0);
         // prepare connect with fixed socket
-        const connect_sqe = try ring.connect(connect_userdata, @intCast(fd_index), &address.any, address.getOsSockLen());
+        const connect_sqe = try ring.connect(connect_userdata, @intCast(fd_index), addrAny(&address), @sizeOf(linux.sockaddr.in));
         connect_sqe.flags |= linux.IOSQE_FIXED_FILE; // fd is fixed file index
         // submit both
         try testing.expectEqual(@as(u32, 2), try ring.submit());
@@ -4483,12 +4494,15 @@ test "bind/listen/connect" {
     // LISTEN is higher required operation
     if (!probe.is_supported(.LISTEN)) return error.SkipZigTest;
 
-    var addr = net.Address.initIp4([4]u8{ 127, 0, 0, 1 }, 0);
-    const proto: u32 = if (addr.any.family == linux.AF.UNIX) 0 else linux.IPPROTO.TCP;
+    var addr: linux.sockaddr.in = .{
+        .port = 0,
+        .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
+    };
+    const proto: u32 = if (addr.family == linux.AF.UNIX) 0 else linux.IPPROTO.TCP;
 
     const listen_fd = brk: {
         // Create socket
-        _ = try ring.socket(1, addr.any.family, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, proto, 0);
+        _ = try ring.socket(1, addr.family, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, proto, 0);
         try testing.expectEqual(1, try ring.submit());
         var cqe = try ring.copy_cqe();
         try testing.expectEqual(1, cqe.user_data);
@@ -4500,7 +4514,7 @@ test "bind/listen/connect" {
         var optval: u32 = 1;
         (try ring.setsockopt(2, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, mem.asBytes(&optval))).link_next();
         (try ring.setsockopt(3, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEPORT, mem.asBytes(&optval))).link_next();
-        (try ring.bind(4, listen_fd, &addr.any, addr.getOsSockLen(), 0)).link_next();
+        (try ring.bind(4, listen_fd, addrAny(&addr), @sizeOf(linux.sockaddr.in), 0)).link_next();
         _ = try ring.listen(5, listen_fd, 1, 0);
         // Submit 4 operations
         try testing.expectEqual(4, try ring.submit());
@@ -4521,15 +4535,15 @@ test "bind/listen/connect" {
         try testing.expectEqual(1, optval);
 
         // Read system assigned port into addr
-        var addr_len: posix.socklen_t = addr.getOsSockLen();
-        try posix.getsockname(listen_fd, &addr.any, &addr_len);
+        var addr_len: posix.socklen_t = @sizeOf(linux.sockaddr.in);
+        try posix.getsockname(listen_fd, addrAny(&addr), &addr_len);
 
         break :brk listen_fd;
     };
 
     const connect_fd = brk: {
         // Create connect socket
-        _ = try ring.socket(6, addr.any.family, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, proto, 0);
+        _ = try ring.socket(6, addr.family, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, proto, 0);
         try testing.expectEqual(1, try ring.submit());
         const cqe = try ring.copy_cqe();
         try testing.expectEqual(6, cqe.user_data);
@@ -4542,7 +4556,7 @@ test "bind/listen/connect" {
 
     // Prepare accept/connect operations
     _ = try ring.accept(7, listen_fd, null, null, 0);
-    _ = try ring.connect(8, connect_fd, &addr.any, addr.getOsSockLen());
+    _ = try ring.connect(8, connect_fd, addrAny(&addr), @sizeOf(linux.sockaddr.in));
     try testing.expectEqual(2, try ring.submit());
     // Get listener accepted socket
     var accept_fd: posix.socket_t = 0;
@@ -4603,4 +4617,8 @@ fn testSendRecv(ring: *IoUring, send_fd: posix.socket_t, recv_fd: posix.socket_t
     // inspect recv buffer
     try testing.expectEqualSlices(u8, buffer_send, buffer_recv[0..buffer_send.len]);
     try testing.expectEqualSlices(u8, buffer_send, buffer_recv[buffer_send.len..]);
+}
+
+fn addrAny(addr: *linux.sockaddr.in) *linux.sockaddr {
+    return @ptrCast(addr);
 }

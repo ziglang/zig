@@ -1,5 +1,9 @@
-const std = @import("../std.zig");
+const ChildProcess = @This();
+
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
+const std = @import("../std.zig");
 const unicode = std.unicode;
 const fs = std.fs;
 const process = std.process;
@@ -11,9 +15,7 @@ const mem = std.mem;
 const EnvMap = std.process.EnvMap;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
-const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
-const ChildProcess = @This();
 const ArrayList = std.ArrayList;
 
 pub const Id = switch (native_os) {
@@ -317,16 +319,23 @@ pub fn waitForSpawn(self: *ChildProcess) SpawnError!void {
 
     const err_pipe = self.err_pipe orelse return;
     self.err_pipe = null;
-
     // Wait for the child to report any errors in or before `execvpe`.
-    if (readIntFd(err_pipe)) |child_err_int| {
-        posix.close(err_pipe);
+    const report = readIntFd(err_pipe);
+    posix.close(err_pipe);
+    if (report) |child_err_int| {
         const child_err: SpawnError = @errorCast(@errorFromInt(child_err_int));
         self.term = child_err;
         return child_err;
-    } else |_| {
-        // Write end closed by CLOEXEC at the time of the `execvpe` call, indicating success!
-        posix.close(err_pipe);
+    } else |read_err| switch (read_err) {
+        error.EndOfStream => {
+            // Write end closed by CLOEXEC at the time of the `execvpe` call,
+            // indicating success.
+        },
+        else => {
+            // Problem reading the error from the error reporting pipe. We
+            // don't know if the child is alive or dead. Better to assume it is
+            // alive so the resource does not risk being leaked.
+        },
     }
 }
 
@@ -1014,8 +1023,14 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
 
 fn readIntFd(fd: i32) !ErrInt {
     var buffer: [8]u8 = undefined;
-    var fr: std.fs.File.Reader = .initStreaming(.{ .handle = fd }, &buffer);
-    return @intCast(fr.interface.takeInt(u64, .little) catch return error.SystemResources);
+    var i: usize = 0;
+    while (i < buffer.len) {
+        const n = try std.posix.read(fd, buffer[i..]);
+        if (n == 0) return error.EndOfStream;
+        i += n;
+    }
+    const int = mem.readInt(u64, &buffer, .little);
+    return @intCast(int);
 }
 
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);

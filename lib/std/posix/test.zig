@@ -731,11 +731,8 @@ test "dup & dup2" {
         try dup2ed.writeAll("dup2");
     }
 
-    var file = try tmp.dir.openFile("os_dup_test", .{});
-    defer file.close();
-
-    var buf: [7]u8 = undefined;
-    try testing.expectEqualStrings("dupdup2", buf[0..try file.readAll(&buf)]);
+    var buffer: [8]u8 = undefined;
+    try testing.expectEqualStrings("dupdup2", try tmp.dir.readFile("os_dup_test", &buffer));
 }
 
 test "writev longer than IOV_MAX" {

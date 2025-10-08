@@ -442,6 +442,7 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
         error.DeviceBusy,
         error.InputOutput,
         error.LockViolation,
+        error.FileSystem,
 
         error.UnableToOpenElfFile,
         error.UnhelpfulFile,
@@ -542,16 +543,15 @@ fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: T
     return null;
 }
 
-pub const AbiAndDynamicLinkerFromFileError = error{};
-
-pub fn abiAndDynamicLinkerFromFile(
+fn abiAndDynamicLinkerFromFile(
     file_reader: *Io.File.Reader,
     header: *const elf.Header,
     cpu: Target.Cpu,
     os: Target.Os,
     ld_info_list: []const LdInfo,
     query: Target.Query,
-) AbiAndDynamicLinkerFromFileError!Target {
+) !Target {
+    const io = file_reader.io;
     var result: Target = .{
         .cpu = cpu,
         .os = os,
@@ -623,8 +623,8 @@ pub fn abiAndDynamicLinkerFromFile(
         try file_reader.seekTo(shstr.sh_offset);
         try file_reader.interface.readSliceAll(shstrtab);
         const dynstr: ?struct { offset: u64, size: u64 } = find_dyn_str: {
-            var it = header.iterateSectionHeaders(&file_reader.interface);
-            while (it.next()) |shdr| {
+            var it = header.iterateSectionHeaders(file_reader);
+            while (try it.next()) |shdr| {
                 const end = mem.findScalarPos(u8, shstrtab, shdr.sh_name, 0) orelse continue;
                 const sh_name = shstrtab[shdr.sh_name..end :0];
                 if (mem.eql(u8, sh_name, ".dynstr")) break :find_dyn_str .{
@@ -645,7 +645,7 @@ pub fn abiAndDynamicLinkerFromFile(
 
                 var it = mem.tokenizeScalar(u8, rpath_list, ':');
                 while (it.next()) |rpath| {
-                    if (glibcVerFromRPath(rpath)) |ver| {
+                    if (glibcVerFromRPath(io, rpath)) |ver| {
                         result.os.version_range.linux.glibc = ver;
                         return result;
                     } else |err| switch (err) {
@@ -660,7 +660,7 @@ pub fn abiAndDynamicLinkerFromFile(
             // There is no DT_RUNPATH so we try to find libc.so.6 inside the same
             // directory as the dynamic linker.
             if (fs.path.dirname(dl_path)) |rpath| {
-                if (glibcVerFromRPath(rpath)) |ver| {
+                if (glibcVerFromRPath(io, rpath)) |ver| {
                     result.os.version_range.linux.glibc = ver;
                     return result;
                 } else |err| switch (err) {
@@ -725,7 +725,7 @@ pub fn abiAndDynamicLinkerFromFile(
         @memcpy(path_buf[index..][0..abi.len], abi);
         index += abi.len;
         const rpath = path_buf[0..index];
-        if (glibcVerFromRPath(rpath)) |ver| {
+        if (glibcVerFromRPath(io, rpath)) |ver| {
             result.os.version_range.linux.glibc = ver;
             return result;
         } else |err| switch (err) {
@@ -842,18 +842,13 @@ fn glibcVerFromRPath(io: Io, rpath: []const u8) !std.SemanticVersion {
         error.InvalidElfMagic,
         error.InvalidElfEndian,
         error.InvalidElfClass,
-        error.InvalidElfFile,
         error.InvalidElfVersion,
         error.InvalidGnuLibCVersion,
         error.EndOfStream,
         => return error.GLibCNotFound,
 
-        error.SystemResources,
-        error.UnableToReadElfFile,
-        error.Unexpected,
-        error.FileSystem,
-        error.ProcessNotFound,
-        => |e| return e,
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
     };
 }
 
@@ -867,8 +862,8 @@ fn glibcVerFromSoFile(file_reader: *Io.File.Reader) !std.SemanticVersion {
     try file_reader.seekTo(shstr.sh_offset);
     try file_reader.interface.readSliceAll(shstrtab);
     const dynstr: struct { offset: u64, size: u64 } = find_dyn_str: {
-        var it = header.iterateSectionHeaders(&file_reader.interface);
-        while (it.next()) |shdr| {
+        var it = header.iterateSectionHeaders(file_reader);
+        while (try it.next()) |shdr| {
             const end = mem.findScalarPos(u8, shstrtab, shdr.sh_name, 0) orelse continue;
             const sh_name = shstrtab[shdr.sh_name..end :0];
             if (mem.eql(u8, sh_name, ".dynstr")) break :find_dyn_str .{
@@ -882,19 +877,25 @@ fn glibcVerFromSoFile(file_reader: *Io.File.Reader) !std.SemanticVersion {
     // strings that start with "GLIBC_2." indicate the existence of such a glibc version,
     // and furthermore, that the system-installed glibc is at minimum that version.
     var max_ver: std.SemanticVersion = .{ .major = 2, .minor = 2, .patch = 5 };
-
+    var offset: u64 = 0;
     try file_reader.seekTo(dynstr.offset);
-    while (file_reader.interface.takeSentinel(0)) |s| {
-        if (mem.startsWith(u8, s, "GLIBC_2.")) {
-            const chopped = s["GLIBC_".len..];
-            const ver = Target.Query.parseVersion(chopped) catch |err| switch (err) {
-                error.Overflow => return error.InvalidGnuLibCVersion,
-                error.InvalidVersion => return error.InvalidGnuLibCVersion,
-            };
-            switch (ver.order(max_ver)) {
-                .gt => max_ver = ver,
-                .lt, .eq => continue,
+    while (offset < dynstr.size) {
+        if (file_reader.interface.takeSentinel(0)) |s| {
+            if (mem.startsWith(u8, s, "GLIBC_2.")) {
+                const chopped = s["GLIBC_".len..];
+                const ver = Target.Query.parseVersion(chopped) catch |err| switch (err) {
+                    error.Overflow => return error.InvalidGnuLibCVersion,
+                    error.InvalidVersion => return error.InvalidGnuLibCVersion,
+                };
+                switch (ver.order(max_ver)) {
+                    .gt => max_ver = ver,
+                    .lt, .eq => continue,
+                }
             }
+            offset += s.len + 1;
+        } else |err| switch (err) {
+            error.EndOfStream, error.StreamTooLong => break,
+            error.ReadFailed => |e| return e,
         }
     }
 
@@ -1091,22 +1092,12 @@ fn detectAbiAndDynamicLinker(io: Io, cpu: Target.Cpu, os: Target.Os, query: Targ
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.ProcessNotFound,
+        error.Canceled,
         => |e| return e,
 
         error.ReadFailed => return file_reader.err.?,
 
-        error.UnableToReadElfFile,
-        error.InvalidElfClass,
-        error.InvalidElfVersion,
-        error.InvalidElfEndian,
-        error.InvalidElfFile,
-        error.InvalidElfMagic,
-        error.Unexpected,
-        error.EndOfStream,
-        error.NameTooLong,
-        error.StaticElfFile,
-        // Finally, we fall back on the standard path.
-        => |e| {
+        else => |e| {
             std.log.warn("encountered {t}; falling back to default ABI and dynamic linker", .{e});
             return defaultAbiAndDynamicLinker(cpu, os, query);
         },

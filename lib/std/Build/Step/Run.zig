@@ -761,6 +761,7 @@ const IndexedOutput = struct {
 };
 fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
+    const io = b.graph.io;
     const arena = b.allocator;
     const run: *Run = @fieldParentPtr("step", step);
     const has_side_effects = run.hasSideEffects();
@@ -834,7 +835,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 defer file.close();
 
                 var buf: [1024]u8 = undefined;
-                var file_reader = file.reader(&buf);
+                var file_reader = file.reader(io, &buf);
                 _ = file_reader.interface.streamRemaining(&result.writer) catch |err| switch (err) {
                     error.ReadFailed => return step.fail(
                         "failed to read from '{f}': {t}",
@@ -1067,6 +1068,7 @@ pub fn rerunInFuzzMode(
 ) !void {
     const step = &run.step;
     const b = step.owner;
+    const io = b.graph.io;
     const arena = b.allocator;
     var argv_list: std.ArrayList([]const u8) = .empty;
     for (run.argv.items) |arg| {
@@ -1093,7 +1095,7 @@ pub fn rerunInFuzzMode(
                 defer file.close();
 
                 var buf: [1024]u8 = undefined;
-                var file_reader = file.reader(&buf);
+                var file_reader = file.reader(io, &buf);
                 _ = file_reader.interface.streamRemaining(&result.writer) catch |err| switch (err) {
                     error.ReadFailed => return file_reader.err.?,
                     error.WriteFailed => return error.OutOfMemory,
@@ -2090,6 +2092,7 @@ fn sendRunFuzzTestMessage(
 
 fn evalGeneric(run: *Run, child: *std.process.Child) !EvalGenericResult {
     const b = run.step.owner;
+    const io = b.graph.io;
     const arena = b.allocator;
 
     try child.spawn();
@@ -2113,7 +2116,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !EvalGenericResult {
             defer file.close();
             // TODO https://github.com/ziglang/zig/issues/23955
             var read_buffer: [1024]u8 = undefined;
-            var file_reader = file.reader(&read_buffer);
+            var file_reader = file.reader(io, &read_buffer);
             var write_buffer: [1024]u8 = undefined;
             var stdin_writer = child.stdin.?.writer(&write_buffer);
             _ = stdin_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
@@ -2159,7 +2162,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !EvalGenericResult {
             stdout_bytes = try poller.toOwnedSlice(.stdout);
             stderr_bytes = try poller.toOwnedSlice(.stderr);
         } else {
-            var stdout_reader = stdout.readerStreaming(&.{});
+            var stdout_reader = stdout.readerStreaming(io, &.{});
             stdout_bytes = stdout_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ReadFailed => return stdout_reader.err.?,
@@ -2167,7 +2170,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !EvalGenericResult {
             };
         }
     } else if (child.stderr) |stderr| {
-        var stderr_reader = stderr.readerStreaming(&.{});
+        var stderr_reader = stderr.readerStreaming(io, &.{});
         stderr_bytes = stderr_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ReadFailed => return stderr_reader.err.?,

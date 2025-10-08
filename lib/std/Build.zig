@@ -1837,6 +1837,8 @@ pub fn runAllowFail(
     if (!process.can_spawn)
         return error.ExecNotSupported;
 
+    const io = b.graph.io;
+
     const max_output_size = 400 * 1024;
     var child = std.process.Child.init(argv, b.allocator);
     child.stdin_behavior = .Ignore;
@@ -1847,7 +1849,7 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    var stdout_reader = child.stdout.?.readerStreaming(&.{});
+    var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
     const stdout = stdout_reader.interface.allocRemaining(b.allocator, .limited(max_output_size)) catch {
         return error.ReadFailure;
     };

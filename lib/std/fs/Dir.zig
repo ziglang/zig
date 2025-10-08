@@ -1,6 +1,11 @@
+//! Deprecated in favor of `Io.Dir`.
 const Dir = @This();
+
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
 const std = @import("../std.zig");
+const Io = std.Io;
 const File = std.fs.File;
 const AtomicFile = std.fs.AtomicFile;
 const base64_encoder = fs.base64_encoder;
@@ -12,7 +17,6 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const linux = std.os.linux;
 const windows = std.os.windows;
-const native_os = builtin.os.tag;
 const have_flock = @TypeOf(posix.system.flock) != void;
 
 fd: Handle,
@@ -1189,84 +1193,41 @@ pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) 
     return file;
 }
 
-pub const MakeError = posix.MakeDirError;
+/// Deprecated in favor of `Io.Dir.MakeError`.
+pub const MakeError = Io.Dir.MakeError;
 
-/// Creates a single directory with a relative or absolute path.
-/// To create multiple directories to make an entire path, see `makePath`.
-/// To operate on only absolute paths, see `makeDirAbsolute`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// Deprecated in favor of `Io.Dir.makeDir`.
 pub fn makeDir(self: Dir, sub_path: []const u8) MakeError!void {
-    try posix.mkdirat(self.fd, sub_path, default_mode);
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return Io.Dir.makeDir(.{ .handle = self.fd }, io, sub_path);
 }
 
-/// Same as `makeDir`, but `sub_path` is null-terminated.
-/// To create multiple directories to make an entire path, see `makePath`.
-/// To operate on only absolute paths, see `makeDirAbsoluteZ`.
+/// Deprecated in favor of `Io.Dir.makeDir`.
 pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) MakeError!void {
     try posix.mkdiratZ(self.fd, sub_path, default_mode);
 }
 
-/// Creates a single directory with a relative or absolute null-terminated WTF-16 LE-encoded path.
-/// To create multiple directories to make an entire path, see `makePath`.
-/// To operate on only absolute paths, see `makeDirAbsoluteW`.
+/// Deprecated in favor of `Io.Dir.makeDir`.
 pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
     try posix.mkdiratW(self.fd, mem.span(sub_path), default_mode);
 }
 
-/// Calls makeDir iteratively to make an entire path
-/// (i.e. creating any parent directories that do not exist).
-/// Returns success if the path already exists and is a directory.
-/// This function is not atomic, and if it returns an error, the file system may
-/// have been modified regardless.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-/// Fails on an empty path with `error.BadPathName` as that is not a path that can be created.
-///
-/// Paths containing `..` components are handled differently depending on the platform:
-/// - On Windows, `..` are resolved before the path is passed to NtCreateFile, meaning
-///   a `sub_path` like "first/../second" will resolve to "second" and only a
-///   `./second` directory will be created.
-/// - On other platforms, `..` are not resolved before the path is passed to `mkdirat`,
-///   meaning a `sub_path` like "first/../second" will create both a `./first`
-///   and a `./second` directory.
-pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!void {
+/// Deprecated in favor of `Io.Dir.makePath`.
+pub fn makePath(self: Dir, sub_path: []const u8) MakePathError!void {
     _ = try self.makePathStatus(sub_path);
 }
 
-pub const MakePathStatus = enum { existed, created };
-/// Same as `makePath` except returns whether the path already existed or was successfully created.
-pub fn makePathStatus(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!MakePathStatus {
-    var it = try fs.path.componentIterator(sub_path);
-    var status: MakePathStatus = .existed;
-    var component = it.last() orelse return error.BadPathName;
-    while (true) {
-        if (self.makeDir(component.path)) |_| {
-            status = .created;
-        } else |err| switch (err) {
-            error.PathAlreadyExists => {
-                // stat the file and return an error if it's not a directory
-                // this is important because otherwise a dangling symlink
-                // could cause an infinite loop
-                check_dir: {
-                    // workaround for windows, see https://github.com/ziglang/zig/issues/16738
-                    const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
-                        error.IsDir => break :check_dir,
-                        else => |e| return e,
-                    };
-                    if (fstat.kind != .directory) return error.NotDir;
-                }
-            },
-            error.FileNotFound => |e| {
-                component = it.previous() orelse return e;
-                continue;
-            },
-            else => |e| return e,
-        }
-        component = it.next() orelse return status;
-    }
+/// Deprecated in favor of `Io.Dir.MakePathStatus`.
+pub const MakePathStatus = Io.Dir.MakePathStatus;
+/// Deprecated in favor of `Io.Dir.MakePathError`.
+pub const MakePathError = Io.Dir.MakePathError;
+
+/// Deprecated in favor of `Io.Dir.makePathStatus`.
+pub fn makePathStatus(self: Dir, sub_path: []const u8) MakePathError!MakePathStatus {
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return Io.Dir.makePathStatus(.{ .handle = self.fd }, io, sub_path);
 }
 
 /// Windows only. Calls makeOpenDirAccessMaskW iteratively to make an entire path
@@ -2052,20 +2013,11 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
     return windows.ReadLink(self.fd, sub_path_w, buffer);
 }
 
-/// Read all of file contents using a preallocated buffer.
-/// The returned slice has the same pointer as `buffer`. If the length matches `buffer.len`
-/// the situation is ambiguous. It could either mean that the entire file was read, and
-/// it exactly fits the buffer, or it could mean the buffer was not big enough for the
-/// entire file.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
+/// Deprecated in favor of `Io.Dir.readFile`.
 pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
-    var file = try self.openFile(file_path, .{});
-    defer file.close();
-
-    const end_index = try file.readAll(buffer);
-    return buffer[0..end_index];
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return Io.Dir.readFile(.{ .handle = self.fd }, io, file_path, buffer);
 }
 
 pub const ReadFileAllocError = File.OpenError || File.ReadError || Allocator.Error || error{
@@ -2091,7 +2043,7 @@ pub fn readFileAlloc(
     /// Used to allocate the result.
     gpa: Allocator,
     /// If reached or exceeded, `error.StreamTooLong` is returned instead.
-    limit: std.Io.Limit,
+    limit: Io.Limit,
 ) ReadFileAllocError![]u8 {
     return readFileAllocOptions(dir, sub_path, gpa, limit, .of(u8), null);
 }
@@ -2101,6 +2053,8 @@ pub fn readFileAlloc(
 ///
 /// If the file size is already known, a better alternative is to initialize a
 /// `File.Reader`.
+///
+/// TODO move this function to Io.Dir
 pub fn readFileAllocOptions(
     dir: Dir,
     /// On Windows, should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
@@ -2110,13 +2064,16 @@ pub fn readFileAllocOptions(
     /// Used to allocate the result.
     gpa: Allocator,
     /// If reached or exceeded, `error.StreamTooLong` is returned instead.
-    limit: std.Io.Limit,
+    limit: Io.Limit,
     comptime alignment: std.mem.Alignment,
     comptime sentinel: ?u8,
 ) ReadFileAllocError!(if (sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+
     var file = try dir.openFile(sub_path, .{});
     defer file.close();
-    var file_reader = file.reader(&.{});
+    var file_reader = file.reader(io, &.{});
     return file_reader.interface.allocRemainingAlignedSentinel(gpa, limit, alignment, sentinel) catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
         error.OutOfMemory, error.StreamTooLong => |e| return e,
@@ -2647,6 +2604,8 @@ pub const CopyFileError = File.OpenError || File.StatError ||
 /// [WTF-8](https://wtf-8.codeberg.page/). On WASI, both paths should be
 /// encoded as valid UTF-8. On other platforms, both paths are an opaque
 /// sequence of bytes with no particular encoding.
+///
+/// TODO move this function to Io.Dir
 pub fn copyFile(
     source_dir: Dir,
     source_path: []const u8,
@@ -2654,11 +2613,15 @@ pub fn copyFile(
     dest_path: []const u8,
     options: CopyFileOptions,
 ) CopyFileError!void {
-    var file_reader: File.Reader = .init(try source_dir.openFile(source_path, .{}), &.{});
-    defer file_reader.file.close();
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+
+    const file = try source_dir.openFile(source_path, .{});
+    var file_reader: File.Reader = .init(.{ .handle = file.handle }, io, &.{});
+    defer file_reader.file.close(io);
 
     const mode = options.override_mode orelse blk: {
-        const st = try file_reader.file.stat();
+        const st = try file_reader.file.stat(io);
         file_reader.size = st.size;
         break :blk st.mode;
     };
@@ -2708,6 +2671,7 @@ pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) 
 pub const Stat = File.Stat;
 pub const StatError = File.StatError;
 
+/// Deprecated in favor of `Io.Dir.stat`.
 pub fn stat(self: Dir) StatError!Stat {
     const file: File = .{ .handle = self.fd };
     return file.stat();
@@ -2715,17 +2679,7 @@ pub fn stat(self: Dir) StatError!Stat {
 
 pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError;
 
-/// Returns metadata for a file inside the directory.
-///
-/// On Windows, this requires three syscalls. On other operating systems, it
-/// only takes one.
-///
-/// Symlinks are followed.
-///
-/// `sub_path` may be absolute, in which case `self` is ignored.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// Deprecated in favor of `Io.Dir.statPath`.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
         var file = try self.openFile(sub_path, .{});
@@ -2798,4 +2752,12 @@ pub const SetPermissionsError = File.SetPermissionsError;
 pub fn setPermissions(self: Dir, permissions: Permissions) SetPermissionsError!void {
     const file: File = .{ .handle = self.fd };
     try file.setPermissions(permissions);
+}
+
+pub fn adaptToNewApi(dir: Dir) Io.Dir {
+    return .{ .handle = dir.fd };
+}
+
+pub fn adaptFromNewApi(dir: Io.Dir) Dir {
+    return .{ .fd = dir.handle };
 }

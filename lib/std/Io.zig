@@ -654,6 +654,10 @@ pub const VTable = struct {
     conditionWait: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex) Cancelable!void,
     conditionWake: *const fn (?*anyopaque, cond: *Condition, wake: Condition.Wake) void,
 
+    dirMake: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, mode: Dir.Mode) Dir.MakeError!void,
+    dirStat: *const fn (?*anyopaque, dir: Dir) Dir.StatError!Dir.Stat,
+    dirStatPath: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8) Dir.StatError!File.Stat,
+    fileStat: *const fn (?*anyopaque, file: File) File.StatError!File.Stat,
     createFile: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File,
     fileOpen: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File,
     fileClose: *const fn (?*anyopaque, File) void,
@@ -804,6 +808,10 @@ pub const Timestamp = struct {
         assert(lhs.clock == rhs.clock);
         return std.math.compare(lhs.nanoseconds, op, rhs.nanoseconds);
     }
+
+    pub fn toSeconds(t: Timestamp) i64 {
+        return @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_s));
+    }
 };
 
 pub const Duration = struct {
@@ -829,6 +837,10 @@ pub const Duration = struct {
 
     pub fn toSeconds(d: Duration) i64 {
         return @intCast(@divTrunc(d.nanoseconds, std.time.ns_per_s));
+    }
+
+    pub fn toNanoseconds(d: Duration) i96 {
+        return d.nanoseconds;
     }
 
     pub fn sleep(duration: Duration, io: Io) SleepError!void {

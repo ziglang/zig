@@ -446,7 +446,11 @@ pub const Reader = struct {
 
     fn stream(io_reader: *Io.Reader, w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
-        switch (r.mode) {
+        return streamMode(r, w, limit, r.mode);
+    }
+
+    pub fn streamMode(r: *Reader, w: *Io.Writer, limit: Io.Limit, mode: Reader.Mode) Io.Reader.StreamError!usize {
+        switch (mode) {
             .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
                 error.Unimplemented => {
                     r.mode = r.mode.toReading();

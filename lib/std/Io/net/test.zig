@@ -211,11 +211,11 @@ test "listen on a port, send bytes, receive bytes" {
     const t = try std.Thread.spawn(.{}, S.clientFn, .{server.socket.address});
     defer t.join();
 
-    var client = try server.accept(io);
-    defer client.stream.close(io);
+    var stream = try server.accept(io);
+    defer stream.close(io);
     var buf: [16]u8 = undefined;
-    var stream_reader = client.stream.reader(io, &.{});
-    const n = try stream_reader.interface().readSliceShort(&buf);
+    var stream_reader = stream.reader(io, &.{});
+    const n = try stream_reader.interface.readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -267,10 +267,9 @@ fn testServer(server: *net.Server) anyerror!void {
 
     const io = testing.io;
 
-    var client = try server.accept(io);
-
-    const stream = client.stream.writer(io);
-    try stream.print("hello from server\n", .{});
+    var stream = try server.accept(io);
+    var writer = stream.writer(io, &.{});
+    try writer.interface.print("hello from server\n", .{});
 }
 
 test "listen on a unix socket, send bytes, receive bytes" {
@@ -310,11 +309,11 @@ test "listen on a unix socket, send bytes, receive bytes" {
     const t = try std.Thread.spawn(.{}, S.clientFn, .{socket_path});
     defer t.join();
 
-    var client = try server.accept(io);
-    defer client.stream.close(io);
+    var stream = try server.accept(io);
+    defer stream.close(io);
     var buf: [16]u8 = undefined;
-    var stream_reader = client.stream.reader(io, &.{});
-    const n = try stream_reader.interface().readSliceShort(&buf);
+    var stream_reader = stream.reader(io, &.{});
+    const n = try stream_reader.interface.readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -366,10 +365,10 @@ test "non-blocking tcp server" {
     const socket_file = try net.tcpConnectToAddress(server.socket.address);
     defer socket_file.close();
 
-    var client = try server.accept(io);
-    defer client.stream.close(io);
-    const stream = client.stream.writer(io);
-    try stream.print("hello from server\n", .{});
+    var stream = try server.accept(io);
+    defer stream.close(io);
+    var writer = stream.writer(io, .{});
+    try writer.interface.print("hello from server\n", .{});
 
     var buf: [100]u8 = undefined;
     const len = try socket_file.read(&buf);

@@ -57,6 +57,39 @@ pub const IpAddress = union(enum) {
 
     pub const Family = @typeInfo(IpAddress).@"union".tag_type.?;
 
+    pub const ParseLiteralError = error{ InvalidAddress, InvalidPort };
+
+    /// Parse an IP address which may include a port.
+    ///
+    /// For IPv4, this is written `address:port`.
+    ///
+    /// For IPv6, RFC 3986 defines this as an "IP literal", and the port is
+    /// differentiated from the address by surrounding the address part in
+    /// brackets "[addr]:port". Even if the port is not given, the brackets are
+    /// mandatory.
+    pub fn parseLiteral(text: []const u8) ParseLiteralError!IpAddress {
+        if (text.len == 0) return error.InvalidAddress;
+        if (text[0] == '[') {
+            const addr_end = std.mem.indexOfScalar(u8, text, ']') orelse
+                return error.InvalidAddress;
+            const addr_text = text[1..addr_end];
+            const port: u16 = p: {
+                if (addr_end == text.len - 1) break :p 0;
+                if (text[addr_end + 1] != ':') return error.InvalidAddress;
+                break :p std.fmt.parseInt(u16, text[addr_end + 2 ..], 10) catch return error.InvalidPort;
+            };
+            return parseIp6(addr_text, port) catch error.InvalidAddress;
+        }
+        if (std.mem.indexOfScalar(u8, text, ':')) |i| {
+            const addr = Ip4Address.parse(text[0..i], 0) catch return error.InvalidAddress;
+            return .{ .ip4 = .{
+                .bytes = addr.bytes,
+                .port = std.fmt.parseInt(u16, text[i + 1 ..], 10) catch return error.InvalidPort,
+            } };
+        }
+        return parseIp4(text, 0) catch error.InvalidAddress;
+    }
+
     /// Parse the given IP address string into an `IpAddress` value.
     ///
     /// This is a pure function but it cannot handle IPv6 addresses that have

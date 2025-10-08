@@ -63,7 +63,17 @@ const Closure = struct {
 
 pub const InitError = std.Thread.CpuCountError || Allocator.Error;
 
-pub fn init(gpa: Allocator) Pool {
+/// Related:
+/// * `init_single_threaded`
+pub fn init(
+    /// Must be threadsafe. Only used for the following functions:
+    /// * `Io.VTable.async`
+    /// * `Io.VTable.concurrent`
+    /// * `Io.VTable.groupAsync`
+    /// If these functions are avoided, then `Allocator.failing` may be passed
+    /// here.
+    gpa: Allocator,
+) Pool {
     var pool: Pool = .{
         .allocator = gpa,
         .threads = .empty,
@@ -76,6 +86,20 @@ pub fn init(gpa: Allocator) Pool {
     } else |_| {}
     return pool;
 }
+
+/// Statically initialize such that any call to the following functions will
+/// fail with `error.OutOfMemory`:
+/// * `Io.VTable.async`
+/// * `Io.VTable.concurrent`
+/// * `Io.VTable.groupAsync`
+/// When initialized this way, `deinit` is safe, but unnecessary to call.
+pub const init_single_threaded: Pool = .{
+    .allocator = .failing,
+    .threads = .empty,
+    .stack_size = std.Thread.SpawnConfig.default_stack_size,
+    .cpu_count = 1,
+    .concurrent_count = 0,
+};
 
 pub fn deinit(pool: *Pool) void {
     const gpa = pool.allocator;
@@ -136,6 +160,10 @@ pub fn io(pool: *Pool) Io {
             .conditionWait = conditionWait,
             .conditionWake = conditionWake,
 
+            .dirMake = dirMake,
+            .dirStat = dirStat,
+            .dirStatPath = dirStatPath,
+            .fileStat = fileStat,
             .createFile = createFile,
             .fileOpen = fileOpen,
             .fileClose = fileClose,
@@ -520,10 +548,11 @@ fn groupAsync(
 
 fn groupWait(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    _ = pool;
+    const gpa = pool.allocator;
 
     if (builtin.single_threaded) return;
 
+    // TODO these primitives are too high level, need to check cancel on EINTR
     const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
     const reset_event: *ResetEvent = @ptrCast(&group.context);
     std.Thread.WaitGroup.waitStateless(group_state, reset_event);
@@ -531,8 +560,9 @@ fn groupWait(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) void {
     var node: *std.SinglyLinkedList.Node = @ptrCast(@alignCast(token));
     while (true) {
         const gc: *GroupClosure = @fieldParentPtr("node", node);
-        gc.closure.requestCancel();
-        node = node.next orelse break;
+        const node_next = node.next;
+        gc.free(gpa);
+        node = node_next orelse break;
     }
 }
 
@@ -722,6 +752,41 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
             return;
         };
     }
+}
+
+fn dirMake(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    _ = dir;
+    _ = sub_path;
+    _ = mode;
+    @panic("TODO");
+}
+
+fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    _ = dir;
+    @panic("TODO");
+}
+
+fn dirStatPath(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8) Io.Dir.StatError!Io.File.Stat {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    _ = dir;
+    _ = sub_path;
+    @panic("TODO");
+}
+
+fn fileStat(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    _ = file;
+    @panic("TODO");
 }
 
 fn createFile(
