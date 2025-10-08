@@ -171,7 +171,7 @@ lto: ?std.zig.LtoMode = null,
 
 dll_export_fns: ?bool = null,
 
-subsystem: ?std.Target.SubSystem = null,
+subsystem: ?std.zig.Subsystem = null,
 
 /// (Windows) When targeting the MinGW ABI, use the unicode entry point (wmain/wWinMain)
 mingw_unicode_entry_point: bool = false,
@@ -1764,16 +1764,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.subsystem) |subsystem| {
         try zig_args.append("--subsystem");
-        try zig_args.append(switch (subsystem) {
-            .Console => "console",
-            .Windows => "windows",
-            .Posix => "posix",
-            .Native => "native",
-            .EfiApplication => "efi_application",
-            .EfiBootServiceDriver => "efi_boot_service_driver",
-            .EfiRom => "efi_rom",
-            .EfiRuntimeDriver => "efi_runtime_driver",
-        });
+        try zig_args.append(@tagName(subsystem));
     }
 
     if (compile.mingw_unicode_entry_point) {
