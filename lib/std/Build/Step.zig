@@ -524,22 +524,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*Build.
                 }
             },
             .error_bundle => {
-                const EbHdr = std.zig.Server.Message.ErrorBundle;
-                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                const extra_bytes =
-                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                const string_bytes =
-                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                // TODO: use @ptrCast when the compiler supports it
-                const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                {
-                    s.result_error_bundle = .{ .string_bytes = &.{}, .extra = &.{} };
-                    errdefer s.result_error_bundle.deinit(gpa);
-                    s.result_error_bundle.string_bytes = try gpa.dupe(u8, string_bytes);
-                    const extra = try gpa.alloc(u32, unaligned_extra.len);
-                    @memcpy(extra, unaligned_extra);
-                    s.result_error_bundle.extra = extra;
-                }
+                s.result_error_bundle = try std.zig.Server.allocErrorBundle(gpa, body);
                 // This message indicates the end of the update.
                 if (watch) break :poll;
             },
