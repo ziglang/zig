@@ -2250,3 +2250,34 @@ test "seekTo flushes buffered data" {
     try file_reader.interface.readSliceAll(&buf);
     try std.testing.expectEqualStrings(contents, &buf);
 }
+
+test "File.Writer sendfile with buffered contents" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    {
+        try tmp_dir.dir.writeFile(.{ .sub_path = "a", .data = "bcd" });
+        const in = try tmp_dir.dir.openFile("a", .{});
+        defer in.close();
+        const out = try tmp_dir.dir.createFile("b", .{});
+        defer out.close();
+
+        var in_buf: [2]u8 = undefined;
+        var in_r = in.reader(&in_buf);
+        _ = try in_r.getSize(); // Catch seeks past end by populating size
+        try in_r.interface.fill(2);
+
+        var out_buf: [1]u8 = undefined;
+        var out_w = out.writerStreaming(&out_buf);
+        try out_w.interface.writeByte('a');
+        try testing.expectEqual(3, try out_w.interface.sendFileAll(&in_r, .unlimited));
+        try out_w.interface.flush();
+    }
+
+    var check = try tmp_dir.dir.openFile("b", .{});
+    defer check.close();
+    var check_buf: [4]u8 = undefined;
+    var check_r = check.reader(&check_buf);
+    try testing.expectEqualStrings("abcd", try check_r.interface.take(4));
+    try testing.expectError(error.EndOfStream, check_r.interface.takeByte());
+}
