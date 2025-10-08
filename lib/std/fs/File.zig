@@ -858,10 +858,12 @@ pub const Writer = struct {
         };
     }
 
-    pub fn moveToReader(w: *Writer) Reader {
+    /// TODO when this logic moves from fs.File to Io.File the io parameter should be deleted
+    pub fn moveToReader(w: *Writer, io: std.Io) Reader {
         defer w.* = undefined;
         return .{
-            .file = w.file,
+            .io = io,
+            .file = .{ .handle = w.file.handle },
             .mode = w.mode,
             .pos = w.pos,
             .interface = Reader.initInterface(w.interface.buffer),
@@ -1350,15 +1352,15 @@ pub const Writer = struct {
 ///
 /// Positional is more threadsafe, since the global seek position is not
 /// affected.
-pub fn reader(file: File, buffer: []u8) Reader {
-    return .init(file, buffer);
+pub fn reader(file: File, io: std.Io, buffer: []u8) Reader {
+    return .init(.{ .handle = file.handle }, io, buffer);
 }
 
 /// Positional is more threadsafe, since the global seek position is not
 /// affected, but when such syscalls are not available, preemptively
 /// initializing in streaming mode skips a failed syscall.
-pub fn readerStreaming(file: File, buffer: []u8) Reader {
-    return .initStreaming(file, buffer);
+pub fn readerStreaming(file: File, io: std.Io, buffer: []u8) Reader {
+    return .initStreaming(.{ .handle = file.handle }, io, buffer);
 }
 
 /// Defaults to positional reading; falls back to streaming.
@@ -1537,4 +1539,12 @@ pub fn downgradeLock(file: File) LockError!void {
             else => |e| return e,
         };
     }
+}
+
+pub fn adaptToNewApi(file: File) std.Io.File {
+    return .{ .handle = file.handle };
+}
+
+pub fn adaptFromNewApi(file: std.Io.File) File {
+    return .{ .handle = file.handle };
 }

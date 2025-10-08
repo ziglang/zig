@@ -1,5 +1,8 @@
-const std = @import("std");
+const runner = @This();
 const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fmt = std.fmt;
 const mem = std.mem;
@@ -11,7 +14,6 @@ const WebServer = std.Build.WebServer;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
 const Writer = std.Io.Writer;
-const runner = @This();
 const tty = std.Io.tty;
 
 pub const root = @import("@build");
@@ -75,6 +77,7 @@ pub fn main() !void {
         .io = io,
         .arena = arena,
         .cache = .{
+            .io = io,
             .gpa = arena,
             .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
         },
@@ -84,7 +87,7 @@ pub fn main() !void {
         .zig_lib_directory = zig_lib_directory,
         .host = .{
             .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(.{}),
+            .result = try std.zig.system.resolveTargetQuery(io, .{}),
         },
         .time_report = false,
     };
@@ -121,7 +124,7 @@ pub fn main() !void {
     var watch = false;
     var fuzz: ?std.Build.Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
-    var webui_listen: ?std.net.Address = null;
+    var webui_listen: ?Io.net.IpAddress = null;
 
     if (try std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(arena)) |str| {
         if (std.meta.stringToEnum(ErrorStyle, str)) |style| {
@@ -288,11 +291,11 @@ pub fn main() !void {
                     });
                 };
             } else if (mem.eql(u8, arg, "--webui")) {
-                webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
+                if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.startsWith(u8, arg, "--webui=")) {
                 const addr_str = arg["--webui=".len..];
                 if (std.mem.eql(u8, addr_str, "-")) fatal("web interface cannot listen on stdio", .{});
-                webui_listen = std.net.Address.parseIpAndPort(addr_str) catch |err| {
+                webui_listen = Io.net.IpAddress.parseLiteral(addr_str) catch |err| {
                     fatal("invalid web UI address '{s}': {s}", .{ addr_str, @errorName(err) });
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
@@ -334,14 +337,10 @@ pub fn main() !void {
                 watch = true;
             } else if (mem.eql(u8, arg, "--time-report")) {
                 graph.time_report = true;
-                if (webui_listen == null) {
-                    webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
-                }
+                if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.eql(u8, arg, "--fuzz")) {
                 fuzz = .{ .forever = undefined };
-                if (webui_listen == null) {
-                    webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
-                }
+                if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.startsWith(u8, arg, "--fuzz=")) {
                 const value = arg["--fuzz=".len..];
                 if (value.len == 0) fatal("missing argument to --fuzz", .{});
@@ -550,12 +549,14 @@ pub fn main() !void {
 
     var w: Watch = w: {
         if (!watch) break :w undefined;
-        if (!Watch.have_impl) fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)});
+        if (!Watch.have_impl) fatal("--watch not yet implemented for {t}", .{builtin.os.tag});
         break :w try .init();
     };
 
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
+
+    const now = Io.Timestamp.now(io, .awake) catch |err| fatal("failed to collect timestamp: {t}", .{err});
 
     run.web_server = if (webui_listen) |listen_address| ws: {
         if (builtin.single_threaded) unreachable; // `fatal` above
@@ -568,11 +569,12 @@ pub fn main() !void {
             .root_prog_node = main_progress_node,
             .watch = watch,
             .listen_address = listen_address,
+            .base_timestamp = now,
         });
     } else null;
 
     if (run.web_server) |*ws| {
-        ws.start() catch |err| fatal("failed to start web server: {s}", .{@errorName(err)});
+        ws.start() catch |err| fatal("failed to start web server: {t}", .{err});
     }
 
     rebuild: while (true) : (if (run.error_style.clearOnUpdate()) {
@@ -755,6 +757,7 @@ fn runStepNames(
     fuzz: ?std.Build.Fuzz.Mode,
 ) !void {
     const gpa = run.gpa;
+    const io = b.graph.io;
     const step_stack = &run.step_stack;
     const thread_pool = &run.thread_pool;
 
@@ -858,6 +861,7 @@ fn runStepNames(
         assert(mode == .limit);
         var f = std.Build.Fuzz.init(
             gpa,
+            io,
             thread_pool,
             step_stack.keys(),
             parent_prog_node,

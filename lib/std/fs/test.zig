@@ -1,10 +1,12 @@
-const std = @import("../std.zig");
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
+const std = @import("../std.zig");
+const Io = std.Io;
 const testing = std.testing;
 const fs = std.fs;
 const mem = std.mem;
 const wasi = std.os.wasi;
-const native_os = builtin.os.tag;
 const windows = std.os.windows;
 const posix = std.posix;
 
@@ -73,6 +75,7 @@ const PathType = enum {
 };
 
 const TestContext = struct {
+    io: Io,
     path_type: PathType,
     path_sep: u8,
     arena: ArenaAllocator,
@@ -83,6 +86,7 @@ const TestContext = struct {
     pub fn init(path_type: PathType, path_sep: u8, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
         const tmp = tmpDir(.{ .iterate = true });
         return .{
+            .io = testing.io,
             .path_type = path_type,
             .path_sep = path_sep,
             .arena = ArenaAllocator.init(allocator),
@@ -1319,6 +1323,8 @@ test "max file name component lengths" {
 }
 
 test "writev, readv" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1327,84 +1333,63 @@ test "writev, readv" {
 
     var buf1: [line1.len]u8 = undefined;
     var buf2: [line2.len]u8 = undefined;
-    var write_vecs = [_]posix.iovec_const{
-        .{
-            .base = line1,
-            .len = line1.len,
-        },
-        .{
-            .base = line2,
-            .len = line2.len,
-        },
-    };
-    var read_vecs = [_]posix.iovec{
-        .{
-            .base = &buf2,
-            .len = buf2.len,
-        },
-        .{
-            .base = &buf1,
-            .len = buf1.len,
-        },
-    };
+    var write_vecs: [2][]const u8 = .{ line1, line2 };
+    var read_vecs: [2][]u8 = .{ &buf2, &buf1 };
 
     var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
     defer src_file.close();
 
-    try src_file.writevAll(&write_vecs);
+    var writer = src_file.writerStreaming(&.{});
+
+    try writer.interface.writeVecAll(&write_vecs);
+    try writer.interface.flush();
     try testing.expectEqual(@as(u64, line1.len + line2.len), try src_file.getEndPos());
-    try src_file.seekTo(0);
-    const read = try src_file.readvAll(&read_vecs);
-    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+
+    var reader = writer.moveToReader(io);
+    try reader.seekTo(0);
+    try reader.interface.readVecAll(&read_vecs);
     try testing.expectEqualStrings(&buf1, "line2\n");
     try testing.expectEqualStrings(&buf2, "line1\n");
+    try testing.expectError(error.EndOfStream, reader.interface.readSliceAll(&buf1));
 }
 
 test "pwritev, preadv" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
     const line1 = "line1\n";
     const line2 = "line2\n";
-
+    var lines: [2][]const u8 = .{ line1, line2 };
     var buf1: [line1.len]u8 = undefined;
     var buf2: [line2.len]u8 = undefined;
-    var write_vecs = [_]posix.iovec_const{
-        .{
-            .base = line1,
-            .len = line1.len,
-        },
-        .{
-            .base = line2,
-            .len = line2.len,
-        },
-    };
-    var read_vecs = [_]posix.iovec{
-        .{
-            .base = &buf2,
-            .len = buf2.len,
-        },
-        .{
-            .base = &buf1,
-            .len = buf1.len,
-        },
-    };
+    var read_vecs: [2][]u8 = .{ &buf2, &buf1 };
 
     var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
     defer src_file.close();
 
-    try src_file.pwritevAll(&write_vecs, 16);
+    var writer = src_file.writer(&.{});
+
+    try writer.seekTo(16);
+    try writer.interface.writeVecAll(&lines);
+    try writer.interface.flush();
     try testing.expectEqual(@as(u64, 16 + line1.len + line2.len), try src_file.getEndPos());
-    const read = try src_file.preadvAll(&read_vecs, 16);
-    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+
+    var reader = writer.moveToReader(io);
+    try reader.seekTo(16);
+    try reader.interface.readVecAll(&read_vecs);
     try testing.expectEqualStrings(&buf1, "line2\n");
     try testing.expectEqualStrings(&buf2, "line1\n");
+    try testing.expectError(error.EndOfStream, reader.interface.readSliceAll(&buf1));
 }
 
 test "setEndPos" {
     // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23806
+
+    const io = testing.io;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1416,11 +1401,13 @@ test "setEndPos" {
 
     const initial_size = try f.getEndPos();
     var buffer: [32]u8 = undefined;
+    var reader = f.reader(io, &.{});
 
     {
         try f.setEndPos(initial_size);
         try testing.expectEqual(initial_size, try f.getEndPos());
-        try testing.expectEqual(initial_size, try f.preadAll(&buffer, 0));
+        try reader.seekTo(0);
+        try testing.expectEqual(initial_size, reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("ninebytes", buffer[0..@intCast(initial_size)]);
     }
 
@@ -1428,7 +1415,8 @@ test "setEndPos" {
         const larger = initial_size + 4;
         try f.setEndPos(larger);
         try testing.expectEqual(larger, try f.getEndPos());
-        try testing.expectEqual(larger, try f.preadAll(&buffer, 0));
+        try reader.seekTo(0);
+        try testing.expectEqual(larger, reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("ninebytes\x00\x00\x00\x00", buffer[0..@intCast(larger)]);
     }
 
@@ -1436,25 +1424,21 @@ test "setEndPos" {
         const smaller = initial_size - 5;
         try f.setEndPos(smaller);
         try testing.expectEqual(smaller, try f.getEndPos());
-        try testing.expectEqual(smaller, try f.preadAll(&buffer, 0));
+        try reader.seekTo(0);
+        try testing.expectEqual(smaller, try reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("nine", buffer[0..@intCast(smaller)]);
     }
 
     try f.setEndPos(0);
     try testing.expectEqual(0, try f.getEndPos());
-    try testing.expectEqual(0, try f.preadAll(&buffer, 0));
+    try reader.seekTo(0);
+    try testing.expectEqual(0, try reader.interface.readSliceShort(&buffer));
 
     // Invalid file length should error gracefully. Actual limit is host
     // and file-system dependent, but 1PB should fail on filesystems like
     // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
-    f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
-        return err;
-    };
-
-    f.setEndPos(std.math.maxInt(u63)) catch |err| if (err != error.FileTooBig) {
-        return err;
-    };
-
+    try testing.expectError(error.FileTooBig, f.setEndPos(0x4_0000_0000_0000));
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63)));
     try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
     try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
 }
@@ -1558,31 +1542,6 @@ test "sendfile with buffered data" {
 
     try std.testing.expectEqual(4, amt);
     try std.testing.expectEqualSlices(u8, "AAAA", written_buf[0..amt]);
-}
-
-test "copyRangeAll" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("os_test_tmp");
-
-    var dir = try tmp.dir.openDir("os_test_tmp", .{});
-    defer dir.close();
-
-    var src_file = try dir.createFile("file1.txt", .{ .read = true });
-    defer src_file.close();
-
-    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
-    try src_file.writeAll(data);
-
-    var dest_file = try dir.createFile("file2.txt", .{ .read = true });
-    defer dest_file.close();
-
-    var written_buf: [100]u8 = undefined;
-    _ = try src_file.copyRangeAll(0, dest_file, 0, data.len);
-
-    const amt = try dest_file.preadAll(&written_buf, 0);
-    try testing.expectEqualStrings(data, written_buf[0..amt]);
 }
 
 test "copyFile" {
@@ -1708,8 +1667,8 @@ test "open file with exclusive lock twice, make sure second lock waits" {
                 }
             };
 
-            var started = std.Thread.ResetEvent{};
-            var locked = std.Thread.ResetEvent{};
+            var started: std.Thread.ResetEvent = .unset;
+            var locked: std.Thread.ResetEvent = .unset;
 
             const t = try std.Thread.spawn(.{}, S.checkFn, .{
                 &ctx.dir,
@@ -1773,7 +1732,7 @@ test "read from locked file" {
                 const f = try ctx.dir.createFile(filename, .{ .read = true });
                 defer f.close();
                 var buffer: [1]u8 = undefined;
-                _ = try f.readAll(&buffer);
+                _ = try f.read(&buffer);
             }
             {
                 const f = try ctx.dir.createFile(filename, .{
@@ -1785,9 +1744,9 @@ test "read from locked file" {
                 defer f2.close();
                 var buffer: [1]u8 = undefined;
                 if (builtin.os.tag == .windows) {
-                    try std.testing.expectError(error.LockViolation, f2.readAll(&buffer));
+                    try std.testing.expectError(error.LockViolation, f2.read(&buffer));
                 } else {
-                    try std.testing.expectEqual(0, f2.readAll(&buffer));
+                    try std.testing.expectEqual(0, f2.read(&buffer));
                 }
             }
         }
@@ -1944,6 +1903,7 @@ test "'.' and '..' in fs.Dir functions" {
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const io = ctx.io;
             const subdir_path = try ctx.transformPath("./subdir");
             const file_path = try ctx.transformPath("./subdir/../file");
             const copy_path = try ctx.transformPath("./subdir/../copy");
@@ -1966,7 +1926,8 @@ test "'.' and '..' in fs.Dir functions" {
             try ctx.dir.deleteFile(rename_path);
 
             try ctx.dir.writeFile(.{ .sub_path = update_path, .data = "something" });
-            const prev_status = try ctx.dir.updateFile(file_path, ctx.dir, update_path, .{});
+            var dir = ctx.dir.adaptToNewApi();
+            const prev_status = try dir.updateFile(io, file_path, dir, update_path, .{});
             try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
             try ctx.dir.deleteDir(subdir_path);
@@ -2004,13 +1965,6 @@ test "'.' and '..' in absolute functions" {
     const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
     renamed_file.close();
     try fs.deleteFileAbsolute(renamed_file_path);
-
-    const update_file_path = try fs.path.join(allocator, &.{ subdir_path, "../update" });
-    const update_file = try fs.createFileAbsolute(update_file_path, .{});
-    try update_file.writeAll("something");
-    update_file.close();
-    const prev_status = try fs.updateFileAbsolute(created_file_path, update_file_path, .{});
-    try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
     try fs.deleteDirAbsolute(subdir_path);
 }
@@ -2079,6 +2033,7 @@ test "invalid UTF-8/WTF-8 paths" {
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const io = ctx.io;
             // This is both invalid UTF-8 and WTF-8, since \xFF is an invalid start byte
             const invalid_path = try ctx.transformPath("\xFF");
 
@@ -2129,7 +2084,8 @@ test "invalid UTF-8/WTF-8 paths" {
             try testing.expectError(expected_err, ctx.dir.access(invalid_path, .{}));
             try testing.expectError(expected_err, ctx.dir.accessZ(invalid_path, .{}));
 
-            try testing.expectError(expected_err, ctx.dir.updateFile(invalid_path, ctx.dir, invalid_path, .{}));
+            var dir = ctx.dir.adaptToNewApi();
+            try testing.expectError(expected_err, dir.updateFile(io, invalid_path, dir, invalid_path, .{}));
             try testing.expectError(expected_err, ctx.dir.copyFile(invalid_path, ctx.dir, invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.statFile(invalid_path));
@@ -2144,7 +2100,6 @@ test "invalid UTF-8/WTF-8 paths" {
             try testing.expectError(expected_err, fs.renameZ(ctx.dir, invalid_path, ctx.dir, invalid_path));
 
             if (native_os != .wasi and ctx.path_type != .relative) {
-                try testing.expectError(expected_err, fs.updateFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.copyFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.makeDirAbsolute(invalid_path));
                 try testing.expectError(expected_err, fs.makeDirAbsoluteZ(invalid_path));
@@ -2175,6 +2130,8 @@ test "invalid UTF-8/WTF-8 paths" {
 }
 
 test "read file non vectored" {
+    const io = std.testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2188,7 +2145,7 @@ test "read file non vectored" {
         try file_writer.interface.flush();
     }
 
-    var file_reader: std.fs.File.Reader = .init(file, &.{});
+    var file_reader: std.Io.File.Reader = .initAdapted(file, io, &.{});
 
     var write_buffer: [100]u8 = undefined;
     var w: std.Io.Writer = .fixed(&write_buffer);
@@ -2205,6 +2162,8 @@ test "read file non vectored" {
 }
 
 test "seek keeping partial buffer" {
+    const io = std.testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2219,7 +2178,7 @@ test "seek keeping partial buffer" {
     }
 
     var read_buffer: [3]u8 = undefined;
-    var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
+    var file_reader: Io.File.Reader = .initAdapted(file, io, &read_buffer);
 
     try testing.expectEqual(0, file_reader.logicalPos());
 
@@ -2246,13 +2205,15 @@ test "seek keeping partial buffer" {
 }
 
 test "seekBy" {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
     try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
     const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
     defer f.close();
-    var reader = f.readerStreaming(&.{});
+    var reader = f.readerStreaming(io, &.{});
     try reader.seekBy(2);
 
     var buffer: [20]u8 = undefined;

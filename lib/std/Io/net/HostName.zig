@@ -77,7 +77,9 @@ pub const LookupError = error{
     InvalidDnsAAAARecord,
     InvalidDnsCnameRecord,
     NameServerFailure,
-} || Io.Timestamp.Error || IpAddress.BindError || Io.File.OpenError || Io.File.Reader.Error || Io.Cancelable;
+    /// Failed to open or read "/etc/hosts" or "/etc/resolv.conf".
+    DetectingNetworkConfigurationFailed,
+} || Io.Timestamp.Error || IpAddress.BindError || Io.Cancelable;
 
 pub const LookupResult = struct {
     /// How many `LookupOptions.addresses_buffer` elements are populated.
@@ -428,14 +430,25 @@ fn lookupHosts(host_name: HostName, io: Io, options: LookupOptions) !LookupResul
         error.AccessDenied,
         => return .empty,
 
-        else => |e| return e,
+        error.Canceled => |e| return e,
+
+        else => {
+            // TODO populate optional diagnostic struct
+            return error.DetectingNetworkConfigurationFailed;
+        },
     };
     defer file.close(io);
 
     var line_buf: [512]u8 = undefined;
     var file_reader = file.reader(io, &line_buf);
     return lookupHostsReader(host_name, options, &file_reader.interface) catch |err| switch (err) {
-        error.ReadFailed => return file_reader.err.?,
+        error.ReadFailed => switch (file_reader.err.?) {
+            error.Canceled => |e| return e,
+            else => {
+                // TODO populate optional diagnostic struct
+                return error.DetectingNetworkConfigurationFailed;
+            },
+        },
     };
 }
 

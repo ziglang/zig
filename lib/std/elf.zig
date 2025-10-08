@@ -710,7 +710,7 @@ pub const ProgramHeaderIterator = struct {
         const offset = it.phoff + size * it.index;
         try it.file_reader.seekTo(offset);
 
-        return takeProgramHeader(&it.file_reader.interface, it.is_64, it.endian);
+        return try takeProgramHeader(&it.file_reader.interface, it.is_64, it.endian);
     }
 };
 
@@ -731,7 +731,7 @@ pub const ProgramHeaderBufferIterator = struct {
         const offset = it.phoff + size * it.index;
         var reader = Io.Reader.fixed(it.buf[offset..]);
 
-        return takeProgramHeader(&reader, it.is_64, it.endian);
+        return try takeProgramHeader(&reader, it.is_64, it.endian);
     }
 };
 
@@ -771,7 +771,7 @@ pub const SectionHeaderIterator = struct {
         const offset = it.shoff + size * it.index;
         try it.file_reader.seekTo(offset);
 
-        return takeSectionHeader(&it.file_reader.interface, it.is_64, it.endian);
+        return try takeSectionHeader(&it.file_reader.interface, it.is_64, it.endian);
     }
 };
 
@@ -793,7 +793,7 @@ pub const SectionHeaderBufferIterator = struct {
         if (offset > it.buf.len) return error.EndOfStream;
         var reader = Io.Reader.fixed(it.buf[@intCast(offset)..]);
 
-        return takeSectionHeader(&reader, it.is_64, it.endian);
+        return try takeSectionHeader(&reader, it.is_64, it.endian);
     }
 };
 
@@ -826,12 +826,12 @@ pub const DynamicSectionIterator = struct {
 
     file_reader: *Io.File.Reader,
 
-    pub fn next(it: *SectionHeaderIterator) !?Elf64_Dyn {
+    pub fn next(it: *DynamicSectionIterator) !?Elf64_Dyn {
         if (it.offset >= it.end_offset) return null;
         const size: u64 = if (it.is_64) @sizeOf(Elf64_Dyn) else @sizeOf(Elf32_Dyn);
         defer it.offset += size;
         try it.file_reader.seekTo(it.offset);
-        return takeDynamicSection(&it.file_reader.interface, it.is_64, it.endian);
+        return try takeDynamicSection(&it.file_reader.interface, it.is_64, it.endian);
     }
 };
 

@@ -3000,31 +3000,7 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: mode_t) MakeDirErro
     windows.CloseHandle(sub_dir_handle);
 }
 
-pub const MakeDirError = error{
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to create a new directory relative to it.
-    AccessDenied,
-    PermissionDenied,
-    DiskQuota,
-    PathAlreadyExists,
-    SymLinkLoop,
-    LinkQuotaExceeded,
-    NameTooLong,
-    FileNotFound,
-    SystemResources,
-    NoSpaceLeft,
-    NotDir,
-    ReadOnlyFileSystem,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
-    BadPathName,
-    NoDevice,
-    /// On Windows, `\\server` or `\\server\share` was not found.
-    NetworkNotFound,
-} || UnexpectedError;
+pub const MakeDirError = std.Io.Dir.MakeError;
 
 /// Create a directory.
 /// `mode` is ignored on Windows and WASI.

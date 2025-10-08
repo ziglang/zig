@@ -538,8 +538,10 @@ test Options {
     defer arena.deinit();
 
     var graph: std.Build.Graph = .{
+        .io = io,
         .arena = arena.allocator(),
         .cache = .{
+            .io = io,
             .gpa = arena.allocator(),
             .manifest_dir = std.fs.cwd(),
         },

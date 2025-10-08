@@ -559,7 +559,7 @@ test isUnderscore {
 /// If the source can be UTF-16LE encoded, this function asserts that `gpa`
 /// will align a byte-sized allocation to at least 2. Allocators that don't do
 /// this are rare.
-pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader) ![:0]u8 {
+pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *Io.File.Reader) ![:0]u8 {
     var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
 

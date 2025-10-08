@@ -3,11 +3,13 @@
 //! not be used during the normal build process, but as a utility run by a
 //! developer with intention to update source files, which will then be
 //! committed to version control.
+const UpdateSourceFiles = @This();
+
 const std = @import("std");
+const Io = std.Io;
 const Step = std.Build.Step;
 const fs = std.fs;
 const ArrayList = std.ArrayList;
-const UpdateSourceFiles = @This();
 
 step: Step,
 output_source_files: std.ArrayListUnmanaged(OutputSourceFile),
@@ -70,22 +72,21 @@ pub fn addBytesToSource(usf: *UpdateSourceFiles, bytes: []const u8, sub_path: []
 fn make(step: *Step, options: Step.MakeOptions) !void {
     _ = options;
     const b = step.owner;
+    const io = b.graph.io;
     const usf: *UpdateSourceFiles = @fieldParentPtr("step", step);
 
     var any_miss = false;
     for (usf.output_source_files.items) |output_source_file| {
         if (fs.path.dirname(output_source_file.sub_path)) |dirname| {
             b.build_root.handle.makePath(dirname) catch |err| {
-                return step.fail("unable to make path '{f}{s}': {s}", .{
-                    b.build_root, dirname, @errorName(err),
-                });
+                return step.fail("unable to make path '{f}{s}': {t}", .{ b.build_root, dirname, err });
             };
         }
         switch (output_source_file.contents) {
             .bytes => |bytes| {
                 b.build_root.handle.writeFile(.{ .sub_path = output_source_file.sub_path, .data = bytes }) catch |err| {
-                    return step.fail("unable to write file '{f}{s}': {s}", .{
-                        b.build_root, output_source_file.sub_path, @errorName(err),
+                    return step.fail("unable to write file '{f}{s}': {t}", .{
+                        b.build_root, output_source_file.sub_path, err,
                     });
                 };
                 any_miss = true;
@@ -94,15 +95,16 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 if (!step.inputs.populated()) try step.addWatchInput(file_source);
 
                 const source_path = file_source.getPath2(b, step);
-                const prev_status = fs.Dir.updateFile(
-                    fs.cwd(),
+                const prev_status = Io.Dir.updateFile(
+                    .cwd(),
+                    io,
                     source_path,
-                    b.build_root.handle,
+                    b.build_root.handle.adaptToNewApi(),
                     output_source_file.sub_path,
                     .{},
                 ) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{f}{s}': {s}", .{
-                        source_path, b.build_root, output_source_file.sub_path, @errorName(err),
+                    return step.fail("unable to update file from '{s}' to '{f}{s}': {t}", .{
+                        source_path, b.build_root, output_source_file.sub_path, err,
                     });
                 };
                 any_miss = any_miss or prev_status == .stale;
