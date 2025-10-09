@@ -197,7 +197,12 @@ pub fn percentDecodeInPlace(buffer: []u8) []u8 {
     return percentDecodeBackwards(buffer, buffer);
 }
 
-pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
+pub const ParseError = error{
+    UnexpectedCharacter,
+    InvalidFormat,
+    InvalidPort,
+    InvalidHostName,
+};
 
 /// Parses the URI or returns an error. This function is not compliant, but is required to parse
 /// some forms of URIs in the wild, such as HTTP Location headers.
@@ -400,7 +405,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = new_parsed.scheme,
         .user = new_parsed.user,
         .password = new_parsed.password,
-        .host = try validateHost(new_parsed.host),
+        .host = try validateHostComponent(new_parsed.host),
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
         .query = new_parsed.query,
@@ -411,7 +416,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = base.scheme,
         .user = new_parsed.user,
         .password = new_parsed.password,
-        .host = try validateHost(host),
+        .host = try validateHostComponent(host),
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
         .query = new_parsed.query,
@@ -433,7 +438,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = base.scheme,
         .user = base.user,
         .password = base.password,
-        .host = try validateHost(base.host),
+        .host = try validateHostComponent(base.host),
         .port = base.port,
         .path = path,
         .query = query,
@@ -441,9 +446,16 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
     };
 }
 
-fn validateHost(bytes: []const u8) HostName.ValidateError![]const u8 {
-    try HostName.validate(bytes);
-    return bytes;
+fn validateHostComponent(optional_component: ?Component) error{InvalidHostName}!?Component {
+    const component = optional_component orelse return null;
+    switch (component) {
+        .raw => |raw| HostName.validate(raw) catch return error.InvalidHostName,
+        .percent_encoded => |encoded| {
+            // TODO validate decoded name instead
+            HostName.validate(encoded) catch return error.InvalidHostName;
+        },
+    }
+    return component;
 }
 
 /// In-place implementation of RFC 3986, Section 5.2.4.

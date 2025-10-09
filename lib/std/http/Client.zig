@@ -1212,6 +1212,7 @@ pub const Request = struct {
             error.UnexpectedCharacter => return error.HttpRedirectLocationInvalid,
             error.InvalidFormat => return error.HttpRedirectLocationInvalid,
             error.InvalidPort => return error.HttpRedirectLocationInvalid,
+            error.InvalidHostName => return error.HttpRedirectLocationInvalid,
             error.NoSpaceLeft => return error.HttpRedirectLocationOversize,
         };
 
