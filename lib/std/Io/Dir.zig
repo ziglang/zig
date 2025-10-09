@@ -263,6 +263,6 @@ pub const StatPathError = File.OpenError || File.StatError;
 /// * On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// * On WASI, `sub_path` should be encoded as valid UTF-8.
 /// * On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn statPath(dir: Dir, io: Io, sub_path: []const u8) StatPathError!File.Stat {
+pub fn statPath(dir: Dir, io: Io, sub_path: []const u8) StatPathError!Stat {
     return io.vtable.dirStatPath(io.userdata, dir, sub_path);
 }
