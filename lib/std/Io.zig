@@ -669,7 +669,7 @@ pub const VTable = struct {
     fileSeekBy: *const fn (?*anyopaque, file: File, offset: i64) File.SeekError!void,
     fileSeekTo: *const fn (?*anyopaque, file: File, offset: u64) File.SeekError!void,
 
-    now: *const fn (?*anyopaque, Timestamp.Clock) Timestamp.Error!i96,
+    now: *const fn (?*anyopaque, Clock) Clock.Error!Timestamp,
     sleep: *const fn (?*anyopaque, Timeout) SleepError!void,
 
     listen: *const fn (?*anyopaque, address: net.IpAddress, options: net.IpAddress.ListenOptions) net.IpAddress.ListenError!net.Server,
@@ -705,118 +705,178 @@ pub const UnexpectedError = error{
 pub const Dir = @import("Io/Dir.zig");
 pub const File = @import("Io/File.zig");
 
-pub const Timestamp = struct {
-    nanoseconds: i96,
-    clock: Clock,
-
-    pub const Clock = enum {
-        /// A settable system-wide clock that measures real (i.e. wall-clock)
-        /// time. This clock is affected by discontinuous jumps in the system
-        /// time (e.g., if the system administrator manually changes the
-        /// clock), and by frequency adjust‐ ments performed by NTP and similar
-        /// applications.
-        ///
-        /// This clock normally counts the number of seconds since 1970-01-01
-        /// 00:00:00 Coordinated Universal Time (UTC) except that it ignores
-        /// leap seconds; near a leap second it is typically adjusted by NTP to
-        /// stay roughly in sync with UTC.
-        ///
-        /// The epoch is implementation-defined. For example NTFS/Windows uses
-        /// 1601-01-01.
-        real,
-        /// A nonsettable system-wide clock that represents time since some
-        /// unspecified point in the past.
-        ///
-        /// Monotonic: Guarantees that the time returned by consecutive calls
-        /// will not go backwards, but successive calls may return identical
-        /// (not-increased) time values.
-        ///
-        /// Not affected by discontinuous jumps in the system time (e.g., if
-        /// the system administrator manually changes the clock), but may be
-        /// affected by frequency adjustments.
-        ///
-        /// This clock expresses intent to **exclude time that the system is
-        /// suspended**. However, implementations may be unable to satisify
-        /// this, and may include that time.
-        ///
-        /// * On Linux, corresponds `CLOCK_MONOTONIC`.
-        /// * On macOS, corresponds to `CLOCK_UPTIME_RAW`.
-        awake,
-        /// Identical to `awake` except it expresses intent to **include time
-        /// that the system is suspended**, however, due to limitations it may
-        /// behave identically to `awake`.
-        ///
-        /// * On Linux, corresponds `CLOCK_BOOTTIME`.
-        /// * On macOS, corresponds to `CLOCK_MONOTONIC_RAW`.
-        boot,
-        /// Tracks the amount of CPU in user or kernel mode used by the calling
-        /// process.
-        cpu_process,
-        /// Tracks the amount of CPU in user or kernel mode used by the calling
-        /// thread.
-        cpu_thread,
-    };
-
-    pub fn durationTo(from: Timestamp, to: Timestamp) Duration {
-        assert(from.clock == to.clock);
-        return .{ .nanoseconds = to.nanoseconds - from.nanoseconds };
-    }
-
-    pub fn addDuration(from: Timestamp, duration: Duration) Timestamp {
-        return .{
-            .nanoseconds = from.nanoseconds + duration.nanoseconds,
-            .clock = from.clock,
-        };
-    }
+pub const Clock = enum {
+    /// A settable system-wide clock that measures real (i.e. wall-clock)
+    /// time. This clock is affected by discontinuous jumps in the system
+    /// time (e.g., if the system administrator manually changes the
+    /// clock), and by frequency adjust‐ ments performed by NTP and similar
+    /// applications.
+    ///
+    /// This clock normally counts the number of seconds since 1970-01-01
+    /// 00:00:00 Coordinated Universal Time (UTC) except that it ignores
+    /// leap seconds; near a leap second it is typically adjusted by NTP to
+    /// stay roughly in sync with UTC.
+    ///
+    /// The epoch is implementation-defined. For example NTFS/Windows uses
+    /// 1601-01-01.
+    real,
+    /// A nonsettable system-wide clock that represents time since some
+    /// unspecified point in the past.
+    ///
+    /// Monotonic: Guarantees that the time returned by consecutive calls
+    /// will not go backwards, but successive calls may return identical
+    /// (not-increased) time values.
+    ///
+    /// Not affected by discontinuous jumps in the system time (e.g., if
+    /// the system administrator manually changes the clock), but may be
+    /// affected by frequency adjustments.
+    ///
+    /// This clock expresses intent to **exclude time that the system is
+    /// suspended**. However, implementations may be unable to satisify
+    /// this, and may include that time.
+    ///
+    /// * On Linux, corresponds `CLOCK_MONOTONIC`.
+    /// * On macOS, corresponds to `CLOCK_UPTIME_RAW`.
+    awake,
+    /// Identical to `awake` except it expresses intent to **include time
+    /// that the system is suspended**, however, due to limitations it may
+    /// behave identically to `awake`.
+    ///
+    /// * On Linux, corresponds `CLOCK_BOOTTIME`.
+    /// * On macOS, corresponds to `CLOCK_MONOTONIC_RAW`.
+    boot,
+    /// Tracks the amount of CPU in user or kernel mode used by the calling
+    /// process.
+    cpu_process,
+    /// Tracks the amount of CPU in user or kernel mode used by the calling
+    /// thread.
+    cpu_thread,
 
     pub const Error = error{UnsupportedClock} || UnexpectedError;
 
     /// This function is not cancelable because first of all it does not block,
     /// but more importantly, the cancelation logic itself may want to check
     /// the time.
-    pub fn now(io: Io, clock: Clock) Error!Timestamp {
-        return .{
-            .nanoseconds = try io.vtable.now(io.userdata, clock),
-            .clock = clock,
-        };
+    pub fn now(clock: Clock, io: Io) Error!Io.Timestamp {
+        return io.vtable.now(io.userdata, clock);
     }
 
-    pub fn fromNow(io: Io, clock: Clock, duration: Duration) Error!Timestamp {
-        const now_ts = try now(io, clock);
-        return addDuration(now_ts, duration);
+    pub const Timestamp = struct {
+        raw: Io.Timestamp,
+        clock: Clock,
+
+        /// This function is not cancelable because first of all it does not block,
+        /// but more importantly, the cancelation logic itself may want to check
+        /// the time.
+        pub fn now(io: Io, clock: Clock) Error!Clock.Timestamp {
+            return .{
+                .raw = try io.vtable.now(io.userdata, clock),
+                .clock = clock,
+            };
+        }
+
+        pub fn wait(t: Clock.Timestamp, io: Io) SleepError!void {
+            return io.vtable.sleep(io.userdata, .{ .deadline = t });
+        }
+
+        pub fn durationTo(from: Clock.Timestamp, to: Clock.Timestamp) Clock.Duration {
+            assert(from.clock == to.clock);
+            return .{
+                .raw = from.raw.durationTo(to.raw),
+                .clock = from.clock,
+            };
+        }
+
+        pub fn addDuration(from: Clock.Timestamp, duration: Clock.Duration) Clock.Timestamp {
+            assert(from.clock == duration.clock);
+            return .{
+                .raw = from.raw.addDuration(duration.raw),
+                .clock = from.clock,
+            };
+        }
+
+        pub fn fromNow(io: Io, duration: Clock.Duration) Error!Clock.Timestamp {
+            return .{
+                .clock = duration.clock,
+                .raw = (try duration.clock.now(io)).addDuration(duration.raw),
+            };
+        }
+
+        pub fn untilNow(timestamp: Clock.Timestamp, io: Io) Error!Clock.Duration {
+            const now_ts = try Clock.Timestamp.now(io, timestamp.clock);
+            return timestamp.durationTo(now_ts);
+        }
+
+        pub fn durationFromNow(timestamp: Clock.Timestamp, io: Io) Error!Clock.Duration {
+            const now_ts = try timestamp.clock.now(io);
+            return .{
+                .clock = timestamp.clock,
+                .raw = now_ts.durationTo(timestamp.raw),
+            };
+        }
+
+        pub fn toClock(t: Clock.Timestamp, io: Io, clock: Clock) Error!Clock.Timestamp {
+            if (t.clock == clock) return t;
+            const now_old = try t.clock.now(io);
+            const now_new = try clock.now(io);
+            const duration = now_old.durationTo(t);
+            return .{
+                .clock = clock,
+                .raw = now_new.addDuration(duration),
+            };
+        }
+
+        pub fn compare(lhs: Clock.Timestamp, op: std.math.CompareOperator, rhs: Clock.Timestamp) bool {
+            assert(lhs.clock == rhs.clock);
+            return std.math.compare(lhs.raw.nanoseconds, op, rhs.raw.nanoseconds);
+        }
+    };
+
+    pub const Duration = struct {
+        raw: Io.Duration,
+        clock: Clock,
+
+        pub fn sleep(duration: Clock.Duration, io: Io) SleepError!void {
+            return io.vtable.sleep(io.userdata, .{ .duration = duration });
+        }
+    };
+};
+
+pub const Timestamp = struct {
+    nanoseconds: i96,
+
+    pub const zero: Timestamp = .{ .nanoseconds = 0 };
+
+    pub fn durationTo(from: Timestamp, to: Timestamp) Duration {
+        return .{ .nanoseconds = to.nanoseconds - from.nanoseconds };
     }
 
-    pub fn untilNow(timestamp: Timestamp, io: Io) Error!Duration {
-        const now_ts = try Timestamp.now(io, timestamp.clock);
-        return timestamp.durationTo(now_ts);
+    pub fn addDuration(from: Timestamp, duration: Duration) Timestamp {
+        return .{ .nanoseconds = from.nanoseconds + duration.nanoseconds };
     }
 
-    pub fn durationFromNow(timestamp: Timestamp, io: Io) Error!Duration {
-        const now_ts = try now(io, timestamp.clock);
-        return now_ts.durationTo(timestamp);
-    }
-
-    pub fn toClock(t: Timestamp, io: Io, clock: Clock) Error!Timestamp {
-        if (t.clock == clock) return t;
-        const now_old = try now(io, t.clock);
-        const now_new = try now(io, clock);
-        const duration = now_old.durationTo(t);
-        return now_new.addDuration(duration);
-    }
-
-    pub fn compare(lhs: Timestamp, op: std.math.CompareOperator, rhs: Timestamp) bool {
-        assert(lhs.clock == rhs.clock);
-        return std.math.compare(lhs.nanoseconds, op, rhs.nanoseconds);
+    pub fn withClock(t: Timestamp, clock: Clock) Clock.Timestamp {
+        return .{ .nanoseconds = t.nanoseconds, .clock = clock };
     }
 
     pub fn toSeconds(t: Timestamp) i64 {
         return @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_s));
+    }
+
+    pub fn formatNumber(t: Timestamp, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
+        return w.printInt(t.nanoseconds, n.mode.base() orelse 10, n.case, .{
+            .precision = n.precision,
+            .width = n.width,
+            .alignment = n.alignment,
+            .fill = n.fill,
+        });
     }
 };
 
 pub const Duration = struct {
     nanoseconds: i96,
 
+    pub const zero: Duration = .{ .nanoseconds = 0 };
     pub const max: Duration = .{ .nanoseconds = std.math.maxInt(i96) };
 
     pub fn fromNanoseconds(x: i96) Duration {
@@ -842,38 +902,29 @@ pub const Duration = struct {
     pub fn toNanoseconds(d: Duration) i96 {
         return d.nanoseconds;
     }
-
-    pub fn sleep(duration: Duration, io: Io) SleepError!void {
-        return io.vtable.sleep(io.userdata, .{ .duration = .{ .duration = duration, .clock = .awake } });
-    }
 };
 
 /// Declares under what conditions an operation should return `error.Timeout`.
 pub const Timeout = union(enum) {
     none,
-    duration: ClockAndDuration,
-    deadline: Timestamp,
+    duration: Clock.Duration,
+    deadline: Clock.Timestamp,
 
     pub const Error = error{ Timeout, UnsupportedClock };
 
-    pub const ClockAndDuration = struct {
-        clock: Timestamp.Clock,
-        duration: Duration,
-    };
-
-    pub fn toDeadline(t: Timeout, io: Io) Timestamp.Error!?Timestamp {
+    pub fn toDeadline(t: Timeout, io: Io) Clock.Error!?Clock.Timestamp {
         return switch (t) {
             .none => null,
-            .duration => |d| try .fromNow(io, d.clock, d.duration),
+            .duration => |d| try .fromNow(io, d),
             .deadline => |d| d,
         };
     }
 
-    pub fn toDurationFromNow(t: Timeout, io: Io) Timestamp.Error!?ClockAndDuration {
+    pub fn toDurationFromNow(t: Timeout, io: Io) Clock.Error!?Clock.Duration {
         return switch (t) {
             .none => null,
             .duration => |d| d,
-            .deadline => |d| .{ .clock = d.clock, .duration = try d.durationFromNow(io) },
+            .deadline => |d| try d.durationFromNow(io),
         };
     }
 

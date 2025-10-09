@@ -21,7 +21,7 @@ io: Io,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
 /// This value is accessed from multiple threads, protected by mutex.
-recent_problematic_timestamp: i128 = 0,
+recent_problematic_timestamp: Io.Timestamp = .zero,
 mutex: std.Thread.Mutex = .{},
 
 /// A set of strings such as the zig library directory or project source root, which
@@ -155,7 +155,7 @@ pub const File = struct {
     pub const Stat = struct {
         inode: fs.File.INode,
         size: u64,
-        mtime: i128,
+        mtime: Io.Timestamp,
 
         pub fn fromFs(fs_stat: fs.File.Stat) Stat {
             return .{
@@ -330,7 +330,7 @@ pub const Manifest = struct {
     diagnostic: Diagnostic = .none,
     /// Keeps track of the last time we performed a file system write to observe
     /// what time the file system thinks it is, according to its own granularity.
-    recent_problematic_timestamp: i128 = 0,
+    recent_problematic_timestamp: Io.Timestamp = .zero,
 
     pub const Diagnostic = union(enum) {
         none,
@@ -728,7 +728,7 @@ pub const Manifest = struct {
                     file.stat = .{
                         .size = stat_size,
                         .inode = stat_inode,
-                        .mtime = stat_mtime,
+                        .mtime = .{ .nanoseconds = stat_mtime },
                     };
                     file.bin_digest = file_bin_digest;
                     break :f file;
@@ -747,7 +747,7 @@ pub const Manifest = struct {
                         .stat = .{
                             .size = stat_size,
                             .inode = stat_inode,
-                            .mtime = stat_mtime,
+                            .mtime = .{ .nanoseconds = stat_mtime },
                         },
                         .bin_digest = file_bin_digest,
                     };
@@ -780,7 +780,7 @@ pub const Manifest = struct {
                 return error.CacheCheckFailed;
             };
             const size_match = actual_stat.size == cache_hash_file.stat.size;
-            const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
+            const mtime_match = actual_stat.mtime.nanoseconds == cache_hash_file.stat.mtime.nanoseconds;
             const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
 
             if (!size_match or !mtime_match or !inode_match) {
@@ -792,7 +792,7 @@ pub const Manifest = struct {
 
                 if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
                     // The actual file has an unreliable timestamp, force it to be hashed
-                    cache_hash_file.stat.mtime = 0;
+                    cache_hash_file.stat.mtime = .zero;
                     cache_hash_file.stat.inode = 0;
                 }
 
@@ -848,10 +848,10 @@ pub const Manifest = struct {
         }
     }
 
-    fn isProblematicTimestamp(man: *Manifest, file_time: i128) bool {
+    fn isProblematicTimestamp(man: *Manifest, timestamp: Io.Timestamp) bool {
         // If the file_time is prior to the most recent problematic timestamp
         // then we don't need to access the filesystem.
-        if (file_time < man.recent_problematic_timestamp)
+        if (timestamp.nanoseconds < man.recent_problematic_timestamp.nanoseconds)
             return false;
 
         // Next we will check the globally shared Cache timestamp, which is accessed
@@ -861,7 +861,7 @@ pub const Manifest = struct {
 
         // Save the global one to our local one to avoid locking next time.
         man.recent_problematic_timestamp = man.cache.recent_problematic_timestamp;
-        if (file_time < man.recent_problematic_timestamp)
+        if (timestamp.nanoseconds < man.recent_problematic_timestamp.nanoseconds)
             return false;
 
         // This flag prevents multiple filesystem writes for the same hit() call.
@@ -879,7 +879,7 @@ pub const Manifest = struct {
             man.cache.recent_problematic_timestamp = man.recent_problematic_timestamp;
         }
 
-        return file_time >= man.recent_problematic_timestamp;
+        return timestamp.nanoseconds >= man.recent_problematic_timestamp.nanoseconds;
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
@@ -904,7 +904,7 @@ pub const Manifest = struct {
 
         if (self.isProblematicTimestamp(ch_file.stat.mtime)) {
             // The actual file has an unreliable timestamp, force it to be hashed
-            ch_file.stat.mtime = 0;
+            ch_file.stat.mtime = .zero;
             ch_file.stat.inode = 0;
         }
 
@@ -1040,7 +1040,7 @@ pub const Manifest = struct {
 
         if (self.isProblematicTimestamp(new_file.stat.mtime)) {
             // The actual file has an unreliable timestamp, force it to be hashed
-            new_file.stat.mtime = 0;
+            new_file.stat.mtime = .zero;
             new_file.stat.inode = 0;
         }
 

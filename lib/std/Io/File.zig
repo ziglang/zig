@@ -45,16 +45,12 @@ pub const Stat = struct {
     /// This is available on POSIX systems and is always 0 otherwise.
     mode: Mode,
     kind: Kind,
-
     /// Last access time in nanoseconds, relative to UTC 1970-01-01.
-    /// TODO change this to Io.Timestamp except don't waste storage on clock
-    atime: i128,
+    atime: Io.Timestamp,
     /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
-    /// TODO change this to Io.Timestamp except don't waste storage on clock
-    mtime: i128,
+    mtime: Io.Timestamp,
     /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
-    /// TODO change this to Io.Timestamp except don't waste storage on clock
-    ctime: i128,
+    ctime: Io.Timestamp,
 };
 
 pub fn stdout() File {

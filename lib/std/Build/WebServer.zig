@@ -11,7 +11,7 @@ tcp_server: ?net.Server,
 serve_thread: ?std.Thread,
 
 /// Uses `Io.Clock.awake`.
-base_timestamp: i96,
+base_timestamp: Io.Timestamp,
 /// The "step name" data which trails `abi.Hello`, for the steps in `all_steps`.
 step_names_trailing: []u8,
 
@@ -43,6 +43,8 @@ runner_request: ?RunnerRequest,
 /// on a fixed interval of this many milliseconds.
 const default_update_interval_ms = 500;
 
+pub const base_clock: Io.Clock = .awake;
+
 /// Thread-safe. Triggers updates to be sent to connected WebSocket clients; see `update_id`.
 pub fn notifyUpdate(ws: *WebServer) void {
     _ = ws.update_id.rmw(.Add, 1, .release);
@@ -58,13 +60,13 @@ pub const Options = struct {
     root_prog_node: std.Progress.Node,
     watch: bool,
     listen_address: net.IpAddress,
-    base_timestamp: Io.Timestamp,
+    base_timestamp: Io.Clock.Timestamp,
 };
 pub fn init(opts: Options) WebServer {
     // The upcoming `Io` interface should allow us to use `Io.async` and `Io.concurrent`
     // instead of threads, so that the web server can function in single-threaded builds.
     comptime assert(!builtin.single_threaded);
-    assert(opts.base_timestamp.clock == .awake);
+    assert(opts.base_timestamp.clock == base_clock);
 
     const all_steps = opts.all_steps;
 
@@ -109,7 +111,7 @@ pub fn init(opts: Options) WebServer {
         .tcp_server = null,
         .serve_thread = null,
 
-        .base_timestamp = opts.base_timestamp.nanoseconds,
+        .base_timestamp = opts.base_timestamp.raw,
         .step_names_trailing = step_names_trailing,
 
         .step_status_bits = step_status_bits,
@@ -248,9 +250,8 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
 
 pub fn now(s: *const WebServer) i64 {
     const io = s.graph.io;
-    const base: Io.Timestamp = .{ .nanoseconds = s.base_timestamp, .clock = .awake };
-    const ts = Io.Timestamp.now(io, base.clock) catch base;
-    return @intCast(base.durationTo(ts).toNanoseconds());
+    const ts = base_clock.now(io) catch s.base_timestamp;
+    return @intCast(s.base_timestamp.durationTo(ts).toNanoseconds());
 }
 
 fn accept(ws: *WebServer, stream: net.Stream) void {
@@ -519,7 +520,7 @@ pub fn serveTarFile(ws: *WebServer, request: *http.Server.Request, paths: []cons
             if (cached_cwd_path == null) cached_cwd_path = try std.process.getCwdAlloc(gpa);
             break :cwd cached_cwd_path.?;
         };
-        try archiver.writeFile(path.sub_path, &file_reader, stat.mtime);
+        try archiver.writeFile(path.sub_path, &file_reader, @intCast(stat.mtime.toSeconds()));
     }
 
     // intentionally not calling `archiver.finishPedantically`

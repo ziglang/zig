@@ -637,23 +637,23 @@ pub const UpdateTimesError = posix.FutimensError || windows.SetFileTimeError;
 pub fn updateTimes(
     self: File,
     /// access timestamp in nanoseconds
-    atime: i128,
+    atime: Io.Timestamp,
     /// last modification timestamp in nanoseconds
-    mtime: i128,
+    mtime: Io.Timestamp,
 ) UpdateTimesError!void {
     if (builtin.os.tag == .windows) {
-        const atime_ft = windows.nanoSecondsToFileTime(atime);
-        const mtime_ft = windows.nanoSecondsToFileTime(mtime);
+        const atime_ft = windows.nanoSecondsToFileTime(atime.nanoseconds);
+        const mtime_ft = windows.nanoSecondsToFileTime(mtime.nanoseconds);
         return windows.SetFileTime(self.handle, null, &atime_ft, &mtime_ft);
     }
     const times = [2]posix.timespec{
         posix.timespec{
-            .sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
-            .nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(atime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(atime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
         },
         posix.timespec{
-            .sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
-            .nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(mtime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(mtime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
         },
     };
     try posix.futimens(self.handle, &times);

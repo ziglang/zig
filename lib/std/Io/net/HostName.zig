@@ -79,7 +79,7 @@ pub const LookupError = error{
     NameServerFailure,
     /// Failed to open or read "/etc/hosts" or "/etc/resolv.conf".
     DetectingNetworkConfigurationFailed,
-} || Io.Timestamp.Error || IpAddress.BindError || Io.Cancelable;
+} || Io.Clock.Error || IpAddress.BindError || Io.Cancelable;
 
 pub const LookupResult = struct {
     /// How many `LookupOptions.addresses_buffer` elements are populated.
@@ -294,13 +294,14 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
 
     // boot clock is chosen because time the computer is suspended should count
     // against time spent waiting for external messages to arrive.
-    var now_ts = try Io.Timestamp.now(io, .boot);
+    const clock: Io.Clock = .boot;
+    var now_ts = try clock.now(io);
     const final_ts = now_ts.addDuration(.fromSeconds(rc.timeout_seconds));
     const attempt_duration: Io.Duration = .{
         .nanoseconds = std.time.ns_per_s * @as(usize, rc.timeout_seconds) / rc.attempts,
     };
 
-    send: while (now_ts.compare(.lt, final_ts)) : (now_ts = try Io.Timestamp.now(io, .boot)) {
+    send: while (now_ts.nanoseconds < final_ts.nanoseconds) : (now_ts = try clock.now(io)) {
         const max_messages = queries_buffer.len * ResolvConf.max_nameservers;
         {
             var message_buffer: [max_messages]Io.net.OutgoingMessage = undefined;
@@ -319,7 +320,10 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
             _ = io.vtable.netSend(io.userdata, socket.handle, message_buffer[0..message_i], .{});
         }
 
-        const timeout: Io.Timeout = .{ .deadline = now_ts.addDuration(attempt_duration) };
+        const timeout: Io.Timeout = .{ .deadline = .{
+            .raw = now_ts.addDuration(attempt_duration),
+            .clock = clock,
+        } };
 
         while (true) {
             var message_buffer: [max_messages]Io.net.IncomingMessage = undefined;
