@@ -671,8 +671,8 @@ pub fn send_zc_fixed(
     user_data: u64,
     fd: linux.fd_t,
     buffer: []const u8,
-    send_flags: u32,
-    zc_flags: u16,
+    send_flags: linux.Msg,
+    zc_flags: Sqe.SendRecv,
     buf_index: u16,
 ) !*Sqe {
     const sqe = try self.get_sqe();
@@ -721,7 +721,7 @@ pub fn sendmsg_zc(
     user_data: u64,
     fd: linux.fd_t,
     msg: *const linux.msghdr_const,
-    flags: u32,
+    flags: linux.Msg,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_sendmsg_zc(fd, msg, flags);
@@ -900,7 +900,7 @@ pub fn poll_update(
     old_user_data: u64,
     new_user_data: u64,
     poll_mask: u32,
-    flags: u32,
+    flags: u32, // TODO: what are the flags
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_poll_update(old_user_data, new_user_data, poll_mask, flags);
@@ -986,7 +986,7 @@ pub fn renameat(
     old_path: [*:0]const u8,
     new_dir_fd: linux.fd_t,
     new_path: [*:0]const u8,
-    flags: linux.RenameFlags,
+    flags: linux.Rename,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_renameat(old_dir_fd, old_path, new_dir_fd, new_path, flags);
@@ -1100,7 +1100,7 @@ pub fn waitid(
     id: i32,
     infop: *linux.siginfo_t,
     options: linux.W,
-    flags: u32,
+    flags: u32, // TODO: wait flags
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_waitid(id_type, id, infop, options, flags);
@@ -1176,7 +1176,7 @@ pub fn register_files_sparse(self: *IoUring, nr_files: u32) !void {
         self.fd,
         .REGISTER_FILES2,
         @ptrCast(&reg),
-        @as(u32, @sizeOf(linux.io_uring_rsrc_register)),
+        @as(u32, @sizeOf(RsrcRegister)),
     );
 
     return handle_registration_result(res);
@@ -1197,7 +1197,7 @@ pub fn register_file_alloc_range(self: *IoUring, offset: u32, len: u32) !void {
         self.fd,
         .REGISTER_FILE_ALLOC_RANGE,
         @ptrCast(&range),
-        @as(u32, @sizeOf(linux.io_uring_file_index_range)),
+        @as(u32, @sizeOf(FileIndexRange)),
     );
 
     return handle_registration_result(res);
@@ -1383,7 +1383,7 @@ pub fn bind(
     fd: linux.fd_t,
     addr: *const posix.sockaddr,
     addrlen: posix.socklen_t,
-    flags: u32,
+    flags: u32, // TODO: bind flags
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_bind(fd, addr, addrlen, flags);
@@ -1399,7 +1399,7 @@ pub fn listen(
     user_data: u64,
     fd: linux.fd_t,
     backlog: usize,
-    flags: u32,
+    flags: u32, // TODO: listen flags
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_listen(fd, backlog, flags);
@@ -1415,8 +1415,8 @@ pub fn cmd_sock(
     user_data: u64,
     cmd_op: SocketOp,
     fd: linux.fd_t,
-    level: u32, // linux.SOL
-    optname: u32, // linux.SO
+    level: linux.Sol,
+    optname: linux.So,
     optval: u64, // pointer to the option value
     optlen: u32, // size of the option value
 ) !*Sqe {
@@ -1433,8 +1433,8 @@ pub fn setsockopt(
     self: *IoUring,
     user_data: u64,
     fd: linux.fd_t,
-    level: u32, // linux.SOL
-    optname: u32, // linux.SO
+    level: linux.Sol,
+    optname: linux.So,
     opt: []const u8,
 ) !*Sqe {
     return try self.cmd_sock(
@@ -1455,8 +1455,8 @@ pub fn getsockopt(
     self: *IoUring,
     user_data: u64,
     fd: linux.fd_t,
-    level: u32, // linux.SOL
-    optname: u32, // linux.SO
+    level: linux.Sol,
+    optname: linux.So,
     opt: []u8,
 ) !*Sqe {
     return try self.cmd_sock(
@@ -1944,7 +1944,7 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         epfd: linux.fd_t,
         fd: linux.fd_t,
-        op: u32,
+        op: u32, // TODO: what is the type of OP
         ev: ?*linux.epoll_event,
     ) void {
         sqe.prep_rw(.EPOLL_CTL, epfd, @intFromPtr(ev), op, @intCast(fd));
@@ -2116,7 +2116,7 @@ pub const Sqe = extern struct {
     pub fn prep_poll_add(
         sqe: *Sqe,
         fd: linux.fd_t,
-        poll_mask: linux.POLL,
+        poll_mask: linux.POLL, // TODO: Poll mask typed
     ) void {
         sqe.prep_rw(.POLL_ADD, fd, @intFromPtr(@as(?*anyopaque, null)), 0, 0);
         // Poll masks previously used to comprise of 16 bits in the flags union of
@@ -2139,7 +2139,7 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         old_user_data: u64,
         new_user_data: u64,
-        poll_mask: linux.POLL,
+        poll_mask: linux.POLL, //TODO: Poll mask
         flags: uflags.Poll,
     ) void {
         sqe.prep_rw(.POLL_REMOVE, -1, old_user_data, flags, new_user_data);
@@ -2226,7 +2226,7 @@ pub const Sqe = extern struct {
         old_path: [*:0]const u8,
         new_dir_fd: linux.fd_t,
         new_path: [*:0]const u8,
-        flags: linux.RenameFlags,
+        flags: linux.Rename,
     ) void {
         sqe.prep_rw(
             .RENAMEAT,
@@ -2335,8 +2335,7 @@ pub const Sqe = extern struct {
         domain: linux.Af,
         socket_type: linux.Sock,
         protocol: linux.IpProto,
-        /// flags is unused
-        flags: u32,
+        flags: u32, // flags is unused
     ) void {
         sqe.prep_rw(.SOCKET, @intFromEnum(domain), 0, @intFromEnum(protocol), @intCast(@as(u32, @bitCast(socket_type))));
         sqe.rw_flags = flags;
@@ -2347,8 +2346,7 @@ pub const Sqe = extern struct {
         domain: linux.Af,
         socket_type: linux.Sock,
         protocol: linux.IpProto,
-        /// flags is unused
-        flags: u32,
+        flags: u32, // flags is unused
         file_index: u32,
     ) void {
         prep_socket(sqe, domain, socket_type, protocol, flags);
@@ -2405,8 +2403,8 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         cmd_op: SocketOp,
         fd: linux.fd_t,
-        level: u32, // TODO: linux.SOL,
-        optname: u32, // TODO: linux.SO,
+        level: linux.Sol,
+        optname: linux.So,
         optval: u64,
         optlen: u32,
     ) void {
@@ -2418,8 +2416,8 @@ pub const Sqe = extern struct {
             level: u32,
             optname: u32,
         }{
-            .level = level,
-            .optname = optname,
+            .level = @intFromEnum(level),
+            .optname = @intFromEnum(optname),
         });
         // splice_fd_in if overloaded u32 -> i32
         sqe.splice_fd_in = @bitCast(optlen);
@@ -2640,6 +2638,7 @@ pub const BufferGroup = struct {
         allocator.free(self.heads);
     }
 
+    // TODO: recv flags
     // Prepare recv operation which will select buffer from this group.
     pub fn recv(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*Sqe {
         var sqe = try self.ring.get_sqe();
@@ -2651,6 +2650,7 @@ pub const BufferGroup = struct {
         return sqe;
     }
 
+    // TODO: recv_multishot flags
     // Prepare multishot recv operation which will select buffer from this group.
     pub fn recv_multishot(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*Sqe {
         var sqe = try self.recv(user_data, fd, flags);
@@ -2732,6 +2732,7 @@ pub const SqOffsets = extern struct {
     ring_mask: u32,
     /// entries in ring
     ring_entries: u32,
+    // TODO: find type of this flags
     /// ring flags
     flags: u32,
     /// number of sqes not submitted
@@ -2750,6 +2751,7 @@ pub const CqOffsets = extern struct {
     ring_entries: u32,
     overflow: u32,
     cqes: u32,
+    // TODO: find type of these flags
     flags: u32,
     resv: u32,
     user_addr: u64,
@@ -2809,6 +2811,7 @@ pub const MemRegionReg = extern struct {
 /// matches io_uring_rsrc_register in liburing
 pub const RsrcRegister = extern struct {
     nr: u32,
+    // TODO: find type of these flags
     flags: u32,
     resv2: u64,
     data: u64,
@@ -2878,6 +2881,7 @@ pub const Restriction = extern struct {
         register_op: RegisterOp,
         /// IORING_RESTRICTION_SQE_OP
         sqe_op: Op,
+        // TODO: find type of these flags
         /// IORING_RESTRICTION_SQE_FLAGS_*
         sqe_flags: u8,
     },
@@ -3035,6 +3039,7 @@ pub const RecvmsgOut = extern struct {
     namelen: u32,
     controllen: u32,
     payloadlen: u32,
+    // TODO: find type of these flags
     flags: u32,
 };
 
@@ -3820,12 +3825,14 @@ test "splice/read" {
     try testing.expectEqual(Op.SPLICE, sqe_splice_to_pipe.opcode);
     try testing.expectEqual(@as(u64, 0), sqe_splice_to_pipe.addr);
     try testing.expectEqual(pipe_offset, sqe_splice_to_pipe.off);
+    // TODO: use io_link function
     sqe_splice_to_pipe.flags.IO_LINK = true;
 
     const sqe_splice_from_pipe = try ring.splice(0x22222222, fds[0], pipe_offset, fd_dst, 10, buffer_write.len);
     try testing.expectEqual(Op.SPLICE, sqe_splice_from_pipe.opcode);
     try testing.expectEqual(pipe_offset, sqe_splice_from_pipe.addr);
     try testing.expectEqual(@as(u64, 10), sqe_splice_from_pipe.off);
+    // TODO: use io_link function
     sqe_splice_from_pipe.flags.IO_LINK = true;
 
     const sqe_read = try ring.read(0x33333333, fd_dst, .{ .buffer = buffer_read[0..] }, 10);
@@ -3897,6 +3904,7 @@ test "write_fixed/read_fixed" {
     const sqe_write = try ring.write_fixed(0x45454545, fd, &buffers[0], 3, 0);
     try testing.expectEqual(Op.WRITE_FIXED, sqe_write.opcode);
     try testing.expectEqual(@as(u64, 3), sqe_write.off);
+    // TODO: use io_link function
     sqe_write.flags.IO_LINK = true;
 
     const sqe_read = try ring.read_fixed(0x12121212, fd, &buffers[1], 0, 1);
@@ -4026,6 +4034,7 @@ test "accept/connect/send/recv" {
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
     const sqe_send = try ring.send(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], .{});
+    // TODO: use io_link function
     sqe_send.flags.IO_LINK = true;
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, .{});
     try testing.expectEqual(@as(u32, 2), try ring.submit());
@@ -4286,6 +4295,7 @@ test "accept/connect/recv/link_timeout" {
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
     const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, .{});
+    // TODO: use io_link function
     sqe_recv.flags.IO_LINK = true;
 
     const ts = linux.kernel_timespec{ .sec = 0, .nsec = 1000000 };
@@ -4511,6 +4521,7 @@ test "register_files_update" {
     {
         const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
         try testing.expectEqual(Op.READ, sqe.opcode);
+        // TODO: use setflags function
         sqe.flags.FIXED_FILE = true;
 
         try testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -4532,6 +4543,7 @@ test "register_files_update" {
         // Next read should still work since fd_index in the registered file descriptors hasn't been updated yet.
         const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
         try testing.expectEqual(Op.READ, sqe.opcode);
+        // TODO: use setflags function
         sqe.flags.FIXED_FILE = true;
 
         try testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -4549,6 +4561,7 @@ test "register_files_update" {
         // Now this should fail since both fds are sparse (-1)
         const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
         try testing.expectEqual(Op.READ, sqe.opcode);
+        // TODO: use setflags function
         sqe.flags.FIXED_FILE = true;
 
         try testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -5412,6 +5425,7 @@ test "accept/connect/send_zc/recv" {
 
     // zero-copy send
     const sqe_send = try ring.send_zc(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], .{}, .{});
+    // TODO: use io_link function
     sqe_send.flags.IO_LINK = true;
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, .{});
     try testing.expectEqual(@as(u32, 2), try ring.submit());
@@ -5504,6 +5518,7 @@ test "accept_direct" {
             // Fd field is set to registered file index, returned by accept.
             // Flag linux.IOSQE_FIXED_FILE must be set.
             const recv_sqe = try ring.recv(read_userdata, fd_index, .{ .buffer = &buffer_recv }, .{});
+            // TODO: use setflags function
             recv_sqe.flags.FIXED_FILE = true;
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
@@ -5738,7 +5753,7 @@ test "openat_direct/close_direct" {
     try testing.expect(cqe.res == 0); // res is 0 when we specify index
 
     // let kernel choose registered file index
-    _ = try ring.openat_direct(user_data, tmp.dir.fd, path, flags, mode, linux.IORING_FILE_INDEX_ALLOC);
+    _ = try ring.openat_direct(user_data, tmp.dir.fd, path, flags, mode, constants.FILE_INDEX_ALLOC);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe = try ring.copy_cqe();
     try testing.expectEqual(posix.E.SUCCESS, cqe.err());
@@ -6237,8 +6252,8 @@ test "bind/listen/connect" {
 
         // Prepare: set socket option * 2, bind, listen
         var optval: u32 = 1;
-        (try ring.setsockopt(2, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, mem.asBytes(&optval))).link_next();
-        (try ring.setsockopt(3, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEPORT, mem.asBytes(&optval))).link_next();
+        (try ring.setsockopt(2, listen_fd, .socket, .reuseaddr, mem.asBytes(&optval))).link_next();
+        (try ring.setsockopt(3, listen_fd, .socket, .reuseport, mem.asBytes(&optval))).link_next();
         (try ring.bind(4, listen_fd, addrAny(&addr), @sizeOf(linux.sockaddr.in), 0)).link_next();
         _ = try ring.listen(5, listen_fd, 1, 0);
         // Submit 4 operations
@@ -6252,7 +6267,7 @@ test "bind/listen/connect" {
 
         // Check that socket option is set
         optval = 0;
-        _ = try ring.getsockopt(5, listen_fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, mem.asBytes(&optval));
+        _ = try ring.getsockopt(5, listen_fd, .socket, .reuseaddr, mem.asBytes(&optval));
         try testing.expectEqual(1, try ring.submit());
         cqe = try ring.copy_cqe();
         try testing.expectEqual(5, cqe.user_data);
