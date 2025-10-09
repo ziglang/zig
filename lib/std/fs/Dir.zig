@@ -885,94 +885,9 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
         const fd = try posix.openatWasi(self.fd, sub_path, .{}, .{}, .{}, base, .{});
         return .{ .handle = fd };
     }
-    const path_c = try posix.toPosixPath(sub_path);
-    return self.openFileZ(&path_c, flags);
-}
-
-/// Same as `openFile` but the path parameter is null-terminated.
-pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
-    switch (native_os) {
-        .windows => {
-            const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
-            return self.openFileW(path_w.span(), flags);
-        },
-        // Use the libc API when libc is linked because it implements things
-        // such as opening absolute file paths.
-        .wasi => if (!builtin.link_libc) {
-            return openFile(self, mem.sliceTo(sub_path, 0), flags);
-        },
-        else => {},
-    }
-
-    var os_flags: posix.O = switch (native_os) {
-        .wasi => .{
-            .read = flags.mode != .write_only,
-            .write = flags.mode != .read_only,
-        },
-        else => .{
-            .ACCMODE = switch (flags.mode) {
-                .read_only => .RDONLY,
-                .write_only => .WRONLY,
-                .read_write => .RDWR,
-            },
-        },
-    };
-    if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
-    if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
-    if (@hasField(posix.O, "NOCTTY")) os_flags.NOCTTY = !flags.allow_ctty;
-
-    // Use the O locking flags if the os supports them to acquire the lock
-    // atomically.
-    const has_flock_open_flags = @hasField(posix.O, "EXLOCK");
-    if (has_flock_open_flags) {
-        // Note that the NONBLOCK flag is removed after the openat() call
-        // is successful.
-        switch (flags.lock) {
-            .none => {},
-            .shared => {
-                os_flags.SHLOCK = true;
-                os_flags.NONBLOCK = flags.lock_nonblocking;
-            },
-            .exclusive => {
-                os_flags.EXLOCK = true;
-                os_flags.NONBLOCK = flags.lock_nonblocking;
-            },
-        }
-    }
-    const fd = try posix.openatZ(self.fd, sub_path, os_flags, 0);
-    errdefer posix.close(fd);
-
-    if (have_flock and !has_flock_open_flags and flags.lock != .none) {
-        // TODO: integrate async I/O
-        const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
-        try posix.flock(fd, switch (flags.lock) {
-            .none => unreachable,
-            .shared => posix.LOCK.SH | lock_nonblocking,
-            .exclusive => posix.LOCK.EX | lock_nonblocking,
-        });
-    }
-
-    if (has_flock_open_flags and flags.lock_nonblocking) {
-        var fl_flags = posix.fcntl(fd, posix.F.GETFL, 0) catch |err| switch (err) {
-            error.FileBusy => unreachable,
-            error.Locked => unreachable,
-            error.PermissionDenied => unreachable,
-            error.DeadLock => unreachable,
-            error.LockedRegionLimitExceeded => unreachable,
-            else => |e| return e,
-        };
-        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
-        _ = posix.fcntl(fd, posix.F.SETFL, fl_flags) catch |err| switch (err) {
-            error.FileBusy => unreachable,
-            error.Locked => unreachable,
-            error.PermissionDenied => unreachable,
-            error.DeadLock => unreachable,
-            error.LockedRegionLimitExceeded => unreachable,
-            else => |e| return e,
-        };
-    }
-
-    return .{ .handle = fd };
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return .adaptFromNewApi(try Io.Dir.openFile(self.adaptToNewApi(), io, sub_path, flags));
 }
 
 /// Same as `openFile` but Windows-only and the path parameter is
@@ -1048,82 +963,10 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
             }, .{}),
         };
     }
-    const path_c = try posix.toPosixPath(sub_path);
-    return self.createFileZ(&path_c, flags);
-}
-
-/// Same as `createFile` but the path parameter is null-terminated.
-pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
-    switch (native_os) {
-        .windows => {
-            const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-            return self.createFileW(path_w.span(), flags);
-        },
-        .wasi => {
-            return createFile(self, mem.sliceTo(sub_path_c, 0), flags);
-        },
-        else => {},
-    }
-
-    var os_flags: posix.O = .{
-        .ACCMODE = if (flags.read) .RDWR else .WRONLY,
-        .CREAT = true,
-        .TRUNC = flags.truncate,
-        .EXCL = flags.exclusive,
-    };
-    if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
-    if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
-
-    // Use the O locking flags if the os supports them to acquire the lock
-    // atomically. Note that the NONBLOCK flag is removed after the openat()
-    // call is successful.
-    const has_flock_open_flags = @hasField(posix.O, "EXLOCK");
-    if (has_flock_open_flags) switch (flags.lock) {
-        .none => {},
-        .shared => {
-            os_flags.SHLOCK = true;
-            os_flags.NONBLOCK = flags.lock_nonblocking;
-        },
-        .exclusive => {
-            os_flags.EXLOCK = true;
-            os_flags.NONBLOCK = flags.lock_nonblocking;
-        },
-    };
-
-    const fd = try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
-    errdefer posix.close(fd);
-
-    if (have_flock and !has_flock_open_flags and flags.lock != .none) {
-        // TODO: integrate async I/O
-        const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
-        try posix.flock(fd, switch (flags.lock) {
-            .none => unreachable,
-            .shared => posix.LOCK.SH | lock_nonblocking,
-            .exclusive => posix.LOCK.EX | lock_nonblocking,
-        });
-    }
-
-    if (has_flock_open_flags and flags.lock_nonblocking) {
-        var fl_flags = posix.fcntl(fd, posix.F.GETFL, 0) catch |err| switch (err) {
-            error.FileBusy => unreachable,
-            error.Locked => unreachable,
-            error.PermissionDenied => unreachable,
-            error.DeadLock => unreachable,
-            error.LockedRegionLimitExceeded => unreachable,
-            else => |e| return e,
-        };
-        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
-        _ = posix.fcntl(fd, posix.F.SETFL, fl_flags) catch |err| switch (err) {
-            error.FileBusy => unreachable,
-            error.Locked => unreachable,
-            error.PermissionDenied => unreachable,
-            error.DeadLock => unreachable,
-            error.LockedRegionLimitExceeded => unreachable,
-            else => |e| return e,
-        };
-    }
-
-    return .{ .handle = fd };
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    const new_file = try Io.Dir.createFile(self.adaptToNewApi(), io, sub_path, flags);
+    return .adaptFromNewApi(new_file);
 }
 
 /// Same as `createFile` but Windows-only and the path parameter is
