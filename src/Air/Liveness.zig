@@ -458,6 +458,8 @@ fn analyzeInst(
         .memset_safe,
         .memcpy,
         .memmove,
+        .deposit_bits,
+        .extract_bits,
         => {
             const o = inst_datas[@intFromEnum(inst)].bin_op;
             return analyzeOperands(a, pass, data, inst, .{ o.lhs, o.rhs, .none });

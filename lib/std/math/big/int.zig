@@ -1855,6 +1855,98 @@ pub const Mutable = struct {
         y.shiftRight(y.toConst(), norm_shift);
     }
 
+    // TODO this function is quite inefficient and could be optimised
+    /// r = @depositBits(source, mask)
+    ///
+    /// Asserts that `source` and `mask` are positive
+    pub fn depositBits(r: *Mutable, source: Const, mask: Const) void {
+        assert(source.positive);
+        assert(mask.positive);
+
+        r.positive = true;
+        @memset(r.limbs, 0);
+
+        var mask_limb: Limb = mask.limbs[0];
+        var mask_limb_index: Limb = 0;
+        var i: usize = 0;
+        outer: while (true) : (i += 1) {
+            // Find next bit in mask
+            const mask_limb_bit: Log2Limb = limb_bit: while (true) {
+                const mask_limb_tz = @ctz(mask_limb);
+                if (mask_limb_tz != @sizeOf(Limb) * 8) {
+                    const cast_limb_bit: Log2Limb = @intCast(mask_limb_tz);
+                    mask_limb ^= @as(Limb, 1) << cast_limb_bit;
+                    break :limb_bit cast_limb_bit;
+                }
+
+                mask_limb_index += 1;
+                // No more limbs, we've finished iterating the mask
+                if (mask_limb_index >= mask.limbs.len) {
+                    break :outer;
+                }
+
+                mask_limb = mask.limbs[mask_limb_index];
+            };
+
+            const i_limb_index = i / limb_bits;
+            const i_limb_bit: Log2Limb = @truncate(i);
+
+            if (i_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
+
+            const source_bit_set = source.limbs[i_limb_index] & (@as(Limb, 1) << i_limb_bit) != 0;
+
+            r.limbs[mask_limb_index] |= @as(Limb, @intFromBool(source_bit_set)) << mask_limb_bit;
+        }
+
+        r.normalize(r.limbs.len);
+    }
+
+    // TODO this function is quite inefficient and could be optimised
+    /// r = @extractBits(source, mask)
+    ///
+    /// Asserts that `source` and `mask` are positive
+    pub fn extractBits(r: *Mutable, source: Const, mask: Const) void {
+        assert(source.positive);
+        assert(mask.positive);
+
+        r.positive = true;
+        @memset(r.limbs, 0);
+
+        var mask_limb: Limb = mask.limbs[0];
+        var mask_limb_index: Limb = 0;
+        var i: usize = 0;
+        outer: while (true) : (i += 1) {
+            // Find next bit in mask
+            const mask_limb_bit: Log2Limb = limb_bit: while (true) {
+                const mask_limb_tz = @ctz(mask_limb);
+                if (mask_limb_tz != @sizeOf(Limb) * 8) {
+                    const cast_limb_bit: Log2Limb = @intCast(mask_limb_tz);
+                    mask_limb ^= @as(Limb, 1) << cast_limb_bit;
+                    break :limb_bit cast_limb_bit;
+                }
+
+                mask_limb_index += 1;
+                // No more limbs, we've finished iterating the mask
+                if (mask_limb_index >= mask.limbs.len) {
+                    break :outer;
+                }
+
+                mask_limb = mask.limbs[mask_limb_index];
+            };
+
+            const i_limb_index = i / limb_bits;
+            const i_limb_bit: Log2Limb = @truncate(i);
+
+            if (mask_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
+
+            const source_bit_set = source.limbs[mask_limb_index] & (@as(Limb, 1) << mask_limb_bit) != 0;
+
+            r.limbs[i_limb_index] |= @as(Limb, @intFromBool(source_bit_set)) << i_limb_bit;
+        }
+
+        r.normalize(r.limbs.len);
+    }
+
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
     /// `r` may alias `a`.
     ///
