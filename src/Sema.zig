@@ -36937,7 +36937,7 @@ fn intDepositBits(
     ty: Type,
 ) !Value {
     // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first. For non-bigints, @intDeposit could be used?
+    // resorting to BigInt first.
     const pt = sema.pt;
     const zcu = pt.zcu;
     const arena = sema.arena;
@@ -36966,7 +36966,7 @@ fn intExtractBits(
     ty: Type,
 ) !Value {
     // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first. For non-bigints, @intExtract could be used?
+    // resorting to BigInt first.
     const pt = sema.pt;
     const zcu = pt.zcu;
     const arena = sema.arena;
