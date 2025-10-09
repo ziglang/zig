@@ -36,10 +36,6 @@ const IteratorError = error{
     AccessDenied,
     PermissionDenied,
     SystemResources,
-    /// WASI-only. The path of an entry could not be encoded as valid UTF-8.
-    /// WASI is unable to handle paths that cannot be encoded as well-formed UTF-8.
-    /// https://github.com/WebAssembly/wasi-filesystem/issues/17#issuecomment-1430639353
-    InvalidUtf8,
 } || posix.UnexpectedError;
 
 pub const Iterator = switch (native_os) {
@@ -553,7 +549,6 @@ pub const Iterator = switch (native_os) {
                         .INVAL => unreachable,
                         .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                         .NOTCAPABLE => return error.AccessDenied,
-                        .ILSEQ => return error.InvalidUtf8, // An entry's name cannot be encoded as UTF-8.
                         else => |err| return posix.unexpectedErrno(err),
                     }
                     if (bufused == 0) return null;
@@ -844,28 +839,7 @@ pub fn walk(self: Dir, allocator: Allocator) Allocator.Error!Walker {
     };
 }
 
-pub const OpenError = error{
-    FileNotFound,
-    NotDir,
-    AccessDenied,
-    PermissionDenied,
-    SymLinkLoop,
-    ProcessFdQuotaExceeded,
-    NameTooLong,
-    SystemFdQuotaExceeded,
-    NoDevice,
-    SystemResources,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
-    BadPathName,
-    DeviceBusy,
-    /// On Windows, `\\server` or `\\server\share` was not found.
-    NetworkNotFound,
-    ProcessNotFound,
-} || posix.UnexpectedError;
+pub const OpenError = Io.Dir.OpenError;
 
 pub fn close(self: *Dir) void {
     posix.close(self.fd);
@@ -1311,7 +1285,7 @@ pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenOptio
     };
 }
 
-pub const RealPathError = posix.RealPathError;
+pub const RealPathError = posix.RealPathError || error{Canceled};
 
 ///  This function returns the canonicalized absolute pathname of
 /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
@@ -1369,7 +1343,6 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
         error.FileLocksNotSupported => return error.Unexpected,
         error.FileBusy => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
-        error.InvalidUtf8 => unreachable, // WASI-only
         else => |e| return e,
     };
     defer posix.close(fd);
@@ -1639,6 +1612,10 @@ fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError
         error.FileLocksNotSupported => unreachable, // locking folders is not supported
         error.WouldBlock => unreachable, // can't happen for directories
         error.FileBusy => unreachable, // can't happen for directories
+        error.SharingViolation => unreachable, // can't happen for directories
+        error.PipeBusy => unreachable, // can't happen for directories
+        error.AntivirusInterference => unreachable, // can't happen for directories
+        error.ProcessNotFound => unreachable, // can't happen for directories
         else => |e| return e,
     };
     return Dir{ .fd = fd };
@@ -2095,24 +2072,21 @@ pub const DeleteTreeError = error{
     FileBusy,
     DeviceBusy,
     ProcessNotFound,
-
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
     NotDir,
-
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
-
     /// Windows-only; file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
     InvalidWtf8,
-
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
-
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+
+    Canceled,
 } || posix.UnexpectedError;
 
 /// Whether `sub_path` describes a symlink, file, or directory, this function
@@ -2169,17 +2143,15 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
-                            error.ProcessNotFound,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
                             error.SystemResources,
                             error.Unexpected,
-                            error.InvalidUtf8,
-                            error.InvalidWtf8,
                             error.BadPathName,
                             error.NetworkNotFound,
                             error.DeviceBusy,
+                            error.Canceled,
                             => |e| return e,
                         };
                         stack.appendAssumeCapacity(.{
@@ -2266,18 +2238,16 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
-                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
                             error.SystemResources,
                             error.Unexpected,
-                            error.InvalidUtf8,
-                            error.InvalidWtf8,
                             error.BadPathName,
                             error.NetworkNotFound,
                             error.DeviceBusy,
+                            error.Canceled,
                             => |e| return e,
                         };
                     } else {
@@ -2374,18 +2344,16 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
-                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
                             error.SystemResources,
                             error.Unexpected,
-                            error.InvalidUtf8,
-                            error.InvalidWtf8,
                             error.BadPathName,
                             error.NetworkNotFound,
                             error.DeviceBusy,
+                            error.Canceled,
                             => |e| return e,
                         };
                         if (cleanup_dir_parent) |*d| d.close();
@@ -2476,17 +2444,15 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
-                    error.ProcessNotFound,
                     error.NameTooLong,
                     error.SystemFdQuotaExceeded,
                     error.NoDevice,
                     error.SystemResources,
                     error.Unexpected,
-                    error.InvalidUtf8,
-                    error.InvalidWtf8,
                     error.BadPathName,
                     error.DeviceBusy,
                     error.NetworkNotFound,
+                    error.Canceled,
                     => |e| return e,
                 };
             } else {
@@ -2589,7 +2555,7 @@ pub const CopyFileOptions = struct {
 
 pub const CopyFileError = File.OpenError || File.StatError ||
     AtomicFile.InitError || AtomicFile.FinishError ||
-    File.ReadError || File.WriteError;
+    File.ReadError || File.WriteError || error{InvalidFileName};
 
 /// Atomically creates a new file at `dest_path` within `dest_dir` with the
 /// same contents as `source_path` within `source_dir`, overwriting any already
@@ -2690,33 +2656,9 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
         return Stat.fromWasi(st);
     }
-    if (native_os == .linux) {
-        const sub_path_c = try posix.toPosixPath(sub_path);
-        var stx = std.mem.zeroes(linux.Statx);
-
-        const rc = linux.statx(
-            self.fd,
-            &sub_path_c,
-            linux.AT.NO_AUTOMOUNT,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
-            &stx,
-        );
-
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
-            .ACCES => error.AccessDenied,
-            .BADF => unreachable,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .LOOP => error.SymLinkLoop,
-            .NAMETOOLONG => unreachable, // Handled by posix.toPosixPath() above.
-            .NOENT, .NOTDIR => error.FileNotFound,
-            .NOMEM => error.SystemResources,
-            else => |err| posix.unexpectedErrno(err),
-        };
-    }
-    const st = try posix.fstatat(self.fd, sub_path, 0);
-    return Stat.fromPosix(st);
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return Io.Dir.statPath(.{ .handle = self.fd }, io, sub_path, .{});
 }
 
 pub const ChmodError = File.ChmodError;

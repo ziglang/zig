@@ -766,27 +766,23 @@ test glibcVerFromLinkName {
 
 fn glibcVerFromRPath(io: Io, rpath: []const u8) !std.SemanticVersion {
     var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
-        error.NameTooLong => unreachable,
-        error.InvalidUtf8 => unreachable, // WASI only
-        error.InvalidWtf8 => unreachable, // Windows-only
-        error.BadPathName => unreachable,
-        error.DeviceBusy => unreachable,
-        error.NetworkNotFound => unreachable, // Windows-only
+        error.NameTooLong => return error.Unexpected,
+        error.BadPathName => return error.Unexpected,
+        error.DeviceBusy => return error.Unexpected,
+        error.NetworkNotFound => return error.Unexpected, // Windows-only
 
-        error.FileNotFound,
-        error.NotDir,
-        error.AccessDenied,
-        error.PermissionDenied,
-        error.NoDevice,
-        => return error.GLibCNotFound,
+        error.FileNotFound => return error.GLibCNotFound,
+        error.NotDir => return error.GLibCNotFound,
+        error.AccessDenied => return error.GLibCNotFound,
+        error.PermissionDenied => return error.GLibCNotFound,
+        error.NoDevice => return error.GLibCNotFound,
 
-        error.ProcessNotFound,
-        error.ProcessFdQuotaExceeded,
-        error.SystemFdQuotaExceeded,
-        error.SystemResources,
-        error.SymLinkLoop,
-        error.Unexpected,
-        => |e| return e,
+        error.ProcessFdQuotaExceeded => |e| return e,
+        error.SystemFdQuotaExceeded => |e| return e,
+        error.SystemResources => |e| return e,
+        error.SymLinkLoop => |e| return e,
+        error.Unexpected => |e| return e,
+        error.Canceled => |e| return e,
     };
     defer dir.close();
 
@@ -799,38 +795,34 @@ fn glibcVerFromRPath(io: Io, rpath: []const u8) !std.SemanticVersion {
     // that start with "GLIBC_2.".
     const glibc_so_basename = "libc.so.6";
     var file = dir.openFile(glibc_so_basename, .{}) catch |err| switch (err) {
-        error.NameTooLong => unreachable,
-        error.InvalidUtf8 => unreachable, // WASI only
-        error.InvalidWtf8 => unreachable, // Windows only
-        error.BadPathName => unreachable, // Windows only
-        error.PipeBusy => unreachable, // Windows-only
-        error.SharingViolation => unreachable, // Windows-only
-        error.NetworkNotFound => unreachable, // Windows-only
-        error.AntivirusInterference => unreachable, // Windows-only
-        error.FileLocksNotSupported => unreachable, // No lock requested.
-        error.NoSpaceLeft => unreachable, // read-only
-        error.PathAlreadyExists => unreachable, // read-only
-        error.DeviceBusy => unreachable, // read-only
-        error.FileBusy => unreachable, // read-only
-        error.WouldBlock => unreachable, // not using O_NONBLOCK
-        error.NoDevice => unreachable, // not asking for a special device
-
-        error.AccessDenied,
-        error.PermissionDenied,
-        error.FileNotFound,
-        error.NotDir,
-        error.IsDir,
-        => return error.GLibCNotFound,
-
+        error.NameTooLong => return error.Unexpected,
+        error.BadPathName => return error.Unexpected,
+        error.PipeBusy => return error.Unexpected, // Windows-only
+        error.SharingViolation => return error.Unexpected, // Windows-only
+        error.NetworkNotFound => return error.Unexpected, // Windows-only
+        error.AntivirusInterference => return error.Unexpected, // Windows-only
+        error.FileLocksNotSupported => return error.Unexpected, // No lock requested.
+        error.NoSpaceLeft => return error.Unexpected, // read-only
+        error.PathAlreadyExists => return error.Unexpected, // read-only
+        error.DeviceBusy => return error.Unexpected, // read-only
+        error.FileBusy => return error.Unexpected, // read-only
+        error.NoDevice => return error.Unexpected, // not asking for a special device
         error.FileTooBig => return error.Unexpected,
+        error.WouldBlock => return error.Unexpected, // not opened in non-blocking
 
-        error.ProcessNotFound,
-        error.ProcessFdQuotaExceeded,
-        error.SystemFdQuotaExceeded,
-        error.SystemResources,
-        error.SymLinkLoop,
-        error.Unexpected,
-        => |e| return e,
+        error.AccessDenied => return error.GLibCNotFound,
+        error.PermissionDenied => return error.GLibCNotFound,
+        error.FileNotFound => return error.GLibCNotFound,
+        error.NotDir => return error.GLibCNotFound,
+        error.IsDir => return error.GLibCNotFound,
+
+        error.ProcessNotFound => |e| return e,
+        error.ProcessFdQuotaExceeded => |e| return e,
+        error.SystemFdQuotaExceeded => |e| return e,
+        error.SystemResources => |e| return e,
+        error.SymLinkLoop => |e| return e,
+        error.Unexpected => |e| return e,
+        error.Canceled => |e| return e,
     };
     defer file.close();
 
@@ -1016,12 +1008,9 @@ fn detectAbiAndDynamicLinker(io: Io, cpu: Target.Cpu, os: Target.Os, query: Targ
                 error.NameTooLong => return error.Unexpected,
                 error.PathAlreadyExists => return error.Unexpected,
                 error.SharingViolation => return error.Unexpected,
-                error.InvalidUtf8 => return error.Unexpected, // WASI only
-                error.InvalidWtf8 => return error.Unexpected, // Windows only
                 error.BadPathName => return error.Unexpected,
                 error.PipeBusy => return error.Unexpected,
                 error.FileLocksNotSupported => return error.Unexpected,
-                error.WouldBlock => return error.Unexpected,
                 error.FileBusy => return error.Unexpected, // opened without write permissions
                 error.AntivirusInterference => return error.Unexpected, // Windows-only error
 

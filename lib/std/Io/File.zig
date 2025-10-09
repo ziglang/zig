@@ -81,7 +81,63 @@ pub fn stat(file: File, io: Io) StatError!Stat {
 pub const OpenFlags = std.fs.File.OpenFlags;
 pub const CreateFlags = std.fs.File.CreateFlags;
 
-pub const OpenError = std.fs.File.OpenError || Io.Cancelable;
+pub const OpenError = error{
+    SharingViolation,
+    PipeBusy,
+    NoDevice,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
+    ProcessNotFound,
+    /// On Windows, antivirus software is enabled by default. It can be
+    /// disabled, but Windows Update sometimes ignores the user's preference
+    /// and re-enables it. When enabled, antivirus software on Windows
+    /// intercepts file system operations and makes them significantly slower
+    /// in addition to possibly failing with this error code.
+    AntivirusInterference,
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to open a new resource relative to it.
+    AccessDenied,
+    PermissionDenied,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    /// Either:
+    /// * One of the path components does not exist.
+    /// * Cwd was used, but cwd has been deleted.
+    /// * The path associated with the open directory handle has been deleted.
+    /// * On macOS, multiple processes or threads raced to create the same file
+    ///   with `O.EXCL` set to `false`.
+    FileNotFound,
+    /// The path exceeded `max_path_bytes` bytes.
+    /// Insufficient kernel memory was available, or
+    /// the named file is a FIFO and per-user hard limit on
+    /// memory allocation for pipes has been reached.
+    SystemResources,
+    /// The file is too large to be opened. This error is unreachable
+    /// for 64-bit targets, as well as when opening directories.
+    FileTooBig,
+    /// The path refers to directory but the `DIRECTORY` flag was not provided.
+    IsDir,
+    /// A new path cannot be created because the device has no room for the new file.
+    /// This error is only reachable when the `CREAT` flag is provided.
+    NoSpaceLeft,
+    /// A component used as a directory in the path was not, in fact, a directory, or
+    /// `DIRECTORY` was specified and the path was not a directory.
+    NotDir,
+    /// The path already exists and the `CREAT` and `EXCL` flags were provided.
+    PathAlreadyExists,
+    DeviceBusy,
+    FileLocksNotSupported,
+    /// One of these three things:
+    /// * pathname  refers to an executable image which is currently being
+    ///   executed and write access was requested.
+    /// * pathname refers to a file that is currently in  use  as  a  swap
+    ///   file, and the O_TRUNC flag was specified.
+    /// * pathname  refers  to  a file that is currently being read by the
+    ///   kernel (e.g., for module/firmware loading), and write access was
+    ///   requested.
+    FileBusy,
+} || Io.Dir.PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 pub fn close(file: File, io: Io) void {
     return io.vtable.fileClose(io.userdata, file);

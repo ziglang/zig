@@ -318,10 +318,13 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
+            var threaded: std.Io.Threaded = .init_single_threaded;
+            const io = threaded.io();
+
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
-            var file_reader = file.readerStreaming(&.{});
+            var file_reader = file.readerStreaming(io, &.{});
             const data_len = file_reader.interface.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
                 error.ReadFailed => return file_reader.err.?,
             };

@@ -441,7 +441,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
     };
 }
 
-fn validateHost(bytes: []const u8) []const u8 {
+fn validateHost(bytes: []const u8) HostName.ValidateError![]const u8 {
     try HostName.validate(bytes);
     return bytes;
 }

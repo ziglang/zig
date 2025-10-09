@@ -38,33 +38,8 @@ pub const default_mode = switch (builtin.os.tag) {
     else => 0o666,
 };
 
-pub const OpenError = error{
-    SharingViolation,
-    PathAlreadyExists,
-    FileNotFound,
-    AccessDenied,
-    PipeBusy,
-    NoDevice,
-    NameTooLong,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
-    /// On Windows, file paths cannot contain these characters:
-    /// '/', '*', '?', '"', '<', '>', '|'
-    BadPathName,
-    Unexpected,
-    /// On Windows, `\\server` or `\\server\share` was not found.
-    NetworkNotFound,
-    ProcessNotFound,
-    /// On Windows, antivirus software is enabled by default. It can be
-    /// disabled, but Windows Update sometimes ignores the user's preference
-    /// and re-enables it. When enabled, antivirus software on Windows
-    /// intercepts file system operations and makes them significantly slower
-    /// in addition to possibly failing with this error code.
-    AntivirusInterference,
-} || posix.OpenError || posix.FlockError;
+/// Deprecated in favor of `Io.File.OpenError`.
+pub const OpenError = Io.File.OpenError || error{WouldBlock};
 
 pub const OpenMode = enum {
     read_only,
