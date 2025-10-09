@@ -175,7 +175,6 @@ pub fn next(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheEn
 
 fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheEntry) !usize {
     const format = cache_entry.cie.format;
-    const return_address_register = cache_entry.cie.return_address_register;
 
     const cfa = switch (cache_entry.cfa_rule) {
         .none => return error.InvalidDebugInfo,
@@ -202,22 +201,14 @@ fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheE
         },
     };
 
-    // If unspecified, we'll use the default rule for the return address register, which is
-    // typically equivalent to `.undefined` (meaning there is no return address), but may be
-    // overriden by ABIs.
-    var has_return_address: bool = switch (builtin.cpu.arch) {
-        // DWARF for the Arm 64-bit Architecture (AArch64) §4.3, p1
-        .aarch64, .aarch64_be => return_address_register >= 19 and return_address_register <= 28,
-        // ELF ABI s390x Supplement §1.6.4
-        .s390x => return_address_register >= 6 and return_address_register <= 15,
-        else => false,
-    };
-
     // Create a copy of the CPU state, to which we will apply the new rules.
     var new_cpu_state = unwinder.cpu_state;
 
     // On all implemented architectures, the CFA is defined to be the previous frame's SP
     (try regNative(&new_cpu_state, sp_reg_num)).* = cfa;
+
+    const return_address_register = cache_entry.cie.return_address_register;
+    var has_return_address = true;
 
     const rules_len = cache_entry.num_rules;
     for (cache_entry.rules_regs[0..rules_len], cache_entry.rules[0..rules_len]) |register, rule| {
@@ -228,13 +219,14 @@ fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheE
             bytes: []const u8,
         } = switch (rule) {
             .default => val: {
-                // The default rule is typically equivalent to `.undefined`, but ABIs may override it.
-                switch (builtin.target.cpu.arch) {
-                    .aarch64, .aarch64_be => if (register >= 19 and register <= 28) break :val .same,
-                    .s390x => if (register >= 6 and register <= 15) break :val .same,
-                    else => {},
-                }
-                break :val .undefined;
+                // The way things are supposed to work is that `.undefined` is the default rule
+                // unless an ABI says otherwise (e.g. aarch64, s390x).
+                //
+                // Unfortunately, at some point, a decision was made to have libgcc's unwinder
+                // assume `.same` as the default for all registers. Compilers then started depending
+                // on this, and the practice was carried forward to LLVM's libunwind and some of its
+                // backends.
+                break :val .same;
             },
             .undefined => .undefined,
             .same_value => .same,
@@ -273,6 +265,12 @@ fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheE
             .undefined => {
                 const dest = try new_cpu_state.dwarfRegisterBytes(@intCast(register));
                 @memset(dest, undefined);
+
+                // If the return address register is explicitly set to `.undefined`, it means that
+                // there are no more frames to unwind.
+                if (register == return_address_register) {
+                    has_return_address = false;
+                }
             },
             .val => |val| {
                 const dest = try new_cpu_state.dwarfRegisterBytes(@intCast(register));
@@ -286,15 +284,12 @@ fn nextInner(unwinder: *SelfUnwinder, gpa: Allocator, cache_entry: *const CacheE
                 @memcpy(dest, src);
             },
         }
-        if (register == return_address_register) {
-            has_return_address = new_val != .undefined;
-        }
     }
 
-    const return_address: usize = if (has_return_address) pc: {
-        const raw_ptr = try regNative(&new_cpu_state, return_address_register);
-        break :pc stripInstructionPtrAuthCode(raw_ptr.*);
-    } else 0;
+    const return_address = if (has_return_address)
+        stripInstructionPtrAuthCode((try regNative(&new_cpu_state, return_address_register)).*)
+    else
+        0;
 
     (try regNative(&new_cpu_state, ip_reg_num)).* = return_address;
 
