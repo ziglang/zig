@@ -1861,8 +1861,8 @@ pub const Mutable = struct {
     /// The value in `result` may use the same number of or less limbs than `mask`.
     /// `result` is assumed to have sufficient length to store the result.
     pub fn depositBits(result: *Mutable, source: Const, mask: Const) void {
-        assert(source.positive);
-        assert(mask.positive);
+        assert(source.positive or source.eqlZero());
+        assert(mask.positive or mask.eqlZero());
 
         result.positive = true;
         @memset(result.limbs, 0);
@@ -1878,14 +1878,14 @@ pub const Mutable = struct {
 
             var source_limb = source.limbs[shift_limbs] >> shift_bits;
             if (shift_bits != 0 and shift_limbs + 1 < source.limbs.len) {
-                source_limb += source.limbs[shift_limbs + 1] << @intCast(limb_bits - shift_bits);
+                source_limb |= source.limbs[shift_limbs + 1] << @intCast(limb_bits - shift_bits);
             }
 
             const pdep_limb = @depositBits(source_limb, mask_limb);
 
             result_limb.* |= pdep_limb;
 
-            shift += @intCast(@popCount(mask_limb));
+            shift += @popCount(mask_limb);
         }
 
         result.normalize(result.limbs.len);
@@ -1897,8 +1897,8 @@ pub const Mutable = struct {
     /// The value in `result` may use the same number of or less limbs than `mask`.
     /// `result` is assumed to have sufficient length to store the result.
     pub fn extractBits(result: *Mutable, source: Const, mask: Const) void {
-        assert(source.positive);
-        assert(mask.positive);
+        assert(source.positive or source.eqlZero());
+        assert(mask.positive or mask.eqlZero());
 
         result.positive = true;
         @memset(result.limbs, 0);
@@ -1916,7 +1916,7 @@ pub const Mutable = struct {
                 result.limbs[shift_limbs + 1] |= pext_limb >> @intCast(limb_bits - shift_bits);
             }
 
-            shift += @intCast(@popCount(mask_limb));
+            shift += @popCount(mask_limb);
         }
 
         result.normalize(result.limbs.len);
