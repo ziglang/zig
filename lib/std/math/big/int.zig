@@ -1855,96 +1855,61 @@ pub const Mutable = struct {
         y.shiftRight(y.toConst(), norm_shift);
     }
 
-    // TODO this function is quite inefficient and could be optimised
-    /// r = @depositBits(source, mask)
+    /// result = @depositBits(source, mask)
     ///
     /// Asserts that `source` and `mask` are positive
-    pub fn depositBits(r: *Mutable, source: Const, mask: Const) void {
+    pub fn depositBits(result: *Mutable, source: Const, mask: Const) void {
         assert(source.positive);
         assert(mask.positive);
 
-        r.positive = true;
-        @memset(r.limbs, 0);
+        result.positive = true;
+        @memset(result.limbs, 0);
 
-        var mask_limb: Limb = mask.limbs[0];
-        var mask_limb_index: Limb = 0;
-        var i: usize = 0;
-        outer: while (true) : (i += 1) {
-            // Find next bit in mask
-            const mask_limb_bit: Log2Limb = limb_bit: while (true) {
-                const mask_limb_tz = @ctz(mask_limb);
-                if (mask_limb_tz != @sizeOf(Limb) * 8) {
-                    const cast_limb_bit: Log2Limb = @intCast(mask_limb_tz);
-                    mask_limb ^= @as(Limb, 1) << cast_limb_bit;
-                    break :limb_bit cast_limb_bit;
-                }
+        var shift: usize = 0;
+        for (mask.limbs, result.limbs) |mask_limb, *result_limb| {
+            const shift_bits: Log2Limb = @intCast(shift % limb_bits);
+            const shift_limbs = shift / limb_bits;
 
-                mask_limb_index += 1;
-                // No more limbs, we've finished iterating the mask
-                if (mask_limb_index >= mask.limbs.len) {
-                    break :outer;
-                }
+            var source_limb = source.limbs[shift_limbs] >> shift_bits;
+            if (shift_bits != 0) {
+                source_limb += source.limbs[shift_limbs + 1] << @intCast(limb_bits - shift_bits);
+            }
 
-                mask_limb = mask.limbs[mask_limb_index];
-            };
+            const pdep_limb = @depositBits(source_limb, mask_limb);
 
-            const i_limb_index = i / limb_bits;
-            const i_limb_bit: Log2Limb = @truncate(i);
+            result_limb.* |= pdep_limb;
 
-            if (i_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
-
-            const source_bit_set = source.limbs[i_limb_index] & (@as(Limb, 1) << i_limb_bit) != 0;
-
-            r.limbs[mask_limb_index] |= @as(Limb, @intFromBool(source_bit_set)) << mask_limb_bit;
+            shift += @intCast(@popCount(mask_limb));
         }
 
-        r.normalize(r.limbs.len);
+        result.normalize(result.limbs.len);
     }
 
-    // TODO this function is quite inefficient and could be optimised
-    /// r = @extractBits(source, mask)
+    /// result = @extractBits(source, mask)
     ///
     /// Asserts that `source` and `mask` are positive
-    pub fn extractBits(r: *Mutable, source: Const, mask: Const) void {
+    pub fn extractBits(result: *Mutable, source: Const, mask: Const) void {
         assert(source.positive);
         assert(mask.positive);
 
-        r.positive = true;
-        @memset(r.limbs, 0);
+        result.positive = true;
+        @memset(result.limbs, 0);
 
-        var mask_limb: Limb = mask.limbs[0];
-        var mask_limb_index: Limb = 0;
-        var i: usize = 0;
-        outer: while (true) : (i += 1) {
-            // Find next bit in mask
-            const mask_limb_bit: Log2Limb = limb_bit: while (true) {
-                const mask_limb_tz = @ctz(mask_limb);
-                if (mask_limb_tz != @sizeOf(Limb) * 8) {
-                    const cast_limb_bit: Log2Limb = @intCast(mask_limb_tz);
-                    mask_limb ^= @as(Limb, 1) << cast_limb_bit;
-                    break :limb_bit cast_limb_bit;
-                }
+        var shift: usize = 0;
+        for (source.limbs, mask.limbs) |source_limb, mask_limb| {
+            const pext_limb = @extractBits(source_limb, mask_limb);
+            const shift_bits: Log2Limb = @intCast(shift % limb_bits);
+            const shift_limbs = shift / limb_bits;
+            result.limbs[shift_limbs] |= pext_limb << shift_bits;
 
-                mask_limb_index += 1;
-                // No more limbs, we've finished iterating the mask
-                if (mask_limb_index >= mask.limbs.len) {
-                    break :outer;
-                }
+            if (shift_bits != 0) {
+                result.limbs[shift_limbs + 1] |= pext_limb >> @intCast(limb_bits - shift_bits);
+            }
 
-                mask_limb = mask.limbs[mask_limb_index];
-            };
-
-            const i_limb_index = i / limb_bits;
-            const i_limb_bit: Log2Limb = @truncate(i);
-
-            if (mask_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
-
-            const source_bit_set = source.limbs[mask_limb_index] & (@as(Limb, 1) << mask_limb_bit) != 0;
-
-            r.limbs[i_limb_index] |= @as(Limb, @intFromBool(source_bit_set)) << i_limb_bit;
+            shift += @intCast(@popCount(mask_limb));
         }
 
-        r.normalize(r.limbs.len);
+        result.normalize(result.limbs.len);
     }
 
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
