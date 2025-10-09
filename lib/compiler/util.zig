@@ -26,11 +26,12 @@ pub fn aroDiagnosticsToErrorBundle(
     for (d.output.to_list.messages.items) |msg| {
         switch (msg.kind) {
             .off, .warning => {
+                // Emit any pending error and clear everything so that notes don't bleed into unassociated errors
                 if (cur_err) |err| {
                     try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
-                    // Clear the current error so that notes don't bleed into unassociated errors
                     cur_err = null;
                 }
+                cur_notes.clearRetainingCapacity();
                 continue;
             },
             .note => if (cur_err == null) continue,

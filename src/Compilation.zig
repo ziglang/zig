@@ -3398,7 +3398,7 @@ fn flush(
 /// Linker backends which do not have this requirement can fall back to the simple
 /// implementation at the bottom of this function.
 /// This function is only called when CacheMode is `whole`.
-pub fn renameTmpIntoCache(
+fn renameTmpIntoCache(
     cache_directory: Cache.Directory,
     tmp_dir_sub_path: []const u8,
     o_sub_path: []const u8,
