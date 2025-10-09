@@ -279,8 +279,10 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// This may not preserve item order. Use `orderedRemove` if you need to preserve order.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            defer self.items[i] = self.pop() orelse unreachable;
-            return self.items[i];
+            const item = self.items[i];
+            self.items[i] = self.getLast();
+            self.items.len -= 1;
+            return item;
         }
 
         /// Append the slice of items to the list. Allocates more
@@ -954,8 +956,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// This operation is O(1).
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            defer self.items[i] = self.pop() orelse unreachable;
-            return self.items[i];
+            const item = self.items[i];
+            self.items[i] = self.getLast();
+            self.items.len -= 1;
+            return item;
         }
 
         /// Append the slice of items to the list. Allocates more
