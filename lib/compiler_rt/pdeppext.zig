@@ -69,7 +69,7 @@ inline fn pdep_bigint(result: []Limb, source: []const Limb, mask: []const Limb) 
 }
 
 pub fn __pdep_bigint(r: [*]Limb, s: [*]const Limb, m: [*]const Limb, bits: usize) callconv(.c) void {
-    const result_full = r[0 .. std.math.divCeil(usize, @intCast(std.zig.target.intByteSize(builtin.target, @intCast(bits))), 4) catch unreachable];
+    const result_full = r[0 .. std.math.divCeil(usize, @intCast(std.zig.target.intByteSize(&builtin.target, @intCast(bits))), 4) catch unreachable];
     @memset(result_full, 0);
 
     const result = r[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
@@ -112,7 +112,7 @@ inline fn pext_bigint(result: []Limb, source: []const Limb, mask: []const Limb) 
 }
 
 pub fn __pext_bigint(r: [*]Limb, s: [*]const Limb, m: [*]const Limb, bits: usize) callconv(.c) void {
-    const result_full = r[0 .. std.math.divCeil(usize, @intCast(std.zig.target.intByteSize(builtin.target, @intCast(bits))), 4) catch unreachable];
+    const result_full = r[0 .. std.math.divCeil(usize, @intCast(std.zig.target.intByteSize(&builtin.target, @intCast(bits))), 4) catch unreachable];
     @memset(result_full, 0);
 
     const result = r[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
