@@ -13,6 +13,7 @@ const cvtres = @import("cvtres.zig");
 const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePage;
 const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
+const compiler_util = @import("../util.zig");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -671,7 +672,11 @@ const ErrorHandler = union(enum) {
     ) !void {
         switch (self.*) {
             .server => |*server| {
-                var error_bundle = try comp.diagnostics.toErrorBundle(allocator, fail_msg);
+                var error_bundle = try compiler_util.aroDiagnosticsToErrorBundle(
+                    comp.diagnostics,
+                    allocator,
+                    fail_msg,
+                );
                 defer error_bundle.deinit(allocator);
 
                 try server.serveErrorBundle(error_bundle);

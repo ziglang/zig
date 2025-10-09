@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const process = std.process;
 const aro = @import("aro");
+const compiler_util = @import("../util.zig");
 const Translator = @import("Translator.zig");
 
 const fast_exit = @import("builtin").mode != .Debug;
@@ -88,7 +89,11 @@ pub fn main() u8 {
 }
 
 fn serveErrorBundle(arena: std.mem.Allocator, diagnostics: *const aro.Diagnostics) !void {
-    const error_bundle = try diagnostics.toErrorBundle(arena, "translation failure");
+    const error_bundle = try compiler_util.aroDiagnosticsToErrorBundle(
+        diagnostics,
+        arena,
+        "translation failure",
+    );
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     var server: std.zig.Server = .{
