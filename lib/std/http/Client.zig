@@ -1666,6 +1666,8 @@ pub fn request(
     uri: Uri,
     options: RequestOptions,
 ) RequestError!Request {
+    const io = client.io;
+
     if (std.debug.runtime_safety) {
         for (options.extra_headers) |header| {
             assert(header.name.len != 0);
@@ -1689,7 +1691,7 @@ pub fn request(
             defer client.ca_bundle_mutex.unlock();
 
             if (client.next_https_rescan_certs) {
-                client.ca_bundle.rescan(client.allocator) catch
+                client.ca_bundle.rescan(client.allocator, io) catch
                     return error.CertificateBundleLoadFailure;
                 @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
             }
