@@ -1871,7 +1871,7 @@ pub const Mutable = struct {
             const shift_limbs = shift / limb_bits;
 
             var source_limb = source.limbs[shift_limbs] >> shift_bits;
-            if (shift_bits != 0) {
+            if (shift_bits != 0 and shift_limbs + 1 < source.limbs.len) {
                 source_limb += source.limbs[shift_limbs + 1] << @intCast(limb_bits - shift_bits);
             }
 
