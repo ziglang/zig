@@ -5143,6 +5143,8 @@ pub const FuncGen = struct {
                     break :res res;
                 },
 
+                .deposit_bits,
+                .extract_bits => |tag| try self.airDepositExtractBits(inst, tag),
                 // zig fmt: on
             };
             if (val != .none) try self.func_inst_table.putNoClobber(self.gpa, inst.toRef(), val);
@@ -11191,6 +11193,158 @@ pub const FuncGen = struct {
             .nvptx, .nvptx64 => self.workIntrinsic(dimension, 0, "nvvm.read.ptx.sreg.ctaid"),
             else => unreachable,
         };
+    }
+
+    fn airDepositExtractBits(self: *FuncGen, inst: Air.Inst.Index, tag: Air.Inst.Tag) !Builder.Value {
+        if (self.liveness.isUnused(inst)) return .none;
+
+        const o = self.ng.object;
+        const pt = self.ng.pt;
+
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const source = try self.resolveInst(bin_op.lhs);
+        const mask = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.typeOfIndex(inst);
+
+        const target = pt.zcu.getTarget();
+
+        const llvm_ty = try o.lowerType(pt, inst_ty);
+        const bits: u16 = @intCast(llvm_ty.scalarBits(&o.builder));
+
+        switch (target.cpu.arch) {
+            .x86, .x86_64 => |arch| blk: {
+                // Doesn't have pdep
+                if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
+
+                const supports_64 = arch == .x86_64;
+                // Integer size doesn't match the available instruction(s)
+                if (!(bits <= 32 or (bits <= 64 and supports_64))) break :blk;
+
+                const compiler_rt_bits = compilerRtIntBits(bits);
+
+                var buf: ["x86.bmi.pdep.32".len]u8 = undefined;
+                const intrinsic = std.meta.stringToEnum(Builder.Intrinsic, std.fmt.bufPrint(&buf, "x86.bmi.{s}.{d}", .{
+                    switch (tag) {
+                        .deposit_bits => "pdep",
+                        .extract_bits => "pext",
+                        else => unreachable,
+                    },
+                    compiler_rt_bits,
+                }) catch unreachable).?;
+
+                const needs_extend = bits != compiler_rt_bits;
+                const extended_ty = if (needs_extend) try o.builder.intType(compiler_rt_bits) else llvm_ty;
+
+                const params = .{
+                    if (needs_extend) try self.wip.cast(.zext, source, extended_ty, "") else source,
+                    if (needs_extend) try self.wip.cast(.zext, mask, extended_ty, "") else mask,
+                };
+
+                const result = try self.wip.callIntrinsic(
+                    .normal,
+                    .none,
+                    intrinsic,
+                    &.{},
+                    &params,
+                    "",
+                );
+
+                return if (needs_extend) try self.wip.cast(.trunc, result, llvm_ty, "") else result;
+            },
+            else => {},
+        }
+
+        return try self.genDepositExtractBitsEmulated(tag, bits, source, mask, llvm_ty);
+    }
+
+    fn genDepositExtractBitsEmulated(self: *FuncGen, tag: Air.Inst.Tag, bits: u16, source: Builder.Value, mask: Builder.Value, ty: Builder.Type) !Builder.Value {
+        const o = self.ng.object;
+        const pt = self.ng.pt;
+
+        if (bits <= 128) {
+            const compiler_rt_bits = compilerRtIntBits(bits);
+            const needs_extend = bits != compiler_rt_bits;
+            const extended_ty = if (needs_extend) try o.builder.intType(compiler_rt_bits) else ty;
+
+            const fn_name = try o.builder.strtabStringFmt("__{s}_u{d}", .{
+                switch (tag) {
+                    .deposit_bits => "pdep",
+                    .extract_bits => "pext",
+                    else => unreachable,
+                },
+                compiler_rt_bits,
+            });
+
+            const params = .{
+                if (needs_extend) try self.wip.cast(.zext, source, extended_ty, "") else source,
+                if (needs_extend) try self.wip.cast(.zext, mask, extended_ty, "") else mask,
+            };
+
+            const libc_fn = try self.getLibcFunction(fn_name, &.{ extended_ty, extended_ty }, extended_ty);
+            const result = try self.wip.call(
+                .normal,
+                .ccc,
+                .none,
+                libc_fn.typeOf(&o.builder),
+                libc_fn.toValue(&o.builder),
+                &params,
+                "",
+            );
+
+            return if (needs_extend) try self.wip.cast(.trunc, result, ty, "") else result;
+        }
+
+        // Rounded bits to the nearest 32, as limb size is 32.
+        const extended_bits = (((bits - 1) / 32) + 1) * 32;
+        const needs_extend = bits != extended_bits;
+        const extended_ty = if (needs_extend) try o.builder.intType(extended_bits) else ty;
+
+        const source_extended = if (needs_extend) try self.wip.cast(.zext, source, extended_ty, "") else source;
+        const mask_extended = if (needs_extend) try self.wip.cast(.zext, mask, extended_ty, "") else mask;
+        const zeroes_extended = try o.builder.intValue(extended_ty, 0);
+
+        const alignment = Type.u32.abiAlignment(pt.zcu).toLlvm();
+
+        const source_pointer = try self.buildAlloca(extended_ty, alignment);
+        const mask_pointer = try self.buildAlloca(extended_ty, alignment);
+        const result_pointer = try self.buildAlloca(extended_ty, alignment);
+
+        _ = try self.wip.store(.normal, source_extended, source_pointer, alignment);
+        _ = try self.wip.store(.normal, mask_extended, mask_pointer, alignment);
+        _ = try self.wip.store(.normal, zeroes_extended, result_pointer, alignment);
+
+        const fn_name = try o.builder.strtabStringFmt("__{s}_bigint", .{switch (tag) {
+            .deposit_bits => "pdep",
+            .extract_bits => "pext",
+            else => unreachable,
+        }});
+
+        const pointer_ty = source_pointer.typeOfWip(&self.wip);
+        const usize_ty = try o.lowerType(pt, Type.usize);
+        const void_ty = try o.lowerType(pt, Type.void);
+
+        const bits_value = try o.builder.intValue(usize_ty, bits);
+
+        const params = .{
+            result_pointer,
+            source_pointer,
+            mask_pointer,
+            bits_value,
+        };
+
+        const libc_fn = try self.getLibcFunction(fn_name, &.{ pointer_ty, pointer_ty, pointer_ty, usize_ty }, void_ty);
+        _ = try self.wip.call(
+            .normal,
+            .ccc,
+            .none,
+            libc_fn.typeOf(&o.builder),
+            libc_fn.toValue(&o.builder),
+            &params,
+            "",
+        );
+
+        const result = try self.wip.load(.normal, extended_ty, result_pointer, alignment, "");
+        return if (needs_extend) try self.wip.cast(.trunc, result, ty, "") else result;
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
