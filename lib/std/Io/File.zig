@@ -487,7 +487,6 @@ pub const Reader = struct {
 
     fn readVecPositional(r: *Reader, data: [][]u8) Io.Reader.Error!usize {
         const io = r.io;
-        assert(r.interface.bufferedLen() == 0);
         var iovecs_buffer: [max_buffers_len][]u8 = undefined;
         const dest_n, const data_size = try r.interface.writableVector(&iovecs_buffer, data);
         const dest = iovecs_buffer[0..dest_n];
