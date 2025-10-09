@@ -411,7 +411,8 @@ pub const Node = extern struct {
                 .failure,
                 => {
                     const dest = limit.slice(interface.unusedCapacitySlice());
-                    const n = try file_reader.read(dest);
+                    const n = try file_reader.interface.readSliceShort(dest);
+                    if (n == 0) return error.EndOfStream;
                     interface.end += n;
                     return n;
                 },

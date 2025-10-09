@@ -44,7 +44,7 @@ const test_targets = blk: {
     break :blk [_]TestTarget{
         // Native Targets
 
-        .{},
+        .{}, // 0 index must be all defaults
         .{
             .link_libc = true,
         },
@@ -2224,6 +2224,7 @@ const ModuleTestOptions = struct {
     desc: []const u8,
     optimize_modes: []const OptimizeMode,
     include_paths: []const []const u8,
+    test_default_only: bool,
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_freebsd: bool,
@@ -2235,13 +2236,21 @@ const ModuleTestOptions = struct {
     skip_libc: bool,
     max_rss: usize = 0,
     no_builtin: bool = false,
-    build_options: ?*std.Build.Step.Options = null,
+    build_options: ?*Step.Options = null,
 };
 
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
-    for_targets: for (test_targets) |test_target| {
+    if (options.test_default_only) {
+        const test_target = &test_targets[0];
+        const resolved_target = b.resolveTargetQuery(test_target.target);
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+        addOneModuleTest(b, step, test_target, &resolved_target, triple_txt, options);
+        return step;
+    }
+
+    for_targets: for (&test_targets) |*test_target| {
         if (test_target.skip_modules.len > 0) {
             for (test_target.skip_modules) |skip_mod| {
                 if (std.mem.eql(u8, options.name, skip_mod)) continue :for_targets;
@@ -2306,167 +2315,180 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         } else false;
         if (!want_this_mode) continue;
 
-        const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
-        const model_txt = target.cpu.model.name;
-
-        // wasm32-wasi builds need more RAM, idk why
-        const max_rss = if (target.os.tag == .wasi)
-            options.max_rss * 2
-        else
-            options.max_rss;
-
-        const these_tests = b.addTest(.{
-            .root_module = b.createModule(.{
-                .root_source_file = b.path(options.root_src),
-                .optimize = test_target.optimize_mode,
-                .target = resolved_target,
-                .link_libc = test_target.link_libc,
-                .pic = test_target.pic,
-                .strip = test_target.strip,
-                .single_threaded = test_target.single_threaded,
-            }),
-            .max_rss = max_rss,
-            .filters = options.test_filters,
-            .use_llvm = test_target.use_llvm,
-            .use_lld = test_target.use_lld,
-            .zig_lib_dir = b.path("lib"),
-        });
-        these_tests.linkage = test_target.linkage;
-        if (options.no_builtin) these_tests.root_module.no_builtin = false;
-        if (options.build_options) |build_options| {
-            these_tests.root_module.addOptions("build_options", build_options);
-        }
-        const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
-        const backend_suffix = if (test_target.use_llvm == true)
-            "-llvm"
-        else if (target.ofmt == std.Target.ObjectFormat.c)
-            "-cbe"
-        else if (test_target.use_llvm == false)
-            "-selfhosted"
-        else
-            "";
-        const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
-        const linkage_name = if (test_target.linkage) |linkage| switch (linkage) {
-            inline else => |t| "-" ++ @tagName(t),
-        } else "";
-        const use_pic = if (test_target.pic == true) "-pic" else "";
-
-        for (options.include_paths) |include_path| these_tests.root_module.addIncludePath(b.path(include_path));
-
-        const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}{s}", .{
-            options.name,
-            triple_txt,
-            model_txt,
-            @tagName(test_target.optimize_mode),
-            libc_suffix,
-            single_threaded_suffix,
-            backend_suffix,
-            use_lld,
-            linkage_name,
-            use_pic,
-        });
-
-        if (target.ofmt == std.Target.ObjectFormat.c) {
-            var altered_query = test_target.target;
-            altered_query.ofmt = null;
-
-            const compile_c = b.createModule(.{
-                .root_source_file = null,
-                .link_libc = test_target.link_libc,
-                .target = b.resolveTargetQuery(altered_query),
-            });
-            const compile_c_exe = b.addExecutable(.{
-                .name = qualified_name,
-                .root_module = compile_c,
-                .zig_lib_dir = b.path("lib"),
-            });
-
-            compile_c.addCSourceFile(.{
-                .file = these_tests.getEmittedBin(),
-                .flags = &.{
-                    // Tracking issue for making the C backend generate C89 compatible code:
-                    // https://github.com/ziglang/zig/issues/19468
-                    "-std=c99",
-                    "-Werror",
-
-                    "-Wall",
-                    "-Wembedded-directive",
-                    "-Wempty-translation-unit",
-                    "-Wextra",
-                    "-Wgnu",
-                    "-Winvalid-utf8",
-                    "-Wkeyword-macro",
-                    "-Woverlength-strings",
-
-                    // Tracking issue for making the C backend generate code
-                    // that does not trigger warnings:
-                    // https://github.com/ziglang/zig/issues/19467
-
-                    // spotted everywhere
-                    "-Wno-builtin-requires-header",
-
-                    // spotted on linux
-                    "-Wno-braced-scalar-init",
-                    "-Wno-excess-initializers",
-                    "-Wno-incompatible-pointer-types-discards-qualifiers",
-                    "-Wno-unused",
-                    "-Wno-unused-parameter",
-
-                    // spotted on darwin
-                    "-Wno-incompatible-pointer-types",
-
-                    // https://github.com/llvm/llvm-project/issues/153314
-                    "-Wno-unterminated-string-initialization",
-
-                    // In both Zig and C it is legal to return a pointer to a
-                    // local. The C backend lowers such thing directly, so the
-                    // corresponding warning in C must be disabled.
-                    "-Wno-return-stack-address",
-                },
-            });
-            compile_c.addIncludePath(b.path("lib")); // for zig.h
-            if (target.os.tag == .windows) {
-                if (true) {
-                    // Unfortunately this requires about 8G of RAM for clang to compile
-                    // and our Windows CI runners do not have this much.
-                    step.dependOn(&these_tests.step);
-                    continue;
-                }
-                if (test_target.link_libc == false) {
-                    compile_c_exe.subsystem = .Console;
-                    compile_c.linkSystemLibrary("kernel32", .{});
-                    compile_c.linkSystemLibrary("ntdll", .{});
-                }
-                if (mem.eql(u8, options.name, "std")) {
-                    if (test_target.link_libc == false) {
-                        compile_c.linkSystemLibrary("shell32", .{});
-                        compile_c.linkSystemLibrary("advapi32", .{});
-                    }
-                    compile_c.linkSystemLibrary("crypt32", .{});
-                    compile_c.linkSystemLibrary("ws2_32", .{});
-                    compile_c.linkSystemLibrary("ole32", .{});
-                }
-            }
-
-            const run = b.addRunArtifact(compile_c_exe);
-            run.skip_foreign_checks = true;
-            run.enableTestRunnerMode();
-            run.setName(b.fmt("run test {s}", .{qualified_name}));
-
-            step.dependOn(&run.step);
-        } else if (target.cpu.arch.isSpirV()) {
-            // Don't run spirv binaries
-            _ = these_tests.getEmittedBin();
-            step.dependOn(&these_tests.step);
-        } else {
-            const run = b.addRunArtifact(these_tests);
-            run.skip_foreign_checks = true;
-            run.setName(b.fmt("run test {s}", .{qualified_name}));
-
-            step.dependOn(&run.step);
-        }
+        addOneModuleTest(b, step, test_target, &resolved_target, triple_txt, options);
     }
     return step;
+}
+
+fn addOneModuleTest(
+    b: *std.Build,
+    step: *Step,
+    test_target: *const TestTarget,
+    resolved_target: *const std.Build.ResolvedTarget,
+    triple_txt: []const u8,
+    options: ModuleTestOptions,
+) void {
+    const target = &resolved_target.result;
+    const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
+    const model_txt = target.cpu.model.name;
+
+    // wasm32-wasi builds need more RAM, idk why
+    const max_rss = if (target.os.tag == .wasi)
+        options.max_rss * 2
+    else
+        options.max_rss;
+
+    const these_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(options.root_src),
+            .optimize = test_target.optimize_mode,
+            .target = resolved_target.*,
+            .link_libc = test_target.link_libc,
+            .pic = test_target.pic,
+            .strip = test_target.strip,
+            .single_threaded = test_target.single_threaded,
+        }),
+        .max_rss = max_rss,
+        .filters = options.test_filters,
+        .use_llvm = test_target.use_llvm,
+        .use_lld = test_target.use_lld,
+        .zig_lib_dir = b.path("lib"),
+    });
+    these_tests.linkage = test_target.linkage;
+    if (options.no_builtin) these_tests.root_module.no_builtin = false;
+    if (options.build_options) |build_options| {
+        these_tests.root_module.addOptions("build_options", build_options);
+    }
+    const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
+    const backend_suffix = if (test_target.use_llvm == true)
+        "-llvm"
+    else if (target.ofmt == std.Target.ObjectFormat.c)
+        "-cbe"
+    else if (test_target.use_llvm == false)
+        "-selfhosted"
+    else
+        "";
+    const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
+    const linkage_name = if (test_target.linkage) |linkage| switch (linkage) {
+        inline else => |t| "-" ++ @tagName(t),
+    } else "";
+    const use_pic = if (test_target.pic == true) "-pic" else "";
+
+    for (options.include_paths) |include_path| these_tests.root_module.addIncludePath(b.path(include_path));
+
+    const qualified_name = b.fmt("{s}-{s}-{s}-{t}{s}{s}{s}{s}{s}{s}", .{
+        options.name,
+        triple_txt,
+        model_txt,
+        test_target.optimize_mode,
+        libc_suffix,
+        single_threaded_suffix,
+        backend_suffix,
+        use_lld,
+        linkage_name,
+        use_pic,
+    });
+
+    if (target.ofmt == std.Target.ObjectFormat.c) {
+        var altered_query = test_target.target;
+        altered_query.ofmt = null;
+
+        const compile_c = b.createModule(.{
+            .root_source_file = null,
+            .link_libc = test_target.link_libc,
+            .target = b.resolveTargetQuery(altered_query),
+        });
+        const compile_c_exe = b.addExecutable(.{
+            .name = qualified_name,
+            .root_module = compile_c,
+            .zig_lib_dir = b.path("lib"),
+        });
+
+        compile_c.addCSourceFile(.{
+            .file = these_tests.getEmittedBin(),
+            .flags = &.{
+                // Tracking issue for making the C backend generate C89 compatible code:
+                // https://github.com/ziglang/zig/issues/19468
+                "-std=c99",
+                "-Werror",
+
+                "-Wall",
+                "-Wembedded-directive",
+                "-Wempty-translation-unit",
+                "-Wextra",
+                "-Wgnu",
+                "-Winvalid-utf8",
+                "-Wkeyword-macro",
+                "-Woverlength-strings",
+
+                // Tracking issue for making the C backend generate code
+                // that does not trigger warnings:
+                // https://github.com/ziglang/zig/issues/19467
+
+                // spotted everywhere
+                "-Wno-builtin-requires-header",
+
+                // spotted on linux
+                "-Wno-braced-scalar-init",
+                "-Wno-excess-initializers",
+                "-Wno-incompatible-pointer-types-discards-qualifiers",
+                "-Wno-unused",
+                "-Wno-unused-parameter",
+
+                // spotted on darwin
+                "-Wno-incompatible-pointer-types",
+
+                // https://github.com/llvm/llvm-project/issues/153314
+                "-Wno-unterminated-string-initialization",
+
+                // In both Zig and C it is legal to return a pointer to a
+                // local. The C backend lowers such thing directly, so the
+                // corresponding warning in C must be disabled.
+                "-Wno-return-stack-address",
+            },
+        });
+        compile_c.addIncludePath(b.path("lib")); // for zig.h
+        if (target.os.tag == .windows) {
+            if (true) {
+                // Unfortunately this requires about 8G of RAM for clang to compile
+                // and our Windows CI runners do not have this much.
+                // TODO This is not an appropriate way to work around this problem.
+                step.dependOn(&these_tests.step);
+                return;
+            }
+            if (test_target.link_libc == false) {
+                compile_c_exe.subsystem = .Console;
+                compile_c.linkSystemLibrary("kernel32", .{});
+                compile_c.linkSystemLibrary("ntdll", .{});
+            }
+            if (mem.eql(u8, options.name, "std")) {
+                if (test_target.link_libc == false) {
+                    compile_c.linkSystemLibrary("shell32", .{});
+                    compile_c.linkSystemLibrary("advapi32", .{});
+                }
+                compile_c.linkSystemLibrary("crypt32", .{});
+                compile_c.linkSystemLibrary("ws2_32", .{});
+                compile_c.linkSystemLibrary("ole32", .{});
+            }
+        }
+
+        const run = b.addRunArtifact(compile_c_exe);
+        run.skip_foreign_checks = true;
+        run.enableTestRunnerMode();
+        run.setName(b.fmt("run test {s}", .{qualified_name}));
+
+        step.dependOn(&run.step);
+    } else if (target.cpu.arch.isSpirV()) {
+        // Don't run spirv binaries
+        _ = these_tests.getEmittedBin();
+        step.dependOn(&these_tests.step);
+    } else {
+        const run = b.addRunArtifact(these_tests);
+        run.skip_foreign_checks = true;
+        run.setName(b.fmt("run test {s}", .{qualified_name}));
+
+        step.dependOn(&run.step);
+    }
 }
 
 pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: OptimizeMode) bool {
