@@ -320,7 +320,7 @@ pub const Connection = struct {
             const tls: *Tls = @ptrCast(base);
             var random_buffer: [176]u8 = undefined;
             std.crypto.random.bytes(&random_buffer);
-            const now_ts = if (Io.Timestamp.now(io, .real)) |ts| ts.toSeconds() else |_| return error.TlsInitializationFailed;
+            const now_ts = if (Io.Clock.real.now(io)) |ts| ts.toSeconds() else |_| return error.TlsInitializationFailed;
             tls.* = .{
                 .connection = .{
                     .client = client,

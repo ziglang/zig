@@ -18,7 +18,6 @@ pub const Options = struct {
 
 underlying_writer: *Io.Writer,
 prefix: []const u8 = "",
-mtime_now: u64 = 0,
 
 const Error = error{
     WriteFailed,
@@ -44,10 +43,12 @@ pub fn writeFile(
     w: *Writer,
     sub_path: []const u8,
     file_reader: *Io.File.Reader,
-    stat_mtime: i128,
+    /// If you want to match the file format's expectations, it wants number of
+    /// seconds since POSIX epoch. Zero is also a great option here to make
+    /// generated tarballs more reproducible.
+    mtime: u64,
 ) WriteFileError!void {
     const size = try file_reader.getSize();
-    const mtime: u64 = @intCast(@divFloor(stat_mtime, std.time.ns_per_s));
 
     var header: Header = .{};
     try w.setPath(&header, sub_path);
@@ -238,7 +239,6 @@ pub const Header = extern struct {
     }
 
     // Integer number of seconds since January 1, 1970, 00:00 Coordinated Universal Time.
-    // mtime == 0 will use current time
     pub fn setMtime(w: *Header, mtime: u64) error{OctalOverflow}!void {
         try octal(&w.mtime, mtime);
     }

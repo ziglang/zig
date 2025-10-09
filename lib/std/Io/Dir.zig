@@ -85,7 +85,7 @@ pub fn updateFile(
         };
 
         if (src_stat.size == dest_stat.size and
-            src_stat.mtime == dest_stat.mtime and
+            src_stat.mtime.nanoseconds == dest_stat.mtime.nanoseconds and
             actual_mode == dest_stat.mode)
         {
             return .fresh;

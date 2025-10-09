@@ -1147,26 +1147,26 @@ fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posi
     };
 }
 
-fn nowPosix(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
+fn nowPosix(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestamp {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     const clock_id: posix.clockid_t = clockToPosix(clock);
     var tp: posix.timespec = undefined;
     switch (posix.errno(posix.system.clock_gettime(clock_id, &tp))) {
-        .SUCCESS => return @intCast(@as(i128, tp.sec) * std.time.ns_per_s + tp.nsec),
+        .SUCCESS => return timestampFromPosix(&tp),
         .INVAL => return error.UnsupportedClock,
         else => |err| return posix.unexpectedErrno(err),
     }
 }
 
-fn nowWindows(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
+fn nowWindows(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestamp {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     switch (clock) {
         .realtime => {
             // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds
             // and uses the NTFS/Windows epoch, which is 1601-01-01.
-            return @as(i96, windows.ntdll.RtlGetSystemTimePrecise()) * 100;
+            return .{ .nanoseconds = @as(i96, windows.ntdll.RtlGetSystemTimePrecise()) * 100 };
         },
         .monotonic, .uptime => {
             // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
@@ -1178,7 +1178,7 @@ fn nowWindows(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Err
     }
 }
 
-fn nowWasi(userdata: ?*anyopaque, clock: Io.Timestamp.Clock) Io.Timestamp.Error!i96 {
+fn nowWasi(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestamp {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     var ns: std.os.wasi.timestamp_t = undefined;
@@ -1196,13 +1196,10 @@ fn sleepLinux(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     });
     const deadline_nanoseconds: i96 = switch (timeout) {
         .none => std.math.maxInt(i96),
-        .duration => |d| d.duration.nanoseconds,
-        .deadline => |deadline| deadline.nanoseconds,
+        .duration => |duration| duration.raw.nanoseconds,
+        .deadline => |deadline| deadline.raw.nanoseconds,
     };
-    var timespec: posix.timespec = .{
-        .sec = @intCast(@divFloor(deadline_nanoseconds, std.time.ns_per_s)),
-        .nsec = @intCast(@mod(deadline_nanoseconds, std.time.ns_per_s)),
-    };
+    var timespec: posix.timespec = timestampToPosix(deadline_nanoseconds);
     while (true) {
         try pool.checkCancel();
         switch (std.os.linux.E.init(std.os.linux.clock_nanosleep(clock_id, .{ .ABSTIME = switch (timeout) {
@@ -1267,11 +1264,7 @@ fn sleepPosix(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
             .sec = std.math.maxInt(sec_type),
             .nsec = std.math.maxInt(nsec_type),
         };
-        const ns = d.duration.nanoseconds;
-        break :t .{
-            .sec = @intCast(@divFloor(ns, std.time.ns_per_s)),
-            .nsec = @intCast(@mod(ns, std.time.ns_per_s)),
-        };
+        break :t timestampToPosix(d.duration.nanoseconds);
     };
     while (true) {
         try pool.checkCancel();
@@ -1879,8 +1872,8 @@ fn netReceive(
                 const max_poll_ms = std.math.maxInt(u31);
                 const timeout_ms: u31 = if (deadline) |d| t: {
                     const duration = d.durationFromNow(pool.io()) catch |err| return .{ err, message_i };
-                    if (duration.nanoseconds <= 0) return .{ error.Timeout, message_i };
-                    break :t @intCast(@min(max_poll_ms, duration.toMilliseconds()));
+                    if (duration.raw.nanoseconds <= 0) return .{ error.Timeout, message_i };
+                    break :t @intCast(@min(max_poll_ms, duration.raw.toMilliseconds()));
                 } else max_poll_ms;
 
                 const poll_rc = posix.system.poll(&poll_fds, poll_fds.len, timeout_ms);
@@ -2160,7 +2153,7 @@ fn recoverableOsBugDetected() void {
     if (builtin.mode == .Debug) unreachable;
 }
 
-fn clockToPosix(clock: Io.Timestamp.Clock) posix.clockid_t {
+fn clockToPosix(clock: Io.Clock) posix.clockid_t {
     return switch (clock) {
         .real => posix.CLOCK.REALTIME,
         .awake => switch (builtin.os.tag) {
@@ -2176,7 +2169,7 @@ fn clockToPosix(clock: Io.Timestamp.Clock) posix.clockid_t {
     };
 }
 
-fn clockToWasi(clock: Io.Timestamp.Clock) std.os.wasi.clockid_t {
+fn clockToWasi(clock: Io.Clock) std.os.wasi.clockid_t {
     return switch (clock) {
         .realtime => .REALTIME,
         .awake => .MONOTONIC,
@@ -2204,9 +2197,9 @@ fn statFromLinux(stx: *const std.os.linux.Statx) Io.File.Stat {
             std.os.linux.S.IFSOCK => .unix_domain_socket,
             else => .unknown,
         },
-        .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-        .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-        .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
+        .atime = .{ .nanoseconds = @intCast(@as(i128, atime.sec) * std.time.ns_per_s + atime.nsec) },
+        .mtime = .{ .nanoseconds = @intCast(@as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec) },
+        .ctime = .{ .nanoseconds = @intCast(@as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec) },
     };
 }
 
@@ -2238,9 +2231,9 @@ fn statFromPosix(st: *const std.posix.Stat) Io.File.Stat {
 
             break :k .unknown;
         },
-        .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-        .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-        .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
+        .atime = timestampFromPosix(&atime),
+        .mtime = timestampFromPosix(&mtime),
+        .ctime = timestampFromPosix(&ctime),
     };
 }
 
@@ -2261,5 +2254,16 @@ fn statFromWasi(st: *const std.os.wasi.filestat_t) Io.File.Stat {
         .atime = st.atim,
         .mtime = st.mtim,
         .ctime = st.ctim,
+    };
+}
+
+fn timestampFromPosix(timespec: *const std.posix.timespec) Io.Timestamp {
+    return .{ .nanoseconds = @intCast(@as(i128, timespec.sec) * std.time.ns_per_s + timespec.nsec) };
+}
+
+fn timestampToPosix(nanoseconds: i96) std.posix.timespec {
+    return .{
+        .sec = @intCast(@divFloor(nanoseconds, std.time.ns_per_s)),
+        .nsec = @intCast(@mod(nanoseconds, std.time.ns_per_s)),
     };
 }
