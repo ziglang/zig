@@ -3614,8 +3614,7 @@ pub const PROT = struct {
     pub const EXEC = 0x4;
     /// page may be used for atomic ops
     pub const SEM = switch (native_arch) {
-        // TODO: also xtensa
-        .mips, .mipsel, .mips64, .mips64el => 0x10,
+        .mips, .mipsel, .mips64, .mips64el, .xtensa => 0x10,
         else => 0x8,
     };
     /// mprotect flag: extend change to start of growsdown vma
