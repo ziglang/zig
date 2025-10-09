@@ -5759,8 +5759,10 @@ pub fn translateC(
     if (stdout.len > 0) {
         var reader: std.Io.Reader = .fixed(stdout);
         const MessageHeader = std.zig.Server.Message.Header;
-        const header = reader.takeStruct(MessageHeader, .little) catch unreachable;
-        const body = reader.take(header.bytes_len) catch unreachable;
+        const header = reader.takeStruct(MessageHeader, .little) catch |err|
+            fatal("unable to read translate-c MessageHeader: {s}", .{@errorName(err)});
+        const body = reader.take(header.bytes_len) catch |err|
+            fatal("unable to read {}-byte translate-c message body: {s}", .{ header.bytes_len, @errorName(err) });
         switch (header.tag) {
             .error_bundle => {
                 const error_bundle = try std.zig.Server.allocErrorBundle(comp.gpa, body);
@@ -5770,7 +5772,7 @@ pub fn translateC(
                     .errors = error_bundle,
                 };
             },
-            else => unreachable, // No other messagse are sent
+            else => fatal("unexpected message type received from translate-c: {s}", .{@tagName(header.tag)}),
         }
     }
 
