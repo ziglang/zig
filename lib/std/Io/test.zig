@@ -11,6 +11,8 @@ const native_endian = @import("builtin").target.cpu.arch.endian();
 const tmpDir = std.testing.tmpDir;
 
 test "write a file, read it, then delete it" {
+    const io = std.testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -45,7 +47,7 @@ test "write a file, read it, then delete it" {
         try expectEqual(expected_file_size, file_size);
 
         var file_buffer: [1024]u8 = undefined;
-        var file_reader = file.reader(&file_buffer);
+        var file_reader = file.reader(io, &file_buffer);
         const contents = try file_reader.interface.allocRemaining(std.testing.allocator, .limited(2 * 1024));
         defer std.testing.allocator.free(contents);
 
@@ -114,10 +116,10 @@ test "updateTimes" {
     const stat_old = try file.stat();
     // Set atime and mtime to 5s before
     try file.updateTimes(
-        stat_old.atime - 5 * std.time.ns_per_s,
-        stat_old.mtime - 5 * std.time.ns_per_s,
+        stat_old.atime.subDuration(.fromSeconds(5)),
+        stat_old.mtime.subDuration(.fromSeconds(5)),
     );
     const stat_new = try file.stat();
-    try expect(stat_new.atime < stat_old.atime);
-    try expect(stat_new.mtime < stat_old.mtime);
+    try expect(stat_new.atime.nanoseconds < stat_old.atime.nanoseconds);
+    try expect(stat_new.mtime.nanoseconds < stat_old.mtime.nanoseconds);
 }

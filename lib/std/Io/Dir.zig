@@ -15,6 +15,29 @@ pub fn cwd() Dir {
 
 pub const Handle = std.posix.fd_t;
 
+pub const PathNameError = error{
+    NameTooLong,
+    /// File system cannot encode the requested file name bytes.
+    /// Could be due to invalid WTF-8 on Windows, invalid UTF-8 on WASI,
+    /// invalid characters on Windows, etc. Filesystem and operating specific.
+    BadPathName,
+};
+
+pub const OpenError = error{
+    FileNotFound,
+    NotDir,
+    AccessDenied,
+    PermissionDenied,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    SystemResources,
+    DeviceBusy,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
+} || PathNameError || Io.Cancelable || Io.UnexpectedError;
+
 pub fn openFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     return io.vtable.fileOpen(io.userdata, dir, sub_path, flags);
 }
@@ -149,22 +172,15 @@ pub const MakeError = error{
     PathAlreadyExists,
     SymLinkLoop,
     LinkQuotaExceeded,
-    NameTooLong,
     FileNotFound,
     SystemResources,
     NoSpaceLeft,
     NotDir,
     ReadOnlyFileSystem,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
-    InvalidWtf8,
-    BadPathName,
     NoDevice,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
-    /// File system cannot encode the requested file name bytes.
-    InvalidFileName,
-} || Io.Cancelable || Io.UnexpectedError;
+} || PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 /// Creates a single directory with a relative or absolute path.
 ///
@@ -225,7 +241,7 @@ pub fn makePathStatus(dir: Dir, io: Io, sub_path: []const u8) MakePathError!Make
                 // could cause an infinite loop
                 check_dir: {
                     // workaround for windows, see https://github.com/ziglang/zig/issues/16738
-                    const fstat = statPath(dir, io, component.path) catch |stat_err| switch (stat_err) {
+                    const fstat = statPath(dir, io, component.path, .{}) catch |stat_err| switch (stat_err) {
                         error.IsDir => break :check_dir,
                         else => |e| return e,
                     };
@@ -251,6 +267,10 @@ pub fn stat(dir: Dir, io: Io) StatError!Stat {
 
 pub const StatPathError = File.OpenError || File.StatError;
 
+pub const StatPathOptions = struct {
+    follow_symlinks: bool = true,
+};
+
 /// Returns metadata for a file inside the directory.
 ///
 /// On Windows, this requires three syscalls. On other operating systems, it
@@ -263,6 +283,6 @@ pub const StatPathError = File.OpenError || File.StatError;
 /// * On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// * On WASI, `sub_path` should be encoded as valid UTF-8.
 /// * On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn statPath(dir: Dir, io: Io, sub_path: []const u8) StatPathError!Stat {
-    return io.vtable.dirStatPath(io.userdata, dir, sub_path);
+pub fn statPath(dir: Dir, io: Io, sub_path: []const u8, options: StatPathOptions) StatPathError!Stat {
+    return io.vtable.dirStatPath(io.userdata, dir, sub_path, options);
 }
