@@ -339,6 +339,7 @@ const Module = struct {
         var elf_file = load_result catch |err| switch (err) {
             error.OutOfMemory,
             error.Unexpected,
+            error.Canceled,
             => |e| return e,
 
             error.Overflow,
