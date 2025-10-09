@@ -1928,7 +1928,7 @@ test "'.' and '..' in fs.Dir functions" {
             try ctx.dir.writeFile(.{ .sub_path = update_path, .data = "something" });
             var dir = ctx.dir.adaptToNewApi();
             const prev_status = try dir.updateFile(io, file_path, dir, update_path, .{});
-            try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
+            try testing.expectEqual(Io.Dir.PrevStatus.stale, prev_status);
 
             try ctx.dir.deleteDir(subdir_path);
         }
