@@ -1912,6 +1912,7 @@ pub const CreateProcessError = error{
     NameTooLong,
     InvalidExe,
     SystemResources,
+    FileBusy,
     Unexpected,
 };
 
@@ -1982,6 +1983,7 @@ pub fn CreateProcessW(
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
             .FILENAME_EXCED_RANGE => return error.NameTooLong,
+            .SHARING_VIOLATION => return error.FileBusy,
             // These are all the system errors that are mapped to ENOEXEC by
             // the undocumented _dosmaperr (old CRT) or __acrt_errno_map_os_error
             // (newer CRT) functions. Their code can be found in crt/src/dosmap.c (old SDK)

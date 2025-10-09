@@ -71,7 +71,14 @@ pub fn main() anyerror!void {
     try testExec(allocator, "heLLo", "hello from exe\n");
 
     // now rename the exe to not have an extension
-    try tmp.dir.rename("hello.exe", "hello");
+    for (0..2) |_| break tmp.dir.rename("hello.exe", "hello") catch |err| switch (err) {
+        error.AccessDenied => {
+            // give the kernel a chance to finish closing the executable handle
+            std.os.windows.kernel32.Sleep(0);
+            continue;
+        },
+        else => |e| return e,
+    } else return error.AccessDenied;
 
     // with extension should now fail
     try testExecError(error.FileNotFound, allocator, "hello.exe");
