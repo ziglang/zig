@@ -654,20 +654,20 @@ pub const VTable = struct {
     conditionWait: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex) Cancelable!void,
     conditionWake: *const fn (?*anyopaque, cond: *Condition, wake: Condition.Wake) void,
 
-    dirMake: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, mode: Dir.Mode) Dir.MakeError!void,
-    dirStat: *const fn (?*anyopaque, dir: Dir) Dir.StatError!Dir.Stat,
-    dirStatPath: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8) Dir.StatError!File.Stat,
-    fileStat: *const fn (?*anyopaque, file: File) File.StatError!File.Stat,
-    createFile: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File,
-    fileOpen: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File,
+    dirMake: *const fn (?*anyopaque, Dir, sub_path: []const u8, mode: Dir.Mode) Dir.MakeError!void,
+    dirStat: *const fn (?*anyopaque, Dir) Dir.StatError!Dir.Stat,
+    dirStatPath: *const fn (?*anyopaque, Dir, sub_path: []const u8, Dir.StatPathOptions) Dir.StatPathError!File.Stat,
+    fileStat: *const fn (?*anyopaque, File) File.StatError!File.Stat,
+    createFile: *const fn (?*anyopaque, Dir, sub_path: []const u8, File.CreateFlags) File.OpenError!File,
+    fileOpen: *const fn (?*anyopaque, Dir, sub_path: []const u8, File.OpenFlags) File.OpenError!File,
     fileClose: *const fn (?*anyopaque, File) void,
-    pwrite: *const fn (?*anyopaque, file: File, buffer: []const u8, offset: std.posix.off_t) File.PWriteError!usize,
+    pwrite: *const fn (?*anyopaque, File, buffer: []const u8, offset: std.posix.off_t) File.PWriteError!usize,
     /// Returns 0 on end of stream.
-    fileReadStreaming: *const fn (?*anyopaque, file: File, data: [][]u8) File.ReadStreamingError!usize,
+    fileReadStreaming: *const fn (?*anyopaque, File, data: [][]u8) File.ReadStreamingError!usize,
     /// Returns 0 on end of stream.
-    fileReadPositional: *const fn (?*anyopaque, file: File, data: [][]u8, offset: u64) File.ReadPositionalError!usize,
-    fileSeekBy: *const fn (?*anyopaque, file: File, offset: i64) File.SeekError!void,
-    fileSeekTo: *const fn (?*anyopaque, file: File, offset: u64) File.SeekError!void,
+    fileReadPositional: *const fn (?*anyopaque, File, data: [][]u8, offset: u64) File.ReadPositionalError!usize,
+    fileSeekBy: *const fn (?*anyopaque, File, offset: i64) File.SeekError!void,
+    fileSeekTo: *const fn (?*anyopaque, File, offset: u64) File.SeekError!void,
 
     now: *const fn (?*anyopaque, Clock) Clock.Error!Timestamp,
     sleep: *const fn (?*anyopaque, Timeout) SleepError!void,
@@ -795,6 +795,14 @@ pub const Clock = enum {
             };
         }
 
+        pub fn subDuration(from: Clock.Timestamp, duration: Clock.Duration) Clock.Timestamp {
+            assert(from.clock == duration.clock);
+            return .{
+                .raw = from.raw.subDuration(duration.raw),
+                .clock = from.clock,
+            };
+        }
+
         pub fn fromNow(io: Io, duration: Clock.Duration) Error!Clock.Timestamp {
             return .{
                 .clock = duration.clock,
@@ -853,6 +861,10 @@ pub const Timestamp = struct {
 
     pub fn addDuration(from: Timestamp, duration: Duration) Timestamp {
         return .{ .nanoseconds = from.nanoseconds + duration.nanoseconds };
+    }
+
+    pub fn subDuration(from: Timestamp, duration: Duration) Timestamp {
+        return .{ .nanoseconds = from.nanoseconds - duration.nanoseconds };
     }
 
     pub fn withClock(t: Timestamp, clock: Clock) Clock.Timestamp {

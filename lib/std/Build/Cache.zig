@@ -1305,7 +1305,7 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) fs.File.PReadErro
 }
 
 // Create/Write a file, close it, then grab its stat.mtime timestamp.
-fn testGetCurrentFileTimestamp(dir: fs.Dir) !i128 {
+fn testGetCurrentFileTimestamp(dir: fs.Dir) !Io.Timestamp {
     const test_out_file = "test-filetimestamp.tmp";
 
     var file = try dir.createFile(test_out_file, .{
@@ -1333,8 +1333,8 @@ test "cache file and then recall it" {
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
-    while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        try std.Io.Duration.sleep(.fromNanoseconds(1), io);
+    while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time.nanoseconds) {
+        try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
     }
 
     var digest1: HexDigest = undefined;
@@ -1399,8 +1399,8 @@ test "check that changing a file makes cache fail" {
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
-    while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        try std.Io.Duration.sleep(.fromNanoseconds(1), io);
+    while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time.nanoseconds) {
+        try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
     }
 
     var digest1: HexDigest = undefined;
@@ -1517,8 +1517,8 @@ test "Manifest with files added after initial hash work" {
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
-    while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        try std.Io.Duration.sleep(.fromNanoseconds(1), io);
+    while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time.nanoseconds) {
+        try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
     }
 
     var digest1: HexDigest = undefined;
@@ -1568,8 +1568,8 @@ test "Manifest with files added after initial hash work" {
 
         // Wait for file timestamps to tick
         const initial_time2 = try testGetCurrentFileTimestamp(tmp.dir);
-        while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time2) {
-            try std.Io.Duration.sleep(.fromNanoseconds(1), io);
+        while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time2.nanoseconds) {
+            try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
         }
 
         {
