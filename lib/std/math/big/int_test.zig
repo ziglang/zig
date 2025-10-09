@@ -3371,6 +3371,9 @@ test "big int extractBits" {
 
     try extractBitsTest(0x12345678_90123456_78901234_56789012, 0xff << 64, 0x56);
     try extractBitsTest(0x12345678_90123456_78901234_56789012, (0xff << 64) | 0xff00f, 0x56892);
+
+    try extractBitsTest(0x12345678_90123456_78901234_56789012, 0xf0f0, 0x91);
+    try extractBitsTest(0x12345678_90123456, 0xffffffff_ffffffff, 0x12345678_90123456);
 }
 
 fn extractBitsTest(comptime source: comptime_int, comptime mask: comptime_int, comptime expected: comptime_int) !void {
@@ -3395,6 +3398,8 @@ test "big int depositBits" {
 
     try depositBitsTest(0x1234, 0xff << 64, 0x34_00000000_00000000);
     try depositBitsTest(0x12345678, (0xff << 64) | 0xff00f, 0x45_00000000_00067008);
+
+    try depositBitsTest(0x0, 0xff_ffffffff_ffffffff, 0x0);
 }
 
 fn depositBitsTest(comptime source: comptime_int, comptime mask: comptime_int, comptime expected: comptime_int) !void {
