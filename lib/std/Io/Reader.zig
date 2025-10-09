@@ -763,7 +763,7 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
     {
         const contents = r.buffer[0..r.end];
         const seek = r.seek;
-        if (std.mem.findScalarPos(u8, contents, seek, delimiter)) |end| {
+        if (std.mem.indexOfScalarPos(u8, contents, seek, delimiter)) |end| {
             @branchHint(.likely);
             return contents[seek .. end + 1];
         }
@@ -774,7 +774,7 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         try fillMore(r);
         const seek = r.seek;
         const contents = r.buffer[0..r.end];
-        if (std.mem.findScalarPos(u8, contents, seek + content_len, delimiter)) |end| {
+        if (std.mem.indexOfScalarPos(u8, contents, seek + content_len, delimiter)) |end| {
             return contents[seek .. end + 1];
         }
     }
