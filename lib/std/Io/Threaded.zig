@@ -178,12 +178,12 @@ pub fn io(pool: *Pool) Io {
                 .wasi => fileStatWasi,
                 else => fileStatPosix,
             },
-            .createFile = switch (builtin.os.tag) {
+            .dirCreateFile = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
                 .wasi => @panic("TODO"),
-                else => createFilePosix,
+                else => dirCreateFilePosix,
             },
-            .fileOpen = fileOpen,
+            .dirOpenFile = dirOpenFile,
             .fileClose = fileClose,
             .pwrite = pwrite,
             .fileReadStreaming = fileReadStreaming,
@@ -966,8 +966,9 @@ fn fileStatWasi(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.
 }
 
 const have_flock = @TypeOf(posix.system.flock) != void;
+const openat_sym = if (posix.lfs64_abi) posix.system.openat64 else posix.system.openat;
 
-fn createFilePosix(
+fn dirCreateFilePosix(
     userdata: ?*anyopaque,
     dir: Io.Dir,
     sub_path: []const u8,
@@ -1002,8 +1003,6 @@ fn createFilePosix(
             os_flags.NONBLOCK = flags.lock_nonblocking;
         },
     };
-
-    const openat_sym = if (posix.lfs64_abi) posix.system.openat64 else posix.system.openat;
 
     const fd: posix.fd_t = while (true) {
         try pool.checkCancel();
@@ -1088,24 +1087,139 @@ fn createFilePosix(
     return .{ .handle = fd };
 }
 
-fn fileOpen(
+fn dirOpenFile(
     userdata: ?*anyopaque,
     dir: Io.Dir,
     sub_path: []const u8,
     flags: Io.File.OpenFlags,
 ) Io.File.OpenError!Io.File {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
-    const fs_dir: std.fs.Dir = .{ .fd = dir.handle };
-    const fs_file = try fs_dir.openFile(sub_path, flags);
-    return .{ .handle = fs_file.handle };
+
+    var path_buffer: [posix.PATH_MAX]u8 = undefined;
+    const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
+
+    var os_flags: posix.O = switch (native_os) {
+        .wasi => .{
+            .read = flags.mode != .write_only,
+            .write = flags.mode != .read_only,
+        },
+        else => .{
+            .ACCMODE = switch (flags.mode) {
+                .read_only => .RDONLY,
+                .write_only => .WRONLY,
+                .read_write => .RDWR,
+            },
+        },
+    };
+    if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
+    if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
+    if (@hasField(posix.O, "NOCTTY")) os_flags.NOCTTY = !flags.allow_ctty;
+
+    // Use the O locking flags if the os supports them to acquire the lock
+    // atomically.
+    const has_flock_open_flags = @hasField(posix.O, "EXLOCK");
+    if (has_flock_open_flags) {
+        // Note that the NONBLOCK flag is removed after the openat() call
+        // is successful.
+        switch (flags.lock) {
+            .none => {},
+            .shared => {
+                os_flags.SHLOCK = true;
+                os_flags.NONBLOCK = flags.lock_nonblocking;
+            },
+            .exclusive => {
+                os_flags.EXLOCK = true;
+                os_flags.NONBLOCK = flags.lock_nonblocking;
+            },
+        }
+    }
+    const fd: posix.fd_t = while (true) {
+        try pool.checkCancel();
+        const rc = openat_sym(dir.handle, sub_path_posix, os_flags, 0);
+        switch (posix.errno(rc)) {
+            .SUCCESS => break @intCast(rc),
+            .INTR => continue,
+
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => return error.BadPathName,
+            .BADF => |err| return errnoBug(err),
+            .ACCES => return error.AccessDenied,
+            .FBIG => return error.FileTooBig,
+            .OVERFLOW => return error.FileTooBig,
+            .ISDIR => return error.IsDir,
+            .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NODEV => return error.NoDevice,
+            .NOENT => return error.FileNotFound,
+            .SRCH => return error.ProcessNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOSPC => return error.NoSpaceLeft,
+            .NOTDIR => return error.NotDir,
+            .PERM => return error.PermissionDenied,
+            .EXIST => return error.PathAlreadyExists,
+            .BUSY => return error.DeviceBusy,
+            .OPNOTSUPP => return error.FileLocksNotSupported,
+            //.AGAIN => return error.WouldBlock,
+            .TXTBSY => return error.FileBusy,
+            .NXIO => return error.NoDevice,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+    errdefer posix.close(fd);
+
+    if (have_flock and !has_flock_open_flags and flags.lock != .none) {
+        const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
+        const lock_flags = switch (flags.lock) {
+            .none => unreachable,
+            .shared => posix.LOCK.SH | lock_nonblocking,
+            .exclusive => posix.LOCK.EX | lock_nonblocking,
+        };
+        while (true) {
+            try pool.checkCancel();
+            switch (posix.errno(posix.system.flock(fd, lock_flags))) {
+                .SUCCESS => break,
+                .INTR => continue,
+
+                .BADF => |err| return errnoBug(err),
+                .INVAL => |err| return errnoBug(err), // invalid parameters
+                .NOLCK => return error.SystemResources,
+                //.AGAIN => return error.WouldBlock,
+                .OPNOTSUPP => return error.FileLocksNotSupported,
+                else => |err| return posix.unexpectedErrno(err),
+            }
+        }
+    }
+
+    if (has_flock_open_flags and flags.lock_nonblocking) {
+        var fl_flags: usize = while (true) {
+            try pool.checkCancel();
+            switch (posix.errno(posix.system.fcntl(fd, posix.F.GETFL, 0))) {
+                .SUCCESS => break,
+                .INTR => continue,
+                else => |err| return posix.unexpectedErrno(err),
+            }
+        };
+        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
+        while (true) {
+            try pool.checkCancel();
+            switch (posix.errno(posix.fcntl(fd, posix.F.SETFL, fl_flags))) {
+                .SUCCESS => break,
+                .INTR => continue,
+                else => |err| return posix.unexpectedErrno(err),
+            }
+        }
+    }
+
+    return .{ .handle = fd };
 }
 
 fn fileClose(userdata: ?*anyopaque, file: Io.File) void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
-    const fs_file: std.fs.File = .{ .handle = file.handle };
-    return fs_file.close();
+    posix.close(file.handle);
 }
 
 fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {

@@ -260,12 +260,6 @@ pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.O
     return cwd().openFile(absolute_path, flags);
 }
 
-/// Same as `openFileAbsolute` but the path parameter is null-terminated.
-pub fn openFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
-    assert(path.isAbsoluteZ(absolute_path_c));
-    return cwd().openFileZ(absolute_path_c, flags);
-}
-
 /// Same as `openFileAbsolute` but the path parameter is WTF-16-encoded.
 pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsWTF16(absolute_path_w));
@@ -283,11 +277,6 @@ pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) Fi
 pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.AccessError!void {
     assert(path.isAbsolute(absolute_path));
     try cwd().access(absolute_path, flags);
-}
-/// Same as `accessAbsolute` but the path parameter is null-terminated.
-pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.AccessError!void {
-    assert(path.isAbsoluteZ(absolute_path));
-    try cwd().accessZ(absolute_path, flags);
 }
 /// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
 pub fn accessAbsoluteW(absolute_path: [*:0]const u16, flags: File.OpenFlags) Dir.AccessError!void {
@@ -309,12 +298,6 @@ pub fn createFileAbsolute(absolute_path: []const u8, flags: File.CreateFlags) Fi
     return cwd().createFile(absolute_path, flags);
 }
 
-/// Same as `createFileAbsolute` but the path parameter is null-terminated.
-pub fn createFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
-    assert(path.isAbsoluteZ(absolute_path_c));
-    return cwd().createFileZ(absolute_path_c, flags);
-}
-
 /// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
 pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
@@ -331,12 +314,6 @@ pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFl
 pub fn deleteFileAbsolute(absolute_path: []const u8) Dir.DeleteFileError!void {
     assert(path.isAbsolute(absolute_path));
     return cwd().deleteFile(absolute_path);
-}
-
-/// Same as `deleteFileAbsolute` except the parameter is null-terminated.
-pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) Dir.DeleteFileError!void {
-    assert(path.isAbsoluteZ(absolute_path_c));
-    return cwd().deleteFileZ(absolute_path_c);
 }
 
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
@@ -383,12 +360,6 @@ pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[max_path_bytes]u8
     return posix.readlinkW(mem.span(pathname_w), buffer);
 }
 
-/// Same as `readLink`, except the path parameter is null-terminated.
-pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[max_path_bytes]u8) ![]u8 {
-    assert(path.isAbsoluteZ(pathname_c));
-    return posix.readlinkZ(pathname_c, buffer);
-}
-
 /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
@@ -426,28 +397,11 @@ pub fn symLinkAbsoluteW(
     return windows.CreateSymbolicLink(null, mem.span(sym_link_path_w), mem.span(target_path_w), flags.is_directory);
 }
 
-/// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
-/// See also `symLinkAbsolute`.
-pub fn symLinkAbsoluteZ(
-    target_path_c: [*:0]const u8,
-    sym_link_path_c: [*:0]const u8,
-    flags: Dir.SymLinkFlags,
-) !void {
-    assert(path.isAbsoluteZ(target_path_c));
-    assert(path.isAbsoluteZ(sym_link_path_c));
-    if (native_os == .windows) {
-        const target_path_w = try windows.cStrToPrefixedFileW(null, target_path_c);
-        const sym_link_path_w = try windows.cStrToPrefixedFileW(null, sym_link_path_c);
-        return windows.CreateSymbolicLink(null, sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
-    }
-    return posix.symlinkZ(target_path_c, sym_link_path_c);
-}
-
 pub const OpenSelfExeError = posix.OpenError || SelfExePathError || posix.FlockError;
 
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (native_os == .linux or native_os == .serenity) {
-        return openFileAbsoluteZ("/proc/self/exe", flags);
+        return openFileAbsolute("/proc/self/exe", flags);
     }
     if (native_os == .windows) {
         // If ImagePathName is a symlink, then it will contain the path of the symlink,
@@ -463,7 +417,7 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     var buf: [max_path_bytes]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, flags);
+    return openFileAbsolute(buf[0..self_exe_path.len :0], flags);
 }
 
 // This is `posix.ReadLinkError || posix.RealPathError` with impossible errors excluded
