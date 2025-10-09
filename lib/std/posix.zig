@@ -4458,14 +4458,7 @@ pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
     }
 }
 
-pub const FStatError = error{
-    SystemResources,
-
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to get its filestat information.
-    AccessDenied,
-    PermissionDenied,
-} || UnexpectedError;
+pub const FStatError = std.Io.File.StatError;
 
 /// Return information about a file descriptor.
 pub fn fstat(fd: fd_t) FStatError!Stat {

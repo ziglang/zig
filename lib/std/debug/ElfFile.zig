@@ -108,6 +108,7 @@ pub const LoadError = error{
     LockedMemoryLimitExceeded,
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
+    Canceled,
     Unexpected,
 };
 
@@ -408,7 +409,7 @@ fn loadInner(
     arena: Allocator,
     elf_file: std.fs.File,
     opt_crc: ?u32,
-) (LoadError || error{CrcMismatch})!LoadInnerResult {
+) (LoadError || error{ CrcMismatch, Canceled })!LoadInnerResult {
     const mapped_mem: []align(std.heap.page_size_min) const u8 = mapped: {
         const file_len = std.math.cast(
             usize,
