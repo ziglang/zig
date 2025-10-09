@@ -155,8 +155,6 @@ pub const MakeError = error{
     NoSpaceLeft,
     NotDir,
     ReadOnlyFileSystem,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
     /// Windows-only; file paths provided by the user must be valid WTF-8.
     /// https://simonsapin.github.io/wtf-8/
     InvalidWtf8,
@@ -164,6 +162,8 @@ pub const MakeError = error{
     NoDevice,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    /// File system cannot encode the requested file name bytes.
+    InvalidFileName,
 } || Io.Cancelable || Io.UnexpectedError;
 
 /// Creates a single directory with a relative or absolute path.
