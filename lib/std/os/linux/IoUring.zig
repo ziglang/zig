@@ -585,7 +585,7 @@ pub fn epoll_ctl(
     user_data: u64,
     epfd: linux.fd_t,
     fd: linux.fd_t,
-    op: u32,
+    op: linux.EpollOp,
     ev: ?*linux.epoll_event,
 ) !*Sqe {
     const sqe = try self.get_sqe();
@@ -871,7 +871,7 @@ pub fn poll_add(
     self: *IoUring,
     user_data: u64,
     fd: linux.fd_t,
-    poll_mask: u32,
+    poll_mask: linux.Epoll,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_poll_add(fd, poll_mask);
@@ -899,8 +899,8 @@ pub fn poll_update(
     user_data: u64,
     old_user_data: u64,
     new_user_data: u64,
-    poll_mask: u32,
-    flags: u32, // TODO: what are the flags
+    poll_mask: linux.Epoll,
+    flags: uflags.Poll,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_poll_update(old_user_data, new_user_data, poll_mask, flags);
@@ -1100,7 +1100,7 @@ pub fn waitid(
     id: i32,
     infop: *linux.siginfo_t,
     options: linux.W,
-    flags: u32, // TODO: wait flags
+    flags: u32, // They are currently unused, and hence 0 should be passed
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_waitid(id_type, id, infop, options, flags);
@@ -1383,7 +1383,9 @@ pub fn bind(
     fd: linux.fd_t,
     addr: *const posix.sockaddr,
     addrlen: posix.socklen_t,
-    flags: u32, // TODO: bind flags
+    // liburing doesn't have this flag, hence 0 should be passed
+    // TODO: consider removing this and all flags like this
+    flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_bind(fd, addr, addrlen, flags);
@@ -1399,7 +1401,9 @@ pub fn listen(
     user_data: u64,
     fd: linux.fd_t,
     backlog: usize,
-    flags: u32, // TODO: listen flags
+    // liburing doesn't have this flag, hence 0 should be passed
+    // TODO: consider removing this and all flags like this
+    flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_listen(fd, backlog, flags);
@@ -1599,7 +1603,6 @@ pub const Cqe = extern struct {
     /// result code for this event
     res: i32,
     flags: Flags,
-    // COMMIT: add big_cqe which was missing in io_uring_cqe type declaration
     // TODO: add support for the IORING_SETUP_CQE32 case
     /// If the ring is initialized with IORING_SETUP_CQE32, then this field
     /// contains 16-bytes of padding, doubling the size of the CQE.
@@ -1944,10 +1947,10 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         epfd: linux.fd_t,
         fd: linux.fd_t,
-        op: u32, // TODO: what is the type of OP
+        op: linux.EpollOp,
         ev: ?*linux.epoll_event,
     ) void {
-        sqe.prep_rw(.EPOLL_CTL, epfd, @intFromPtr(ev), op, @intCast(fd));
+        sqe.prep_rw(.EPOLL_CTL, epfd, @intFromPtr(ev), @intFromEnum(op), @intCast(fd));
     }
 
     pub fn prep_recv(sqe: *Sqe, fd: linux.fd_t, buffer: []u8, flags: linux.Msg) void {
@@ -1955,7 +1958,6 @@ pub const Sqe = extern struct {
         sqe.rw_flags = @bitCast(flags);
     }
 
-    // TODO: review recv `flags`
     pub fn prep_recv_multishot(
         sqe: *Sqe,
         fd: linux.fd_t,
@@ -2116,7 +2118,7 @@ pub const Sqe = extern struct {
     pub fn prep_poll_add(
         sqe: *Sqe,
         fd: linux.fd_t,
-        poll_mask: linux.POLL, // TODO: Poll mask typed
+        poll_mask: linux.Epoll,
     ) void {
         sqe.prep_rw(.POLL_ADD, fd, @intFromPtr(@as(?*anyopaque, null)), 0, 0);
         // Poll masks previously used to comprise of 16 bits in the flags union of
@@ -2125,7 +2127,7 @@ pub const Sqe = extern struct {
         // poll masks are consistently and properly read across multiple kernel
         // versions, poll masks are enforced to be little-endian.
         // https://www.spinics.net/lists/io-uring/msg02848.html
-        sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
+        sqe.rw_flags = std.mem.nativeToLittle(u32, @as(u32, @bitCast(poll_mask)));
     }
 
     pub fn prep_poll_remove(
@@ -2139,7 +2141,7 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         old_user_data: u64,
         new_user_data: u64,
-        poll_mask: linux.POLL, //TODO: Poll mask
+        poll_mask: linux.Epoll,
         flags: uflags.Poll,
     ) void {
         sqe.prep_rw(.POLL_REMOVE, -1, old_user_data, flags, new_user_data);
@@ -2149,7 +2151,7 @@ pub const Sqe = extern struct {
         // poll masks are consistently and properly read across multiple kernel
         // versions, poll masks are enforced to be little-endian.
         // https://www.spinics.net/lists/io-uring/msg02848.html
-        sqe.rw_flags = std.mem.nativeToLittle(u32, poll_mask);
+        sqe.rw_flags = std.mem.nativeToLittle(u32, @as(u32, @bitCast(poll_mask)));
     }
 
     pub fn prep_fallocate(
@@ -2243,7 +2245,7 @@ pub const Sqe = extern struct {
         sqe: *Sqe,
         dir_fd: linux.fd_t,
         path: [*:0]const u8,
-        flags: linux.At, // TODO: unlink flags only AT_REMOVEDIR
+        flags: linux.At,
     ) void {
         sqe.prep_rw(.UNLINKAT, dir_fd, @intFromPtr(path), 0, 0);
         sqe.rw_flags = @bitCast(flags);
