@@ -2459,12 +2459,12 @@ test "timeout (after a relative time)" {
     const margin = 5;
     const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1000000 };
 
-    const started = try std.Io.Timestamp.now(io, .awake);
+    const started = try std.Io.Clock.awake.now(io);
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe.opcode);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     const cqe = try ring.copy_cqe();
-    const stopped = try std.Io.Timestamp.now(io, .awake);
+    const stopped = try std.Io.Clock.awake.now(io);
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x55555555,

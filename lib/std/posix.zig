@@ -357,6 +357,7 @@ pub const FChmodAtError = FChmodError || error{
     ProcessFdQuotaExceeded,
     /// The procfs fallback was used but the system exceeded it open file limit.
     SystemFdQuotaExceeded,
+    Canceled,
 };
 
 /// Changes the `mode` of `path` relative to the directory referred to by
@@ -487,6 +488,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
         error.NameTooLong => unreachable,
         error.FileNotFound => unreachable,
         error.InvalidUtf8 => unreachable,
+        error.Canceled => return error.Canceled,
         else => |e| return e,
     };
     if ((stat.mode & S.IFMT) == S.IFLNK)

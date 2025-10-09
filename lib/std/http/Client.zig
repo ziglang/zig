@@ -300,7 +300,7 @@ pub const Connection = struct {
             remote_host: HostName,
             port: u16,
             stream: Io.net.Stream,
-        ) error{ OutOfMemory, TlsInitializationFailed }!*Tls {
+        ) !*Tls {
             const io = client.io;
             const gpa = client.allocator;
             const alloc_len = allocLen(client, remote_host.bytes.len);
@@ -320,7 +320,7 @@ pub const Connection = struct {
             const tls: *Tls = @ptrCast(base);
             var random_buffer: [176]u8 = undefined;
             std.crypto.random.bytes(&random_buffer);
-            const now_ts = if (Io.Clock.real.now(io)) |ts| ts.toSeconds() else |_| return error.TlsInitializationFailed;
+            const now_ts = if (Io.Clock.real.now(io)) |ts| ts.toSeconds() else |err| return err;
             tls.* = .{
                 .connection = .{
                     .client = client,
@@ -349,7 +349,11 @@ pub const Connection = struct {
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
                     },
-                ) catch return error.TlsInitializationFailed,
+                ) catch |err| switch (err) {
+                    error.WriteFailed => return tls.connection.stream_writer.err.?,
+                    error.ReadFailed => return tls.connection.stream_reader.err.?,
+                    else => |e| return e,
+                },
             };
             return tls;
         }
@@ -1446,7 +1450,8 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
             const tc = Connection.Tls.create(client, proxied_host, proxied_port, stream) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.Unexpected => |e| return e,
-                error.UnsupportedClock => return error.TlsInitializationFailed,
+                error.Canceled => |e| return e,
+                else => return error.TlsInitializationFailed,
             };
             client.connection_pool.addUsed(&tc.connection);
             return &tc.connection;

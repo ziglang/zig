@@ -204,7 +204,7 @@ test Timer {
 
     var timer = try Timer.start();
 
-    try std.Io.Duration.sleep(.fromMilliseconds(10), io);
+    try std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(10) }, io);
     const time_0 = timer.read();
     try testing.expect(time_0 > 0);
 
