@@ -277,14 +277,11 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// The empty slot is filled from the end of the list.
         /// This operation is O(1).
         /// This may not preserve item order. Use `orderedRemove` if you need to preserve order.
-        /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.items.len - 1 == i) return self.pop().?;
-
-            const old_item = self.items[i];
-            self.items[i] = self.pop().?;
-            return old_item;
+            assert(i < self.items.len);
+            defer self.items[i] = self.pop() orelse unreachable;
+            return self.items[i];
         }
 
         /// Append the slice of items to the list. Allocates more
@@ -956,14 +953,11 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// The empty slot is filled from the end of the list.
         /// Invalidates pointers to last element.
         /// This operation is O(1).
-        /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.items.len - 1 == i) return self.pop().?;
-
-            const old_item = self.items[i];
-            self.items[i] = self.pop().?;
-            return old_item;
+            assert(i < self.items.len);
+            defer self.items[i] = self.pop() orelse unreachable;
+            return self.items[i];
         }
 
         /// Append the slice of items to the list. Allocates more
