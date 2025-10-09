@@ -199,27 +199,6 @@ pub const Flock = extern struct {
     pid: pid_t,
 };
 
-// TODO: not 100% sure of padding for msghdr
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
 pub const Stat = extern struct {
     dev: dev_t,
     __pad: i16,
