@@ -5675,8 +5675,12 @@ pub const RealPathError = error{
 /// Calling this function is usually a bug.
 pub fn realpath(pathname: []const u8, out_buffer: *[max_path_bytes]u8) RealPathError![]u8 {
     if (native_os == .windows) {
-        const pathname_w = try windows.sliceToPrefixedFileW(null, pathname);
-        return realpathW(pathname_w.span(), out_buffer);
+        var pathname_w = try windows.sliceToPrefixedFileW(null, pathname);
+
+        const wide_slice = try realpathW2(pathname_w.span(), &pathname_w.data);
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+        return out_buffer[0..end_index];
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("WASI does not support os.realpath");
     }
@@ -5689,8 +5693,12 @@ pub fn realpath(pathname: []const u8, out_buffer: *[max_path_bytes]u8) RealPathE
 /// Calling this function is usually a bug.
 pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealPathError![]u8 {
     if (native_os == .windows) {
-        const pathname_w = try windows.cStrToPrefixedFileW(null, pathname);
-        return realpathW(pathname_w.span(), out_buffer);
+        var pathname_w = try windows.cStrToPrefixedFileW(null, pathname);
+
+        const wide_slice = try realpathW2(pathname_w.span(), &pathname_w.data);
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+        return out_buffer[0..end_index];
     } else if (native_os == .wasi and !builtin.link_libc) {
         return realpath(mem.sliceTo(pathname, 0), out_buffer);
     }
@@ -5734,34 +5742,24 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealP
     return mem.sliceTo(result_path, 0);
 }
 
+/// Deprecated: use `realpathW2`.
+///
 /// Same as `realpath` except `pathname` is WTF16LE-encoded.
 ///
 /// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 ///
 /// Calling this function is usually a bug.
 pub fn realpathW(pathname: []const u16, out_buffer: *[max_path_bytes]u8) RealPathError![]u8 {
-    const w = windows;
+    return fs.cwd().realpathW(pathname, out_buffer);
+}
 
-    const dir = fs.cwd().fd;
-    const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
-    const share_access = w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE;
-    const creation = w.FILE_OPEN;
-    const h_file = blk: {
-        const res = w.OpenFile(pathname, .{
-            .dir = dir,
-            .access_mask = access_mask,
-            .share_access = share_access,
-            .creation = creation,
-            .filter = .any,
-        }) catch |err| switch (err) {
-            error.WouldBlock => unreachable,
-            else => |e| return e,
-        };
-        break :blk res;
-    };
-    defer w.CloseHandle(h_file);
-
-    return std.os.getFdPath(h_file, out_buffer);
+/// Same as `realpath` except `pathname` is WTF16LE-encoded.
+///
+/// The result is encoded as WTF16LE.
+///
+/// Calling this function is usually a bug.
+pub fn realpathW2(pathname: []const u16, out_buffer: *[std.os.windows.PATH_MAX_WIDE]u16) RealPathError![]u16 {
+    return fs.cwd().realpathW2(pathname, out_buffer);
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
