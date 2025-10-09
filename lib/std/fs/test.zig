@@ -1525,6 +1525,41 @@ test "sendfile" {
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
 
+test "sendfile with buffered data" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+
+    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    defer dir.close();
+
+    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writeAll("AAAABBBB");
+
+    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    var src_buffer: [32]u8 = undefined;
+    var file_reader = src_file.reader(&src_buffer);
+
+    try file_reader.seekTo(0);
+    try file_reader.interface.fill(8);
+
+    var fallback_buffer: [32]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+
+    try std.testing.expectEqual(4, try file_writer.interface.sendFileAll(&file_reader, .limited(4)));
+
+    var written_buf: [8]u8 = undefined;
+    const amt = try dest_file.preadAll(&written_buf, 0);
+
+    try std.testing.expectEqual(4, amt);
+    try std.testing.expectEqualSlices(u8, "AAAA", written_buf[0..amt]);
+}
+
 test "copyRangeAll" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1765,14 +1800,14 @@ test "walker" {
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
-    const expected_paths = std.StaticStringMap(void).initComptime(.{
-        .{"dir1"},
-        .{"dir2"},
-        .{"dir3"},
-        .{"dir4"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub1"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1"},
+    const expected_paths = std.StaticStringMap(usize).initComptime(.{
+        .{ "dir1", 1 },
+        .{ "dir2", 1 },
+        .{ "dir3", 1 },
+        .{ "dir4", 1 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub1", 2 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2", 2 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1", 3 },
     });
 
     const expected_basenames = std.StaticStringMap(void).initComptime(.{
@@ -1802,6 +1837,76 @@ test "walker" {
             std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
             return err;
         };
+        testing.expectEqual(expected_paths.get(entry.path).?, entry.depth()) catch |err| {
+            std.debug.print("path reported unexpected depth: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+        // make sure that the entry.dir is the containing dir
+        var entry_dir = try entry.dir.openDir(entry.basename, .{});
+        defer entry_dir.close();
+        num_walked += 1;
+    }
+    try testing.expectEqual(expected_paths.kvs.len, num_walked);
+}
+
+test "selective walker, skip entries that start with ." {
+    var tmp = tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const paths_to_create: []const []const u8 = &.{
+        "dir1/foo/.git/ignored",
+        ".hidden/bar",
+        "a/b/c",
+        "a/baz",
+    };
+
+    // iteration order of walker is undefined, so need lookup maps to check against
+
+    const expected_paths = std.StaticStringMap(usize).initComptime(.{
+        .{ "dir1", 1 },
+        .{ "dir1" ++ fs.path.sep_str ++ "foo", 2 },
+        .{ "a", 1 },
+        .{ "a" ++ fs.path.sep_str ++ "b", 2 },
+        .{ "a" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c", 3 },
+        .{ "a" ++ fs.path.sep_str ++ "baz", 2 },
+    });
+
+    const expected_basenames = std.StaticStringMap(void).initComptime(.{
+        .{"dir1"},
+        .{"foo"},
+        .{"a"},
+        .{"b"},
+        .{"c"},
+        .{"baz"},
+    });
+
+    for (paths_to_create) |path| {
+        try tmp.dir.makePath(path);
+    }
+
+    var walker = try tmp.dir.walkSelectively(testing.allocator);
+    defer walker.deinit();
+
+    var num_walked: usize = 0;
+    while (try walker.next()) |entry| {
+        if (entry.basename[0] == '.') continue;
+        if (entry.kind == .directory) {
+            try walker.enter(entry);
+        }
+
+        testing.expect(expected_basenames.has(entry.basename)) catch |err| {
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
+            return err;
+        };
+        testing.expect(expected_paths.has(entry.path)) catch |err| {
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+        testing.expectEqual(expected_paths.get(entry.path).?, entry.depth()) catch |err| {
+            std.debug.print("path reported unexpected depth: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+
         // make sure that the entry.dir is the containing dir
         var entry_dir = try entry.dir.openDir(entry.basename, .{});
         defer entry_dir.close();
@@ -2179,4 +2284,35 @@ test "seekTo flushes buffered data" {
     var buf: [4]u8 = undefined;
     try file_reader.interface.readSliceAll(&buf);
     try std.testing.expectEqualStrings(contents, &buf);
+}
+
+test "File.Writer sendfile with buffered contents" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    {
+        try tmp_dir.dir.writeFile(.{ .sub_path = "a", .data = "bcd" });
+        const in = try tmp_dir.dir.openFile("a", .{});
+        defer in.close();
+        const out = try tmp_dir.dir.createFile("b", .{});
+        defer out.close();
+
+        var in_buf: [2]u8 = undefined;
+        var in_r = in.reader(&in_buf);
+        _ = try in_r.getSize(); // Catch seeks past end by populating size
+        try in_r.interface.fill(2);
+
+        var out_buf: [1]u8 = undefined;
+        var out_w = out.writerStreaming(&out_buf);
+        try out_w.interface.writeByte('a');
+        try testing.expectEqual(3, try out_w.interface.sendFileAll(&in_r, .unlimited));
+        try out_w.interface.flush();
+    }
+
+    var check = try tmp_dir.dir.openFile("b", .{});
+    defer check.close();
+    var check_buf: [4]u8 = undefined;
+    var check_r = check.reader(&check_buf);
+    try testing.expectEqualStrings("abcd", try check_r.interface.take(4));
+    try testing.expectError(error.EndOfStream, check_r.interface.takeByte());
 }

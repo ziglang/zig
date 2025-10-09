@@ -8,5 +8,5 @@ export fn entry() void {
 
 // error
 //
-// :6:31: error: expected type 'tmp.S', found 'struct { comptime void = {} }'
+// :6:31: error: expected type 'tmp.S', found 'struct { void }'
 // :1:11: note: struct declared here

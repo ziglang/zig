@@ -13,46 +13,6 @@ pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int)
 pub extern "c" fn umtx_sleep(ptr: *const volatile c_int, value: c_int, timeout: c_int) c_int;
 pub extern "c" fn umtx_wakeup(ptr: *const volatile c_int, count: c_int) c_int;
 
-pub const mcontext_t = extern struct {
-    onstack: register_t, // XXX - sigcontext compat.
-    rdi: register_t,
-    rsi: register_t,
-    rdx: register_t,
-    rcx: register_t,
-    r8: register_t,
-    r9: register_t,
-    rax: register_t,
-    rbx: register_t,
-    rbp: register_t,
-    r10: register_t,
-    r11: register_t,
-    r12: register_t,
-    r13: register_t,
-    r14: register_t,
-    r15: register_t,
-    xflags: register_t,
-    trapno: register_t,
-    addr: register_t,
-    flags: register_t,
-    err: register_t,
-    rip: register_t,
-    cs: register_t,
-    rflags: register_t,
-    rsp: register_t, // machine state
-    ss: register_t,
-
-    len: c_uint, // sizeof(mcontext_t)
-    fpformat: c_uint,
-    ownedfp: c_uint,
-    reserved: c_uint,
-    unused: [8]c_uint,
-
-    // NOTE! 64-byte aligned as of here. Also must match savefpu structure.
-    fpregs: [256]c_int align(64),
-};
-
-pub const register_t = isize;
-
 pub const E = enum(u16) {
     /// No error occurred.
     SUCCESS = 0,

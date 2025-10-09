@@ -9,6 +9,8 @@ const iovec_const = std.posix.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 const sockaddr = linux.sockaddr;
 const timespec = linux.timespec;
 
@@ -241,22 +243,6 @@ pub fn clone() callconv(.naked) usize {
     );
 }
 
-pub fn restore() callconv(.naked) noreturn {
-    asm volatile (
-        \\ syscall
-        :
-        : [number] "{$2}" (@intFromEnum(SYS.sigreturn)),
-        : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
-}
-
-pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ syscall
-        :
-        : [number] "{$2}" (@intFromEnum(SYS.rt_sigreturn)),
-    );
-}
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;
@@ -363,8 +349,31 @@ pub const timezone = extern struct {
 
 pub const Elf_Symndx = u32;
 
-/// TODO
-pub const ucontext_t = void;
+pub const mcontext_t = extern struct {
+    _regmask: u32,
+    _status: u32,
+    pc: u64,
+    regs: [32]u64,
+    fpregs: [32]f64,
+    acx: u32,
+    fpc_csr: u32,
+    _fpc_eir: u32,
+    used_math: u32,
+    dsp: u32,
+    mdhi: u64,
+    mdlo: u64,
+    hi1: u32,
+    lo1: u32,
+    hi2: u32,
+    lo2: u32,
+    hi3: u32,
+    lo3: u32,
+};
 
-/// TODO
-pub const getcontext = {};
+pub const ucontext_t = extern struct {
+    flags: u32,
+    link: ?*ucontext_t,
+    stack: stack_t,
+    mcontext: mcontext_t,
+    sigmask: sigset_t,
+};

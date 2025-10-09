@@ -171,6 +171,7 @@ pub fn parseInfoStream(self: *Pdb) !void {
     const string_table_index = str_tab_index: {
         const name_bytes_len = try reader.takeInt(u32, .little);
         const name_bytes = try reader.readAlloc(gpa, name_bytes_len);
+        defer gpa.free(name_bytes);
 
         const HashTableHeader = extern struct {
             size: u32,
@@ -412,8 +413,7 @@ const Msf = struct {
             return error.InvalidDebugInfo;
         if (superblock.free_block_map_block != 1 and superblock.free_block_map_block != 2)
             return error.InvalidDebugInfo;
-        const file_len = try file_reader.getSize();
-        if (superblock.num_blocks * superblock.block_size != file_len)
+        if (superblock.num_blocks * superblock.block_size != try file_reader.getSize())
             return error.InvalidDebugInfo;
         switch (superblock.block_size) {
             // llvm only supports 4096 but we can handle any of these values
@@ -427,6 +427,7 @@ const Msf = struct {
 
         try file_reader.seekTo(superblock.block_size * superblock.block_map_addr);
         const dir_blocks = try gpa.alloc(u32, dir_block_count);
+        errdefer gpa.free(dir_blocks);
         for (dir_blocks) |*b| {
             b.* = try file_reader.interface.takeInt(u32, .little);
         }
@@ -450,25 +451,25 @@ const Msf = struct {
         const streams = try gpa.alloc(MsfStream, stream_count);
         errdefer gpa.free(streams);
 
-        for (streams, 0..) |*stream, i| {
-            const size = stream_sizes[i];
+        for (streams, stream_sizes) |*stream, size| {
             if (size == 0) {
                 stream.* = .empty;
-            } else {
-                const blocks = try gpa.alloc(u32, size);
-                errdefer gpa.free(blocks);
-                for (blocks) |*block| {
-                    const block_id = try directory.interface.takeInt(u32, .little);
-                    const n = (block_id % superblock.block_size);
-                    // 0 is for pdb.SuperBlock, 1 and 2 for FPMs.
-                    if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.block_size > file_len)
-                        return error.InvalidBlockIndex;
-                    block.* = block_id;
-                }
-                const buffer = try gpa.alloc(u8, 64);
-                errdefer gpa.free(buffer);
-                stream.* = .init(superblock.block_size, file_reader, blocks, buffer);
+                continue;
             }
+            const blocks = try gpa.alloc(u32, size);
+            errdefer gpa.free(blocks);
+            for (blocks) |*block| {
+                const block_id = try directory.interface.takeInt(u32, .little);
+                // Index 0 is reserved for the superblock.
+                // In theory, every page which is `n * block_size + 1` or `n * block_size + 2`
+                // is also reserved, for one of the FPMs. However, LLVM has been observed to map
+                // these into actual streams, so allow it for compatibility.
+                if (block_id == 0 or block_id >= superblock.num_blocks) return error.InvalidBlockIndex;
+                block.* = block_id;
+            }
+            const buffer = try gpa.alloc(u8, 64);
+            errdefer gpa.free(buffer);
+            stream.* = .init(superblock.block_size, file_reader, blocks, buffer);
         }
 
         const end = directory.logicalPos();

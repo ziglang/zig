@@ -1097,16 +1097,10 @@ const MachODumper = struct {
 
             for (ctx.symtab.items) |sym| {
                 const sym_name = ctx.getString(sym.n_strx);
-                if (sym.stab()) {
-                    const tt = switch (sym.n_type) {
-                        macho.N_SO => "SO",
-                        macho.N_OSO => "OSO",
-                        macho.N_BNSYM => "BNSYM",
-                        macho.N_ENSYM => "ENSYM",
-                        macho.N_FUN => "FUN",
-                        macho.N_GSYM => "GSYM",
-                        macho.N_STSYM => "STSYM",
-                        else => "UNKNOWN STAB",
+                if (sym.n_type.bits.is_stab != 0) {
+                    const tt = switch (sym.n_type.stab) {
+                        _ => "UNKNOWN STAB",
+                        else => @tagName(sym.n_type.stab),
                     };
                     try writer.print("{x}", .{sym.n_value});
                     if (sym.n_sect > 0) {
@@ -1114,27 +1108,27 @@ const MachODumper = struct {
                         try writer.print(" ({s},{s})", .{ sect.segName(), sect.sectName() });
                     }
                     try writer.print(" {s} (stab) {s}\n", .{ tt, sym_name });
-                } else if (sym.sect()) {
+                } else if (sym.n_type.bits.type == .sect) {
                     const sect = ctx.sections.items[sym.n_sect - 1];
                     try writer.print("{x} ({s},{s})", .{
                         sym.n_value,
                         sect.segName(),
                         sect.sectName(),
                     });
-                    if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try writer.writeAll(" [referenced dynamically]");
-                    if (sym.weakDef()) try writer.writeAll(" weak");
-                    if (sym.weakRef()) try writer.writeAll(" weakref");
-                    if (sym.ext()) {
-                        if (sym.pext()) try writer.writeAll(" private");
+                    if (sym.n_desc.referenced_dynamically) try writer.writeAll(" [referenced dynamically]");
+                    if (sym.n_desc.weak_def_or_ref_to_weak) try writer.writeAll(" weak");
+                    if (sym.n_desc.weak_ref) try writer.writeAll(" weakref");
+                    if (sym.n_type.bits.ext) {
+                        if (sym.n_type.bits.pext) try writer.writeAll(" private");
                         try writer.writeAll(" external");
-                    } else if (sym.pext()) try writer.writeAll(" (was private external)");
+                    } else if (sym.n_type.bits.pext) try writer.writeAll(" (was private external)");
                     try writer.print(" {s}\n", .{sym_name});
                 } else if (sym.tentative()) {
-                    const alignment = (sym.n_desc >> 8) & 0x0F;
+                    const alignment = (@as(u16, @bitCast(sym.n_desc)) >> 8) & 0x0F;
                     try writer.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
-                    if (sym.ext()) try writer.writeAll(" external");
+                    if (sym.n_type.bits.ext) try writer.writeAll(" external");
                     try writer.print(" {s}\n", .{sym_name});
-                } else if (sym.undf()) {
+                } else if (sym.n_type.bits.type == .undf) {
                     const ordinal = @divFloor(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                     const import_name = blk: {
                         if (ordinal <= 0) {
@@ -1153,8 +1147,8 @@ const MachODumper = struct {
                         break :blk basename[0..ext];
                     };
                     try writer.writeAll("(undefined)");
-                    if (sym.weakRef()) try writer.writeAll(" weakref");
-                    if (sym.ext()) try writer.writeAll(" external");
+                    if (sym.n_desc.weak_ref) try writer.writeAll(" weakref");
+                    if (sym.n_type.bits.ext) try writer.writeAll(" external");
                     try writer.print(" {s} (from {s})\n", .{
                         sym_name,
                         import_name,

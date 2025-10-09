@@ -2195,7 +2195,7 @@ fn dependencyInner(
         sub_builder.runBuild(bz) catch @panic("unhandled error");
 
         if (sub_builder.validateUserInputDidItFail()) {
-            std.debug.dumpCurrentStackTrace(@returnAddress());
+            std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
         }
     }
 
@@ -2524,7 +2524,10 @@ pub const LazyPath = union(enum) {
                 .up = gen.up,
                 .sub_path = dupePathInner(allocator, gen.sub_path),
             } },
-            .dependency => |dep| .{ .dependency = dep },
+            .dependency => |dep| .{ .dependency = .{
+                .dependency = dep.dependency,
+                .sub_path = dupePathInner(allocator, dep.sub_path),
+            } },
         };
     }
 };

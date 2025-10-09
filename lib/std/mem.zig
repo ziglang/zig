@@ -1726,6 +1726,40 @@ test count {
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
+/// Returns the number of needles inside the haystack
+pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
+    const n = haystack.len;
+    var i: usize = 0;
+    var found: usize = 0;
+
+    if (use_vectors_for_comparison and
+        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
+        if (std.simd.suggestVectorLength(T)) |block_size| {
+            const Block = @Vector(block_size, T);
+
+            const letter_mask: Block = @splat(needle);
+            while (n - i >= block_size) : (i += block_size) {
+                const haystack_block: Block = haystack[i..][0..block_size].*;
+                found += std.simd.countTrues(letter_mask == haystack_block);
+            }
+        }
+    }
+
+    for (haystack[i..n]) |item| {
+        found += @intFromBool(item == needle);
+    }
+
+    return found;
+}
+
+test countScalar {
+    try testing.expectEqual(0, countScalar(u8, "", 'h'));
+    try testing.expectEqual(1, countScalar(u8, "h", 'h'));
+    try testing.expectEqual(2, countScalar(u8, "hh", 'h'));
+    try testing.expectEqual(3, countScalar(u8, "   abcabc   abc", 'b'));
+}
+
 /// Returns true if the haystack contains expected_count or more needles
 /// needle.len must be > 0
 /// does not count overlapping needles

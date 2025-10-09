@@ -43,7 +43,6 @@ const thread_stack_size = 60 << 20;
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
     .logFn = log,
-    .enable_segfault_handler = false,
 
     .log_level = switch (builtin.mode) {
         .Debug => .debug,
@@ -53,6 +52,7 @@ pub const std_options: std.Options = .{
 };
 
 pub const panic = crash_report.panic;
+pub const debug = crash_report.debug;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
@@ -165,8 +165,6 @@ var debug_allocator: std.heap.DebugAllocator(.{
 }) = .init;
 
 pub fn main() anyerror!void {
-    crash_report.initialize();
-
     const gpa, const is_debug = gpa: {
         if (build_options.debug_gpa) break :gpa .{ debug_allocator.allocator(), true };
         if (native_os == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
@@ -191,6 +189,8 @@ pub fn main() anyerror!void {
     const arena = arena_instance.allocator();
 
     const args = try process.argsAlloc(arena);
+
+    if (args.len > 0) crash_report.zig_argv0 = args[0];
 
     if (tracy.enable_allocation) {
         var gpa_tracy = tracy.tracyAllocator(gpa);
@@ -523,8 +523,8 @@ const usage_build_generic =
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
-    \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
-    \\  -fno-error-tracing        Disable error tracing in Debug and ReleaseSafe mode
+    \\  -ferror-tracing           Enable error tracing in release builds
+    \\  -fno-error-tracing        Disable error tracing in debug builds
     \\  -fsingle-threaded         Code assumes there is only one thread
     \\  -fno-single-threaded      Code may not assume there is only one thread
     \\  -fstrip                   Omit debug symbols

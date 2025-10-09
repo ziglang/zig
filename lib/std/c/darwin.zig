@@ -348,113 +348,20 @@ pub const VM = struct {
 
 pub const exception_type_t = c_int;
 
-pub const mcontext_t = switch (native_arch) {
-    .aarch64 => extern struct {
-        es: exception_state,
-        ss: thread_state,
-        ns: neon_state,
-    },
-    .x86_64 => extern struct {
-        es: exception_state,
-        ss: thread_state,
-        fs: float_state,
-    },
-    else => @compileError("unsupported arch"),
-};
-
-pub const exception_state = switch (native_arch) {
-    .aarch64 => extern struct {
-        far: u64, // Virtual Fault Address
-        esr: u32, // Exception syndrome
-        exception: u32, // Number of arm exception taken
-    },
-    .x86_64 => extern struct {
-        trapno: u16,
-        cpu: u16,
-        err: u32,
-        faultvaddr: u64,
-    },
-    else => @compileError("unsupported arch"),
-};
-
-pub const thread_state = switch (native_arch) {
-    .aarch64 => extern struct {
-        /// General purpose registers
-        regs: [29]u64,
-        /// Frame pointer x29
-        fp: u64,
-        /// Link register x30
-        lr: u64,
-        /// Stack pointer x31
-        sp: u64,
-        /// Program counter
-        pc: u64,
-        /// Current program status register
-        cpsr: u32,
-        __pad: u32,
-    },
-    .x86_64 => extern struct {
-        rax: u64,
-        rbx: u64,
-        rcx: u64,
-        rdx: u64,
-        rdi: u64,
-        rsi: u64,
-        rbp: u64,
-        rsp: u64,
-        r8: u64,
-        r9: u64,
-        r10: u64,
-        r11: u64,
-        r12: u64,
-        r13: u64,
-        r14: u64,
-        r15: u64,
-        rip: u64,
-        rflags: u64,
-        cs: u64,
-        fs: u64,
-        gs: u64,
-    },
-    else => @compileError("unsupported arch"),
-};
-
-pub const neon_state = extern struct {
-    q: [32]u128,
-    fpsr: u32,
-    fpcr: u32,
-};
-
-pub const float_state = extern struct {
-    reserved: [2]c_int,
-    fcw: u16,
-    fsw: u16,
-    ftw: u8,
-    rsrv1: u8,
-    fop: u16,
-    ip: u32,
-    cs: u16,
-    rsrv2: u16,
-    dp: u32,
-    ds: u16,
-    rsrv3: u16,
-    mxcsr: u32,
-    mxcsrmask: u32,
-    stmm: [8]stmm_reg,
-    xmm: [16]xmm_reg,
-    rsrv4: [96]u8,
-    reserved1: c_int,
-};
-
-pub const stmm_reg = [16]u8;
-pub const xmm_reg = [16]u8;
-
 pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
 pub extern "c" fn _NSGetExecutablePath(buf: [*:0]u8, bufsize: *u32) c_int;
 pub extern "c" fn _dyld_image_count() u32;
 pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
 pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
+pub extern "c" fn dladdr(addr: *const anyopaque, info: *dl_info) c_int;
+
+pub const dl_info = extern struct {
+    fname: [*:0]const u8,
+    fbase: *anyopaque,
+    sname: ?[*:0]const u8,
+    saddr: ?*anyopaque,
+};
 
 pub const COPYFILE = packed struct(u32) {
     ACL: bool = false,

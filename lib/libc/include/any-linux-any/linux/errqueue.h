@@ -69,6 +69,7 @@ enum {
 	SCM_TSTAMP_SND,		/* driver passed skb to NIC, or HW */
 	SCM_TSTAMP_SCHED,	/* data entered the packet scheduler */
 	SCM_TSTAMP_ACK,		/* data acknowledged by peer */
+	SCM_TSTAMP_COMPLETION,	/* packet tx completion */
 };
 
 #endif /* _LINUX_ERRQUEUE_H */

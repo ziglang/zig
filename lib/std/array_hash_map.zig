@@ -50,7 +50,7 @@ pub fn eqlString(a: []const u8, b: []const u8) bool {
 }
 
 pub fn hashString(s: []const u8) u32 {
-    return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
+    return @truncate(std.hash.Wyhash.hash(0, s));
 }
 
 /// Deprecated in favor of `ArrayHashMapWithAllocator` (no code changes needed)
@@ -460,8 +460,17 @@ pub fn ArrayHashMapWithAllocator(
         /// Sorts the entries and then rebuilds the index.
         /// `sort_ctx` must have this method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses a stable sorting algorithm.
         pub fn sort(self: *Self, sort_ctx: anytype) void {
             return self.unmanaged.sortContext(sort_ctx, self.ctx);
+        }
+
+        /// Sorts the entries and then rebuilds the index.
+        /// `sort_ctx` must have this method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses an unstable sorting algorithm.
+        pub fn sortUnstable(self: *Self, sort_ctx: anytype) void {
+            return self.unmanaged.sortUnstableContext(sort_ctx, self.ctx);
         }
 
         /// Shrinks the underlying `Entry` array to `new_len` elements and

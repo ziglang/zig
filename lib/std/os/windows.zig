@@ -2849,7 +2849,7 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
         std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
             err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
         });
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
 }
@@ -2863,7 +2863,7 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) UnexpectedError {
 pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
 }
