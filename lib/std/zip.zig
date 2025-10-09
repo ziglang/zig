@@ -455,25 +455,35 @@ pub const Iterator = struct {
         uncompressed_size: u64,
         file_offset: u64,
 
-        pub fn extract(
-            self: Entry,
-            stream: *File.Reader,
-            options: ExtractOptions,
-            filename_buf: []u8,
-            dest: std.fs.Dir,
-        ) !void {
-            if (filename_buf.len < self.filename_len)
+        pub fn get_name(self: Entry, stream: *File.Reader, allow_backslashes: bool, buffer: []u8) ![]u8 {
+            if (buffer.len < self.filename_len)
                 return error.ZipInsufficientBuffer;
-            switch (self.compression_method) {
-                .store, .deflate => {},
-                else => return error.UnsupportedCompressionMethod,
-            }
-            const filename = filename_buf[0..self.filename_len];
+            const filename = buffer[0..self.filename_len];
             {
                 try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
                 try stream.interface.readSliceAll(filename);
             }
 
+            if (allow_backslashes) {
+                std.mem.replaceScalar(u8, filename, '\\', '/');
+            } else {
+                if (std.mem.indexOfScalar(u8, filename, '\\')) |_|
+                    return error.ZipFilenameHasBackslash;
+            }
+
+            // All entries that end in '/' are directories
+            if (filename[filename.len - 1] == '/') {
+                if (self.uncompressed_size != 0)
+                    return error.ZipBadDirectorySize;
+            }
+
+            if (isBadFilename(filename))
+                return error.ZipBadFilename;
+            return filename;
+        }
+
+        /// Extract to given writer. See also `extract` that writes to file system.
+        pub fn extract_to(self: Entry, stream: *File.Reader, writer: *Writer) !void {
             const local_data_header_offset: u64 = local_data_header_offset: {
                 const local_header = blk: {
                     try stream.seekTo(self.file_offset);
@@ -536,20 +546,45 @@ pub const Iterator = struct {
                     @as(u64, local_header.extra_len);
             };
 
-            if (options.allow_backslashes) {
-                std.mem.replaceScalar(u8, filename, '\\', '/');
-            } else {
-                if (std.mem.indexOfScalar(u8, filename, '\\')) |_|
-                    return error.ZipFilenameHasBackslash;
-            }
+            const local_data_file_offset: u64 =
+                @as(u64, self.file_offset) +
+                @as(u64, @sizeOf(LocalFileHeader)) +
+                local_data_header_offset;
+            try stream.seekTo(local_data_file_offset);
 
-            if (isBadFilename(filename))
-                return error.ZipBadFilename;
+            switch (self.compression_method) {
+                .store => {
+                    stream.interface.streamExact64(writer, self.uncompressed_size) catch |err| switch (err) {
+                        error.ReadFailed => return stream.err.?,
+                        error.WriteFailed => return err,
+                        error.EndOfStream => return error.ZipDecompressTruncated,
+                    };
+                },
+                .deflate => {
+                    var flate_buffer: [flate.max_window_len]u8 = undefined;
+                    var decompress: flate.Decompress = .init(&stream.interface, .raw, &flate_buffer);
+                    decompress.reader.streamExact64(writer, self.uncompressed_size) catch |err| switch (err) {
+                        error.ReadFailed => return stream.err.?,
+                        error.WriteFailed => return err,
+                        error.EndOfStream => return error.ZipDecompressTruncated,
+                    };
+                },
+                else => return error.UnsupportedCompressionMethod,
+            }
+            try writer.flush();
+        }
+
+        pub fn extract(
+            self: Entry,
+            stream: *File.Reader,
+            options: ExtractOptions,
+            filename_buf: []u8,
+            dest: std.fs.Dir,
+        ) !void {
+            const filename = try self.get_name(stream, options.allow_backslashes, filename_buf);
 
             // All entries that end in '/' are directories
             if (filename[filename.len - 1] == '/') {
-                if (self.uncompressed_size != 0)
-                    return error.ZipBadDirectorySize;
                 try dest.makePath(filename[0 .. filename.len - 1]);
                 return;
             }
@@ -567,33 +602,7 @@ pub const Iterator = struct {
             defer out_file.close();
             var out_file_buffer: [1024]u8 = undefined;
             var file_writer = out_file.writer(&out_file_buffer);
-            const local_data_file_offset: u64 =
-                @as(u64, self.file_offset) +
-                @as(u64, @sizeOf(LocalFileHeader)) +
-                local_data_header_offset;
-            try stream.seekTo(local_data_file_offset);
-
-            // TODO limit based on self.compressed_size
-
-            switch (self.compression_method) {
-                .store => {
-                    stream.interface.streamExact64(&file_writer.interface, self.uncompressed_size) catch |err| switch (err) {
-                        error.ReadFailed => return stream.err.?,
-                        error.WriteFailed => return file_writer.err.?,
-                        error.EndOfStream => return error.ZipDecompressTruncated,
-                    };
-                },
-                .deflate => {
-                    var flate_buffer: [flate.max_window_len]u8 = undefined;
-                    var decompress: flate.Decompress = .init(&stream.interface, .raw, &flate_buffer);
-                    decompress.reader.streamExact64(&file_writer.interface, self.uncompressed_size) catch |err| switch (err) {
-                        error.ReadFailed => return stream.err.?,
-                        error.WriteFailed => return file_writer.err orelse decompress.err.?,
-                        error.EndOfStream => return error.ZipDecompressTruncated,
-                    };
-                },
-                else => return error.UnsupportedCompressionMethod,
-            }
+            try self.extract_to(stream, &file_writer.interface);
             try file_writer.end();
         }
     };
