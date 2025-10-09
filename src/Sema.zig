@@ -26050,7 +26050,7 @@ fn zirDepositExtractBits(
             const msg = sema.err orelse return err;
             const val = (try sema.resolveValue(uncasted_lhs)).?;
             if (val.orderAgainstZero(zcu) == .lt) {
-                try sema.errNote(src, msg, "parameters to {s} must be positive", .{builtin_name});
+                try sema.errNote(src, msg, "parameters to {s} must be non-negative", .{builtin_name});
             }
             return err;
         },
@@ -26062,7 +26062,7 @@ fn zirDepositExtractBits(
             const msg = sema.err orelse return err;
             const val = (try sema.resolveValue(uncasted_rhs)).?;
             if (val.orderAgainstZero(zcu) == .lt) {
-                try sema.errNote(src, msg, "parameters to {s} must be positive", .{builtin_name});
+                try sema.errNote(src, msg, "parameters to {s} must be non-negative", .{builtin_name});
             }
             return err;
         },
@@ -26078,7 +26078,7 @@ fn zirDepositExtractBits(
         if (maybe_lhs_val) |lhs_val| {
             if (!lhs_val.isUndef(zcu) and lhs_val.orderAgainstZero(zcu) == .lt) {
                 const err = try sema.errMsg(lhs_src, "use of negative value '{f}'", .{lhs_val.fmtValue(pt)});
-                try sema.errNote(src, err, "parameters to {s} must be positive", .{builtin_name});
+                try sema.errNote(src, err, "parameters to {s} must be non-negative", .{builtin_name});
                 return sema.failWithOwnedErrorMsg(block, err);
             }
         }
@@ -26086,7 +26086,7 @@ fn zirDepositExtractBits(
         if (maybe_rhs_val) |rhs_val| {
             if (!rhs_val.isUndef(zcu) and rhs_val.orderAgainstZero(zcu) == .lt) {
                 const err = try sema.errMsg(rhs_src, "use of negative value '{f}'", .{rhs_val.fmtValue(pt)});
-                try sema.errNote(src, err, "parameters to {s} must be positive", .{builtin_name});
+                try sema.errNote(src, err, "parameters to {s} must be non-negative", .{builtin_name});
                 return sema.failWithOwnedErrorMsg(block, err);
             }
         }
