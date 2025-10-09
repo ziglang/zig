@@ -1864,9 +1864,6 @@ pub const Mutable = struct {
         assert(source.positive or source.eqlZero());
         assert(mask.positive or mask.eqlZero());
 
-        result.positive = true;
-        @memset(result.limbs, 0);
-
         var shift: usize = 0;
         for (mask.limbs, 0..) |mask_limb, i| {
             const shift_bits: Log2Limb = @intCast(shift % limb_bits);
@@ -1874,21 +1871,18 @@ pub const Mutable = struct {
 
             if (shift_limbs >= source.limbs.len) break;
 
-            const result_limb = &result.limbs[i];
-
             var source_limb = source.limbs[shift_limbs] >> shift_bits;
             if (shift_bits != 0 and shift_limbs + 1 < source.limbs.len) {
                 source_limb |= source.limbs[shift_limbs + 1] << @intCast(limb_bits - shift_bits);
             }
 
-            const pdep_limb = @depositBits(source_limb, mask_limb);
-
-            result_limb.* |= pdep_limb;
+            result.limbs[i] = @depositBits(source_limb, mask_limb);
 
             shift += @popCount(mask_limb);
         }
 
-        result.normalize(result.limbs.len);
+        result.positive = true;
+        result.normalize(mask.limbs.len);
     }
 
     /// result = @extractBits(source, mask)
@@ -1901,25 +1895,43 @@ pub const Mutable = struct {
         assert(mask.positive or mask.eqlZero());
 
         result.positive = true;
-        @memset(result.limbs, 0);
 
         const len = @min(source.limbs.len, mask.limbs.len);
 
         var shift: usize = 0;
+        var result_limb: Limb = 0;
         for (source.limbs[0..len], mask.limbs[0..len]) |source_limb, mask_limb| {
             const pext_limb = @extractBits(source_limb, mask_limb);
             const shift_bits: Log2Limb = @intCast(shift % limb_bits);
             const shift_limbs = shift / limb_bits;
-            result.limbs[shift_limbs] |= pext_limb << shift_bits;
 
-            if (shift_bits != 0) {
-                result.limbs[shift_limbs + 1] |= pext_limb >> @intCast(limb_bits - shift_bits);
-            }
+            result_limb |= pext_limb << shift_bits;
 
             shift += @popCount(mask_limb);
+            const new_shift_bits: Log2Limb = @intCast(shift % limb_bits);
+            const new_shift_limbs = shift / limb_bits;
+
+            // checking if we're onto the next result limb
+            if (new_shift_limbs > shift_limbs) {
+                result.limbs[shift_limbs] = result_limb;
+                result_limb = 0;
+
+                // checking if we actually need to write any bits here
+                if (new_shift_bits != 0) {
+                    result_limb |= pext_limb >> @intCast(limb_bits - shift_bits);
+                }
+
+            }
         }
 
-        result.normalize(result.limbs.len);
+        if (shift % limb_bits != 0) {
+            result.limbs[shift / limb_bits] = result_limb;
+        }
+
+        const limb_count = math.divCeil(usize, shift, limb_bits) catch unreachable;
+        if (limb_count == 0) result.limbs[0] = 0; // if mask is zero, we must still zero the first limb
+
+        result.normalize(limb_count);
     }
 
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
