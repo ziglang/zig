@@ -123,16 +123,16 @@ pub fn __pext_bigint(r: [*]Limb, s: [*]const Limb, m: [*]const Limb, bits: usize
 }
 
 inline fn pdep_uX(comptime T: type, source: T, mask_: T) T {
-    var bb: T = 1;
+    var current_bit: T = 1;
     var result: T = 0;
     var mask = mask_;
 
     while (mask != 0) {
         const bit = mask & ~(mask - 1);
-        mask &= ~bit;
-        const source_bit = source & bb;
+        mask &= mask - 1;
+        const source_bit = source & current_bit;
         if (source_bit != 0) result |= bit;
-        bb += bb;
+        current_bit <<= 1;
     }
 
     return result;
@@ -151,16 +151,16 @@ pub fn __pdep_u128(source: u128, mask: u128) callconv(.c) u128 {
 }
 
 inline fn pext_uX(comptime T: type, source: T, mask_: T) T {
-    var bb: T = 1;
+    var current_bit: T = 1;
     var result: T = 0;
     var mask = mask_;
 
     while (mask != 0) {
         const bit = mask & ~(mask - 1);
-        mask &= ~bit;
+        mask &= mask - 1;
         const source_bit = source & bit;
-        if (source_bit != 0) result |= bb;
-        bb += bb;
+        if (source_bit != 0) result |= current_bit;
+        current_bit <<= 1;
     }
 
     return result;
