@@ -82,6 +82,7 @@ pub const SelfInfoError = error{
     /// The required debug info could not be read from disk due to some IO error.
     ReadFailed,
     OutOfMemory,
+    Canceled,
     Unexpected,
 };
 
@@ -691,6 +692,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Wri
                 error.UnsupportedDebugInfo => "unwind info unsupported",
                 error.ReadFailed => "filesystem error",
                 error.OutOfMemory => "out of memory",
+                error.Canceled => "operation canceled",
                 error.Unexpected => "unexpected error",
             };
             if (it.stratOk(options.allow_unsafe_unwind)) {
@@ -1079,7 +1081,7 @@ fn printSourceAtAddress(gpa: Allocator, debug_info: *SelfInfo, writer: *Writer, 
         error.UnsupportedDebugInfo,
         error.InvalidDebugInfo,
         => .unknown,
-        error.ReadFailed, error.Unexpected => s: {
+        error.ReadFailed, error.Unexpected, error.Canceled => s: {
             tty_config.setColor(writer, .dim) catch {};
             try writer.print("Failed to read debug info from filesystem, trace may be incomplete\n\n", .{});
             tty_config.setColor(writer, .reset) catch {};

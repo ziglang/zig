@@ -47,90 +47,14 @@ pub const Stat = struct {
     kind: Kind,
 
     /// Last access time in nanoseconds, relative to UTC 1970-01-01.
+    /// TODO change this to Io.Timestamp except don't waste storage on clock
     atime: i128,
     /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
+    /// TODO change this to Io.Timestamp except don't waste storage on clock
     mtime: i128,
     /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
+    /// TODO change this to Io.Timestamp except don't waste storage on clock
     ctime: i128,
-
-    pub fn fromPosix(st: std.posix.Stat) Stat {
-        const atime = st.atime();
-        const mtime = st.mtime();
-        const ctime = st.ctime();
-        return .{
-            .inode = st.ino,
-            .size = @bitCast(st.size),
-            .mode = st.mode,
-            .kind = k: {
-                const m = st.mode & std.posix.S.IFMT;
-                switch (m) {
-                    std.posix.S.IFBLK => break :k .block_device,
-                    std.posix.S.IFCHR => break :k .character_device,
-                    std.posix.S.IFDIR => break :k .directory,
-                    std.posix.S.IFIFO => break :k .named_pipe,
-                    std.posix.S.IFLNK => break :k .sym_link,
-                    std.posix.S.IFREG => break :k .file,
-                    std.posix.S.IFSOCK => break :k .unix_domain_socket,
-                    else => {},
-                }
-                if (builtin.os.tag == .illumos) switch (m) {
-                    std.posix.S.IFDOOR => break :k .door,
-                    std.posix.S.IFPORT => break :k .event_port,
-                    else => {},
-                };
-
-                break :k .unknown;
-            },
-            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
-        };
-    }
-
-    pub fn fromLinux(stx: std.os.linux.Statx) Stat {
-        const atime = stx.atime;
-        const mtime = stx.mtime;
-        const ctime = stx.ctime;
-
-        return .{
-            .inode = stx.ino,
-            .size = stx.size,
-            .mode = stx.mode,
-            .kind = switch (stx.mode & std.os.linux.S.IFMT) {
-                std.os.linux.S.IFDIR => .directory,
-                std.os.linux.S.IFCHR => .character_device,
-                std.os.linux.S.IFBLK => .block_device,
-                std.os.linux.S.IFREG => .file,
-                std.os.linux.S.IFIFO => .named_pipe,
-                std.os.linux.S.IFLNK => .sym_link,
-                std.os.linux.S.IFSOCK => .unix_domain_socket,
-                else => .unknown,
-            },
-            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
-        };
-    }
-
-    pub fn fromWasi(st: std.os.wasi.filestat_t) Stat {
-        return .{
-            .inode = st.ino,
-            .size = @bitCast(st.size),
-            .mode = 0,
-            .kind = switch (st.filetype) {
-                .BLOCK_DEVICE => .block_device,
-                .CHARACTER_DEVICE => .character_device,
-                .DIRECTORY => .directory,
-                .SYMBOLIC_LINK => .sym_link,
-                .REGULAR_FILE => .file,
-                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
-                else => .unknown,
-            },
-            .atime = st.atim,
-            .mtime = st.mtim,
-            .ctime = st.ctim,
-        };
-    }
 };
 
 pub fn stdout() File {
@@ -145,13 +69,17 @@ pub fn stdin() File {
     return .{ .handle = if (is_windows) std.os.windows.peb().ProcessParameters.hStdInput else std.posix.STDIN_FILENO };
 }
 
-pub const StatError = std.posix.FStatError || Io.Cancelable;
+pub const StatError = error{
+    SystemResources,
+    /// In WASI, this error may occur when the file descriptor does
+    /// not hold the required rights to get its filestat information.
+    AccessDenied,
+    PermissionDenied,
+} || Io.Cancelable || Io.UnexpectedError;
 
 /// Returns `Stat` containing basic information about the `File`.
 pub fn stat(file: File, io: Io) StatError!Stat {
-    _ = file;
-    _ = io;
-    @panic("TODO");
+    return io.vtable.fileStat(io.userdata, file);
 }
 
 pub const OpenFlags = std.fs.File.OpenFlags;

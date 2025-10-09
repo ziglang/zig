@@ -163,7 +163,12 @@ pub fn io(pool: *Pool) Io {
             .dirMake = dirMake,
             .dirStat = dirStat,
             .dirStatPath = dirStatPath,
-            .fileStat = fileStat,
+            .fileStat = switch (builtin.os.tag) {
+                .linux => fileStatLinux,
+                .windows => fileStatWindows,
+                .wasi => fileStatWasi,
+                else => fileStatPosix,
+            },
             .createFile = createFile,
             .fileOpen = fileOpen,
             .fileClose = fileClose,
@@ -781,12 +786,78 @@ fn dirStatPath(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8) Io.Dir.
     @panic("TODO");
 }
 
-fn fileStat(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
+fn fileStatPosix(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const fstat_sym = if (posix.lfs64_abi) posix.system.fstat64 else posix.system.fstat;
+    while (true) {
+        try pool.checkCancel();
+        var stat = std.mem.zeroes(posix.Stat);
+        switch (posix.errno(fstat_sym(file.handle, &stat))) {
+            .SUCCESS => return statFromPosix(&stat),
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err),
+            .NOMEM => return error.SystemResources,
+            .ACCES => return error.AccessDenied,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const linux = std.os.linux;
+    while (true) {
+        try pool.checkCancel();
+        var statx = std.mem.zeroes(linux.Statx);
+        const rc = linux.statx(
+            file.handle,
+            "",
+            linux.AT.EMPTY_PATH,
+            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            &statx,
+        );
+        switch (linux.E.init(rc)) {
+            .SUCCESS => return statFromLinux(&statx),
+            .INTR => continue,
+            .ACCES => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => |err| return errnoBug(err),
+            .LOOP => |err| return errnoBug(err),
+            .NAMETOOLONG => |err| return errnoBug(err),
+            .NOENT => |err| return errnoBug(err),
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => |err| return errnoBug(err),
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn fileStatWindows(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
-
     _ = file;
     @panic("TODO");
+}
+
+fn fileStatWasi(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
+    if (builtin.link_libc) return fileStatPosix(userdata, file);
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    while (true) {
+        try pool.checkCancel();
+        var stat: std.os.wasi.filestat_t = undefined;
+        switch (std.os.wasi.fd_filestat_get(file.handle, &stat)) {
+            .SUCCESS => return statFromWasi(&stat),
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err),
+            .NOMEM => return error.SystemResources,
+            .ACCES => return error.AccessDenied,
+            .NOTCAPABLE => return error.AccessDenied,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn createFile(
@@ -2112,5 +2183,83 @@ fn clockToWasi(clock: Io.Timestamp.Clock) std.os.wasi.clockid_t {
         .boot => .MONOTONIC,
         .cpu_process => .PROCESS_CPUTIME_ID,
         .cpu_thread => .THREAD_CPUTIME_ID,
+    };
+}
+
+fn statFromLinux(stx: *const std.os.linux.Statx) Io.File.Stat {
+    const atime = stx.atime;
+    const mtime = stx.mtime;
+    const ctime = stx.ctime;
+    return .{
+        .inode = stx.ino,
+        .size = stx.size,
+        .mode = stx.mode,
+        .kind = switch (stx.mode & std.os.linux.S.IFMT) {
+            std.os.linux.S.IFDIR => .directory,
+            std.os.linux.S.IFCHR => .character_device,
+            std.os.linux.S.IFBLK => .block_device,
+            std.os.linux.S.IFREG => .file,
+            std.os.linux.S.IFIFO => .named_pipe,
+            std.os.linux.S.IFLNK => .sym_link,
+            std.os.linux.S.IFSOCK => .unix_domain_socket,
+            else => .unknown,
+        },
+        .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
+        .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
+        .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
+    };
+}
+
+fn statFromPosix(st: *const std.posix.Stat) Io.File.Stat {
+    const atime = st.atime();
+    const mtime = st.mtime();
+    const ctime = st.ctime();
+    return .{
+        .inode = st.ino,
+        .size = @bitCast(st.size),
+        .mode = st.mode,
+        .kind = k: {
+            const m = st.mode & std.posix.S.IFMT;
+            switch (m) {
+                std.posix.S.IFBLK => break :k .block_device,
+                std.posix.S.IFCHR => break :k .character_device,
+                std.posix.S.IFDIR => break :k .directory,
+                std.posix.S.IFIFO => break :k .named_pipe,
+                std.posix.S.IFLNK => break :k .sym_link,
+                std.posix.S.IFREG => break :k .file,
+                std.posix.S.IFSOCK => break :k .unix_domain_socket,
+                else => {},
+            }
+            if (builtin.os.tag == .illumos) switch (m) {
+                std.posix.S.IFDOOR => break :k .door,
+                std.posix.S.IFPORT => break :k .event_port,
+                else => {},
+            };
+
+            break :k .unknown;
+        },
+        .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
+        .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
+        .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
+    };
+}
+
+fn statFromWasi(st: *const std.os.wasi.filestat_t) Io.File.Stat {
+    return .{
+        .inode = st.ino,
+        .size = @bitCast(st.size),
+        .mode = 0,
+        .kind = switch (st.filetype) {
+            .BLOCK_DEVICE => .block_device,
+            .CHARACTER_DEVICE => .character_device,
+            .DIRECTORY => .directory,
+            .SYMBOLIC_LINK => .sym_link,
+            .REGULAR_FILE => .file,
+            .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+            else => .unknown,
+        },
+        .atime = st.atim,
+        .mtime = st.mtim,
+        .ctime = st.ctim,
     };
 }

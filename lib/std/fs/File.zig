@@ -1,10 +1,12 @@
+const File = @This();
+
 const builtin = @import("builtin");
-const Os = std.builtin.Os;
 const native_os = builtin.os.tag;
 const is_windows = native_os == .windows;
 
-const File = @This();
 const std = @import("../std.zig");
+const Io = std.Io;
+const Os = std.builtin.Os;
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const math = std.math;
@@ -17,12 +19,12 @@ const Alignment = std.mem.Alignment;
 /// The OS-specific file descriptor or file handle.
 handle: Handle,
 
-pub const Handle = std.Io.File.Handle;
-pub const Mode = std.Io.File.Mode;
-pub const INode = std.Io.File.INode;
+pub const Handle = Io.File.Handle;
+pub const Mode = Io.File.Mode;
+pub const INode = Io.File.INode;
 pub const Uid = posix.uid_t;
 pub const Gid = posix.gid_t;
-pub const Kind = std.Io.File.Kind;
+pub const Kind = Io.File.Kind;
 
 /// This is the default mode given to POSIX operating systems for creating
 /// files. `0o666` is "-rw-rw-rw-" which is counter-intuitive at first,
@@ -386,7 +388,7 @@ pub fn mode(self: File) ModeError!Mode {
     return (try self.stat()).mode;
 }
 
-pub const Stat = std.Io.File.Stat;
+pub const Stat = Io.File.Stat;
 
 pub const StatError = posix.FStatError;
 
@@ -436,39 +438,9 @@ pub fn stat(self: File) StatError!Stat {
         };
     }
 
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const st = try std.os.fstat_wasi(self.handle);
-        return Stat.fromWasi(st);
-    }
-
-    if (builtin.os.tag == .linux) {
-        var stx = std.mem.zeroes(linux.Statx);
-
-        const rc = linux.statx(
-            self.handle,
-            "",
-            linux.AT.EMPTY_PATH,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
-            &stx,
-        );
-
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
-            .ACCES => unreachable,
-            .BADF => unreachable,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .LOOP => unreachable,
-            .NAMETOOLONG => unreachable,
-            .NOENT => unreachable,
-            .NOMEM => error.SystemResources,
-            .NOTDIR => unreachable,
-            else => |err| posix.unexpectedErrno(err),
-        };
-    }
-
-    const st = try posix.fstat(self.handle);
-    return Stat.fromPosix(st);
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return Io.File.stat(.{ .handle = self.handle }, io);
 }
 
 pub const ChmodError = posix.FChmodError;
@@ -785,8 +757,8 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
     return posix.pwritev(self.handle, iovecs, offset);
 }
 
-/// Deprecated in favor of `std.Io.File.Reader`.
-pub const Reader = std.Io.File.Reader;
+/// Deprecated in favor of `Io.File.Reader`.
+pub const Reader = Io.File.Reader;
 
 pub const Writer = struct {
     file: File,
@@ -799,7 +771,7 @@ pub const Writer = struct {
     copy_file_range_err: ?CopyFileRangeError = null,
     fcopyfile_err: ?FcopyfileError = null,
     seek_err: ?Writer.SeekError = null,
-    interface: std.Io.Writer,
+    interface: Io.Writer,
 
     pub const Mode = Reader.Mode;
 
@@ -845,13 +817,13 @@ pub const Writer = struct {
         };
     }
 
-    pub fn initInterface(buffer: []u8) std.Io.Writer {
+    pub fn initInterface(buffer: []u8) Io.Writer {
         return .{
             .vtable = &.{
                 .drain = drain,
                 .sendFile = switch (builtin.zig_backend) {
                     else => sendFile,
-                    .stage2_aarch64 => std.Io.Writer.unimplementedSendFile,
+                    .stage2_aarch64 => Io.Writer.unimplementedSendFile,
                 },
             },
             .buffer = buffer,
@@ -859,7 +831,7 @@ pub const Writer = struct {
     }
 
     /// TODO when this logic moves from fs.File to Io.File the io parameter should be deleted
-    pub fn moveToReader(w: *Writer, io: std.Io) Reader {
+    pub fn moveToReader(w: *Writer, io: Io) Reader {
         defer w.* = undefined;
         return .{
             .io = io,
@@ -871,7 +843,7 @@ pub const Writer = struct {
         };
     }
 
-    pub fn drain(io_w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+    pub fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
         const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const handle = w.file.handle;
         const buffered = io_w.buffered();
@@ -1021,10 +993,10 @@ pub const Writer = struct {
     }
 
     pub fn sendFile(
-        io_w: *std.Io.Writer,
-        file_reader: *std.Io.File.Reader,
-        limit: std.Io.Limit,
-    ) std.Io.Writer.FileError!usize {
+        io_w: *Io.Writer,
+        file_reader: *Io.File.Reader,
+        limit: Io.Limit,
+    ) Io.Writer.FileError!usize {
         const reader_buffered = file_reader.interface.buffered();
         if (reader_buffered.len >= @intFromEnum(limit))
             return sendFileBuffered(io_w, file_reader, limit.slice(reader_buffered));
@@ -1288,16 +1260,16 @@ pub const Writer = struct {
     }
 
     fn sendFileBuffered(
-        io_w: *std.Io.Writer,
-        file_reader: *std.Io.File.Reader,
+        io_w: *Io.Writer,
+        file_reader: *Io.File.Reader,
         reader_buffered: []const u8,
-    ) std.Io.Writer.FileError!usize {
+    ) Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
         file_reader.seekBy(@intCast(n)) catch return error.ReadFailed;
         return n;
     }
 
-    pub fn seekTo(w: *Writer, offset: u64) (Writer.SeekError || std.Io.Writer.Error)!void {
+    pub fn seekTo(w: *Writer, offset: u64) (Writer.SeekError || Io.Writer.Error)!void {
         try w.interface.flush();
         try seekToUnbuffered(w, offset);
     }
@@ -1321,7 +1293,7 @@ pub const Writer = struct {
         }
     }
 
-    pub const EndError = SetEndPosError || std.Io.Writer.Error;
+    pub const EndError = SetEndPosError || Io.Writer.Error;
 
     /// Flushes any buffered data and sets the end position of the file.
     ///
@@ -1352,14 +1324,14 @@ pub const Writer = struct {
 ///
 /// Positional is more threadsafe, since the global seek position is not
 /// affected.
-pub fn reader(file: File, io: std.Io, buffer: []u8) Reader {
+pub fn reader(file: File, io: Io, buffer: []u8) Reader {
     return .init(.{ .handle = file.handle }, io, buffer);
 }
 
 /// Positional is more threadsafe, since the global seek position is not
 /// affected, but when such syscalls are not available, preemptively
 /// initializing in streaming mode skips a failed syscall.
-pub fn readerStreaming(file: File, io: std.Io, buffer: []u8) Reader {
+pub fn readerStreaming(file: File, io: Io, buffer: []u8) Reader {
     return .initStreaming(.{ .handle = file.handle }, io, buffer);
 }
 
@@ -1541,10 +1513,10 @@ pub fn downgradeLock(file: File) LockError!void {
     }
 }
 
-pub fn adaptToNewApi(file: File) std.Io.File {
+pub fn adaptToNewApi(file: File) Io.File {
     return .{ .handle = file.handle };
 }
 
-pub fn adaptFromNewApi(file: std.Io.File) File {
+pub fn adaptFromNewApi(file: Io.File) File {
     return .{ .handle = file.handle };
 }
