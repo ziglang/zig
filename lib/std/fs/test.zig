@@ -1460,6 +1460,8 @@ test "access file" {
 }
 
 test "sendfile" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1470,21 +1472,14 @@ test "sendfile" {
 
     const line1 = "line1\n";
     const line2 = "second line\n";
-    var vecs = [_]posix.iovec_const{
-        .{
-            .base = line1,
-            .len = line1.len,
-        },
-        .{
-            .base = line2,
-            .len = line2.len,
-        },
-    };
+    var vecs = [_][]const u8{ line1, line2 };
 
     var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
     defer src_file.close();
-
-    try src_file.writevAll(&vecs);
+    {
+        var fw = src_file.writer(&.{});
+        try fw.interface.writeVecAll(&vecs);
+    }
 
     var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
     defer dest_file.close();
@@ -1497,7 +1492,7 @@ test "sendfile" {
     var trailers: [2][]const u8 = .{ trailer1, trailer2 };
 
     var written_buf: [100]u8 = undefined;
-    var file_reader = src_file.reader(&.{});
+    var file_reader = src_file.reader(io, &.{});
     var fallback_buffer: [50]u8 = undefined;
     var file_writer = dest_file.writer(&fallback_buffer);
     try file_writer.interface.writeVecAll(&headers);
@@ -1505,11 +1500,15 @@ test "sendfile" {
     try testing.expectEqual(10, try file_writer.interface.sendFileAll(&file_reader, .limited(10)));
     try file_writer.interface.writeVecAll(&trailers);
     try file_writer.interface.flush();
-    const amt = try dest_file.preadAll(&written_buf, 0);
+    var fr = file_writer.moveToReader(io);
+    try fr.seekTo(0);
+    const amt = try fr.interface.readSliceShort(&written_buf);
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
 
 test "sendfile with buffered data" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1527,7 +1526,7 @@ test "sendfile with buffered data" {
     defer dest_file.close();
 
     var src_buffer: [32]u8 = undefined;
-    var file_reader = src_file.reader(&src_buffer);
+    var file_reader = src_file.reader(io, &src_buffer);
 
     try file_reader.seekTo(0);
     try file_reader.interface.fill(8);
@@ -1538,7 +1537,9 @@ test "sendfile with buffered data" {
     try std.testing.expectEqual(4, try file_writer.interface.sendFileAll(&file_reader, .limited(4)));
 
     var written_buf: [8]u8 = undefined;
-    const amt = try dest_file.preadAll(&written_buf, 0);
+    var fr = file_writer.moveToReader(io);
+    try fr.seekTo(0);
+    const amt = try fr.interface.readSliceShort(&written_buf);
 
     try std.testing.expectEqual(4, amt);
     try std.testing.expectEqualSlices(u8, "AAAA", written_buf[0..amt]);
@@ -2250,6 +2251,8 @@ test "seekTo flushes buffered data" {
 }
 
 test "File.Writer sendfile with buffered contents" {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2261,7 +2264,7 @@ test "File.Writer sendfile with buffered contents" {
         defer out.close();
 
         var in_buf: [2]u8 = undefined;
-        var in_r = in.reader(&in_buf);
+        var in_r = in.reader(io, &in_buf);
         _ = try in_r.getSize(); // Catch seeks past end by populating size
         try in_r.interface.fill(2);
 
@@ -2275,7 +2278,7 @@ test "File.Writer sendfile with buffered contents" {
     var check = try tmp_dir.dir.openFile("b", .{});
     defer check.close();
     var check_buf: [4]u8 = undefined;
-    var check_r = check.reader(&check_buf);
+    var check_r = check.reader(io, &check_buf);
     try testing.expectEqualStrings("abcd", try check_r.interface.take(4));
     try testing.expectError(error.EndOfStream, check_r.interface.takeByte());
 }

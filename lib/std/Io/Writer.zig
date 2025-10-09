@@ -2873,6 +2873,8 @@ test "allocating sendFile" {
 }
 
 test sendFileReading {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2883,7 +2885,7 @@ test sendFileReading {
     try file_writer.interface.writeAll("abcd");
     try file_writer.interface.flush();
 
-    var file_reader = file_writer.moveToReader();
+    var file_reader = file_writer.moveToReader(io);
     try file_reader.seekTo(0);
     try file_reader.interface.fill(2);
 
