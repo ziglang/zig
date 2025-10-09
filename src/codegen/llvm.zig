@@ -11206,15 +11206,13 @@ pub const FuncGen = struct {
         const mask = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
 
-        const target = pt.zcu.getTarget();
-
         const llvm_ty = try o.lowerType(pt, inst_ty);
         const bits: u16 = @intCast(llvm_ty.scalarBits(&o.builder));
 
-        switch (target.cpu.arch) {
+        switch (o.target.cpu.arch) {
             .x86, .x86_64 => |arch| blk: {
                 // Doesn't have pdep
-                if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
+                if (!std.Target.x86.featureSetHas(o.target.cpu.features, .bmi2)) break :blk;
 
                 const supports_64 = arch == .x86_64;
                 // Integer size doesn't match the available instruction(s)
@@ -11254,13 +11252,6 @@ pub const FuncGen = struct {
             else => {},
         }
 
-        return try self.genDepositExtractBitsEmulated(tag, bits, source, mask, llvm_ty);
-    }
-
-    fn genDepositExtractBitsEmulated(self: *FuncGen, tag: Air.Inst.Tag, bits: u16, source: Builder.Value, mask: Builder.Value, ty: Builder.Type) !Builder.Value {
-        const o = self.ng.object;
-        const pt = self.ng.pt;
-
         if (bits <= 128) {
             const rt_int_bits = compilerRtIntBits(bits);
             const needs_extend = bits != rt_int_bits;
@@ -11299,14 +11290,14 @@ pub const FuncGen = struct {
             );
 
             if (param_ty != rt_int_ty) result = try self.wip.cast(.bitcast, result, rt_int_ty, "");
-            if (needs_extend) result = try self.wip.cast(.trunc, result, ty, "");
+            if (needs_extend) result = try self.wip.cast(.trunc, result, llvm_ty, "");
             return result;
         }
 
         // Rounded bits to the nearest 32, as limb size is 32.
         const extended_bits = (((bits - 1) / 32) + 1) * 32;
         const needs_extend = bits != extended_bits;
-        const extended_ty = if (needs_extend) try o.builder.intType(extended_bits) else ty;
+        const extended_ty = if (needs_extend) try o.builder.intType(extended_bits) else llvm_ty;
 
         const source_extended = if (needs_extend) try self.wip.cast(.zext, source, extended_ty, "") else source;
         const mask_extended = if (needs_extend) try self.wip.cast(.zext, mask, extended_ty, "") else mask;
@@ -11353,7 +11344,7 @@ pub const FuncGen = struct {
         );
 
         const result = try self.wip.load(.normal, extended_ty, result_pointer, alignment, "");
-        return if (needs_extend) try self.wip.cast(.trunc, result, ty, "") else result;
+        return if (needs_extend) try self.wip.cast(.trunc, result, llvm_ty, "") else result;
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
