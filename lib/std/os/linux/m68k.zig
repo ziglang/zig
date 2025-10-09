@@ -234,6 +234,3 @@ pub const Elf_Symndx = u32;
 
 // No VDSO used as of glibc 112a0ae18b831bf31f44d81b82666980312511d6.
 pub const VDSO = void;
-
-/// TODO
-pub const ucontext_t = void;

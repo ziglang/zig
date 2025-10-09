@@ -241,23 +241,4 @@ pub const timezone = extern struct {
     dsttime: i32,
 };
 
-pub const mcontext_t = extern struct {
-    fault_address: usize,
-    regs: [31]usize,
-    sp: usize,
-    pc: usize,
-    pstate: usize,
-    // Make sure the field is correctly aligned since this area
-    // holds various FP/vector registers
-    reserved1: [256 * 16]u8 align(16),
-};
-
-pub const ucontext_t = extern struct {
-    flags: usize,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-    mcontext: mcontext_t,
-};
-
 pub const Elf_Symndx = u32;

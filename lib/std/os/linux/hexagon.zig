@@ -212,31 +212,3 @@ pub const Stat = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const VDSO = void;
-
-pub const mcontext_t = extern struct {
-    gregs: [32]u32 align(8),
-    sa0: u32,
-    lc0: u32,
-    sa1: u32,
-    lc1: u32,
-    m0: u32,
-    m1: u32,
-    usr: u32,
-    p3_0: u32,
-    gp: u32,
-    ugp: u32,
-    pc: u32,
-    cause: u32,
-    badva: u32,
-    cs0: u32,
-    cs1: u32,
-    _pad1: u32,
-};
-
-pub const ucontext_t = extern struct {
-    flags: u32,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: sigset_t,
-};

@@ -220,38 +220,3 @@ pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_4.15";
 };
-
-pub const f_ext_state = extern struct {
-    f: [32]f32,
-    fcsr: u32,
-};
-
-pub const d_ext_state = extern struct {
-    f: [32]f64,
-    fcsr: u32,
-};
-
-pub const q_ext_state = extern struct {
-    f: [32]f128,
-    fcsr: u32,
-    _reserved: [3]u32,
-};
-
-pub const fpstate = extern union {
-    f: f_ext_state,
-    d: d_ext_state,
-    q: q_ext_state,
-};
-
-pub const mcontext_t = extern struct {
-    gregs: [32]u32,
-    fpregs: fpstate,
-};
-
-pub const ucontext_t = extern struct {
-    flags: c_ulong,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-    mcontext: mcontext_t,
-};

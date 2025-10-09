@@ -400,28 +400,6 @@ pub const timeval = extern struct {
     usec: i32,
 };
 
-pub const REG = struct {
-    pub const GS = 0;
-    pub const FS = 1;
-    pub const ES = 2;
-    pub const DS = 3;
-    pub const EDI = 4;
-    pub const ESI = 5;
-    pub const EBP = 6;
-    pub const ESP = 7;
-    pub const EBX = 8;
-    pub const EDX = 9;
-    pub const ECX = 10;
-    pub const EAX = 11;
-    pub const TRAPNO = 12;
-    pub const ERR = 13;
-    pub const EIP = 14;
-    pub const CS = 15;
-    pub const EFL = 16;
-    pub const UESP = 17;
-    pub const SS = 18;
-};
-
 pub const S = struct {
     pub const IFMT = 0o170000;
 
@@ -813,13 +791,6 @@ pub const dl_phdr_info = extern struct {
     phnum: u16,
 };
 
-pub const mcontext_t = extern struct {
-    gregs: [19]usize,
-    fpregs: [*]u8,
-    oldmask: usize,
-    cr2: usize,
-};
-
 pub const msghdr = std.c.msghdr;
 pub const msghdr_const = std.c.msghdr;
 
@@ -844,15 +815,6 @@ pub const timespec = extern struct {
 pub const timezone = extern struct {
     minuteswest: i32,
     dsttime: i32,
-};
-
-pub const ucontext_t = extern struct {
-    flags: usize,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: sigset_t,
-    regspace: [28]usize,
 };
 
 pub const utsname = extern struct {

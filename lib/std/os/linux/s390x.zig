@@ -235,22 +235,3 @@ pub const VDSO = struct {
     pub const CGT_SYM = "__kernel_clock_gettime";
     pub const CGT_VER = "LINUX_2.6.29";
 };
-
-pub const ucontext_t = extern struct {
-    flags: u64,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-};
-
-pub const mcontext_t = extern struct {
-    psw: extern struct {
-        mask: u64,
-        addr: u64,
-    },
-    gregs: [16]u64,
-    aregs: [16]u32,
-    fpc: u32,
-    fregs: [16]f64,
-};

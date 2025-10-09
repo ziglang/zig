@@ -336,43 +336,4 @@ pub const timezone = extern struct {
     dsttime: i32,
 };
 
-pub const greg_t = u64;
-pub const gregset_t = [48]greg_t;
-pub const fpregset_t = [33]f64;
-
-/// The position of the vscr register depends on endianness.
-/// On C, macros are used to change vscr_word's offset to
-/// account for this. Here we'll just define vscr_word_le
-/// and vscr_word_be. Code must take care to use the correct one.
-pub const vrregset = extern struct {
-    vrregs: [32][4]u32 align(16),
-    vscr_word_le: u32,
-    _pad1: [2]u32,
-    vscr_word_be: u32,
-    vrsave: u32,
-    _pad2: [3]u32,
-};
-pub const vrregset_t = vrregset;
-
-pub const mcontext_t = extern struct {
-    __unused: [4]u64,
-    signal: i32,
-    _pad0: i32,
-    handler: u64,
-    oldmask: u64,
-    regs: ?*anyopaque,
-    gp_regs: gregset_t,
-    fp_regs: fpregset_t,
-    v_regs: *vrregset_t,
-    vmx_reserve: [34 + 34 + 32 + 1]i64,
-};
-
-pub const ucontext_t = extern struct {
-    flags: u32,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-    mcontext: mcontext_t,
-};
-
 pub const Elf_Symndx = u32;

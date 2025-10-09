@@ -277,37 +277,4 @@ pub const timezone = extern struct {
     dsttime: i32,
 };
 
-pub const mcontext_t = extern struct {
-    trap_no: usize,
-    error_code: usize,
-    oldmask: usize,
-    arm_r0: usize,
-    arm_r1: usize,
-    arm_r2: usize,
-    arm_r3: usize,
-    arm_r4: usize,
-    arm_r5: usize,
-    arm_r6: usize,
-    arm_r7: usize,
-    arm_r8: usize,
-    arm_r9: usize,
-    arm_r10: usize,
-    arm_fp: usize,
-    arm_ip: usize,
-    arm_sp: usize,
-    arm_lr: usize,
-    arm_pc: usize,
-    arm_cpsr: usize,
-    fault_address: usize,
-};
-
-pub const ucontext_t = extern struct {
-    flags: usize,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-    regspace: [64]u64,
-};
-
 pub const Elf_Symndx = u32;
