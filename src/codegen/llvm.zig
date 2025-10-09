@@ -11230,31 +11230,27 @@ pub const FuncGen = struct {
                     compiler_rt_bits,
                 }) catch unreachable).?;
 
-                const needs_extend = bits != compiler_rt_bits;
-                const extended_ty = if (needs_extend) try o.builder.intType(compiler_rt_bits) else llvm_ty;
-
-                const params = .{
-                    if (needs_extend) try self.wip.cast(.zext, source, extended_ty, "") else source,
-                    if (needs_extend) try self.wip.cast(.zext, mask, extended_ty, "") else mask,
-                };
+                const extended_ty = try o.builder.intType(compiler_rt_bits);
 
                 const result = try self.wip.callIntrinsic(
                     .normal,
                     .none,
                     intrinsic,
                     &.{},
-                    &params,
+                    &.{
+                        try self.wip.cast(.zext, source, extended_ty, ""),
+                        try self.wip.cast(.zext, mask, extended_ty, ""),
+                    },
                     "",
                 );
 
-                return if (needs_extend) try self.wip.cast(.trunc, result, llvm_ty, "") else result;
+                return try self.wip.cast(.trunc, result, llvm_ty, "");
             },
             else => {},
         }
 
         if (bits <= 128) {
             const rt_int_bits = compilerRtIntBits(bits);
-            const needs_extend = bits != rt_int_bits;
             const rt_int_ty = try o.builder.intType(rt_int_bits);
 
             const fn_name = try o.builder.strtabStringFmt("__{s}_u{d}", .{
@@ -11290,17 +11286,15 @@ pub const FuncGen = struct {
             );
 
             if (param_ty != rt_int_ty) result = try self.wip.cast(.bitcast, result, rt_int_ty, "");
-            if (needs_extend) result = try self.wip.cast(.trunc, result, llvm_ty, "");
-            return result;
+            return try self.wip.cast(.trunc, result, llvm_ty, "");
         }
 
         // Rounded bits to the nearest 32, as limb size is 32.
         const extended_bits = (((bits - 1) / 32) + 1) * 32;
-        const needs_extend = bits != extended_bits;
-        const extended_ty = if (needs_extend) try o.builder.intType(extended_bits) else llvm_ty;
+        const extended_ty = try o.builder.intType(extended_bits);
 
-        const source_extended = if (needs_extend) try self.wip.cast(.zext, source, extended_ty, "") else source;
-        const mask_extended = if (needs_extend) try self.wip.cast(.zext, mask, extended_ty, "") else mask;
+        const source_extended = try self.wip.cast(.zext, source, extended_ty, "");
+        const mask_extended = try self.wip.cast(.zext, mask, extended_ty, "");
         const zeroes_extended = try o.builder.intValue(extended_ty, 0);
 
         const alignment = Type.u32.abiAlignment(pt.zcu).toLlvm();
@@ -11344,7 +11338,7 @@ pub const FuncGen = struct {
         );
 
         const result = try self.wip.load(.normal, extended_ty, result_pointer, alignment, "");
-        return if (needs_extend) try self.wip.cast(.trunc, result, llvm_ty, "") else result;
+        return try self.wip.cast(.trunc, result, llvm_ty, "");
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
