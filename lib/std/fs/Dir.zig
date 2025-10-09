@@ -976,16 +976,22 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
     }
 
     if (has_flock_open_flags and flags.lock_nonblocking) {
-        var fl_flags = posix.fcntl(fd, posix.F.GETFL, 0) catch |err| switch (err) {
+        const backing_int = @typeInfo(posix.O).@"struct".backing_integer.?;
+
+        var fl_flags_int = @as(backing_int, @truncate(posix.fcntl(fd, posix.F.GETFL, 0) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             error.PermissionDenied => unreachable,
             error.DeadLock => unreachable,
             error.LockedRegionLimitExceeded => unreachable,
             else => |e| return e,
-        };
-        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
-        _ = posix.fcntl(fd, posix.F.SETFL, fl_flags) catch |err| switch (err) {
+        }));
+
+        var fl_flags_struct: posix.O = @bitCast(fl_flags_int);
+        fl_flags_struct.NONBLOCK = false;
+        fl_flags_int = @bitCast(fl_flags_struct);
+
+        _ = posix.fcntl(fd, posix.F.SETFL, @as(usize, fl_flags_int)) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             error.PermissionDenied => unreachable,
@@ -1127,16 +1133,21 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
     }
 
     if (has_flock_open_flags and flags.lock_nonblocking) {
-        var fl_flags = posix.fcntl(fd, posix.F.GETFL, 0) catch |err| switch (err) {
+        const backing_int = @typeInfo(posix.O).@"struct".backing_integer.?;
+        var fl_flags_int = @as(backing_int, @truncate(posix.fcntl(fd, posix.F.GETFL, 0) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             error.PermissionDenied => unreachable,
             error.DeadLock => unreachable,
             error.LockedRegionLimitExceeded => unreachable,
             else => |e| return e,
-        };
-        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
-        _ = posix.fcntl(fd, posix.F.SETFL, fl_flags) catch |err| switch (err) {
+        }));
+
+        var fl_flags_struct: posix.O = @bitCast(fl_flags_int);
+        fl_flags_struct.NONBLOCK = false;
+        fl_flags_int = @bitCast(fl_flags_struct);
+
+        _ = posix.fcntl(fd, posix.F.SETFL, @as(usize, fl_flags_int)) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
             error.PermissionDenied => unreachable,
