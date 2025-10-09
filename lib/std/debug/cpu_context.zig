@@ -24,229 +24,92 @@ pub const DwarfRegisterError = error{
 
 pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
     if (signal_ucontext_t == void) return null;
+
+    // In general, we include the hardwired zero register in the context if applicable.
     const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+
+    // Deal with some special cases first.
+    if (native_arch.isMIPS32() and native_os == .linux) {
+        // The O32 kABI uses 64-bit fields for some reason.
+        return .{
+            .r = s: {
+                var regs: [32]Mips.Gpr = undefined;
+                for (uc.mcontext.r, 0..) |r, i| regs[i] = @truncate(r);
+                break :s regs;
+            },
+            .pc = @truncate(uc.mcontext.pc),
+        };
+    }
+
+    // Only unified conversions from here.
     return switch (native_arch) {
-        .x86 => switch (native_os) {
-            .linux, .netbsd, .illumos => .{ .gprs = .init(.{
-                .eax = uc.mcontext.gregs[std.posix.REG.EAX],
-                .ecx = uc.mcontext.gregs[std.posix.REG.ECX],
-                .edx = uc.mcontext.gregs[std.posix.REG.EDX],
-                .ebx = uc.mcontext.gregs[std.posix.REG.EBX],
-                .esp = uc.mcontext.gregs[std.posix.REG.ESP],
-                .ebp = uc.mcontext.gregs[std.posix.REG.EBP],
-                .esi = uc.mcontext.gregs[std.posix.REG.ESI],
-                .edi = uc.mcontext.gregs[std.posix.REG.EDI],
-                .eip = uc.mcontext.gregs[std.posix.REG.EIP],
-            }) },
-            else => null,
+        .arm, .armeb, .thumb, .thumbeb => .{
+            .r = uc.mcontext.r ++ [_]u32{uc.mcontext.pc},
         },
-        .x86_64 => switch (native_os) {
-            .linux, .solaris, .illumos => .{ .gprs = .init(.{
-                .rax = uc.mcontext.gregs[std.posix.REG.RAX],
-                .rdx = uc.mcontext.gregs[std.posix.REG.RDX],
-                .rcx = uc.mcontext.gregs[std.posix.REG.RCX],
-                .rbx = uc.mcontext.gregs[std.posix.REG.RBX],
-                .rsi = uc.mcontext.gregs[std.posix.REG.RSI],
-                .rdi = uc.mcontext.gregs[std.posix.REG.RDI],
-                .rbp = uc.mcontext.gregs[std.posix.REG.RBP],
-                .rsp = uc.mcontext.gregs[std.posix.REG.RSP],
-                .r8 = uc.mcontext.gregs[std.posix.REG.R8],
-                .r9 = uc.mcontext.gregs[std.posix.REG.R9],
-                .r10 = uc.mcontext.gregs[std.posix.REG.R10],
-                .r11 = uc.mcontext.gregs[std.posix.REG.R11],
-                .r12 = uc.mcontext.gregs[std.posix.REG.R12],
-                .r13 = uc.mcontext.gregs[std.posix.REG.R13],
-                .r14 = uc.mcontext.gregs[std.posix.REG.R14],
-                .r15 = uc.mcontext.gregs[std.posix.REG.R15],
-                .rip = uc.mcontext.gregs[std.posix.REG.RIP],
-            }) },
-            .freebsd, .serenity => .{ .gprs = .init(.{
-                .rax = uc.mcontext.rax,
-                .rdx = uc.mcontext.rdx,
-                .rcx = uc.mcontext.rcx,
-                .rbx = uc.mcontext.rbx,
-                .rsi = uc.mcontext.rsi,
-                .rdi = uc.mcontext.rdi,
-                .rbp = uc.mcontext.rbp,
-                .rsp = uc.mcontext.rsp,
-                .r8 = uc.mcontext.r8,
-                .r9 = uc.mcontext.r9,
-                .r10 = uc.mcontext.r10,
-                .r11 = uc.mcontext.r11,
-                .r12 = uc.mcontext.r12,
-                .r13 = uc.mcontext.r13,
-                .r14 = uc.mcontext.r14,
-                .r15 = uc.mcontext.r15,
-                .rip = uc.mcontext.rip,
-            }) },
-            .openbsd => .{ .gprs = .init(.{
-                .rax = @bitCast(uc.sc_rax),
-                .rdx = @bitCast(uc.sc_rdx),
-                .rcx = @bitCast(uc.sc_rcx),
-                .rbx = @bitCast(uc.sc_rbx),
-                .rsi = @bitCast(uc.sc_rsi),
-                .rdi = @bitCast(uc.sc_rdi),
-                .rbp = @bitCast(uc.sc_rbp),
-                .rsp = @bitCast(uc.sc_rsp),
-                .r8 = @bitCast(uc.sc_r8),
-                .r9 = @bitCast(uc.sc_r9),
-                .r10 = @bitCast(uc.sc_r10),
-                .r11 = @bitCast(uc.sc_r11),
-                .r12 = @bitCast(uc.sc_r12),
-                .r13 = @bitCast(uc.sc_r13),
-                .r14 = @bitCast(uc.sc_r14),
-                .r15 = @bitCast(uc.sc_r15),
-                .rip = @bitCast(uc.sc_rip),
-            }) },
-            .driverkit, .macos, .ios => .{ .gprs = .init(.{
-                .rax = uc.mcontext.ss.rax,
-                .rdx = uc.mcontext.ss.rdx,
-                .rcx = uc.mcontext.ss.rcx,
-                .rbx = uc.mcontext.ss.rbx,
-                .rsi = uc.mcontext.ss.rsi,
-                .rdi = uc.mcontext.ss.rdi,
-                .rbp = uc.mcontext.ss.rbp,
-                .rsp = uc.mcontext.ss.rsp,
-                .r8 = uc.mcontext.ss.r8,
-                .r9 = uc.mcontext.ss.r9,
-                .r10 = uc.mcontext.ss.r10,
-                .r11 = uc.mcontext.ss.r11,
-                .r12 = uc.mcontext.ss.r12,
-                .r13 = uc.mcontext.ss.r13,
-                .r14 = uc.mcontext.ss.r14,
-                .r15 = uc.mcontext.ss.r15,
-                .rip = uc.mcontext.ss.rip,
-            }) },
-            else => null,
+        .aarch64, .aarch64_be => .{
+            .x = uc.mcontext.x ++ [_]u64{uc.mcontext.lr},
+            .sp = uc.mcontext.sp,
+            .pc = uc.mcontext.pc,
         },
-        .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
-            .linux => .{
-                .r = .{
-                    uc.mcontext.arm_r0,
-                    uc.mcontext.arm_r1,
-                    uc.mcontext.arm_r2,
-                    uc.mcontext.arm_r3,
-                    uc.mcontext.arm_r4,
-                    uc.mcontext.arm_r5,
-                    uc.mcontext.arm_r6,
-                    uc.mcontext.arm_r7,
-                    uc.mcontext.arm_r8,
-                    uc.mcontext.arm_r9,
-                    uc.mcontext.arm_r10,
-                    uc.mcontext.arm_fp, // r11 = fp
-                    uc.mcontext.arm_ip, // r12 = ip
-                    uc.mcontext.arm_sp, // r13 = sp
-                    uc.mcontext.arm_lr, // r14 = lr
-                    uc.mcontext.arm_pc, // r15 = pc
-                },
-            },
-            else => null,
+        .hexagon, .loongarch32, .loongarch64, .mips, .mipsel, .mips64, .mips64el, .or1k => .{
+            .r = uc.mcontext.r,
+            .pc = uc.mcontext.pc,
         },
-        .aarch64, .aarch64_be => switch (builtin.os.tag) {
-            .driverkit, .macos, .ios, .tvos, .watchos, .visionos => .{
-                .x = uc.mcontext.ss.regs ++ @as([2]u64, .{
-                    uc.mcontext.ss.fp, // x29 = fp
-                    uc.mcontext.ss.lr, // x30 = lr
-                }),
-                .sp = uc.mcontext.ss.sp,
-                .pc = uc.mcontext.ss.pc,
-            },
-            .netbsd => .{
-                .x = uc.mcontext.gregs[0..31].*,
-                .sp = uc.mcontext.gregs[31],
-                .pc = uc.mcontext.gregs[32],
-            },
-            .freebsd => .{
-                .x = uc.mcontext.gpregs.x ++ @as([1]u64, .{
-                    uc.mcontext.gpregs.lr, // x30 = lr
-                }),
-                .sp = uc.mcontext.gpregs.sp,
-                // On aarch64, the register ELR_LR1 defines the address to return to after handling
-                // a CPU exception (ELR is "Exception Link Register"). FreeBSD's ucontext_t uses
-                // this as the field name, but it's the same thing as the context's PC.
-                .pc = uc.mcontext.gpregs.elr,
-            },
-            .openbsd => .{
-                .x = uc.sc_x ++ .{uc.sc_lr},
-                .sp = uc.sc_sp,
-                // Not a bug; see freebsd above for explanation.
-                .pc = uc.sc_elr,
-            },
-            .linux => .{
-                .x = uc.mcontext.regs,
-                .sp = uc.mcontext.sp,
-                .pc = uc.mcontext.pc,
-            },
-            .serenity => .{
-                .x = uc.mcontext.x,
-                .sp = uc.mcontext.sp,
-                .pc = uc.mcontext.pc,
-            },
-            else => null,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => .{
+            .r = uc.mcontext.r,
+            .pc = uc.mcontext.pc,
+            .lr = uc.mcontext.lr,
         },
-        .hexagon => switch (builtin.os.tag) {
-            .linux => .{
-                .r = uc.mcontext.gregs,
-                .pc = uc.mcontext.pc,
-            },
-            else => null,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => .{
+            // You can thank FreeBSD and OpenBSD for this silliness; they decided to be cute and
+            // group the registers by ABI mnemonic rather than register number.
+            .x = [_]Riscv.Gpr{0} ++
+                uc.mcontext.ra_sp_gp_tp ++
+                uc.mcontext.t0_2 ++
+                uc.mcontext.s0_1 ++
+                uc.mcontext.a ++
+                uc.mcontext.s2_11 ++
+                uc.mcontext.t3_6,
+            .pc = uc.mcontext.pc,
         },
-        .loongarch64 => switch (builtin.os.tag) {
-            .linux => .{
-                .r = uc.mcontext.regs, // includes r0 (hardwired zero)
-                .pc = uc.mcontext.pc,
+        .s390x => .{
+            .r = uc.mcontext.r,
+            .psw = .{
+                .mask = uc.mcontext.psw.mask,
+                .addr = uc.mcontext.psw.addr,
             },
-            else => null,
         },
-        .mips, .mipsel => switch (builtin.os.tag) {
-            // The O32 kABI uses 64-bit fields for some reason...
-            .linux => .{
-                .r = s: {
-                    var regs: [32]Mips.Gpr = undefined;
-                    for (uc.mcontext.regs, 0..) |r, i| regs[i] = @truncate(r); // includes r0 (hardwired zero)
-                    break :s regs;
-                },
-                .pc = @truncate(uc.mcontext.pc),
-            },
-            else => null,
-        },
-        .mips64, .mips64el => switch (builtin.os.tag) {
-            .linux => .{
-                .r = uc.mcontext.regs, // includes r0 (hardwired zero)
-                .pc = uc.mcontext.pc,
-            },
-            else => null,
-        },
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (builtin.os.tag) {
-            .linux => .{
-                .r = uc.mcontext.gp_regs[0..32].*,
-                .pc = uc.mcontext.gp_regs[32],
-                .lr = uc.mcontext.gp_regs[36],
-            },
-            else => null,
-        },
-        .riscv32, .riscv64 => switch (builtin.os.tag) {
-            .linux => .{
-                .r = [1]usize{0} ++ uc.mcontext.gregs[1..].*, // r0 position is used for pc; replace with zero
-                .pc = uc.mcontext.gregs[0],
-            },
-            .serenity => if (native_arch == .riscv32) null else .{
-                .r = [1]u64{0} ++ uc.mcontext.x,
-                .pc = uc.mcontext.pc,
-            },
-            else => null,
-        },
-        .s390x => switch (builtin.os.tag) {
-            .linux => .{
-                .r = uc.mcontext.gregs,
-                .psw = .{
-                    .mask = uc.mcontext.psw.mask,
-                    .addr = uc.mcontext.psw.addr,
-                },
-            },
-            else => null,
-        },
-        else => null,
+        .x86 => .{ .gprs = .init(.{
+            .eax = uc.mcontext.eax,
+            .ecx = uc.mcontext.ecx,
+            .edx = uc.mcontext.edx,
+            .ebx = uc.mcontext.ebx,
+            .esp = uc.mcontext.esp,
+            .ebp = uc.mcontext.ebp,
+            .esi = uc.mcontext.esi,
+            .edi = uc.mcontext.edi,
+            .eip = uc.mcontext.eip,
+        }) },
+        .x86_64 => .{ .gprs = .init(.{
+            .rax = uc.mcontext.rax,
+            .rdx = uc.mcontext.rdx,
+            .rcx = uc.mcontext.rcx,
+            .rbx = uc.mcontext.rbx,
+            .rsi = uc.mcontext.rsi,
+            .rdi = uc.mcontext.rdi,
+            .rbp = uc.mcontext.rbp,
+            .rsp = uc.mcontext.rsp,
+            .r8 = uc.mcontext.r8,
+            .r9 = uc.mcontext.r9,
+            .r10 = uc.mcontext.r10,
+            .r11 = uc.mcontext.r11,
+            .r12 = uc.mcontext.r12,
+            .r13 = uc.mcontext.r13,
+            .r14 = uc.mcontext.r14,
+            .r15 = uc.mcontext.r15,
+            .rip = uc.mcontext.rip,
+        }) },
+        else => comptime unreachable,
     };
 }
 
@@ -615,7 +478,7 @@ const LoongArch = extern struct {
     r: [32]Gpr,
     pc: Gpr,
 
-    pub const Gpr = if (builtin.target.cpu.arch == .loongarch64) u64 else u32;
+    pub const Gpr = if (native_arch == .loongarch64) u64 else u32;
 
     pub inline fn current() LoongArch {
         var ctx: LoongArch = undefined;
@@ -717,7 +580,7 @@ const Mips = extern struct {
     r: [32]Gpr,
     pc: Gpr,
 
-    pub const Gpr = if (builtin.target.cpu.arch.isMIPS64()) u64 else u32;
+    pub const Gpr = if (native_arch.isMIPS64()) u64 else u32;
 
     pub inline fn current() Mips {
         var ctx: Mips = undefined;
@@ -840,7 +703,7 @@ const Powerpc = extern struct {
     pc: Gpr,
     lr: Gpr,
 
-    pub const Gpr = if (builtin.target.cpu.arch.isPowerPC64()) u64 else u32;
+    pub const Gpr = if (native_arch.isPowerPC64()) u64 else u32;
 
     pub inline fn current() Powerpc {
         var ctx: Powerpc = undefined;
@@ -992,10 +855,10 @@ const Powerpc = extern struct {
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
 const Riscv = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
-    r: [32]Gpr,
+    x: [32]Gpr,
     pc: Gpr,
 
-    pub const Gpr = if (builtin.target.cpu.arch.isRiscv64()) u64 else u32;
+    pub const Gpr = if (native_arch.isRiscv64()) u64 else u32;
 
     pub inline fn current() Riscv {
         var ctx: Riscv = undefined;
@@ -1081,7 +944,7 @@ const Riscv = extern struct {
 
     pub fn dwarfRegisterBytes(ctx: *Riscv, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
-            0...31 => return @ptrCast(&ctx.r[register_num]),
+            0...31 => return @ptrCast(&ctx.x[register_num]),
             65 => return @ptrCast(&ctx.pc),
 
             32...63 => return error.UnsupportedRegister, // f0 - f31
@@ -1138,61 +1001,199 @@ const S390x = extern struct {
     }
 };
 
+/// The native operating system's `ucontext_t` as seen in the third argument to signal handlers.
+///
+/// These are dramatically simplified since we only need general-purpose registers and don't care
+/// about all the complicated extension state (floating point, vector, etc). This means that these
+/// structures are almost all shorter than the real ones, which is safe because we only access them
+/// through a pointer.
+///
+/// Some effort is made to have structures for the same architecture use the same access pattern,
+/// e.g. `uc.mcontext.x` for `aarch64-linux` and `aarch64-freebsd` even though that's not quite how
+/// they're declared and spelled in the C headers for both targets. Similarly, registers are typed
+/// as unsigned everywhere even if that's not how they're declared in the C headers.
 const signal_ucontext_t = switch (native_os) {
-    .linux => std.os.linux.ucontext_t,
-    .emscripten => std.os.emscripten.ucontext_t,
-    .freebsd => std.os.freebsd.ucontext_t,
-    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        onstack: c_int,
-        sigmask: std.c.sigset_t,
-        stack: std.c.stack_t,
-        link: ?*signal_ucontext_t,
-        mcsize: u64,
-        mcontext: *mcontext_t,
-        const mcontext_t = switch (native_arch) {
-            .aarch64 => extern struct {
-                es: extern struct {
-                    far: u64, // Virtual Fault Address
-                    esr: u32, // Exception syndrome
-                    exception: u32, // Number of arm exception taken
-                },
-                ss: extern struct {
-                    /// General purpose registers
-                    regs: [29]u64,
-                    /// Frame pointer x29
-                    fp: u64,
-                    /// Link register x30
+    .linux => switch (native_arch) {
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm64/include/uapi/asm/ucontext.h
+        .aarch64,
+        .aarch64_be,
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/loongarch/include/uapi/asm/ucontext.h
+        .loongarch64,
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/powerpc/include/uapi/asm/ucontext.h
+        .powerpc64,
+        .powerpc64le,
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/riscv/include/uapi/asm/ucontext.h
+        .riscv32,
+        .riscv64,
+        => extern struct {
+            _flags: usize,
+            _link: ?*signal_ucontext_t,
+            _stack: std.os.linux.stack_t,
+            _sigmask: std.os.linux.sigset_t,
+            _unused: [120]u8,
+            mcontext: switch (native_arch) {
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm64/include/uapi/asm/sigcontext.h
+                .aarch64, .aarch64_be => extern struct {
+                    _fault_address: u64 align(16),
+                    x: [30]u64,
                     lr: u64,
-                    /// Stack pointer x31
                     sp: u64,
-                    /// Program counter
                     pc: u64,
-                    /// Current program status register
-                    cpsr: u32,
-                    __pad: u32,
                 },
-                ns: extern struct {
-                    q: [32]u128,
-                    fpsr: u32,
-                    fpcr: u32,
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/loongarch/include/uapi/asm/sigcontext.h
+                .loongarch64 => extern struct {
+                    pc: u64 align(16),
+                    r: [32]u64,
                 },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/powerpc/include/uapi/asm/sigcontext.h
+                .powerpc64, .powerpc64le => extern struct {
+                    _unused: [4]u64,
+                    _signal: i32,
+                    _pad: i32,
+                    _handler: u64,
+                    _oldmask: u64,
+                    _regs: ?*anyopaque,
+                    r: [32]u64,
+                    pc: u64,
+                    _msr: u64,
+                    _orig_r3: u64,
+                    _ctr: u64,
+                    lr: u64,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/riscv/include/uapi/asm/sigcontext.h
+                .riscv32, .riscv64 => extern struct {
+                    pc: usize align(16),
+                    ra_sp_gp_tp: [4]usize,
+                    t0_2: [3]usize,
+                    s0_1: [2]usize,
+                    a: [8]usize,
+                    s2_11: [10]usize,
+                    t3_6: [4]usize,
+                },
+                else => unreachable,
             },
-            .x86_64 => extern struct {
-                es: extern struct {
-                    trapno: u16,
-                    cpu: u16,
-                    err: u32,
-                    faultvaddr: u64,
+        },
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/include/uapi/asm-generic/ucontext.h
+        .arc,
+        .csky,
+        .hexagon,
+        .m68k,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .or1k,
+        .s390x,
+        .x86,
+        .x86_64,
+        .xtensa,
+        => extern struct {
+            _flags: usize,
+            _link: ?*signal_ucontext_t,
+            _stack: std.os.linux.stack_t,
+            mcontext: switch (native_arch) {
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arc/include/uapi/asm/sigcontext.h
+                .arc => extern struct {
+                    _pad1: u32,
+                    _bta: u32,
+                    _lp: extern struct {
+                        _start: u32,
+                        _end: u32,
+                        _count: u32,
+                    },
+                    _status32: u32,
+                    pc: u32,
+                    r31: u32,
+                    r27_26: [2]u32,
+                    r12_0: [13]u32,
+                    r28: u32,
+                    _pad2: u32,
+                    r25_13: [13]u32,
+                    _efa: u32,
+                    _stop_pc: u32,
+                    r30: u32,
                 },
-                ss: extern struct {
-                    rax: u64,
-                    rbx: u64,
-                    rcx: u64,
-                    rdx: u64,
-                    rdi: u64,
-                    rsi: u64,
-                    rbp: u64,
-                    rsp: u64,
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/csky/include/uapi/asm/sigcontext.h
+                .csky => extern struct {
+                    r31: u32,
+                    r15: u32,
+                    pc: u32,
+                    _sr: u32,
+                    r14: u32,
+                    _orig_a0: u32,
+                    r0_13: [14]u32,
+                    r16_30: [15]u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/hexagon/include/uapi/asm/sigcontext.h
+                .hexagon => extern struct {
+                    r: [32]u32 align(8),
+                    _salc: [2]extern struct {
+                        _sa: u32,
+                        _lc: u32,
+                    },
+                    _m: [2]u32,
+                    _usr: u32,
+                    _p: u32,
+                    _gp: u32,
+                    _ugp: u32,
+                    pc: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/m68k/include/asm/ucontext.h
+                .m68k => extern struct {
+                    _version: i32,
+                    d: [8]u32,
+                    a: [8]u32,
+                    pc: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/mips/include/uapi/asm/sigcontext.h
+                .mips, .mipsel => extern struct {
+                    _regmask: u32,
+                    _status: u32,
+                    // ??? A spectacularly failed attempt to be future-proof?
+                    pc: u64,
+                    r: [32]u64,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/mips/include/uapi/asm/sigcontext.h
+                .mips64, .mips64el => extern struct {
+                    r: [32]u64,
+                    _fpregs: [32]u64,
+                    _hi: [4]u64,
+                    _lo: [4]u64,
+                    pc: u64,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/openrisc/include/uapi/asm/sigcontext.h
+                .or1k => extern struct {
+                    r: [32]u32,
+                    pc: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/s390/include/uapi/asm/sigcontext.h
+                .s390x => extern struct {
+                    psw: extern struct {
+                        mask: u64,
+                        addr: u64,
+                    },
+                    r: [16]u64,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/x86/include/uapi/asm/sigcontext.h
+                .x86 => extern struct {
+                    _gs: u32,
+                    _fs: u32,
+                    _es: u32,
+                    _ds: u32,
+                    edi: u32,
+                    esi: u32,
+                    ebp: u32,
+                    esp: u32,
+                    ebx: u32,
+                    edx: u32,
+                    ecx: u32,
+                    eax: u32,
+                    _trapno: u32,
+                    _err: u32,
+                    eip: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/x86/include/uapi/asm/sigcontext.h
+                .x86_64 => extern struct {
                     r8: u64,
                     r9: u64,
                     r10: u64,
@@ -1201,197 +1202,540 @@ const signal_ucontext_t = switch (native_os) {
                     r13: u64,
                     r14: u64,
                     r15: u64,
+                    rdi: u64,
+                    rsi: u64,
+                    rbp: u64,
+                    rbx: u64,
+                    rdx: u64,
+                    rax: u64,
+                    rcx: u64,
+                    rsp: u64,
                     rip: u64,
-                    rflags: u64,
-                    cs: u64,
-                    fs: u64,
-                    gs: u64,
                 },
-                fs: extern struct {
-                    reserved: [2]c_int,
-                    fcw: u16,
-                    fsw: u16,
-                    ftw: u8,
-                    rsrv1: u8,
-                    fop: u16,
-                    ip: u32,
-                    cs: u16,
-                    rsrv2: u16,
-                    dp: u32,
-                    ds: u16,
-                    rsrv3: u16,
-                    mxcsr: u32,
-                    mxcsrmask: u32,
-                    stmm: [8]stmm_reg,
-                    xmm: [16]xmm_reg,
-                    rsrv4: [96]u8,
-                    reserved1: c_int,
-
-                    const stmm_reg = [16]u8;
-                    const xmm_reg = [16]u8;
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/xtensa/include/uapi/asm/sigcontext.h
+                .xtensa => extern struct {
+                    pc: u32,
+                    _ps: u32,
+                    _l: extern struct {
+                        _beg: u32,
+                        _end: u32,
+                        _count: u32,
+                    },
+                    _sar: u32,
+                    _acc: extern struct {
+                        _lo: u32,
+                        _hi: u32,
+                    },
+                    a: [16]u32,
                 },
+                else => unreachable,
             },
-            else => void,
-        };
-    },
-    .solaris, .illumos => extern struct {
-        flags: u64,
-        link: ?*signal_ucontext_t,
-        sigmask: std.c.sigset_t,
-        stack: std.c.stack_t,
-        mcontext: mcontext_t,
-        brand_data: [3]?*anyopaque,
-        filler: [2]i64,
-        const mcontext_t = extern struct {
-            gregs: [28]u64,
-            fpregs: std.c.fpregset_t,
-        };
-    },
-    .openbsd => switch (builtin.cpu.arch) {
-        .x86_64 => extern struct {
-            sc_rdi: c_long,
-            sc_rsi: c_long,
-            sc_rdx: c_long,
-            sc_rcx: c_long,
-            sc_r8: c_long,
-            sc_r9: c_long,
-            sc_r10: c_long,
-            sc_r11: c_long,
-            sc_r12: c_long,
-            sc_r13: c_long,
-            sc_r14: c_long,
-            sc_r15: c_long,
-            sc_rbp: c_long,
-            sc_rbx: c_long,
-            sc_rax: c_long,
-            sc_gs: c_long,
-            sc_fs: c_long,
-            sc_es: c_long,
-            sc_ds: c_long,
-            sc_trapno: c_long,
-            sc_err: c_long,
-            sc_rip: c_long,
-            sc_cs: c_long,
-            sc_rflags: c_long,
-            sc_rsp: c_long,
-            sc_ss: c_long,
-
-            sc_fpstate: *anyopaque, // struct fxsave64 *
-            __sc_unused: c_int,
-            sc_mask: c_int,
-            sc_cookie: c_long,
         },
-        .aarch64 => extern struct {
-            __sc_unused: c_int,
-            sc_mask: c_int,
-            sc_sp: c_ulong,
-            sc_lr: c_ulong,
-            sc_elr: c_ulong,
-            sc_spsr: c_ulong,
-            sc_x: [30]c_ulong,
-            sc_cookie: c_long,
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/asm/ucontext.h
+        .arm, .armeb, .thumb, .thumbeb => extern struct {
+            _flags: u32,
+            _link: ?*signal_ucontext_t,
+            _stack: std.os.linux.stack_t,
+            _unused: [31]i32,
+            // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/uapi/asm/sigcontext.h
+            mcontext: extern struct {
+                _trap_no: u32,
+                _error_code: u32,
+                _oldmask: u32,
+                r: [15]u32,
+                pc: u32,
+            },
         },
-        else => void,
-    },
-    .netbsd => extern struct {
-        flags: u32,
-        link: ?*signal_ucontext_t,
-        sigmask: std.c.sigset_t,
-        stack: std.c.stack_t,
-        mcontext: mcontext_t,
-        __pad: [
-            switch (builtin.cpu.arch) {
-                .x86 => 4,
-                .mips, .mipsel, .mips64, .mips64el => 14,
-                .arm, .armeb, .thumb, .thumbeb => 1,
-                .sparc, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
-                else => 0,
-            }
-        ]u32,
-        const mcontext_t = switch (builtin.cpu.arch) {
-            .aarch64, .aarch64_be => extern struct {
-                gregs: [35]u64,
-                fregs: [528]u8 align(16),
-                spare: [8]u64,
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/powerpc/include/uapi/asm/ucontext.h
+        .powerpc, .powerpcle => extern struct {
+            _flags: u32,
+            _link: ?*signal_ucontext_t,
+            _stack: std.os.linux.stack_t,
+            _pad1: [7]i32,
+            _regs: ?*anyopaque,
+            _sigmask: std.os.linux.sigset_t,
+            _unused: [120]u8,
+            _pad2: [3]i32,
+            mcontext: extern struct {
+                r: [32]u32 align(16),
+                pc: u32,
+                _msr: u32,
+                _orig_r3: u32,
+                _ctr: u32,
+                lr: u32,
             },
-            .x86 => extern struct {
-                gregs: [19]u32,
-                fpregs: [161]u32,
-                mc_tlsbase: u32,
-            },
-            .x86_64 => extern struct {
-                gregs: [26]u64,
-                mc_tlsbase: u64,
-                fpregs: [512]u8 align(8),
-            },
-            else => void,
-        };
+        },
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sparc/include/uapi/asm/uctx.h
+        .sparc => @compileError("sparc-linux ucontext_t missing"),
+        .sparc64 => @compileError("sparc64-linux ucontext_t missing"),
+        else => unreachable,
     },
-    .dragonfly => extern struct {
-        sigmask: std.c.sigset_t,
-        mcontext: mcontext_t,
-        link: ?*signal_ucontext_t,
-        stack: std.c.stack_t,
-        cofunc: ?*fn (?*signal_ucontext_t, ?*anyopaque) void,
-        arg: ?*void,
-        _spare: [4]c_int,
-        const mcontext_t = extern struct {
-            const register_t = isize;
-            onstack: register_t, // XXX - sigcontext compat.
-            rdi: register_t,
-            rsi: register_t,
-            rdx: register_t,
-            rcx: register_t,
-            r8: register_t,
-            r9: register_t,
-            rax: register_t,
-            rbx: register_t,
-            rbp: register_t,
-            r10: register_t,
-            r11: register_t,
-            r12: register_t,
-            r13: register_t,
-            r14: register_t,
-            r15: register_t,
-            xflags: register_t,
-            trapno: register_t,
-            addr: register_t,
-            flags: register_t,
-            err: register_t,
-            rip: register_t,
-            cs: register_t,
-            rflags: register_t,
-            rsp: register_t, // machine state
-            ss: register_t,
-
-            len: c_uint, // sizeof(mcontext_t)
-            fpformat: c_uint,
-            ownedfp: c_uint,
-            reserved: c_uint,
-            unused: [8]c_uint,
-
-            // NOTE! 64-byte aligned as of here. Also must match savefpu structure.
-            fpregs: [256]c_int align(64),
-        };
-    },
-    .serenity => extern struct {
-        link: ?*signal_ucontext_t,
-        sigmask: std.c.sigset_t,
-        stack: std.c.stack_t,
-        mcontext: mcontext_t,
-        const mcontext_t = switch (builtin.cpu.arch) {
-            // https://github.com/SerenityOS/serenity/blob/200e91cd7f1ec5453799a2720d4dc114a59cc289/Kernel/Arch/aarch64/mcontext.h#L15-L19
+    // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/sys/_ucontext.h
+    .freebsd => extern struct {
+        _sigmask: std.c.sigset_t,
+        mcontext: switch (native_arch) {
+            // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/arm64/include/ucontext.h
             .aarch64 => extern struct {
-                x: [31]u64,
+                x: [30]u64 align(16),
+                lr: u64,
                 sp: u64,
                 pc: u64,
             },
-            // https://github.com/SerenityOS/serenity/blob/66f8d0f031ef25c409dbb4fecaa454800fecae0f/Kernel/Arch/riscv64/mcontext.h#L15-L18
-            .riscv64 => extern struct {
-                x: [31]u64,
+            // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/arm/include/ucontext.h
+            .arm => extern struct {
+                r: [15]u32,
+                pc: u32,
+            },
+            // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/powerpc/include/ucontext.h
+            .powerpc64, .powerpc64le => extern struct {
+                _vers: i32 align(16),
+                _flags: i32,
+                _onstack: i32,
+                _len: i32,
+                _avec: [32 * 2]u64,
+                _av: [2]u32,
+                r: [32]u64,
+                lr: u64,
+                _cr: u64,
+                _xer: u64,
+                _ctr: u64,
                 pc: u64,
             },
-            // https://github.com/SerenityOS/serenity/blob/7b9ea3efdec9f86a1042893e8107d0b23aad8727/Kernel/Arch/x86_64/mcontext.h#L15-L40
+            // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/riscv/include/ucontext.h
+            .riscv64 => extern struct {
+                ra_sp_gp_tp: [4]u64,
+                t0_2: [3]u64,
+                t3_6: [4]u64,
+                s0_1: [2]u64,
+                s2_11: [10]u64,
+                a: [8]u64,
+                pc: u64,
+            },
+            // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/x86/include/ucontext.h
+            .x86_64 => extern struct {
+                _onstack: i64,
+                rdi: u64,
+                rsi: u64,
+                rdx: u64,
+                rcx: u64,
+                r8: u64,
+                r9: u64,
+                rax: u64,
+                rbx: u64,
+                rbp: u64,
+                r10: u64,
+                r11: u64,
+                r12: u64,
+                r13: u64,
+                r14: u64,
+                r15: u64,
+                _trapno: i32,
+                _fs: i16,
+                _gs: i16,
+                _addr: i64,
+                _flags: i32,
+                _es: i16,
+                _ds: i16,
+                _err: i64,
+                rip: u64,
+                _cs: i64,
+                _rflags: i64,
+                rsp: u64,
+            },
+            else => unreachable,
+        },
+    },
+    // https://github.com/ziglang/zig/blob/60be67d3c0ba6ae15fa7115596734ab1e74fbcd3/lib/libc/include/any-macos-any/sys/_types/_ucontext.h
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+        _onstack: i32,
+        _sigmask: std.c.sigset_t,
+        _stack: std.c.stack_t,
+        _link: ?*signal_ucontext_t,
+        _mcsize: u64,
+        mcontext: *switch (native_arch) {
+            // https://github.com/ziglang/zig/blob/60be67d3c0ba6ae15fa7115596734ab1e74fbcd3/lib/libc/include/any-macos-any/arm/_mcontext.h
+            // https://github.com/ziglang/zig/blob/60be67d3c0ba6ae15fa7115596734ab1e74fbcd3/lib/libc/include/any-macos-any/mach/arm/_structs.h
+            .aarch64 => extern struct {
+                _far: u64 align(16),
+                _esr: u64,
+                x: [30]u64,
+                lr: u64,
+                sp: u64,
+                pc: u64,
+            },
+            // https://github.com/ziglang/zig/blob/60be67d3c0ba6ae15fa7115596734ab1e74fbcd3/lib/libc/include/any-macos-any/i386/_mcontext.h
+            // https://github.com/ziglang/zig/blob/60be67d3c0ba6ae15fa7115596734ab1e74fbcd3/lib/libc/include/any-macos-any/mach/i386/_structs.h
+            .x86_64 => extern struct {
+                _trapno: u16,
+                _cpu: u16,
+                _err: u32,
+                _faultvaddr: u64,
+                rax: u64,
+                rbx: u64,
+                rcx: u64,
+                rdx: u64,
+                rdi: u64,
+                rsi: u64,
+                rbp: u64,
+                rsp: u64,
+                r8: u64,
+                r9: u64,
+                r10: u64,
+                r11: u64,
+                r12: u64,
+                r13: u64,
+                r14: u64,
+                r15: u64,
+                rip: u64,
+            },
+            else => unreachable,
+        },
+    },
+    // This needs to be audited by someone with access to the Solaris headers.
+    .solaris => extern struct {
+        _flags: u64,
+        _link: ?*signal_ucontext_t,
+        _sigmask: std.c.sigset_t,
+        _stack: std.c.stack_t,
+        mcontext: switch (native_arch) {
+            .sparc64 => @compileError("sparc64-solaris mcontext_t missing"),
+            .x86_64 => extern struct {
+                r15: u64,
+                r14: u64,
+                r13: u64,
+                r12: u64,
+                r11: u64,
+                r10: u64,
+                r9: u64,
+                r8: u64,
+                rdi: u64,
+                rsi: u64,
+                rbp: u64,
+                rbx: u64,
+                rdx: u64,
+                rcx: u64,
+                rax: u64,
+                _trapno: i64,
+                _err: i64,
+                rip: u64,
+            },
+            else => unreachable,
+        },
+    },
+    // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/ucontext.h
+    .illumos => extern struct {
+        _flags: usize,
+        _link: ?*signal_ucontext_t,
+        _sigmask: std.c.sigset_t,
+        _stack: std.c.stack_t,
+        mcontext: switch (native_arch) {
+            // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/mcontext.h
+            .x86 => extern struct {
+                _gs: u32,
+                _fs: u32,
+                _es: u32,
+                _ds: u32,
+                edi: u32,
+                esi: u32,
+                ebp: u32,
+                esp: u32,
+                ebx: u32,
+                edx: u32,
+                ecx: u32,
+                eax: u32,
+                _trapno: i32,
+                _err: i32,
+                eip: u32,
+            },
+            .x86_64 => extern struct {
+                r15: u64,
+                r14: u64,
+                r13: u64,
+                r12: u64,
+                r11: u64,
+                r10: u64,
+                r9: u64,
+                r8: u64,
+                rdi: u64,
+                rsi: u64,
+                rbp: u64,
+                rbx: u64,
+                rdx: u64,
+                rcx: u64,
+                rax: u64,
+                _trapno: i64,
+                _err: i64,
+                rip: u64,
+            },
+            else => unreachable,
+        },
+    },
+    .openbsd => switch (native_arch) {
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/arm64/include/signal.h
+        .aarch64 => extern struct {
+            _unused: i32,
+            _mask: i32,
+            mcontext: extern struct {
+                sp: u64,
+                lr: u64,
+                pc: u64,
+                _spsr: u64,
+                x: [30]u64,
+            },
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/arm/include/signal.h
+        .arm => extern struct {
+            _cookie: i32,
+            _mask: i32,
+            mcontext: extern struct {
+                _spsr: u32 align(8),
+                r: [15]u32,
+                _svc_lr: u32,
+                pc: u32,
+            },
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/mips64/include/signal.h
+        .mips64, .mips64el => extern struct {
+            _cookie: i64,
+            _mask: i64,
+            mcontext: extern struct {
+                pc: u64,
+                r: [32]u64,
+            },
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/powerpc/include/signal.h
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/powerpc64/include/signal.h
+        .powerpc, .powerpc64 => extern struct {
+            _cookie: isize,
+            _mask: i32,
+            mcontext: extern struct {
+                r: [32]usize,
+                lr: usize,
+                _cr: usize,
+                _xer: usize,
+                _ctr: usize,
+                pc: usize,
+            },
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/riscv64/include/signal.h
+        .riscv64 => extern struct {
+            _unused: i32,
+            _mask: i32,
+            mcontext: extern struct {
+                ra_sp_gp_tp: [4]u64,
+                t0_2: [3]u64,
+                t3_6: [4]u64,
+                s0_1: [2]u64,
+                s2_11: [10]u64,
+                a: [8]u64,
+                pc: u64,
+            },
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sparc64/include/signal.h
+        .sparc64 => @compileError("sparc64-openbsd mcontext_t missing"),
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/i386/include/signal.h
+        .x86 => extern struct {
+            mcontext: extern struct {
+                _gs: i32,
+                _fs: i32,
+                _es: i32,
+                _ds: i32,
+                edi: u32,
+                esi: u32,
+                ebp: u32,
+                ebx: u32,
+                edx: u32,
+                ecx: u32,
+                eax: u32,
+                eip: u32,
+                _cs: i32,
+                _eflags: i32,
+                esp: u32,
+            },
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/amd64/include/signal.h
+        .x86_64 => extern struct {
+            mcontext: extern struct {
+                rdi: u64,
+                rsi: u64,
+                rdx: u64,
+                rcx: u64,
+                r8: u64,
+                r9: u64,
+                r10: u64,
+                r11: u64,
+                r12: u64,
+                r13: u64,
+                r14: u64,
+                r15: u64,
+                rbp: u64,
+                rbx: u64,
+                rax: u64,
+                _gs: i64,
+                _fs: i64,
+                _es: i64,
+                _ds: i64,
+                _trapno: i64,
+                _err: i64,
+                rip: u64,
+                _cs: i64,
+                _rflags: i64,
+                rsp: u64,
+            },
+        },
+        else => unreachable,
+    },
+    // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/sys/ucontext.h
+    .netbsd => extern struct {
+        _flags: u32,
+        _link: ?*signal_ucontext_t,
+        _sigmask: std.c.sigset_t,
+        _stack: std.c.stack_t,
+        mcontext: switch (native_arch) {
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/arm/include/mcontext.h
+            .aarch64, .aarch64_be => extern struct {
+                x: [30]u64 align(16),
+                lr: u64,
+                sp: u64,
+                pc: u64,
+            },
+            .arm, .armeb => extern struct {
+                r: [15]u32 align(8),
+                pc: u32,
+            },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/m68k/include/mcontext.h
+            .m68k => extern struct {
+                d: [8]u32,
+                a: [8]u32,
+                pc: u32,
+            },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/mips/include/mcontext.h
+            .mips, .mipsel => extern struct {
+                r: [32]u32 align(8),
+                _lo: i32,
+                _hi: i32,
+                _cause: i32,
+                pc: u32,
+            },
+            .mips64, .mips64el => @compileError("https://github.com/ziglang/zig/issues/23765#issuecomment-2880386178"),
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/powerpc/include/mcontext.h
+            .powerpc => extern struct {
+                r: [32]u32 align(16),
+                _cr: i32,
+                lr: u32,
+                pc: u32,
+            },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/sparc/include/mcontext.h
+            .sparc => @compileError("sparc-netbsd mcontext_t missing"),
+            .sparc64 => @compileError("sparc64-netbsd mcontext_t missing"),
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/i386/include/mcontext.h
+            .x86 => extern struct {
+                _gs: i32,
+                _fs: i32,
+                _es: i32,
+                _ds: i32,
+                edi: u32,
+                esi: u32,
+                ebp: u32,
+                esp: u32,
+                ebx: u32,
+                edx: u32,
+                ecx: u32,
+                eax: u32,
+                _trapno: i32,
+                _err: i32,
+                eip: u32,
+            },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/amd64/include/mcontext.h
+            .x86_64 => extern struct {
+                rdi: u64,
+                rsi: u64,
+                rdx: u64,
+                rcx: u64,
+                r8: u64,
+                r9: u64,
+                r10: u64,
+                r11: u64,
+                r12: u64,
+                r13: u64,
+                r14: u64,
+                r15: u64,
+                rbp: u64,
+                rbx: u64,
+                rax: u64,
+                _gs: i64,
+                _fs: i64,
+                _es: i64,
+                _ds: i64,
+                _trapno: i64,
+                _err: i64,
+                rip: u64,
+                _cs: i64,
+                _rflags: i64,
+                rsp: u64,
+            },
+            else => unreachable,
+        },
+    },
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/3de1e9d36269616d22237f19d60a737a41271ab5/sys/sys/_ucontext.h
+    .dragonfly => extern struct {
+        _sigmask: std.c.sigset_t,
+        mcontext: switch (native_arch) {
+            // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/3de1e9d36269616d22237f19d60a737a41271ab5/sys/cpu/x86_64/include/ucontext.h
+            .x86_64 => extern struct {
+                _onstack: i64 align(64),
+                rdi: u64,
+                rsi: u64,
+                rdx: u64,
+                rcx: u64,
+                r8: u64,
+                r9: u64,
+                rax: u64,
+                rbx: u64,
+                rbp: u64,
+                r10: u64,
+                r11: u64,
+                r12: u64,
+                r13: u64,
+                r14: u64,
+                r15: u64,
+                _xflags: i64,
+                _trapno: i64,
+                _addr: i64,
+                _flags: i64,
+                _err: i64,
+                rip: u64,
+                _cs: i64,
+                _rflags: i64,
+                rsp: u64,
+            },
+            else => unreachable,
+        },
+    },
+    // https://github.com/SerenityOS/serenity/blob/103d6a07de9e28f3c94dfa2351b9af76a49ba6e6/Kernel/API/POSIX/ucontext.h
+    .serenity => extern struct {
+        _link: ?*signal_ucontext_t,
+        _sigmask: std.c.sigset_t,
+        _stack: std.c.stack_t,
+        mcontext: switch (native_arch) {
+            // https://github.com/SerenityOS/serenity/blob/103d6a07de9e28f3c94dfa2351b9af76a49ba6e6/Kernel/Arch/aarch64/mcontext.h
+            .aarch64 => extern struct {
+                x: [30]u64,
+                lr: u64,
+                sp: u64,
+                pc: u64,
+            },
+            // https://github.com/SerenityOS/serenity/blob/103d6a07de9e28f3c94dfa2351b9af76a49ba6e6/Kernel/Arch/riscv64/mcontext.h
+            .riscv64 => extern struct {
+                ra_sp_gp_tp: [4]u64,
+                t0_2: [3]u64,
+                s0_1: [2]u64,
+                a: [8]u64,
+                s2_11: [10]u64,
+                t3_6: [4]u64,
+                pc: u64,
+            },
+            // https://github.com/SerenityOS/serenity/blob/103d6a07de9e28f3c94dfa2351b9af76a49ba6e6/Kernel/Arch/x86_64/mcontext.h
             .x86_64 => extern struct {
                 rax: u64,
                 rcx: u64,
@@ -1410,262 +1754,103 @@ const signal_ucontext_t = switch (native_os) {
                 r13: u64,
                 r14: u64,
                 r15: u64,
-                rflags: u64,
-                cs: u32,
-                ss: u32,
-                ds: u32,
-                es: u32,
-                fs: u32,
-                gs: u32,
             },
-            else => void,
-        };
+            else => unreachable,
+        },
     },
+    // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/signal.h#L356
     .haiku => extern struct {
-        link: ?*signal_ucontext_t,
-        sigmask: std.c.sigset_t,
-        stack: std.c.stack_t,
-        mcontext: mcontext_t,
-        const mcontext_t = switch (builtin.cpu.arch) {
-            .arm, .thumb => extern struct {
-                r0: u32,
-                r1: u32,
-                r2: u32,
-                r3: u32,
-                r4: u32,
-                r5: u32,
-                r6: u32,
-                r7: u32,
-                r8: u32,
-                r9: u32,
-                r10: u32,
-                r11: u32,
-                r12: u32,
-                r13: u32,
-                r14: u32,
-                r15: u32,
-                cpsr: u32,
+        _link: ?*signal_ucontext_t,
+        _sigmask: std.c.sigset_t,
+        _stack: std.c.stack_t,
+        mcontext: switch (native_arch) {
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/arm/signal.h
+            .arm => extern struct {
+                r: [15]u32 align(8),
+                pc: u32,
             },
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/arm64/signal.h
             .aarch64 => extern struct {
-                x: [10]u64,
+                x: [30]u64 align(16),
                 lr: u64,
                 sp: u64,
-                elr: u64,
-                spsr: u64,
-                fp_q: [32]u128,
-                fpsr: u32,
-                fpcr: u32,
+                pc: u64,
             },
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/m68k/signal.h
             .m68k => extern struct {
-                pc: u32,
-                d0: u32,
-                d1: u32,
-                d2: u32,
-                d3: u32,
-                d4: u32,
-                d5: u32,
-                d6: u32,
-                d7: u32,
-                a0: u32,
-                a1: u32,
-                a2: u32,
-                a3: u32,
-                a4: u32,
-                a5: u32,
-                a6: u32,
-                a7: u32,
-                ccr: u8,
-                f0: f64,
-                f1: f64,
-                f2: f64,
-                f3: f64,
-                f4: f64,
-                f5: f64,
-                f6: f64,
-                f7: f64,
-                f8: f64,
-                f9: f64,
-                f10: f64,
-                f11: f64,
-                f12: f64,
-                f13: f64,
+                pc: u32 align(8),
+                d: [8]u32,
+                a: [8]u32,
             },
-            .mipsel => extern struct {
-                r0: u32,
-            },
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/ppc/signal.h
             .powerpc => extern struct {
-                pc: u32,
-                r0: u32,
-                r1: u32,
-                r2: u32,
-                r3: u32,
-                r4: u32,
-                r5: u32,
-                r6: u32,
-                r7: u32,
-                r8: u32,
-                r9: u32,
-                r10: u32,
-                r11: u32,
-                r12: u32,
-                f0: f64,
-                f1: f64,
-                f2: f64,
-                f3: f64,
-                f4: f64,
-                f5: f64,
-                f6: f64,
-                f7: f64,
-                f8: f64,
-                f9: f64,
-                f10: f64,
-                f11: f64,
-                f12: f64,
-                f13: f64,
-                reserved: u32,
-                fpscr: u32,
-                ctr: u32,
-                xer: u32,
-                cr: u32,
-                msr: u32,
+                pc: u32 align(8),
+                r: [13]u32, // Um, are you okay, Haiku?
+                _f: [14]f64,
+                _reserved: u32,
+                _fpscr: u32,
+                _ctr: u32,
+                _xer: u32,
+                _cr: u32,
+                _msr: u32,
                 lr: u32,
             },
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/riscv64/signal.h
             .riscv64 => extern struct {
-                x: [31]u64,
+                ra_sp_gp_tp: [4]u64,
+                t0_2: [3]u64,
+                s0_1: [2]u64,
+                a: [8]u64,
+                s2_11: [10]u64,
+                t3_6: [4]u64,
                 pc: u64,
-                f: [32]f64,
-                fcsr: u64,
             },
-            .sparc64 => extern struct {
-                g1: u64,
-                g2: u64,
-                g3: u64,
-                g4: u64,
-                g5: u64,
-                g6: u64,
-                g7: u64,
-                o0: u64,
-                o1: u64,
-                o2: u64,
-                o3: u64,
-                o4: u64,
-                o5: u64,
-                sp: u64,
-                o7: u64,
-                l0: u64,
-                l1: u64,
-                l2: u64,
-                l3: u64,
-                l4: u64,
-                l5: u64,
-                l6: u64,
-                l7: u64,
-                i0: u64,
-                i1: u64,
-                i2: u64,
-                i3: u64,
-                i4: u64,
-                i5: u64,
-                fp: u64,
-                i7: u64,
-            },
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/sparc64/signal.h
+            .sparc64 => @compileError("sparc64-haiku mcontext_t missing"),
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/x86/signal.h
             .x86 => extern struct {
-                pub const old_extended_regs = extern struct {
-                    control: u16,
-                    reserved1: u16,
-                    status: u16,
-                    reserved2: u16,
-                    tag: u16,
-                    reserved3: u16,
-                    eip: u32,
-                    cs: u16,
-                    opcode: u16,
-                    datap: u32,
-                    ds: u16,
-                    reserved4: u16,
-                    fp_mmx: [8][10]u8,
-                };
-
-                pub const fp_register = extern struct { value: [10]u8, reserved: [6]u8 };
-
-                pub const xmm_register = extern struct { value: [16]u8 };
-
-                pub const new_extended_regs = extern struct {
-                    control: u16,
-                    status: u16,
-                    tag: u16,
-                    opcode: u16,
-                    eip: u32,
-                    cs: u16,
-                    reserved1: u16,
-                    datap: u32,
-                    ds: u16,
-                    reserved2: u16,
-                    mxcsr: u32,
-                    reserved3: u32,
-                    fp_mmx: [8]fp_register,
-                    xmmx: [8]xmm_register,
-                    reserved4: [224]u8,
-                };
-
-                pub const extended_regs = extern struct {
-                    state: extern union {
-                        old_format: old_extended_regs,
-                        new_format: new_extended_regs,
-                    },
-                    format: u32,
-                };
-
                 eip: u32,
-                eflags: u32,
+                _eflags: u32,
                 eax: u32,
                 ecx: u32,
                 edx: u32,
                 esp: u32,
                 ebp: u32,
-                reserved: u32,
-                xregs: extended_regs,
+                _reserved: u32,
+                _xregs: extern struct {
+                    _fp_control: u16,
+                    _fp_status: u16,
+                    _fp_tag: u16,
+                    _fp_opcode: u16,
+                    _fp_eip: u32,
+                    _fp_cs: u16,
+                    _reserved1: u16,
+                    _fp_datap: u32,
+                    _fp_ds: u16,
+                    _reserved2: u16,
+                    _mxcsr: u32,
+                    _mxcsr_mask: u32,
+                    _mmx: [8][16]u8,
+                    _xmmx: [8][16]u8,
+                    _reserved3: [176]u8,
+                    _fault_address: u32,
+                    _error_code: u32,
+                    _cs: u16,
+                    _ds: u16,
+                    _es: u16,
+                    _fs: u16,
+                    _gs: u16,
+                    _ss: u16,
+                    _trap_number: u8,
+                    _reserved4: [27]u8,
+                    _format: u32,
+                },
                 edi: u32,
                 esi: u32,
                 ebx: u32,
             },
+            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/x86_64/signal.h
             .x86_64 => extern struct {
-                pub const fp_register = extern struct {
-                    value: [10]u8,
-                    reserved: [6]u8,
-                };
-
-                pub const xmm_register = extern struct {
-                    value: [16]u8,
-                };
-
-                pub const fpu_state = extern struct {
-                    control: u16,
-                    status: u16,
-                    tag: u16,
-                    opcode: u16,
-                    rip: u64,
-                    rdp: u64,
-                    mxcsr: u32,
-                    mscsr_mask: u32,
-
-                    fp_mmx: [8]fp_register,
-                    xmm: [16]xmm_register,
-                    reserved: [96]u8,
-                };
-
-                pub const xstate_hdr = extern struct {
-                    bv: u64,
-                    xcomp_bv: u64,
-                    reserved: [48]u8,
-                };
-
-                pub const savefpu = extern struct {
-                    fxsave: fpu_state,
-                    xstate: xstate_hdr,
-                    ymm: [16]xmm_register,
-                };
-
                 rax: u64,
                 rbx: u64,
                 rcx: u64,
@@ -1683,11 +1868,9 @@ const signal_ucontext_t = switch (native_os) {
                 r15: u64,
                 rsp: u64,
                 rip: u64,
-                rflags: u64,
-                fpu: savefpu,
             },
-            else => void,
-        };
+            else => unreachable,
+        },
     },
     else => void,
 };

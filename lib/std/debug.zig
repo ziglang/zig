@@ -1315,15 +1315,26 @@ fn getDebugInfoAllocator() Allocator {
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
 pub const have_segfault_handling_support = switch (native_os) {
+    .haiku,
     .linux,
-    .macos,
-    .netbsd,
-    .solaris,
-    .illumos,
-    .windows,
-    .freebsd,
-    .openbsd,
     .serenity,
+
+    .dragonfly,
+    .freebsd,
+    .netbsd,
+    .openbsd,
+
+    .driverkit,
+    .ios,
+    .macos,
+    .tvos,
+    .visionos,
+    .watchos,
+
+    .illumos,
+    .solaris,
+
+    .windows,
     => true,
 
     else => false,
@@ -1406,11 +1417,26 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
             }
         }
         const addr: usize = switch (native_os) {
-            .linux => @intFromPtr(info.fields.sigfault.addr),
-            .freebsd, .macos, .serenity => @intFromPtr(info.addr),
-            .netbsd => @intFromPtr(info.info.reason.fault.addr),
-            .openbsd => @intFromPtr(info.data.fault.addr),
-            .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
+            .serenity,
+            .dragonfly,
+            .freebsd,
+            .driverkit,
+            .ios,
+            .macos,
+            .tvos,
+            .visionos,
+            .watchos,
+            => @intFromPtr(info.addr),
+            .linux,
+            => @intFromPtr(info.fields.sigfault.addr),
+            .netbsd,
+            => @intFromPtr(info.info.reason.fault.addr),
+            .haiku,
+            .openbsd,
+            => @intFromPtr(info.data.fault.addr),
+            .illumos,
+            .solaris,
+            => @intFromPtr(info.reason.fault.addr),
             else => comptime unreachable,
         };
         const name = switch (sig) {
