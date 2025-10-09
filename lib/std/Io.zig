@@ -657,9 +657,9 @@ pub const VTable = struct {
     dirMake: *const fn (?*anyopaque, Dir, sub_path: []const u8, mode: Dir.Mode) Dir.MakeError!void,
     dirStat: *const fn (?*anyopaque, Dir) Dir.StatError!Dir.Stat,
     dirStatPath: *const fn (?*anyopaque, Dir, sub_path: []const u8, Dir.StatPathOptions) Dir.StatPathError!File.Stat,
+    dirCreateFile: *const fn (?*anyopaque, Dir, sub_path: []const u8, File.CreateFlags) File.OpenError!File,
+    dirOpenFile: *const fn (?*anyopaque, Dir, sub_path: []const u8, File.OpenFlags) File.OpenError!File,
     fileStat: *const fn (?*anyopaque, File) File.StatError!File.Stat,
-    createFile: *const fn (?*anyopaque, Dir, sub_path: []const u8, File.CreateFlags) File.OpenError!File,
-    fileOpen: *const fn (?*anyopaque, Dir, sub_path: []const u8, File.OpenFlags) File.OpenError!File,
     fileClose: *const fn (?*anyopaque, File) void,
     pwrite: *const fn (?*anyopaque, File, buffer: []const u8, offset: std.posix.off_t) File.PWriteError!usize,
     /// Returns 0 on end of stream.

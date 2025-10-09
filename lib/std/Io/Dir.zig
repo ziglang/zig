@@ -39,11 +39,11 @@ pub const OpenError = error{
 } || PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 pub fn openFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
-    return io.vtable.fileOpen(io.userdata, dir, sub_path, flags);
+    return io.vtable.dirOpenFile(io.userdata, dir, sub_path, flags);
 }
 
 pub fn createFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-    return io.vtable.createFile(io.userdata, dir, sub_path, flags);
+    return io.vtable.dirCreateFile(io.userdata, dir, sub_path, flags);
 }
 
 pub const WriteFileOptions = struct {
