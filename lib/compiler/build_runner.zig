@@ -556,7 +556,7 @@ pub fn main() !void {
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
 
-    const now = Io.Timestamp.now(io, .awake) catch |err| fatal("failed to collect timestamp: {t}", .{err});
+    const now = Io.Clock.Timestamp.now(io, .awake) catch |err| fatal("failed to collect timestamp: {t}", .{err});
 
     run.web_server = if (webui_listen) |listen_address| ws: {
         if (builtin.single_threaded) unreachable; // `fatal` above
