@@ -760,28 +760,37 @@ pub fn takeDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// * `peekDelimiterExclusive`
 /// * `takeDelimiterInclusive`
 pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
-    const buffer = r.buffer[0..r.end];
-    const seek = r.seek;
-    if (std.mem.indexOfScalarPos(u8, buffer, seek, delimiter)) |delimiter_index| {
-        @branchHint(.likely);
-        return buffer[seek .. delimiter_index + 1];
-    }
-    // TODO take a parameter for max search length rather than relying on buffer capacity
-    try rebase(r, r.buffer.len);
-    while (r.buffer.len - r.end != 0) {
-        const existing_buffered_len = r.end - r.seek;
-        const end_cap = r.buffer[r.end..];
-        var writer: Writer = .fixed(end_cap);
-        const n = r.vtable.stream(r, &writer, .limited(end_cap.len)) catch |err| switch (err) {
-            error.WriteFailed => unreachable,
-            else => |e| return e,
-        };
-        r.end += n;
-        if (std.mem.indexOfScalarPos(u8, r.buffer[0..r.end], r.seek + existing_buffered_len, delimiter)) |delimiter_index| {
-            return r.buffer[r.seek .. delimiter_index + 1];
+    {
+        const contents = r.buffer[0..r.end];
+        const seek = r.seek;
+        if (std.mem.findScalarPos(u8, contents, seek, delimiter)) |end| {
+            @branchHint(.likely);
+            return contents[seek .. end + 1];
         }
     }
-    return error.StreamTooLong;
+    while (true) {
+        const content_len = r.end - r.seek;
+        if (r.buffer.len - content_len == 0) break;
+        try fillMore(r);
+        const seek = r.seek;
+        const contents = r.buffer[0..r.end];
+        if (std.mem.findScalarPos(u8, contents, seek + content_len, delimiter)) |end| {
+            return contents[seek .. end + 1];
+        }
+    }
+    // It might or might not be end of stream. There is no more buffer space
+    // left to disambiguate. If `StreamTooLong` was added to `RebaseError` then
+    // this logic could be replaced by removing the exit condition from the
+    // above while loop. That error code would represent when `buffer` capacity
+    // is too small for an operation, replacing the current use of asserts.
+    var failing_writer = Writer.failing;
+    while (r.vtable.stream(r, &failing_writer, .limited(1))) |n| {
+        assert(n == 0);
+    } else |err| switch (err) {
+        error.WriteFailed => return error.StreamTooLong,
+        error.ReadFailed => |e| return e,
+        error.EndOfStream => |e| return e,
+    }
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
