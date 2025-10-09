@@ -279,7 +279,6 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// This may not preserve item order. Use `orderedRemove` if you need to preserve order.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            assert(i < self.items.len);
             defer self.items[i] = self.pop() orelse unreachable;
             return self.items[i];
         }
@@ -955,7 +954,6 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// This operation is O(1).
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            assert(i < self.items.len);
             defer self.items[i] = self.pop() orelse unreachable;
             return self.items[i];
         }
