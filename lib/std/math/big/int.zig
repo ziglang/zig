@@ -1858,6 +1858,8 @@ pub const Mutable = struct {
     /// result = @depositBits(source, mask)
     ///
     /// Asserts that `source` and `mask` are positive
+    /// The value in `result` may use the same number of or less limbs than `mask`.
+    /// `result` is assumed to have sufficient length to store the result.
     pub fn depositBits(result: *Mutable, source: Const, mask: Const) void {
         assert(source.positive);
         assert(mask.positive);
@@ -1866,9 +1868,13 @@ pub const Mutable = struct {
         @memset(result.limbs, 0);
 
         var shift: usize = 0;
-        for (mask.limbs, result.limbs) |mask_limb, *result_limb| {
+        for (mask.limbs, 0..) |mask_limb, i| {
             const shift_bits: Log2Limb = @intCast(shift % limb_bits);
             const shift_limbs = shift / limb_bits;
+
+            if (shift_limbs >= source.limbs.len) break;
+
+            const result_limb = &result.limbs[i];
 
             var source_limb = source.limbs[shift_limbs] >> shift_bits;
             if (shift_bits != 0 and shift_limbs + 1 < source.limbs.len) {
@@ -1888,6 +1894,8 @@ pub const Mutable = struct {
     /// result = @extractBits(source, mask)
     ///
     /// Asserts that `source` and `mask` are positive
+    /// The value in `result` may use the same number of or less limbs than `mask`.
+    /// `result` is assumed to have sufficient length to store the result.
     pub fn extractBits(result: *Mutable, source: Const, mask: Const) void {
         assert(source.positive);
         assert(mask.positive);
@@ -1895,8 +1903,10 @@ pub const Mutable = struct {
         result.positive = true;
         @memset(result.limbs, 0);
 
+        const len = @min(source.limbs.len, mask.limbs.len);
+
         var shift: usize = 0;
-        for (source.limbs, mask.limbs) |source_limb, mask_limb| {
+        for (source.limbs[0..len], mask.limbs[0..len]) |source_limb, mask_limb| {
             const pext_limb = @extractBits(source_limb, mask_limb);
             const shift_bits: Log2Limb = @intCast(shift % limb_bits);
             const shift_limbs = shift / limb_bits;
