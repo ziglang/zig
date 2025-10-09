@@ -572,6 +572,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             error.BadPathName => unreachable, // Windows-only
             error.WouldBlock => unreachable,
             error.NetworkNotFound => unreachable, // Windows-only
+            error.Canceled => unreachable, // temporarily in the posix error set
+            error.SharingViolation => unreachable, // Windows-only
+            error.PipeBusy => unreachable, // not a pipe
+            error.AntivirusInterference => unreachable, // Windows-only
             else => |e| return e,
         }
     else
