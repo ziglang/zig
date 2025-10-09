@@ -160,7 +160,11 @@ pub fn io(pool: *Pool) Io {
             .conditionWait = conditionWait,
             .conditionWake = conditionWake,
 
-            .dirMake = dirMake,
+            .dirMake = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                .wasi => @panic("TODO"),
+                else => dirMakePosix,
+            },
             .dirStat = dirStat,
             .dirStatPath = dirStatPath,
             .fileStat = switch (builtin.os.tag) {
@@ -759,14 +763,35 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
     }
 }
 
-fn dirMake(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
+fn dirMakePosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
-
-    _ = dir;
-    _ = sub_path;
-    _ = mode;
-    @panic("TODO");
+    var path_buffer: [posix.PATH_MAX]u8 = undefined;
+    const sub_path_posix = try toPosixPath(sub_path, &path_buffer);
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.mkdirat(dir.handle, sub_path_posix, mode))) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .ACCES => return error.AccessDenied,
+            .BADF => |err| return errnoBug(err),
+            .PERM => return error.PermissionDenied,
+            .DQUOT => return error.DiskQuota,
+            .EXIST => return error.PathAlreadyExists,
+            .FAULT => |err| return errnoBug(err),
+            .LOOP => return error.SymLinkLoop,
+            .MLINK => return error.LinkQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOSPC => return error.NoSpaceLeft,
+            .NOTDIR => return error.NotDir,
+            .ROFS => return error.ReadOnlyFileSystem,
+            // dragonfly: when dir_fd is unlinked from filesystem
+            .NOTCONN => return error.FileNotFound,
+            .ILSEQ => return error.InvalidFileName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
@@ -2266,4 +2291,13 @@ fn timestampToPosix(nanoseconds: i96) std.posix.timespec {
         .sec = @intCast(@divFloor(nanoseconds, std.time.ns_per_s)),
         .nsec = @intCast(@mod(nanoseconds, std.time.ns_per_s)),
     };
+}
+
+fn toPosixPath(file_path: []const u8, buffer: *[posix.PATH_MAX]u8) error{ NameTooLong, InvalidFileName }![:0]u8 {
+    if (std.mem.containsAtLeastScalar2(u8, file_path, 0, 1)) return error.InvalidFileName;
+    // >= rather than > to make room for the null byte
+    if (file_path.len >= buffer.len) return error.NameTooLong;
+    @memcpy(buffer[0..file_path.len], file_path);
+    buffer[file_path.len] = 0;
+    return buffer[0..file_path.len :0];
 }
