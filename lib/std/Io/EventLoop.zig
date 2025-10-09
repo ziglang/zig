@@ -644,6 +644,7 @@ inline fn contextSwitch(message: *const SwitchMessage) *const SwitchMessage {
             : [received_message] "={x1}" (-> *const @FieldType(SwitchMessage, "contexts")),
             : [message_to_send] "{x1}" (&message.contexts),
             : .{
+              .x0 = true,
               .x1 = true,
               .x2 = true,
               .x3 = true,
@@ -745,6 +746,7 @@ inline fn contextSwitch(message: *const SwitchMessage) *const SwitchMessage {
               .rdx = true,
               .rbx = true,
               .rsi = true,
+              .rdi = true,
               .r8 = true,
               .r9 = true,
               .r10 = true,
