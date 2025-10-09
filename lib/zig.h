@@ -1400,16 +1400,15 @@ zig_builtin_clz(64)
 
 #define zig_builtin_extract_bits(w) \
     static inline uint##w##_t zig_extract_bits_u##w(uint##w##_t source, uint##w##_t mask_) { \
-        uint##w##_t bb = 1;\
+        uint##w##_t current_bit = 1;\
         uint##w##_t result = 0;\
         uint##w##_t mask = mask_;\
         \
         while (mask != 0) {\
             uint##w##_t bit = mask & ~(mask - 1);\
-            mask &= ~bit;\
-            uint##w##_t source_bit = source & bit;\
-            if (source_bit != 0) result |= bb;\
-            bb += bb;\
+            mask &= mask - 1;\
+            if ((source & bit) != 0) result |= current_bit;\
+            current_bit <<= 1;\
         }\
         \
         return result;\
@@ -1443,16 +1442,15 @@ zig_builtin_extract_bits(8)
 
 #define zig_builtin_deposit_bits(w) \
     static inline uint##w##_t zig_deposit_bits_u##w(uint##w##_t source, uint##w##_t mask_) { \
-        uint##w##_t bb = 1;\
+        uint##w##_t current_bit = 1;\
         uint##w##_t result = 0;\
         uint##w##_t mask = mask_;\
         \
         while (mask != 0) {\
             uint##w##_t bit = mask & ~(mask - 1);\
-            mask &= ~bit;\
-            uint##w##_t source_bit = source & bb;\
-            if (source_bit != 0) result |= bit;\
-            bb += bb;\
+            mask &= mask - 1;\
+            if ((source & current_bit) != 0) result |= bit; \
+            current_bit <<= 1;\
         }\
         \
         return result;\
