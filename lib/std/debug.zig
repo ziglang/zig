@@ -988,7 +988,7 @@ const StackIterator = union(enum) {
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
         // slot where the previous frame pointer is saved.
-        if (native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
+        if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
         // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
         if (native_arch.isSPARC()) break :off 14 * @sizeOf(usize);
         break :off 0;
@@ -996,7 +996,7 @@ const StackIterator = union(enum) {
 
     /// Offset of the saved return address wrt the frame pointer.
     const ra_offset = off: {
-        if (native_arch.isRISCV()) break :off -1 * @sizeOf(usize);
+        if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -1 * @sizeOf(usize);
         if (native_arch.isSPARC()) break :off 15 * @sizeOf(usize);
         if (native_arch.isPowerPC64()) break :off 2 * @sizeOf(usize);
         // On s390x, r14 is the link register and we need to grab it from its customary slot in the
