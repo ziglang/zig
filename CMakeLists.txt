@@ -473,7 +473,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/os/linux.zig
     lib/std/os/linux.zig
     lib/std/os/linux/IoUring.zig
-    lib/std/os/linux/io_uring_sqe.zig
     lib/std/os/linux/x86_64.zig
     lib/std/os/linux/x86_64.zig
     lib/std/os/windows.zig
