@@ -191,7 +191,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
                     pos = mem.alignForward(usize, pos, 2);
                     state.file_off = pos;
                     pos += @sizeOf(Archive.ar_hdr);
-                    pos += mem.alignForward(usize, o.path.basename().len + 1, ptr_width);
+                    pos += mem.alignForward(usize, std.fs.path.basename(o.path).len + 1, ptr_width);
                     pos += try macho_file.cast(usize, state.size);
                 },
                 else => unreachable,
