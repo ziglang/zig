@@ -517,6 +517,7 @@ pub const AbiAndDynamicLinkerFromFileError = error{
     NameTooLong,
     ProcessNotFound,
     StaticElfFile,
+    NoSuchDeviceOrAddress,
 };
 
 pub fn abiAndDynamicLinkerFromFile(
