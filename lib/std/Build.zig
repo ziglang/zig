@@ -956,8 +956,37 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
             run_step.addArtifactArg(exe);
         }
 
-        const test_server_mode = if (exe.test_runner) |r| r.mode == .server else true;
-        if (test_server_mode) run_step.enableTestRunnerMode();
+        const test_server_mode: bool = s: {
+            if (exe.test_runner) |r| break :s r.mode == .server;
+            if (exe.use_llvm == false) {
+                // The default test runner does not use the server protocol if the selected backend
+                // is too immature to support it. Keep this logic in sync with `need_simple` in the
+                // default test runner implementation.
+                switch (exe.rootModuleTarget().cpu.arch) {
+                    // stage2_aarch64
+                    .aarch64,
+                    .aarch64_be,
+                    // stage2_powerpc
+                    .powerpc,
+                    .powerpcle,
+                    .powerpc64,
+                    .powerpc64le,
+                    // stage2_riscv64
+                    .riscv64,
+                    => break :s false,
+
+                    else => {},
+                }
+            }
+            break :s true;
+        };
+        if (test_server_mode) {
+            run_step.enableTestRunnerMode();
+        } else if (exe.test_runner == null) {
+            // If a test runner does not use the `std.zig.Server` protocol, it can instead
+            // communicate failure via its exit code.
+            run_step.expectExitCode(0);
+        }
     } else {
         run_step.addArtifactArg(exe);
     }
@@ -1594,20 +1623,6 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
     return b.invalid_user_input;
 }
 
-fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
-    var buf: ArrayList(u8) = .empty;
-    if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
-    for (argv) |arg| {
-        try buf.print(gpa, "{s} ", .{arg});
-    }
-    return buf.toOwnedSlice(gpa);
-}
-
-fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
-    const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
-    std.debug.print("{s}\n", .{text});
-}
-
 /// This creates the install step and adds it to the dependencies of the
 /// top-level install step, using all the default options.
 /// See `addInstallArtifact` for a more flexible function.
@@ -1857,14 +1872,14 @@ pub fn runAllowFail(
 pub fn run(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
-            try allocPrintCmd(b.allocator, null, argv),
+            try Step.allocPrintCmd(b.allocator, null, argv),
         });
         process.exit(1);
     }
 
     var code: u8 = undefined;
     return b.runAllowFail(argv, &code, .Inherit) catch |err| {
-        const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
+        const printed_cmd = Step.allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
         std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
             @errorName(err), printed_cmd,
         });
