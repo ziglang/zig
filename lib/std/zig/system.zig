@@ -1284,6 +1284,7 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
             error.AccessDenied => return error.Unexpected,
             error.ProcessNotFound => return error.ProcessNotFound,
             error.LockViolation => return error.UnableToReadElfFile,
+            error.NoSuchDeviceOrAddress => return error.NoSuchDeviceOrAddress,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;
