@@ -634,33 +634,11 @@ test "invNTTReductions bounds" {
     }
 }
 
-// Extended euclidean algorithm.
-//
-// For a, b finds x, y such that  x a + y b = gcd(a, b). Used to compute
-// modular inverse.
-fn eea(a: anytype, b: @TypeOf(a)) EeaResult(@TypeOf(a)) {
-    if (a == 0) {
-        return .{ .gcd = b, .x = 0, .y = 1 };
-    }
-    const r = eea(@rem(b, a), a);
-    return .{ .gcd = r.gcd, .x = r.y - @divTrunc(b, a) * r.x, .y = r.x };
-}
-
-fn EeaResult(comptime T: type) type {
-    return struct { gcd: T, x: T, y: T };
-}
-
-// Returns least common multiple of a and b.
-fn lcm(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-    const r = eea(a, b);
-    return a * b / r.gcd;
-}
-
 // Invert modulo p.
 fn invertMod(a: anytype, p: @TypeOf(a)) @TypeOf(a) {
-    const r = eea(a, p);
+    const r = std.math.egcd(a, p);
     assert(r.gcd == 1);
-    return r.x;
+    return r.bezout_coeff_1;
 }
 
 // Reduce mod q for testing.
@@ -1054,7 +1032,7 @@ const Poly = struct {
         var in_off: usize = 0;
         var out_off: usize = 0;
 
-        const batch_size: usize = comptime lcm(@as(i16, d), 8);
+        const batch_size: usize = comptime std.math.lcm(@as(i16, d), 8);
         const in_batch_size: usize = comptime batch_size / d;
         const out_batch_size: usize = comptime batch_size / 8;
 
@@ -1118,7 +1096,7 @@ const Poly = struct {
         var in_off: usize = 0;
         var out_off: usize = 0;
 
-        const batch_size: usize = comptime lcm(@as(i16, d), 8);
+        const batch_size: usize = comptime std.math.lcm(@as(i16, d), 8);
         const in_batch_size: usize = comptime batch_size / 8;
         const out_batch_size: usize = comptime batch_size / d;
 
