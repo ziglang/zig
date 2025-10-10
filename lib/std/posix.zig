@@ -968,6 +968,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
+            .NXIO => return error.NoSuchDeviceOrAddress,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1015,7 +1016,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NXIO => return error.Unseekable,
+            .NXIO => return error.NoSuchDeviceOrAddress,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
             .NOTCAPABLE => return error.AccessDenied,
@@ -1048,7 +1049,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NXIO => return error.Unseekable,
+            .NXIO => return error.NoSuchDeviceOrAddress,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
@@ -1192,9 +1193,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
+            .NXIO => return error.NoSuchDeviceOrAddress,
             else => |err| return unexpectedErrno(err),
         }
     }
