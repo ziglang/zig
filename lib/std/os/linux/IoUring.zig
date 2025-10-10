@@ -3863,15 +3863,13 @@ test "splice/read" {
     try testing.expectEqual(Op.splice, sqe_splice_to_pipe.opcode);
     try testing.expectEqual(@as(u64, 0), sqe_splice_to_pipe.addr);
     try testing.expectEqual(pipe_offset, sqe_splice_to_pipe.off);
-    // TODO: use io_link function
-    sqe_splice_to_pipe.flags.io_link = true;
+    sqe_splice_to_pipe.link_next();
 
     const sqe_splice_from_pipe = try ring.splice(0x22222222, fds[0], pipe_offset, fd_dst, 10, buffer_write.len);
     try testing.expectEqual(Op.splice, sqe_splice_from_pipe.opcode);
     try testing.expectEqual(pipe_offset, sqe_splice_from_pipe.addr);
     try testing.expectEqual(@as(u64, 10), sqe_splice_from_pipe.off);
-    // TODO: use io_link function
-    sqe_splice_from_pipe.flags.io_link = true;
+    sqe_splice_from_pipe.link_next();
 
     const sqe_read = try ring.read(0x33333333, fd_dst, .{ .buffer = buffer_read[0..] }, 10);
     try testing.expectEqual(Op.read, sqe_read.opcode);
@@ -3942,8 +3940,7 @@ test "write_fixed/read_fixed" {
     const sqe_write = try ring.write_fixed(0x45454545, fd, &buffers[0], 3, 0);
     try testing.expectEqual(Op.write_fixed, sqe_write.opcode);
     try testing.expectEqual(@as(u64, 3), sqe_write.off);
-    // TODO: use io_link function
-    sqe_write.flags.io_link = true;
+    sqe_write.link_next();
 
     const sqe_read = try ring.read_fixed(0x12121212, fd, &buffers[1], 0, 1);
     try testing.expectEqual(Op.read_fixed, sqe_read.opcode);
@@ -4072,8 +4069,8 @@ test "accept/connect/send/recv" {
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
     const sqe_send = try ring.send(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], .{});
-    // TODO: use io_link function
-    sqe_send.flags.io_link = true;
+    sqe_send.link_next();
+
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, .{});
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
@@ -4090,9 +4087,8 @@ test "accept/connect/send/recv" {
     try testing.expectEqual(Cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
-        // TODO: comment seems to be wrong but clarify with previous maintainers
-        // Only check IORING_CQE_F_SOCK_NONEMPTY flag, as other flags are system-dependent (Might be more appropriate)
-        // ignore IORING_CQE_F_SOCK_NONEMPTY since it is only set on some systems
+        // Only check IORING_CQE_F_SOCK_NONEMPTY flag, as other flags are
+        // system-dependent
         .flags = .{ .f_sock_nonempty = cqe_recv.flags.f_sock_nonempty },
     }, cqe_recv);
 
@@ -4333,8 +4329,7 @@ test "accept/connect/recv/link_timeout" {
     var buffer_recv = [_]u8{ 0, 1, 0, 1, 0 };
 
     const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, .{});
-    // TODO: use io_link function
-    sqe_recv.flags.io_link = true;
+    sqe_recv.link_next();
 
     const ts = linux.kernel_timespec{ .sec = 0, .nsec = 1000000 };
     _ = try ring.link_timeout(0x22222222, &ts, .{});
@@ -4559,8 +4554,7 @@ test "register_files_update" {
     {
         const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
         try testing.expectEqual(Op.read, sqe.opcode);
-        // TODO: use setflags function
-        sqe.flags.fixed_file = true;
+        sqe.set_flags(.{ .fixed_file = true });
 
         try testing.expectEqual(@as(u32, 1), try ring.submit());
         try testing.expectEqual(Cqe{
@@ -4581,8 +4575,7 @@ test "register_files_update" {
         // Next read should still work since fd_index in the registered file descriptors hasn't been updated yet.
         const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
         try testing.expectEqual(Op.read, sqe.opcode);
-        // TODO: use setflags function
-        sqe.flags.fixed_file = true;
+        sqe.set_flags(.{ .fixed_file = true });
 
         try testing.expectEqual(@as(u32, 1), try ring.submit());
         try testing.expectEqual(Cqe{
@@ -4599,8 +4592,7 @@ test "register_files_update" {
         // Now this should fail since both fds are sparse (-1)
         const sqe = try ring.read(0xcccccccc, fd_index, .{ .buffer = &buffer }, 0);
         try testing.expectEqual(Op.read, sqe.opcode);
-        // TODO: use setflags function
-        sqe.flags.fixed_file = true;
+        sqe.set_flags(.{ .fixed_file = true });
 
         try testing.expectEqual(@as(u32, 1), try ring.submit());
         const cqe = try ring.copy_cqe();
@@ -5463,8 +5455,7 @@ test "accept/connect/send_zc/recv" {
 
     // zero-copy send
     const sqe_send = try ring.send_zc(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], .{}, .{});
-    // TODO: use io_link function
-    sqe_send.flags.io_link = true;
+    sqe_send.link_next();
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, .{});
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
@@ -5556,8 +5547,8 @@ test "accept_direct" {
             // Fd field is set to registered file index, returned by accept.
             // Flag linux.IOSQE_FIXED_FILE must be set.
             const recv_sqe = try ring.recv(read_userdata, fd_index, .{ .buffer = &buffer_recv }, .{});
-            // TODO: use setflags function
-            recv_sqe.flags.fixed_file = true;
+            recv_sqe.set_flags(.{ .fixed_file = true });
+
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
             // accept receive
@@ -5725,8 +5716,8 @@ test "socket_direct/socket_direct_alloc/close_direct" {
         _ = try ring.accept(accept_userdata, listener_socket, null, null, .{});
         // prepare connect with fixed socket
         const connect_sqe = try ring.connect(connect_userdata, @intCast(fd_index), addrAny(&address), @sizeOf(linux.sockaddr.in));
-        // TODO: use setflags function
-        connect_sqe.flags.fixed_file = true; // fd is fixed file index
+        // fd is fixed file index
+        connect_sqe.set_flags(.{ .fixed_file = true });
         // submit both
         try testing.expectEqual(@as(u32, 2), try ring.submit());
         // get completions
