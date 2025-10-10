@@ -834,6 +834,9 @@ pub const ReadError = error{
 
     /// Unable to read file due to lock.
     LockViolation,
+
+    /// The device is not available or the address is not found.
+    NoSuchDeviceOrAddress,
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -901,6 +904,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
+            .NXIO => return error.NoSuchDeviceOrAddress,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -6231,6 +6235,9 @@ pub const SendError = error{
 
     /// The destination address is not listening.
     ConnectionRefused,
+
+    /// The device is not available or the address is not found.
+    NoSuchDeviceOrAddress,
 } || UnexpectedError;
 
 pub const SendMsgError = SendError || error{
@@ -6422,6 +6429,7 @@ pub fn sendto(
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketNotConnected,
             .NETDOWN => return error.NetworkSubsystemFailed,
+            .NXIO => return error.NoSuchDeviceOrAddress,
             else => |err| return unexpectedErrno(err),
         }
     }
