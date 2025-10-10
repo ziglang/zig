@@ -141,6 +141,9 @@ pub const StdIo = union(enum) {
 pub const Arg = union(enum) {
     artifact: PrefixedArtifact,
     lazy_path: PrefixedLazyPath,
+    // Needed for `enableTestRunnerMode` for example, as you need to pass
+    // the cache directory without caching it.
+    uncached_decorated_lazy_path: DecoratedLazyPath,
     decorated_directory: DecoratedLazyPath,
     file_content: PrefixedLazyPath,
     bytes: []u8,
@@ -229,7 +232,7 @@ pub fn setName(run: *Run, name: []const u8) void {
 pub fn enableTestRunnerMode(run: *Run) void {
     const b = run.step.owner;
     run.stdio = .zig_test;
-    run.addPrefixedDirectoryArg("--cache-dir=", .{ .cwd_relative = b.cache_root.path orelse "." });
+    run.addPrefixedPathArg("--cache-dir=", .{ .cwd_relative = b.cache_root.path orelse "." });
     run.addArgs(&.{
         b.fmt("--seed=0x{x}", .{b.graph.random_seed}),
         "--listen=-",
@@ -472,6 +475,29 @@ pub fn addDecoratedDirectoryArg(
     lazy_directory.addStepDependencies(&run.step);
 }
 
+pub fn addPathArg(run: *Run, lazy_path: std.Build.LazyPath) void {
+    run.addPrefixedPathArg("", lazy_path);
+}
+
+pub fn addPrefixedPathArg(run: *Run, prefix: []const u8, lazy_path: std.Build.LazyPath) void {
+    run.addDecoratedPathArg(prefix, lazy_path, "");
+}
+
+pub fn addDecoratedPathArg(
+    run: *Run,
+    prefix: []const u8,
+    lazy_path: std.Build.LazyPath,
+    suffix: []const u8,
+) void {
+    const b = run.step.owner;
+    run.argv.append(b.allocator, .{ .uncached_decorated_lazy_path = .{
+        .prefix = b.dupe(prefix),
+        .lazy_path = lazy_path.dupe(b),
+        .suffix = b.dupe(suffix),
+    } }) catch @panic("OOM");
+    lazy_path.addStepDependencies(&run.step);
+}
+
 /// Add a path argument to a dep file (.d) for the child process to write its
 /// discovered additional dependencies.
 /// Only one dep file argument is allowed by instance.
@@ -542,7 +568,7 @@ pub fn addPathDir(run: *Run, search_path: []const u8) void {
             }
             break :use_wine std.mem.endsWith(u8, p.lazy_path.basename(b, &run.step), ".exe");
         },
-        .decorated_directory => false,
+        .uncached_decorated_lazy_path, .decorated_directory => false,
         .file_content => unreachable, // not allowed as first arg
         .bytes => |bytes| std.mem.endsWith(u8, bytes, ".exe"),
         .output_file, .output_directory => false,
@@ -809,11 +835,42 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(file.prefix);
                 _ = try man.addFilePath(file_path, null);
             },
+            .uncached_decorated_lazy_path => |dd| {
+                const src_lazy_path = dd.lazy_path.getPath3(b, step);
+                try argv_list.append(b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(src_lazy_path), dd.suffix }));
+            },
             .decorated_directory => |dd| {
-                const file_path = dd.lazy_path.getPath3(b, step);
-                const resolved_arg = b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix });
-                try argv_list.append(resolved_arg);
-                man.hash.addBytes(resolved_arg);
+                const src_dir_path = dd.lazy_path.getPath3(b, step);
+                try argv_list.append(b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(src_dir_path), dd.suffix }));
+                man.hash.addBytes(dd.prefix);
+                man.hash.addBytes(dd.suffix);
+
+                const need_derived_inputs = try step.addDirectoryWatchInput(dd.lazy_path);
+
+                var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+                    return step.fail("unable to open source directory '{f}': {s}", .{
+                        src_dir_path, @errorName(err),
+                    });
+                };
+
+                var it = try src_dir.walk(arena);
+                defer it.deinit();
+
+                while (try it.next()) |entry| {
+                    switch (entry.kind) {
+                        .directory => {
+                            if (need_derived_inputs) {
+                                const entry_path = try src_dir_path.join(arena, entry.path);
+                                try step.addDirectoryWatchInputFromPath(entry_path);
+                            }
+                        },
+                        .file => {
+                            const entry_path = try src_dir_path.join(arena, entry.path);
+                            _ = try man.addFilePath(entry_path, null);
+                        },
+                        else => continue,
+                    }
+                }
             },
             .file_content => |file_plp| {
                 const file_path = file_plp.lazy_path.getPath3(b, step);
@@ -1075,7 +1132,7 @@ pub fn rerunInFuzzMode(
                 const file_path = file.lazy_path.getPath3(b, step);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
             },
-            .decorated_directory => |dd| {
+            .uncached_decorated_lazy_path, .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
                 try argv_list.append(arena, b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix }));
             },
