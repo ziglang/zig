@@ -2514,11 +2514,11 @@ pub fn io_uring_setup(entries: u32, p: *IoUring.Params) usize {
     return syscall2(.io_uring_setup, entries, @intFromPtr(p));
 }
 
-pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: u32, sig: ?*sigset_t) usize {
-    return syscall6(.io_uring_enter, @as(usize, @bitCast(@as(isize, fd))), to_submit, min_complete, flags, @intFromPtr(sig), NSIG / 8);
+pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: IoUring.uflags.Enter, sig: ?*sigset_t) usize {
+    return syscall6(.io_uring_enter, @as(usize, @bitCast(@as(isize, fd))), to_submit, min_complete, @intCast(@as(u32, @bitCast(flags))), @intFromPtr(sig), NSIG / 8);
 }
 
-pub fn io_uring_register(fd: i32, opcode: IORING_REGISTER, arg: ?*const anyopaque, nr_args: u32) usize {
+pub fn io_uring_register(fd: i32, opcode: IoUring.RegisterOp, arg: ?*const anyopaque, nr_args: u32) usize {
     return syscall4(.io_uring_register, @as(usize, @bitCast(@as(isize, fd))), @intFromEnum(opcode), @intFromPtr(arg), nr_args);
 }
 
