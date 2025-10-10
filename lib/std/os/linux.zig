@@ -47,9 +47,7 @@ const arch_bits = switch (native_arch) {
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     .s390x => @import("linux/s390x.zig"),
-    else => struct {
-        pub const ucontext_t = void;
-    },
+    else => struct {},
 };
 
 const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
@@ -94,7 +92,6 @@ pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
-pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
 pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
@@ -102,14 +99,12 @@ pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
-pub const mcontext_t = arch_bits.mcontext_t;
 pub const mode_t = arch_bits.mode_t;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
 pub const timeval = arch_bits.timeval;
 pub const timezone = arch_bits.timezone;
-pub const ucontext_t = arch_bits.ucontext_t;
 pub const user_desc = arch_bits.user_desc;
 
 pub const tls = @import("linux/tls.zig");
@@ -3614,8 +3609,7 @@ pub const PROT = struct {
     pub const EXEC = 0x4;
     /// page may be used for atomic ops
     pub const SEM = switch (native_arch) {
-        // TODO: also xtensa
-        .mips, .mipsel, .mips64, .mips64el => 0x10,
+        .mips, .mipsel, .mips64, .mips64el, .xtensa => 0x10,
         else => 0x8,
     };
     /// mprotect flag: extend change to start of growsdown vma

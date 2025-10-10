@@ -31,29 +31,6 @@ pub const poolid_t = id_t;
 pub const zoneid_t = id_t;
 pub const ctid_t = id_t;
 
-pub const fpregset_t = extern union {
-    regs: [130]u32,
-    chip_state: extern struct {
-        cw: u16,
-        sw: u16,
-        fctw: u8,
-        __fx_rsvd: u8,
-        fop: u16,
-        rip: u64,
-        rdp: u64,
-        mxcsr: u32,
-        mxcsr_mask: u32,
-        st: [8]extern union {
-            fpr_16: [5]u16,
-            __fpr_pad: u128,
-        },
-        xmm: [16]u128,
-        __fx_ign2: [6]u128,
-        status: u32,
-        xstatus: u32,
-    },
-};
-
 pub const GETCONTEXT = 0;
 pub const SETCONTEXT = 1;
 pub const GETUSTACK = 2;

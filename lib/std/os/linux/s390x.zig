@@ -199,30 +199,6 @@ pub const Flock = extern struct {
     pid: pid_t,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    __pad1: i32 = 0,
-    iovlen: i32,
-    control: ?*anyopaque,
-    __pad2: i32 = 0,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    __pad1: i32 = 0,
-    iovlen: i32,
-    control: ?*const anyopaque,
-    __pad2: i32 = 0,
-    controllen: socklen_t,
-    flags: i32,
-};
-
 // The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {
     dev: dev_t,
@@ -258,23 +234,4 @@ pub const Elf_Symndx = u64;
 pub const VDSO = struct {
     pub const CGT_SYM = "__kernel_clock_gettime";
     pub const CGT_VER = "LINUX_2.6.29";
-};
-
-pub const ucontext_t = extern struct {
-    flags: u64,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-};
-
-pub const mcontext_t = extern struct {
-    psw: extern struct {
-        mask: u64,
-        addr: u64,
-    },
-    gregs: [16]u64,
-    aregs: [16]u32,
-    fpc: u32,
-    fregs: [16]f64,
 };

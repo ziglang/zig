@@ -63,7 +63,10 @@ pub const SelfInfo = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "SelfI
     root.debug.SelfInfo
 else switch (std.Target.ObjectFormat.default(native_os, native_arch)) {
     .coff => if (native_os == .windows) @import("debug/SelfInfo/Windows.zig") else void,
-    .elf => @import("debug/SelfInfo/Elf.zig"),
+    .elf => switch (native_os) {
+        .freestanding, .other => void,
+        else => @import("debug/SelfInfo/Elf.zig"),
+    },
     .macho => @import("debug/SelfInfo/MachO.zig"),
     .goff, .plan9, .spirv, .wasm, .xcoff => void,
     .c, .hex, .raw => unreachable,
@@ -985,7 +988,7 @@ const StackIterator = union(enum) {
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
         // slot where the previous frame pointer is saved.
-        if (native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
+        if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
         // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
         if (native_arch.isSPARC()) break :off 14 * @sizeOf(usize);
         break :off 0;
@@ -993,7 +996,7 @@ const StackIterator = union(enum) {
 
     /// Offset of the saved return address wrt the frame pointer.
     const ra_offset = off: {
-        if (native_arch.isRISCV()) break :off -1 * @sizeOf(usize);
+        if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -1 * @sizeOf(usize);
         if (native_arch.isSPARC()) break :off 15 * @sizeOf(usize);
         if (native_arch.isPowerPC64()) break :off 2 * @sizeOf(usize);
         // On s390x, r14 is the link register and we need to grab it from its customary slot in the
@@ -1312,15 +1315,26 @@ fn getDebugInfoAllocator() Allocator {
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
 pub const have_segfault_handling_support = switch (native_os) {
+    .haiku,
     .linux,
-    .macos,
-    .netbsd,
-    .solaris,
-    .illumos,
-    .windows,
-    .freebsd,
-    .openbsd,
     .serenity,
+
+    .dragonfly,
+    .freebsd,
+    .netbsd,
+    .openbsd,
+
+    .driverkit,
+    .ios,
+    .macos,
+    .tvos,
+    .visionos,
+    .watchos,
+
+    .illumos,
+    .solaris,
+
+    .windows,
     => true,
 
     else => false,
@@ -1403,11 +1417,26 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
             }
         }
         const addr: usize = switch (native_os) {
-            .linux => @intFromPtr(info.fields.sigfault.addr),
-            .freebsd, .macos, .serenity => @intFromPtr(info.addr),
-            .netbsd => @intFromPtr(info.info.reason.fault.addr),
-            .openbsd => @intFromPtr(info.data.fault.addr),
-            .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
+            .serenity,
+            .dragonfly,
+            .freebsd,
+            .driverkit,
+            .ios,
+            .macos,
+            .tvos,
+            .visionos,
+            .watchos,
+            => @intFromPtr(info.addr),
+            .linux,
+            => @intFromPtr(info.fields.sigfault.addr),
+            .netbsd,
+            => @intFromPtr(info.info.reason.fault.addr),
+            .haiku,
+            .openbsd,
+            => @intFromPtr(info.data.fault.addr),
+            .illumos,
+            .solaris,
+            => @intFromPtr(info.reason.fault.addr),
             else => comptime unreachable,
         };
         const name = switch (sig) {

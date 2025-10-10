@@ -168,30 +168,6 @@ pub const Flock = extern struct {
     __unused: [4]u8,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
 pub const time_t = i32;
@@ -236,31 +212,3 @@ pub const Stat = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const VDSO = void;
-
-pub const mcontext_t = extern struct {
-    gregs: [32]u32 align(8),
-    sa0: u32,
-    lc0: u32,
-    sa1: u32,
-    lc1: u32,
-    m0: u32,
-    m1: u32,
-    usr: u32,
-    p3_0: u32,
-    gp: u32,
-    ugp: u32,
-    pc: u32,
-    cause: u32,
-    badva: u32,
-    cs0: u32,
-    cs1: u32,
-    _pad1: u32,
-};
-
-pub const ucontext_t = extern struct {
-    flags: u32,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: sigset_t,
-};

@@ -351,33 +351,4 @@ pub const timezone = extern struct {
     dsttime: i32,
 };
 
-pub const greg_t = u32;
-pub const gregset_t = [48]greg_t;
-pub const fpregset_t = [33]f64;
-
-pub const vrregset = extern struct {
-    vrregs: [32][4]u32,
-    vrsave: u32,
-    _pad: [2]u32,
-    vscr: u32,
-};
-pub const vrregset_t = vrregset;
-
-pub const mcontext_t = extern struct {
-    gp_regs: gregset_t,
-    fp_regs: fpregset_t,
-    v_regs: vrregset_t align(16),
-};
-
-pub const ucontext_t = extern struct {
-    flags: u32,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    pad: [7]i32,
-    regs: *mcontext_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-    pad2: [3]i32,
-    mcontext: mcontext_t,
-};
-
 pub const Elf_Symndx = u32;

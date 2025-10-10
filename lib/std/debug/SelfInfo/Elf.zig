@@ -94,6 +94,15 @@ pub const can_unwind: bool = s: {
     // Notably, we are yet to support unwinding on ARM. There, unwinding is not done through
     // `.eh_frame`, but instead with the `.ARM.exidx` section, which has a different format.
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
+        // Not supported yet: arm, m68k, sparc64
+        .haiku => &.{
+            .aarch64,
+            .powerpc,
+            .riscv64,
+            .x86,
+            .x86_64,
+        },
+        // Not supported yet: arc, arm/armeb/thumb/thumbeb, csky, m68k, or1k, sparc/sparc64, xtensa
         .linux => &.{
             .aarch64,
             .aarch64_be,
@@ -113,31 +122,54 @@ pub const can_unwind: bool = s: {
             .x86,
             .x86_64,
         },
+        .serenity => &.{
+            .aarch64,
+            .x86_64,
+            .riscv64,
+        },
+
+        .dragonfly => &.{
+            .x86_64,
+        },
+        // Not supported yet: arm
+        .freebsd => &.{
+            .aarch64,
+            .powerpc64,
+            .powerpc64le,
+            .riscv64,
+            .x86_64,
+        },
+        // Not supported yet: arm/armeb, m68k, mips64/mips64el, sparc/sparc64
         .netbsd => &.{
             .aarch64,
             .aarch64_be,
+            .mips,
+            .mipsel,
+            .powerpc,
             .x86,
             .x86_64,
         },
-        .freebsd => &.{
-            .x86_64,
-            .aarch64,
-        },
+        // Not supported yet: arm, sparc64
         .openbsd => &.{
+            .aarch64,
+            .mips64,
+            .mips64el,
+            .powerpc,
+            .powerpc64,
+            .riscv64,
+            .x86,
             .x86_64,
         },
-        .solaris => &.{
-            .x86_64,
-        },
+
         .illumos => &.{
             .x86,
             .x86_64,
         },
-        .serenity => &.{
+        // Not supported yet: sparc64
+        .solaris => &.{
             .x86_64,
-            .aarch64,
-            .riscv64,
         },
+
         else => unreachable,
     };
     for (archs) |a| {

@@ -199,27 +199,6 @@ pub const Flock = extern struct {
     pid: pid_t,
 };
 
-// TODO: not 100% sure of padding for msghdr
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
 pub const Stat = extern struct {
     dev: dev_t,
     __pad: i16,
@@ -255,6 +234,3 @@ pub const Elf_Symndx = u32;
 
 // No VDSO used as of glibc 112a0ae18b831bf31f44d81b82666980312511d6.
 pub const VDSO = void;
-
-/// TODO
-pub const ucontext_t = void;

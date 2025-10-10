@@ -327,29 +327,3 @@ pub const timezone = extern struct {
 };
 
 pub const Elf_Symndx = u32;
-
-pub const mcontext_t = extern struct {
-    regs: [32]u64,
-    fpregs: [32]f64,
-    mdhi: u64,
-    hi1: u64,
-    hi2: u64,
-    hi3: u64,
-    mdlo: u64,
-    lo1: u64,
-    lo2: u64,
-    lo3: u64,
-    pc: u64,
-    fpc_csr: u32,
-    used_math: u32,
-    dsp: u32,
-    _reserved: u32,
-};
-
-pub const ucontext_t = extern struct {
-    flags: u32,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: sigset_t,
-};

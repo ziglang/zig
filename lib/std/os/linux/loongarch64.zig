@@ -135,30 +135,6 @@ pub fn clone() callconv(.naked) usize {
     );
 }
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
 pub const time_t = i64;
@@ -232,21 +208,6 @@ pub const F = struct {
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_5.10";
-};
-
-pub const mcontext_t = extern struct {
-    pc: u64,
-    regs: [32]u64,
-    flags: u32,
-    extcontext: [0]u64 align(16),
-};
-
-pub const ucontext_t = extern struct {
-    flags: c_ulong,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
-    mcontext: mcontext_t,
 };
 
 pub const Elf_Symndx = u32;
