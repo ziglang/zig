@@ -855,7 +855,7 @@ pub const OpenError = error{
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
     BadPathName,
     DeviceBusy,
@@ -873,7 +873,7 @@ pub fn close(self: *Dir) void {
 /// To create a new file, see `createFile`.
 /// Call `File.close` to release the resource.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
@@ -999,7 +999,7 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
 }
 
 /// Same as `openFile` but Windows-only and the path parameter is
-/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+/// [WTF-16](https://wtf-8.codeberg.page/#potentially-ill-formed-utf-16) encoded.
 pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
     const w = windows;
     const file: File = .{
@@ -1038,7 +1038,7 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
 /// Creates, opens, or overwrites a file with write access.
 /// Call `File.close` on the result when done.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
@@ -1150,7 +1150,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
 }
 
 /// Same as `createFile` but Windows-only and the path parameter is
-/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+/// [WTF-16](https://wtf-8.codeberg.page/#potentially-ill-formed-utf-16) encoded.
 pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) File.OpenError!File {
     const w = windows;
     const read_flag = if (flags.read) @as(u32, w.GENERIC_READ) else 0;
@@ -1195,7 +1195,7 @@ pub const MakeError = posix.MakeDirError;
 /// Creates a single directory with a relative or absolute path.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsolute`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn makeDir(self: Dir, sub_path: []const u8) MakeError!void {
@@ -1221,7 +1221,7 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 /// Returns success if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Fails on an empty path with `error.BadPathName` as that is not a path that can be created.
@@ -1275,7 +1275,7 @@ pub fn makePathStatus(self: Dir, sub_path: []const u8) (MakeError || StatFileErr
 /// Opens the dir if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
-/// `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) (MakeError || OpenError || StatFileError)!Dir {
     const w = windows;
     var it = try fs.path.componentIterator(sub_path);
@@ -1326,7 +1326,7 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
 /// This function performs `makePath`, followed by `openDir`.
 /// If supported by the OS, this operation is atomic. It is not atomic on
 /// all operating systems.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenOptions) (MakeError || OpenError || StatFileError)!Dir {
@@ -1357,9 +1357,9 @@ pub const RealPathError = posix.RealPathError;
 /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
 /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
 /// argument.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// This function is not universally supported by all platforms.
 /// Currently supported hosts are: Linux, macOS, and Windows.
@@ -1429,7 +1429,7 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
 /// Deprecated: use `realpathW2`.
 ///
 /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 LE encoded.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// See also `Dir.realpath`, `realpathW`.
 pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
     var wide_buf: [std.os.windows.PATH_MAX_WIDE]u16 = undefined;
@@ -1529,7 +1529,7 @@ pub const OpenOptions = struct {
 /// open until `close` is called on the result.
 /// The directory cannot be iterated unless the `iterate` option is set to `true`.
 ///
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
@@ -1744,7 +1744,7 @@ fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u3
 pub const DeleteFileError = posix.UnlinkError;
 
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
@@ -1805,7 +1805,7 @@ pub const DeleteDirError = error{
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
@@ -1816,7 +1816,7 @@ pub const DeleteDirError = error{
 
 /// Returns `error.DirNotEmpty` if the directory is not empty.
 /// To delete a directory recursively, see `deleteTree`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
@@ -1858,7 +1858,7 @@ pub const RenameError = posix.RenameError;
 /// If new_sub_path already exists, it will be replaced.
 /// Renaming a file over an existing directory or a directory
 /// over an existing file will fail with `error.IsDir` or `error.NotDir`
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn rename(self: Dir, old_sub_path: []const u8, new_sub_path: []const u8) RenameError!void {
@@ -1889,7 +1889,7 @@ pub const SymLinkFlags = struct {
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
 /// If `sym_link_path` exists, it will not be overwritten.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn symLink(
@@ -1972,7 +1972,7 @@ pub fn symLinkW(
 /// Same as `symLink`, except tries to create the symbolic link until it
 /// succeeds or encounters an error other than `error.PathAlreadyExists`.
 ///
-/// * On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// * On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// * On WASI, both paths should be encoded as valid UTF-8.
 /// * On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn atomicSymLink(
@@ -2018,7 +2018,7 @@ pub const ReadLinkError = posix.ReadLinkError;
 /// Read value of a symbolic link.
 /// The return value is a slice of `buffer`, from index `0`.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u8 {
@@ -2058,7 +2058,7 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
 /// the situation is ambiguous. It could either mean that the entire file was read, and
 /// it exactly fits the buffer, or it could mean the buffer was not big enough for the
 /// entire file.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `file_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
@@ -2085,7 +2085,7 @@ pub const ReadFileAllocError = File.OpenError || File.ReadError || Allocator.Err
 /// `File.Reader` which handles this seamlessly.
 pub fn readFileAlloc(
     dir: Dir,
-    /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On Windows, should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
     /// On WASI, should be encoded as valid UTF-8.
     /// On other platforms, an opaque sequence of bytes with no particular encoding.
     sub_path: []const u8,
@@ -2104,7 +2104,7 @@ pub fn readFileAlloc(
 /// `File.Reader`.
 pub fn readFileAllocOptions(
     dir: Dir,
-    /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On Windows, should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
     /// On WASI, should be encoded as valid UTF-8.
     /// On other platforms, an opaque sequence of bytes with no particular encoding.
     sub_path: []const u8,
@@ -2148,7 +2148,7 @@ pub const DeleteTreeError = error{
     InvalidUtf8,
 
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 
     /// On Windows, file paths cannot contain these characters:
@@ -2163,7 +2163,7 @@ pub const DeleteTreeError = error{
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 /// This operation is not atomic on most file systems.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
@@ -2370,7 +2370,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
 
 /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
 /// This is slower than `deleteTree` but uses less stack space.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
@@ -2568,7 +2568,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
 pub const WriteFileError = File.WriteError || File.OpenError;
 
 pub const WriteFileOptions = struct {
-    /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
     /// On WASI, `sub_path` should be encoded as valid UTF-8.
     /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
     sub_path: []const u8,
@@ -2586,7 +2586,7 @@ pub fn writeFile(self: Dir, options: WriteFileOptions) WriteFileError!void {
 pub const AccessError = posix.AccessError;
 
 /// Test accessing `sub_path`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
@@ -2641,7 +2641,7 @@ pub const PrevStatus = enum {
 /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
 /// Returns the previous status of the file before updating.
 /// If any of the directories do not exist for dest_path, they are created.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn updateFile(
@@ -2713,7 +2713,7 @@ pub const CopyFileError = File.OpenError || File.StatError ||
 /// dest_path.
 ///
 /// On Windows, both paths should be encoded as
-/// [WTF-8](https://simonsapin.github.io/wtf-8/). On WASI, both paths should be
+/// [WTF-8](https://wtf-8.codeberg.page/). On WASI, both paths should be
 /// encoded as valid UTF-8. On other platforms, both paths are an opaque
 /// sequence of bytes with no particular encoding.
 pub fn copyFile(
@@ -2758,7 +2758,7 @@ pub const AtomicFileOptions = struct {
 /// Always call `AtomicFile.deinit` to clean up, regardless of whether
 /// `AtomicFile.finish` succeeded. `dest_path` must remain valid until
 /// `AtomicFile.deinit` is called.
-/// On Windows, `dest_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `dest_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `dest_path` should be encoded as valid UTF-8.
 /// On other platforms, `dest_path` is an opaque sequence of bytes with no particular encoding.
 pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
@@ -2792,7 +2792,7 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// Symlinks are followed.
 ///
 /// `sub_path` may be absolute, in which case `self` is ignored.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {

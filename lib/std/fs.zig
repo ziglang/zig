@@ -46,7 +46,7 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 /// The byte count includes room for a null sentinel byte.
 ///
 /// * On Windows, `[]u8` file paths are encoded as
-///   [WTF-8](https://simonsapin.github.io/wtf-8/).
+///   [WTF-8](https://wtf-8.codeberg.page/).
 /// * On WASI, `[]u8` file paths are encoded as valid UTF-8.
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
@@ -68,7 +68,7 @@ pub const max_path_bytes = switch (native_os) {
 /// operations are likely to fit into a `u8` array of this length, but
 /// (depending on the platform) this assumption may not hold for every configuration.
 /// The byte count does not include a null sentinel byte.
-/// On Windows, `[]u8` file name components are encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `[]u8` file name components are encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
 pub const max_name_bytes = switch (native_os) {
@@ -100,7 +100,7 @@ pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 /// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`
 /// are absolute. See `Dir.updateFile` for a function that operates on both
 /// absolute and relative paths.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn updateFileAbsolute(
@@ -117,7 +117,7 @@ pub fn updateFileAbsolute(
 /// Same as `Dir.copyFile`, except asserts that both `source_path` and `dest_path`
 /// are absolute. See `Dir.copyFile` for a function that operates on both
 /// absolute and relative paths.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn copyFileAbsolute(
@@ -134,7 +134,7 @@ pub fn copyFileAbsolute(
 /// Create a new directory, based on an absolute path.
 /// Asserts that the path is absolute. See `Dir.makeDir` for a function that operates
 /// on both absolute and relative paths.
-/// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
 pub fn makeDirAbsolute(absolute_path: []const u8) !void {
@@ -155,7 +155,7 @@ pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
 }
 
 /// Same as `Dir.deleteDir` except the path is absolute.
-/// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `dir_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteDirAbsolute(dir_path: []const u8) !void {
@@ -176,7 +176,7 @@ pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
 }
 
 /// Same as `Dir.rename` except the paths are absolute.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn renameAbsolute(old_path: []const u8, new_path: []const u8) !void {
@@ -238,7 +238,7 @@ pub fn defaultWasiCwd() std.os.wasi.fd_t {
 /// See `openDirAbsoluteZ` for a function that accepts a null-terminated path.
 ///
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
 pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenOptions) File.OpenError!Dir {
@@ -263,7 +263,7 @@ pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenOptions)
 /// operates on both absolute and relative paths.
 /// Asserts that the path parameter has no null bytes. See `openFileAbsoluteZ` for a function
 /// that accepts a null-terminated path.
-/// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
 pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
@@ -288,7 +288,7 @@ pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) Fi
 /// For example, instead of testing if a file exists and then opening it, just
 /// open it and handle the error for file not found.
 /// See `accessAbsoluteZ` for a function that accepts a null-terminated path.
-/// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
 pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.AccessError!void {
@@ -312,7 +312,7 @@ pub fn accessAbsoluteW(absolute_path: [*:0]const u16, flags: File.OpenFlags) Dir
 /// operates on both absolute and relative paths.
 /// Asserts that the path parameter has no null bytes. See `createFileAbsoluteC` for a function
 /// that accepts a null-terminated path.
-/// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
 pub fn createFileAbsolute(absolute_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
@@ -336,7 +336,7 @@ pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFl
 /// Asserts that the path is absolute. See `Dir.deleteFile` for a function that
 /// operates on both absolute and relative paths.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteFileAbsolute(absolute_path: []const u8) Dir.DeleteFileError!void {
@@ -361,7 +361,7 @@ pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!
 /// Asserts that the path is absolute. See `Dir.deleteTree` for a function that
 /// operates on both absolute and relative paths.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteTreeAbsolute(absolute_path: []const u8) !void {
@@ -379,7 +379,7 @@ pub fn deleteTreeAbsolute(absolute_path: []const u8) !void {
 }
 
 /// Same as `Dir.readLink`, except it asserts the path is absolute.
-/// On Windows, `pathname` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `pathname` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `pathname` should be encoded as valid UTF-8.
 /// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
 pub fn readLinkAbsolute(pathname: []const u8, buffer: *[max_path_bytes]u8) ![]u8 {
@@ -405,7 +405,7 @@ pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[max_path_bytes]u8)
 /// one; the latter case is known as a dangling link.
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symLinkAbsoluteZ` and `symLinkAbsoluteW`.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn symLinkAbsolute(
@@ -537,7 +537,7 @@ pub fn selfExePathAlloc(allocator: Allocator) ![]u8 {
 /// This function may return an error if the current executable
 /// was deleted after spawning.
 /// Returned value is a slice of out_buffer.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 ///
 /// On Linux, depends on procfs being mounted. If the currently executing binary has
@@ -677,7 +677,7 @@ pub fn selfExeDirPathAlloc(allocator: Allocator) ![]u8 {
 
 /// Get the directory path that contains the current executable.
 /// Returned value is a slice of out_buffer.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
     const self_exe_path = try selfExePath(out_buffer);
@@ -687,7 +687,7 @@ pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
 }
 
 /// `realpath`, except caller must free the returned memory.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// See also `Dir.realpath`.
 pub fn realpathAlloc(allocator: Allocator, pathname: []const u8) ![]u8 {
