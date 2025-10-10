@@ -836,7 +836,7 @@ pub const ReadError = error{
     LockViolation,
 
     /// The device is not available or the address is not found.
-    NoSuchDeviceOrAddress,
+    DeviceOrAddressNotFound,
 } || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
@@ -904,7 +904,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NXIO => return error.NoSuchDeviceOrAddress,
+            .NXIO => return error.DeviceOrAddressNotFound,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -968,7 +968,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NXIO => return error.NoSuchDeviceOrAddress,
+            .NXIO => return error.DeviceOrAddressNotFound,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1016,7 +1016,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NXIO => return error.NoSuchDeviceOrAddress,
+            .NXIO => return error.DeviceOrAddressNotFound,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
             .NOTCAPABLE => return error.AccessDenied,
@@ -1049,7 +1049,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
-            .NXIO => return error.NoSuchDeviceOrAddress,
+            .NXIO => return error.DeviceOrAddressNotFound,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
@@ -1195,7 +1195,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .TIMEDOUT => return error.ConnectionTimedOut,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
-            .NXIO => return error.NoSuchDeviceOrAddress,
+            .NXIO => return error.DeviceOrAddressNotFound,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -6238,7 +6238,7 @@ pub const SendError = error{
     ConnectionRefused,
 
     /// The device is not available or the address is not found.
-    NoSuchDeviceOrAddress,
+    DeviceOrAddressNotFound,
 } || UnexpectedError;
 
 pub const SendMsgError = SendError || error{
@@ -6430,7 +6430,7 @@ pub fn sendto(
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketNotConnected,
             .NETDOWN => return error.NetworkSubsystemFailed,
-            .NXIO => return error.NoSuchDeviceOrAddress,
+            .NXIO => return error.DeviceOrAddressNotFound,
             else => |err| return unexpectedErrno(err),
         }
     }
