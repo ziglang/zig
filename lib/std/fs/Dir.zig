@@ -1433,16 +1433,13 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
 /// See also `Dir.realpath`, `realpathW`.
 pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
     var wide_buf: [std.os.windows.PATH_MAX_WIDE]u16 = undefined;
-
     const wide_slice = try self.realpathW2(pathname, &wide_buf);
 
-    var big_out_buf: [fs.max_path_bytes]u8 = undefined;
-    const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
-    if (end_index > out_buffer.len)
-        return error.NameTooLong;
-    const result = out_buffer[0..end_index];
-    @memcpy(result, big_out_buf[0..end_index]);
-    return result;
+    const len = std.unicode.calcWtf8Len(wide_slice);
+    if (len > out_buffer.len) return error.NameTooLong;
+
+    const end_index = std.unicode.wtf16LeToWtf8(&out_buffer, wide_slice);
+    return out_buffer[0..end_index];
 }
 
 /// Windows-only. Same as `Dir.realpath` except
