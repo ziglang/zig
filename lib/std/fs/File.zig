@@ -60,7 +60,7 @@ pub const OpenError = error{
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
