@@ -1181,6 +1181,7 @@ fn detectAbiAndDynamicLinker(
                 error.UnexpectedEndOfFile,
                 error.UnableToReadElfFile,
                 error.ProcessNotFound,
+                error.NoSuchDeviceOrAddress,
                 => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
