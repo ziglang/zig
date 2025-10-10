@@ -926,6 +926,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.Unexpected,
         error.FileSystem,
         error.ProcessNotFound,
+        error.NoSuchDeviceOrAddress,
         => |e| return e,
     };
 }
@@ -1239,6 +1240,7 @@ fn detectAbiAndDynamicLinker(
         error.UnexpectedEndOfFile,
         error.NameTooLong,
         error.StaticElfFile,
+        error.NoSuchDeviceOrAddress,
         // Finally, we fall back on the standard path.
         => |e| {
             std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
