@@ -2204,6 +2204,35 @@ test "read file non vectored" {
     try testing.expectEqual(contents.len, i);
 }
 
+test "seekBy streaming" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+
+    var read_buf: [10]u8 = undefined;
+    var buffer: [10]u8 = undefined;
+
+    var reader = f.readerStreaming(&read_buf);
+    const n1 = try reader.interface.readSliceShort(buffer[0..2]);
+    try testing.expectEqual(2, n1);
+    try testing.expectEqualStrings("le", buffer[0..2]);
+
+    // seek within bufferedLen
+    try reader.seekBy(2);
+    const n2 = try reader.interface.readSliceShort(buffer[0..2]);
+    try testing.expectEqual(2, n2);
+    try testing.expectEqualStrings("s ", buffer[0..2]);
+
+    // seek past bufferedLen: causing discard
+    try reader.seekBy(8);
+    const n3 = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(3, n3);
+    try testing.expectEqualStrings("kBy", buffer[0..3]);
+}
+
 test "seek keeping partial buffer" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
