@@ -1,7 +1,7 @@
-//! Greatest common divisor (https://mathworld.wolfram.com/GreatestCommonDivisor.html)
-const std = @import("std");
+//! Greatest Common Divisor (https://mathworld.wolfram.com/GreatestCommonDivisor.html)
+const std = @import("../std.zig");
 
-/// Returns the greatest common divisor (GCD) of two unsigned integers (`a` and `b`) which are not both zero.
+/// Returns the Greatest Common Divisor (GCD) of two unsigned integers (`a` and `b`) which are not both zero.
 /// For example, the GCD of `8` and `12` is `4`, that is, `gcd(8, 12) == 4`.
 pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
     const N = switch (@TypeOf(a, b)) {

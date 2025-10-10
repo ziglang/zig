@@ -636,7 +636,7 @@ test "invNTTReductions bounds" {
 fn invertMod(a: anytype, p: @TypeOf(a)) @TypeOf(a) {
     const r = extendedEuclidean(@TypeOf(a), a, p);
     assert(r.gcd == 1);
-    return r.x;
+    return r.bezout_coeff_1;
 }
 
 // Reduce mod q for testing.
