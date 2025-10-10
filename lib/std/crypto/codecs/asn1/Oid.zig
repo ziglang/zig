@@ -47,7 +47,7 @@ test fromDot {
     }
 }
 
-pub fn toDot(self: Oid, writer: anytype) @TypeOf(writer).Error!void {
+pub fn toDot(self: Oid, writer: anytype) std.Io.Writer.Error!void {
     const encoded = self.encoded;
     const first = @divTrunc(encoded[0], 40);
     const second = encoded[0] - first * 40;
@@ -81,7 +81,7 @@ test toDot {
     for (test_cases) |t| {
         var stream: std.Io.Writer = .fixed(&buf);
         try toDot(Oid{ .encoded = t.encoded }, &stream);
-        try std.testing.expectEqualStrings(t.dot_notation, stream.written());
+        try std.testing.expectEqualStrings(t.dot_notation, stream.buffered());
     }
 }
 
