@@ -873,6 +873,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         // These builtins take no args and do not consume the result pointer.
         .src,
         .This,
+        .EnumLiteral,
         .return_address,
         .error_return_trace,
         .frame,
@@ -913,7 +914,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .embed_file,
         .error_name,
         .set_runtime_safety,
-        .Type,
+        .Enum,
+        .Pointer,
+        .Struct,
+        .Union,
         .c_undef,
         .c_include,
         .wasm_memory_size,
@@ -1063,6 +1067,11 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[1], block, ResultInfo.none);
             _ = try astrl.expr(args[2], block, ResultInfo.none);
             _ = try astrl.expr(args[3], block, ResultInfo.none);
+            return false;
+        },
+        .Int => {
+            _ = try astrl.expr(args[0], block, ResultInfo.type_only);
+            _ = try astrl.expr(args[1], block, ResultInfo.type_only);
             return false;
         },
         .Vector => {
