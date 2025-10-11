@@ -892,6 +892,7 @@ pub const ReadLinkError = error{
     UnsupportedReparsePointType,
 };
 
+/// Deprecated; use `ReadLink2`.
 pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
     const result_handle = OpenFile(sub_path_w, .{
         .access_mask = FILE_READ_ATTRIBUTES | SYNCHRONIZE,
@@ -924,14 +925,14 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
             const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
-            return parseReadlinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
+            return parseReadLinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
         },
         IO_REPARSE_TAG_MOUNT_POINT => {
             const buf: *const MOUNT_POINT_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
-            return parseReadlinkPath(path_buf[offset..][0..len], false, out_buffer);
+            return parseReadLinkPath(path_buf[offset..][0..len], false, out_buffer);
         },
         else => {
             return error.UnsupportedReparsePointType;
@@ -939,9 +940,60 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     }
 }
 
-/// Asserts that there is enough space is `out_buffer`.
+/// `sub_path_w` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+pub fn ReadLink2(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
+    const result_handle = OpenFile(sub_path_w, .{
+        .access_mask = FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        .dir = dir,
+        .creation = FILE_OPEN,
+        .follow_symlinks = false,
+        .filter = .any,
+    }) catch |err| switch (err) {
+        error.IsDir, error.NotDir => return error.Unexpected, // filter = .any
+        error.PathAlreadyExists => return error.Unexpected, // FILE_OPEN
+        error.WouldBlock => return error.Unexpected,
+        error.NoDevice => return error.FileNotFound,
+        error.PipeBusy => return error.AccessDenied,
+        else => |e| return e,
+    };
+    defer CloseHandle(result_handle);
+
+    var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 align(@alignOf(REPARSE_DATA_BUFFER)) = undefined;
+    _ = DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]) catch |err| switch (err) {
+        error.AccessDenied => return error.Unexpected,
+        error.UnrecognizedVolume => return error.Unexpected,
+        else => |e| return e,
+    };
+
+    const reparse_struct: *const REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
+    switch (reparse_struct.ReparseTag) {
+        IO_REPARSE_TAG_SYMLINK => {
+            const buf: *const SYMBOLIC_LINK_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
+            return parseReadLinkPath2(path_buf[offset..][0..len], is_relative, out_buffer);
+        },
+        IO_REPARSE_TAG_MOUNT_POINT => {
+            const buf: *const MOUNT_POINT_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            return parseReadLinkPath2(path_buf[offset..][0..len], false, out_buffer);
+        },
+        else => {
+            return error.UnsupportedReparsePointType;
+        },
+    }
+}
+
+/// Deprecated, should be deleted when ReadLink2 is renamed to ReadLink
+///
+/// Asserts that there is enough space in `out_buffer`.
 /// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
-fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
+fn parseReadLinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
     const win32_namespace_path = path: {
         if (is_relative) break :path path;
         const win32_path = ntToWin32Namespace(path) catch |err| switch (err) {
@@ -952,6 +1004,20 @@ fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u
     };
     const out_len = std.unicode.wtf16LeToWtf8(out_buffer, win32_namespace_path);
     return out_buffer[0..out_len];
+}
+
+fn parseReadLinkPath2(path: []const u16, is_relative: bool, out_buffer: []u16) error{NameTooLong}![]u16 {
+    path: {
+        if (is_relative) break :path;
+        return ntToWin32Namespace2(path, out_buffer) catch |err| switch (err) {
+            error.NameTooLong => |e| return e,
+            error.NotNtPath => break :path,
+        };
+    }
+    if (out_buffer.len < path.len) return error.NameTooLong;
+    const dest = out_buffer[0..path.len];
+    @memcpy(dest, path);
+    return dest;
 }
 
 pub const DeleteFileError = error{
@@ -2684,6 +2750,8 @@ test getUnprefixedPathType {
     try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:/a/b/c"));
 }
 
+/// Deprecated; use `ntToWin32Namespace2`.
+///
 /// Similar to `RtlNtPathNameToDosPathName` but does not do any heap allocation.
 /// The possible transformations are:
 ///   \??\C:\Some\Path -> C:\Some\Path
@@ -2695,9 +2763,28 @@ test getUnprefixedPathType {
 ///
 /// `path` should be encoded as WTF-16LE.
 pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
+    var path_space: PathSpace = undefined;
+    const win32_path = try ntToWin32Namespace2(path, &path_space.data);
+    path_space.len = win32_path.len;
+    path_space.data[win32_path.len] = 0;
+    return path_space;
+}
+
+/// Similar to `RtlNtPathNameToDosPathName` but does not do any heap allocation.
+/// The possible transformations are:
+///   \??\C:\Some\Path -> C:\Some\Path
+///   \??\UNC\server\share\foo -> \\server\share\foo
+/// If the path does not have the NT namespace prefix, then `error.NotNtPath` is returned.
+///
+/// Functionality is based on the ReactOS test cases found here:
+/// https://github.com/reactos/reactos/blob/master/modules/rostests/apitests/ntdll/RtlNtPathNameToDosPathName.c
+///
+/// `path` should be encoded as WTF-16LE.
+///
+/// Supports in-place modification (`path` and `out` may refer to the same slice).
+pub fn ntToWin32Namespace2(path: []const u16, out: []u16) error{ NameTooLong, NotNtPath }![]u16 {
     if (path.len > PATH_MAX_WIDE) return error.NameTooLong;
 
-    var path_space: PathSpace = undefined;
     const namespace_prefix = getNamespacePrefix(u16, path);
     switch (namespace_prefix) {
         .nt => {
@@ -2705,23 +2792,19 @@ pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
             var after_prefix = path[4..]; // after the `\??\`
             // The prefix \??\UNC\ means this is a UNC path, in which case the
             // `\??\UNC\` should be replaced by `\\` (two backslashes)
-            // TODO: the "UNC" should technically be matched case-insensitively, but
-            //       it's unlikely to matter since most/all paths passed into this
-            //       function will have come from the OS meaning it should have
-            //       the 'canonical' uppercase UNC.
             const is_unc = after_prefix.len >= 4 and
-                std.mem.eql(u16, after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
+                eqlIgnoreCaseWTF16(after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
                 std.fs.path.PathType.windows.isSep(u16, std.mem.littleToNative(u16, after_prefix[3]));
+            const win32_len = path.len - @as(usize, if (is_unc) 6 else 4);
+            if (out.len < win32_len) return error.NameTooLong;
             if (is_unc) {
-                path_space.data[0] = comptime std.mem.nativeToLittle(u16, '\\');
+                out[0] = comptime std.mem.nativeToLittle(u16, '\\');
                 dest_index += 1;
                 // We want to include the last `\` of `\??\UNC\`
                 after_prefix = path[7..];
             }
-            @memcpy(path_space.data[dest_index..][0..after_prefix.len], after_prefix);
-            path_space.len = dest_index + after_prefix.len;
-            path_space.data[path_space.len] = 0;
-            return path_space;
+            @memmove(out[dest_index..][0..after_prefix.len], after_prefix);
+            return out[0..win32_len];
         },
         else => return error.NotNtPath,
     }
@@ -2749,6 +2832,19 @@ test ntToWin32Namespace {
 fn testNtToWin32Namespace(expected: []const u16, path: []const u16) !void {
     const converted = try ntToWin32Namespace(path);
     try std.testing.expectEqualSlices(u16, expected, converted.span());
+}
+
+test ntToWin32Namespace2 {
+    const L = std.unicode.utf8ToUtf16LeStringLiteral;
+
+    var mutable_unc_path_buf = L("\\??\\UNC\\path1\\path2").*;
+    try std.testing.expectEqualSlices(u16, L("\\\\path1\\path2"), try ntToWin32Namespace2(&mutable_unc_path_buf, &mutable_unc_path_buf));
+
+    var mutable_path_buf = L("\\??\\C:\\test\\").*;
+    try std.testing.expectEqualSlices(u16, L("C:\\test\\"), try ntToWin32Namespace2(&mutable_path_buf, &mutable_path_buf));
+
+    var too_small_buf: [6]u16 = undefined;
+    try std.testing.expectError(error.NameTooLong, ntToWin32Namespace2(L("\\??\\C:\\test"), &too_small_buf));
 }
 
 fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
