@@ -938,7 +938,7 @@ pub const Object = struct {
         }
 
         const target_triple_sentinel =
-            try o.gpa.dupeZ(u8, o.builder.target_triple.slice(&o.builder).?);
+            try o.gpa.dupeSentinel(u8, o.builder.target_triple.slice(&o.builder).?, 0);
         defer o.gpa.free(target_triple_sentinel);
 
         const emit_asm_msg = options.asm_path orelse "(none)";
