@@ -290,15 +290,16 @@ test "listen on a unix socket, send bytes, receive bytes" {
     const socket_path = try generateFileName("socket.unix");
     defer testing.allocator.free(socket_path);
 
-    const socket_addr = try net.IpAddress.initUnix(socket_path);
+    const socket_addr = try net.UnixAddress.init(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
 
-    var server = try socket_addr.listen(io, .{});
-    defer server.deinit(io);
+    var server = try socket_addr.listen(io);
+    defer server.socket.close(io);
 
     const S = struct {
         fn clientFn(path: []const u8) !void {
-            var stream = try net.connectUnixSocket(path);
+            const server_path: net.UnixAddress = try .init(path);
+            var stream = try server_path.connect(io);
             defer stream.close(io);
 
             var stream_writer = stream.writer(io, &.{});
@@ -317,23 +318,6 @@ test "listen on a unix socket, send bytes, receive bytes" {
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
-}
-
-test "listen on a unix socket with reuse_address option" {
-    if (!net.has_unix_sockets) return error.SkipZigTest;
-    // Windows doesn't implement reuse port option.
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
-    const io = testing.io;
-
-    const socket_path = try generateFileName("socket.unix");
-    defer testing.allocator.free(socket_path);
-
-    const socket_addr = try net.Address.initUnix(socket_path);
-    defer std.fs.cwd().deleteFile(socket_path) catch {};
-
-    var server = try socket_addr.listen(io, .{ .reuse_address = true });
-    server.deinit(io);
 }
 
 fn generateFileName(base_name: []const u8) ![]const u8 {

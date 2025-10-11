@@ -203,22 +203,24 @@ pub fn io(pool: *Pool) Io {
                 else => sleepPosix,
             },
 
-            .listen = switch (builtin.os.tag) {
+            .netListenIp = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
-                else => listenPosix,
+                else => netListenIpPosix,
             },
-            .accept = switch (builtin.os.tag) {
+            .netListenUnix = netListenUnix,
+            .netAccept = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
-                else => acceptPosix,
+                else => netAcceptPosix,
             },
-            .ipBind = switch (builtin.os.tag) {
+            .netBindIp = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
-                else => ipBindPosix,
+                else => netBindIpPosix,
             },
-            .ipConnect = switch (builtin.os.tag) {
+            .netConnectIp = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
-                else => ipConnectPosix,
+                else => netConnectIpPosix,
             },
+            .netConnectUnix = netConnectUnix,
             .netClose = netClose,
             .netRead = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
@@ -1636,7 +1638,7 @@ fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
     return result.?;
 }
 
-fn listenPosix(
+fn netListenIpPosix(
     userdata: ?*anyopaque,
     address: Io.net.IpAddress,
     options: Io.net.IpAddress.ListenOptions,
@@ -1700,6 +1702,13 @@ fn listenPosix(
             .address = addressFromPosix(&storage),
         },
     };
+}
+
+fn netListenUnix(userdata: ?*anyopaque, address: Io.net.UnixAddress) Io.net.UnixAddress.ListenError!Io.net.Socket.Handle {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    _ = pool;
+    _ = address;
+    @panic("TODO");
 }
 
 fn posixBind(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
@@ -1784,7 +1793,7 @@ fn setSocketOption(pool: *Pool, fd: posix.fd_t, level: i32, opt_name: u32, optio
     }
 }
 
-fn ipConnectPosix(
+fn netConnectIpPosix(
     userdata: ?*anyopaque,
     address: *const Io.net.IpAddress,
     options: Io.net.IpAddress.ConnectOptions,
@@ -1806,7 +1815,14 @@ fn ipConnectPosix(
     } };
 }
 
-fn ipBindPosix(
+fn netConnectUnix(userdata: ?*anyopaque, address: Io.net.UnixAddress) Io.net.UnixAddress.ConnectError!Io.net.Socket.Handle {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    _ = pool;
+    _ = address;
+    @panic("TODO");
+}
+
+fn netBindIpPosix(
     userdata: ?*anyopaque,
     address: *const Io.net.IpAddress,
     options: Io.net.IpAddress.BindOptions,
@@ -1871,9 +1887,8 @@ fn openSocketPosix(pool: *Pool, family: posix.sa_family_t, options: Io.net.IpAdd
 const socket_flags_unsupported = builtin.os.tag.isDarwin() or native_os == .haiku; // 💩💩
 const have_accept4 = !socket_flags_unsupported;
 
-fn acceptPosix(userdata: ?*anyopaque, server: *Io.net.Server) Io.net.Server.AcceptError!Io.net.Stream {
+fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: Io.net.Socket.Handle) Io.net.Server.AcceptError!Io.net.Stream {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    const listen_fd = server.socket.handle;
     var storage: PosixAddress = undefined;
     var addr_len: posix.socklen_t = @sizeOf(PosixAddress);
     const fd = while (true) {
