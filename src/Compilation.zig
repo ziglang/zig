@@ -1,7 +1,9 @@
 const Compilation = @This();
+const builtin = @import("builtin");
 
 const std = @import("std");
-const builtin = @import("builtin");
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const fs = std.fs;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
@@ -12,7 +14,6 @@ const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
 const fatal = std.process.fatal;
-const Writer = std.Io.Writer;
 
 const Value = @import("Value.zig");
 const Type = @import("Type.zig");
@@ -1095,6 +1096,7 @@ pub const CObject = struct {
             bundle: Bundle,
             notes_len: u32,
         ) !ErrorBundle.ErrorMessage {
+            const io = eb.io;
             var start = diag.src_loc.offset;
             var end = diag.src_loc.offset;
             for (diag.src_ranges) |src_range| {
@@ -1117,7 +1119,7 @@ pub const CObject = struct {
                 const file = fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
                 defer file.close();
                 var buffer: [1024]u8 = undefined;
-                var file_reader = file.reader(&buffer);
+                var file_reader = file.reader(io, &buffer);
                 file_reader.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
                 var aw: Writer.Allocating = .init(eb.gpa);
                 defer aw.deinit();
@@ -1155,7 +1157,7 @@ pub const CObject = struct {
                 gpa.destroy(bundle);
             }
 
-            pub fn parse(gpa: Allocator, path: []const u8) !*Bundle {
+            pub fn parse(gpa: Allocator, io: Io, path: []const u8) !*Bundle {
                 const BlockId = enum(u32) {
                     Meta = 8,
                     Diag,
@@ -1191,7 +1193,7 @@ pub const CObject = struct {
                 var buffer: [1024]u8 = undefined;
                 const file = try fs.cwd().openFile(path, .{});
                 defer file.close();
-                var file_reader = file.reader(&buffer);
+                var file_reader = file.reader(io, &buffer);
                 var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = &file_reader.interface });
                 defer bc.deinit();
 
