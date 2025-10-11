@@ -2752,12 +2752,18 @@ const ScanDeclIter = struct {
                         // Perhaps we should add all test indiscriminately and filter at the end of the update.
                         if (!comp.config.is_test) break :a false;
                         if (file.mod != zcu.main_mod) break :a false;
-                        if (is_named and comp.test_filters.len > 0) {
+                        if (is_named) {
                             const fqn_slice = fqn.toSlice(ip);
-                            for (comp.test_filters) |test_filter| {
-                                if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
-                            } else break :a false;
-                        }
+                            if (comp.test_filter_exact) {
+                                for (comp.test_filters) |test_filter| {
+                                    if (std.mem.eql(u8, fqn_slice, test_filter)) break;
+                                } else break :a false;
+                            } else if (comp.test_filters.len > 0) {
+                                for (comp.test_filters) |test_filter| {
+                                    if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
+                                } else break :a false;
+                            }
+                        } else if (comp.test_filter_exact) break :a false;
                         try zcu.test_functions.put(gpa, nav, {});
                         break :a true;
                     },
