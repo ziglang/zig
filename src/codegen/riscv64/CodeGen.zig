@@ -1646,6 +1646,9 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .work_item_id => unreachable,
             .work_group_size => unreachable,
             .work_group_id => unreachable,
+
+            .deposit_bits => return func.fail("TODO implement deposit_bits", .{}),
+            .extract_bits => return func.fail("TODO implement extract_bits", .{}),
             // zig fmt: on
         }
 
