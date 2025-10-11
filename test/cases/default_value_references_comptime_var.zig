@@ -4,7 +4,7 @@ export fn foo() void {
 }
 export fn bar() void {
     comptime var a: u8 = 0;
-    _ = @Type(.{ .@"struct" = .{
+    _ = @Struct(.{
         .layout = .auto,
         .fields = &.{.{
             .name = "0",
@@ -15,7 +15,7 @@ export fn bar() void {
         }},
         .decls = &.{},
         .is_tuple = true,
-    } });
+    });
 }
 
 export fn baz() void {
@@ -24,7 +24,7 @@ export fn baz() void {
 }
 export fn qux() void {
     comptime var a: u8 = 0;
-    _ = @Type(.{ .@"struct" = .{
+    _ = @Struct(.{
         .layout = .auto,
         .fields = &.{.{
             .name = "foo",
@@ -35,7 +35,7 @@ export fn qux() void {
         }},
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 }
 
 // error

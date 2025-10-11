@@ -43,12 +43,12 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
             .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
         };
     }
-    return @Type(.{ .@"struct" = .{
+    return @Struct(.{
         .layout = .auto,
         .fields = &struct_fields,
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 }
 
 /// Looks up the supplied fields in the given enum type.
@@ -1532,7 +1532,7 @@ test "EnumIndexer empty" {
 test "EnumIndexer large dense unsorted" {
     @setEvalBranchQuota(500_000); // many `comptimePrint`s
     // Make an enum with 500 fields with values in *descending* order.
-    const E = @Type(.{ .@"enum" = .{
+    const E = @Enum(.{
         .tag_type = u32,
         .fields = comptime fields: {
             var fields: [500]EnumField = undefined;
@@ -1544,7 +1544,7 @@ test "EnumIndexer large dense unsorted" {
         },
         .decls = &.{},
         .is_exhaustive = true,
-    } });
+    });
     const Indexer = EnumIndexer(E);
     try testing.expectEqual(E.f0, Indexer.keyForIndex(499));
     try testing.expectEqual(E.f499, Indexer.keyForIndex(0));

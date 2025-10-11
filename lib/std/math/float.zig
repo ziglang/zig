@@ -14,22 +14,10 @@ pub fn FloatRepr(comptime Float: type) type {
         exponent: BiasedExponent,
         sign: std.math.Sign,
 
-        pub const StoredMantissa = @Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = floatMantissaBits(Float),
-        } });
-        pub const Mantissa = @Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = 1 + fractional_bits,
-        } });
-        pub const Exponent = @Type(.{ .int = .{
-            .signedness = .signed,
-            .bits = exponent_bits,
-        } });
-        pub const BiasedExponent = enum(@Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = exponent_bits,
-        } })) {
+        pub const StoredMantissa = @Int(.unsigned, floatMantissaBits(Float));
+        pub const Mantissa = @Int(.unsigned, 1 + fractional_bits);
+        pub const Exponent = @Int(.signed, exponent_bits);
+        pub const BiasedExponent = enum(@Int(.unsigned, exponent_bits)) {
             denormal = 0,
             min_normal = 1,
             zero = (1 << (exponent_bits - 1)) - 1,
@@ -56,14 +44,8 @@ pub fn FloatRepr(comptime Float: type) type {
             fraction: Fraction,
             exponent: Normalized.Exponent,
 
-            pub const Fraction = @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = fractional_bits,
-            } });
-            pub const Exponent = @Type(.{ .int = .{
-                .signedness = .signed,
-                .bits = 1 + exponent_bits,
-            } });
+            pub const Fraction = @Int(.unsigned, fractional_bits);
+            pub const Exponent = @Int(.signed, 1 + exponent_bits);
 
             /// This currently truncates denormal values, which needs to be fixed before this can be used to
             /// produce a rounded value.
@@ -122,7 +104,7 @@ inline fn mantissaOne(comptime T: type) comptime_int {
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
 inline fn reconstructFloat(comptime T: type, comptime exponent: comptime_int, comptime mantissa: comptime_int) T {
-    const TBits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const TBits = @Int(.unsigned, @bitSizeOf(T));
     const biased_exponent = @as(TBits, exponent + floatExponentMax(T));
     return @as(T, @bitCast((biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa)));
 }
@@ -209,7 +191,7 @@ pub inline fn floatEps(comptime T: type) T {
 pub inline fn floatEpsAt(comptime T: type, x: T) T {
     switch (@typeInfo(T)) {
         .float => |F| {
-            const U: type = @Type(.{ .int = .{ .signedness = .unsigned, .bits = F.bits } });
+            const U: type = @Int(.unsigned, F.bits);
             const u: U = @bitCast(x);
             const y: T = @bitCast(u ^ 1);
             return @abs(x - y);

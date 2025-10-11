@@ -1,8 +1,8 @@
 export fn entry() void {
-    _ = @Type(@typeInfo(enum {
+    _ = @Enum(@typeInfo(enum {
         foo,
         pub const bar = 1;
-    }));
+    }).@"enum");
 }
 
 // error

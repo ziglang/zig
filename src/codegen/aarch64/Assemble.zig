@@ -131,12 +131,12 @@ const matchers = matchers: {
                         .alignment = @alignOf(Storage),
                     };
                 }
-                break :Symbols @Type(.{ .@"struct" = .{
+                break :Symbols @Struct(.{
                     .layout = .auto,
                     .fields = &symbol_fields,
                     .decls = &.{},
                     .is_tuple = false,
-                } });
+                });
             } = undefined;
             const Symbol = std.meta.FieldEnum(@TypeOf(instruction.symbols));
             comptime var unused_symbols: std.enums.EnumSet(Symbol) = .initFull();
@@ -334,7 +334,7 @@ const SymbolSpec = union(enum) {
             .reg => aarch64.encoding.Register,
             .arrangement => aarch64.encoding.Register.Arrangement,
             .systemreg => aarch64.encoding.Register.System,
-            .imm => |imm_spec| @Type(.{ .int = imm_spec.type }),
+            .imm => |imm_spec| @Int(imm_spec.type.signedness, imm_spec.type.bits),
             .fimm => f16,
             .extend => Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option,
             .shift => Instruction.DataProcessingRegister.Shift.Op,
@@ -413,13 +413,13 @@ const SymbolSpec = union(enum) {
                 return systemreg;
             },
             .imm => |imm_spec| {
-                const imm = std.fmt.parseInt(@Type(.{ .int = .{
-                    .signedness = imm_spec.type.signedness,
-                    .bits = switch (imm_spec.adjust) {
+                const imm = std.fmt.parseInt(@Int(
+                    imm_spec.type.signedness,
+                    switch (imm_spec.adjust) {
                         .none, .neg_wrap => imm_spec.type.bits,
                         .dec => imm_spec.type.bits + 1,
                     },
-                } }), token, 0) catch {
+                ), token, 0) catch {
                     log.debug("invalid immediate: \"{f}\"", .{std.zig.fmtString(token)});
                     return null;
                 };

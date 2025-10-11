@@ -119,21 +119,12 @@ test "Saturating Shift Left where lhs is of a computed type" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
-        fn getIntShiftType(comptime T: type) type {
-            var unsigned_shift_type = @typeInfo(std.math.Log2Int(T)).int;
-            unsigned_shift_type.signedness = .signed;
-
-            return @Type(.{
-                .int = unsigned_shift_type,
-            });
-        }
-
         pub fn FixedPoint(comptime ValueType: type) type {
             return struct {
                 value: ValueType,
                 exponent: ShiftType,
 
-                const ShiftType: type = getIntShiftType(ValueType);
+                const ShiftType = @Int(.signed, @typeInfo(std.math.Log2Int(ValueType)).int.bits);
 
                 pub fn shiftExponent(self: @This(), shift: ShiftType) @This() {
                     const shiftAbs = @abs(shift);
