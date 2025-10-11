@@ -4991,7 +4991,9 @@ pub fn munmap(memory: []align(page_size_min) const u8) void {
         .SUCCESS => return,
         .INVAL => unreachable, // Invalid parameters.
         .NOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.
-        else => unreachable,
+        else => |e| if (unexpected_error_tracing) {
+            std.debug.panic("unexpected errno: {d} ({t})", .{ @intFromEnum(e), e });
+        } else unreachable,
     }
 }
 
