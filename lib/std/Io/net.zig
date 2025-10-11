@@ -219,7 +219,7 @@ pub const IpAddress = union(enum) {
     /// Waits for a TCP connection. When using this API, `bind` does not need
     /// to be called. The returned `Server` has an open `stream`.
     pub fn listen(address: IpAddress, io: Io, options: ListenOptions) ListenError!Server {
-        return io.vtable.listen(io.userdata, address, options);
+        return io.vtable.netListenIp(io.userdata, address, options);
     }
 
     pub const BindError = error{
@@ -262,7 +262,7 @@ pub const IpAddress = union(enum) {
     /// One bound `Socket` can be used to receive messages from multiple
     /// different addresses.
     pub fn bind(address: *const IpAddress, io: Io, options: BindOptions) BindError!Socket {
-        return io.vtable.ipBind(io.userdata, address, options);
+        return io.vtable.netBindIp(io.userdata, address, options);
     }
 
     pub const ConnectError = error{
@@ -298,7 +298,7 @@ pub const IpAddress = union(enum) {
 
     /// Initiates a connection-oriented network stream.
     pub fn connect(address: *const IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
-        return io.vtable.ipConnect(io.userdata, address, options);
+        return io.vtable.netConnectIp(io.userdata, address, options);
     }
 };
 
@@ -775,6 +775,39 @@ pub const Ip6Address = struct {
     };
 };
 
+pub const UnixAddress = struct {
+    path: []const u8,
+
+    pub const max_len = 108;
+
+    pub const InitError = error{NameTooLong};
+
+    pub fn init(p: []const u8) InitError!UnixAddress {
+        if (p.len > max_len) return error.NameTooLong;
+        return .{ .path = p };
+    }
+
+    pub const ListenError = error{};
+
+    pub fn listen(ua: UnixAddress, io: Io) ListenError!Server {
+        assert(ua.path.len <= max_len);
+        return .{ .socket = .{
+            .handle = try io.vtable.netListenUnix(io.userdata, ua),
+            .address = .{ .ip4 = .loopback(0) },
+        } };
+    }
+
+    pub const ConnectError = error{};
+
+    pub fn connect(ua: UnixAddress, io: Io) ConnectError!Stream {
+        assert(ua.path.len <= max_len);
+        return .{ .socket = .{
+            .handle = try io.vtable.netConnectUnix(io.userdata, ua),
+            .address = .{ .ip4 = .loopback(0) },
+        } };
+    }
+};
+
 pub const ReceiveFlags = packed struct(u8) {
     oob: bool = false,
     peek: bool = false,
@@ -917,6 +950,7 @@ pub const Socket = struct {
         else => std.posix.fd_t,
     };
 
+    /// Leaves `address` in a valid state.
     pub fn close(s: *Socket, io: Io) void {
         io.vtable.netClose(io.userdata, s.handle);
         s.handle = undefined;
@@ -1156,7 +1190,7 @@ pub const Server = struct {
 
     /// Blocks until a client connects to the server.
     pub fn accept(s: *Server, io: Io) AcceptError!Stream {
-        return io.vtable.accept(io.userdata, s);
+        return io.vtable.netAccept(io.userdata, s.socket.handle);
     }
 };
 
