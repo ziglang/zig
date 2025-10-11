@@ -616,13 +616,13 @@ pub const File = struct {
                     &coff.mf
                 else
                     unreachable;
-                mf.file = for (0..2) |_| break base.emit.root_dir.handle.openFile(base.emit.sub_path, .{
+                mf.file = for (0..10) |_| break base.emit.root_dir.handle.openFile(base.emit.sub_path, .{
                     .mode = .read_write,
                 }) catch |err| switch (err) {
                     error.AccessDenied => switch (builtin.os.tag) {
                         .windows => {
                             // give the kernel a chance to finish closing the executable handle
-                            std.os.windows.kernel32.Sleep(1);
+                            std.os.windows.kernel32.Sleep(10);
                             continue;
                         },
                         else => return error.AccessDenied,
