@@ -2459,14 +2459,14 @@ test "truncate to minimum signed integer" {
         .len = undefined,
         .positive = undefined,
     };
-    res.truncate(.{ .positive = true, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .signed, @bitSizeOf(Limb));
-    try testing.expect(res.toConst().orderAgainstScalar(-1 << @bitSizeOf(Limb) - 1).compare(.eq));
-    res.truncate(.{ .positive = false, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .signed, @bitSizeOf(Limb));
-    try testing.expect(res.toConst().orderAgainstScalar(-1 << @bitSizeOf(Limb) - 1).compare(.eq));
-    res.truncate(.{ .positive = true, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .unsigned, @bitSizeOf(Limb));
-    try testing.expect(res.toConst().orderAgainstScalar(1 << @bitSizeOf(Limb) - 1).compare(.eq));
-    res.truncate(.{ .positive = false, .limbs = &.{1 << @bitSizeOf(Limb) - 1} }, .unsigned, @bitSizeOf(Limb));
-    try testing.expect(res.toConst().orderAgainstScalar(1 << @bitSizeOf(Limb) - 1).compare(.eq));
+    res.truncate(.{ .positive = true, .limbs = &.{1 << (@bitSizeOf(Limb) - 1)} }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(-1 << (@bitSizeOf(Limb) - 1)).compare(.eq));
+    res.truncate(.{ .positive = false, .limbs = &.{1 << (@bitSizeOf(Limb) - 1)} }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(-1 << (@bitSizeOf(Limb) - 1)).compare(.eq));
+    res.truncate(.{ .positive = true, .limbs = &.{1 << (@bitSizeOf(Limb) - 1)} }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(1 << (@bitSizeOf(Limb) - 1)).compare(.eq));
+    res.truncate(.{ .positive = false, .limbs = &.{1 << (@bitSizeOf(Limb) - 1)} }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(1 << (@bitSizeOf(Limb) - 1)).compare(.eq));
 }
 
 test "saturate single signed positive" {
@@ -3858,7 +3858,7 @@ test "clz" {
     try testing.expectEqual(0, neg_limb_max_squared_plus_one.clz(@bitSizeOf(Limb) * 2 + 1));
 
     const neg_limb_msb_squared: std.math.big.int.Const = .{
-        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .limbs = &.{ 0, 1 << (@bitSizeOf(Limb) - 2) },
         .positive = false,
     };
     try testing.expectEqual(0, neg_limb_msb_squared.clz(@bitSizeOf(Limb) * 2));
@@ -3874,7 +3874,7 @@ test "clz" {
     try testing.expectEqual(0, neg_limb_max.clz(@bitSizeOf(Limb) * 2 + 1));
 
     const neg_limb_msb: std.math.big.int.Const = .{
-        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .limbs = &.{1 << (@bitSizeOf(Limb) - 1)},
         .positive = false,
     };
     try testing.expectEqual(0, neg_limb_msb.clz(@bitSizeOf(Limb)));
@@ -3914,7 +3914,7 @@ test "clz" {
     try testing.expectEqual(@bitSizeOf(Limb) * 2, one.clz(@bitSizeOf(Limb) * 2 + 1));
 
     const limb_msb: std.math.big.int.Const = .{
-        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .limbs = &.{1 << (@bitSizeOf(Limb) - 1)},
         .positive = true,
     };
     try testing.expectEqual(0, limb_msb.clz(@bitSizeOf(Limb)));
@@ -3934,7 +3934,7 @@ test "clz" {
     try testing.expectEqual(@bitSizeOf(Limb) + 1, limb_max.clz(@bitSizeOf(Limb) * 2 + 1));
 
     const limb_msb_squared: std.math.big.int.Const = .{
-        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .limbs = &.{ 0, 1 << (@bitSizeOf(Limb) - 2) },
         .positive = true,
     };
     try testing.expectEqual(0, limb_msb_squared.clz(@bitSizeOf(Limb) * 2 - 1));
@@ -3970,7 +3970,7 @@ test "ctz" {
     try testing.expectEqual(@bitSizeOf(Limb) + 1, neg_limb_max_squared_plus_one.ctz(@bitSizeOf(Limb) * 2 + 1));
 
     const neg_limb_msb_squared: std.math.big.int.Const = .{
-        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .limbs = &.{ 0, 1 << (@bitSizeOf(Limb) - 2) },
         .positive = false,
     };
     try testing.expectEqual(@bitSizeOf(Limb) * 2 - 2, neg_limb_msb_squared.ctz(@bitSizeOf(Limb) * 2));
@@ -3986,7 +3986,7 @@ test "ctz" {
     try testing.expectEqual(0, neg_limb_max.ctz(@bitSizeOf(Limb) * 2 + 1));
 
     const neg_limb_msb: std.math.big.int.Const = .{
-        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .limbs = &.{1 << (@bitSizeOf(Limb) - 1)},
         .positive = false,
     };
     try testing.expectEqual(@bitSizeOf(Limb) - 1, neg_limb_msb.ctz(@bitSizeOf(Limb)));
@@ -4026,7 +4026,7 @@ test "ctz" {
     try testing.expectEqual(0, one.ctz(@bitSizeOf(Limb) * 2 + 1));
 
     const limb_msb: std.math.big.int.Const = .{
-        .limbs = &.{1 << @bitSizeOf(Limb) - 1},
+        .limbs = &.{1 << (@bitSizeOf(Limb) - 1)},
         .positive = true,
     };
     try testing.expectEqual(@bitSizeOf(Limb) - 1, limb_msb.ctz(@bitSizeOf(Limb)));
@@ -4046,7 +4046,7 @@ test "ctz" {
     try testing.expectEqual(0, limb_max.ctz(@bitSizeOf(Limb) * 2 + 1));
 
     const limb_msb_squared: std.math.big.int.Const = .{
-        .limbs = &.{ 0, 1 << @bitSizeOf(Limb) - 2 },
+        .limbs = &.{ 0, 1 << (@bitSizeOf(Limb) - 2) },
         .positive = true,
     };
     try testing.expectEqual(@bitSizeOf(Limb) * 2 - 2, limb_msb_squared.ctz(@bitSizeOf(Limb) * 2 - 1));
