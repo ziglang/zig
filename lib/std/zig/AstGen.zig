@@ -7882,8 +7882,10 @@ fn switchExpr(
             var payload_sub_scope: *Scope = undefined;
             if (mem.eql(u8, ident_slice, "_")) {
                 if (capture_is_ref) {
+                    // |*_, tag| is invalid, so we can fail early
                     return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
                 }
+                capture = .none;
                 payload_sub_scope = &case_scope.base;
             } else {
                 const capture_name = try astgen.identAsString(ident);
@@ -7903,11 +7905,15 @@ fn switchExpr(
 
             const tag_token = if (tree.tokenTag(ident + 1) == .comma)
                 ident + 2
-            else
-                break :blk payload_sub_scope;
+            else if (capture == .none) {
+                // discarding the capture is only valid iff the tag is captured
+                // whether the tag capture is discarded is handled below
+                return astgen.failTok(payload_token, "discard of capture; omit it instead", .{});
+            } else break :blk payload_sub_scope;
+
             const tag_slice = tree.tokenSlice(tag_token);
             if (mem.eql(u8, tag_slice, "_")) {
-                try astgen.appendErrorTok(tag_token, "discard of tag capture; omit it instead", .{});
+                return astgen.failTok(tag_token, "discard of tag capture; omit it instead", .{});
             } else if (case.inline_token == null) {
                 return astgen.failTok(tag_token, "tag capture on non-inline prong", .{});
             }

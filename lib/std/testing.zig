@@ -801,7 +801,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .array => |_| {
+        .array => {
             if (expected.len != actual.len) {
                 print("Array len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
                 return error.TestExpectedEqual;
