@@ -14,6 +14,7 @@ pub fn cmdEnv(
         .wasi => std.fs.wasi.Preopens,
         else => void,
     },
+    host: *const std.Target,
 ) !void {
     const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
@@ -38,8 +39,6 @@ pub fn cmdEnv(
     const zig_lib_dir = dirs.zig_lib.path orelse "";
     const zig_std_dir = try dirs.zig_lib.join(arena, &.{"std"});
     const global_cache_dir = dirs.global_cache.path orelse "";
-
-    const host = try std.zig.system.resolveTargetQuery(.{});
     const triple = try host.zigTriple(arena);
 
     var serializer: std.zon.Serializer = .{ .writer = out };

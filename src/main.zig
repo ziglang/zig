@@ -319,7 +319,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .root_src_path = "objcopy.zig",
         });
     } else if (mem.eql(u8, cmd, "fetch")) {
-        return cmdFetch(gpa, arena, cmd_args);
+        return cmdFetch(gpa, arena, io, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return jitCmd(gpa, arena, io, cmd_args, .{
             .cmd_name = "libc",
@@ -348,12 +348,14 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return;
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
+        const host = std.zig.resolveTargetQueryOrFatal(io, .{});
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         try @import("print_env.zig").cmdEnv(
             arena,
             &stdout_writer.interface,
             args,
             if (native_os == .wasi) wasi_preopens,
+            &host,
         );
         return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "reduce")) {
@@ -368,11 +370,11 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         dev.check(.help_command);
         return fs.File.stdout().writeAll(usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
-        return cmdAstCheck(arena, cmd_args);
+        return cmdAstCheck(arena, io, cmd_args);
     } else if (mem.eql(u8, cmd, "detect-cpu")) {
         return cmdDetectCpu(io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
-        return cmdChangelist(arena, cmd_args);
+        return cmdChangelist(arena, io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
         return cmdDumpZir(arena, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "llvm-ints")) {
@@ -741,7 +743,7 @@ const ArgMode = union(enum) {
 const Listen = union(enum) {
     none,
     stdio: if (dev.env.supports(.stdio_listen)) void else noreturn,
-    ip4: if (dev.env.supports(.network_listen)) std.net.Ip4Address else noreturn,
+    ip4: if (dev.env.supports(.network_listen)) Io.net.Ip4Address else noreturn,
 };
 
 const ArgsIterator = struct {
@@ -1335,7 +1337,7 @@ fn buildOutputType(
                             const host, const port_text = mem.cutScalar(u8, next_arg, ':') orelse .{ next_arg, "14735" };
                             const port = std.fmt.parseInt(u16, port_text, 10) catch |err|
                                 fatal("invalid port number: '{s}': {s}", .{ port_text, @errorName(err) });
-                            listen = .{ .ip4 = std.net.Ip4Address.parse(host, port) catch |err|
+                            listen = .{ .ip4 = Io.net.Ip4Address.parse(host, port) catch |err|
                                 fatal("invalid host: '{s}': {s}", .{ host, @errorName(err) }) };
                         }
                     } else if (mem.eql(u8, arg, "--listen=-")) {
@@ -3318,7 +3320,7 @@ fn buildOutputType(
         var file_writer = f.writer(&.{});
         var buffer: [1000]u8 = undefined;
         var hasher = file_writer.interface.hashed(Cache.Hasher.init("0123456789abcdef"), &buffer);
-        var stdin_reader = fs.File.stdin().readerStreaming(&.{});
+        var stdin_reader = fs.File.stdin().readerStreaming(io, &.{});
         _ = hasher.writer.sendFileAll(&stdin_reader, .unlimited) catch |err| switch (err) {
             error.WriteFailed => fatal("failed to write {s}: {t}", .{ dump_path, file_writer.err.? }),
             else => fatal("failed to pipe stdin to {s}: {t}", .{ dump_path, err }),
@@ -3549,7 +3551,7 @@ fn buildOutputType(
     switch (listen) {
         .none => {},
         .stdio => {
-            var stdin_reader = fs.File.stdin().reader(&stdin_buffer);
+            var stdin_reader = fs.File.stdin().reader(io, &stdin_buffer);
             var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
             try serve(
                 io,
@@ -3565,23 +3567,23 @@ fn buildOutputType(
             return cleanExit();
         },
         .ip4 => |ip4_addr| {
-            const addr: std.net.Address = .{ .in = ip4_addr };
+            const addr: Io.net.IpAddress = .{ .ip4 = ip4_addr };
 
-            var server = try addr.listen(.{
+            var server = try addr.listen(io, .{
                 .reuse_address = true,
             });
-            defer server.deinit();
+            defer server.deinit(io);
 
-            const conn = try server.accept();
-            defer conn.stream.close();
+            var stream = try server.accept(io);
+            defer stream.close(io);
 
-            var input = conn.stream.reader(&stdin_buffer);
-            var output = conn.stream.writer(&stdout_buffer);
+            var input = stream.reader(io, &stdin_buffer);
+            var output = stream.writer(io, &stdout_buffer);
 
             try serve(
                 io,
                 comp,
-                input.interface(),
+                &input.interface,
                 &output.interface,
                 test_exec_args.items,
                 self_exe_path,
@@ -5062,7 +5064,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
     var http_client: if (dev.env.supports(.fetch_command)) std.http.Client else struct {
         allocator: Allocator,
         fn deinit(_: @This()) void {}
-    } = .{ .allocator = gpa };
+    } = .{ .allocator = gpa, .io = io };
     defer http_client.deinit();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
@@ -5600,7 +5602,7 @@ fn jitCmd(
     try child.spawn();
 
     if (options.capture) |ptr| {
-        var stdout_reader = child.stdout.?.readerStreaming(&.{});
+        var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
         ptr.* = try stdout_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
     }
 
@@ -6055,10 +6057,7 @@ const usage_ast_check =
     \\
 ;
 
-fn cmdAstCheck(
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8) !void {
     dev.check(.ast_check_command);
 
     const Zir = std.zig.Zir;
@@ -6106,7 +6105,7 @@ fn cmdAstCheck(
             };
         } else fs.File.stdin();
         defer if (zig_source_path != null) f.close();
-        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        var file_reader: fs.File.Reader = f.reader(io, &stdin_buffer);
         break :s std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err| {
             fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
         };
@@ -6448,10 +6447,7 @@ fn cmdDumpZir(
 }
 
 /// This is only enabled for debug builds.
-fn cmdChangelist(
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdChangelist(arena: Allocator, io: Io, args: []const []const u8) !void {
     dev.check(.changelist_command);
 
     const color: Color = .auto;
@@ -6464,7 +6460,7 @@ fn cmdChangelist(
         var f = fs.cwd().openFile(old_source_path, .{}) catch |err|
             fatal("unable to open old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
         defer f.close();
-        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        var file_reader: fs.File.Reader = f.reader(io, &stdin_buffer);
         break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
     };
@@ -6472,7 +6468,7 @@ fn cmdChangelist(
         var f = fs.cwd().openFile(new_source_path, .{}) catch |err|
             fatal("unable to open new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
         defer f.close();
-        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        var file_reader: fs.File.Reader = f.reader(io, &stdin_buffer);
         break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
     };
@@ -6829,6 +6825,7 @@ const usage_fetch =
 fn cmdFetch(
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     args: []const []const u8,
 ) !void {
     dev.check(.fetch_command);
@@ -6884,7 +6881,7 @@ fn cmdFetch(
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
-    var http_client: std.http.Client = .{ .allocator = gpa };
+    var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer http_client.deinit();
 
     try http_client.initDefaultProxies(arena);

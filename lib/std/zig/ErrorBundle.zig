@@ -6,12 +6,13 @@
 //! There is one special encoding for this data structure. If both arrays are
 //! empty, it means there are no errors. This special encoding exists so that
 //! heap allocation is not needed in the common case of no errors.
+const ErrorBundle = @This();
 
 const std = @import("std");
-const ErrorBundle = @This();
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Writer = std.Io.Writer;
 
 string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
@@ -156,7 +157,7 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: String) [:0]const u8 {
 }
 
 pub const RenderOptions = struct {
-    ttyconf: std.Io.tty.Config,
+    ttyconf: Io.tty.Config,
     include_reference_trace: bool = true,
     include_source_line: bool = true,
     include_log_text: bool = true,
@@ -190,7 +191,7 @@ fn renderErrorMessageToWriter(
     err_msg_index: MessageIndex,
     w: *Writer,
     kind: []const u8,
-    color: std.Io.tty.Color,
+    color: Io.tty.Color,
     indent: usize,
 ) (Writer.Error || std.posix.UnexpectedError)!void {
     const ttyconf = options.ttyconf;
@@ -320,6 +321,7 @@ fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, w: *Writer, indent: usize) !
 
 pub const Wip = struct {
     gpa: Allocator,
+    io: Io,
     string_bytes: std.ArrayListUnmanaged(u8),
     /// The first thing in this array is a ErrorMessageList.
     extra: std.ArrayListUnmanaged(u32),
@@ -806,7 +808,7 @@ pub const Wip = struct {
         };
         defer bundle.deinit(std.testing.allocator);
 
-        const ttyconf: std.Io.tty.Config = .no_color;
+        const ttyconf: Io.tty.Config = .no_color;
 
         var bundle_buf: Writer.Allocating = .init(std.testing.allocator);
         const bundle_bw = &bundle_buf.interface;
