@@ -28262,7 +28262,7 @@ fn elemPtrArray(
     block: *Block,
     src: LazySrcLoc,
     array_ptr_src: LazySrcLoc,
-    array_ptr: Air.Inst.Ref,
+    array_ptr_orig: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
     elem_index: Air.Inst.Ref,
     init: bool,
@@ -28270,7 +28270,17 @@ fn elemPtrArray(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const array_ptr_ty = sema.typeOf(array_ptr);
+    const array_ptr_ty_orig = sema.typeOf(array_ptr_orig);
+    var array_ptr_info = array_ptr_ty_orig.ptrInfo(zcu);
+
+    // When indexing into a C pointer of an array type, treat it as a single-item pointer to the array: ([*c][_]T)[idx] -> (*[_]T)[idx]
+    const array_ptr, const array_ptr_ty = if (array_ptr_info.flags.size == .c) blk: {
+        array_ptr_info.flags.size = .one;
+        const array_ptr_one_ty = try pt.ptrTypeSema(array_ptr_info);
+        const array_ptr_one = try block.addBitCast(array_ptr_one_ty, array_ptr_orig);
+        break :blk .{ array_ptr_one, array_ptr_one_ty };
+    } else .{ array_ptr_orig, array_ptr_ty_orig };
+
     const array_ty = array_ptr_ty.childType(zcu);
     const array_sent = array_ty.sentinel(zcu) != null;
     const array_len = array_ty.arrayLen(zcu);
