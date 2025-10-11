@@ -3691,46 +3691,85 @@ pub const R_OK = 4;
 
 pub const W = packed struct(u32) {
     nohang: bool = false,
-    untraced_or_stopped: packed union {
-        untraced: bool,
-        stopped: bool,
-    } = @bitCast(false),
+    stopped: bool = false,
     exited: bool = false,
     continued: bool = false,
-    _unused: u20 = 0,
+    _5: u20 = 0,
     nowait: bool = false,
-    _unused_1: u7 = 0,
+    _26: u7 = 0,
+    /// alias to stopped
+    pub const untraced: W = .{ .stopped = true };
 
-    // Deprecated aliases
+    fn toInt(s: W) u32 {
+        return @bitCast(s);
+    }
+
+    /// matches EXITSTATUS in C
+    pub fn exitStatus(s: W) u8 {
+        return @intCast((s.toInt() & 0xff00) >> 8);
+    }
+
+    /// matches TERMSIG in C
+    pub fn termSig(s: W) u32 {
+        return s.toInt() & 0x7f;
+    }
+
+    /// matches STOPSIG in C
+    pub fn stopSig(s: W) u32 {
+        return exitStatus(s);
+    }
+
+    /// matches IFEXITED in C
+    pub fn ifExited(s: W) bool {
+        return termSig(s) == 0;
+    }
+
+    /// matches IFSTOPPED in C
+    pub fn ifStopped(s: W) bool {
+        return @as(u16, @truncate(((s.toInt() & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+    }
+
+    /// matches IFSIGNALED in C
+    pub fn ifSignaled(s: W) bool {
+        return (s.toInt() & 0xffff) -% 1 < 0xff;
+    }
+
+    // Deprecated constants
     pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
-    pub const UNTRACED: u32 = @bitCast(W{ .untraced_or_stopped = .{ .untraced = true } });
-    pub const STOPPED: u32 = @bitCast(W{ .untraced_or_stopped = .{ .stopped = true } });
+    pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+    pub const UNTRACED: u32 = @bitCast(untraced);
     pub const EXITED: u32 = @bitCast(W{ .exited = true });
     pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
     pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
 
-    pub fn EXITSTATUS(s: W) u8 {
-        return @intCast((@as(u32, @bitCast(s)) & 0xff00) >> 8);
+    /// DEPRECATED alias to exitStatus
+    pub fn EXITSTATUS(s: u32) u8 {
+        return exitStatus(@bitCast(s));
     }
 
-    pub fn TERMSIG(s: W) u32 {
-        return @as(u32, @bitCast(s)) & 0x7f;
+    /// DEPRECATED alias to termSig
+    pub fn TERMSIG(s: u32) u32 {
+        return termSig(@bitCast(s));
     }
 
-    pub fn STOPSIG(s: W) u32 {
-        return EXITSTATUS(s);
+    /// DEPRECATED alias to stopSig
+    pub fn STOPSIG(s: u32) u32 {
+        return stopSig(@bitCast(s));
     }
 
-    pub fn IFEXITED(s: W) bool {
-        return TERMSIG(s) == 0;
+    /// DEPRECATED alias to ifExited
+    pub fn IFEXITED(s: u32) bool {
+        return ifExited(@bitCast(s));
     }
 
-    pub fn IFSTOPPED(s: W) bool {
-        return @as(u16, @truncate(((@as(u32, @bitCast(s)) & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+    /// DEPRECATED alias to ifStopped
+    pub fn IFSTOPPED(s: u32) bool {
+        return ifStopped(@bitCast(s));
     }
 
-    pub fn IFSIGNALED(s: W) bool {
-        return (s & 0xffff) -% 1 < 0xff;
+    /// DEPRECATED alias to ifSignaled
+    pub fn IFSIGNALED(s: u32) bool {
+        return ifSignaled(@bitCast(s));
     }
 };
 
