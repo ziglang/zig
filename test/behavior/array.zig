@@ -92,6 +92,12 @@ test "array init with concat" {
     try expect(std.mem.eql(u8, &i, "abcd"));
 }
 
+test "array concat zero length pointers" {
+    var x: *const [0]u8 = &.{};
+    _ = &x;
+    _ = @as([]const u8, "") ++ x;
+}
+
 test "array init with mult" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
