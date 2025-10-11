@@ -23,10 +23,11 @@ fn findProgramByNameFake(entries: []const Filesystem.Entry, name: []const u8, pa
     }
     const path_env = path orelse return null;
     var fib = std.heap.FixedBufferAllocator.init(buf);
+    const fib_initial_state = fib.savestate();
 
     var it = mem.tokenizeScalar(u8, path_env, std.fs.path.delimiter);
     while (it.next()) |path_dir| {
-        defer fib.reset();
+        defer fib.restore(fib_initial_state);
         const full_path = std.fs.path.join(fib.allocator(), &.{ path_dir, name }) catch continue;
         if (canExecuteFake(entries, full_path)) return full_path;
     }
@@ -84,10 +85,11 @@ fn findProgramByNamePosix(name: []const u8, path: ?[]const u8, buf: []u8) ?[]con
     }
     const path_env = path orelse return null;
     var fib = std.heap.FixedBufferAllocator.init(buf);
+    const fib_initial_state = fib.savestate();
 
     var it = mem.tokenizeScalar(u8, path_env, std.fs.path.delimiter);
     while (it.next()) |path_dir| {
-        defer fib.reset();
+        defer fib.restore(fib_initial_state);
         const full_path = std.fs.path.join(fib.allocator(), &.{ path_dir, name }) catch continue;
         if (canExecutePosix(full_path)) return full_path;
     }
