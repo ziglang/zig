@@ -83,7 +83,7 @@ test "statx" {
     defer file.close();
 
     var statx_buf: linux.Statx = undefined;
-    switch (linux.E.init(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+    switch (linux.E.init(linux.statx(file.handle, "", .{ .empty_path = true }, linux.Statx.Mask.basic_stats, &statx_buf))) {
         .SUCCESS => {},
         else => unreachable,
     }
@@ -91,7 +91,7 @@ test "statx" {
     if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
 
     var stat_buf: linux.Stat = undefined;
-    switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
+    switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, @as(u32, @bitCast(linux.At{ .empty_path = true }))))) {
         .SUCCESS => {},
         else => unreachable,
     }
