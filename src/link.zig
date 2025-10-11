@@ -622,7 +622,7 @@ pub const File = struct {
                     error.AccessDenied => switch (builtin.os.tag) {
                         .windows => {
                             // give the kernel a chance to finish closing the executable handle
-                            std.os.windows.kernel32.Sleep(0);
+                            std.os.windows.kernel32.Sleep(1);
                             continue;
                         },
                         else => return error.AccessDenied,

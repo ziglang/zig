@@ -74,7 +74,7 @@ pub fn main() anyerror!void {
     for (0..2) |_| break tmp.dir.rename("hello.exe", "hello") catch |err| switch (err) {
         error.AccessDenied => {
             // give the kernel a chance to finish closing the executable handle
-            std.os.windows.kernel32.Sleep(0);
+            std.os.windows.kernel32.Sleep(1);
             continue;
         },
         else => |e| return e,
