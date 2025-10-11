@@ -1,4 +1,5 @@
 //! AES-CCM (Counter with CBC-MAC) authenticated encryption.
+//! AES-CCM* extends CCM to support encryption-only mode (tag_len=0).
 //!
 //! References:
 //! - NIST SP 800-38C: https://csrc.nist.gov/publications/detail/sp/800-38c/final
@@ -13,23 +14,27 @@ const AuthenticationError = crypto.errors.AuthenticationError;
 const cbc_mac = @import("cbc_mac.zig");
 
 /// Common instances with AES and standard parameters
+pub const Aes128Ccm0 = AesCcm(crypto.core.aes.Aes128, 0, 13);
 pub const Aes128Ccm8 = AesCcm(crypto.core.aes.Aes128, 8, 13);
 pub const Aes128Ccm16 = AesCcm(crypto.core.aes.Aes128, 16, 13);
+pub const Aes256Ccm0 = AesCcm(crypto.core.aes.Aes256, 0, 13);
 pub const Aes256Ccm8 = AesCcm(crypto.core.aes.Aes256, 8, 13);
 pub const Aes256Ccm16 = AesCcm(crypto.core.aes.Aes256, 16, 13);
 
 /// AES-CCM authenticated encryption (NIST SP 800-38C, RFC 3610).
+/// CCM* mode extends CCM to support encryption-only mode when tag_len=0.
 ///
 /// `BlockCipher`: Block cipher type (must have 16-byte blocks).
-/// `tag_len`: Authentication tag length in bytes (4, 6, 8, 10, 12, 14, or 16).
+/// `tag_len`: Authentication tag length in bytes (0, 4, 6, 8, 10, 12, 14, or 16).
+///            When tag_len=0, CCM* provides encryption-only (no authentication).
 /// `nonce_len`: Nonce length in bytes (7 to 13).
 fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_len: usize) type {
     const block_length = BlockCipher.block.block_length;
 
     comptime {
         assert(block_length == 16); // CCM requires 16-byte blocks
-        if (tag_len < 4 or tag_len > 16 or tag_len % 2 != 0) {
-            @compileError("CCM tag_length must be 4, 6, 8, 10, 12, 14, or 16 bytes");
+        if (tag_len != 0 and (tag_len < 4 or tag_len > 16 or tag_len % 2 != 0)) {
+            @compileError("CCM tag_length must be 0, 4, 6, 8, 10, 12, 14, or 16 bytes");
         }
         if (nonce_len < 7 or nonce_len > 13) {
             @compileError("CCM nonce_length must be between 7 and 13 bytes");
@@ -65,28 +70,32 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
 
             const cipher_ctx = BlockCipher.initEnc(key);
 
-            // Compute CBC-MAC using the reusable CBC-MAC module
-            var mac_result: [block_length]u8 = undefined;
-            computeCbcMac(&mac_result, &key, m, ad, npub);
+            // CCM*: Skip authentication if tag_length is 0 (encryption-only mode)
+            if (tag_length > 0) {
+                // Compute CBC-MAC using the reusable CBC-MAC module
+                var mac_result: [block_length]u8 = undefined;
+                computeCbcMac(&mac_result, &key, m, ad, npub);
 
-            // Construct counter block for tag encryption (counter = 0)
-            var ctr_block: [block_length]u8 = undefined;
-            formatCtrBlock(&ctr_block, npub, 0);
+                // Construct counter block for tag encryption (counter = 0)
+                var ctr_block: [block_length]u8 = undefined;
+                formatCtrBlock(&ctr_block, npub, 0);
 
-            // Encrypt the MAC tag
-            var s0: [block_length]u8 = undefined;
-            cipher_ctx.encrypt(&s0, &ctr_block);
-            for (tag, mac_result[0..tag_length], s0[0..tag_length]) |*t, mac_byte, s_byte| {
-                t.* = mac_byte ^ s_byte;
+                // Encrypt the MAC tag
+                var s0: [block_length]u8 = undefined;
+                cipher_ctx.encrypt(&s0, &ctr_block);
+                for (tag, mac_result[0..tag_length], s0[0..tag_length]) |*t, mac_byte, s_byte| {
+                    t.* = mac_byte ^ s_byte;
+                }
+
+                crypto.secureZero(u8, &mac_result);
+                crypto.secureZero(u8, &s0);
             }
 
             // Encrypt the plaintext using CTR mode (starting from counter = 1)
+            var ctr_block: [block_length]u8 = undefined;
             formatCtrBlock(&ctr_block, npub, 1);
             // CCM counter is in the last L bytes of the block
             modes.ctrSlice(@TypeOf(cipher_ctx), cipher_ctx, c, m, ctr_block, .big, 1 + nonce_len, L);
-
-            crypto.secureZero(u8, &mac_result);
-            crypto.secureZero(u8, &s0);
         }
 
         /// `m`: Plaintext output buffer (must be same length as c).
@@ -116,34 +125,37 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
             // CCM counter is in the last L bytes of the block
             modes.ctrSlice(@TypeOf(cipher_ctx), cipher_ctx, m, c, ctr_block, .big, 1 + nonce_len, L);
 
-            // Compute CBC-MAC over decrypted plaintext
-            var mac_result: [block_length]u8 = undefined;
-            computeCbcMac(&mac_result, &key, m, ad, npub);
+            // CCM*: Skip authentication if tag_length is 0 (encryption-only mode)
+            if (tag_length > 0) {
+                // Compute CBC-MAC over decrypted plaintext
+                var mac_result: [block_length]u8 = undefined;
+                computeCbcMac(&mac_result, &key, m, ad, npub);
 
-            // Decrypt the received tag
-            formatCtrBlock(&ctr_block, npub, 0);
-            var s0: [block_length]u8 = undefined;
-            cipher_ctx.encrypt(&s0, &ctr_block);
+                // Decrypt the received tag
+                formatCtrBlock(&ctr_block, npub, 0);
+                var s0: [block_length]u8 = undefined;
+                cipher_ctx.encrypt(&s0, &ctr_block);
 
-            // Reconstruct the expected MAC
-            var expected_mac: [tag_length]u8 = undefined;
-            for (&expected_mac, mac_result[0..tag_length], s0[0..tag_length]) |*e, mac_byte, s_byte| {
-                e.* = mac_byte ^ s_byte;
-            }
+                // Reconstruct the expected MAC
+                var expected_mac: [tag_length]u8 = undefined;
+                for (&expected_mac, mac_result[0..tag_length], s0[0..tag_length]) |*e, mac_byte, s_byte| {
+                    e.* = mac_byte ^ s_byte;
+                }
 
-            // Constant-time tag comparison
-            const valid = crypto.timing_safe.eql([tag_length]u8, expected_mac, tag);
-            if (!valid) {
+                // Constant-time tag comparison
+                const valid = crypto.timing_safe.eql([tag_length]u8, expected_mac, tag);
+                if (!valid) {
+                    crypto.secureZero(u8, &expected_mac);
+                    crypto.secureZero(u8, &mac_result);
+                    crypto.secureZero(u8, &s0);
+                    crypto.secureZero(u8, m);
+                    return error.AuthenticationFailed;
+                }
+
                 crypto.secureZero(u8, &expected_mac);
                 crypto.secureZero(u8, &mac_result);
                 crypto.secureZero(u8, &s0);
-                crypto.secureZero(u8, m);
-                return error.AuthenticationFailed;
             }
-
-            crypto.secureZero(u8, &expected_mac);
-            crypto.secureZero(u8, &mac_result);
-            crypto.secureZero(u8, &s0);
         }
 
         /// Format the counter block for CTR mode
@@ -199,12 +211,13 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
         /// Format the B_0 block for CBC-MAC
         /// B_0 format: [flags | nonce | message_length]
         /// flags = 64*Adata + 8*M' + L'
-        /// where: Adata = (ad.len > 0), M' = (tag_length - 2)/2, L' = L - 1
+        /// where: Adata = (ad.len > 0), M' = (tag_length - 2)/2 if M>0 else 0, L' = L - 1
+        /// CCM*: When tag_length=0, M' is encoded as 0
         fn formatB0Block(block: *[block_length]u8, msg_len: usize, ad_len: usize, npub: [nonce_length]u8) void {
             @memset(block, 0);
 
             const Adata: u8 = if (ad_len > 0) 1 else 0;
-            const M_prime: u8 = @intCast((tag_length - 2) / 2);
+            const M_prime: u8 = if (tag_length > 0) @intCast((tag_length - 2) / 2) else 0;
             const L_prime: u8 = L - 1;
 
             block[0] = (Adata << 6) | (M_prime << 3) | L_prime;
@@ -791,4 +804,68 @@ test "Aes128Ccm14 - NIST SP 800-38C Example 4" {
     var m: [plaintext.len]u8 = undefined;
     try Aes128Ccm14_13.decrypt(&m, &c, tag, &ad, nonce, key);
     try testing.expectEqualSlices(u8, &plaintext, &m);
+}
+
+// CCM* test vectors (encryption-only mode with M=0)
+
+test "Aes128Ccm0 - IEEE 802.15.4 Data Frame (Encryption-only)" {
+    // IEEE 802.15.4 test vector from section 2.7
+    // Security level 0x04 (ENC, encryption without authentication)
+    var key: [16]u8 = undefined;
+    _ = try hexToBytes(&key, "C0C1C2C3C4C5C6C7C8C9CACBCCCDCECF");
+    var nonce: [13]u8 = undefined;
+    _ = try hexToBytes(&nonce, "ACDE48000000000100000005" ++ "04");
+    var plaintext: [4]u8 = undefined;
+    _ = try hexToBytes(&plaintext, "61626364");
+    var ad: [26]u8 = undefined;
+    _ = try hexToBytes(&ad, "69DC84214302000000004DEAC010000000048DEAC04050000");
+
+    // Expected ciphertext from IEEE spec
+    var expected_ciphertext: [4]u8 = undefined;
+    _ = try hexToBytes(&expected_ciphertext, "D43E022B");
+
+    // Encrypt
+    var c: [plaintext.len]u8 = undefined;
+    var tag: [Aes128Ccm0.tag_length]u8 = undefined;
+
+    Aes128Ccm0.encrypt(&c, &tag, &plaintext, &ad, nonce, key);
+
+    // Verify ciphertext matches IEEE expected output
+    try testing.expectEqualSlices(u8, &expected_ciphertext, &c);
+
+    // Decrypt and verify round-trip
+    var m: [plaintext.len]u8 = undefined;
+    try Aes128Ccm0.decrypt(&m, &c, tag, &ad, nonce, key);
+    try testing.expectEqualSlices(u8, &plaintext, &m);
+}
+
+test "Aes128Ccm0 - Zero-length plaintext with encryption-only" {
+    const key: [16]u8 = [_]u8{0x42} ** 16;
+    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const m = "";
+    const ad = "some associated data";
+    var c: [m.len]u8 = undefined;
+    var m2: [m.len]u8 = undefined;
+    var tag: [Aes128Ccm0.tag_length]u8 = undefined;
+
+    Aes128Ccm0.encrypt(&c, &tag, m, ad, nonce, key);
+
+    try Aes128Ccm0.decrypt(&m2, &c, tag, ad, nonce, key);
+
+    try testing.expectEqual(@as(usize, 0), m2.len);
+}
+
+test "Aes256Ccm0 - Basic encryption-only round-trip" {
+    const key: [32]u8 = [_]u8{0x42} ** 32;
+    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const m = "Hello, CCM* encryption-only mode!";
+    var c: [m.len]u8 = undefined;
+    var m2: [m.len]u8 = undefined;
+    var tag: [Aes256Ccm0.tag_length]u8 = undefined;
+
+    Aes256Ccm0.encrypt(&c, &tag, m, "", nonce, key);
+
+    try Aes256Ccm0.decrypt(&m2, &c, tag, "", nonce, key);
+
+    try testing.expectEqualSlices(u8, m[0..], m2[0..]);
 }
