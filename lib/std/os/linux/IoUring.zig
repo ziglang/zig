@@ -1384,8 +1384,7 @@ pub fn socket_direct(
     domain: linux.Af,
     socket_type: linux.Sock,
     protocol: linux.IpProto,
-    /// flags is unused
-    flags: u32,
+    flags: u32, // flags is unused
     file_index: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();

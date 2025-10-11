@@ -1175,7 +1175,7 @@ pub fn rmdir(path: [*:0]const u8) usize {
     if (@hasField(SYS, "rmdir")) {
         return syscall1(.rmdir, @intFromPtr(path));
     } else {
-        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @as(u32, @bitCast(At{ .removedir_or_handle_fid = .{ .removedir = true } })));
+        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @as(u32, @bitCast(At{ .removedir = true })));
     }
 }
 
@@ -3666,9 +3666,9 @@ pub const W = packed struct(u32) {
     } = @bitCast(false),
     exited: bool = false,
     continued: bool = false,
-    _unused: u20 = 0,
+    _5: u20 = 0,
     nowait: bool = false,
-    _unused_1: u7 = 0,
+    _26: u7 = 0,
 
     // Deprecated aliases
     pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
@@ -3916,6 +3916,7 @@ pub const Shut = enum(u32) {
     pub const RDWR: u32 = @intFromEnum(Shut.rdwr);
 };
 
+/// Deprecated alias to Sock
 pub const SOCK = Sock;
 /// SOCK_* Socket type and flags
 pub const Sock = packed struct(u32) {
@@ -3957,7 +3958,7 @@ pub const Sock = packed struct(u32) {
         _21: u12 = 0,
     };
 
-    // Deprecated aliases for SOCK
+    // Deprecated aliases for SOCK type and flags
     pub const STREAM: u32 = @intFromEnum(Type.stream);
     pub const DGRAM: u32 = @intFromEnum(Type.dgram);
     pub const RAW: u32 = @intFromEnum(Type.raw);
