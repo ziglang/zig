@@ -889,61 +889,26 @@ pub const ReadLinkError = error{
     AccessDenied,
     Unexpected,
     NameTooLong,
+    BadPathName,
+    AntivirusInterference,
     UnsupportedReparsePointType,
 };
 
 pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    // Here, we use `NtCreateFile` to shave off one syscall if we were to use `OpenFile` wrapper.
-    // With the latter, we'd need to call `NtCreateFile` twice, once for file symlink, and if that
-    // failed, again for dir symlink. Omitting any mention of file/dir flags makes it possible
-    // to open the symlink there and then.
-    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
-    var nt_name = UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @constCast(sub_path_w.ptr),
+    const result_handle = OpenFile(sub_path_w, .{
+        .access_mask = FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        .dir = dir,
+        .creation = FILE_OPEN,
+        .follow_symlinks = false,
+        .filter = .any,
+    }) catch |err| switch (err) {
+        error.IsDir, error.NotDir => return error.Unexpected, // filter = .any
+        error.PathAlreadyExists => return error.Unexpected, // FILE_OPEN
+        error.WouldBlock => return error.Unexpected,
+        error.NoDevice => return error.FileNotFound,
+        error.PipeBusy => return error.AccessDenied,
+        else => |e| return e,
     };
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else dir,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var result_handle: HANDLE = undefined;
-    var io: IO_STATUS_BLOCK = undefined;
-
-    const rc = ntdll.NtCreateFile(
-        &result_handle,
-        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OPEN,
-        FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => {},
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
-        .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
-        .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.AccessDenied,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => unreachable,
-        .FILE_IS_A_DIRECTORY => unreachable,
-        else => return unexpectedStatus(rc),
-    }
     defer CloseHandle(result_handle);
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 align(@alignOf(REPARSE_DATA_BUFFER)) = undefined;
@@ -970,8 +935,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
             const path_buf = @as([*]const u16, &buf.PathBuffer);
             return parseReadlinkPath(path_buf[offset..][0..len], false, out_buffer);
         },
-        else => |value| {
-            std.debug.print("unsupported symlink type: {}", .{value});
+        else => {
             return error.UnsupportedReparsePointType;
         },
     }

@@ -705,6 +705,7 @@ fn abiAndDynamicLinkerFromFile(
                 error.BadPathName => unreachable, // Windows only
                 error.UnsupportedReparsePointType => unreachable, // Windows only
                 error.NetworkNotFound => unreachable, // Windows only
+                error.AntivirusInterference => unreachable, // Windows only
 
                 error.AccessDenied,
                 error.PermissionDenied,
