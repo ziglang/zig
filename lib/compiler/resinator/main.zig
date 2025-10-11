@@ -13,6 +13,7 @@ const cvtres = @import("cvtres.zig");
 const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePage;
 const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
+const compiler_util = @import("../util.zig");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -671,7 +672,11 @@ const ErrorHandler = union(enum) {
     ) !void {
         switch (self.*) {
             .server => |*server| {
-                var error_bundle = try aroDiagnosticsToErrorBundle(allocator, fail_msg, comp);
+                var error_bundle = try compiler_util.aroDiagnosticsToErrorBundle(
+                    comp.diagnostics,
+                    allocator,
+                    fail_msg,
+                );
                 defer error_bundle.deinit(allocator);
 
                 try server.serveErrorBundle(error_bundle);
@@ -753,7 +758,7 @@ fn cliDiagnosticsToErrorBundle(
         switch (err_details.type) {
             .err => {
                 if (cur_err) |err| {
-                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+                    try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
                 }
                 cur_err = .{
                     .msg = try bundle.addString(err_details.msg.items),
@@ -771,7 +776,7 @@ fn cliDiagnosticsToErrorBundle(
         }
     }
     if (cur_err) |err| {
-        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+        try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
     }
 
     return try bundle.toOwnedBundle("");
@@ -840,7 +845,7 @@ fn diagnosticsToErrorBundle(
         switch (err_details.type) {
             .err => {
                 if (cur_err) |err| {
-                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+                    try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
                 }
                 cur_err = .{
                     .msg = try bundle.addString(msg_buf.written()),
@@ -859,18 +864,10 @@ fn diagnosticsToErrorBundle(
         }
     }
     if (cur_err) |err| {
-        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+        try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
     }
 
     return try bundle.toOwnedBundle("");
-}
-
-fn flushErrorMessageIntoBundle(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMessage, notes: []const ErrorBundle.ErrorMessage) !void {
-    try wip.addRootErrorMessage(msg);
-    const notes_start = try wip.reserveNotes(@intCast(notes.len));
-    for (notes_start.., notes) |i, note| {
-        wip.extra.items[i] = @intFromEnum(wip.addErrorMessageAssumeCapacity(note));
-    }
 }
 
 fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
@@ -881,77 +878,5 @@ fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []con
     try bundle.addRootErrorMessage(.{
         .msg = try bundle.printString(format, args),
     });
-    return try bundle.toOwnedBundle("");
-}
-
-fn aroDiagnosticsToErrorBundle(
-    gpa: std.mem.Allocator,
-    fail_msg: []const u8,
-    comp: *aro.Compilation,
-) !ErrorBundle {
-    @branchHint(.cold);
-
-    var bundle: ErrorBundle.Wip = undefined;
-    try bundle.init(gpa);
-    errdefer bundle.deinit();
-
-    try bundle.addRootErrorMessage(.{
-        .msg = try bundle.addString(fail_msg),
-    });
-
-    var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayList(ErrorBundle.ErrorMessage) = .empty;
-    defer cur_notes.deinit(gpa);
-    for (comp.diagnostics.output.to_list.messages.items) |msg| {
-        switch (msg.kind) {
-            // Clear the current error so that notes don't bleed into unassociated errors
-            .off, .warning => {
-                cur_err = null;
-                continue;
-            },
-            .note => if (cur_err == null) continue,
-            .@"fatal error", .@"error" => {},
-        }
-
-        const src_loc = src_loc: {
-            if (msg.location) |location| {
-                break :src_loc try bundle.addSourceLocation(.{
-                    .src_path = try bundle.addString(location.path),
-                    .line = location.line_no - 1, // 1-based -> 0-based
-                    .column = location.col - 1, // 1-based -> 0-based
-                    .span_start = location.width,
-                    .span_main = location.width,
-                    .span_end = location.width,
-                    .source_line = try bundle.addString(location.line),
-                });
-            }
-            break :src_loc ErrorBundle.SourceLocationIndex.none;
-        };
-
-        switch (msg.kind) {
-            .@"fatal error", .@"error" => {
-                if (cur_err) |err| {
-                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
-                }
-                cur_err = .{
-                    .msg = try bundle.addString(msg.text),
-                    .src_loc = src_loc,
-                };
-                cur_notes.clearRetainingCapacity();
-            },
-            .note => {
-                cur_err.?.notes_len += 1;
-                try cur_notes.append(gpa, .{
-                    .msg = try bundle.addString(msg.text),
-                    .src_loc = src_loc,
-                });
-            },
-            .off, .warning => unreachable,
-        }
-    }
-    if (cur_err) |err| {
-        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
-    }
-
     return try bundle.toOwnedBundle("");
 }
