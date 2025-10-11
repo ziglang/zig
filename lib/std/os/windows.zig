@@ -894,7 +894,9 @@ pub const ReadLinkError = error{
     UnsupportedReparsePointType,
 };
 
-pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
+/// `sub_path_w` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
     const result_handle = OpenFile(sub_path_w, .{
         .access_mask = FILE_READ_ATTRIBUTES | SYNCHRONIZE,
         .dir = dir,
@@ -926,14 +928,14 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
             const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
-            return parseReadlinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
+            return parseReadLinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
         },
         IO_REPARSE_TAG_MOUNT_POINT => {
             const buf: *const MOUNT_POINT_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
-            return parseReadlinkPath(path_buf[offset..][0..len], false, out_buffer);
+            return parseReadLinkPath(path_buf[offset..][0..len], false, out_buffer);
         },
         else => {
             return error.UnsupportedReparsePointType;
@@ -941,19 +943,18 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     }
 }
 
-/// Asserts that there is enough space is `out_buffer`.
-/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
-fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
-    const win32_namespace_path = path: {
-        if (is_relative) break :path path;
-        const win32_path = ntToWin32Namespace(path) catch |err| switch (err) {
-            error.NameTooLong => unreachable,
-            error.NotNtPath => break :path path,
+fn parseReadLinkPath(path: []const u16, is_relative: bool, out_buffer: []u16) error{NameTooLong}![]u16 {
+    path: {
+        if (is_relative) break :path;
+        return ntToWin32Namespace(path, out_buffer) catch |err| switch (err) {
+            error.NameTooLong => |e| return e,
+            error.NotNtPath => break :path,
         };
-        break :path win32_path.span();
-    };
-    const out_len = std.unicode.wtf16LeToWtf8(out_buffer, win32_namespace_path);
-    return out_buffer[0..out_len];
+    }
+    if (out_buffer.len < path.len) return error.NameTooLong;
+    const dest = out_buffer[0..path.len];
+    @memcpy(dest, path);
+    return dest;
 }
 
 pub const DeleteFileError = error{
@@ -2584,10 +2585,11 @@ test getUnprefixedPathType {
 /// https://github.com/reactos/reactos/blob/master/modules/rostests/apitests/ntdll/RtlNtPathNameToDosPathName.c
 ///
 /// `path` should be encoded as WTF-16LE.
-pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
+///
+/// Supports in-place modification (`path` and `out` may refer to the same slice).
+pub fn ntToWin32Namespace(path: []const u16, out: []u16) error{ NameTooLong, NotNtPath }![]u16 {
     if (path.len > PATH_MAX_WIDE) return error.NameTooLong;
 
-    var path_space: PathSpace = undefined;
     const namespace_prefix = getNamespacePrefix(u16, path);
     switch (namespace_prefix) {
         .nt => {
@@ -2595,23 +2597,19 @@ pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
             var after_prefix = path[4..]; // after the `\??\`
             // The prefix \??\UNC\ means this is a UNC path, in which case the
             // `\??\UNC\` should be replaced by `\\` (two backslashes)
-            // TODO: the "UNC" should technically be matched case-insensitively, but
-            //       it's unlikely to matter since most/all paths passed into this
-            //       function will have come from the OS meaning it should have
-            //       the 'canonical' uppercase UNC.
             const is_unc = after_prefix.len >= 4 and
-                std.mem.eql(u16, after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
+                eqlIgnoreCaseWTF16(after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
                 std.fs.path.PathType.windows.isSep(u16, std.mem.littleToNative(u16, after_prefix[3]));
+            const win32_len = path.len - @as(usize, if (is_unc) 6 else 4);
+            if (out.len < win32_len) return error.NameTooLong;
             if (is_unc) {
-                path_space.data[0] = comptime std.mem.nativeToLittle(u16, '\\');
+                out[0] = comptime std.mem.nativeToLittle(u16, '\\');
                 dest_index += 1;
                 // We want to include the last `\` of `\??\UNC\`
                 after_prefix = path[7..];
             }
-            @memcpy(path_space.data[dest_index..][0..after_prefix.len], after_prefix);
-            path_space.len = dest_index + after_prefix.len;
-            path_space.data[path_space.len] = 0;
-            return path_space;
+            @memmove(out[dest_index..][0..after_prefix.len], after_prefix);
+            return out[0..win32_len];
         },
         else => return error.NotNtPath,
     }
@@ -2620,25 +2618,14 @@ pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
 test ntToWin32Namespace {
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
-    try testNtToWin32Namespace(L("UNC"), L("\\??\\UNC"));
-    try testNtToWin32Namespace(L("\\\\"), L("\\??\\UNC\\"));
-    try testNtToWin32Namespace(L("\\\\path1"), L("\\??\\UNC\\path1"));
-    try testNtToWin32Namespace(L("\\\\path1\\path2"), L("\\??\\UNC\\path1\\path2"));
+    var mutable_unc_path_buf = L("\\??\\UNC\\path1\\path2").*;
+    try std.testing.expectEqualSlices(u16, L("\\\\path1\\path2"), try ntToWin32Namespace(&mutable_unc_path_buf, &mutable_unc_path_buf));
 
-    try testNtToWin32Namespace(L(""), L("\\??\\"));
-    try testNtToWin32Namespace(L("C:"), L("\\??\\C:"));
-    try testNtToWin32Namespace(L("C:\\"), L("\\??\\C:\\"));
-    try testNtToWin32Namespace(L("C:\\test"), L("\\??\\C:\\test"));
-    try testNtToWin32Namespace(L("C:\\test\\"), L("\\??\\C:\\test\\"));
+    var mutable_path_buf = L("\\??\\C:\\test\\").*;
+    try std.testing.expectEqualSlices(u16, L("C:\\test\\"), try ntToWin32Namespace(&mutable_path_buf, &mutable_path_buf));
 
-    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("foo")));
-    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("C:\\test")));
-    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("\\\\.\\test")));
-}
-
-fn testNtToWin32Namespace(expected: []const u16, path: []const u16) !void {
-    const converted = try ntToWin32Namespace(path);
-    try std.testing.expectEqualSlices(u16, expected, converted.span());
+    var too_small_buf: [6]u16 = undefined;
+    try std.testing.expectError(error.NameTooLong, ntToWin32Namespace(L("\\??\\C:\\test"), &too_small_buf));
 }
 
 fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
