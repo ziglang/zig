@@ -523,14 +523,15 @@ fn cleanupStreams(self: *ChildProcess) void {
 }
 
 fn statusToTerm(status: u32) Term {
-    return if (posix.W.IFEXITED(status))
-        Term{ .Exited = posix.W.EXITSTATUS(status) }
-    else if (posix.W.IFSIGNALED(status))
-        Term{ .Signal = posix.W.TERMSIG(status) }
-    else if (posix.W.IFSTOPPED(status))
-        Term{ .Stopped = posix.W.STOPSIG(status) }
+    const w: posix.W = @bitCast(status);
+    return if (w.ifExited())
+        .{ .Exited = w.exitStatus() }
+    else if (w.ifSignaled())
+        .{ .Signal = w.termSig() }
+    else if (w.ifStopped())
+        .{ .Stopped = w.stopSig() }
     else
-        Term{ .Unknown = status };
+        .{ .Unknown = status };
 }
 
 fn spawnPosix(self: *ChildProcess) SpawnError!void {
