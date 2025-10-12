@@ -1865,7 +1865,8 @@ pub const Mutable = struct {
         assert(mask.positive or mask.eqlZero());
 
         var shift: usize = 0;
-        for (mask.limbs, 0..) |mask_limb, i| {
+        var limb_count: usize = 0;
+        for (mask.limbs) |mask_limb| {
             const shift_bits: Log2Limb = @intCast(shift % limb_bits);
             const shift_limbs = shift / limb_bits;
 
@@ -1876,13 +1877,14 @@ pub const Mutable = struct {
                 source_limb |= source.limbs[shift_limbs + 1] << @intCast(limb_bits - shift_bits);
             }
 
-            result.limbs[i] = @depositBits(source_limb, mask_limb);
+            result.limbs[limb_count] = @depositBits(source_limb, mask_limb);
 
             shift += @popCount(mask_limb);
+            limb_count += 1;
         }
 
         result.positive = true;
-        result.normalize(mask.limbs.len);
+        result.normalize(limb_count);
     }
 
     /// result = @extractBits(source, mask)
@@ -1920,7 +1922,6 @@ pub const Mutable = struct {
                 if (new_shift_bits != 0) {
                     result_limb |= pext_limb >> @intCast(limb_bits - shift_bits);
                 }
-
             }
         }
 
