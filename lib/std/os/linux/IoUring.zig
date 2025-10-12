@@ -21,7 +21,7 @@ features: uflags.Features,
 /// will make the final call on how many entries the submission and completion
 /// queues will ultimately have,
 /// see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L8027-L8050.
-/// Matches the interface of io_uring_queue_init() in liburing.
+/// Matches the interface of `io_uring_queue_init()` in liburing.
 pub fn init(entries: u16, flags: uflags.Setup) !IoUring {
     var params = mem.zeroInit(Params, .{
         .flags = flags,
@@ -35,7 +35,7 @@ pub fn init(entries: u16, flags: uflags.Setup) !IoUring {
 /// thread idle timeout (the kernel and our default is 1 second).
 /// `params` is passed by reference because the kernel needs to modify the
 /// parameters.
-/// Matches the interface of io_uring_queue_init_params() in liburing.
+/// Matches the interface of `io_uring_queue_init_params()` in liburing.
 pub fn init_params(entries: u16, p: *Params) !IoUring {
     if (entries == 0) return error.EntriesZero;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
@@ -150,7 +150,7 @@ pub fn deinit(self: *IoUring) void {
 /// control flow error, and the null return in liburing is more a C idiom than
 /// anything else, for lack of a better alternative. In Zig, we have
 /// first-class error handling... so let's use it.
-/// Matches the implementation of io_uring_get_sqe() in liburing.
+/// Matches the implementation of `io_uring_get_sqe()` in liburing.
 pub fn get_sqe(self: *IoUring) !*Sqe {
     const head = @atomicLoad(u32, self.sq.head, .acquire);
     // Remember that these head and tail offsets wrap around every four billion
@@ -163,22 +163,22 @@ pub fn get_sqe(self: *IoUring) !*Sqe {
     return sqe;
 }
 
-/// Submits the SQEs acquired via get_sqe() to the kernel. You can call this
-/// once after you have called get_sqe() multiple times to setup multiple I/O
+/// Submits the SQEs acquired via `get_sqe()` to the kernel. You can call this
+/// once after you have called `get_sqe()` multiple times to setup multiple I/O
 /// requests.
 /// Returns the number of SQEs submitted, if not used alongside
 /// IORING_SETUP_SQPOLL.
 /// If the io_uring instance uses IORING_SETUP_SQPOLL, the value returned on
 /// success is not guaranteed to match the amount of actually submitted sqes
 /// during this call. A value higher or lower, including 0, may be returned.
-/// Matches the implementation of io_uring_submit() in liburing.
+/// Matches the implementation of `io_uring_submit()` in liburing.
 pub fn submit(self: *IoUring) !u32 {
     return self.submit_and_wait(0);
 }
 
-/// Like submit(), but allows waiting for events as well.
+/// Like `submit()`, but allows waiting for events as well.
 /// Returns the number of SQEs submitted.
-/// Matches the implementation of io_uring_submit_and_wait() in liburing.
+/// Matches the implementation of `io_uring_submit_and_wait()` in liburing.
 pub fn submit_and_wait(self: *IoUring, wait_nr: u32) !u32 {
     const submitted = self.flush_sq();
     var flags: uflags.Enter = .{};
@@ -237,9 +237,9 @@ pub fn enter(self: *IoUring, to_submit: u32, min_complete: u32, flags: uflags.En
 /// Sync internal state with kernel ring state on the SQ side.
 /// Returns the number of all pending events in the SQ ring, for the shared
 /// ring. This return value includes previously flushed SQEs, as per liburing.
-/// The rationale is to suggest that an io_uring_enter() call is needed rather
+/// The rationale is to suggest that an `io_uring_enter()` call is needed rather
 /// than not.
-/// Matches the implementation of __io_uring_flush_sq() in liburing.
+/// Matches the implementation of `__io_uring_flush_sq()` in liburing.
 pub fn flush_sq(self: *IoUring) u32 {
     if (self.sq.sqe_head != self.sq.sqe_tail) {
         // Fill in SQEs that we have queued up, adding them to the kernel ring.
@@ -261,7 +261,7 @@ pub fn flush_sq(self: *IoUring) u32 {
 /// Returns true if we are not using an SQ thread (thus nobody submits but us),
 /// or if IORING_SQ_NEED_WAKEUP is set and the SQ thread must be explicitly
 /// awakened. For the latter case, we set the SQ thread wakeup flag.
-/// Matches the implementation of sq_ring_needs_enter() in liburing.
+/// Matches the implementation of `sq_ring_needs_enter()` in liburing.
 pub fn sq_ring_needs_enter(self: *IoUring, flags: *uflags.Enter) bool {
     assert(flags.*.empty());
     if (!self.flags.sqpoll) return true;
@@ -275,7 +275,7 @@ pub fn sq_ring_needs_enter(self: *IoUring, flags: *uflags.Enter) bool {
 /// Returns the number of flushed and unflushed SQEs pending in the submission
 /// queue. In other words, this is the number of SQEs in the submission queue,
 /// i.e. its length. These are SQEs that the kernel is yet to consume.
-/// Matches the implementation of io_uring_sq_ready in liburing.
+/// Matches the implementation of `io_uring_sq_ready()` in liburing.
 pub fn sq_ready(self: *IoUring) u32 {
     // Always use the shared ring state (i.e. head and not sqe_head) to avoid going out of sync,
     // see https://github.com/axboe/liburing/issues/92.
@@ -284,7 +284,7 @@ pub fn sq_ready(self: *IoUring) u32 {
 
 /// Returns the number of CQEs in the completion queue, i.e. its length.
 /// These are CQEs that the application is yet to consume.
-/// Matches the implementation of io_uring_cq_ready in liburing.
+/// Matches the implementation of `io_uring_cq_ready()` in liburing.
 pub fn cq_ready(self: *IoUring) u32 {
     return @atomicLoad(u32, self.cq.tail, .acquire) -% self.cq.head.*;
 }
@@ -298,11 +298,11 @@ pub fn cq_ready(self: *IoUring) u32 {
 /// The rationale for copying CQEs rather than copying pointers is that
 /// pointers are 8 bytes whereas CQEs are not much more at only 16 bytes, and
 /// this provides a safer faster interface.
-/// Safer, because you no longer need to call cqe_seen(), avoiding idempotency
+/// Safer, because you no longer need to call `cqe_seen()`, avoiding idempotency
 /// bugs. Faster, because we can now amortize the atomic store release to
 /// `cq.head` across the batch.
 /// See https://github.com/axboe/liburing/issues/103#issuecomment-686665007.
-/// Matches the implementation of io_uring_peek_batch_cqe() in liburing, but
+/// Matches the implementation of `io_uring_peek_batch_cqe()` in liburing, but
 /// supports waiting.
 pub fn copy_cqes(self: *IoUring, cqes: []Cqe, wait_nr: u32) !u32 {
     const count = self.copy_cqes_ready(cqes);
@@ -345,27 +345,28 @@ pub fn copy_cqe(ring: *IoUring) !Cqe {
     }
 }
 
-/// Matches the implementation of cq_ring_needs_flush() in liburing.
+/// Matches the implementation of `cq_ring_needs_flush()` in liburing.
 pub fn cq_ring_needs_flush(self: *IoUring) bool {
     return @atomicLoad(Sq.Flags, self.sq.flags, .unordered).cq_overflow;
 }
 
 /// For advanced use cases only that implement custom completion queue methods.
-/// If you use copy_cqes() or copy_cqe() you must not call cqe_seen() or
-/// cq_advance(). Must be called exactly once after a zero-copy CQE has been
+/// If you use `copy_cqes()` or `copy_cqe()` you must not call `cqe_seen()` or
+/// `cq_advance()`. Must be called exactly once after a zero-copy CQE has been
 /// processed by your application.
 /// Not idempotent, calling more than once will result in other CQEs being lost.
-/// Matches the implementation of cqe_seen() in liburing.
+/// Matches the implementation of `cqe_seen()` in liburing.
 pub fn cqe_seen(self: *IoUring, cqe: *Cqe) void {
     _ = cqe;
     self.cq_advance(1);
 }
 
 /// For advanced use cases only that implement custom completion queue methods.
-/// Matches the implementation of cq_advance() in liburing.
+/// Matches the implementation of `cq_advance()` in liburing.
 pub fn cq_advance(self: *IoUring, count: u32) void {
     if (count > 0) {
-        // Ensure the kernel only sees the new head value after the CQEs have been read.
+        // Ensure the kernel only sees the new head value after the CQEs have
+        // been read.
         @atomicStore(u32, self.cq.head, self.cq.head.* +% count, .release);
     }
 }
@@ -391,10 +392,11 @@ pub fn fsync(self: *IoUring, user_data: u64, fd: posix.fd_t, flags: uflags.Fsync
 }
 
 /// Queues (but does not submit) an SQE to perform a no-op.
-/// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
+/// Returns a pointer to the SQE so that you can further modify the SQE for
+/// advanced use cases.
 /// A no-op is more useful than may appear at first glance.
-/// For example, you could call `drain_previous_sqes()` on the returned SQE, to use the no-op to
-/// know when the ring is idle before acting on a kill signal.
+/// For example, you could call `drain_previous_sqes()` on the returned SQE, to
+/// use the no-op to know when the ring is idle before acting on a kill signal.
 pub fn nop(self: *IoUring, user_data: u64) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_nop();
@@ -402,10 +404,13 @@ pub fn nop(self: *IoUring, user_data: u64) !*Sqe {
     return sqe;
 }
 
-/// Queues (but does not submit) an SQE to perform a `read(2)` or `preadv(2)` depending on the buffer type.
+/// Queues (but does not submit) an SQE to perform a `read(2)` or `preadv(2)`
+/// depending on the buffer type.
 /// * Reading into a `ReadBuffer.buffer` uses `read(2)`
 /// * Reading into a `ReadBuffer.iovecs` uses `preadv(2)`
-///   If you want to do a `preadv2(2)` then set `rw_flags` on the returned SQE. See https://man7.org/linux/man-pages/man2/preadv2.2.html
+///
+/// If you want to do a `preadv2(2)` then set `rw_flags` on the returned SQE.
+/// See https://man7.org/linux/man-pages/man2/preadv2.2.html
 ///
 /// Returns a pointer to the SQE.
 pub fn read(
@@ -446,19 +451,34 @@ pub fn write(
 
 /// Queues (but does not submit) an SQE to perform a `splice(2)`
 /// Either `fd_in` or `fd_out` must be a pipe.
-/// If `fd_in` refers to a pipe, `off_in` is ignored and must be set to std.math.maxInt(u64).
-/// If `fd_in` does not refer to a pipe and `off_in` is maxInt(u64), then `len` are read
-/// from `fd_in` starting from the file offset, which is incremented by the number of bytes read.
-/// If `fd_in` does not refer to a pipe and `off_in` is not maxInt(u64), then the starting offset of `fd_in` will be `off_in`.
-/// This splice operation can be used to implement sendfile by splicing to an intermediate pipe first,
-/// then splice to the final destination. In fact, the implementation of sendfile in kernel uses splice internally.
+/// If `fd_in` refers to a pipe, `off_in` is ignored and must be set to
+/// std.math.maxInt(u64).
+/// If `fd_in` does not refer to a pipe and `off_in` is maxInt(u64), then `len`
+/// are read from `fd_in` starting from the file offset, which is incremented
+/// by the number of bytes read.
+/// If `fd_in` does not refer to a pipe and `off_in` is not maxInt(u64), then
+/// the starting offset of `fd_in` will be `off_in`.
 ///
-/// NOTE that even if fd_in or fd_out refers to a pipe, the splice operation can still fail with EINVAL if one of the
-/// fd doesn't explicitly support splice peration, e.g. reading from terminal is unsupported from kernel 5.7 to 5.11.
-/// See https://github.com/axboe/liburing/issues/291
+/// This splice operation can be used to implement sendfile by splicing to an
+/// intermediate pipe first, then splice to the final destination. In fact, the
+/// implementation of sendfile in kernel uses splice internally.
 ///
-/// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-pub fn splice(self: *IoUring, user_data: u64, fd_in: posix.fd_t, off_in: u64, fd_out: posix.fd_t, off_out: u64, len: usize) !*Sqe {
+/// NOTE that even if `fd_in` or `fd_out` refers to a pipe, the splice operation
+/// can still fail with EINVAL if one of the fd doesn't explicitly support
+/// splice operation, e.g. reading from terminal is unsupported from kernel 5.7
+/// to 5.11. See https://github.com/axboe/liburing/issues/291
+///
+/// Returns a pointer to the SQE so that you can further modify the SQE for
+/// advanced use cases.
+pub fn splice(
+    self: *IoUring,
+    user_data: u64,
+    fd_in: posix.fd_t,
+    off_in: u64,
+    fd_out: posix.fd_t,
+    off_out: u64,
+    len: usize,
+) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_splice(fd_in, off_in, fd_out, off_out, len);
     sqe.user_data = user_data;
@@ -466,10 +486,12 @@ pub fn splice(self: *IoUring, user_data: u64, fd_in: posix.fd_t, off_in: u64, fd
 }
 
 /// Queues (but does not submit) an SQE to perform a IORING_OP_READ_FIXED.
-/// The `buffer` provided must be registered with the kernel by calling `register_buffers` first.
-/// The `buffer_index` must be the same as its index in the array provided to `register_buffers`.
+/// The `buffer` provided must be registered with the kernel by calling
+/// `register_buffers()` first. The `buffer_index` must be the same as its
+/// index in the array provided to `register_buffers()`.
 ///
-/// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
+/// Returns a pointer to the SQE so that you can further modify the SQE for
+/// advanced use cases.
 pub fn read_fixed(
     self: *IoUring,
     user_data: u64,
@@ -485,9 +507,10 @@ pub fn read_fixed(
 }
 
 /// Queues (but does not submit) an SQE to perform a `pwritev()`.
-/// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-/// For example, if you want to do a `pwritev2()` then set `rw_flags` on the returned SQE.
-/// See https://linux.die.net/man/2/pwritev.
+/// Returns a pointer to the SQE so that you can further modify the SQE for
+/// advanced use cases.
+/// For example, if you want to do a `pwritev2()` then set `rw_flags` on the
+/// returned SQE. See https://linux.die.net/man/2/pwritev.
 pub fn writev(
     self: *IoUring,
     user_data: u64,
@@ -502,10 +525,12 @@ pub fn writev(
 }
 
 /// Queues (but does not submit) an SQE to perform a IORING_OP_WRITE_FIXED.
-/// The `buffer` provided must be registered with the kernel by calling `register_buffers` first.
-/// The `buffer_index` must be the same as its index in the array provided to `register_buffers`.
+/// The `buffer` provided must be registered with the kernel by calling
+/// `register_buffers()` first. The `buffer_index` must be the same as its index
+/// in the array provided to `register_buffers()`.
 ///
-/// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
+/// Returns a pointer to the SQE so that you can further modify the SQE for
+/// advanced use cases.
 pub fn write_fixed(
     self: *IoUring,
     user_data: u64,
@@ -831,14 +856,15 @@ pub fn close_direct(self: *IoUring, user_data: u64, file_index: u32) !*Sqe {
 /// Queues (but does not submit) an SQE to register a timeout operation.
 /// Returns a pointer to the SQE.
 ///
-/// The timeout will complete when either the timeout expires, or after the specified number of
-/// events complete (if `count` is greater than `0`).
+/// The timeout will complete when either the timeout expires, or after the
+/// specified number of events complete (if `count` is greater than `0`).
 ///
-/// `flags` may be `0` for a relative timeout, or `IORING_TIMEOUT_ABS` for an absolute timeout.
+/// `flags` may be `0` for a relative timeout, or `IORING_TIMEOUT_ABS` for an
+/// absolute timeout.
 ///
-/// The completion event result will be `-ETIME` if the timeout completed through expiration,
-/// `0` if the timeout completed after the specified number of events, or `-ECANCELED` if the
-/// timeout was removed before it expired.
+/// The completion event result will be `-ETIME` if the timeout completed
+/// through expiration, `0` if the timeout completed after the specified number
+/// of events, or `-ECANCELED` if the timeout was removed before it expired.
 ///
 /// io_uring timeouts use the `CLOCK.MONOTONIC` clock source.
 pub fn timeout(
@@ -859,7 +885,8 @@ pub fn timeout(
 ///
 /// The timeout is identified by its `user_data`.
 ///
-/// The completion event result will be `0` if the timeout was found and canceled successfully,
+/// The completion event result will be `0` if the timeout was found and
+/// cancelled successfully else:
 /// `-EBUSY` if the timeout was found but expiration was already in progress, or
 /// `-ENOENT` if the timeout was not found.
 pub fn timeout_remove(
@@ -877,18 +904,17 @@ pub fn timeout_remove(
 /// Queues (but does not submit) an SQE to add a link timeout operation.
 /// Returns a pointer to the SQE.
 ///
-/// You need to set linux.IOSQE_IO_LINK to flags of the target operation
-/// and then call this method right after the target operation.
+/// You need to set IOSQE_IO_LINK to flags of the target operation and then
+/// call this method right after the target operation.
 /// See https://lwn.net/Articles/803932/ for detail.
 ///
 /// If the dependent request finishes before the linked timeout, the timeout
 /// is canceled. If the timeout finishes before the dependent request, the
 /// dependent request will be canceled.
 ///
-/// The completion event result of the link_timeout will be
-/// `-ETIME` if the timeout finishes before the dependent request
-/// (in this case, the completion event result of the dependent request will
-/// be `-ECANCELED`), or
+/// The completion event result of the link_timeout will be either of:
+/// `-ETIME` if the timeout finishes before the dependent request (in this case,
+/// the completion event result of the dependent request will be `-ECANCELED`)
 /// `-EALREADY` if the dependent request finishes before the linked timeout.
 pub fn link_timeout(
     self: *IoUring,
@@ -929,8 +955,8 @@ pub fn poll_remove(
     return sqe;
 }
 
-/// Queues (but does not submit) an SQE to update the user data of an existing poll
-/// operation. Returns a pointer to the SQE.
+/// Queues (but does not submit) an SQE to update the user data of an existing
+/// poll operation. Returns a pointer to the SQE.
 pub fn poll_update(
     self: *IoUring,
     user_data: u64,
@@ -983,8 +1009,9 @@ pub fn statx(
 ///
 /// The operation is identified by its `user_data`.
 ///
-/// The completion event result will be `0` if the operation was found and canceled successfully,
-/// `-EALREADY` if the operation was found but was already in progress, or
+/// The completion event result will be `0` if the operation was found and
+/// cancelled successfully else either of:
+/// `-EALREADY` if the operation was found but was already in progress
 /// `-ENOENT` if the operation was not found.
 pub fn cancel(
     self: *IoUring,
@@ -1093,12 +1120,15 @@ pub fn linkat(
     return sqe;
 }
 
-/// Queues (but does not submit) an SQE to provide a group of buffers used for commands that read/receive data.
-/// Returns a pointer to the SQE.
+/// Queues (but does not submit) an SQE to provide a group of buffers used for
+/// commands that read/receive data. Returns a pointer to the SQE.
 ///
-/// Provided buffers can be used in `read`, `recv` or `recvmsg` commands via .buffer_selection.
+/// Provided buffers can be used in `read`, `recv` or `recvmsg` commands via
+/// buffer_selection.
 ///
-/// The kernel expects a contiguous block of memory of size (buffers_count * buffer_size).
+/// The kernel expects a contiguous block of memory of size (buffers_count *
+/// buffer_size).
+// TODO: why not use a slice with `buffers_count`
 pub fn provide_buffers(
     self: *IoUring,
     user_data: u64,
@@ -1146,15 +1176,22 @@ pub fn waitid(
 }
 
 /// Registers an array of file descriptors.
-/// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
-/// retrieve a reference to the file, and once I/O has completed the file reference must be
-/// dropped. The atomic nature of this file reference can be a slowdown for high IOPS workloads.
-/// This slowdown can be avoided by pre-registering file descriptors.
-/// To refer to a registered file descriptor, IOSQE_FIXED_FILE must be set in the SQE's flags,
-/// and the SQE's fd must be set to the index of the file descriptor in the registered array.
-/// Registering file descriptors will wait for the ring to idle.
-/// Files are automatically unregistered by the kernel when the ring is torn down.
-/// An application need unregister only if it wants to register a new array of file descriptors.
+///
+/// Every time a file descriptor is put in an SQE and submitted to the kernel,
+/// the kernel must retrieve a reference to the file, and once I/O has
+/// completed, the file reference must be dropped. The atomic nature of this
+/// file reference can be a slowdown for high IOPS workloads. This slowdown can
+/// be avoided by pre-registering file descriptors.
+///
+/// To refer to a registered file descriptor, IOSQE_FIXED_FILE must be set in
+/// the SQE's flags, and the SQE's fd must be set to the index of the file
+/// descriptor in the registered array.
+///
+/// Registering file descriptors will wait for the ring to idle and files are
+/// automatically unregistered by the kernel when the ring is torn down.
+///
+/// An application need unregister only if it wants to register a new array of
+/// file descriptors.
 pub fn register_files(self: *IoUring, fds: []const linux.fd_t) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(
@@ -1168,11 +1205,13 @@ pub fn register_files(self: *IoUring, fds: []const linux.fd_t) !void {
 
 /// Updates registered file descriptors.
 ///
-/// Updates are applied starting at the provided offset in the original file descriptors slice.
+/// Updates are applied starting at the provided offset in the original file
+/// descriptors slice.
 /// There are three kind of updates:
 /// * turning a sparse entry (where the fd is -1) into a real one
 /// * removing an existing entry (set the fd to -1)
 /// * replacing an existing entry with a new fd
+///
 /// Adding new file descriptors must be done with `register_files`.
 pub fn register_files_update(self: *IoUring, offset: u32, fds: []const linux.fd_t) !void {
     assert(self.fd >= 0);
@@ -1240,8 +1279,8 @@ pub fn register_file_alloc_range(self: *IoUring, offset: u32, len: u32) !void {
     return handle_registration_result(res);
 }
 
-/// Registers the file descriptor for an eventfd that will be notified of completion events on
-///  an io_uring instance.
+/// Registers the file descriptor for an eventfd that will be notified of
+/// completion events on an io_uring instance.
 /// Only a single a eventfd can be registered at any given point in time.
 pub fn register_eventfd(self: *IoUring, fd: linux.fd_t) !void {
     assert(self.fd >= 0);
@@ -1254,9 +1293,10 @@ pub fn register_eventfd(self: *IoUring, fd: linux.fd_t) !void {
     try handle_registration_result(res);
 }
 
-/// Registers the file descriptor for an eventfd that will be notified of completion events on
-/// an io_uring instance. Notifications are only posted for events that complete in an async manner.
-/// This means that events that complete inline while being submitted do not trigger a notification event.
+/// Registers the file descriptor for an eventfd that will be notified of
+/// completion events on an io_uring instance. Notifications are only posted
+/// for events that complete in an async manner. This means that events that
+/// complete inline while being submitted do not trigger a notification event.
 /// Only a single eventfd can be registered at any given point in time.
 pub fn register_eventfd_async(self: *IoUring, fd: linux.fd_t) !void {
     assert(self.fd >= 0);
@@ -1329,26 +1369,32 @@ pub fn get_probe(self: *IoUring) !Probe {
 fn handle_registration_result(res: usize) !void {
     switch (linux.errno(res)) {
         .SUCCESS => {},
-        // One or more fds in the array are invalid, or the kernel does not support sparse sets:
+        // One or more fds in the array are invalid, or the kernel does not
+        // support sparse sets:
         .BADF => return error.FileDescriptorInvalid,
         .BUSY => return error.FilesAlreadyRegistered,
         .INVAL => return error.FilesEmpty,
-        // Adding `nr_args` file references would exceed the maximum allowed number of files the
-        // user is allowed to have according to the per-user RLIMIT_NOFILE resource limit and
-        // the CAP_SYS_RESOURCE capability is not set, or `nr_args` exceeds the maximum allowed
-        // for a fixed file set (older kernels have a limit of 1024 files vs 64K files):
+        // Adding `nr_args` file references would exceed the maximum allowed
+        // number of files the user is allowed to have according to the
+        // per-user RLIMIT_NOFILE resource limit and the CAP_SYS_RESOURCE
+        // capability is not set, or `nr_args` exceeds the maximum allowed
+        // for a fixed file set (older kernels have a limit of 1024 files vs
+        // 64K files):
         .MFILE => return error.UserFdQuotaExceeded,
-        // Insufficient kernel resources, or the caller had a non-zero RLIMIT_MEMLOCK soft
-        // resource limit but tried to lock more memory than the limit permitted (not enforced
-        // when the process is privileged with CAP_IPC_LOCK):
+        // Insufficient kernel resources, or the caller had a non-zero
+        // RLIMIT_MEMLOCK soft resource limit but tried to lock more memory
+        // than the limit permitted (not enforced when the process is
+        // privileged with CAP_IPC_LOCK):
         .NOMEM => return error.SystemResources,
-        // Attempt to register files on a ring already registering files or being torn down:
+        // Attempt to register files on a ring already registering files or
+        // being torn down:
         .NXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
         else => |errno| return posix.unexpectedErrno(errno),
     }
 }
 
-/// Unregisters all registered file descriptors previously associated with the ring.
+/// Unregisters all registered file descriptors previously associated with the
+/// ring.
 pub fn unregister_files(self: *IoUring) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(self.fd, .unregister_files, null, 0);
@@ -1394,7 +1440,8 @@ pub fn socket_direct(
     return sqe;
 }
 
-/// Prepares a socket creation request for registered file, index chosen by kernel (file index alloc).
+/// Prepares a socket creation request for registered file, index chosen by
+/// kernel (file index alloc).
 /// File index will be returned in CQE res field.
 /// Available since 5.19
 pub fn socket_direct_alloc(
@@ -1511,10 +1558,12 @@ pub fn getsockopt(
     );
 }
 
-/// Registers a shared buffer ring to be used with provided buffers.
-/// `entries` number of `io_uring_buf` structures is mem mapped and shared by kernel.
+/// Registers a shared buffer ring to be used with provided buffers. `entries`
+/// number of `io_uring_buf` structures is mem mapped and shared by kernel.
+///
+/// `entries` is the number of entries requested in the buffer ring and must be
+/// a power of 2.
 /// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
-/// `entries` is the number of entries requested in the buffer ring, must be power of 2.
 /// `group_id` is the chosen buffer group ID, unique in IO_Uring.
 pub fn setup_buf_ring(
     fd: linux.fd_t,
@@ -1586,7 +1635,8 @@ fn handle_register_buf_ring_result(res: usize) !void {
     }
 }
 
-// Unregisters a previously registered shared buffer ring, returned from io_uring_setup_buf_ring.
+// Unregisters a previously registered shared buffer ring, returned from
+// io_uring_setup_buf_ring.
 pub fn free_buf_ring(fd: posix.fd_t, br: *align(page_size_min) BufferRing, entries: u32, group_id: u16) void {
     unregister_buf_ring(fd, group_id) catch {};
     var mmap: []align(page_size_min) u8 = undefined;
@@ -1609,8 +1659,10 @@ pub fn buf_ring_mask(entries: u16) u16 {
 /// Assigns `buffer` with the `br` buffer ring.
 /// `buffer_id` is identifier which will be returned in the CQE.
 /// `buffer_offset` is the offset to insert at from the current tail.
-/// If just one buffer is provided before the ring tail is committed with advance then offset should be 0.
-/// If buffers are provided in a loop before being committed, the offset must be incremented by one for each buffer added.
+/// If just one buffer is provided before the ring tail is committed with
+/// advance then offset should be 0.
+/// If buffers are provided in a loop before being committed, the offset must
+/// be incremented by one for each buffer added.
 pub fn buf_ring_add(
     br: *BufferRing,
     buffer: []u8,
@@ -1627,13 +1679,14 @@ pub fn buf_ring_add(
 }
 
 /// Make `count` new buffers visible to the kernel. Called after
-/// `io_uring_buf_ring_add` has been called `count` times to fill in new buffers.
+/// `io_uring_buf_ring_add` has been called `count` times to fill in new
+/// buffers.
 pub fn buf_ring_advance(br: *BufferRing, count: u16) void {
     const tail: u16 = br.tail +% count;
     @atomicStore(u16, &br.tail, tail, .release);
 }
 
-// IO completion data structure (Completion Queue Entry)
+/// IO completion data structure (Completion Queue Entry)
 pub const Cqe = extern struct {
     /// sqe.user_data value passed back
     user_data: u64,
@@ -1687,9 +1740,9 @@ pub const Cqe = extern struct {
         return .SUCCESS;
     }
 
-    // On successful completion of the provided buffers IO request, the CQE flags field
-    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
-    // the upper 16-bits of the flags field.
+    /// On successful completion of the provided buffers IO request, the CQE
+    /// flags field will have IORING_CQE_F_BUFFER set and the selected buffer
+    /// ID will be indicated by the upper 16-bits of the flags field.
     pub fn buffer_id(self: Cqe) !u16 {
         if (!self.flags.f_buffer) {
             return error.NoBufferSelected;
@@ -1699,7 +1752,7 @@ pub const Cqe = extern struct {
 };
 
 /// IO submission data structure (Submission Queue Entry)
-/// matches io_uring_sqe in liburing
+/// matches `io_uring_sqe` in liburing
 pub const Sqe = extern struct {
     /// type of operation for this sqe
     opcode: Op,
@@ -1723,12 +1776,12 @@ pub const Sqe = extern struct {
     addr: u64,
     /// buffer size or number of iovecs
     len: u32,
-    /// flags for any sqe operation
-    /// rw_flags | fsync_flags | poll_event | poll32_event | sync_range_flags | msg_flags
-    /// timeout_flags | accept_flags | cancel_flags | open_flags | statx_flags
-    /// fadvise_advice | splice_flags | rename_flags | unlink_flags | hardlink_flags
-    /// xattr_flags | msg_ring_flags | uring_cmd_flags | waitid_flags | futex_flags
-    /// install_fd_flags | nop_flags | pipe_flags
+    /// flags for any Sqe operation
+    /// rw_flags | fsync_flags | poll_event | poll32_event | sync_range_flags |
+    /// msg_flags timeout_flags | accept_flags | cancel_flags | open_flags |
+    /// statx_flags fadvise_advice | splice_flags | rename_flags | unlink_flags
+    /// | hardlink_flags xattr_flags | msg_ring_flags | uring_cmd_flags |
+    /// waitid_flags | futex_flags install_fd_flags | nop_flags | pipe_flags
     rw_flags: u32,
     /// data to be passed back at completion time
     user_data: u64,
@@ -1915,8 +1968,10 @@ pub const Sqe = extern struct {
         addrlen: ?*linux.socklen_t,
         flags: linux.Sock,
     ) void {
-        // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
-        // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
+        // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to
+        // socklen_t`.
+        // `addr2` maps to `sqe.off` (u64) instead of `sqe.len` (which is only
+        // a u32).
         sqe.prep_rw(.accept, fd, @intFromPtr(addr), 0, @intFromPtr(addrlen));
         sqe.rw_flags = @bitCast(flags);
     }
@@ -1975,7 +2030,8 @@ pub const Sqe = extern struct {
         addr: *const linux.sockaddr,
         addrlen: linux.socklen_t,
     ) void {
-        // `addrlen` maps to `sqe.off` (u64) instead of `sqe.len` (which is only a u32).
+        // `addrlen` maps to `sqe.off` (u64) instead of `sqe.len` (which is
+        // only a u32).
         sqe.prep_rw(.connect, fd, @intFromPtr(addr), 0, addrlen);
     }
 
@@ -2157,12 +2213,12 @@ pub const Sqe = extern struct {
         poll_mask: linux.Epoll,
     ) void {
         sqe.prep_rw(.poll_add, fd, @intFromPtr(@as(?*anyopaque, null)), 0, 0);
-        // Poll masks previously used to comprise of 16 bits in the flags union of
-        // a SQE, but were then extended to comprise of 32 bits in order to make
-        // room for additional option flags. To ensure that the correct bits of
-        // poll masks are consistently and properly read across multiple kernel
-        // versions, poll masks are enforced to be little-endian.
-        // https://www.spinics.net/lists/io-uring/msg02848.html
+        // Poll masks previously used to comprise of 16 bits in the flags union
+        // of a SQE, but were then extended to comprise of 32 bits in order to
+        // make room for additional option flags. To ensure that the correct
+        // bits of poll masks are consistently and properly read across
+        // multiple kernel versions, poll masks are enforced to be
+        // little-endian. https://www.spinics.net/lists/io-uring/msg02848.html
         sqe.rw_flags = std.mem.nativeToLittle(u32, @as(u32, @bitCast(poll_mask)));
     }
 
@@ -2181,12 +2237,12 @@ pub const Sqe = extern struct {
         flags: uflags.Poll,
     ) void {
         sqe.prep_rw(.poll_remove, -1, old_user_data, flags, new_user_data);
-        // Poll masks previously used to comprise of 16 bits in the flags union of
-        // a SQE, but were then extended to comprise of 32 bits in order to make
-        // room for additional option flags. To ensure that the correct bits of
-        // poll masks are consistently and properly read across multiple kernel
-        // versions, poll masks are enforced to be little-endian.
-        // https://www.spinics.net/lists/io-uring/msg02848.html
+        // Poll masks previously used to comprise of 16 bits in the flags union
+        // of a SQE, but were then extended to comprise of 32 bits in order to
+        // make room for additional option flags. To ensure that the correct
+        // bits of poll masks are consistently and properly read across
+        // multiple kernel versions, poll masks are enforced to be
+        // little-endian. https://www.spinics.net/lists/io-uring/msg02848.html
         sqe.rw_flags = std.mem.nativeToLittle(u32, @as(u32, @bitCast(poll_mask)));
     }
 
@@ -2475,7 +2531,7 @@ pub const Sqe = extern struct {
     }
 };
 
-/// matches io_uring_sq in liburing
+/// matches `io_uring_sq` in liburing
 pub const Sq = struct {
     head: *u32,
     tail: *u32,
@@ -2486,11 +2542,11 @@ pub const Sq = struct {
     sqes: []Sqe,
     mmap: []align(page_size_min) u8,
     mmap_sqes: []align(page_size_min) u8,
-
     // We use `sqe_head` and `sqe_tail` in the same way as liburing:
     // We increment `sqe_tail` (but not `tail`) for each call to `get_sqe()`.
-    // We then set `tail` to `sqe_tail` once, only when these events are actually submitted.
-    // This allows us to amortize the cost of the @atomicStore to `tail` across multiple SQEs.
+    // We then set `tail` to `sqe_tail` once, only when these events are
+    // actually submitted. This allows us to amortize the cost of the
+    // @atomicStore to `tail` across multiple SQEs.
     sqe_head: u32 = 0,
     sqe_tail: u32 = 0,
 
@@ -2523,8 +2579,9 @@ pub const Sq = struct {
         errdefer posix.munmap(mmap);
         assert(mmap.len == size);
 
-        // The motivation for the `sqes` and `array` indirection is to make it possible for the
-        // application to preallocate static io_uring_sqe entries and then replay them when needed.
+        // The motivation for the `sqes` and `array` indirection is to make it
+        // possible for the application to preallocate static io_uring_sqe
+        // entries and then replay them when needed.
         const size_sqes = p.sq_entries * @sizeOf(Sqe);
         const mmap_sqes = try posix.mmap(
             null,
@@ -2539,8 +2596,8 @@ pub const Sq = struct {
 
         const array: [*]u32 = @ptrCast(@alignCast(&mmap[p.sq_off.array]));
         const sqes: [*]Sqe = @ptrCast(@alignCast(&mmap_sqes[0]));
-        // We expect the kernel copies p.sq_entries to the u32 pointed to by p.sq_off.ring_entries,
-        // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
+        // We expect the kernel copies p.sq_entries to the u32 pointed to by
+        // p.sq_off.ring_entries, See https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
         assert(p.sq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.sq_off.ring_entries]))).*);
         return .{
             .head = @ptrCast(@alignCast(&mmap[p.sq_off.head])),
@@ -2561,7 +2618,7 @@ pub const Sq = struct {
     }
 };
 
-/// matches io_uring_cq in liburing
+/// matches `io_uring_cq` in liburing
 pub const Cq = struct {
     head: *u32,
     tail: *u32,
@@ -2594,7 +2651,8 @@ pub const Cq = struct {
     pub fn deinit(self: *Cq) void {
         _ = self;
         // A no-op since we now share the mmap with the submission queue.
-        // Here for symmetry with the submission queue, and for any future feature support.
+        // Here for symmetry with the submission queue, and for any future
+        // feature support.
     }
 };
 
@@ -2609,7 +2667,7 @@ pub const Cq = struct {
 /// ready to receive data, a buffer is picked automatically and the resulting
 /// CQE will contain the buffer ID in `cqe.buffer_id()`. Use `get` method to get
 /// buffer for buffer ID identified by CQE. Once the application has processed
-/// the buffer, it may hand ownership back to the kernel, by calling `put`
+/// the buffer, it may hand ownership back to the kernel, by calling `put()`
 /// allowing the cycle to repeat.
 ///
 /// Depending on the rate of arrival of data, it is possible that a given buffer
@@ -2675,8 +2733,13 @@ pub const BufferGroup = struct {
         allocator.free(self.heads);
     }
 
-    // Prepare recv operation which will select buffer from this group.
-    pub fn recv(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: linux.Msg) !*Sqe {
+    /// Prepare recv operation which will select buffer from this group.
+    pub fn recv(
+        self: *BufferGroup,
+        user_data: u64,
+        fd: posix.fd_t,
+        flags: linux.Msg,
+    ) !*Sqe {
         var sqe = try self.ring.get_sqe();
         sqe.prep_rw(.recv, fd, 0, 0, 0);
         sqe.rw_flags = @bitCast(flags);
@@ -2686,8 +2749,14 @@ pub const BufferGroup = struct {
         return sqe;
     }
 
-    // Prepare multishot recv operation which will select buffer from this group.
-    pub fn recv_multishot(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: linux.Msg) !*Sqe {
+    /// Prepare multishot recv operation which will select buffer from this
+    /// group.
+    pub fn recv_multishot(
+        self: *BufferGroup,
+        user_data: u64,
+        fd: posix.fd_t,
+        flags: linux.Msg,
+    ) !*Sqe {
         var sqe = try self.recv(user_data, fd, flags);
         sqe.ioprio.send_recv.recv_multishot = true;
         return sqe;
@@ -2699,18 +2768,19 @@ pub const BufferGroup = struct {
         return self.buffers[pos .. pos + self.buffer_size][self.heads[buffer_id]..];
     }
 
-    // Get buffer by CQE.
+    /// Get buffer by CQE.
     pub fn get(self: *BufferGroup, cqe: Cqe) ![]u8 {
         const buffer_id = try cqe.buffer_id();
         const used_len = @as(usize, @intCast(cqe.res));
         return self.get_by_id(buffer_id)[0..used_len];
     }
 
-    // Release buffer from CQE to the kernel.
+    /// Release buffer from CQE to the kernel.
     pub fn put(self: *BufferGroup, cqe: Cqe) !void {
         const buffer_id = try cqe.buffer_id();
         if (cqe.flags.f_buf_more) {
-            // Incremental consumption active, kernel will write to the this buffer again
+            // Incremental consumption active, kernel will write to the this
+            // buffer again
             const used_len = @as(u32, @intCast(cqe.res));
             // Track what part of the buffer is used
             self.heads[buffer_id] += used_len;
@@ -2718,7 +2788,7 @@ pub const BufferGroup = struct {
         }
         self.heads[buffer_id] = 0;
 
-        // Release buffer to the kernel.    const mask = buf_ring_mask(self.buffers_count);
+        // Release buffer to the kernel.
         const mask = buf_ring_mask(self.buffers_count);
         buf_ring_add(self.br, self.get_by_id(buffer_id), buffer_id, mask, 0);
         buf_ring_advance(self.br, 1);
@@ -2729,12 +2799,11 @@ pub const BufferGroup = struct {
 pub const ReadBuffer = union(enum) {
     /// io_uring will read directly into this buffer
     buffer: []u8,
-
     /// io_uring will read directly into these buffers using readv.
     iovecs: []const posix.iovec,
-
-    /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
-    /// The buffer group reference by `group_id` must contain at least one buffer for the read to work.
+    /// io_uring will select a buffer that has previously been provided with
+    /// `provide_buffers`.
+    /// `group_id` must contain at least one buffer for the read to work.
     /// `len` controls the number of bytes to read into the selected buffer.
     buffer_selection: struct {
         group_id: u16,
@@ -2746,9 +2815,9 @@ pub const ReadBuffer = union(enum) {
 pub const RecvBuffer = union(enum) {
     /// io_uring will recv directly into this buffer
     buffer: []u8,
-
-    /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
-    /// The buffer group referenced by `group_id` must contain at least one buffer for the recv call to work.
+    /// io_uring will select a buffer that has previously been provided with
+    /// `provide_buffers`.
+    /// `group_id` must contain at least one buffer for the recv call to work.
     /// `len` controls the number of bytes to read into the selected buffer.
     buffer_selection: struct {
         group_id: u16,
@@ -2756,8 +2825,8 @@ pub const RecvBuffer = union(enum) {
     },
 };
 
-/// Filled with the offset for mmap(2)
-/// matches io_sqring_offsets in liburing
+/// Filled with the offset for `mmap(2)`
+/// matches `io_sqring_offsets` in liburing
 pub const SqOffsets = extern struct {
     /// offset of ring head
     head: u32,
@@ -2777,7 +2846,7 @@ pub const SqOffsets = extern struct {
     user_addr: u64,
 };
 
-/// matches io_cqring_offsets in liburing
+/// matches `io_cqring_offsets` in liburing
 pub const CqOffsets = extern struct {
     head: u32,
     tail: u32,
@@ -2790,8 +2859,8 @@ pub const CqOffsets = extern struct {
     user_addr: u64,
 };
 
-/// Passed in for io_uring_setup(2). Copied back with updated info on success
-/// matches io_uring_params in liburing
+/// Passed in for `io_uring_setup(2)`. Copied back with updated info on success
+/// matches `io_uring_params` in liburing
 pub const Params = extern struct {
     sq_entries: u32,
     cq_entries: u32,
@@ -2809,7 +2878,7 @@ pub const Params = extern struct {
 // deprecated, see struct io_uring_rsrc_update
 
 // COMMIT: add new io_uring_region_desc struct
-/// matches io_uring_region_desc in liburing
+/// matches `io_uring_region_desc` in liburing
 pub const RegionDesc = extern struct {
     user_addr: u64,
     size: u64,
@@ -2827,7 +2896,7 @@ pub const RegionDesc = extern struct {
 };
 
 // COMMIT: add new io_uring_mem_region_reg struct
-/// matches io_uring_mem_region_reg in liburing
+/// matches `io_uring_mem_region_reg` in liburing
 pub const MemRegionReg = extern struct {
     /// struct io_uring_region_desc (RegionDesc in Zig)
     region_uptr: u64,
@@ -2841,7 +2910,7 @@ pub const MemRegionReg = extern struct {
     };
 };
 
-/// matches io_uring_rsrc_register in liburing
+/// matches `io_uring_rsrc_register` in liburing
 pub const RsrcRegister = extern struct {
     nr: u32,
     flags: Flags,
@@ -2857,14 +2926,14 @@ pub const RsrcRegister = extern struct {
     };
 };
 
-/// matches io_uring_rsrc_update in liburing
+/// matches `io_uring_rsrc_update` in liburing
 pub const RsrcUpdate = extern struct {
     offset: u32,
     resv: u32,
     data: u64,
 };
 
-/// matches io_uring_rsrc_update2 in liburing
+/// matches `io_uring_rsrc_update2` in liburing
 pub const RsrcUpdate2 = extern struct {
     offset: u32,
     resv: u32,
@@ -2874,7 +2943,7 @@ pub const RsrcUpdate2 = extern struct {
     resv2: u32,
 };
 
-/// matches io_uring_probe_op in liburing
+/// matches `io_uring_probe_op` in liburing
 pub const ProbeOp = extern struct {
     op: Op,
     resv: u8,
@@ -2891,7 +2960,7 @@ pub const ProbeOp = extern struct {
     }
 };
 
-/// matches io_uring_probe in liburing
+/// matches `io_uring_probe` in liburing
 pub const Probe = extern struct {
     /// Last opcode supported
     last_op: Op,
@@ -2912,7 +2981,7 @@ pub const Probe = extern struct {
 
 // COMMIT: fix defination of io_uring_restriction
 // RegisterOp is actually u8
-/// matches io_uring_restriction in liburing
+/// matches `io_uring_restriction` in liburing
 pub const Restriction = extern struct {
     opcode: RestrictionOp,
     arg: extern union {
@@ -2928,14 +2997,14 @@ pub const Restriction = extern struct {
 };
 
 // COMMIT: add new struct type
-/// matches io_uring_clock_register in liburing
+/// matches `io_uring_clock_register` in liburing
 pub const ClockRegister = extern struct {
     clockid: u32,
     __resv: [3]u32,
 };
 
 // COMMIT: add new struct type
-/// matches io_uring_clone_buffers in liburing
+/// matches `io_uring_clone_buffers` in liburing
 pub const CloneBuffers = extern struct {
     src_fd: u32,
     flags: Flags,
@@ -2952,7 +3021,7 @@ pub const CloneBuffers = extern struct {
     };
 };
 
-/// matches io_uring_buf in liburing
+/// matches `io_uring_buf` in liburing
 pub const Buffer = extern struct {
     addr: u64,
     len: u32,
@@ -2960,7 +3029,7 @@ pub const Buffer = extern struct {
     resv: u16,
 };
 
-/// matches io_uring_buf_ring in liburing
+/// matches `io_uring_buf_ring` in liburing
 pub const BufferRing = extern struct {
     resv1: u64,
     resv2: u32,
@@ -2969,7 +3038,7 @@ pub const BufferRing = extern struct {
 };
 
 /// argument for IORING_(UN)REGISTER_PBUF_RING
-/// matches io_uring_buf_reg in liburing
+/// matches `io_uring_buf_reg` in liburing
 pub const BufferRegister = extern struct {
     ring_addr: u64,
     ring_entries: u32,
@@ -3001,7 +3070,7 @@ pub const BufferRegister = extern struct {
 };
 
 /// argument for IORING_REGISTER_PBUF_STATUS
-/// matches io_uring_buf_status in liburing
+/// matches `io_uring_buf_status` in liburing
 pub const BufferStatus = extern struct {
     /// input
     buf_group: u32,
@@ -3011,7 +3080,7 @@ pub const BufferStatus = extern struct {
 };
 
 /// argument for IORING_(UN)REGISTER_NAPI
-/// matches io_uring_napi in liburing
+/// matches `io_uring_napi` in liburing
 pub const Napi = extern struct {
     busy_poll_to: u32,
     prefer_busy_poll: u8,
@@ -3020,11 +3089,10 @@ pub const Napi = extern struct {
 };
 
 // COMMIT: new struct type
-/// Argument for io_uring_enter(2) with
-/// IORING_GETEVENTS | IORING_ENTER_EXT_ARG_REG set, where the actual argument
-/// is an index into a previously registered fixed wait region described by
-/// the below structure.
-/// matches io_uring_reg_wait in liburing
+/// Argument for io_uring_enter(2) with IORING_GETEVENTS | IORING_ENTER_EXT_ARG_REG
+/// set, where the actual argument is an index into a previously registered
+/// fixed wait region described by the below structure.
+/// matches `io_uring_reg_wait` in liburing
 pub const RegisterWait = extern struct {
     ts: linux.kernel_timespec,
     min_wait_usec: u32,
@@ -3041,8 +3109,9 @@ pub const RegisterWait = extern struct {
     };
 };
 
-/// Argument for io_uring_enter(2) with IORING_GETEVENTS | IORING_ENTER_EXT_ARG
-/// matches io_uring_getevents_arg in liburing
+/// Argument for `io_uring_enter(2)` with IORING_GETEVENTS |
+/// IORING_ENTER_EXT_ARG
+/// matches `io_uring_getevents_arg` in liburing
 pub const GetEventsArg = extern struct {
     sigmask: u64,
     sigmask_sz: u32,
@@ -3052,7 +3121,7 @@ pub const GetEventsArg = extern struct {
 
 // COMMIT: fix type definition of io_uring_sync_cancel_reg
 /// Argument for IORING_REGISTER_SYNC_CANCEL
-/// matches io_uring_sync_cancel_reg in liburing
+/// matches `io_uring_sync_cancel_reg` in liburing
 pub const SyncCancelRegister = extern struct {
     addr: u64,
     fd: i32,
@@ -3065,14 +3134,14 @@ pub const SyncCancelRegister = extern struct {
 
 /// Argument for IORING_REGISTER_FILE_ALLOC_RANGE
 /// The range is specified as [off, off + len)
-/// matches io_uring_file_index_range in liburing
+/// matches `io_uring_file_index_range` in liburing
 pub const FileIndexRange = extern struct {
     off: u32,
     len: u32,
     resv: u64,
 };
 
-/// matches io_uring_recvmsg_out in liburing
+/// matches `io_uring_recvmsg_out` in liburing
 pub const RecvmsgOut = extern struct {
     namelen: u32,
     controllen: u32,
@@ -3081,20 +3150,20 @@ pub const RecvmsgOut = extern struct {
 };
 
 /// Zero copy receive refill queue entry
-/// matches io_uring_zcrx_rqe in liburing
+/// matches `io_uring_zcrx_rqe` in liburing
 pub const ZcrxRqe = extern struct {
     off: u64,
     len: u32,
     __pad: u32,
 };
 
-/// matches io_uring_zcrx_cqe in liburing
+/// matches `io_uring_zcrx_cqe` in liburing
 pub const ZcrxCqe = extern struct {
     off: u64,
     __pad: u64,
 };
 
-/// matches io_uring_zcrx_offsets in liburing
+/// matches `io_uring_zcrx_offsets` in liburing
 pub const ZcrxOffsets = extern struct {
     head: u32,
     tail: u32,
@@ -3103,7 +3172,7 @@ pub const ZcrxOffsets = extern struct {
     __resv: [2]u64,
 };
 
-/// matches io_uring_zcrx_area_reg in liburing
+/// matches `io_uring_zcrx_area_reg` in liburing
 pub const ZcrxAreaRegister = extern struct {
     addr: u64,
     len: u64,
@@ -3119,7 +3188,7 @@ pub const ZcrxAreaRegister = extern struct {
 };
 
 /// Argument for IORING_REGISTER_ZCRX_IFQ
-/// matches io_uring_zcrx_ifq_reg in liburing
+/// matches `io_uring_zcrx_ifq_reg` in liburing
 pub const ZcrxIfqRegister = extern struct {
     if_idx: u32,
     if_rxq: u32,
@@ -3404,8 +3473,8 @@ pub const uflags = struct {
         }
     };
 };
-/// io_uring_register(2) opcodes and arguments
-/// matches io_uring_register_op in liburing
+/// `io_uring_register(2)` opcodes and arguments
+/// matches `io_uring_register_op` in liburing
 pub const RegisterOp = enum(u8) {
     register_buffers,
     unregister_buffers,
@@ -3479,13 +3548,14 @@ pub const RegisterOp = enum(u8) {
 };
 
 /// io-wq worker categories
-/// matches io_wq_type in liburing
+/// matches `io_wq_type` in liburing
 pub const IoWqCategory = enum(u8) {
     bound,
     unbound,
     _,
 };
 
+/// matches `io_uring_socket_op` in liburing
 pub const SocketOp = enum(u16) {
     siocin,
     siocoutq,
@@ -3497,7 +3567,7 @@ pub const SocketOp = enum(u16) {
 };
 
 /// io_uring_restriction.opcode values
-/// matches io_uring_register_restriction_op in liburing
+/// matches `io_uring_register_restriction_op` in liburing
 pub const RestrictionOp = enum(u16) {
     /// Allow an io_uring_register(2) opcode
     register_op = 0,
@@ -3512,6 +3582,7 @@ pub const RestrictionOp = enum(u16) {
 };
 
 /// IORING_OP_MSG_RING command types, stored in sqe.addr
+/// matches `io_uring_msg_ring_flags` in liburing
 pub const MsgRingCmd = enum {
     /// pass sqe->len as 'res' and off as user_data
     data,
@@ -3520,6 +3591,7 @@ pub const MsgRingCmd = enum {
 };
 
 // COMMIT: OP to IoUring
+/// matches `io_uring_op` in liburing
 pub const Op = enum(u8) {
     nop,
     readv,
