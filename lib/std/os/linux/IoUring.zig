@@ -1364,7 +1364,7 @@ pub fn register_personality(self: *IoUring) !void {
     const res = linux.io_uring_register(
         self.fd,
         .register_personality,
-        @as(?*anyopaque, null),
+        null,
         0,
     );
     try handle_registration_result(res);
@@ -1372,12 +1372,7 @@ pub fn register_personality(self: *IoUring) !void {
 
 pub fn unregister_personality(self: *IoUring, credential_id: u32) !void {
     assert(self.fd >= 0);
-    const res = linux.io_uring_register(
-        self.fd,
-        .unregister_personality,
-        @as(?*anyopaque, null),
-        credential_id,
-    );
+    const res = linux.io_uring_register(self.fd, .unregister_personality, null, credential_id);
     try handle_registration_result(res);
 }
 
@@ -1397,8 +1392,8 @@ pub fn enable_rings(self: *IoUring) !void {
     const res = linux.io_uring_register(
         self.fd,
         .register_enable_rings,
-        @as(?*anyopaque, null),
-        @intCast(0),
+        null,
+        0,
     );
     try handle_registration_result(res);
 }
@@ -1423,7 +1418,7 @@ pub fn unregister_iowq_aff(self: *IoUring) !void {
     const res = linux.io_uring_register(
         self.fd,
         .unregister_iowq_aff,
-        @as(?*anyopaque, null),
+        null,
         0,
     );
     try handle_registration_result(res);
