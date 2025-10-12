@@ -616,19 +616,22 @@ pub const File = struct {
                     &coff.mf
                 else
                     unreachable;
-                mf.file = for (0..10) |_| break base.emit.root_dir.handle.openFile(base.emit.sub_path, .{
+                var attempt: u5 = 0;
+                mf.file = while (true) break base.emit.root_dir.handle.openFile(base.emit.sub_path, .{
                     .mode = .read_write,
                 }) catch |err| switch (err) {
                     error.AccessDenied => switch (builtin.os.tag) {
                         .windows => {
+                            if (attempt == 13) return error.AccessDenied;
                             // give the kernel a chance to finish closing the executable handle
-                            std.os.windows.kernel32.Sleep(10);
+                            std.os.windows.kernel32.Sleep(@as(u32, 1) << attempt >> 1);
+                            attempt += 1;
                             continue;
                         },
                         else => return error.AccessDenied,
                     },
                     else => |e| return e,
-                } else return error.AccessDenied;
+                };
                 base.file = mf.file;
                 try mf.ensureTotalCapacity(@intCast(mf.nodes.items[0].location().resolve(mf)[1]));
             },
