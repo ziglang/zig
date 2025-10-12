@@ -3,6 +3,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
+const math = std.math;
 const net = std.Io.net;
 const posix = std.posix;
 const linux = std.os.linux;
@@ -38,7 +39,7 @@ pub fn init(entries: u16, flags: uflags.Setup) !IoUring {
 /// Matches the interface of `io_uring_queue_init_params()` in liburing.
 pub fn init_params(entries: u16, p: *Params) !IoUring {
     if (entries == 0) return error.EntriesZero;
-    if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
+    if (!math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
     assert(p.sq_entries == 0);
     assert(p.features.empty());
     assert(p.resv[0] == 0);
@@ -454,7 +455,7 @@ pub fn write(
 /// Queues (but does not submit) an SQE to perform a `splice(2)`
 /// Either `fd_in` or `fd_out` must be a pipe.
 /// If `fd_in` refers to a pipe, `off_in` is ignored and must be set to
-/// std.math.maxInt(u64).
+/// math.maxInt(u64).
 /// If `fd_in` does not refer to a pipe and `off_in` is maxInt(u64), then `len`
 /// are read from `fd_in` starting from the file offset, which is incremented
 /// by the number of bytes read.
@@ -1177,6 +1178,92 @@ pub fn waitid(
     return sqe;
 }
 
+pub fn register_buffers_sparse(self: *IoUring, nr: u32) !void {
+    assert(self.fd >= 0);
+
+    const reg: RsrcRegister = .{
+        .flags = .{ .register_sparse = true },
+        .nr = nr,
+    };
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_buffers2,
+        &reg,
+        @sizeOf(RsrcRegister),
+    );
+    try handle_registration_result(res);
+}
+
+/// Registers an array of buffers for use with `read_fixed` and `write_fixed`.
+pub fn register_buffers(self: *IoUring, buffers: []const posix.iovec) !void {
+    assert(self.fd >= 0);
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_buffers,
+        buffers.ptr,
+        @intCast(buffers.len),
+    );
+    try handle_registration_result(res);
+}
+
+/// Unregister the registered buffers.
+pub fn unregister_buffers(self: *IoUring) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(self.fd, .unregister_buffers, null, 0);
+    switch (linux.E.init(res)) {
+        .SUCCESS => {},
+        .NXIO => return error.BuffersNotRegistered,
+        else => |errno| return posix.unexpectedErrno(errno),
+    }
+}
+
+/// Updates registered file descriptors.
+///
+/// Updates are applied starting at the provided offset in the original file
+/// descriptors slice.
+/// There are three kind of updates:
+/// * turning a sparse entry (where the fd is -1) into a real one
+/// * removing an existing entry (set the fd to -1)
+/// * replacing an existing entry with a new fd
+///
+/// Adding new file descriptors must be done with `register_files`.
+pub fn register_files_update(self: *IoUring, offset: u32, fds: []const posix.fd_t) !void {
+    assert(self.fd >= 0);
+
+    var update = mem.zeroInit(RsrcUpdate, .{
+        .offset = offset,
+        .data = @intFromPtr(fds.ptr),
+    });
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_files_update,
+        &update,
+        @intCast(fds.len),
+    );
+    try handle_registration_result(res);
+}
+
+/// Registers an empty (-1) file table of `nr_files` number of file descriptors.
+pub fn register_files_sparse(self: *IoUring, nr_files: u32) !void {
+    assert(self.fd >= 0);
+
+    const reg = mem.zeroInit(RsrcRegister, .{
+        .nr = nr_files,
+        .flags = .{ .register_sparse = true },
+    });
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_files2,
+        &reg,
+        @sizeOf(RsrcRegister),
+    );
+
+    return handle_registration_result(res);
+}
 /// Registers an array of file descriptors.
 ///
 /// Every time a file descriptor is put in an SQE and submitted to the kernel,
@@ -1199,81 +1286,22 @@ pub fn register_files(self: *IoUring, fds: []const linux.fd_t) !void {
     const res = linux.io_uring_register(
         self.fd,
         .register_files,
-        @ptrCast(fds.ptr),
+        fds.ptr,
         @intCast(fds.len),
     );
     try handle_registration_result(res);
 }
 
-/// Updates registered file descriptors.
-///
-/// Updates are applied starting at the provided offset in the original file
-/// descriptors slice.
-/// There are three kind of updates:
-/// * turning a sparse entry (where the fd is -1) into a real one
-/// * removing an existing entry (set the fd to -1)
-/// * replacing an existing entry with a new fd
-///
-/// Adding new file descriptors must be done with `register_files`.
-pub fn register_files_update(self: *IoUring, offset: u32, fds: []const linux.fd_t) !void {
+/// Unregisters all registered file descriptors previously associated with the
+/// ring.
+pub fn unregister_files(self: *IoUring) !void {
     assert(self.fd >= 0);
-
-    var update: RsrcUpdate = .{
-        .offset = offset,
-        .resv = 0,
-        .data = @intFromPtr(fds.ptr),
-    };
-
-    const res = linux.io_uring_register(
-        self.fd,
-        .register_files_update,
-        @ptrCast(&update),
-        @intCast(fds.len),
-    );
-    try handle_registration_result(res);
-}
-
-/// Registers an empty (-1) file table of `nr_files` number of file descriptors.
-pub fn register_files_sparse(self: *IoUring, nr_files: u32) !void {
-    assert(self.fd >= 0);
-
-    const reg: RsrcRegister = .{
-        .nr = nr_files,
-        .flags = .{ .rsrc_register_sparse = true },
-        .resv2 = 0,
-        .data = 0,
-        .tags = 0,
-    };
-
-    const res = linux.io_uring_register(
-        self.fd,
-        .register_files2,
-        @ptrCast(&reg),
-        @sizeOf(RsrcRegister),
-    );
-
-    return handle_registration_result(res);
-}
-
-// Registers range for fixed file allocations.
-// Available since 6.0
-pub fn register_file_alloc_range(self: *IoUring, offset: u32, len: u32) !void {
-    assert(self.fd >= 0);
-
-    const range: FileIndexRange = .{
-        .off = offset,
-        .len = len,
-        .resv = 0,
-    };
-
-    const res = linux.io_uring_register(
-        self.fd,
-        .register_file_alloc_range,
-        @ptrCast(&range),
-        @sizeOf(FileIndexRange),
-    );
-
-    return handle_registration_result(res);
+    const res = linux.io_uring_register(self.fd, .unregister_files, null, 0);
+    switch (linux.E.init(res)) {
+        .SUCCESS => {},
+        .NXIO => return error.FilesNotRegistered,
+        else => |errno| return posix.unexpectedErrno(errno),
+    }
 }
 
 /// Registers the file descriptor for an eventfd that will be notified of
@@ -1284,7 +1312,7 @@ pub fn register_eventfd(self: *IoUring, fd: linux.fd_t) !void {
     const res = linux.io_uring_register(
         self.fd,
         .register_eventfd,
-        @ptrCast(&fd),
+        &fd,
         1,
     );
     try handle_registration_result(res);
@@ -1300,7 +1328,7 @@ pub fn register_eventfd_async(self: *IoUring, fd: linux.fd_t) !void {
     const res = linux.io_uring_register(
         self.fd,
         .register_eventfd_async,
-        @ptrCast(&fd),
+        &fd,
         1,
     );
     try handle_registration_result(res);
@@ -1318,39 +1346,212 @@ pub fn unregister_eventfd(self: *IoUring) !void {
     try handle_registration_result(res);
 }
 
+pub fn register_probe(self: *IoUring, probe: []Probe) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_probe,
+        probe.ptr,
+        @intCast(probe.len),
+    );
+    try handle_registration_result(res);
+}
+
+/// See https://github.com/axboe/liburing/issues/357 for how to use personality
+/// matches `io_uring_register_personality()` in liburing
+pub fn register_personality(self: *IoUring) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_personality,
+        @as(?*anyopaque, null),
+        0,
+    );
+    try handle_registration_result(res);
+}
+
+pub fn unregister_personality(self: *IoUring, credential_id: u32) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(
+        self.fd,
+        .unregister_personality,
+        @as(?*anyopaque, null),
+        credential_id,
+    );
+    try handle_registration_result(res);
+}
+
+pub fn register_restrictions(self: *IoUring, restriction: []Restriction) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_restrictions,
+        restriction.ptr,
+        @intCast(restriction.len),
+    );
+    try handle_registration_result(res);
+}
+
+pub fn enable_rings(self: *IoUring) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_enable_rings,
+        @as(?*anyopaque, null),
+        @intCast(0),
+    );
+    try handle_registration_result(res);
+}
+
+pub fn register_iowq_aff(self: *IoUring, cpusz: u32, mask: *linux.cpu_set_t) !void {
+    assert(self.fd >= 0);
+
+    if (cpusz >= math.maxInt(u32)) return error.ArgumentsInvalid;
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_iowq_aff,
+        mask,
+        cpusz,
+    );
+    try handle_registration_result(res);
+}
+
+pub fn unregister_iowq_aff(self: *IoUring) !void {
+    assert(self.fd >= 0);
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .unregister_iowq_aff,
+        @as(?*anyopaque, null),
+        0,
+    );
+    try handle_registration_result(res);
+}
+
+/// `max_workers`: `max_workers[0]` should contain the maximum number of
+/// desired bounded workers, and the `max_workers[1]` the maximum number of
+/// desired unbounded workers.
+/// If both values are set to 0, the existing values are returned
+/// Read `io_uring_register_iowq_max_workers(3)` for more info
+pub fn register_iowq_max_workers(self: *IoUring, max_workers: [2]u32) !void {
+    assert(self.fd >= 0);
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_iowq_max_workers,
+        &max_workers,
+        2,
+    );
+    try handle_registration_result(res);
+}
+
+/// See `io_uring_register_sync_cancel(3)`
+pub fn register_sync_cancel(self: *IoUring, cancel_reg: *SyncCancelRegister) !void {
+    assert(self.fd >= 0);
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_sync_cancel,
+        cancel_reg,
+        1,
+    );
+    try handle_registration_result(res);
+}
+
+/// See `io_uring_register_sync_msg(3)`
+pub fn register_sync_msg(self: *IoUring, sqe: *Sqe) !void {
+    assert(self.fd >= 0);
+
+    const res = linux.io_uring_register(
+        -1,
+        .register_send_msg_ring,
+        sqe,
+        1,
+    );
+    try handle_registration_result(res);
+}
+
+// COMMIT: fix register file alloc range taking @sizeOf(FileIndexRange) instead of zero in register syscall
+/// Registers range for fixed file allocations.
+/// Available since 6.0
+pub fn register_file_alloc_range(self: *IoUring, offset: u32, len: u32) !void {
+    assert(self.fd >= 0);
+
+    const range: FileIndexRange = .{
+        .off = offset,
+        .len = len,
+        .resv = 0,
+    };
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_file_alloc_range,
+        &range,
+        0,
+    );
+
+    return handle_registration_result(res);
+}
+
 pub fn register_napi(self: *IoUring, napi: *Napi) !void {
     assert(self.fd >= 0);
-    const res = linux.io_uring_register(self.fd, .register_napi, napi, 1);
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_napi,
+        napi,
+        1,
+    );
     try handle_registration_result(res);
 }
 
 pub fn unregister_napi(self: *IoUring, napi: *Napi) !void {
     assert(self.fd >= 0);
-    const res = linux.io_uring_register(self.fd, .unregister_napi, napi, 1);
-    try handle_registration_result(res);
-}
-
-/// Registers an array of buffers for use with `read_fixed` and `write_fixed`.
-pub fn register_buffers(self: *IoUring, buffers: []const posix.iovec) !void {
-    assert(self.fd >= 0);
     const res = linux.io_uring_register(
         self.fd,
-        .register_buffers,
-        buffers.ptr,
-        @intCast(buffers.len),
+        .unregister_napi,
+        napi,
+        1,
     );
     try handle_registration_result(res);
 }
 
-/// Unregister the registered buffers.
-pub fn unregister_buffers(self: *IoUring) !void {
+pub fn register_clock(self: *IoUring, clock_reg: *ClockRegister) !void {
     assert(self.fd >= 0);
-    const res = linux.io_uring_register(self.fd, .unregister_buffers, null, 0);
-    switch (linux.errno(res)) {
-        .SUCCESS => {},
-        .NXIO => return error.BuffersNotRegistered,
-        else => |errno| return posix.unexpectedErrno(errno),
-    }
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_clock,
+        clock_reg,
+        0,
+    );
+    try handle_registration_result(res);
+}
+
+pub fn register_ifq(self: *IoUring, ifq_reg: *ZcrxIfqRegister) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_zcrx_ifq,
+        ifq_reg,
+        1,
+    );
+    try handle_registration_result(res);
+}
+
+pub fn register_resize_rings(self: *IoUring, _: *Params) !void {
+    assert(self.fd >= 0);
+    return error.Unimplemented;
+}
+
+pub fn register_region(self: *IoUring, mem_reg: *MemRegionRegister) !void {
+    assert(self.fd >= 0);
+    const res = linux.io_uring_register(
+        self.fd,
+        .register_mem_region,
+        mem_reg,
+        1,
+    );
+    try handle_registration_result(res);
 }
 
 /// Returns a Probe which is used to probe the capabilities of the
@@ -1386,18 +1587,6 @@ fn handle_registration_result(res: usize) !void {
         // Attempt to register files on a ring already registering files or
         // being torn down:
         .NXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
-        else => |errno| return posix.unexpectedErrno(errno),
-    }
-}
-
-/// Unregisters all registered file descriptors previously associated with the
-/// ring.
-pub fn unregister_files(self: *IoUring) !void {
-    assert(self.fd >= 0);
-    const res = linux.io_uring_register(self.fd, .unregister_files, null, 0);
-    switch (linux.errno(res)) {
-        .SUCCESS => {},
-        .NXIO => return error.FilesNotRegistered,
         else => |errno| return posix.unexpectedErrno(errno),
     }
 }
@@ -1555,6 +1744,7 @@ pub fn getsockopt(
     );
 }
 
+// TODO: move buf_ring fns into BufferRing type
 /// Registers a shared buffer ring to be used with provided buffers. `entries`
 /// number of `io_uring_buf` structures is mem mapped and shared by kernel.
 ///
@@ -1568,8 +1758,8 @@ pub fn setup_buf_ring(
     group_id: u16,
     flags: BufferRegister.Flags,
 ) !*align(page_size_min) BufferRing {
-    if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
-    if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
+    if (entries == 0 or entries > math.maxInt(u16)) return error.EntriesNotInRange;
+    if (!math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
     const mmap_size: usize = entries * @sizeOf(Buffer);
     const mmap = try posix.mmap(
@@ -1583,42 +1773,49 @@ pub fn setup_buf_ring(
     errdefer posix.munmap(mmap);
     assert(mmap.len == mmap_size);
 
-    const br: *align(page_size_min) BufferRing = @ptrCast(mmap.ptr);
-    try register_buf_ring(fd, @intFromPtr(br), entries, group_id, flags);
-    return br;
-}
-
-fn register_buf_ring(
-    fd: linux.fd_t,
-    addr: u64,
-    entries: u32,
-    group_id: u16,
-    flags: BufferRegister.Flags,
-) !void {
+    const br_addr: *align(page_size_min) BufferRing = @ptrCast(mmap.ptr);
     var reg = mem.zeroInit(BufferRegister, .{
-        .ring_addr = addr,
+        .ring_addr = @intFromPtr(br_addr),
         .ring_entries = entries,
         .bgid = group_id,
         .flags = flags,
     });
-    var res = linux.io_uring_register(fd, .register_pbuf_ring, @ptrCast(&reg), 1);
-    if (linux.errno(res) == .INVAL and reg.flags.iou_pbuf_ring_inc) {
+    try register_buf_ring(fd, &reg);
+    return br_addr;
+}
+
+pub fn register_buf_ring(
+    fd: posix.fd_t,
+    buf_reg: *BufferRegister,
+) !void {
+    var res = linux.io_uring_register(
+        fd,
+        .register_pbuf_ring,
+        buf_reg,
+        1,
+    );
+    if (linux.E.init(res) == .INVAL and buf_reg.flags.iou_pbuf_ring_inc) {
         // Retry without incremental buffer consumption.
         // It is available since kernel 6.12. returns INVAL on older.
-        reg.flags.iou_pbuf_ring_inc = false;
-        res = linux.io_uring_register(fd, .register_pbuf_ring, @ptrCast(&reg), 1);
+        buf_reg.flags.iou_pbuf_ring_inc = false;
+        res = linux.io_uring_register(
+            fd,
+            .register_pbuf_ring,
+            buf_reg,
+            1,
+        );
     }
     try handle_register_buf_ring_result(res);
 }
 
-fn unregister_buf_ring(fd: posix.fd_t, group_id: u16) !void {
+pub fn unregister_buf_ring(fd: posix.fd_t, buf_group_id: u16) !void {
     var reg = mem.zeroInit(BufferRegister, .{
-        .bgid = group_id,
+        .bgid = buf_group_id,
     });
     const res = linux.io_uring_register(
         fd,
         .unregister_pbuf_ring,
-        @ptrCast(&reg),
+        &reg,
         1,
     );
     try handle_register_buf_ring_result(res);
@@ -2894,7 +3091,7 @@ pub const RegionDesc = extern struct {
 
 // COMMIT: add new io_uring_mem_region_reg struct
 /// matches `io_uring_mem_region_reg` in liburing
-pub const MemRegionReg = extern struct {
+pub const MemRegionRegister = extern struct {
     /// struct io_uring_region_desc (RegionDesc in Zig)
     region_uptr: u64,
     flags: Flags,
@@ -2918,7 +3115,7 @@ pub const RsrcRegister = extern struct {
     pub const Flags = packed struct(u32) {
         /// Register a fully sparse file space, rather than pass in an array of
         /// all -1 file descriptors.
-        rsrc_register_sparse: bool = false,
+        register_sparse: bool = false,
         _: 31 = 0,
     };
 };
@@ -3210,7 +3407,7 @@ pub const constants = struct {
     /// (like openat/openat2/accept), then io_uring will allocate in. The
     /// picked direct descriptor will be returned in cqe.res, or -ENFILE
     /// if the space is full.
-    pub const FILE_INDEX_ALLOC = std.math.maxInt(u32);
+    pub const FILE_INDEX_ALLOC = math.maxInt(u32);
 
     pub const CMD_MASK = 1 << 0;
 
@@ -3926,7 +4123,7 @@ test "splice/read" {
     _ = try file_src.write(&buffer_write);
 
     const fds = try posix.pipe();
-    const pipe_offset: u64 = std.math.maxInt(u64);
+    const pipe_offset: u64 = math.maxInt(u64);
 
     const sqe_splice_to_pipe = try ring.splice(0x11111111, fd_src, 0, fds[1], pipe_offset, buffer_write.len);
     try testing.expectEqual(Op.splice, sqe_splice_to_pipe.opcode);
