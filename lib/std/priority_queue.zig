@@ -75,16 +75,10 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             return if (self.items.len > 0) self.items[0] else null;
         }
 
-        /// Pop the highest priority element from the queue. Returns
-        /// `null` if empty.
-        pub fn removeOrNull(self: *Self) ?T {
-            return if (self.items.len > 0) self.remove() else null;
-        }
-
-        /// Remove and return the highest priority element from the
-        /// queue.
-        pub fn remove(self: *Self) T {
-            return self.removeIndex(0);
+        /// Remove and return the highest priority element from the queue.
+        /// Returns `null` if empty.
+        pub fn remove(self: *Self) ?T {
+            return if (self.items.len > 0) self.removeIndex(0) else null;
         }
 
         /// Remove and return element at index. Indices are in the
@@ -333,12 +327,12 @@ test "add and remove same min heap" {
     try expectEqual(@as(u32, 2), queue.remove());
 }
 
-test "removeOrNull on empty" {
+test "remove from empty" {
     const allocator = std.testing.allocator;
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try expect(queue.removeOrNull() == null);
+    try expect(queue.remove() == null);
 }
 
 test "edge case 3 elements" {
@@ -405,7 +399,7 @@ test "fromOwnedSlice trivial case 0" {
     defer queue.deinit(allocator);
 
     try expectEqual(@as(usize, 0), queue.count());
-    try expect(queue.removeOrNull() == null);
+    try expect(queue.remove() == null);
 }
 
 test "fromOwnedSlice trivial case 1" {
@@ -417,7 +411,7 @@ test "fromOwnedSlice trivial case 1" {
 
     try expectEqual(@as(usize, 1), queue.count());
     try expectEqual(items[0], queue.remove());
-    try expect(queue.removeOrNull() == null);
+    try expect(queue.remove() == null);
 }
 
 test "fromOwnedSlice" {
@@ -516,10 +510,10 @@ test "remove at index" {
     try expectEqual(queue.removeIndex(two_idx), 2);
 
     var i: usize = 0;
-    while (queue.removeOrNull()) |n| : (i += 1) {
+    while (queue.remove()) |n| : (i += 1) {
         try expectEqual(n, sorted_items[i]);
     }
-    try expectEqual(queue.removeOrNull(), null);
+    try expectEqual(queue.remove(), null);
 }
 
 test "iterator while empty" {
@@ -553,7 +547,7 @@ test "shrinkAndFree" {
     try expectEqual(@as(u32, 1), queue.remove());
     try expectEqual(@as(u32, 2), queue.remove());
     try expectEqual(@as(u32, 3), queue.remove());
-    try expect(queue.removeOrNull() == null);
+    try expect(queue.remove() == null);
 }
 
 test "update min heap" {
