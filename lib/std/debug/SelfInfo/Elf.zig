@@ -354,6 +354,7 @@ const Module = struct {
             error.LockedMemoryLimitExceeded,
             error.ProcessFdQuotaExceeded,
             error.SystemFdQuotaExceeded,
+            error.Streaming,
             => return error.ReadFailed,
         };
         errdefer elf_file.deinit(gpa);

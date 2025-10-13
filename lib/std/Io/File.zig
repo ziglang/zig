@@ -71,6 +71,8 @@ pub const StatError = error{
     /// not hold the required rights to get its filestat information.
     AccessDenied,
     PermissionDenied,
+    /// Attempted to stat a non-file stream.
+    Streaming,
 } || Io.Cancelable || Io.UnexpectedError;
 
 /// Returns `Stat` containing basic information about the `File`.
@@ -357,10 +359,6 @@ pub const Reader = struct {
                 setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
             },
             .streaming, .streaming_reading => {
-                if (std.posix.SEEK == void) {
-                    r.seek_err = error.Unseekable;
-                    return error.Unseekable;
-                }
                 const seek_err = r.seek_err orelse e: {
                     if (io.vtable.fileSeekBy(io.userdata, r.file, offset)) |_| {
                         setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
@@ -384,6 +382,7 @@ pub const Reader = struct {
         }
     }
 
+    /// Repositions logical read offset relative to the beginning of the file.
     pub fn seekTo(r: *Reader, offset: u64) Reader.SeekError!void {
         const io = r.io;
         switch (r.mode) {
@@ -527,25 +526,65 @@ pub const Reader = struct {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         const io = r.io;
         const file = r.file;
-        const pos = r.pos;
         switch (r.mode) {
             .positional, .positional_reading => {
                 const size = r.getSize() catch {
                     r.mode = r.mode.toStreaming();
                     return 0;
                 };
-                const delta = @min(@intFromEnum(limit), size - pos);
-                r.pos = pos + delta;
+                const logical_pos = logicalPos(r);
+                const delta = @min(@intFromEnum(limit), size - logical_pos);
+                setLogicalPos(r, logical_pos + delta);
                 return delta;
             },
             .streaming, .streaming_reading => {
+                // Unfortunately we can't seek forward without knowing the
+                // size because the seek syscalls provided to us will not
+                // return the true end position if a seek would exceed the
+                // end.
+                fallback: {
+                    if (r.size_err == null and r.seek_err == null) break :fallback;
+
+                    const buffered_len = r.interface.bufferedLen();
+                    var remaining = @intFromEnum(limit);
+                    if (remaining <= buffered_len) {
+                        r.interface.seek += remaining;
+                        return remaining;
+                    }
+                    remaining -= buffered_len;
+                    r.interface.seek = 0;
+                    r.interface.end = 0;
+
+                    var trash_buffer: [128]u8 = undefined;
+                    var data: [1][]u8 = .{trash_buffer[0..@min(trash_buffer.len, remaining)]};
+                    var iovecs_buffer: [max_buffers_len][]u8 = undefined;
+                    const dest_n, const data_size = try r.interface.writableVector(&iovecs_buffer, &data);
+                    const dest = iovecs_buffer[0..dest_n];
+                    assert(dest[0].len > 0);
+                    const n = io.vtable.fileReadStreaming(io.userdata, file, dest) catch |err| {
+                        r.err = err;
+                        return error.ReadFailed;
+                    };
+                    if (n == 0) {
+                        r.size = r.pos;
+                        return error.EndOfStream;
+                    }
+                    r.pos += n;
+                    if (n > data_size) {
+                        r.interface.end += n - data_size;
+                        remaining -= data_size;
+                    } else {
+                        remaining -= n;
+                    }
+                    return @intFromEnum(limit) - remaining;
+                }
                 const size = r.getSize() catch return 0;
-                const n = @min(size - pos, std.math.maxInt(i64), @intFromEnum(limit));
+                const n = @min(size - r.pos, std.math.maxInt(i64), @intFromEnum(limit));
                 io.vtable.fileSeekBy(io.userdata, file, n) catch |err| {
                     r.seek_err = err;
                     return 0;
                 };
-                r.pos = pos + n;
+                r.pos += n;
                 return n;
             },
             .failure => return error.ReadFailed,
