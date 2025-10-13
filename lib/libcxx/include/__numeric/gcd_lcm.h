@@ -10,15 +10,16 @@
 #ifndef _LIBCPP___NUMERIC_GCD_LCM_H
 #define _LIBCPP___NUMERIC_GCD_LCM_H
 
-#include <__algorithm/min.h>
 #include <__assert>
 #include <__bit/countr.h>
 #include <__config>
+#include <__memory/addressof.h>
 #include <__type_traits/common_type.h>
 #include <__type_traits/is_integral.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_signed.h>
 #include <__type_traits/make_unsigned.h>
+#include <__type_traits/remove_cv.h>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -55,7 +56,8 @@ template <class _Tp>
 constexpr _LIBCPP_HIDDEN _Tp __gcd(_Tp __a, _Tp __b) {
   static_assert(!is_signed<_Tp>::value, "");
 
-  // From: https://lemire.me/blog/2013/12/26/fastest-way-to-compute-the-greatest-common-divisor
+  // Using Binary GCD algorithm https://en.wikipedia.org/wiki/Binary_GCD_algorithm, based on an implementation
+  // from https://lemire.me/blog/2024/04/13/greatest-common-divisor-the-extended-euclidean-algorithm-and-speed/
   //
   // If power of two divides both numbers, we can push it out.
   // - gcd( 2^x * a, 2^x * b) = 2^x * gcd(a, b)
@@ -76,21 +78,17 @@ constexpr _LIBCPP_HIDDEN _Tp __gcd(_Tp __a, _Tp __b) {
   if (__a == 0)
     return __b;
 
-  int __az    = std::__countr_zero(__a);
-  int __bz    = std::__countr_zero(__b);
-  int __shift = std::min(__az, __bz);
-  __a >>= __az;
-  __b >>= __bz;
+  _Tp __c     = __a | __b;
+  int __shift = std::__countr_zero(__c);
+  __a >>= std::__countr_zero(__a);
   do {
-    _Tp __diff = __a - __b;
-    if (__a > __b) {
-      __a = __b;
-      __b = __diff;
+    _Tp __t = __b >> std::__countr_zero(__b);
+    if (__a > __t) {
+      __b = __a - __t;
+      __a = __t;
     } else {
-      __b = __b - __a;
+      __b = __t - __a;
     }
-    if (__diff != 0)
-      __b >>= std::__countr_zero(__diff);
   } while (__b != 0);
   return __a << __shift;
 }
@@ -118,7 +116,7 @@ constexpr _LIBCPP_HIDE_FROM_ABI common_type_t<_Tp, _Up> lcm(_Tp __m, _Up __n) {
   _Rp __val1 = __ct_abs<_Rp, _Tp>()(__m) / std::gcd(__m, __n);
   _Rp __val2 = __ct_abs<_Rp, _Up>()(__n);
   _Rp __res;
-  [[maybe_unused]] bool __overflow = __builtin_mul_overflow(__val1, __val2, &__res);
+  [[maybe_unused]] bool __overflow = __builtin_mul_overflow(__val1, __val2, std::addressof(__res));
   _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(!__overflow, "Overflow in lcm");
   return __res;
 }

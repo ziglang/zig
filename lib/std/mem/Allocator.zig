@@ -81,6 +81,19 @@ pub const VTable = struct {
     free: *const fn (*anyopaque, memory: []u8, alignment: Alignment, ret_addr: usize) void,
 };
 
+pub fn noAlloc(
+    self: *anyopaque,
+    len: usize,
+    alignment: Alignment,
+    ret_addr: usize,
+) ?[*]u8 {
+    _ = self;
+    _ = len;
+    _ = alignment;
+    _ = ret_addr;
+    return null;
+}
+
 pub fn noResize(
     self: *anyopaque,
     memory: []u8,
@@ -152,9 +165,9 @@ pub inline fn rawFree(a: Allocator, memory: []u8, alignment: Alignment, ret_addr
 pub fn create(a: Allocator, comptime T: type) Error!*T {
     if (@sizeOf(T) == 0) {
         const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), @alignOf(T));
-        return @as(*T, @ptrFromInt(ptr));
+        return @ptrFromInt(ptr);
     }
-    const ptr: *T = @ptrCast(try a.allocBytesWithAlignment(@alignOf(T), @sizeOf(T), @returnAddress()));
+    const ptr: *T = @ptrCast(try a.allocBytesWithAlignment(.of(T), @sizeOf(T), @returnAddress()));
     return ptr;
 }
 
@@ -186,7 +199,7 @@ pub fn allocWithOptions(
     comptime Elem: type,
     n: usize,
     /// null means naturally aligned
-    comptime optional_alignment: ?u29,
+    comptime optional_alignment: ?Alignment,
     comptime optional_sentinel: ?Elem,
 ) Error!AllocWithOptionsPayload(Elem, optional_alignment, optional_sentinel) {
     return self.allocWithOptionsRetAddr(Elem, n, optional_alignment, optional_sentinel, @returnAddress());
@@ -197,7 +210,7 @@ pub fn allocWithOptionsRetAddr(
     comptime Elem: type,
     n: usize,
     /// null means naturally aligned
-    comptime optional_alignment: ?u29,
+    comptime optional_alignment: ?Alignment,
     comptime optional_sentinel: ?Elem,
     return_address: usize,
 ) Error!AllocWithOptionsPayload(Elem, optional_alignment, optional_sentinel) {
@@ -210,11 +223,11 @@ pub fn allocWithOptionsRetAddr(
     }
 }
 
-fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, comptime sentinel: ?Elem) type {
+fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?Alignment, comptime sentinel: ?Elem) type {
     if (sentinel) |s| {
-        return [:s]align(alignment orelse @alignOf(Elem)) Elem;
+        return [:s]align(if (alignment) |a| a.toByteUnits() else @alignOf(Elem)) Elem;
     } else {
-        return []align(alignment orelse @alignOf(Elem)) Elem;
+        return []align(if (alignment) |a| a.toByteUnits() else @alignOf(Elem)) Elem;
     }
 }
 
@@ -239,9 +252,9 @@ pub fn alignedAlloc(
     self: Allocator,
     comptime T: type,
     /// null means naturally aligned
-    comptime alignment: ?u29,
+    comptime alignment: ?Alignment,
     n: usize,
-) Error![]align(alignment orelse @alignOf(T)) T {
+) Error![]align(if (alignment) |a| a.toByteUnits() else @alignOf(T)) T {
     return self.allocAdvancedWithRetAddr(T, alignment, n, @returnAddress());
 }
 
@@ -249,27 +262,38 @@ pub inline fn allocAdvancedWithRetAddr(
     self: Allocator,
     comptime T: type,
     /// null means naturally aligned
-    comptime alignment: ?u29,
+    comptime alignment: ?Alignment,
     n: usize,
     return_address: usize,
-) Error![]align(alignment orelse @alignOf(T)) T {
-    const a = alignment orelse @alignOf(T);
-    const ptr: [*]align(a) T = @ptrCast(try self.allocWithSizeAndAlignment(@sizeOf(T), a, n, return_address));
+) Error![]align(if (alignment) |a| a.toByteUnits() else @alignOf(T)) T {
+    const a = comptime (alignment orelse Alignment.of(T));
+    const ptr: [*]align(a.toByteUnits()) T = @ptrCast(try self.allocWithSizeAndAlignment(@sizeOf(T), a, n, return_address));
     return ptr[0..n];
 }
 
-fn allocWithSizeAndAlignment(self: Allocator, comptime size: usize, comptime alignment: u29, n: usize, return_address: usize) Error![*]align(alignment) u8 {
+fn allocWithSizeAndAlignment(
+    self: Allocator,
+    comptime size: usize,
+    comptime alignment: Alignment,
+    n: usize,
+    return_address: usize,
+) Error![*]align(alignment.toByteUnits()) u8 {
     const byte_count = math.mul(usize, size, n) catch return Error.OutOfMemory;
     return self.allocBytesWithAlignment(alignment, byte_count, return_address);
 }
 
-fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count: usize, return_address: usize) Error![*]align(alignment) u8 {
+fn allocBytesWithAlignment(
+    self: Allocator,
+    comptime alignment: Alignment,
+    byte_count: usize,
+    return_address: usize,
+) Error![*]align(alignment.toByteUnits()) u8 {
     if (byte_count == 0) {
-        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
-        return @as([*]align(alignment) u8, @ptrFromInt(ptr));
+        const ptr = comptime alignment.backward(math.maxInt(usize));
+        return @as([*]align(alignment.toByteUnits()) u8, @ptrFromInt(ptr));
     }
 
-    const byte_ptr = self.rawAlloc(byte_count, .fromByteUnits(alignment), return_address) orelse return Error.OutOfMemory;
+    const byte_ptr = self.rawAlloc(byte_count, alignment, return_address) orelse return Error.OutOfMemory;
     @memset(byte_ptr[0..byte_count], undefined);
     return @alignCast(byte_ptr);
 }
@@ -347,8 +371,10 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
     return mem.bytesAsSlice(T, new_memory);
 }
 
-/// This function requests a new byte size for an existing allocation, which
+/// This function requests a new size for an existing allocation, which
 /// can be larger, smaller, or the same size as the old memory allocation.
+/// The result is an array of `new_n` items of the same type as the existing
+/// allocation.
 ///
 /// If `new_n` is 0, this is the same as `free` and it always succeeds.
 ///
@@ -378,7 +404,7 @@ pub fn reallocAdvanced(
     const Slice = @typeInfo(@TypeOf(old_mem)).pointer;
     const T = Slice.child;
     if (old_mem.len == 0) {
-        return self.allocAdvancedWithRetAddr(T, Slice.alignment, new_n, return_address);
+        return self.allocAdvancedWithRetAddr(T, .fromByteUnits(Slice.alignment), new_n, return_address);
     }
     if (new_n == 0) {
         self.free(old_mem);
@@ -431,4 +457,63 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) Error![:0]T {
     @memcpy(new_buf[0..m.len], m);
     new_buf[m.len] = 0;
     return new_buf[0..m.len :0];
+}
+
+/// An allocator that always fails to allocate.
+pub const failing: Allocator = .{
+    .ptr = undefined,
+    .vtable = &.{
+        .alloc = noAlloc,
+        .resize = unreachableResize,
+        .remap = unreachableRemap,
+        .free = unreachableFree,
+    },
+};
+
+fn unreachableResize(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    new_len: usize,
+    ret_addr: usize,
+) bool {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = new_len;
+    _ = ret_addr;
+    unreachable;
+}
+
+fn unreachableRemap(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    new_len: usize,
+    ret_addr: usize,
+) ?[*]u8 {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = new_len;
+    _ = ret_addr;
+    unreachable;
+}
+
+fn unreachableFree(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    ret_addr: usize,
+) void {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = ret_addr;
+    unreachable;
+}
+
+test failing {
+    const f: Allocator = .failing;
+    try std.testing.expectError(error.OutOfMemory, f.alloc(u8, 123));
 }

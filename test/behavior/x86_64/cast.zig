@@ -14546,13 +14546,24 @@ test floatCast {
     try test_float_cast.testFloatVectors();
 }
 
-inline fn intFromFloat(comptime Result: type, comptime Type: type, rhs: Type, comptime _: Type) Result {
+inline fn intFromFloatUnsafe(comptime Result: type, comptime Type: type, rhs: Type, comptime _: Type) Result {
+    @setRuntimeSafety(false);
     return @intFromFloat(rhs);
 }
-test intFromFloat {
-    const test_int_from_float = cast(intFromFloat, .{ .compare = .strict });
-    try test_int_from_float.testIntsFromFloats();
-    try test_int_from_float.testIntVectorsFromFloatVectors();
+test intFromFloatUnsafe {
+    const test_int_from_float_unsafe = cast(intFromFloatUnsafe, .{ .compare = .strict });
+    try test_int_from_float_unsafe.testIntsFromFloats();
+    try test_int_from_float_unsafe.testIntVectorsFromFloatVectors();
+}
+
+inline fn intFromFloatSafe(comptime Result: type, comptime Type: type, rhs: Type, comptime _: Type) Result {
+    @setRuntimeSafety(true);
+    return @intFromFloat(rhs);
+}
+test intFromFloatSafe {
+    const test_int_from_float_safe = cast(intFromFloatSafe, .{ .compare = .strict });
+    try test_int_from_float_safe.testIntsFromFloats();
+    try test_int_from_float_safe.testIntVectorsFromFloatVectors();
 }
 
 inline fn floatFromInt(comptime Result: type, comptime Type: type, rhs: Type, comptime _: Type) Result {

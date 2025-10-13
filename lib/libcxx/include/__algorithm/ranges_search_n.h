@@ -39,8 +39,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __search_n {
-struct __fn {
+struct __search_n {
   template <class _Iter1, class _Sent1, class _SizeT, class _Type, class _Pred, class _Proj>
   _LIBCPP_HIDE_FROM_ABI static constexpr subrange<_Iter1> __ranges_search_n_impl(
       _Iter1 __first, _Sent1 __last, _SizeT __count, const _Type& __value, _Pred& __pred, _Proj& __proj) {
@@ -100,10 +99,9 @@ struct __fn {
     return __ranges_search_n_impl(ranges::begin(__range), ranges::end(__range), __count, __value, __pred, __proj);
   }
 };
-} // namespace __search_n
 
 inline namespace __cpo {
-inline constexpr auto search_n = __search_n::__fn{};
+inline constexpr auto search_n = __search_n{};
 } // namespace __cpo
 } // namespace ranges
 

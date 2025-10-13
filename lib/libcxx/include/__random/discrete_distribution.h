@@ -13,10 +13,10 @@
 #include <__config>
 #include <__random/is_valid.h>
 #include <__random/uniform_real_distribution.h>
-#include <cstddef>
+#include <__vector/vector.h>
+#include <initializer_list>
 #include <iosfwd>
 #include <numeric>
-#include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -28,14 +28,14 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _IntType = int>
-class _LIBCPP_TEMPLATE_VIS discrete_distribution {
+class discrete_distribution {
   static_assert(__libcpp_random_is_valid_inttype<_IntType>::value, "IntType must be a supported integer type");
 
 public:
   // types
   typedef _IntType result_type;
 
-  class _LIBCPP_TEMPLATE_VIS param_type {
+  class param_type {
     vector<double> __p_;
 
   public:

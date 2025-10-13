@@ -58,25 +58,28 @@
 #ifndef __STRINGS_H_
 #define __STRINGS_H_
 
+#include <_bounds.h>
 #include <_types.h>
 
 #include <sys/cdefs.h>
 #include <Availability.h>
 #include <sys/_types/_size_t.h>
 
+_LIBC_SINGLE_BY_DEFAULT()
+
 __BEGIN_DECLS
 /* Removed in Issue 7 */
 #if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L
-int	 bcmp(const void *, const void *, size_t) __POSIX_C_DEPRECATED(200112L);
-void	 bcopy(const void *, void *, size_t) __POSIX_C_DEPRECATED(200112L);
-void	 bzero(void *, size_t) __POSIX_C_DEPRECATED(200112L);
-char	*index(const char *, int) __POSIX_C_DEPRECATED(200112L);
-char	*rindex(const char *, int) __POSIX_C_DEPRECATED(200112L);
+int	 bcmp(const void *_LIBC_SIZE(__n), const void *_LIBC_SIZE(__n), size_t __n) __POSIX_C_DEPRECATED(200112L);
+void	 bcopy(const void *_LIBC_SIZE(__n), void *_LIBC_SIZE(__n), size_t __n) __POSIX_C_DEPRECATED(200112L);
+void	 bzero(void *_LIBC_SIZE(__n), size_t __n) __POSIX_C_DEPRECATED(200112L);
+char *_LIBC_CSTR    index(const char *, int) __POSIX_C_DEPRECATED(200112L);
+char *_LIBC_CSTR    rindex(const char *, int) __POSIX_C_DEPRECATED(200112L);
 #endif
 
 int	 ffs(int);
 int	 strcasecmp(const char *, const char *);
-int	 strncasecmp(const char *, const char *, size_t);
+int	 strncasecmp(const char *_LIBC_UNSAFE_INDEXABLE, const char *_LIBC_UNSAFE_INDEXABLE, size_t);
 __END_DECLS
 
 /* Darwin extensions */

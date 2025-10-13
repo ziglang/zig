@@ -399,6 +399,7 @@ const targets = [_]ArchTarget{
             .name = "AMDGPU",
             .td_name = "AMDGPU",
         },
+        .branch_quota = 2000,
         .feature_overrides = &.{
             .{
                 .llvm_name = "DumpCode",
@@ -779,6 +780,10 @@ const targets = [_]ArchTarget{
                 .zig_name = "v9_5a",
             },
             .{
+                .llvm_name = "armv9.6-a",
+                .zig_name = "v9_6a",
+            },
+            .{
                 .llvm_name = "armv9-a",
                 .zig_name = "v9a",
             },
@@ -894,6 +899,10 @@ const targets = [_]ArchTarget{
                 .llvm_name = "v9.5a",
                 .zig_name = "has_v9_5a",
             },
+            .{
+                .llvm_name = "v9.6a",
+                .zig_name = "has_v9_6a",
+            },
         },
         .extra_cpus = &.{
             .{
@@ -977,6 +986,36 @@ const targets = [_]ArchTarget{
             .name = "LoongArch",
             .td_name = "LoongArch",
         },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "la64v1_0",
+                .features = &.{
+                    "64bit",
+                    "lsx",
+                    "ual",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "la64v1_1",
+                .features = &.{
+                    "64bit",
+                    "div32",
+                    "frecipe",
+                    "lam_bh",
+                    "lamcas",
+                    "ld_seq_sa",
+                    "lsx",
+                    "scq",
+                    "ual",
+                },
+            },
+        },
+        .omit_cpus = &.{
+            "generic",
+            "loongarch64",
+        },
     },
     .{
         .zig_name = "m68k",
@@ -1040,6 +1079,103 @@ const targets = [_]ArchTarget{
         },
     },
     .{
+        .zig_name = "spirv",
+        .llvm = .{
+            .name = "SPIRV",
+            .td_name = "SPIRV",
+        },
+        .branch_quota = 2000,
+        .extra_features = &.{
+            .{
+                .zig_name = "v1_0",
+                .desc = "Enable version 1.0",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "v1_1",
+                .desc = "Enable version 1.1",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "v1_2",
+                .desc = "Enable version 1.2",
+                .deps = &.{"v1_1"},
+            },
+            .{
+                .zig_name = "v1_3",
+                .desc = "Enable version 1.3",
+                .deps = &.{"v1_2"},
+            },
+            .{
+                .zig_name = "v1_4",
+                .desc = "Enable version 1.4",
+                .deps = &.{"v1_3"},
+            },
+            .{
+                .zig_name = "v1_5",
+                .desc = "Enable version 1.5",
+                .deps = &.{"v1_4"},
+            },
+            .{
+                .zig_name = "v1_6",
+                .desc = "Enable version 1.6",
+                .deps = &.{"v1_5"},
+            },
+            .{
+                .zig_name = "int64",
+                .desc = "Enable Int64 capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "float16",
+                .desc = "Enable Float16 capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "float64",
+                .desc = "Enable Float64 capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "storage_push_constant16",
+                .desc = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
+                .deps = &.{"v1_3"},
+            },
+            .{
+                .zig_name = "arbitrary_precision_integers",
+                .desc = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
+                .deps = &.{"v1_5"},
+            },
+            .{
+                .zig_name = "generic_pointer",
+                .desc = "Enable GenericPointer capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "vector16",
+                .desc = "Enable Vector16 capability",
+                .deps = &.{"v1_0"},
+            },
+            .{
+                .zig_name = "variable_pointers",
+                .desc = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+                .deps = &.{"v1_0"},
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "vulkan_v1_2",
+                .features = &.{"v1_5"},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "opencl_v2",
+                .features = &.{"v1_2"},
+            },
+        },
+    },
+    .{
         .zig_name = "riscv",
         .llvm = .{
             .name = "RISCV",
@@ -1092,25 +1228,23 @@ const targets = [_]ArchTarget{
             .name = "WebAssembly",
             .td_name = "WebAssembly",
         },
+        // For whatever reason, LLVM's WebAssembly backend sets these implied features in code
+        // rather than making them proper dependencies, so fix that here...
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "bulk-memory",
+                .extra_deps = &.{"bulk_memory_opt"},
+            },
+            .{
+                .llvm_name = "reference-types",
+                .extra_deps = &.{"call_indirect_overlong"},
+            },
+        },
         .extra_features = &.{
             .{
                 .zig_name = "nontrapping_bulk_memory_len0",
                 .desc = "Bulk memory operations with a zero length do not trap",
-                .deps = &.{"bulk_memory"},
-            },
-        },
-        .extra_cpus = &.{
-            .{
-                .llvm_name = null,
-                .zig_name = "lime1",
-                .features = &.{
-                    "bulk_memory",
-                    "extended_const",
-                    "multivalue",
-                    "mutable_globals",
-                    "nontrapping_fptoint",
-                    "sign_ext",
-                },
+                .deps = &.{"bulk_memory_opt"},
             },
         },
     },
@@ -1124,6 +1258,27 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = "64bit-mode",
                 .omit = true,
+            },
+            // Remove these when LLVM removes AVX10.N-256 support.
+            .{
+                .llvm_name = "avx10.1-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.2-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.1-512",
+                .zig_name = "avx10_1",
+            },
+            .{
+                .llvm_name = "avx10.2-512",
+                .zig_name = "avx10_2",
+            },
+            .{
+                .llvm_name = "avx512f",
+                .extra_deps = &.{"evex512"},
             },
             .{
                 .llvm_name = "alderlake",
@@ -1531,8 +1686,8 @@ fn processOneTarget(job: Job) void {
     defer progress_node.end();
 
     var features_table = std.StringHashMap(Feature).init(arena);
-    var all_features = std.ArrayList(Feature).init(arena);
-    var all_cpus = std.ArrayList(Cpu).init(arena);
+    var all_features = std.array_list.Managed(Feature).init(arena);
+    var all_cpus = std.array_list.Managed(Cpu).init(arena);
 
     if (target.llvm) |llvm| {
         const tblgen_progress = progress_node.start("running llvm-tblgen", 0);
@@ -1582,10 +1737,11 @@ fn processOneTarget(job: Job) void {
         const collate_progress = progress_node.start("collating LLVM data", 0);
 
         // So far, LLVM only has a few aliases for the same CPU.
-        var cpu_aliases = std.StringHashMap(std.SegmentedList(struct {
+        const Alias = struct {
             llvm: []const u8,
             zig: []const u8,
-        }, 4)).init(arena);
+        };
+        var cpu_aliases = std.StringHashMap(std.ArrayList(*Alias)).init(arena);
 
         {
             var it = root_map.iterator();
@@ -1601,12 +1757,16 @@ fn processOneTarget(job: Job) void {
 
                     const gop = try cpu_aliases.getOrPut(try llvmNameToZigName(arena, llvm_name));
 
-                    if (!gop.found_existing) gop.value_ptr.* = .{};
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = .empty;
+                    }
 
-                    try gop.value_ptr.append(arena, .{
+                    const alias = try arena.create(Alias);
+                    alias.* = .{
                         .llvm = llvm_alias,
                         .zig = try llvmNameToZigName(arena, llvm_alias),
-                    });
+                    };
+                    try gop.value_ptr.append(arena, alias);
                 }
             }
         }
@@ -1623,7 +1783,7 @@ fn processOneTarget(job: Job) void {
 
                     var zig_name = try llvmNameToZigName(arena, llvm_name);
                     var desc = kv.value_ptr.object.get("Desc").?.string;
-                    var deps = std.ArrayList([]const u8).init(arena);
+                    var deps = std.array_list.Managed([]const u8).init(arena);
                     var omit = false;
                     var flatten = false;
                     var omit_deps: []const []const u8 = &.{};
@@ -1707,7 +1867,7 @@ fn processOneTarget(job: Job) void {
                     if (omitted) continue;
 
                     var zig_name = try llvmNameToZigName(arena, llvm_name);
-                    var deps = std.ArrayList([]const u8).init(arena);
+                    var deps = std.array_list.Managed([]const u8).init(arena);
                     var omit_deps: []const []const u8 = &.{};
                     var extra_deps: []const []const u8 = &.{};
                     for (target.feature_overrides) |feature_override| {
@@ -1763,9 +1923,7 @@ fn processOneTarget(job: Job) void {
                     });
 
                     if (cpu_aliases.get(zig_name)) |aliases| {
-                        var alias_it = aliases.constIterator(0);
-
-                        alias_it: while (alias_it.next()) |alias| {
+                        alias_it: for (aliases.items) |alias| {
                             for (target.omit_cpus) |omit_cpu_name| {
                                 if (mem.eql(u8, omit_cpu_name, alias.llvm)) continue :alias_it;
                             }
@@ -1803,8 +1961,9 @@ fn processOneTarget(job: Job) void {
     var zig_code_file = try target_dir.createFile(zig_code_basename, .{});
     defer zig_code_file.close();
 
-    var bw = std.io.bufferedWriter(zig_code_file.writer());
-    const w = bw.writer();
+    var zig_code_file_buffer: [4096]u8 = undefined;
+    var zig_code_file_writer = zig_code_file.writer(&zig_code_file_buffer);
+    const w = &zig_code_file_writer.interface;
 
     try w.writeAll(
         \\//! This file is auto-generated by tools/update_cpu_features.zig.
@@ -1817,7 +1976,7 @@ fn processOneTarget(job: Job) void {
     );
 
     for (all_features.items, 0..) |feature, i| {
-        try w.print("\n    {p},", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("\n    {f},", .{std.zig.fmtIdPU(feature.zig_name)});
 
         if (i == all_features.items.len - 1) try w.writeAll("\n");
     }
@@ -1846,27 +2005,27 @@ fn processOneTarget(job: Job) void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@intFromEnum(Feature.{p_})] = .{{
-                \\        .llvm_name = "{}",
-                \\        .description = "{}",
+                \\    result[@intFromEnum(Feature.{f})] = .{{
+                \\        .llvm_name = "{f}",
+                \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
-                    std.zig.fmtId(feature.zig_name),
-                    std.zig.fmtEscapes(llvm_name),
-                    std.zig.fmtEscapes(feature.desc),
+                    std.zig.fmtIdPU(feature.zig_name),
+                    std.zig.fmtString(llvm_name),
+                    std.zig.fmtString(feature.desc),
                 },
             );
         } else {
             try w.print(
-                \\    result[@intFromEnum(Feature.{p_})] = .{{
+                \\    result[@intFromEnum(Feature.{f})] = .{{
                 \\        .llvm_name = null,
-                \\        .description = "{}",
+                \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
-                    std.zig.fmtId(feature.zig_name),
-                    std.zig.fmtEscapes(feature.desc),
+                    std.zig.fmtIdPU(feature.zig_name),
+                    std.zig.fmtString(feature.desc),
                 },
             );
         }
@@ -1875,7 +2034,7 @@ fn processOneTarget(job: Job) void {
             try putDep(&deps_set, features_table, dep);
         }
         try pruneFeatures(arena, features_table, &deps_set);
-        var dependencies = std.ArrayList([]const u8).init(arena);
+        var dependencies = std.array_list.Managed([]const u8).init(arena);
         {
             var it = deps_set.keyIterator();
             while (it.next()) |key| {
@@ -1893,7 +2052,7 @@ fn processOneTarget(job: Job) void {
         } else {
             try w.writeAll("\n");
             for (dependencies.items) |dep| {
-                try w.print("            .{p_},\n", .{std.zig.fmtId(dep)});
+                try w.print("            .{f},\n", .{std.zig.fmtIdPU(dep)});
             }
             try w.writeAll(
                 \\        }),
@@ -1920,7 +2079,7 @@ fn processOneTarget(job: Job) void {
             try putDep(&deps_set, features_table, feature_zig_name);
         }
         try pruneFeatures(arena, features_table, &deps_set);
-        var cpu_features = std.ArrayList([]const u8).init(arena);
+        var cpu_features = std.array_list.Managed([]const u8).init(arena);
         {
             var it = deps_set.keyIterator();
             while (it.next()) |key| {
@@ -1930,24 +2089,24 @@ fn processOneTarget(job: Job) void {
         mem.sort([]const u8, cpu_features.items, {}, asciiLessThan);
         if (cpu.llvm_name) |llvm_name| {
             try w.print(
-                \\    pub const {}: CpuModel = .{{
-                \\        .name = "{}",
-                \\        .llvm_name = "{}",
+                \\    pub const {f}: CpuModel = .{{
+                \\        .name = "{f}",
+                \\        .llvm_name = "{f}",
                 \\        .features = featureSet(&[_]Feature{{
             , .{
                 std.zig.fmtId(cpu.zig_name),
-                std.zig.fmtEscapes(cpu.zig_name),
-                std.zig.fmtEscapes(llvm_name),
+                std.zig.fmtString(cpu.zig_name),
+                std.zig.fmtString(llvm_name),
             });
         } else {
             try w.print(
-                \\    pub const {}: CpuModel = .{{
-                \\        .name = "{}",
+                \\    pub const {f}: CpuModel = .{{
+                \\        .name = "{f}",
                 \\        .llvm_name = null,
                 \\        .features = featureSet(&[_]Feature{{
             , .{
                 std.zig.fmtId(cpu.zig_name),
-                std.zig.fmtEscapes(cpu.zig_name),
+                std.zig.fmtString(cpu.zig_name),
             });
         }
         if (cpu_features.items.len == 0) {
@@ -1959,7 +2118,7 @@ fn processOneTarget(job: Job) void {
         } else {
             try w.writeAll("\n");
             for (cpu_features.items) |feature_zig_name| {
-                try w.print("            .{p_},\n", .{std.zig.fmtId(feature_zig_name)});
+                try w.print("            .{f},\n", .{std.zig.fmtIdPU(feature_zig_name)});
             }
             try w.writeAll(
                 \\        }),
@@ -1973,14 +2132,14 @@ fn processOneTarget(job: Job) void {
         \\};
         \\
     );
-    try bw.flush();
+    try w.flush();
 
     render_progress.end();
 }
 
 fn usageAndExit(arg0: []const u8, code: u8) noreturn {
-    const stderr = std.io.getStdErr();
-    stderr.writer().print(
+    const stderr = std.debug.lockStderrWriter(&.{});
+    stderr.print(
         \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig [zig_name filter]
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .

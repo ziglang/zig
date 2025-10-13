@@ -121,6 +121,7 @@ typedef enum task_role {
 	TASK_NONUI_APPLICATION          = 6,
 	TASK_DEFAULT_APPLICATION        = 7,
 	TASK_DARWINBG_APPLICATION       = 8,
+	TASK_USER_INIT_APPLICATION      = 9,
 } task_role_t;
 
 struct task_category_policy {
@@ -172,7 +173,7 @@ typedef struct task_qos_policy *task_qos_policy_t;
 #define PROC_FLAG_DARWINBG           0x8000    /* process in darwin background */
 #define PROC_FLAG_EXT_DARWINBG           0x10000   /* process in darwin background - external enforcement */
 #define PROC_FLAG_IOS_APPLEDAEMON    0x20000   /* process is apple ios daemon */
-#define PROC_FLAG_IOS_IMPPROMOTION   0x80000   /* process is apple ios daemon */
+#define PROC_FLAG_IOS_IMPPROMOTION   0x80000   /* process is able to receive an importance donation */
 #define PROC_FLAG_ADAPTIVE           0x100000  /* Process is adaptive */
 #define PROC_FLAG_ADAPTIVE_IMPORTANT 0x200000  /* Process is adaptive, and is currently important */
 #define PROC_FLAG_IMPORTANCE_DONOR   0x400000  /* Process is marked as an importance donor */

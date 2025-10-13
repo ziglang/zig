@@ -94,8 +94,8 @@ void __outwordstring(unsigned short, unsigned short *, unsigned long);
 unsigned long __readcr0(void);
 unsigned long __readcr2(void);
 unsigned __LPTRINT_TYPE__ __readcr3(void);
-unsigned long __readcr4(void);
-unsigned long __readcr8(void);
+unsigned __LPTRINT_TYPE__ __readcr4(void);
+unsigned __int64 __readcr8(void);
 unsigned int __readdr(unsigned int);
 #ifdef __i386__
 unsigned char __readfsbyte(unsigned long);
@@ -124,8 +124,8 @@ void __vmx_vmptrst(unsigned __int64 *);
 void __wbinvd(void);
 void __writecr0(unsigned int);
 void __writecr3(unsigned __INTPTR_TYPE__);
-void __writecr4(unsigned int);
-void __writecr8(unsigned int);
+void __writecr4(unsigned __INTPTR_TYPE__);
+void __writecr8(unsigned __int64);
 void __writedr(unsigned int, unsigned int);
 void __writefsbyte(unsigned long, unsigned char);
 void __writefsdword(unsigned long, unsigned long);
@@ -162,8 +162,6 @@ void _Store_HLERelease(long volatile *, long);
 void _Store64_HLERelease(__int64 volatile *, __int64);
 void _StorePointer_HLERelease(void *volatile *, void *);
 void _WriteBarrier(void);
-unsigned __int32 xbegin(void);
-void _xend(void);
 
 /* These additional intrinsics are turned on in x64/amd64/x86_64 mode. */
 #if defined(__x86_64__) && !defined(__arm64ec__)
@@ -330,33 +328,33 @@ static __inline__ void __DEFAULT_FN_ATTRS __halt(void) {
   __asm__ volatile("hlt");
 }
 
-static inline unsigned char __inbyte(unsigned short port) {
+static __inline__ unsigned char __inbyte(unsigned short port) {
   unsigned char ret;
   __asm__ __volatile__("inb %w1, %b0" : "=a"(ret) : "Nd"(port));
   return ret;
 }
 
-static inline unsigned short __inword(unsigned short port) {
+static __inline__ unsigned short __inword(unsigned short port) {
   unsigned short ret;
   __asm__ __volatile__("inw %w1, %w0" : "=a"(ret) : "Nd"(port));
   return ret;
 }
 
-static inline unsigned long __indword(unsigned short port) {
+static __inline__ unsigned long __indword(unsigned short port) {
   unsigned long ret;
   __asm__ __volatile__("inl %w1, %k0" : "=a"(ret) : "Nd"(port));
   return ret;
 }
 
-static inline void __outbyte(unsigned short port, unsigned char data) {
+static __inline__ void __outbyte(unsigned short port, unsigned char data) {
   __asm__ __volatile__("outb %b0, %w1" : : "a"(data), "Nd"(port));
 }
 
-static inline void __outword(unsigned short port, unsigned short data) {
+static __inline__ void __outword(unsigned short port, unsigned short data) {
   __asm__ __volatile__("outw %w0, %w1" : : "a"(data), "Nd"(port));
 }
 
-static inline void __outdword(unsigned short port, unsigned long data) {
+static __inline__ void __outdword(unsigned short port, unsigned long data) {
   __asm__ __volatile__("outl %k0, %w1" : : "a"(data), "Nd"(port));
 }
 #endif
@@ -372,10 +370,29 @@ static __inline__ void __DEFAULT_FN_ATTRS __nop(void) {
 \*----------------------------------------------------------------------------*/
 #if defined(__aarch64__) || defined(__arm64ec__)
 unsigned __int64 __getReg(int);
-long _InterlockedAdd(long volatile *Addend, long Value);
-__int64 _InterlockedAdd64(__int64 volatile *Addend, __int64 Value);
+unsigned char _interlockedbittestandreset_acq(long volatile *, long);
+unsigned char _interlockedbittestandreset_nf(long volatile *, long);
+unsigned char _interlockedbittestandreset_rel(long volatile *, long);
+unsigned char _interlockedbittestandreset64_acq(__int64 volatile *, __int64);
+unsigned char _interlockedbittestandreset64_nf(__int64 volatile *, __int64);
+unsigned char _interlockedbittestandreset64_rel(__int64 volatile *, __int64);
+unsigned char _interlockedbittestandset_acq(long volatile *, long);
+unsigned char _interlockedbittestandset_nf(long volatile *, long);
+unsigned char _interlockedbittestandset_rel(long volatile *, long);
+unsigned char _interlockedbittestandset64_acq(__int64 volatile *, __int64);
+unsigned char _interlockedbittestandset64_nf(__int64 volatile *, __int64);
+unsigned char _interlockedbittestandset64_rel(__int64 volatile *, __int64);
+long _InterlockedAdd(long volatile *, long);
+long _InterlockedAdd_acq(long volatile *, long);
+long _InterlockedAdd_nf(long volatile *, long);
+long _InterlockedAdd_rel(long volatile *, long);
+__int64 _InterlockedAdd64(__int64 volatile *, __int64);
+__int64 _InterlockedAdd64_acq(__int64 volatile *, __int64);
+__int64 _InterlockedAdd64_nf(__int64 volatile *, __int64);
+__int64 _InterlockedAdd64_rel(__int64 volatile *, __int64);
 __int64 _ReadStatusReg(int);
 void _WriteStatusReg(int, __int64);
+unsigned int __sys(int, __int64);
 
 unsigned short __cdecl _byteswap_ushort(unsigned short val);
 unsigned long __cdecl _byteswap_ulong (unsigned long val);
@@ -395,6 +412,16 @@ unsigned char __readx18byte(unsigned long offset);
 unsigned short __readx18word(unsigned long offset);
 unsigned long __readx18dword(unsigned long offset);
 unsigned __int64 __readx18qword(unsigned long offset);
+
+void __addx18byte(unsigned long offset, unsigned char data);
+void __addx18word(unsigned long offset, unsigned short data);
+void __addx18dword(unsigned long offset, unsigned long data);
+void __addx18qword(unsigned long offset, unsigned __int64 data);
+
+void __incx18byte(unsigned long offset);
+void __incx18word(unsigned long offset);
+void __incx18dword(unsigned long offset);
+void __incx18qword(unsigned long offset);
 
 double _CopyDoubleFromInt64(__int64);
 float _CopyFloatFromInt32(__int32);

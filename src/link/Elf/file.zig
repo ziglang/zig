@@ -10,23 +10,16 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn fmtPath(file: File) std.fmt.Formatter(formatPath) {
+    pub fn fmtPath(file: File) std.fmt.Alt(File, formatPath) {
         return .{ .data = file };
     }
 
-    fn formatPath(
-        file: File,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatPath(file: File, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (file) {
             .zig_object => |zo| try writer.writeAll(zo.basename),
             .linker_defined => try writer.writeAll("(linker defined)"),
-            .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .shared_object => |x| try writer.print("{}", .{@as(Path, x.path)}),
+            .object => |x| try writer.print("{f}", .{x.fmtPath()}),
+            .shared_object => |x| try writer.print("{f}", .{@as(Path, x.path)}),
         }
     }
 
@@ -198,10 +191,10 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn comdatGroup(file: File, ind: Elf.ComdatGroup.Index) *Elf.ComdatGroup {
+    pub fn group(file: File, ind: Elf.Group.Index) *Elf.Group {
         return switch (file) {
             .linker_defined, .shared_object, .zig_object => unreachable,
-            .object => |x| x.comdatGroup(ind),
+            .object => |x| x.group(ind),
         };
     }
 

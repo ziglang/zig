@@ -32,8 +32,7 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@intFromEnum(SYS.pipe)),
           [arg] "r" (fd),
-        : "memory", "g3"
-    );
+        : .{ .memory = true, .g3 = true });
 }
 
 pub fn syscall_fork() usize {
@@ -55,8 +54,7 @@ pub fn syscall_fork() usize {
         \\ 2:
         : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@intFromEnum(SYS.fork)),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall0(number: SYS) usize {
@@ -68,8 +66,7 @@ pub fn syscall0(number: SYS) usize {
         \\ 1:
         : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@intFromEnum(number)),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -82,8 +79,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -97,8 +93,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -113,8 +108,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -130,8 +124,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -148,8 +141,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall6(
@@ -175,8 +167,7 @@ pub fn syscall6(
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
           [arg6] "{o5}" (arg6),
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -242,8 +233,7 @@ pub fn restore_rt() callconv(.c) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory", "xcc", "o0", "o1", "o2", "o3", "o4", "o5", "o7"
-    );
+        : .{ .memory = true, .xcc = true, .o0 = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub const F = struct {
@@ -282,28 +272,9 @@ pub const Flock = extern struct {
     pid: pid_t,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: u64,
-    control: ?*anyopaque,
-    controllen: u64,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: u64,
-    control: ?*const anyopaque,
-    controllen: u64,
-    flags: i32,
-};
-
 pub const off_t = i64;
 pub const ino_t = u64;
+pub const time_t = isize;
 pub const mode_t = u32;
 pub const dev_t = usize;
 pub const nlink_t = u32;
@@ -354,107 +325,4 @@ pub const timezone = extern struct {
     dsttime: i32,
 };
 
-// TODO I'm not sure if the code below is correct, need someone with more
-// knowledge about sparc64 linux internals to look into.
-
 pub const Elf_Symndx = u32;
-
-pub const fpstate = extern struct {
-    regs: [32]u64,
-    fsr: u64,
-    gsr: u64,
-    fprs: u64,
-};
-
-pub const __fpq = extern struct {
-    fpq_addr: *u32,
-    fpq_instr: u32,
-};
-
-pub const __fq = extern struct {
-    FQu: extern union {
-        whole: f64,
-        fpq: __fpq,
-    },
-};
-
-pub const fpregset_t = extern struct {
-    fpu_fr: extern union {
-        fpu_regs: [32]u32,
-        fpu_dregs: [32]f64,
-        fpu_qregs: [16]c_longdouble,
-    },
-    fpu_q: *__fq,
-    fpu_fsr: u64,
-    fpu_qcnt: u8,
-    fpu_q_entrysize: u8,
-    fpu_en: u8,
-};
-
-pub const siginfo_fpu_t = extern struct {
-    float_regs: [64]u32,
-    fsr: u64,
-    gsr: u64,
-    fprs: u64,
-};
-
-pub const sigcontext = extern struct {
-    info: [128]i8,
-    regs: extern struct {
-        u_regs: [16]u64,
-        tstate: u64,
-        tpc: u64,
-        tnpc: u64,
-        y: u64,
-        fprs: u64,
-    },
-    fpu_save: *siginfo_fpu_t,
-    stack: extern struct {
-        sp: usize,
-        flags: i32,
-        size: u64,
-    },
-    mask: u64,
-};
-
-pub const greg_t = u64;
-pub const gregset_t = [19]greg_t;
-
-pub const fq = extern struct {
-    addr: *u64,
-    insn: u32,
-};
-
-pub const fpu_t = extern struct {
-    fregs: extern union {
-        sregs: [32]u32,
-        dregs: [32]u64,
-        qregs: [16]c_longdouble,
-    },
-    fsr: u64,
-    fprs: u64,
-    gsr: u64,
-    fq: *fq,
-    qcnt: u8,
-    qentsz: u8,
-    enab: u8,
-};
-
-pub const mcontext_t = extern struct {
-    gregs: gregset_t,
-    fp: greg_t,
-    i7: greg_t,
-    fpregs: fpu_t,
-};
-
-pub const ucontext_t = extern struct {
-    link: ?*ucontext_t,
-    flags: u64,
-    sigmask: u64,
-    mcontext: mcontext_t,
-    stack: stack_t,
-    sigset: sigset_t,
-};
-
-/// TODO
-pub const getcontext = {};

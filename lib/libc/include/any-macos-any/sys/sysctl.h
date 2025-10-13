@@ -154,7 +154,8 @@ struct ctlname {
 #define CTLFLAG_KERN        0x01000000      /* valid inside the kernel */
 #define CTLFLAG_LOCKED      0x00800000      /* node will handle locking itself */
 #define CTLFLAG_OID2        0x00400000      /* struct sysctl_oid has version info */
-#define CTLFLAG_EXPERIMENT 0x00100000 /* Allows writing w/ the trial experiment entitlement. */
+#define CTLFLAG_EXPERIMENT  0x00100000 /* Allows read/write w/ the trial experiment entitlement. */
+#define CTLFLAG_LEGACY_EXPERIMENT 0x00080000 /* Allows writing w/ the legacy trial experiment entitlement. */
 
 /*
  * USE THIS instead of a hardwired number from the categories below

@@ -65,6 +65,15 @@ pub fn storeComptimePtr(
     const zcu = pt.zcu;
     const ptr_info = ptr.typeOf(zcu).ptrInfo(zcu);
     assert(store_val.typeOf(zcu).toIntern() == ptr_info.child);
+
+    {
+        const store_ty: Type = .fromInterned(ptr_info.child);
+        if (!try store_ty.comptimeOnlySema(pt) and !try store_ty.hasRuntimeBitsIgnoreComptimeSema(pt)) {
+            // zero-bit store; nothing to do
+            return .success;
+        }
+    }
+
     // TODO: host size for vectors is terrible
     const host_bits = switch (ptr_info.flags.vector_index) {
         .none => ptr_info.packed_offset.host_size * 8,
@@ -219,7 +228,7 @@ fn loadComptimePtrInner(
 
     const base_val: MutableValue = switch (ptr.base_addr) {
         .nav => |nav| val: {
-            try sema.ensureNavResolved(src, nav, .fully);
+            try sema.ensureNavResolved(block, src, nav, .fully);
             const val = ip.getNav(nav).status.fully_resolved.val;
             switch (ip.indexToKey(val)) {
                 .variable => return .runtime_load,
@@ -971,13 +980,14 @@ fn unflattenArray(
     elems: []const InternPool.Index,
     next_idx: *u64,
 ) Allocator.Error!Value {
-    const zcu = sema.pt.zcu;
+    const pt = sema.pt;
+    const zcu = pt.zcu;
     const arena = sema.arena;
 
     if (ty.zigTypeTag(zcu) != .array) {
         const val = Value.fromInterned(elems[@intCast(next_idx.*)]);
         next_idx.* += 1;
-        return sema.pt.getCoerced(val, ty);
+        return pt.getCoerced(val, ty);
     }
 
     const elem_ty = ty.childType(zcu);
@@ -989,10 +999,7 @@ fn unflattenArray(
         // TODO: validate sentinel
         _ = try unflattenArray(sema, elem_ty, elems, next_idx);
     }
-    return Value.fromInterned(try sema.pt.intern(.{ .aggregate = .{
-        .ty = ty.toIntern(),
-        .storage = .{ .elems = buf },
-    } }));
+    return pt.aggregateValue(ty, buf);
 }
 
 /// Given a `MutableValue` representing a potentially-nested array, treats `index` as an index into

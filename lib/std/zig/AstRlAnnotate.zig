@@ -165,10 +165,6 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             }
             return false;
         },
-        .@"usingnamespace" => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.type_only);
-            return false;
-        },
         .test_decl => {
             _ = try astrl.expr(tree.nodeData(node).opt_token_and_node[1], block, ResultInfo.none);
             return false;
@@ -314,6 +310,7 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .unreachable_literal,
         .asm_simple,
         .@"asm",
+        .asm_legacy,
         .enum_literal,
         .error_value,
         .anyframe_literal,
@@ -334,12 +331,8 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             const full = tree.fullCall(&buf, node).?;
@@ -353,11 +346,6 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
                 .call,
                 .call_comma,
                 => false, // TODO: once function calls are passed result locations this will change
-                .async_call_one,
-                .async_call_one_comma,
-                .async_call,
-                .async_call_comma,
-                => ri.have_ptr, // always use result ptr for frames
                 else => unreachable,
             };
         },
@@ -503,7 +491,6 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return false;
         },
         .@"try",
-        .@"await",
         .@"nosuspend",
         => return astrl.expr(tree.nodeData(node).node, block, ri),
         .grouped_expression,
@@ -902,6 +889,19 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .frame_address => return true,
         // These builtins take a single argument with a known result type, but do not consume their
         // result pointer.
+        .sqrt,
+        .sin,
+        .cos,
+        .tan,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .floor,
+        .ceil,
+        .trunc,
+        .round,
         .size_of,
         .bit_size_of,
         .align_of,
@@ -931,24 +931,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         // result pointer.
         .int_from_ptr,
         .int_from_enum,
-        .sqrt,
-        .sin,
-        .cos,
-        .tan,
-        .exp,
-        .exp2,
-        .log,
-        .log2,
-        .log10,
         .abs,
-        .floor,
-        .ceil,
-        .trunc,
-        .round,
         .tag_name,
         .type_name,
         .Frame,
-        .frame_size,
         .int_from_float,
         .float_from_int,
         .ptr_from_int,
@@ -1055,7 +1041,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[2], block, ResultInfo.none);
             return false;
         },
-        .memcpy => {
+        .memcpy, .memmove => {
             _ = try astrl.expr(args[0], block, ResultInfo.none);
             _ = try astrl.expr(args[1], block, ResultInfo.none);
             return false;
@@ -1078,13 +1064,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[2], block, ResultInfo.none);
             _ = try astrl.expr(args[3], block, ResultInfo.none);
             return false;
-        },
-        .async_call => {
-            _ = try astrl.expr(args[0], block, ResultInfo.none);
-            _ = try astrl.expr(args[1], block, ResultInfo.none);
-            _ = try astrl.expr(args[2], block, ResultInfo.none);
-            _ = try astrl.expr(args[3], block, ResultInfo.none);
-            return false; // buffer passed as arg for frame data
         },
         .Vector => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);

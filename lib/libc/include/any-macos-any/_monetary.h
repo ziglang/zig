@@ -30,12 +30,15 @@
 #define	_MONETARY_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 #include <sys/_types/_size_t.h>
 #include <sys/_types/_ssize_t.h>
 
+_LIBC_SINGLE_BY_DEFAULT()
+
 __BEGIN_DECLS
-ssize_t	strfmon(char *, size_t, const char *, ...);
+ssize_t	strfmon(char *_LIBC_COUNT(__maxsize), size_t __maxsize, const char *, ...);
 __END_DECLS
 
 #endif /* !_MONETARY_H_ */

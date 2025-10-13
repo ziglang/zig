@@ -10,6 +10,7 @@
 #define _LIBCPP___RANDOM_INDEPENDENT_BITS_ENGINE_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__fwd/istream.h>
 #include <__fwd/ostream.h>
 #include <__random/is_seed_sequence.h>
@@ -18,7 +19,6 @@
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_convertible.h>
 #include <__utility/move.h>
-#include <cstddef>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -31,7 +31,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Engine, size_t __w, class _UIntType>
-class _LIBCPP_TEMPLATE_VIS independent_bits_engine {
+class independent_bits_engine {
   template <class _UInt, _UInt _R0, size_t _Wp, size_t _Mp>
   class __get_n {
     static _LIBCPP_CONSTEXPR const size_t _Dt = numeric_limits<_UInt>::digits;

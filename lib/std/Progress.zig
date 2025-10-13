@@ -9,6 +9,7 @@ const Progress = @This();
 const posix = std.posix;
 const is_big_endian = builtin.cpu.arch.endian() == .big;
 const is_windows = builtin.os.tag == .windows;
+const Writer = std.Io.Writer;
 
 /// `null` if the current node (and its children) should
 /// not print on update()
@@ -24,6 +25,7 @@ redraw_event: std.Thread.ResetEvent,
 /// Accessed atomically.
 done: bool,
 need_clear: bool,
+status: Status,
 
 refresh_rate_ns: u64,
 initial_delay_ns: u64,
@@ -39,9 +41,35 @@ draw_buffer: []u8,
 /// CPU cache.
 node_parents: []Node.Parent,
 node_storage: []Node.Storage,
-node_freelist: []Node.OptionalIndex,
-node_freelist_first: Node.OptionalIndex,
+node_freelist_next: []Node.OptionalIndex,
+node_freelist: Freelist,
+/// This is the number of elements in node arrays which have been used so far. Nodes before this
+/// index are either active, or on the freelist. The remaining nodes are implicitly free. This
+/// value may at times temporarily exceed the node count.
 node_end_index: u32,
+
+pub const Status = enum {
+    /// Indicates the application is progressing towards completion of a task.
+    /// Unless the application is interactive, this is the only status the
+    /// program will ever have!
+    working,
+    /// The application has completed an operation, and is now waiting for user
+    /// input rather than calling exit(0).
+    success,
+    /// The application encountered an error, and is now waiting for user input
+    /// rather than calling exit(1).
+    failure,
+    /// The application encountered at least one error, but is still working on
+    /// more tasks.
+    failure_working,
+};
+
+const Freelist = packed struct(u32) {
+    head: Node.OptionalIndex,
+    /// Whenever `node_freelist` is added to, this generation is incremented
+    /// to avoid ABA bugs when acquiring nodes. Wrapping arithmetic is used.
+    generation: u24,
+};
 
 pub const TerminalMode = union(enum) {
     off,
@@ -112,7 +140,7 @@ pub const Node = struct {
             // causes `completed_count` to be treated as a file descriptor, so
             // the order here matters.
             @atomicStore(u32, &s.completed_count, integer, .monotonic);
-            @atomicStore(u32, &s.estimated_total_count, std.math.maxInt(u32), .release);
+            @atomicStore(u32, &s.estimated_total_count, std.math.maxInt(u32), .release); // synchronizes with acquire in `serialize`
         }
 
         /// Not thread-safe.
@@ -184,12 +212,24 @@ pub const Node = struct {
         const node_index = node.index.unwrap() orelse return Node.none;
         const parent = node_index.toParent();
 
-        const freelist_head = &global_progress.node_freelist_first;
-        var opt_free_index = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
-        while (opt_free_index.unwrap()) |free_index| {
-            const freelist_ptr = freelistByIndex(free_index);
-            const next = @atomicLoad(Node.OptionalIndex, freelist_ptr, .seq_cst);
-            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, next, .seq_cst, .seq_cst) orelse {
+        const freelist = &global_progress.node_freelist;
+        var old_freelist = @atomicLoad(Freelist, freelist, .acquire); // acquire to ensure we have the correct "next" entry
+        while (old_freelist.head.unwrap()) |free_index| {
+            const next_ptr = freelistNextByIndex(free_index);
+            const new_freelist: Freelist = .{
+                .head = @atomicLoad(Node.OptionalIndex, next_ptr, .monotonic),
+                // We don't need to increment the generation when removing nodes from the free list,
+                // only when adding them. (This choice is arbitrary; the opposite would also work.)
+                .generation = old_freelist.generation,
+            };
+            old_freelist = @cmpxchgWeak(
+                Freelist,
+                freelist,
+                old_freelist,
+                new_freelist,
+                .acquire, // not theoretically necessary, but not allowed to be weaker than the failure order
+                .acquire, // ensure we have the correct `node_freelist_next` entry on the next iteration
+            ) orelse {
                 // We won the allocation race.
                 return init(free_index, parent, name, estimated_total_items);
             };
@@ -210,6 +250,28 @@ pub const Node = struct {
         const index = n.index.unwrap() orelse return;
         const storage = storageByIndex(index);
         _ = @atomicRmw(u32, &storage.completed_count, .Add, 1, .monotonic);
+    }
+
+    /// Thread-safe. Bytes after '0' in `new_name` are ignored.
+    pub fn setName(n: Node, new_name: []const u8) void {
+        const index = n.index.unwrap() orelse return;
+        const storage = storageByIndex(index);
+
+        const name_len = @min(max_name_len, std.mem.indexOfScalar(u8, new_name, 0) orelse new_name.len);
+
+        copyAtomicStore(storage.name[0..name_len], new_name[0..name_len]);
+        if (name_len < storage.name.len)
+            @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
+    }
+
+    /// Gets the name of this `Node`.
+    /// A pointer to this array can later be passed to `setName` to restore the name.
+    pub fn getName(n: Node) [max_name_len]u8 {
+        var dest: [max_name_len]u8 align(@alignOf(usize)) = undefined;
+        if (n.index.unwrap()) |index| {
+            copyAtomicLoad(&dest, &storageByIndex(index).name);
+        }
+        return dest;
     }
 
     /// Thread-safe.
@@ -243,18 +305,28 @@ pub const Node = struct {
         }
         const index = n.index.unwrap() orelse return;
         const parent_ptr = parentByIndex(index);
-        if (parent_ptr.unwrap()) |parent_index| {
+        if (@atomicLoad(Node.Parent, parent_ptr, .monotonic).unwrap()) |parent_index| {
             _ = @atomicRmw(u32, &storageByIndex(parent_index).completed_count, .Add, 1, .monotonic);
-            @atomicStore(Node.Parent, parent_ptr, .unused, .seq_cst);
+            @atomicStore(Node.Parent, parent_ptr, .unused, .monotonic);
 
-            const freelist_head = &global_progress.node_freelist_first;
-            var first = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
+            const freelist = &global_progress.node_freelist;
+            var old_freelist = @atomicLoad(Freelist, freelist, .monotonic);
             while (true) {
-                @atomicStore(Node.OptionalIndex, freelistByIndex(index), first, .seq_cst);
-                first = @cmpxchgWeak(Node.OptionalIndex, freelist_head, first, index.toOptional(), .seq_cst, .seq_cst) orelse break;
+                @atomicStore(Node.OptionalIndex, freelistNextByIndex(index), old_freelist.head, .monotonic);
+                old_freelist = @cmpxchgWeak(
+                    Freelist,
+                    freelist,
+                    old_freelist,
+                    .{ .head = index.toOptional(), .generation = old_freelist.generation +% 1 },
+                    .release, // ensure a matching `start` sees the freelist link written above
+                    .monotonic, // our write above is irrelevant if we need to retry
+                ) orelse {
+                    // We won the race.
+                    return;
+                };
             }
         } else {
-            @atomicStore(bool, &global_progress.done, true, .seq_cst);
+            @atomicStore(bool, &global_progress.done, true, .monotonic);
             global_progress.redraw_event.set();
             if (global_progress.update_thread) |thread| thread.join();
         }
@@ -291,8 +363,8 @@ pub const Node = struct {
         return &global_progress.node_parents[@intFromEnum(index)];
     }
 
-    fn freelistByIndex(index: Node.Index) *Node.OptionalIndex {
-        return &global_progress.node_freelist[@intFromEnum(index)];
+    fn freelistNextByIndex(index: Node.Index) *Node.OptionalIndex {
+        return &global_progress.node_freelist_next[@intFromEnum(index)];
     }
 
     fn init(free_index: Index, parent: Parent, name: []const u8, estimated_total_items: usize) Node {
@@ -307,8 +379,10 @@ pub const Node = struct {
             @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
 
         const parent_ptr = parentByIndex(free_index);
-        assert(parent_ptr.* == .unused);
-        @atomicStore(Node.Parent, parent_ptr, parent, .release);
+        if (std.debug.runtime_safety) {
+            assert(@atomicLoad(Node.Parent, parent_ptr, .monotonic) == .unused);
+        }
+        @atomicStore(Node.Parent, parent_ptr, parent, .monotonic);
 
         return .{ .index = free_index.toOptional() };
     }
@@ -326,18 +400,19 @@ var global_progress: Progress = .{
     .draw_buffer = undefined,
     .done = false,
     .need_clear = false,
+    .status = .working,
 
     .node_parents = &node_parents_buffer,
     .node_storage = &node_storage_buffer,
-    .node_freelist = &node_freelist_buffer,
-    .node_freelist_first = .none,
+    .node_freelist_next = &node_freelist_next_buffer,
+    .node_freelist = .{ .head = .none, .generation = 0 },
     .node_end_index = 0,
 };
 
 const node_storage_buffer_len = 83;
 var node_parents_buffer: [node_storage_buffer_len]Node.Parent = undefined;
 var node_storage_buffer: [node_storage_buffer_len]Node.Storage = undefined;
-var node_freelist_buffer: [node_storage_buffer_len]Node.OptionalIndex = undefined;
+var node_freelist_next_buffer: [node_storage_buffer_len]Node.OptionalIndex = undefined;
 
 var default_draw_buffer: [4096]u8 = undefined;
 
@@ -350,6 +425,9 @@ pub const have_ipc = switch (builtin.os.tag) {
 
 const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
+    else => false,
+} or switch (builtin.zig_backend) {
+    .stage2_aarch64 => true,
     else => false,
 };
 
@@ -395,7 +473,7 @@ pub fn start(options: Options) Node {
             if (options.disable_printing) {
                 return Node.none;
             }
-            const stderr = std.io.getStdErr();
+            const stderr: std.fs.File = .stderr();
             global_progress.terminal = stderr;
             if (stderr.getOrEnableAnsiEscapeSupport()) {
                 global_progress.terminal_mode = .ansi_escape_codes;
@@ -410,9 +488,9 @@ pub fn start(options: Options) Node {
             }
 
             if (have_sigwinch) {
-                var act: posix.Sigaction = .{
+                const act: posix.Sigaction = .{
                     .handler = .{ .sigaction = handleSigWinch },
-                    .mask = posix.empty_sigset,
+                    .mask = posix.sigemptyset(),
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
                 posix.sigaction(posix.SIG.WINCH, &act, null);
@@ -438,6 +516,11 @@ pub fn start(options: Options) Node {
     return root_node;
 }
 
+pub fn setStatus(new_status: Status) void {
+    if (noop_impl) return;
+    @atomicStore(Status, &global_progress.status, new_status, .monotonic);
+}
+
 /// Returns whether a resize is needed to learn the terminal size.
 fn wait(timeout_ns: u64) bool {
     const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_|
@@ -456,7 +539,7 @@ fn updateThreadRun() void {
 
     {
         const resize_flag = wait(global_progress.initial_delay_ns);
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) return;
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) return;
         maybeUpdateSize(resize_flag);
 
         const buffer, _ = computeRedraw(&serialized_buffer);
@@ -470,7 +553,7 @@ fn updateThreadRun() void {
     while (true) {
         const resize_flag = wait(global_progress.refresh_rate_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) {
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) {
             stderr_mutex.lock();
             defer stderr_mutex.unlock();
             return clearWrittenWithEscapeCodes() catch {};
@@ -500,7 +583,7 @@ fn windowsApiUpdateThreadRun() void {
 
     {
         const resize_flag = wait(global_progress.initial_delay_ns);
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) return;
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) return;
         maybeUpdateSize(resize_flag);
 
         const buffer, const nl_n = computeRedraw(&serialized_buffer);
@@ -516,7 +599,7 @@ fn windowsApiUpdateThreadRun() void {
     while (true) {
         const resize_flag = wait(global_progress.refresh_rate_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) {
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) {
             stderr_mutex.lock();
             defer stderr_mutex.unlock();
             return clearWrittenWindowsApi() catch {};
@@ -550,6 +633,37 @@ pub fn unlockStdErr() void {
     stderr_mutex.unlock();
 }
 
+/// Protected by `stderr_mutex`.
+const stderr_writer: *Writer = &stderr_file_writer.interface;
+/// Protected by `stderr_mutex`.
+var stderr_file_writer: std.fs.File.Writer = .{
+    .interface = std.fs.File.Writer.initInterface(&.{}),
+    .file = if (is_windows) undefined else .stderr(),
+    .mode = .streaming,
+};
+
+/// Allows the caller to freely write to the returned `Writer`,
+/// initialized with `buffer`, until `unlockStderrWriter` is called.
+///
+/// During the lock, any `std.Progress` information is cleared from the terminal.
+///
+/// The lock is recursive; the same thread may hold the lock multiple times.
+pub fn lockStderrWriter(buffer: []u8) *Writer {
+    stderr_mutex.lock();
+    clearWrittenWithEscapeCodes() catch {};
+    if (is_windows) stderr_file_writer.file = .stderr();
+    stderr_writer.flush() catch {};
+    stderr_writer.buffer = buffer;
+    return stderr_writer;
+}
+
+pub fn unlockStderrWriter() void {
+    stderr_writer.flush() catch {};
+    stderr_writer.end = 0;
+    stderr_writer.buffer = &.{};
+    stderr_mutex.unlock();
+}
+
 fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
     // Store this data in the thread so that it does not need to be part of the
     // linker data of the main executable.
@@ -558,7 +672,7 @@ fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
     {
         _ = wait(global_progress.initial_delay_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+        if (@atomicLoad(bool, &global_progress.done, .monotonic))
             return;
 
         const serialized = serialize(&serialized_buffer);
@@ -570,7 +684,7 @@ fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
     while (true) {
         _ = wait(global_progress.refresh_rate_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+        if (@atomicLoad(bool, &global_progress.done, .monotonic))
             return;
 
         const serialized = serialize(&serialized_buffer);
@@ -586,6 +700,14 @@ const clear = "\x1b[J";
 const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
+
+const progress_remove = "\x1b]9;4;0\x07";
+const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x07";
+const @"progress_error {d}" = "\x1b]9;4;2;{d}\x07";
+const progress_pulsing = "\x1b]9;4;3\x07";
+const progress_pulsing_error = "\x1b]9;4;2\x07";
+const progress_normal_100 = "\x1b]9;4;1;100\x07";
+const progress_error_100 = "\x1b]9;4;2;100\x07";
 
 const TreeSymbol = enum {
     /// ├─
@@ -666,10 +788,10 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
 }
 
 fn clearWrittenWithEscapeCodes() anyerror!void {
-    if (!global_progress.need_clear) return;
+    if (noop_impl or !global_progress.need_clear) return;
 
     global_progress.need_clear = false;
-    try write(clear);
+    try write(clear ++ progress_remove);
 }
 
 /// U+25BA or ►
@@ -765,37 +887,39 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     var any_ipc = false;
 
     // Iterate all of the nodes and construct a serializable copy of the state that can be examined
-    // without atomics.
-    const end_index = @atomicLoad(u32, &global_progress.node_end_index, .monotonic);
+    // without atomics. The `@min` call is here because `node_end_index` might briefly exceed the
+    // node count sometimes.
+    const end_index = @min(@atomicLoad(u32, &global_progress.node_end_index, .monotonic), global_progress.node_storage.len);
     for (
         global_progress.node_parents[0..end_index],
         global_progress.node_storage[0..end_index],
         serialized_buffer.map[0..end_index],
     ) |*parent_ptr, *storage_ptr, *map| {
-        var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
-        while (begin_parent != .unused) {
-            const dest_storage = &serialized_buffer.storage[serialized_len];
-            copyAtomicLoad(&dest_storage.name, &storage_ptr.name);
-            dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire);
-            dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
-            const end_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
-            if (begin_parent == end_parent) {
-                any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
-                serialized_buffer.parents[serialized_len] = begin_parent;
-                map.* = @enumFromInt(serialized_len);
-                serialized_len += 1;
-                break;
-            }
-
-            begin_parent = end_parent;
-        } else {
-            // A node may be freed during the execution of this loop, causing
-            // there to be a parent reference to a nonexistent node. Without
-            // this assignment, this would lead to the map entry containing
-            // stale data. By assigning none, the child node with the bad
-            // parent pointer will be harmlessly omitted from the tree.
+        const parent = @atomicLoad(Node.Parent, parent_ptr, .monotonic);
+        if (parent == .unused) {
+            // We might read "mixed" node data in this loop, due to weird atomic things
+            // or just a node actually being freed while this loop runs. That could cause
+            // there to be a parent reference to a nonexistent node. Without this assignment,
+            // this would lead to the map entry containing stale data. By assigning none, the
+            // child node with the bad parent pointer will be harmlessly omitted from the tree.
+            //
+            // Note that there's no concern of potentially creating "looping" data if we read
+            // "mixed" node data like this, because if a node is (directly or indirectly) its own
+            // parent, it will just not be printed at all. The general idea here is that performance
+            // is more important than 100% correct output every frame, given that this API is likely
+            // to be used in hot paths!
             map.* = .none;
+            continue;
         }
+        const dest_storage = &serialized_buffer.storage[serialized_len];
+        copyAtomicLoad(&dest_storage.name, &storage_ptr.name);
+        dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire); // sychronizes with release in `setIpcFd`
+        dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
+
+        any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
+        serialized_buffer.parents[serialized_len] = parent;
+        map.* = @enumFromInt(serialized_len);
+        serialized_len += 1;
     }
 
     // Remap parents to point inside serialized arrays.
@@ -882,7 +1006,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
                         continue;
                     }
                     const src = pipe_buf[m.remaining_read_trash_bytes..n];
-                    std.mem.copyForwards(u8, &pipe_buf, src);
+                    @memmove(pipe_buf[0..src.len], src);
                     m.remaining_read_trash_bytes = 0;
                     bytes_read = src.len;
                     continue;
@@ -1110,6 +1234,47 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
     i, const nl_n = computeNode(buf, i, 0, serialized, children, root_node_index);
 
     if (global_progress.terminal_mode == .ansi_escape_codes) {
+        {
+            // Set progress state https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+            const root_storage = &serialized.storage[0];
+            const storage = if (root_storage.name[0] != 0 or children[0].child == .none) root_storage else &serialized.storage[@intFromEnum(children[0].child)];
+            const estimated_total = storage.estimated_total_count;
+            const completed_items = storage.completed_count;
+            const status = @atomicLoad(Status, &global_progress.status, .monotonic);
+            switch (status) {
+                .working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing.len].* = progress_pulsing.*;
+                        i += progress_pulsing.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
+                    }
+                },
+                .success => {
+                    buf[i..][0..progress_remove.len].* = progress_remove.*;
+                    i += progress_remove.len;
+                },
+                .failure => {
+                    buf[i..][0..progress_error_100.len].* = progress_error_100.*;
+                    i += progress_error_100.len;
+                },
+                .failure_working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing_error.len].* = progress_pulsing_error.*;
+                        i += progress_pulsing_error.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
+                    }
+                },
+            }
+        }
+
         if (nl_n > 0) {
             buf[i] = '\r';
             i += 1;
@@ -1203,12 +1368,18 @@ fn computeNode(
     if (!is_empty_root) {
         if (name.len != 0 or estimated_total > 0) {
             if (estimated_total > 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total }) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total })) |b| {
+                    i += b.len;
+                } else |_| {}
             } else if (completed_items != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
             if (name.len != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "{s}", .{name}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "{s}", .{name})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
         }
 
@@ -1387,6 +1558,7 @@ const have_sigwinch = switch (builtin.os.tag) {
     .visionos,
     .dragonfly,
     .freebsd,
+    .serenity,
     => true,
 
     else => false,

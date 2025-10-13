@@ -62,6 +62,7 @@ public:
 #include <__config>
 #include <__memory/allocator_traits.h>
 #include <__memory/pointer_traits.h>
+#include <__type_traits/is_specialization.h>
 #include <optional>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -80,7 +81,7 @@ template <class _NodeType, class _Alloc>
 struct __generic_container_node_destructor;
 
 template <class _NodeType, class _Alloc, template <class, class> class _MapOrSetSpecifics>
-class _LIBCPP_TEMPLATE_VIS __basic_node_handle
+class __basic_node_handle
     : public _MapOrSetSpecifics< _NodeType, __basic_node_handle<_NodeType, _Alloc, _MapOrSetSpecifics>> {
   template <class _Tp, class _Compare, class _Allocator>
   friend class __tree;
@@ -175,26 +176,26 @@ struct __set_node_handle_specifics {
 
 template <class _NodeType, class _Derived>
 struct __map_node_handle_specifics {
-  typedef typename _NodeType::__node_value_type::key_type key_type;
-  typedef typename _NodeType::__node_value_type::mapped_type mapped_type;
+  using key_type    = __remove_const_t<typename _NodeType::__node_value_type::first_type>;
+  using mapped_type = typename _NodeType::__node_value_type::second_type;
 
   _LIBCPP_HIDE_FROM_ABI key_type& key() const {
-    return static_cast<_Derived const*>(this)->__ptr_->__get_value().__ref().first;
+    return const_cast<key_type&>(static_cast<_Derived const*>(this)->__ptr_->__get_value().first);
   }
 
   _LIBCPP_HIDE_FROM_ABI mapped_type& mapped() const {
-    return static_cast<_Derived const*>(this)->__ptr_->__get_value().__ref().second;
+    return static_cast<_Derived const*>(this)->__ptr_->__get_value().second;
   }
 };
 
 template <class _NodeType, class _Alloc>
-using __set_node_handle = __basic_node_handle< _NodeType, _Alloc, __set_node_handle_specifics>;
+using __set_node_handle _LIBCPP_NODEBUG = __basic_node_handle< _NodeType, _Alloc, __set_node_handle_specifics>;
 
 template <class _NodeType, class _Alloc>
-using __map_node_handle = __basic_node_handle< _NodeType, _Alloc, __map_node_handle_specifics>;
+using __map_node_handle _LIBCPP_NODEBUG = __basic_node_handle< _NodeType, _Alloc, __map_node_handle_specifics>;
 
 template <class _Iterator, class _NodeType>
-struct _LIBCPP_TEMPLATE_VIS __insert_return_type {
+struct __insert_return_type {
   _Iterator position;
   bool inserted;
   _NodeType node;

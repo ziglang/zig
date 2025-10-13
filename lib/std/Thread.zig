@@ -58,7 +58,7 @@ pub fn sleep(nanoseconds: u64) void {
         const boot_services = std.os.uefi.system_table.boot_services.?;
         const us_from_ns = nanoseconds / std.time.ns_per_us;
         const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
+        boot_services.stall(us) catch unreachable;
         return;
     }
 
@@ -83,10 +83,9 @@ pub fn sleep(nanoseconds: u64) void {
                     req = rem;
                     continue;
                 },
-                .FAULT,
-                .INVAL,
-                .OPNOTSUPP,
-                => unreachable,
+                .FAULT => unreachable,
+                .INVAL => unreachable,
+                .OPNOTSUPP => unreachable,
                 else => return,
             }
         }
@@ -167,7 +166,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
             defer file.close();
 
-            try file.writer().writeAll(name);
+            try file.writeAll(name);
             return;
         },
         .windows => {
@@ -251,7 +250,7 @@ pub const GetNameError = error{
     Unexpected,
 } || posix.PrctlError || posix.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
@@ -281,8 +280,10 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
-            const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
-
+            var file_reader = file.readerStreaming(&.{});
+            const data_len = file_reader.interface.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
+                error.ReadFailed => return file_reader.err.?,
+            };
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
         },
         .windows => {
@@ -529,7 +530,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
                     @call(.auto, f, args) catch |err| {
                         std.debug.print("error: {s}\n", .{@errorName(err)});
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
                     };
 
@@ -761,7 +762,7 @@ const PosixThreadImpl = struct {
                 var count_len: usize = @sizeOf(c_int);
                 const name = if (comptime target.os.tag.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
                 posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong, error.UnknownName => unreachable,
+                    error.UnknownName => unreachable,
                     else => |e| return e,
                 };
                 return @as(usize, @intCast(count));
@@ -911,18 +912,9 @@ const WasiThreadImpl = struct {
             allocator.free(self.thread.memory);
         }
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
-
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
+            if (tid == 0) break;
 
             const result = asm (
                 \\ local.get %[ptr]
@@ -1163,7 +1155,7 @@ const LinuxThreadImpl = struct {
 
     fn getCurrentId() Id {
         return tls_thread_id orelse {
-            const tid = @as(u32, @bitCast(linux.gettid()));
+            const tid: u32 = @bitCast(linux.gettid());
             tls_thread_id = tid;
             return tid;
         };
@@ -1198,8 +1190,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .x86_64 => asm volatile (
                     \\  movq $11, %%rax # SYS_munmap
                     \\  syscall
@@ -1221,8 +1212,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .aarch64, .aarch64_be => asm volatile (
                     \\  mov x8, #215 // SYS_munmap
                     \\  mov x0, %[ptr]
@@ -1234,8 +1224,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
                     \\  r0 = %[ptr]
@@ -1247,8 +1236,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 // We set `sp` to the address of the current function as a workaround for a Linux
                 // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
@@ -1265,8 +1253,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .mips64, .mips64el => asm volatile (
                     \\  li $2, 5011 # SYS_munmap
                     \\  move $4, %[ptr]
@@ -1278,8 +1265,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91 # SYS_munmap
                     \\  mr 3, %[ptr]
@@ -1292,8 +1278,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .riscv32, .riscv64 => asm volatile (
                     \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
@@ -1305,8 +1290,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .s390x => asm volatile (
                     \\  lgr %%r2, %[ptr]
                     \\  lgr %%r3, %[len]
@@ -1316,8 +1300,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .sparc => asm volatile (
                     \\ # See sparc64 comments below.
                     \\ 1:
@@ -1338,8 +1321,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .sparc64 => asm volatile (
                     \\ # SPARCs really don't like it when active stack frames
                     \\ # is unmapped (it will result in a segfault), so we
@@ -1365,8 +1347,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .loongarch32, .loongarch64 => asm volatile (
                     \\ or      $a0, $zero, %[ptr]
                     \\ or      $a1, $zero, %[len]
@@ -1378,8 +1359,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;
@@ -1526,23 +1506,14 @@ const LinuxThreadImpl = struct {
     fn join(self: Impl) void {
         defer posix.munmap(self.thread.mapped);
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.child_tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
+            if (tid == 0) break;
 
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
-
-            switch (linux.E.init(linux.futex_wait(
+            switch (linux.E.init(linux.futex_4arg(
                 &self.thread.child_tid.raw,
-                linux.FUTEX.WAIT,
-                tid,
+                .{ .cmd = .WAIT, .private = false },
+                @bitCast(tid),
                 null,
             ))) {
                 .SUCCESS => continue,
@@ -1628,7 +1599,6 @@ test "setName, getName" {
 }
 
 test {
-    // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
     _ = Futex;
     _ = ResetEvent;
     _ = Mutex;
@@ -1666,4 +1636,46 @@ test detach {
 
     event.wait();
     try std.testing.expectEqual(value, 1);
+}
+
+test "Thread.getCpuCount" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    const cpu_count = try Thread.getCpuCount();
+    try std.testing.expect(cpu_count >= 1);
+}
+
+fn testThreadIdFn(thread_id: *Thread.Id) void {
+    thread_id.* = Thread.getCurrentId();
+}
+
+test "Thread.getCurrentId" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    var thread_current_id: Thread.Id = undefined;
+    const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
+    thread.join();
+    try std.testing.expect(Thread.getCurrentId() != thread_current_id);
+}
+
+test "thread local storage" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    if (builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) {
+        // https://github.com/ziglang/zig/issues/24061
+        return error.SkipZigTest;
+    }
+
+    const thread1 = try Thread.spawn(.{}, testTls, .{});
+    const thread2 = try Thread.spawn(.{}, testTls, .{});
+    try testTls();
+    thread1.join();
+    thread2.join();
+}
+
+threadlocal var x: i32 = 1234;
+fn testTls() !void {
+    if (x != 1234) return error.TlsBadStartValue;
+    x += 1;
+    if (x != 1235) return error.TlsBadEndValue;
 }

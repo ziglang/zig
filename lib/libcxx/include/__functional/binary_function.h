@@ -21,7 +21,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
 
 template <class _Arg1, class _Arg2, class _Result>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 binary_function {
+struct _LIBCPP_DEPRECATED_IN_CXX11 binary_function {
   typedef _Arg1 first_argument_type;
   typedef _Arg2 second_argument_type;
   typedef _Result result_type;
@@ -39,14 +39,13 @@ struct __binary_function_keep_layout_base {
 };
 
 #if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION)
-_LIBCPP_DIAGNOSTIC_PUSH
-_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wdeprecated-declarations")
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Arg1, class _Arg2, class _Result>
-using __binary_function = binary_function<_Arg1, _Arg2, _Result>;
-_LIBCPP_DIAGNOSTIC_POP
+using __binary_function _LIBCPP_NODEBUG = binary_function<_Arg1, _Arg2, _Result>;
+_LIBCPP_SUPPRESS_DEPRECATED_POP
 #else
 template <class _Arg1, class _Arg2, class _Result>
-using __binary_function = __binary_function_keep_layout_base<_Arg1, _Arg2, _Result>;
+using __binary_function _LIBCPP_NODEBUG = __binary_function_keep_layout_base<_Arg1, _Arg2, _Result>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -12,7 +12,6 @@
 
 #include <__config>
 #include <__iterator/reverse_iterator.h>
-#include <cstddef>
 #include <initializer_list>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

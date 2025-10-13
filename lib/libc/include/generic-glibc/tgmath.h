@@ -923,6 +923,24 @@
 /* Return the cube root of X.  */
 #define cbrt(Val) __TGMATH_UNARY_REAL_ONLY (Val, cbrt)
 
+#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C23)
+/* Return 1+X to the Y power.  */
+# define compoundn(Val1, Val2)					\
+  __TGMATH_BINARY_FIRST_REAL_ONLY (Val1, Val2, compoundn)
+
+/* Return X to the Y power.  */
+# define pown(Val1, Val2) __TGMATH_BINARY_FIRST_REAL_ONLY (Val1, Val2, pown)
+
+/* Return X to the Y power.  */
+# define powr(Val1, Val2) __TGMATH_BINARY_REAL_ONLY (Val1, Val2, powr)
+
+/* Return the Yth root of X.  */
+# define rootn(Val1, Val2) __TGMATH_BINARY_FIRST_REAL_ONLY (Val1, Val2, rootn)
+
+/* Return 1/sqrt(X).  */
+# define rsqrt(Val) __TGMATH_UNARY_REAL_ONLY (Val, rsqrt)
+#endif
+
 
 /* Nearest integer, absolute value, and remainder functions.  */
 

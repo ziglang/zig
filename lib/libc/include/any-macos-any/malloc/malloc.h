@@ -2,14 +2,14 @@
  * Copyright (c) 1999-2023 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,7 +17,7 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
@@ -62,6 +62,57 @@ __ptrcheck_abi_assume_single()
 #endif // MALLOC_ZONE_FN_PTR
 
 __BEGIN_DECLS
+
+/*********  Typed zone functions        ************/
+
+#if defined(__has_attribute) && __has_attribute(swift_name)
+#define MALLOC_SWIFT_NAME(x) __attribute__((swift_name(#x)))
+#else
+#define MALLOC_SWIFT_NAME(x)
+#endif // defined(__has_attribute) && __has_attribute(swift_name)
+
+/*!
+ * @constant MALLOC_ZONE_MALLOC_DEFAULT_ALIGN
+ * Default alignment for malloc_type_zone_malloc_with_options
+ */
+#define MALLOC_ZONE_MALLOC_DEFAULT_ALIGN __SIZEOF_POINTER__
+
+/*!
+ * @enum malloc_zone_malloc_options_t
+ *
+ * @constant MALLOC_ZONE_MALLOC_OPTION_NONE
+ * Empty placeholder option.
+ *
+ * @constant MALLOC_ZONE_MALLOC_OPTION_CLEAR
+ * Zero out the allocated memory, similar to calloc().
+ *
+ */
+/*!
+ * @constant MALLOC_ZONE_MALLOC_OPTION_CANONICAL_TAG
+ * Under MTE, use a tag of zero (canonical) instead of a random value.
+ */
+typedef enum __enum_options : uint64_t {
+	MALLOC_ZONE_MALLOC_OPTION_NONE = 0u,
+	MALLOC_ZONE_MALLOC_OPTION_CLEAR MALLOC_SWIFT_NAME(clear) = 1u << 0,
+	MALLOC_ZONE_MALLOC_OPTION_CANONICAL_TAG MALLOC_SWIFT_NAME(canonicalTag) = 1u << 1,
+} malloc_zone_malloc_options_t;
+
+/*!
+ * @function malloc_type_zone_malloc_with_options
+ *
+ * Like the other functions declared in malloc/_malloc_type.h, this function
+ * is not intended to be called directly, but is rather the rewrite target for
+ * calls to malloc_zone_malloc_with_options when typed memory operations are
+ * enabled.
+ */
+#if defined(__LP64__)
+__API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0), visionos(26.0), driverkit(25.0))
+void * __sized_by_or_null(size) malloc_type_zone_malloc_with_options(malloc_zone_t *zone, size_t alignment, size_t size, malloc_type_id_t type_id, malloc_zone_malloc_options_t opts) __result_use_check __alloc_align(2) __alloc_size(3);
+#endif /* __LP64__ */
+
+// The remainder of these functions are declared in malloc/_malloc_type.h, and
+// the backdeployment variant definitions are at the bottom of this file.
+
 /*********	Type definitions	************/
 
 /*
@@ -160,8 +211,7 @@ typedef struct _malloc_zone_t {
 			void * __unsafe_indexable ptr);
 
 	/*
-	 * Memory allocation with an extensible binary flags option. Currently for
-	 * libmalloc-internal zone implementations only - should be NULL otherwise.
+	 * Memory allocation with an extensible binary flags option.
 	 * Added in version >= 15.
 	 */
 	void * __sized_by_or_null(size) (* MALLOC_ZONE_FN_PTR(malloc_with_options))(
@@ -188,10 +238,9 @@ typedef struct _malloc_zone_t {
 			struct _malloc_zone_t *zone, size_t alignment, size_t size,
 			malloc_type_id_t type_id);
 
-	/* Must be NULL for non-libmalloc zone implementations */
 	void * __sized_by_or_null(size) (* MALLOC_ZONE_FN_PTR(malloc_type_malloc_with_options))(
-			struct _malloc_zone_t *zone, size_t align, size_t size, uint64_t options,
-			malloc_type_id_t type_id);
+			struct _malloc_zone_t *zone, size_t align, size_t size,
+			uint64_t options, malloc_type_id_t type_id);
 } malloc_zone_t;
 
 /*!
@@ -351,6 +400,38 @@ extern void malloc_destroy_zone(malloc_zone_t *zone);
 
 extern void * __sized_by_or_null(size) malloc_zone_malloc(malloc_zone_t *zone, size_t size) __alloc_size(2) _MALLOC_TYPED(malloc_type_zone_malloc, 2);
 	/* Allocates a new pointer of size size; zone must be non-NULL */
+
+/*!
+ * @function malloc_zone_malloc_with_options
+ *
+ * @param zone
+ * The malloc zone that should be used to used to serve the allocation. This
+ * parameter may be NULL, in which case the default zone will be used.
+ *
+ * @param align
+ * The minimum alignment of the requested allocation. This parameter must be
+ * MALLOC_ZONE_MALLOC_DEFAULT_ALIGN to request default alignment, or a power
+ * of 2 >= sizeof(void *).
+ *
+ * @param size
+ * The size, in bytes, of the requested allocation. Must be an integral
+ * multiple of align if align is non-zero.
+ *
+ * @param options
+ * A bitmask of options defining how the memory should be allocated. See the
+ * available bit values in the malloc_zone_malloc_options_t enum definition.
+ *
+ * @result
+ * A pointer to the newly allocated block of memory, or NULL if the allocation
+ * failed.
+ *
+ * @discussion
+ * This API does not use errno to signal information about the reason for its
+ * success or failure, and makes no guarantees about preserving or settings its
+ * value in any case.
+ */
+__API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0), visionos(26.0), driverkit(25.0))
+extern void * __sized_by_or_null(size) malloc_zone_malloc_with_options(malloc_zone_t *zone, size_t align, size_t size, malloc_zone_malloc_options_t opts) __alloc_align(2) __alloc_size(3) _MALLOC_TYPED(malloc_type_zone_malloc_with_options, 3);
 
 extern void * __sized_by_or_null(num_items * size) malloc_zone_calloc(malloc_zone_t *zone, size_t num_items, size_t size) __alloc_size(2,3) _MALLOC_TYPED(malloc_type_zone_calloc, 3);
 	/* Allocates a new pointer of size num_items * size; block is cleared; zone must be non-NULL */
@@ -590,21 +671,79 @@ extern void malloc_zone_enumerate_discharged_pointers(malloc_zone_t *zone, void 
 // Version 13:
 //   - malloc_zone_t::malloc and malloc_zone_t::calloc assume responsibility for
 //     setting errno to ENOMEM on failure
-//   - malloc_zone_t::try_free_default
+//   - malloc_zone_t::try_free_default (libmalloc only, NULL otherwise)
 // Version 14:
-//   malloc_introspection_t::zone_type
+//   malloc_introspection_t::zone_type (mandatory, should be 0)
 // Version 15:
-//   malloc_zone_t::malloc_with_options
+//   malloc_zone_t::malloc_with_options (optional)
 // Version 16:
-//   malloc_zone_t::malloc_type_malloc
-//   malloc_zone_t::malloc_type_calloc
-//   malloc_zone_t::malloc_type_realloc
-//   malloc_zone_t::malloc_type_memalign
-//   malloc_zone_t::malloc_type_malloc_with_options
+//   malloc_zone_t::malloc_type_malloc (mandatory)
+//   malloc_zone_t::malloc_type_calloc (mandatory)
+//   malloc_zone_t::malloc_type_realloc (mandatory)
+//   malloc_zone_t::malloc_type_memalign (mandatory)
+//   malloc_zone_t::malloc_type_malloc_with_options (optional)
 
-// These functions are optional and calling them requires two checks:
+// Zone functions are optional unless specified otherwise above. Calling a zone
+// function requires two checks:
 //  * Check zone version to ensure zone struct is large enough to include the member.
 //  * Check that the function pointer is not null.
+
+#if defined(_MALLOC_TYPE_MALLOC_IS_BACKDEPLOYING) && _MALLOC_TYPE_MALLOC_IS_BACKDEPLOYING
+static void * __sized_by_or_null(size) __attribute__((always_inline)) malloc_type_zone_malloc_backdeploy(malloc_zone_t *zone, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(2) {
+	__attribute__((weak_import)) void * __sized_by_or_null(size) malloc_type_zone_malloc(malloc_zone_t *zone, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(2);
+	__auto_type func = malloc_zone_malloc;
+	if (malloc_type_zone_malloc) {
+		return malloc_type_zone_malloc(zone, size, type_id);
+	}
+	return func(zone, size);
+}
+
+static void * __sized_by_or_null(count * size) __attribute__((always_inline)) malloc_type_zone_calloc_backdeploy(malloc_zone_t *zone, size_t count, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(2,3) {
+	__attribute__((weak_import)) void * __sized_by_or_null(count * size) malloc_type_zone_calloc(malloc_zone_t *zone, size_t count, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(2,3);
+	__auto_type func = malloc_zone_calloc;
+	if (malloc_type_zone_calloc) {
+		return malloc_type_zone_calloc(zone, count, size, type_id);
+	}
+	return func(zone, count, size);
+}
+
+static void __attribute__((always_inline)) malloc_type_zone_free_backdeploy(malloc_zone_t *zone, void * __unsafe_indexable ptr, malloc_type_id_t type_id) {
+	__attribute__((weak_import)) void malloc_type_zone_free(malloc_zone_t *zone, void * __unsafe_indexable ptr, malloc_type_id_t type_id);
+	__auto_type func = malloc_zone_free;
+	if (malloc_type_zone_free) {
+		malloc_type_zone_free(zone, ptr, type_id);
+	} else {
+		func(zone, ptr);
+	}
+}
+
+static void * __sized_by_or_null(size) __attribute__((always_inline)) malloc_type_zone_realloc_backdeploy(malloc_zone_t *zone, void * __unsafe_indexable ptr, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(3) {
+	__auto_type func = malloc_zone_realloc;
+	__attribute__((weak_import)) void * __sized_by_or_null(size) malloc_type_zone_realloc(malloc_zone_t *zone, void * __unsafe_indexable ptr, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(3);
+	if (malloc_type_zone_realloc) {
+		return malloc_type_zone_realloc(zone, ptr, size, type_id);
+	}
+	return func(zone, ptr, size);
+}
+
+static void *__sized_by_or_null(size) __attribute__((always_inline)) malloc_type_zone_valloc_backdeploy(malloc_zone_t *zone, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(2) {
+	__attribute__((weak_import)) void *__sized_by_or_null(size) malloc_type_zone_valloc(malloc_zone_t *zone, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_size(2);
+	__auto_type func = malloc_zone_valloc;
+	if (malloc_type_zone_valloc) {
+		return malloc_type_zone_valloc(zone, size, type_id);
+	}
+	return func(zone, size);
+}
+
+static void *__sized_by_or_null(size) __attribute__((always_inline)) malloc_type_zone_memalign_backdeploy(malloc_zone_t *zone, size_t alignment, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_align(2) __alloc_size(3) {
+	__attribute__((weak_import)) void *__sized_by_or_null(size) malloc_type_zone_memalign(malloc_zone_t *zone, size_t alignment, size_t size, malloc_type_id_t type_id) __result_use_check __alloc_align(2) __alloc_size(3);
+	__auto_type func = malloc_zone_memalign;
+	if (malloc_type_zone_memalign) {
+		return malloc_type_zone_memalign(zone, alignment, size, type_id);
+	}
+	return func(zone, alignment, size);
+}
+#endif // defined(_MALLOC_TYPE_MALLOC_IS_BACKDEPLOYING) && _MALLOC_TYPE_MALLOC_IS_BACKDEPLOYING
 
 __END_DECLS
 

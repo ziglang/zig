@@ -1,7 +1,7 @@
 const std = @import("std");
 
 test "detect leak" {
-    var list = std.ArrayList(u21).init(std.testing.allocator);
+    var list = std.array_list.Managed(u21).init(std.testing.allocator);
     // missing `defer list.deinit();`
     try list.append('☔');
 

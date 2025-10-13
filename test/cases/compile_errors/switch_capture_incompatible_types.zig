@@ -15,8 +15,6 @@ export fn g() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:20: error: capture group with incompatible types
 // :5:20: note: incompatible types: 'u32' and '*u8'

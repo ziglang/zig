@@ -34,7 +34,7 @@ pub fn isSdkInstalled(allocator: Allocator) bool {
 /// Caller owns the memory.
 /// stderr from xcrun is ignored.
 /// If error.OutOfMemory occurs in Allocator, this function returns null.
-pub fn getSdk(allocator: Allocator, target: Target) ?[]const u8 {
+pub fn getSdk(allocator: Allocator, target: *const Target) ?[]const u8 {
     const is_simulator_abi = target.abi == .simulator;
     const sdk = switch (target.os.tag) {
         .ios => switch (target.abi) {
@@ -59,7 +59,7 @@ pub fn getSdk(allocator: Allocator, target: Target) ?[]const u8 {
         .Exited => |code| if (code != 0) return null,
         else => return null,
     }
-    return allocator.dupe(u8, mem.trimRight(u8, result.stdout, "\r\n")) catch null;
+    return allocator.dupe(u8, mem.trimEnd(u8, result.stdout, "\r\n")) catch null;
 }
 
 test {

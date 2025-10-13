@@ -10,21 +10,27 @@
 #ifndef _LIBCPP___THREAD_THREAD_H
 #define _LIBCPP___THREAD_THREAD_H
 
+#include <__assert>
 #include <__condition_variable/condition_variable.h>
 #include <__config>
 #include <__exception/terminate.h>
 #include <__functional/hash.h>
 #include <__functional/unary_function.h>
+#include <__locale>
+#include <__memory/addressof.h>
 #include <__memory/unique_ptr.h>
 #include <__mutex/mutex.h>
-#include <__system_error/system_error.h>
+#include <__system_error/throw_system_error.h>
 #include <__thread/id.h>
 #include <__thread/support.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
 #include <tuple>
 
-#ifndef _LIBCPP_HAS_NO_LOCALIZATION
-#  include <locale>
+#if _LIBCPP_HAS_LOCALIZATION
 #  include <sstream>
 #endif
 
@@ -36,6 +42,8 @@ _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
+
+#if _LIBCPP_HAS_THREADS
 
 template <class _Tp>
 class __thread_specific_ptr;
@@ -93,7 +101,7 @@ template <class _Tp>
 __thread_specific_ptr<_Tp>::__thread_specific_ptr() {
   int __ec = __libcpp_tls_create(&__key_, &__thread_specific_ptr::__at_thread_exit);
   if (__ec)
-    __throw_system_error(__ec, "__thread_specific_ptr construction failed");
+    std::__throw_system_error(__ec, "__thread_specific_ptr construction failed");
 }
 
 template <class _Tp>
@@ -111,13 +119,13 @@ void __thread_specific_ptr<_Tp>::set_pointer(pointer __p) {
 }
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS hash<__thread_id> : public __unary_function<__thread_id, size_t> {
+struct hash<__thread_id> : public __unary_function<__thread_id, size_t> {
   _LIBCPP_HIDE_FROM_ABI size_t operator()(__thread_id __v) const _NOEXCEPT {
     return hash<__libcpp_thread_id>()(__v.__id_);
   }
 };
 
-#ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
 template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, __thread_id __id) {
@@ -142,7 +150,46 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, __thread_id __id) {
   __sstr << __id.__id_;
   return __os << __sstr.str();
 }
-#endif // _LIBCPP_HAS_NO_LOCALIZATION
+#  endif // _LIBCPP_HAS_LOCALIZATION
+
+#  ifndef _LIBCPP_CXX03_LANG
+
+template <class _TSp, class _Fp, class... _Args, size_t... _Indices>
+inline _LIBCPP_HIDE_FROM_ABI void __thread_execute(tuple<_TSp, _Fp, _Args...>& __t, __tuple_indices<_Indices...>) {
+  std::__invoke(std::move(std::get<1>(__t)), std::move(std::get<_Indices>(__t))...);
+}
+
+template <class _Fp>
+_LIBCPP_HIDE_FROM_ABI void* __thread_proxy(void* __vp) {
+  // _Fp = tuple< unique_ptr<__thread_struct>, Functor, Args...>
+  unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
+  __thread_local_data().set_pointer(std::get<0>(*__p.get()).release());
+  typedef typename __make_tuple_indices<tuple_size<_Fp>::value, 2>::type _Index;
+  std::__thread_execute(*__p.get(), _Index());
+  return nullptr;
+}
+
+#  else // _LIBCPP_CXX03_LANG
+
+template <class _Fp>
+struct __thread_invoke_pair {
+  // This type is used to pass memory for thread local storage and a functor
+  // to a newly created thread because std::pair doesn't work with
+  // std::unique_ptr in C++03.
+  _LIBCPP_HIDE_FROM_ABI __thread_invoke_pair(_Fp& __f) : __tsp_(new __thread_struct), __fn_(__f) {}
+  unique_ptr<__thread_struct> __tsp_;
+  _Fp __fn_;
+};
+
+template <class _Fp>
+_LIBCPP_HIDE_FROM_ABI void* __thread_proxy_cxx03(void* __vp) {
+  unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
+  __thread_local_data().set_pointer(__p->__tsp_.release());
+  (__p->__fn_)();
+  return nullptr;
+}
+
+#  endif // _LIBCPP_CXX03_LANG
 
 class _LIBCPP_EXPORTED_FROM_ABI thread {
   __libcpp_thread_t __t_;
@@ -155,13 +202,33 @@ public:
   typedef __libcpp_thread_t native_handle_type;
 
   _LIBCPP_HIDE_FROM_ABI thread() _NOEXCEPT : __t_(_LIBCPP_NULL_THREAD) {}
-#ifndef _LIBCPP_CXX03_LANG
+
+#  ifndef _LIBCPP_CXX03_LANG
   template <class _Fp, class... _Args, __enable_if_t<!is_same<__remove_cvref_t<_Fp>, thread>::value, int> = 0>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS explicit thread(_Fp&& __f, _Args&&... __args);
-#else // _LIBCPP_CXX03_LANG
+  _LIBCPP_HIDE_FROM_ABI explicit thread(_Fp&& __f, _Args&&... __args) {
+    typedef unique_ptr<__thread_struct> _TSPtr;
+    _TSPtr __tsp(new __thread_struct);
+    typedef tuple<_TSPtr, __decay_t<_Fp>, __decay_t<_Args>...> _Gp;
+    unique_ptr<_Gp> __p(new _Gp(std::move(__tsp), std::forward<_Fp>(__f), std::forward<_Args>(__args)...));
+    int __ec = std::__libcpp_thread_create(&__t_, std::addressof(__thread_proxy<_Gp>), __p.get());
+    if (__ec == 0)
+      __p.release();
+    else
+      __throw_system_error(__ec, "thread constructor failed");
+  }
+#  else // _LIBCPP_CXX03_LANG
   template <class _Fp>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS explicit thread(_Fp __f);
-#endif
+  _LIBCPP_HIDE_FROM_ABI explicit thread(_Fp __f) {
+    typedef __thread_invoke_pair<_Fp> _InvokePair;
+    typedef unique_ptr<_InvokePair> _PairPtr;
+    _PairPtr __pp(new _InvokePair(__f));
+    int __ec = std::__libcpp_thread_create(&__t_, &__thread_proxy_cxx03<_InvokePair>, __pp.get());
+    if (__ec == 0)
+      __pp.release();
+    else
+      __throw_system_error(__ec, "thread constructor failed");
+  }
+#  endif
   ~thread();
 
   _LIBCPP_HIDE_FROM_ABI thread(thread&& __t) _NOEXCEPT : __t_(__t.__t_) { __t.__t_ = _LIBCPP_NULL_THREAD; }
@@ -185,71 +252,9 @@ public:
   static unsigned hardware_concurrency() _NOEXCEPT;
 };
 
-#ifndef _LIBCPP_CXX03_LANG
-
-template <class _TSp, class _Fp, class... _Args, size_t... _Indices>
-inline _LIBCPP_HIDE_FROM_ABI void __thread_execute(tuple<_TSp, _Fp, _Args...>& __t, __tuple_indices<_Indices...>) {
-  std::__invoke(std::move(std::get<1>(__t)), std::move(std::get<_Indices>(__t))...);
-}
-
-template <class _Fp>
-_LIBCPP_HIDE_FROM_ABI void* __thread_proxy(void* __vp) {
-  // _Fp = tuple< unique_ptr<__thread_struct>, Functor, Args...>
-  unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
-  __thread_local_data().set_pointer(std::get<0>(*__p.get()).release());
-  typedef typename __make_tuple_indices<tuple_size<_Fp>::value, 2>::type _Index;
-  std::__thread_execute(*__p.get(), _Index());
-  return nullptr;
-}
-
-template <class _Fp, class... _Args, __enable_if_t<!is_same<__remove_cvref_t<_Fp>, thread>::value, int> >
-thread::thread(_Fp&& __f, _Args&&... __args) {
-  typedef unique_ptr<__thread_struct> _TSPtr;
-  _TSPtr __tsp(new __thread_struct);
-  typedef tuple<_TSPtr, __decay_t<_Fp>, __decay_t<_Args>...> _Gp;
-  unique_ptr<_Gp> __p(new _Gp(std::move(__tsp), std::forward<_Fp>(__f), std::forward<_Args>(__args)...));
-  int __ec = std::__libcpp_thread_create(&__t_, &__thread_proxy<_Gp>, __p.get());
-  if (__ec == 0)
-    __p.release();
-  else
-    __throw_system_error(__ec, "thread constructor failed");
-}
-
-#else // _LIBCPP_CXX03_LANG
-
-template <class _Fp>
-struct __thread_invoke_pair {
-  // This type is used to pass memory for thread local storage and a functor
-  // to a newly created thread because std::pair doesn't work with
-  // std::unique_ptr in C++03.
-  _LIBCPP_HIDE_FROM_ABI __thread_invoke_pair(_Fp& __f) : __tsp_(new __thread_struct), __fn_(__f) {}
-  unique_ptr<__thread_struct> __tsp_;
-  _Fp __fn_;
-};
-
-template <class _Fp>
-_LIBCPP_HIDE_FROM_ABI void* __thread_proxy_cxx03(void* __vp) {
-  unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
-  __thread_local_data().set_pointer(__p->__tsp_.release());
-  (__p->__fn_)();
-  return nullptr;
-}
-
-template <class _Fp>
-thread::thread(_Fp __f) {
-  typedef __thread_invoke_pair<_Fp> _InvokePair;
-  typedef unique_ptr<_InvokePair> _PairPtr;
-  _PairPtr __pp(new _InvokePair(__f));
-  int __ec = std::__libcpp_thread_create(&__t_, &__thread_proxy_cxx03<_InvokePair>, __pp.get());
-  if (__ec == 0)
-    __pp.release();
-  else
-    __throw_system_error(__ec, "thread constructor failed");
-}
-
-#endif // _LIBCPP_CXX03_LANG
-
 inline _LIBCPP_HIDE_FROM_ABI void swap(thread& __x, thread& __y) _NOEXCEPT { __x.swap(__y); }
+
+#endif // _LIBCPP_HAS_THREADS
 
 _LIBCPP_END_NAMESPACE_STD
 

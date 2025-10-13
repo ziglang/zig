@@ -64,6 +64,7 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
         .netbsd => return rescanWithPath(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
         .dragonfly => return rescanWithPath(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
         .solaris, .illumos => return rescanWithPath(cb, gpa, "/etc/ssl/cacert.pem"),
+        .haiku => return rescanWithPath(cb, gpa, "/boot/system/data/ssl/CARootCertificates.pem"),
         // https://github.com/SerenityOS/serenity/blob/222acc9d389bc6b490d4c39539761b043a4bfcb0/Ports/ca-certificates/package.sh#L19
         .serenity => return rescanWithPath(cb, gpa, "/etc/ssl/certs/ca-certificates.crt"),
         .windows => return rescanWindows(cb, gpa),

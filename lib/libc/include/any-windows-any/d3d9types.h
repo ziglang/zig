@@ -22,7 +22,7 @@
 #define __WINE_D3D9TYPES_H
 
 #ifdef __i386__
-#include <pshpack4.h>
+#pragma pack(push,4)
 #endif
 
 /*****************************************************************************
@@ -1366,9 +1366,9 @@ typedef struct D3DRESOURCESTATS {
     DWORD               TotalBytes;
 } D3DRESOURCESTATS;
 
-typedef struct _D3DDEVINFO_D3DRESOURCEMANAGER {
+typedef struct _D3DDEVINFO_RESOURCEMANAGER {
     D3DRESOURCESTATS stats[D3DRTYPECOUNT];
-} D3DDEVINFO_D3DRESOURCEMANAGER;
+} D3DDEVINFO_RESOURCEMANAGER;
 
 typedef struct _D3DDEVINFO_D3DVERTEXSTATS {
     DWORD NumRenderedTriangles;
@@ -1632,7 +1632,7 @@ typedef enum _D3DSHADER_COMPARISON
 } D3DSHADER_COMPARISON;
 
 #ifdef __i386__
-#include <poppack.h>
+#pragma pack(pop)
 #endif
 
 #endif /* __WINE_D3D9TYPES_H */

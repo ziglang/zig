@@ -10,13 +10,13 @@
 #define _LIBCPP___EXCEPTION_EXCEPTION_PTR_H
 
 #include <__config>
+#include <__cstddef/nullptr_t.h>
 #include <__exception/operations.h>
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
 #include <__type_traits/decay.h>
-#include <cstddef>
+#include <__type_traits/is_pointer.h>
 #include <cstdlib>
-#include <new>
 #include <typeinfo>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -53,7 +53,7 @@ _LIBCPP_OVERRIDABLE_FUNC_VIS __cxa_exception* __cxa_init_primary_exception(
 
 #endif
 
-namespace std { // purposefully not using versioning namespace
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
 
 #ifndef _LIBCPP_ABI_MICROSOFT
 
@@ -63,11 +63,13 @@ class _LIBCPP_EXPORTED_FROM_ABI exception_ptr {
   static exception_ptr __from_native_exception_pointer(void*) _NOEXCEPT;
 
   template <class _Ep>
-  friend _LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep) _NOEXCEPT;
+  friend _LIBCPP_HIDE_FROM_ABI exception_ptr __make_exception_ptr_explicit(_Ep&) _NOEXCEPT;
 
 public:
-  // exception_ptr is basically a COW string.
-  using __trivially_relocatable = exception_ptr;
+  // exception_ptr is basically a COW string so it is trivially relocatable.
+  // It is also replaceable because assignment has normal value semantics.
+  using __trivially_relocatable _LIBCPP_NODEBUG = exception_ptr;
+  using __replaceable _LIBCPP_NODEBUG           = exception_ptr;
 
   _LIBCPP_HIDE_FROM_ABI exception_ptr() _NOEXCEPT : __ptr_() {}
   _LIBCPP_HIDE_FROM_ABI exception_ptr(nullptr_t) _NOEXCEPT : __ptr_() {}
@@ -90,25 +92,21 @@ public:
   friend _LIBCPP_EXPORTED_FROM_ABI void rethrow_exception(exception_ptr);
 };
 
+#  if _LIBCPP_HAS_EXCEPTIONS
+#    if _LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION
 template <class _Ep>
-_LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep __e) _NOEXCEPT {
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
-#    if _LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION && __cplusplus >= 201103L
+_LIBCPP_HIDE_FROM_ABI exception_ptr __make_exception_ptr_explicit(_Ep& __e) _NOEXCEPT {
   using _Ep2 = __decay_t<_Ep>;
-
   void* __ex = __cxxabiv1::__cxa_allocate_exception(sizeof(_Ep));
 #      ifdef __wasm__
-  // In Wasm, a destructor returns its argument
-  (void)__cxxabiv1::__cxa_init_primary_exception(
-      __ex, const_cast<std::type_info*>(&typeid(_Ep)), [](void* __p) -> void* {
+  auto __cleanup = [](void* __p) -> void* {
+    std::__destroy_at(static_cast<_Ep2*>(__p));
+    return __p;
+  };
 #      else
-  (void)__cxxabiv1::__cxa_init_primary_exception(__ex, const_cast<std::type_info*>(&typeid(_Ep)), [](void* __p) {
+  auto __cleanup = [](void* __p) { std::__destroy_at(static_cast<_Ep2*>(__p)); };
 #      endif
-        std::__destroy_at(static_cast<_Ep2*>(__p));
-#      ifdef __wasm__
-        return __p;
-#      endif
-      });
+  (void)__cxxabiv1::__cxa_init_primary_exception(__ex, const_cast<std::type_info*>(&typeid(_Ep)), __cleanup);
 
   try {
     ::new (__ex) _Ep2(__e);
@@ -117,18 +115,47 @@ _LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep __e) _NOEXCEPT {
     __cxxabiv1::__cxa_free_exception(__ex);
     return current_exception();
   }
-#    else
+}
+#    endif
+
+template <class _Ep>
+_LIBCPP_HIDE_FROM_ABI exception_ptr __make_exception_ptr_via_throw(_Ep& __e) _NOEXCEPT {
   try {
     throw __e;
   } catch (...) {
     return current_exception();
   }
-#    endif
-#  else
-  ((void)__e);
-  std::abort();
-#  endif
 }
+
+template <class _Ep>
+_LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep __e) _NOEXCEPT {
+  // Objective-C exceptions are thrown via pointer. When throwing an Objective-C exception,
+  // Clang generates a call to `objc_exception_throw` instead of the usual `__cxa_throw`.
+  // That function creates an exception with a special Objective-C typeinfo instead of
+  // the usual C++ typeinfo, since that is needed to implement the behavior documented
+  // at [1]).
+  //
+  // Because of this special behavior, we can't create an exception via `__cxa_init_primary_exception`
+  // for Objective-C exceptions, otherwise we'd bypass `objc_exception_throw`. See https://llvm.org/PR135089.
+  //
+  // [1]:
+  // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Exceptions/Articles/Exceptions64Bit.html
+  if _LIBCPP_CONSTEXPR (is_pointer<_Ep>::value) {
+    return std::__make_exception_ptr_via_throw(__e);
+  }
+
+#    if _LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION && !defined(_LIBCPP_CXX03_LANG)
+  return std::__make_exception_ptr_explicit(__e);
+#    else
+  return std::__make_exception_ptr_via_throw(__e);
+#    endif
+}
+#  else  // !_LIBCPP_HAS_EXCEPTIONS
+template <class _Ep>
+_LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep) _NOEXCEPT {
+  std::abort();
+}
+#  endif // _LIBCPP_HAS_EXCEPTIONS
 
 #else // _LIBCPP_ABI_MICROSOFT
 
@@ -159,7 +186,7 @@ _LIBCPP_EXPORTED_FROM_ABI void swap(exception_ptr&, exception_ptr&) _NOEXCEPT;
 
 _LIBCPP_EXPORTED_FROM_ABI exception_ptr __copy_exception_ptr(void* __except, const void* __ptr);
 _LIBCPP_EXPORTED_FROM_ABI exception_ptr current_exception() _NOEXCEPT;
-_LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void rethrow_exception(exception_ptr);
+[[__noreturn__]] _LIBCPP_EXPORTED_FROM_ABI void rethrow_exception(exception_ptr);
 
 // This is a built-in template function which automagically extracts the required
 // information.
@@ -172,6 +199,6 @@ _LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep __e) _NOEXCEPT {
 }
 
 #endif // _LIBCPP_ABI_MICROSOFT
-} // namespace std
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 
 #endif // _LIBCPP___EXCEPTION_EXCEPTION_PTR_H

@@ -124,4 +124,4 @@ inline bool __libcpp_refstring::__uses_refcount() const {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif //_LIBCPP_REFSTRING_H
+#endif // _LIBCPP_REFSTRING_H

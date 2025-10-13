@@ -15,6 +15,7 @@
 #include <__memory/pointer_traits.h>
 #include <__memory/shared_ptr.h>
 #include <__memory/unique_ptr.h>
+#include <__type_traits/is_pointer.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_specialization.h>
 #include <__type_traits/is_void.h>
@@ -34,7 +35,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 23
 
 template <class _Smart, class _Pointer, class... _Args>
-class _LIBCPP_TEMPLATE_VIS inout_ptr_t {
+class inout_ptr_t {
   static_assert(!__is_specialization_v<_Smart, shared_ptr>, "std::shared_ptr<> is not supported with std::inout_ptr.");
 
 public:

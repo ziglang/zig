@@ -4,7 +4,6 @@ pub const Tag = enum {
     align_cast,
     align_of,
     as,
-    async_call,
     atomic_load,
     atomic_rmw,
     atomic_store,
@@ -55,7 +54,6 @@ pub const Tag = enum {
     frame,
     Frame,
     frame_address,
-    frame_size,
     has_decl,
     has_field,
     import,
@@ -68,6 +66,7 @@ pub const Tag = enum {
     max,
     memcpy,
     memset,
+    memmove,
     min,
     wasm_memory_size,
     wasm_memory_grow,
@@ -181,13 +180,6 @@ pub const list = list: {
                 .tag = .as,
                 .eval_to_error = .maybe,
                 .param_count = 2,
-            },
-        },
-        .{
-            "@asyncCall",
-            .{
-                .tag = .async_call,
-                .param_count = 4,
             },
         },
         .{
@@ -550,13 +542,6 @@ pub const list = list: {
             },
         },
         .{
-            "@frameSize",
-            .{
-                .tag = .frame_size,
-                .param_count = 1,
-            },
-        },
-        .{
             "@hasDecl",
             .{
                 .tag = .has_decl,
@@ -638,6 +623,13 @@ pub const list = list: {
             "@memset",
             .{
                 .tag = .memset,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@memmove",
+            .{
+                .tag = .memmove,
                 .param_count = 2,
             },
         },

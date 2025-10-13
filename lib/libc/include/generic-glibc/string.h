@@ -502,7 +502,7 @@ extern char *stpncpy (char *__restrict __dest,
 #endif
 
 /*
- * strlcpy and strlcat introduced in glibc 2.38
+ * zig patch: strlcpy and strlcat introduced in glibc 2.38
  * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38) || __GLIBC__ > 2

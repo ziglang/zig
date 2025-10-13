@@ -31,6 +31,11 @@
 #include <sys/cdefs.h>
 #include <Availability.h>
 
+#if __has_include(<realtime_safety/realtime_safety.h>)
+#include <realtime_safety/realtime_safety.h>
+REALTIME_SAFE_BEGIN
+#endif
+
 __BEGIN_DECLS
 
 /******************************************************************************
@@ -41,7 +46,7 @@ __BEGIN_DECLS
     taking advantage of GCC's __FLT_EVAL_METHOD__ (which a compiler may
     define anytime and GCC does) that shadows FLT_EVAL_METHOD (which a
     compiler must define only in float.h).                                    */
-#if __FLT_EVAL_METHOD__ == 0 || __FLT_EVAL_METHOD__ == -1
+#if __FLT_EVAL_METHOD__ == 0 || __FLT_EVAL_METHOD__ == -1 || __FLT_EVAL_METHOD__ == 16
     typedef float float_t;
     typedef double double_t;
 #elif __FLT_EVAL_METHOD__ == 1
@@ -124,10 +129,18 @@ extern int __math_errhandling(void);
  *                                                                            *
  ******************************************************************************/
 
+#if !defined(__cplusplus) || !defined(__has_feature) || !__has_feature(modules)
+/* libc++'s math.h comes before this header in the search order. It
+ * will include this header first and then undef several of these
+ * macros. That doesn't work when the two headers are in different
+ * clang modules. The only way to make that work is to not declare
+ * the macros here, and let libc++ handle the declarations.
+ */
 #define fpclassify(x)                                                    \
     ( sizeof(x) == sizeof(float)  ? __fpclassifyf((float)(x))            \
     : sizeof(x) == sizeof(double) ? __fpclassifyd((double)(x))           \
                                   : __fpclassifyl((long double)(x)))
+#endif /* !defined(__cplusplus) && !__has_feature(modules) */
 
 extern int __fpclassifyf(float);
 extern int __fpclassifyd(double);
@@ -147,6 +160,7 @@ extern int __fpclassifyl(long double);
     Thus, if you compile with -ffast-math, actual function calls are
     generated for these utilities.                                            */
     
+#if !defined(__cplusplus) || !defined(__has_feature) || !__has_feature(modules)
 #define isnormal(x)                                                      \
     ( sizeof(x) == sizeof(float)  ? __inline_isnormalf((float)(x))       \
     : sizeof(x) == sizeof(double) ? __inline_isnormald((double)(x))      \
@@ -171,6 +185,7 @@ extern int __fpclassifyl(long double);
     ( sizeof(x) == sizeof(float)  ? __inline_signbitf((float)(x))        \
     : sizeof(x) == sizeof(double) ? __inline_signbitd((double)(x))       \
                                   : __inline_signbitl((long double)(x)))
+#endif /* !defined(__cplusplus) && !__has_feature(modules) */
 
 __header_always_inline int __inline_isfinitef(float);
 __header_always_inline int __inline_isfinited(double);
@@ -257,6 +272,13 @@ __header_always_inline int __inline_isnormall(long double __x) {
     or similar is specified.  These are not available in iOS versions prior
     to 6.0.  If you need them, you must target that version or later.         */
     
+#if !defined(__cplusplus) || !defined(__has_feature) || !__has_feature(modules)
+/* libc++'s math.h comes before this header in the search order. It
+ * will include this header first and then undef several of these
+ * macros. That doesn't work when the two headers are in different
+ * clang modules. The only way to make that work is to not declare
+ * the macros here, and let libc++ handle the declarations.
+ */
 #define isnormal(x)                                               \
     ( sizeof(x) == sizeof(float)  ? __isnormalf((float)(x))       \
     : sizeof(x) == sizeof(double) ? __isnormald((double)(x))      \
@@ -281,7 +303,8 @@ __header_always_inline int __inline_isnormall(long double __x) {
     ( sizeof(x) == sizeof(float)  ? __signbitf((float)(x))        \
     : sizeof(x) == sizeof(double) ? __signbitd((double)(x))       \
                                   : __signbitl((long double)(x)))
-    
+#endif /* !defined(__cplusplus) && !__has_feature(modules) */
+
 extern int __isnormalf(float);
 extern int __isnormald(double);
 extern int __isnormall(long double);
@@ -541,12 +564,20 @@ extern float fmaf(float, float, float);
 extern double fma(double, double, double);
 extern long double fmal(long double, long double, long double);
 
+#if !defined(__cplusplus) || !defined(__has_feature) || !__has_feature(modules)
+/* libc++'s math.h comes before this header in the search order. It
+ * will include this header first and then undef several of these
+ * macros. That doesn't work when the two headers are in different
+ * clang modules. The only way to make that work is to not declare
+ * the macros here, and let libc++ handle the declarations.
+ */
 #define isgreater(x, y) __builtin_isgreater((x),(y))
 #define isgreaterequal(x, y) __builtin_isgreaterequal((x),(y))
 #define isless(x, y) __builtin_isless((x),(y))
 #define islessequal(x, y) __builtin_islessequal((x),(y))
 #define islessgreater(x, y) __builtin_islessgreater((x),(y))
 #define isunordered(x, y) __builtin_isunordered((x),(y))
+#endif /* !defined(__cplusplus) && !__has_feature(modules) */
 
 #if defined __i386__ || defined __x86_64__
 /* Deprecated functions; use the INFINITY and NAN macros instead.             */
@@ -788,5 +819,10 @@ struct exception {
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
 __END_DECLS
+
+#if __has_include(<realtime_safety/realtime_safety.h>)
+REALTIME_SAFE_END
+#endif
+
 #endif /* __MATH_H__ */
 

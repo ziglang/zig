@@ -323,8 +323,8 @@ const classnames ClassNames[] = {
     {"xdigit", ctype_base::xdigit}};
 
 struct use_strcmp {
-  bool operator()(const collationnames& x, const char* y) { return strcmp(x.elem_, y) < 0; }
-  bool operator()(const classnames& x, const char* y) { return strcmp(x.elem_, y) < 0; }
+  bool operator()(const collationnames& x, const char* y) const { return strcmp(x.elem_, y) < 0; }
+  bool operator()(const classnames& x, const char* y) const { return strcmp(x.elem_, y) < 0; }
 };
 
 } // namespace

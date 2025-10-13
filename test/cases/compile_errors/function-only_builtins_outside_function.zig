@@ -47,8 +47,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: '@branchHint' outside function scope
 // :6:5: error: '@src' outside function scope

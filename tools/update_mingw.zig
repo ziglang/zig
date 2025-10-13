@@ -109,25 +109,35 @@ pub fn main() !void {
 
     {
         // Also add all new def and def.in files.
-        var walker = try src_crt_dir.walk(arena);
+        var walker = try src_crt_dir.walkSelectively(arena);
         defer walker.deinit();
 
         var fail = false;
 
         while (try walker.next()) |entry| {
-            if (entry.kind != .file) continue;
+            switch (entry.kind) {
+                .directory => {
+                    switch (entry.depth()) {
+                        1 => if (def_dirs.has(entry.basename)) {
+                            try walker.enter(entry);
+                            continue;
+                        },
+                        else => {
+                            // The top-level directory was already validated
+                            try walker.enter(entry);
+                            continue;
+                        },
+                    }
+                },
+                .file => {},
+                else => continue,
+            }
 
             const ok_ext = for (def_exts) |ext| {
                 if (std.mem.endsWith(u8, entry.path, ext)) break true;
             } else false;
 
             if (!ok_ext) continue;
-
-            const ok_prefix = for (def_dirs) |p| {
-                if (std.mem.startsWith(u8, entry.path, p)) break true;
-            } else false;
-
-            if (!ok_prefix) continue;
 
             const blacklisted = for (blacklisted_defs) |item| {
                 if (std.mem.eql(u8, entry.basename, item)) break true;
@@ -162,14 +172,14 @@ const def_exts = [_][]const u8{
     ".def.in",
 };
 
-const def_dirs = [_][]const u8{
-    "lib32" ++ std.fs.path.sep_str,
-    "lib64" ++ std.fs.path.sep_str,
-    "libarm32" ++ std.fs.path.sep_str,
-    "libarm64" ++ std.fs.path.sep_str,
-    "lib-common" ++ std.fs.path.sep_str,
-    "def-include" ++ std.fs.path.sep_str,
-};
+const def_dirs = std.StaticStringMap(void).initComptime(.{
+    .{"lib32"},
+    .{"lib64"},
+    .{"libarm32"},
+    .{"libarm64"},
+    .{"lib-common"},
+    .{"def-include"},
+});
 
 const blacklisted_defs = [_][]const u8{
     "crtdll.def.in",

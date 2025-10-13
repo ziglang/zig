@@ -9,11 +9,11 @@
 
 
 int __signbitl (long double x) {
-#if defined(__x86_64__) || defined(_AMD64_)
+#if (defined(_AMD64_) && !defined(_ARM64EC_)) || (defined(__x86_64__) && !defined(__arm64ec__))
     __mingw_ldbl_type_t ld;
     ld.x = x;
     return ((ld.lh.sign_exponent & 0x8000) != 0);
-#elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
+#elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_)
     return __signbit(x);
 #elif defined(__i386__) || defined(_X86_)
   unsigned short sw;

@@ -23,9 +23,9 @@ struct _Not : _BoolConstant<!_Pred::value> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-struct negation : _Not<_Tp> {};
+struct _LIBCPP_NO_SPECIALIZATIONS negation : _Not<_Tp> {};
 template <class _Tp>
-inline constexpr bool negation_v = !_Tp::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool negation_v = !_Tp::value;
 #endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD

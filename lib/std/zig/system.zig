@@ -28,7 +28,7 @@ pub const GetExternalExecutorOptions = struct {
 /// Return whether or not the given host is capable of running executables of
 /// the other target.
 pub fn getExternalExecutor(
-    host: std.Target,
+    host: *const std.Target,
     candidate: *const std.Target,
     options: GetExternalExecutorOptions,
 ) Executor {
@@ -81,87 +81,95 @@ pub fn getExternalExecutor(
     // If the OS matches, we can use QEMU to emulate a foreign architecture.
     if (options.allow_qemu and os_match and (!cpu_ok or options.qemu_fixes_dl)) {
         return switch (candidate.cpu.arch) {
-            .aarch64 => Executor{ .qemu = "qemu-aarch64" },
-            .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-            .arm, .thumb => Executor{ .qemu = "qemu-arm" },
-            .armeb, .thumbeb => Executor{ .qemu = "qemu-armeb" },
-            .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
-            .m68k => Executor{ .qemu = "qemu-m68k" },
-            .mips => Executor{ .qemu = "qemu-mips" },
-            .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32",
-                    else => "qemu-mips64",
-                },
+            inline .aarch64,
+            .arm,
+            .riscv64,
+            .x86,
+            .x86_64,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                .freebsd,
+                => .{ .qemu = switch (t) {
+                    .x86 => "qemu-i386",
+                    .x86_64 => switch (candidate.abi) {
+                        .gnux32, .muslx32 => return bad_result,
+                        else => "qemu-x86_64",
+                    },
+                    else => "qemu-" ++ @tagName(t),
+                } },
+                else => bad_result,
             },
-            .mips64el => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32el",
-                    else => "qemu-mips64el",
-                },
+            inline .aarch64_be,
+            .armeb,
+            .hexagon,
+            .loongarch64,
+            .m68k,
+            .mips,
+            .mipsel,
+            .mips64,
+            .mips64el,
+            .or1k,
+            .powerpc,
+            .powerpc64,
+            .powerpc64le,
+            .riscv32,
+            .s390x,
+            .sparc,
+            .sparc64,
+            .thumb,
+            .thumbeb,
+            .xtensa,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                => .{ .qemu = switch (t) {
+                    .powerpc => "qemu-ppc",
+                    .powerpc64 => "qemu-ppc64",
+                    .powerpc64le => "qemu-ppc64le",
+                    .mips64, .mips64el => switch (candidate.abi) {
+                        .gnuabin32, .muslabin32 => if (t == .mips64el) "qemu-mipsn32el" else "qemu-mipsn32",
+                        else => "qemu-" ++ @tagName(t),
+                    },
+                    .sparc => if (candidate.cpu.has(.sparc, .v8plus)) "qemu-sparc32plus" else "qemu-sparc",
+                    .thumb => "qemu-arm",
+                    .thumbeb => "qemu-armeb",
+                    else => "qemu-" ++ @tagName(t),
+                } },
+                else => bad_result,
             },
-            .powerpc => Executor{ .qemu = "qemu-ppc" },
-            .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
-            .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
-            .riscv32 => Executor{ .qemu = "qemu-riscv32" },
-            .riscv64 => Executor{ .qemu = "qemu-riscv64" },
-            .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{
-                .qemu = if (std.Target.sparc.featureSetHas(candidate.cpu.features, .v9))
-                    "qemu-sparc32plus"
-                else
-                    "qemu-sparc",
-            },
-            .sparc64 => Executor{ .qemu = "qemu-sparc64" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
-            .x86_64 => switch (candidate.abi) {
-                .gnux32, .muslx32 => return bad_result,
-                else => Executor{ .qemu = "qemu-x86_64" },
-            },
-            .xtensa => Executor{ .qemu = "qemu-xtensa" },
-            else => return bad_result,
+            else => bad_result,
         };
+    }
+
+    if (options.allow_wasmtime and candidate.cpu.arch.isWasm()) {
+        return .{ .wasmtime = "wasmtime" };
     }
 
     switch (candidate.os.tag) {
         .windows => {
             if (options.allow_wine) {
-                // x86_64 wine does not support emulating aarch64-windows and
-                // vice versa.
-                if (candidate.cpu.arch != builtin.cpu.arch and
-                    !(candidate.cpu.arch == .thumb and builtin.cpu.arch == .aarch64) and
-                    !(candidate.cpu.arch == .x86 and builtin.cpu.arch == .x86_64))
-                {
-                    return bad_result;
-                }
-                switch (candidate.ptrBitWidth()) {
-                    32 => return Executor{ .wine = "wine" },
-                    64 => return Executor{ .wine = "wine64" },
-                    else => return bad_result,
-                }
+                const wine_supported = switch (candidate.cpu.arch) {
+                    .thumb => switch (host.cpu.arch) {
+                        .arm, .thumb, .aarch64 => true,
+                        else => false,
+                    },
+                    .aarch64 => host.cpu.arch == .aarch64,
+                    .x86 => host.cpu.arch.isX86(),
+                    .x86_64 => host.cpu.arch == .x86_64,
+                    else => false,
+                };
+                return if (wine_supported) .{ .wine = "wine" } else bad_result;
             }
             return bad_result;
         },
-        .wasi => {
-            if (options.allow_wasmtime) {
-                switch (candidate.ptrBitWidth()) {
-                    32 => return Executor{ .wasmtime = "wasmtime" },
-                    else => return bad_result,
-                }
-            }
-            return bad_result;
-        },
-        .macos => {
+        .driverkit, .macos => {
             if (options.allow_darling) {
                 // This check can be loosened once darling adds a QEMU-based emulation
                 // layer for non-host architectures:
                 // https://github.com/darlinghq/darling/issues/863
-                if (candidate.cpu.arch != builtin.cpu.arch) {
+                if (candidate.cpu.arch != host.cpu.arch) {
                     return bad_result;
                 }
-                return Executor{ .darling = "darling" };
+                return .{ .darling = "darling" };
             }
             return bad_result;
         },
@@ -235,7 +243,6 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 var len: usize = @sizeOf(@TypeOf(value));
 
                 posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
                     error.UnknownName => unreachable, // constant, known good value
@@ -418,6 +425,11 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         if (result.cpu.arch.isArm() and result.abi.float() == .soft) {
             result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
         }
+
+        // https://github.com/llvm/llvm-project/issues/135283
+        if (result.cpu.arch.isMIPS() and result.abi.float() == .soft) {
+            result.cpu.features.addFeature(@intFromEnum(Target.mips.Feature.soft_float));
+        }
     }
 
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told
@@ -471,9 +483,8 @@ fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: T
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .x86_64, .x86 => {
-            return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query);
-        },
+        .loongarch32, .loongarch64 => return @import("system/loongarch.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .x86_64, .x86 => return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
         else => {},
     }
 
@@ -520,15 +531,15 @@ pub fn abiAndDynamicLinkerFromFile(
     const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
     const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI.DATA]) {
         elf.ELFDATA2LSB => .little,
         elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+    if (hdr32.e_ident[elf.EI.VERSION] != 1) return error.InvalidElfVersion;
 
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
+    const is_64 = switch (hdr32.e_ident[elf.EI.CLASS]) {
         elf.ELFCLASS32 => false,
         elf.ELFCLASS64 => true,
         else => return error.InvalidElfClass,
@@ -845,6 +856,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.NoDevice,
         => return error.GLibCNotFound,
 
+        error.ProcessNotFound,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
@@ -888,6 +900,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
 
         error.FileTooBig => return error.Unexpected,
 
+        error.ProcessNotFound,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
@@ -922,15 +935,15 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
     const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI.DATA]) {
         elf.ELFDATA2LSB => .little,
         elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+    if (hdr32.e_ident[elf.EI.VERSION] != 1) return error.InvalidElfVersion;
 
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
+    const is_64 = switch (hdr32.e_ident[elf.EI.CLASS]) {
         elf.ELFCLASS32 => false,
         elf.ELFCLASS64 => true,
         else => return error.InvalidElfClass,
@@ -1182,13 +1195,13 @@ fn detectAbiAndDynamicLinker(
                 // We detected shebang, now parse entire line.
 
                 // Trim leading "#!", spaces and tabs.
-                const trimmed_line = mem.trimLeft(u8, content[2..], &.{ ' ', '\t' });
+                const trimmed_line = mem.trimStart(u8, content[2..], &.{ ' ', '\t' });
 
                 // This line can have:
                 // * Interpreter path only,
                 // * Interpreter path and arguments, all separated by space, tab or NUL character.
                 // And optionally newline at the end.
-                const path_maybe_args = mem.trimRight(u8, trimmed_line, "\n");
+                const path_maybe_args = mem.trimEnd(u8, trimmed_line, "\n");
 
                 // Separate path and args.
                 const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;

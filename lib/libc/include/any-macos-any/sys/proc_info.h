@@ -349,6 +349,11 @@ struct proc_threadwithpathinfo {
 	struct vnode_info_path  pvip;
 };
 
+struct proc_archinfo {
+	cpu_type_t              p_cputype;
+	cpu_subtype_t           p_cpusubtype;
+};
+
 /*
  *  Socket
  */
@@ -758,6 +763,9 @@ struct channel_fdinfo {
 #define PROC_PID_RUSAGE                 16
 #define PROC_PID_RUSAGE_SIZE            0
 
+#define PROC_PIDARCHINFO                19
+#define PROC_PIDARCHINFO_SIZE           (sizeof(struct proc_archinfo))
+
 /* Flavors for proc_pidfdinfo */
 
 #define PROC_PIDFDVNODEINFO             1
@@ -825,6 +833,7 @@ struct channel_fdinfo {
 #define PROC_DIRTY_DEFER                0x4
 #define PROC_DIRTY_LAUNCH_IN_PROGRESS   0x8
 #define PROC_DIRTY_DEFER_ALWAYS         0x10
+#define PROC_DIRTY_SHUTDOWN_ON_CLEAN    0x20
 
 /* proc_get_dirty() flags */
 #define PROC_DIRTY_TRACKED              0x1

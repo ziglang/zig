@@ -11,11 +11,11 @@
 #define _LIBCPP___ITERATOR_FRONT_INSERT_ITERATOR_H
 
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__iterator/iterator.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/addressof.h>
 #include <__utility/move.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -28,7 +28,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Container>
-class _LIBCPP_TEMPLATE_VIS front_insert_iterator
+class front_insert_iterator
 #if _LIBCPP_STD_VER <= 14 || !defined(_LIBCPP_ABI_NO_ITERATOR_BASES)
     : public iterator<output_iterator_tag, void, void, void, void>
 #endif

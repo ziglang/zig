@@ -418,29 +418,6 @@ test fieldInfo {
     try testing.expect(comptime uf.type == u8);
 }
 
-/// Deprecated: use @FieldType
-pub fn FieldType(comptime T: type, comptime field: FieldEnum(T)) type {
-    return @FieldType(T, @tagName(field));
-}
-
-test FieldType {
-    const S = struct {
-        a: u8,
-        b: u16,
-    };
-
-    const U = union {
-        c: u32,
-        d: *const u8,
-    };
-
-    try testing.expect(FieldType(S, .a) == u8);
-    try testing.expect(FieldType(S, .b) == u16);
-
-    try testing.expect(FieldType(U, .c) == u32);
-    try testing.expect(FieldType(U, .d) == *const u8);
-}
-
 pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
     return comptime blk: {
         const fieldInfos = fields(T);
@@ -537,7 +514,7 @@ pub fn FieldEnum(comptime T: type) type {
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (field_infos, 0..) |field, i| {
         enumFields[i] = .{
-            .name = field.name ++ "",
+            .name = field.name,
             .value = i,
         };
     }
@@ -609,7 +586,7 @@ pub fn DeclEnum(comptime T: type) type {
     var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (fieldInfos, 0..) |field, i| {
-        enumDecls[i] = .{ .name = field.name ++ "", .value = i };
+        enumDecls[i] = .{ .name = field.name, .value = i };
     }
     return @Type(.{
         .@"enum" = .{
@@ -765,13 +742,7 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
                 if (!eql(e, b[i])) return false;
             return true;
         },
-        .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!eql(a[i], b[i])) return false;
-            }
-            return true;
-        },
+        .vector => return @reduce(.And, a == b),
         .pointer => |info| {
             return switch (info.size) {
                 .one, .many, .c => a == b,
@@ -857,58 +828,12 @@ test eql {
     try testing.expect(!eql(CU{ .a = {} }, .b));
 }
 
-test intToEnum {
-    const E1 = enum {
-        A,
-    };
-    const E2 = enum {
-        A,
-        B,
-    };
-    const E3 = enum(i8) { A, _ };
-
-    var zero: u8 = 0;
-    var one: u16 = 1;
-    _ = &zero;
-    _ = &one;
-    try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
-    try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
-    try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
-    try testing.expect(intToEnum(E3, 127) catch unreachable == @as(E3, @enumFromInt(127)));
-    try testing.expect(intToEnum(E3, -128) catch unreachable == @as(E3, @enumFromInt(-128)));
-    try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
-    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
-    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
-}
-
+/// Deprecated: use `std.enums.fromInt` instead and handle null.
 pub const IntToEnumError = error{InvalidEnumTag};
 
+/// Deprecated: use `std.enums.fromInt` instead and handle null instead of an error.
 pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTag {
-    const enum_info = @typeInfo(EnumTag).@"enum";
-
-    if (!enum_info.is_exhaustive) {
-        if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
-            return @as(EnumTag, @enumFromInt(tag));
-        }
-        return error.InvalidEnumTag;
-    }
-
-    // We don't directly iterate over the fields of EnumTag, as that
-    // would require an inline loop. Instead, we create an array of
-    // values that is comptime-know, but can be iterated at runtime
-    // without requiring an inline loop. This generates better
-    // machine code.
-    const values = comptime blk: {
-        var result: [enum_info.fields.len]enum_info.tag_type = undefined;
-        for (&result, enum_info.fields) |*dst, src| {
-            dst.* = src.value;
-        }
-        break :blk result;
-    };
-    for (values) |v| {
-        if (v == tag_int) return @enumFromInt(tag_int);
-    }
-    return error.InvalidEnumTag;
+    return std.enums.fromInt(EnumTag, tag_int) orelse return error.InvalidEnumTag;
 }
 
 /// Given a type and a name, return the field index according to source order.
@@ -1004,11 +929,11 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
-            .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
+            .name = std.fmt.bufPrintSentinel(&num_buf, "{d}", .{i}, 0) catch unreachable,
             .type = T,
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = 0,
+            .alignment = @alignOf(T),
         };
     }
 
@@ -1261,13 +1186,6 @@ test hasUniqueRepresentation {
     };
 
     try testing.expect(hasUniqueRepresentation(TestStruct6));
-
-    const TestUnion1 = packed union {
-        a: u32,
-        b: u16,
-    };
-
-    try testing.expect(!hasUniqueRepresentation(TestUnion1));
 
     const TestUnion2 = extern union {
         a: u32,

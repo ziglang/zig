@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 
-pub const Rational = @import("big/rational.zig").Rational;
 pub const int = @import("big/int.zig");
 pub const Limb = usize;
 const limb_info = @typeInfo(Limb).int;
@@ -18,7 +17,6 @@ comptime {
 
 test {
     _ = int;
-    _ = Rational;
     _ = Limb;
     _ = SignedLimb;
     _ = DoubleLimb;

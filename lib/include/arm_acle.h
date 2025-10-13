@@ -29,47 +29,16 @@ extern "C" {
 
 /* 7 SYNCHRONIZATION, BARRIER AND HINT INTRINSICS */
 /* 7.3 Memory barriers */
-#if !__has_builtin(__dmb)
-#define __dmb(i) __builtin_arm_dmb(i)
-#endif
-#if !__has_builtin(__dsb)
-#define __dsb(i) __builtin_arm_dsb(i)
-#endif
-#if !__has_builtin(__isb)
-#define __isb(i) __builtin_arm_isb(i)
-#endif
+void __dmb(unsigned int);
+void __dsb(unsigned int);
+void __isb(unsigned int);
 
 /* 7.4 Hints */
-
-#if !__has_builtin(__wfi)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __wfi(void) {
-  __builtin_arm_wfi();
-}
-#endif
-
-#if !__has_builtin(__wfe)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __wfe(void) {
-  __builtin_arm_wfe();
-}
-#endif
-
-#if !__has_builtin(__sev)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __sev(void) {
-  __builtin_arm_sev();
-}
-#endif
-
-#if !__has_builtin(__sevl)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __sevl(void) {
-  __builtin_arm_sevl();
-}
-#endif
-
-#if !__has_builtin(__yield)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __yield(void) {
-  __builtin_arm_yield();
-}
-#endif
+void __wfi(void);
+void __wfe(void);
+void __sev(void);
+void __sevl(void);
+void __yield(void);
 
 #if defined(__ARM_32BIT_STATE) && __ARM_32BIT_STATE
 #define __dbg(t) __builtin_arm_dbg(t)
@@ -264,28 +233,28 @@ __rbitl(unsigned long __t) {
 }
 
 /* 8.3 16-bit multiplications */
-#if defined(__ARM_FEATURE_DSP) && __ARM_FEATURE_DSP
-static __inline__ int32_t __attribute__((__always_inline__,__nodebug__))
+#if defined(__ARM_32BIT_STATE) && __ARM_32BIT_STATE
+static __inline__ int32_t __attribute__((__always_inline__,__nodebug__, target("dsp")))
 __smulbb(int32_t __a, int32_t __b) {
   return __builtin_arm_smulbb(__a, __b);
 }
-static __inline__ int32_t __attribute__((__always_inline__,__nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__,__nodebug__, target("dsp")))
 __smulbt(int32_t __a, int32_t __b) {
   return __builtin_arm_smulbt(__a, __b);
 }
-static __inline__ int32_t __attribute__((__always_inline__,__nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__,__nodebug__, target("dsp")))
 __smultb(int32_t __a, int32_t __b) {
   return __builtin_arm_smultb(__a, __b);
 }
-static __inline__ int32_t __attribute__((__always_inline__,__nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__,__nodebug__, target("dsp")))
 __smultt(int32_t __a, int32_t __b) {
   return __builtin_arm_smultt(__a, __b);
 }
-static __inline__ int32_t __attribute__((__always_inline__,__nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__,__nodebug__, target("dsp")))
 __smulwb(int32_t __a, int32_t __b) {
   return __builtin_arm_smulwb(__a, __b);
 }
-static __inline__ int32_t __attribute__((__always_inline__,__nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__,__nodebug__, target("dsp")))
 __smulwt(int32_t __a, int32_t __b) {
   return __builtin_arm_smulwt(__a, __b);
 }
@@ -304,46 +273,46 @@ __smulwt(int32_t __a, int32_t __b) {
 #endif
 
 /* 8.4.2 Saturating addition and subtraction intrinsics */
-#if defined(__ARM_FEATURE_DSP) && __ARM_FEATURE_DSP
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+#if defined(__ARM_32BIT_STATE) && __ARM_32BIT_STATE
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __qadd(int32_t __t, int32_t __v) {
   return __builtin_arm_qadd(__t, __v);
 }
 
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __qsub(int32_t __t, int32_t __v) {
   return __builtin_arm_qsub(__t, __v);
 }
 
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __qdbl(int32_t __t) {
   return __builtin_arm_qadd(__t, __t);
 }
 #endif
 
 /* 8.4.3 Accumulating multiplications */
-#if defined(__ARM_FEATURE_DSP) && __ARM_FEATURE_DSP
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+#if defined(__ARM_32BIT_STATE) && __ARM_32BIT_STATE
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __smlabb(int32_t __a, int32_t __b, int32_t __c) {
   return __builtin_arm_smlabb(__a, __b, __c);
 }
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __smlabt(int32_t __a, int32_t __b, int32_t __c) {
   return __builtin_arm_smlabt(__a, __b, __c);
 }
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __smlatb(int32_t __a, int32_t __b, int32_t __c) {
   return __builtin_arm_smlatb(__a, __b, __c);
 }
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __smlatt(int32_t __a, int32_t __b, int32_t __c) {
   return __builtin_arm_smlatt(__a, __b, __c);
 }
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __smlawb(int32_t __a, int32_t __b, int32_t __c) {
   return __builtin_arm_smlawb(__a, __b, __c);
 }
-static __inline__ int32_t __attribute__((__always_inline__, __nodebug__))
+static __inline__ int32_t __attribute__((__always_inline__, __nodebug__, target("dsp")))
 __smlawt(int32_t __a, int32_t __b, int32_t __c) {
   return __builtin_arm_smlawt(__a, __b, __c);
 }
@@ -621,8 +590,6 @@ __rintnf(float __a) {
 #endif
 
 /* 8.8 CRC32 intrinsics */
-#if (defined(__ARM_FEATURE_CRC32) && __ARM_FEATURE_CRC32) ||                   \
-    (defined(__ARM_64BIT_STATE) && __ARM_64BIT_STATE)
 static __inline__ uint32_t __attribute__((__always_inline__, __nodebug__, target("crc")))
 __crc32b(uint32_t __a, uint8_t __b) {
   return __builtin_arm_crc32b(__a, __b);
@@ -662,7 +629,6 @@ static __inline__ uint32_t __attribute__((__always_inline__, __nodebug__, target
 __crc32cd(uint32_t __a, uint64_t __b) {
   return __builtin_arm_crc32cd(__a, __b);
 }
-#endif
 
 /* 8.6 Floating-point data-processing intrinsics */
 /* Armv8.3-A Javascript conversion intrinsic */
@@ -875,8 +841,9 @@ __gcspopm() {
   return __builtin_arm_gcspopm(0);
 }
 
-static __inline__ const void * __attribute__((__always_inline__, __nodebug__, target("gcs")))
-__gcsss(const void *__stack) {
+static __inline__ void *__attribute__((__always_inline__, __nodebug__,
+                                       target("gcs")))
+__gcsss(void *__stack) {
   return __builtin_arm_gcsss(__stack);
 }
 #endif

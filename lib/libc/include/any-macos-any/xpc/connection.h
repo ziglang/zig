@@ -141,8 +141,8 @@ typedef void (*xpc_finalizer_t)(void * _Nullable value);
  * The GCD queue to which the event handler block will be submitted. This
  * parameter may be NULL, in which case the connection's target queue will be
  * libdispatch's default target queue, defined as DISPATCH_TARGET_QUEUE_DEFAULT.
- * The target queue may be changed later with a call to
- * xpc_connection_set_target_queue().
+ * The target queue may be changed prior to the connection being activated with
+ * a call to xpc_connection_set_target_queue().
  *
  * @result
  * A new connection object. The caller is responsible for disposing of the
@@ -178,8 +178,8 @@ xpc_connection_create(const char * _Nullable name,
  * The GCD queue to which the event handler block will be submitted. This
  * parameter may be NULL, in which case the connection's target queue will be
  * libdispatch's default target queue, defined as DISPATCH_TARGET_QUEUE_DEFAULT.
- * The target queue may be changed later with a call to
- * xpc_connection_set_target_queue().
+ * The target queue may be changed prior to the connection being activated with
+ * a call to xpc_connection_set_target_queue().
  *
  * @param flags
  * Additional attributes with which to create the connection.
@@ -240,14 +240,11 @@ xpc_connection_create_from_endpoint(xpc_endpoint_t endpoint);
  * libdispatch's default target queue, defined as DISPATCH_TARGET_QUEUE_DEFAULT.
  *
  * @discussion
- * Setting the target queue is asynchronous and non-preemptive and therefore
- * this method will not interrupt the execution of an already-running event
- * handler block. Setting the target queue may be likened to issuing a barrier
- * to the connection which does the actual work of changing the target queue.
+ * Once a connection is activated, this method may no longer be called and the
+ * target queue may no longer be updated.
  *
- * The XPC runtime guarantees this non-preemptiveness even for concurrent target
- * queues. If the target queue is a concurrent queue, then XPC still guarantees
- * that there will never be more than one invocation of the connection's event
+ * Even if the target queue is a concurrent queue, XPC still guarantees that
+ * there will never be more than one invocation of the connection's event
  * handler block executing concurrently. If you wish to process events
  * concurrently, you can dispatch_async(3) to a concurrent queue from within
  * the event handler.
@@ -330,7 +327,7 @@ __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
 XPC_EXPORT XPC_NONNULL_ALL
 void
 xpc_connection_set_event_handler(xpc_connection_t connection,
-	xpc_handler_t handler);
+	XPC_SWIFT_SENDABLE xpc_handler_t handler);
 
 /*!
  * @function xpc_connection_activate
@@ -534,7 +531,7 @@ XPC_EXPORT XPC_NONNULL1 XPC_NONNULL2 XPC_NONNULL4
 void
 xpc_connection_send_message_with_reply(xpc_connection_t connection,
 	xpc_object_t message, dispatch_queue_t _Nullable replyq,
-	xpc_handler_t handler);
+	XPC_SWIFT_SENDABLE xpc_handler_t handler);
 
 /*!
  * @function xpc_connection_send_message_with_reply_sync
@@ -982,6 +979,33 @@ API_UNAVAILABLE(tvos, watchos)
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 int
 xpc_connection_set_peer_lightweight_code_requirement(xpc_connection_t connection, xpc_object_t lwcr);
+
+/*!
+ * @function xpc_connection_set_peer_requirement
+ * Requires that the connection peer has the specified requirement
+ *
+ * @param connection
+ * The connection object which is to be modified
+ *
+ * @param peer_requirement
+ * The requirement the peer must have
+ * It is safe to deallocate the peer requirement after calling `xpc_connection_set_peer_requirement`
+ *
+ * @discussion
+ * It is a programming error to call multiple of the `xpc_connection_set_peer_*_requirement` family of functions on the same
+ * connection. If more complex combinations of requirements are required, use lightweight code requirement.
+ *
+ * All messages received on this connection will be checked to ensure that they come from a peer who satisfies the
+ * requirement. For a listener connection, requests that do not satisfy the requirement are dropped. When a reply
+ * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
+ * will be delivered instead of the reply.
+ */
+API_AVAILABLE(macos(26.0), ios(26.0))
+API_UNAVAILABLE(tvos, watchos)
+XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_NONNULL_ALL
+void
+xpc_connection_set_peer_requirement(xpc_connection_t connection,
+		xpc_peer_requirement_t peer_requirement);
 
 /*!
  * @function xpc_connection_copy_invalidation_reason

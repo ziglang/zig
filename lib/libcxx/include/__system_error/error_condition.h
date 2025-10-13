@@ -16,7 +16,6 @@
 #include <__functional/unary_function.h>
 #include <__system_error/errc.h>
 #include <__system_error/error_category.h>
-#include <cstddef>
 #include <string>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -26,7 +25,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_error_condition_enum : public false_type {};
+struct is_error_condition_enum : public false_type {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
@@ -34,11 +33,11 @@ inline constexpr bool is_error_condition_enum_v = is_error_condition_enum<_Tp>::
 #endif
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS is_error_condition_enum<errc> : true_type {};
+struct is_error_condition_enum<errc> : true_type {};
 
 #ifdef _LIBCPP_CXX03_LANG
 template <>
-struct _LIBCPP_TEMPLATE_VIS is_error_condition_enum<errc::__lx> : true_type {};
+struct is_error_condition_enum<errc::__lx> : true_type {};
 #endif
 
 namespace __adl_only {
@@ -119,7 +118,7 @@ operator<=>(const error_condition& __x, const error_condition& __y) noexcept {
 #endif // _LIBCPP_STD_VER <= 17
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS hash<error_condition> : public __unary_function<error_condition, size_t> {
+struct hash<error_condition> : public __unary_function<error_condition, size_t> {
   _LIBCPP_HIDE_FROM_ABI size_t operator()(const error_condition& __ec) const _NOEXCEPT {
     return static_cast<size_t>(__ec.value());
   }

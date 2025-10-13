@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
 
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <__fmt_char_type _CharT>
 _LIBCPP_HIDE_FROM_ABI constexpr const _CharT* __statically_widen(const char* __str, const wchar_t* __wstr) {
   if constexpr (same_as<_CharT, char>)
@@ -33,7 +33,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr const _CharT* __statically_widen(const char* __s
     return __wstr;
 }
 #    define _LIBCPP_STATICALLY_WIDEN(_CharT, __str) ::std::__statically_widen<_CharT>(__str, L##__str)
-#  else // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  else // _LIBCPP_HAS_WIDE_CHARACTERS
 
 // Without this indirection the unit test test/libcxx/modules_include.sh.cpp
 // fails for the CI build "No wide characters". This seems like a bug.
@@ -43,9 +43,9 @@ _LIBCPP_HIDE_FROM_ABI constexpr const _CharT* __statically_widen(const char* __s
   return __str;
 }
 #    define _LIBCPP_STATICALLY_WIDEN(_CharT, __str) ::std::__statically_widen<_CharT>(__str)
-#  endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

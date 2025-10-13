@@ -40,5 +40,16 @@
 #define _PATH_RSRCNAME         "rsrc"
 #define _PATH_RSRCFORKSPEC     "/..namedfork/rsrc"
 
+/* Prefix Path Namespace */
+#define RESOLVE_NOFOLLOW_ANY  0x00000001       /* no symlinks allowed in path */
+#define RESOLVE_NODOTDOT      0x00000002       /* prevent '..' path traversal */
+#define RESOLVE_LOCAL         0x00000004       /* prevent a path lookup into a network filesystem */
+#define RESOLVE_NODEVFS       0x00000008       /* prevent a path lookup into `devfs` filesystem */
+#define RESOLVE_IMMOVABLE     0x00000010       /* prevent a path lookup into a removable filesystem */
+#define RESOLVE_UNIQUE        0x00000020       /* prevent a path lookup on a vnode with multiple links */
+#define RESOLVE_NOXATTRS      0x00000040       /* prevent a path lookup on named streams */
+
+#define RESOLVE_VALIDMASK     0x0000007F
+
 #endif /* __APPLE_API_PRIVATE */
 #endif /* !_SYS_PATHS_H_ */

@@ -11,11 +11,14 @@
 
 #include <__algorithm/upper_bound.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__random/is_valid.h>
 #include <__random/uniform_real_distribution.h>
+#include <__vector/comparison.h>
+#include <__vector/vector.h>
 #include <cmath>
+#include <initializer_list>
 #include <iosfwd>
-#include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -27,7 +30,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _RealType = double>
-class _LIBCPP_TEMPLATE_VIS piecewise_linear_distribution {
+class piecewise_linear_distribution {
   static_assert(__libcpp_random_is_valid_realtype<_RealType>::value,
                 "RealType must be a supported floating-point type");
 
@@ -35,7 +38,7 @@ public:
   // types
   typedef _RealType result_type;
 
-  class _LIBCPP_TEMPLATE_VIS param_type {
+  class param_type {
     vector<result_type> __b_;
     vector<result_type> __densities_;
     vector<result_type> __areas_;

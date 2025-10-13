@@ -11,13 +11,11 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_TREE_BARRIER)
-
 class __barrier_algorithm_base {
 public:
   struct alignas(64) /* naturally-align the heap state */ __state_t {
     struct {
-      __atomic_base<__barrier_phase_t> __phase{0};
+      atomic<__barrier_phase_t> __phase{0};
     } __tickets[64];
   };
 
@@ -69,7 +67,5 @@ __arrive_barrier_algorithm_base(__barrier_algorithm_base* __barrier, __barrier_p
 _LIBCPP_EXPORTED_FROM_ABI void __destroy_barrier_algorithm_base(__barrier_algorithm_base* __barrier) noexcept {
   delete __barrier;
 }
-
-#endif // !defined(_LIBCPP_HAS_NO_TREE_BARRIER)
 
 _LIBCPP_END_NAMESPACE_STD

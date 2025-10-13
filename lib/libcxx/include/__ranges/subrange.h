@@ -17,6 +17,7 @@
 #include <__concepts/derived_from.h>
 #include <__concepts/different_from.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__fwd/subrange.h>
 #include <__iterator/advance.h>
 #include <__iterator/concepts.h>
@@ -33,13 +34,13 @@
 #include <__tuple/tuple_size.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/decay.h>
+#include <__type_traits/integral_constant.h>
 #include <__type_traits/is_pointer.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/make_unsigned.h>
 #include <__type_traits/remove_const.h>
 #include <__type_traits/remove_pointer.h>
 #include <__utility/move.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -71,7 +72,7 @@ template <input_or_output_iterator _Iter,
           sentinel_for<_Iter> _Sent = _Iter,
           subrange_kind _Kind       = sized_sentinel_for<_Sent, _Iter> ? subrange_kind::sized : subrange_kind::unsized>
   requires(_Kind == subrange_kind::sized || !sized_sentinel_for<_Sent, _Iter>)
-class _LIBCPP_TEMPLATE_VIS subrange : public view_interface<subrange<_Iter, _Sent, _Kind>> {
+class subrange : public view_interface<subrange<_Iter, _Sent, _Kind>> {
 public:
   // Note: this is an internal implementation detail that is public only for internal usage.
   static constexpr bool _StoreSize = (_Kind == subrange_kind::sized && !sized_sentinel_for<_Sent, _Iter>);
@@ -81,7 +82,7 @@ private:
   struct _Empty {
     _LIBCPP_HIDE_FROM_ABI constexpr _Empty(auto) noexcept {}
   };
-  using _Size = conditional_t<_StoreSize, make_unsigned_t<iter_difference_t<_Iter>>, _Empty>;
+  using _Size _LIBCPP_NODEBUG = conditional_t<_StoreSize, make_unsigned_t<iter_difference_t<_Iter>>, _Empty>;
   _LIBCPP_NO_UNIQUE_ADDRESS _Iter __begin_ = _Iter();
   _LIBCPP_NO_UNIQUE_ADDRESS _Sent __end_   = _Sent();
   _LIBCPP_NO_UNIQUE_ADDRESS _Size __size_  = 0;
@@ -246,22 +247,22 @@ struct tuple_size<ranges::subrange<_Ip, _Sp, _Kp>> : integral_constant<size_t, 2
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<0, ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Ip;
+  using type _LIBCPP_NODEBUG = _Ip;
 };
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<1, ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Sp;
+  using type _LIBCPP_NODEBUG = _Sp;
 };
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<0, const ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Ip;
+  using type _LIBCPP_NODEBUG = _Ip;
 };
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<1, const ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Sp;
+  using type _LIBCPP_NODEBUG = _Sp;
 };
 
 #endif // _LIBCPP_STD_VER >= 20

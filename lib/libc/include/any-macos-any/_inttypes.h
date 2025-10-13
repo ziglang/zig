@@ -221,6 +221,7 @@
 #  define SCNxMAX       __SCN_MAX_LENGTH_MODIFIER__ "x"
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <Availability.h>
 
 #include <_types.h>
@@ -229,6 +230,8 @@
 #include <stdint.h>
 
 __BEGIN_DECLS
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /* 7.8.2.1 */
 __OSX_AVAILABLE_STARTING(__MAC_10_4, __IPHONE_2_0)
@@ -249,26 +252,26 @@ imaxdiv(intmax_t __numer, intmax_t __denom);
 __OSX_AVAILABLE_STARTING(__MAC_10_4, __IPHONE_2_0)
 extern intmax_t
 strtoimax(const char * __restrict __nptr,
-	  char ** __restrict __endptr,
+	  char *_LIBC_CSTR * __restrict __endptr,
 	  int __base);
 
 __OSX_AVAILABLE_STARTING(__MAC_10_4, __IPHONE_2_0)
 extern uintmax_t
 strtoumax(const char * __restrict __nptr,
-	  char ** __restrict __endptr,
+	  char *_LIBC_CSTR * __restrict __endptr,
 	  int __base);
 
 /* 7.8.2.4 */
 __OSX_AVAILABLE_STARTING(__MAC_10_4, __IPHONE_2_0)
 extern intmax_t
 wcstoimax(const wchar_t * __restrict __nptr,
-	  wchar_t ** __restrict __endptr,
+	  wchar_t *_LIBC_CSTR * __restrict __endptr,
 	  int __base);
 
 __OSX_AVAILABLE_STARTING(__MAC_10_4, __IPHONE_2_0)
 extern uintmax_t
 wcstoumax(const wchar_t * __restrict __nptr,
-	  wchar_t ** __restrict __endptr,
+	  wchar_t *_LIBC_CSTR * __restrict __endptr,
 	  int __base);
 
 /* Poison the following routines if -fshort-wchar is set */

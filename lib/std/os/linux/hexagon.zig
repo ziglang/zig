@@ -9,14 +9,15 @@ const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 const timespec = std.os.linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("trap0(#1)"
         : [ret] "={r0}" (-> usize),
         : [number] "{r6}" (@intFromEnum(number)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -24,8 +25,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r0}" (-> usize),
         : [number] "{r6}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -34,8 +34,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r6}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -45,8 +44,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -57,8 +55,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -70,8 +67,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -92,8 +88,7 @@ pub fn syscall6(
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
           [arg6] "{r5}" (arg6),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -135,17 +130,6 @@ pub fn clone() callconv(.naked) usize {
     );
 }
 
-pub const restore = restore_rt;
-
-pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ trap0(#0)
-        :
-        : [number] "{r6}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory"
-    );
-}
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;
@@ -182,30 +166,6 @@ pub const Flock = extern struct {
     len: off_t,
     pid: pid_t,
     __unused: [4]u8,
-};
-
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
 };
 
 pub const blksize_t = i32;
@@ -251,12 +211,4 @@ pub const Stat = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const MMAP2_UNIT = 4096;
-
 pub const VDSO = void;
-
-/// TODO
-pub const ucontext_t = void;
-
-/// TODO
-pub const getcontext = {};

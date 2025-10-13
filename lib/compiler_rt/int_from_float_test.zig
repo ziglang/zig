@@ -1,8 +1,6 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
-const endian = builtin.cpu.arch.endian();
 
 const __fixunshfti = @import("fixunshfti.zig").__fixunshfti;
 const __fixunsxfti = @import("fixunsxfti.zig").__fixunsxfti;
@@ -350,14 +348,12 @@ test "fixunssfti" {
 
 fn test_fixsfei(comptime T: type, expected: T, a: f32) !void {
     const int = @typeInfo(T).int;
-    var expected_buf: [@divExact(int.bits, 32)]u32 = undefined;
-    std.mem.writeInt(T, std.mem.asBytes(&expected_buf), expected, endian);
-    var actual_buf: [@divExact(int.bits, 32)]u32 = undefined;
+    var actual: T = undefined;
     _ = switch (int.signedness) {
         .signed => __fixsfei,
         .unsigned => __fixunssfei,
-    }(&actual_buf, int.bits, a);
-    try testing.expect(std.mem.eql(u32, &expected_buf, &actual_buf));
+    }(@ptrCast(&actual), int.bits, a);
+    try testing.expect(expected == actual);
 }
 
 test "fixsfei" {
@@ -685,14 +681,12 @@ test "fixunsdfti" {
 
 fn test_fixdfei(comptime T: type, expected: T, a: f64) !void {
     const int = @typeInfo(T).int;
-    var expected_buf: [@divExact(int.bits, 32)]u32 = undefined;
-    std.mem.writeInt(T, std.mem.asBytes(&expected_buf), expected, endian);
-    var actual_buf: [@divExact(int.bits, 32)]u32 = undefined;
+    var actual: T = undefined;
     _ = switch (int.signedness) {
         .signed => __fixdfei,
         .unsigned => __fixunsdfei,
-    }(&actual_buf, int.bits, a);
-    try testing.expect(std.mem.eql(u32, &expected_buf, &actual_buf));
+    }(@ptrCast(&actual), int.bits, a);
+    try testing.expect(expected == actual);
 }
 
 test "fixdfei" {

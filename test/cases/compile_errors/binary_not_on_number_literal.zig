@@ -7,7 +7,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :3:60: error: unable to perform binary not operation on type 'comptime_int'
+// :3:61: error: bitwise not operation on type 'comptime_int'

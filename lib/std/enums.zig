@@ -8,6 +8,25 @@ const EnumField = std.builtin.Type.EnumField;
 /// Increment this value when adding APIs that add single backwards branches.
 const eval_branch_quota_cushion = 10;
 
+pub fn fromInt(comptime E: type, integer: anytype) ?E {
+    const enum_info = @typeInfo(E).@"enum";
+    if (!enum_info.is_exhaustive) {
+        if (std.math.cast(enum_info.tag_type, integer)) |tag| {
+            return @enumFromInt(tag);
+        }
+        return null;
+    }
+    // We don't directly iterate over the fields of E, as that
+    // would require an inline loop. Instead, we create an array of
+    // values that is comptime-know, but can be iterated at runtime
+    // without requiring an inline loop.
+    // This generates better machine code.
+    for (values(E)) |value| {
+        if (@intFromEnum(value) == integer) return @enumFromInt(integer);
+    }
+    return null;
+}
+
 /// Returns a struct with a field matching each unique named enum element.
 /// If the enum is extern and has multiple names for the same value, only
 /// the first name is used.  Each field is of type Data and has the provided
@@ -17,7 +36,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
     var struct_fields: [@typeInfo(E).@"enum".fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, @typeInfo(E).@"enum".fields) |*struct_field, enum_field| {
         struct_field.* = .{
-            .name = enum_field.name ++ "",
+            .name = enum_field.name,
             .type = Data,
             .default_value_ptr = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,
@@ -197,8 +216,7 @@ test "directEnumArrayDefault slice" {
     try testing.expectEqualSlices(u8, "default", array[2]);
 }
 
-/// Cast an enum literal, value, or string to the enum value of type E
-/// with the same name.
+/// Deprecated: Use @field(E, @tagName(tag)) or @field(E, string)
 pub fn nameCast(comptime E: type, comptime value: anytype) E {
     return comptime blk: {
         const V = @TypeOf(value);
@@ -238,6 +256,30 @@ test nameCast {
     try testing.expectEqual(B.b, nameCast(B, A.b));
     try testing.expectEqual(B.b, nameCast(B, B.b));
     try testing.expectEqual(B.b, nameCast(B, "b"));
+}
+
+test fromInt {
+    const E1 = enum {
+        A,
+    };
+    const E2 = enum {
+        A,
+        B,
+    };
+    const E3 = enum(i8) { A, _ };
+
+    var zero: u8 = 0;
+    var one: u16 = 1;
+    _ = &zero;
+    _ = &one;
+    try testing.expect(fromInt(E1, zero).? == E1.A);
+    try testing.expect(fromInt(E2, one).? == E2.B);
+    try testing.expect(fromInt(E3, zero).? == E3.A);
+    try testing.expect(fromInt(E3, 127).? == @as(E3, @enumFromInt(127)));
+    try testing.expect(fromInt(E3, -128).? == @as(E3, @enumFromInt(-128)));
+    try testing.expectEqual(null, fromInt(E1, one));
+    try testing.expectEqual(null, fromInt(E3, 128));
+    try testing.expectEqual(null, fromInt(E3, -129));
 }
 
 /// A set of enum elements, backed by a bitfield.  If the enum
@@ -1275,9 +1317,9 @@ test "EnumSet non-exhaustive" {
 }
 
 pub fn EnumIndexer(comptime E: type) type {
-    // Assumes that the enum fields are sorted in ascending order (optimistic).
-    // Unsorted enums may require the user to manually increase the quota.
-    @setEvalBranchQuota(3 * @typeInfo(E).@"enum".fields.len + eval_branch_quota_cushion);
+    // n log n for `std.mem.sortUnstable` call below.
+    const fields_len = @typeInfo(E).@"enum".fields.len;
+    @setEvalBranchQuota(3 * fields_len * std.math.log2(@max(fields_len, 1)) + eval_branch_quota_cushion);
 
     if (!@typeInfo(E).@"enum".is_exhaustive) {
         const BackingInt = @typeInfo(E).@"enum".tag_type;
@@ -1312,10 +1354,6 @@ pub fn EnumIndexer(comptime E: type) type {
         };
     }
 
-    const const_fields = @typeInfo(E).@"enum".fields;
-    var fields = const_fields[0..const_fields.len].*;
-    const fields_len = fields.len;
-
     if (fields_len == 0) {
         return struct {
             pub const Key = E;
@@ -1331,22 +1369,17 @@ pub fn EnumIndexer(comptime E: type) type {
         };
     }
 
+    var fields: [fields_len]EnumField = @typeInfo(E).@"enum".fields[0..].*;
+
+    std.mem.sortUnstable(EnumField, &fields, {}, struct {
+        fn lessThan(ctx: void, lhs: EnumField, rhs: EnumField) bool {
+            ctx;
+            return lhs.value < rhs.value;
+        }
+    }.lessThan);
+
     const min = fields[0].value;
-    const max = fields[fields.len - 1].value;
-
-    const SortContext = struct {
-        fields: []EnumField,
-
-        pub fn lessThan(comptime ctx: @This(), comptime a: usize, comptime b: usize) bool {
-            return ctx.fields[a].value < ctx.fields[b].value;
-        }
-
-        pub fn swap(comptime ctx: @This(), comptime a: usize, comptime b: usize) void {
-            return std.mem.swap(EnumField, &ctx.fields[a], &ctx.fields[b]);
-        }
-    };
-    std.sort.insertionContext(0, fields_len, SortContext{ .fields = &fields });
-
+    const max = fields[fields_len - 1].value;
     if (max - min == fields.len - 1) {
         return struct {
             pub const Key = E;
@@ -1494,6 +1527,29 @@ test "EnumIndexer empty" {
     const Indexer = EnumIndexer(E);
     try testing.expectEqual(E, Indexer.Key);
     try testing.expectEqual(0, Indexer.count);
+}
+
+test "EnumIndexer large dense unsorted" {
+    @setEvalBranchQuota(500_000); // many `comptimePrint`s
+    // Make an enum with 500 fields with values in *descending* order.
+    const E = @Type(.{ .@"enum" = .{
+        .tag_type = u32,
+        .fields = comptime fields: {
+            var fields: [500]EnumField = undefined;
+            for (&fields, 0..) |*f, i| f.* = .{
+                .name = std.fmt.comptimePrint("f{d}", .{i}),
+                .value = 500 - i,
+            };
+            break :fields &fields;
+        },
+        .decls = &.{},
+        .is_exhaustive = true,
+    } });
+    const Indexer = EnumIndexer(E);
+    try testing.expectEqual(E.f0, Indexer.keyForIndex(499));
+    try testing.expectEqual(E.f499, Indexer.keyForIndex(0));
+    try testing.expectEqual(499, Indexer.indexOf(.f0));
+    try testing.expectEqual(0, Indexer.indexOf(.f499));
 }
 
 test values {

@@ -25,10 +25,17 @@
 #define _CTERMID_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
+
+#ifndef _LIBC_COUNT__L_CTERMID
+#define _LIBC_COUNT__L_CTERMID _LIBC_UNSAFE_INDEXABLE
+#endif /* _LIBC_COUNT__L_CTERMID */
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 
-char    *ctermid(char *);
+char *_LIBC_CSTR	ctermid(char *_LIBC_COUNT__L_CTERMID);
 
 __END_DECLS
 

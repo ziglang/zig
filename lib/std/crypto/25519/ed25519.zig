@@ -175,19 +175,59 @@ pub const Ed25519 = struct {
             self.h.update(msg);
         }
 
+        fn isIdentity(p: Curve) bool {
+            return p.x.isZero() and p.y.equivalent(p.z);
+        }
+
         pub const VerifyError = WeakPublicKeyError || IdentityElementError ||
             SignatureVerificationError;
 
         /// Verify that the signature is valid for the entire message.
+        ///
+        /// This function uses cofactored verification for broad interoperability.
+        /// It aligns single-signature verification with common batch verification approaches.
+        ///
+        /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
+        /// or SignatureVerificationError if the signature is invalid for the given message and key.
         pub fn verify(self: *Verifier) VerifyError!void {
             var hram64: [Sha512.digest_length]u8 = undefined;
             self.h.final(&hram64);
             const hram = Curve.scalar.reduce64(hram64);
-
-            const sb_ah = try Curve.basePoint.mulDoubleBasePublic(self.s, self.a.neg(), hram);
-            if (self.expected_r.sub(sb_ah).rejectLowOrder()) {
+            const sb_ah = (try Curve.basePoint.mulDoubleBasePublic(
+                Curve.scalar.mul8(self.s),
+                self.a.clearCofactor().neg(),
+                hram,
+            ));
+            const check = sb_ah.sub(self.expected_r.clearCofactor());
+            if (!isIdentity(check)) {
                 return error.SignatureVerificationFailed;
-            } else |_| {}
+            }
+        }
+
+        /// Verify that the signature is valid for the entire message using cofactorless verification.
+        ///
+        /// This function performs strict verification without cofactor multiplication,
+        /// checking the exact equation: [s]B = R + [H(R,A,m)]A
+        ///
+        /// This is more restrictive than the cofactored `verify()` method and may reject
+        /// specially crafted signatures that would be accepted by cofactored verification.
+        /// But it will never reject valid signatures created using the `sign()` method.
+        ///
+        /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
+        /// or SignatureVerificationError if the signature is invalid for the given message and key.
+        pub fn verifyStrict(self: *Verifier) VerifyError!void {
+            var hram64: [Sha512.digest_length]u8 = undefined;
+            self.h.final(&hram64);
+            const hram = Curve.scalar.reduce64(hram64);
+            const sb_ah = (try Curve.basePoint.mulDoubleBasePublic(
+                self.s,
+                self.a.neg(),
+                hram,
+            ));
+            const check = sb_ah.sub(self.expected_r);
+            if (!isIdentity(check)) {
+                return error.SignatureVerificationFailed;
+            }
         }
     };
 
@@ -226,12 +266,33 @@ pub const Ed25519 = struct {
         pub const VerifyError = Verifier.InitError || Verifier.VerifyError;
 
         /// Verify the signature against a message and public key.
+        ///
+        /// This function uses cofactored verification for broad interoperability.
+        /// It aligns single-signature verification with common batch verification approaches.
+        ///
         /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
         /// or SignatureVerificationError if the signature is invalid for the given message and key.
         pub fn verify(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
             var st = try sig.verifier(public_key);
             st.update(msg);
             try st.verify();
+        }
+
+        /// Verify the signature against a message and public key using cofactorless verification.
+        ///
+        /// This performs strict verification without cofactor multiplication,
+        /// checking the exact equation: [s]B = R + [H(R,A,m)]A
+        ///
+        /// This is more restrictive than the standard `verify()` method and may reject
+        /// specially crafted signatures that would be accepted by cofactored verification.
+        /// But it will never reject valid signatures created using the `sign()` method.
+        ///
+        /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
+        /// or SignatureVerificationError if the signature is invalid for the given message and key.
+        pub fn verifyStrict(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
+            var st = try sig.verifier(public_key);
+            st.update(msg);
+            try st.verifyStrict();
         }
     };
 
@@ -509,8 +570,8 @@ test "key pair creation" {
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.generateDeterministic(seed);
     var buf: [256]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&key_pair.secret_key.toBytes())}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&key_pair.public_key.toBytes())}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&key_pair.secret_key.toBytes()}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&key_pair.public_key.toBytes()}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
 }
 
 test "signature" {
@@ -520,7 +581,7 @@ test "signature" {
 
     const sig = try key_pair.sign("test", null);
     var buf: [128]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&sig.toBytes())}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&sig.toBytes()}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
     try sig.verify("test", key_pair.public_key);
     try std.testing.expectError(error.SignatureVerificationFailed, sig.verify("TEST", key_pair.public_key));
 }
@@ -556,7 +617,7 @@ test "batch verification" {
 
 test "test vectors" {
     const Vec = struct {
-        msg_hex: *const [64:0]u8,
+        msg_hex: []const u8,
         public_key_hex: *const [64:0]u8,
         sig_hex: *const [128:0]u8,
         expected: ?anyerror,
@@ -608,7 +669,7 @@ test "test vectors" {
         Vec{
             .msg_hex = "85e241a07d148b41e47d62c63f830dc7a6851a0b1f33ae4bb2f507fb6cffec40",
             .public_key_hex = "442aad9f089ad9e14647b1ef9099a1ff4798d78589e66f28eca69c11f582a623",
-            .sig_hex = "8ce5b96c8f26d0ab6c47958c9e68b937104cd36e13c33566acd2fe8d38aa19427e71f98a4734e74f2f13f06f97c20d58cc3f54b8bd0d272f42b695dd7e89a8c2",
+            .sig_hex = "8ce5b96c8f26d0ab6c47958c9e68b937104cd36e13c33566acd2fe8d38aa19427e71f98a473474f2f13f06f97c20d58cc3f54b8bd0d272f42b695dd7e89a8c22",
             .expected = error.NonCanonical, // 7 - S >> L
         },
         Vec{
@@ -638,7 +699,8 @@ test "test vectors" {
     };
     for (entries) |entry| {
         var msg: [64 / 2]u8 = undefined;
-        _ = try fmt.hexToBytes(&msg, entry.msg_hex);
+        const msg_len = entry.msg_hex.len / 2;
+        _ = try fmt.hexToBytes(msg[0..msg_len], entry.msg_hex);
         var public_key_bytes: [32]u8 = undefined;
         _ = try fmt.hexToBytes(&public_key_bytes, entry.public_key_hex);
         const public_key = Ed25519.PublicKey.fromBytes(public_key_bytes) catch |err| {
@@ -649,9 +711,9 @@ test "test vectors" {
         _ = try fmt.hexToBytes(&sig_bytes, entry.sig_hex);
         const sig = Ed25519.Signature.fromBytes(sig_bytes);
         if (entry.expected) |error_type| {
-            try std.testing.expectError(error_type, sig.verify(&msg, public_key));
+            try std.testing.expectError(error_type, sig.verify(msg[0..msg_len], public_key));
         } else {
-            try sig.verify(&msg, public_key);
+            try sig.verify(msg[0..msg_len], public_key);
         }
     }
 }
@@ -700,4 +762,36 @@ test "key pair from secret key" {
     const kp2 = try Ed25519.KeyPair.fromSecretKey(kp.secret_key);
     try std.testing.expectEqualSlices(u8, &kp.secret_key.toBytes(), &kp2.secret_key.toBytes());
     try std.testing.expectEqualSlices(u8, &kp.public_key.toBytes(), &kp2.public_key.toBytes());
+}
+
+test "cofactored vs cofactorless verification" {
+    const msg_hex = "65643235353139766563746f72732033";
+    const public_key_hex = "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79";
+    const sig_hex = "fa9dde274f4820efb19a890f8ba2d8791710a4303ceef4aedf9dddc4e81a1f11701a598b9a02ae60505dd0c2938a1a0c2d6ffd4676cfb49125b19e9cb358da06";
+
+    var msg: [16]u8 = undefined;
+    _ = try fmt.hexToBytes(&msg, msg_hex);
+
+    var pk_bytes: [32]u8 = undefined;
+    _ = try fmt.hexToBytes(&pk_bytes, public_key_hex);
+    const pk = try Ed25519.PublicKey.fromBytes(pk_bytes);
+
+    var sig_bytes: [64]u8 = undefined;
+    _ = try fmt.hexToBytes(&sig_bytes, sig_hex);
+    const sig = Ed25519.Signature.fromBytes(sig_bytes);
+
+    try sig.verify(&msg, pk);
+
+    try std.testing.expectError(
+        error.SignatureVerificationFailed,
+        sig.verifyStrict(&msg, pk),
+    );
+}
+
+test "regular signature verifies with both verify and verifyStrict" {
+    const kp = Ed25519.KeyPair.generate();
+    const msg = "test message";
+    const sig = try kp.sign(msg, null);
+    try sig.verify(msg, kp.public_key);
+    try sig.verifyStrict(msg, kp.public_key);
 }

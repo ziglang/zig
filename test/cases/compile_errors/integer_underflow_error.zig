@@ -3,7 +3,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:84: error: overflow of integer type 'usize' with value '-1'

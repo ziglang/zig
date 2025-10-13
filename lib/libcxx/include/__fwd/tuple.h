@@ -10,7 +10,7 @@
 #define _LIBCPP___FWD_TUPLE_H
 
 #include <__config>
-#include <cstddef>
+#include <__cstddef/size_t.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -19,15 +19,15 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <size_t, class>
-struct _LIBCPP_TEMPLATE_VIS tuple_element;
+struct tuple_element;
 
 #ifndef _LIBCPP_CXX03_LANG
 
 template <class...>
-class _LIBCPP_TEMPLATE_VIS tuple;
+class tuple;
 
 template <class>
-struct _LIBCPP_TEMPLATE_VIS tuple_size;
+struct tuple_size;
 
 template <size_t _Ip, class... _Tp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 typename tuple_element<_Ip, tuple<_Tp...> >::type&

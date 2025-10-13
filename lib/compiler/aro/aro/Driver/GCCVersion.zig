@@ -57,7 +57,7 @@ pub fn parse(text: []const u8) GCCVersion {
     var good = bad;
 
     var it = mem.splitScalar(u8, text, '.');
-    const first = it.next().?;
+    const first = it.first();
     const second = it.next() orelse "";
     const rest = it.next() orelse "";
 

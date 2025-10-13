@@ -23,9 +23,8 @@
 #include <__memory/addressof.h>
 #include <__utility/move.h>
 #include <__variant/monostate.h>
-#include <cstddef>
 
-#ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#if _LIBCPP_HAS_LOCALIZATION
 #  include <__locale>
 #  include <optional>
 #endif
@@ -43,9 +42,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _OutIt, class _CharT>
   requires output_iterator<_OutIt, const _CharT&>
-class _LIBCPP_TEMPLATE_VIS basic_format_context;
+class basic_format_context;
 
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
 /**
  * Helper to create a basic_format_context.
  *
@@ -67,19 +66,14 @@ __format_context_create(_OutIt __out_it, basic_format_args<basic_format_context<
 #  endif
 
 using format_context = basic_format_context<back_insert_iterator<__format::__output_buffer<char>>, char>;
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 using wformat_context = basic_format_context< back_insert_iterator<__format::__output_buffer<wchar_t>>, wchar_t>;
 #  endif
 
 template <class _OutIt, class _CharT>
   requires output_iterator<_OutIt, const _CharT&>
-class
-    // clang-format off
-    _LIBCPP_TEMPLATE_VIS
-    _LIBCPP_PREFERRED_NAME(format_context)
-    _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wformat_context))
-    // clang-format on
-    basic_format_context {
+class _LIBCPP_PREFERRED_NAME(format_context)
+    _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wformat_context)) basic_format_context {
 public:
   using iterator  = _OutIt;
   using char_type = _CharT;
@@ -89,7 +83,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI basic_format_arg<basic_format_context> arg(size_t __id) const noexcept {
     return __args_.get(__id);
   }
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
   _LIBCPP_HIDE_FROM_ABI std::locale locale() {
     if (!__loc_)
       __loc_ = std::locale{};
@@ -102,7 +96,7 @@ public:
 private:
   iterator __out_it_;
   basic_format_args<basic_format_context> __args_;
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
 
   // The Standard doesn't specify how the locale is stored.
   // [format.context]/6
@@ -132,6 +126,7 @@ private:
       : __out_it_(std::move(__out_it)), __args_(__args) {}
 #  endif
 
+public:
   basic_format_context(const basic_format_context&)            = delete;
   basic_format_context& operator=(const basic_format_context&) = delete;
 };
@@ -153,7 +148,7 @@ private:
 // Here the width of an element in input is determined dynamically.
 // Note when the top-level element has no width the retargeting is not needed.
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS basic_format_context<typename __format::__retarget_buffer<_CharT>::__iterator, _CharT> {
+class basic_format_context<typename __format::__retarget_buffer<_CharT>::__iterator, _CharT> {
 public:
   using iterator  = typename __format::__retarget_buffer<_CharT>::__iterator;
   using char_type = _CharT;
@@ -163,7 +158,7 @@ public:
   template <class _Context>
   _LIBCPP_HIDE_FROM_ABI explicit basic_format_context(iterator __out_it, _Context& __ctx)
       : __out_it_(std::move(__out_it)),
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
         __loc_([](void* __c) { return static_cast<_Context*>(__c)->locale(); }),
 #  endif
         __ctx_(std::addressof(__ctx)),
@@ -180,20 +175,20 @@ public:
                   __format::__determine_arg_t<basic_format_context, decltype(__arg)>(),
                   __basic_format_arg_value<basic_format_context>(__arg)};
           };
-#  if _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
+#  if _LIBCPP_STD_VER >= 26 && _LIBCPP_HAS_EXPLICIT_THIS_PARAMETER
           return static_cast<_Context*>(__c)->arg(__id).visit(std::move(__visitor));
 #  else
           _LIBCPP_SUPPRESS_DEPRECATED_PUSH
           return std::visit_format_arg(std::move(__visitor), static_cast<_Context*>(__c)->arg(__id));
           _LIBCPP_SUPPRESS_DEPRECATED_POP
-#  endif // _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
+#  endif // _LIBCPP_STD_VER >= 26 && _LIBCPP_HAS_EXPLICIT_THIS_PARAMETER
         }) {
   }
 
   _LIBCPP_HIDE_FROM_ABI basic_format_arg<basic_format_context> arg(size_t __id) const noexcept {
     return __arg_(__ctx_, __id);
   }
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
   _LIBCPP_HIDE_FROM_ABI std::locale locale() { return __loc_(__ctx_); }
 #  endif
   _LIBCPP_HIDE_FROM_ABI iterator out() { return std::move(__out_it_); }
@@ -202,7 +197,7 @@ public:
 private:
   iterator __out_it_;
 
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
   std::locale (*__loc_)(void* __ctx);
 #  endif
 
@@ -211,7 +206,7 @@ private:
 };
 
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(basic_format_context);
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

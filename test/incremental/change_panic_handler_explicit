@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #update=initial version
@@ -26,8 +27,7 @@ pub const panic = struct {
     pub const castToNull = no_panic.castToNull;
     pub const incorrectAlignment = no_panic.incorrectAlignment;
     pub const invalidErrorCode = no_panic.invalidErrorCode;
-    pub const castTruncatedData = no_panic.castTruncatedData;
-    pub const negativeToUnsigned = no_panic.negativeToUnsigned;
+    pub const integerOutOfBounds = no_panic.integerOutOfBounds;
     pub const shlOverflow = no_panic.shlOverflow;
     pub const shrOverflow = no_panic.shrOverflow;
     pub const divideByZero = no_panic.divideByZero;
@@ -37,12 +37,13 @@ pub const panic = struct {
     pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
     pub const invalidEnumValue = no_panic.invalidEnumValue;
     pub const forLenMismatch = no_panic.forLenMismatch;
-    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    stdout_writer.interface.print("panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
@@ -73,8 +74,7 @@ pub const panic = struct {
     pub const castToNull = no_panic.castToNull;
     pub const incorrectAlignment = no_panic.incorrectAlignment;
     pub const invalidErrorCode = no_panic.invalidErrorCode;
-    pub const castTruncatedData = no_panic.castTruncatedData;
-    pub const negativeToUnsigned = no_panic.negativeToUnsigned;
+    pub const integerOutOfBounds = no_panic.integerOutOfBounds;
     pub const shlOverflow = no_panic.shlOverflow;
     pub const shrOverflow = no_panic.shrOverflow;
     pub const divideByZero = no_panic.divideByZero;
@@ -84,12 +84,13 @@ pub const panic = struct {
     pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
     pub const invalidEnumValue = no_panic.invalidEnumValue;
     pub const forLenMismatch = no_panic.forLenMismatch;
-    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("new panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    stdout_writer.interface.print("new panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
@@ -120,8 +121,7 @@ pub const panic = struct {
     pub const castToNull = no_panic.castToNull;
     pub const incorrectAlignment = no_panic.incorrectAlignment;
     pub const invalidErrorCode = no_panic.invalidErrorCode;
-    pub const castTruncatedData = no_panic.castTruncatedData;
-    pub const negativeToUnsigned = no_panic.negativeToUnsigned;
+    pub const integerOutOfBounds = no_panic.integerOutOfBounds;
     pub const shlOverflow = no_panic.shlOverflow;
     pub const shrOverflow = no_panic.shrOverflow;
     pub const divideByZero = no_panic.divideByZero;
@@ -131,12 +131,13 @@ pub const panic = struct {
     pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
     pub const invalidEnumValue = no_panic.invalidEnumValue;
     pub const forLenMismatch = no_panic.forLenMismatch;
-    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanicNew(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("third panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    stdout_writer.interface.print("third panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");

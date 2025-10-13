@@ -6,6 +6,7 @@ const gpa = std.heap.wasm_allocator;
 const assert = std.debug.assert;
 const log = std.log;
 const Oom = error{OutOfMemory};
+const ArrayList = std.ArrayList;
 
 ast_node: Ast.Node.Index,
 file: Walk.File.Index,
@@ -189,7 +190,7 @@ pub fn lookup(decl: *const Decl, name: []const u8) ?Decl.Index {
 }
 
 /// Appends the fully qualified name to `out`.
-pub fn fqn(decl: *const Decl, out: *std.ArrayListUnmanaged(u8)) Oom!void {
+pub fn fqn(decl: *const Decl, out: *ArrayList(u8)) Oom!void {
     try decl.append_path(out);
     if (decl.parent != .none) {
         try append_parent_ns(out, decl.parent);
@@ -199,12 +200,12 @@ pub fn fqn(decl: *const Decl, out: *std.ArrayListUnmanaged(u8)) Oom!void {
     }
 }
 
-pub fn reset_with_path(decl: *const Decl, list: *std.ArrayListUnmanaged(u8)) Oom!void {
+pub fn reset_with_path(decl: *const Decl, list: *ArrayList(u8)) Oom!void {
     list.clearRetainingCapacity();
     try append_path(decl, list);
 }
 
-pub fn append_path(decl: *const Decl, list: *std.ArrayListUnmanaged(u8)) Oom!void {
+pub fn append_path(decl: *const Decl, list: *ArrayList(u8)) Oom!void {
     const start = list.items.len;
     // Prefer the module name alias.
     for (Walk.modules.keys(), Walk.modules.values()) |pkg_name, pkg_file| {
@@ -230,7 +231,7 @@ pub fn append_path(decl: *const Decl, list: *std.ArrayListUnmanaged(u8)) Oom!voi
     }
 }
 
-pub fn append_parent_ns(list: *std.ArrayListUnmanaged(u8), parent: Decl.Index) Oom!void {
+pub fn append_parent_ns(list: *ArrayList(u8), parent: Decl.Index) Oom!void {
     assert(parent != .none);
     const decl = parent.get();
     if (decl.parent != .none) {

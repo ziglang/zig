@@ -21,7 +21,7 @@
 #  define _LIBCPP_HAS_ATOMIC_BUILTINS
 #endif
 
-#if !defined(_LIBCPP_HAS_ATOMIC_BUILTINS) && !defined(_LIBCPP_HAS_NO_THREADS)
+#if !defined(_LIBCPP_HAS_ATOMIC_BUILTINS) && _LIBCPP_HAS_THREADS
 #  if defined(_LIBCPP_WARNING)
 _LIBCPP_WARNING("Building libc++ without __atomic builtins is unsupported")
 #  else
@@ -33,7 +33,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace {
 
-#if defined(_LIBCPP_HAS_ATOMIC_BUILTINS) && !defined(_LIBCPP_HAS_NO_THREADS)
+#if defined(_LIBCPP_HAS_ATOMIC_BUILTINS) && _LIBCPP_HAS_THREADS
 
 enum __libcpp_atomic_order {
   _AO_Relaxed = __ATOMIC_RELAXED,
@@ -80,7 +80,7 @@ inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_atomic_compare_exchange(
   return __atomic_compare_exchange_n(__val, __expected, __after, true, __success_order, __fail_order);
 }
 
-#else // _LIBCPP_HAS_NO_THREADS
+#else // _LIBCPP_HAS_THREADS
 
 enum __libcpp_atomic_order { _AO_Relaxed, _AO_Consume, _AO_Acquire, _AO_Release, _AO_Acq_Rel, _AO_Seq };
 
@@ -123,9 +123,9 @@ __libcpp_atomic_compare_exchange(_ValueType* __val, _ValueType* __expected, _Val
   return false;
 }
 
-#endif // _LIBCPP_HAS_NO_THREADS
+#endif // _LIBCPP_HAS_THREADS
 
-} // end namespace
+} // namespace
 
 _LIBCPP_END_NAMESPACE_STD
 

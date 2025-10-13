@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS basic_format_parse_context {
+class basic_format_parse_context {
 public:
   using char_type      = _CharT;
   using const_iterator = typename basic_string_view<_CharT>::const_iterator;
@@ -94,11 +94,11 @@ private:
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(basic_format_parse_context);
 
 using format_parse_context = basic_format_parse_context<char>;
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 using wformat_parse_context = basic_format_parse_context<wchar_t>;
 #  endif
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

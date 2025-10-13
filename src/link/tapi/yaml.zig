@@ -172,7 +172,7 @@ pub const Value = union(enum) {
 
             return Value{ .map = out_map };
         } else if (node.cast(Node.List)) |list| {
-            var out_list = std.ArrayList(Value).init(arena);
+            var out_list = std.array_list.Managed(Value).init(arena);
             try out_list.ensureUnusedCapacity(list.values.items.len);
 
             for (list.values.items) |elem| {
@@ -211,7 +211,7 @@ pub const Value = union(enum) {
             .float => return Value{ .float = math.lossyCast(f64, input) },
 
             .@"struct" => |info| if (info.is_tuple) {
-                var list = std.ArrayList(Value).init(arena);
+                var list = std.array_list.Managed(Value).init(arena);
                 errdefer list.deinit();
                 try list.ensureTotalCapacityPrecise(info.fields.len);
 
@@ -262,7 +262,7 @@ pub const Value = union(enum) {
                         return Value{ .string = try arena.dupe(u8, input) };
                     }
 
-                    var list = std.ArrayList(Value).init(arena);
+                    var list = std.array_list.Managed(Value).init(arena);
                     errdefer list.deinit();
                     try list.ensureTotalCapacityPrecise(input.len);
 
@@ -298,7 +298,7 @@ pub const Value = union(enum) {
 pub const Yaml = struct {
     arena: ArenaAllocator,
     tree: ?Tree = null,
-    docs: std.ArrayList(Value),
+    docs: std.array_list.Managed(Value),
 
     pub fn deinit(self: *Yaml) void {
         self.arena.deinit();
@@ -311,7 +311,7 @@ pub const Yaml = struct {
         var tree = Tree.init(arena.allocator());
         try tree.parse(source);
 
-        var docs = std.ArrayList(Value).init(arena.allocator());
+        var docs = std.array_list.Managed(Value).init(arena.allocator());
         try docs.ensureTotalCapacityPrecise(tree.docs.items.len);
 
         for (tree.docs.items) |node| {

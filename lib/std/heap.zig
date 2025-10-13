@@ -7,6 +7,7 @@ const mem = std.mem;
 const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
+const Alignment = std.mem.Alignment;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
@@ -77,37 +78,46 @@ pub fn defaultQueryPageSize() usize {
     };
     var size = global.cached_result.load(.unordered);
     if (size > 0) return size;
-    size = switch (builtin.os.tag) {
-        .linux => if (builtin.link_libc) @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE))) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
+    size = size: switch (builtin.os.tag) {
+        .linux => if (builtin.link_libc)
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
+        else
+            std.os.linux.getauxval(std.elf.AT_PAGESZ),
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
-            if (task_port == std.c.TASK_NULL)
-                break :blk 0;
-            var info_count = std.c.TASK_VM_INFO_COUNT;
+            if (task_port == std.c.TASK.NULL) break :size 0;
+            var info_count = std.c.TASK.VM.INFO_COUNT;
             var vm_info: std.c.task_vm_info_data_t = undefined;
             vm_info.page_size = 0;
             _ = std.c.task_info(
                 task_port,
-                std.c.TASK_VM_INFO,
+                std.c.TASK.VM.INFO,
                 @as(std.c.task_info_t, @ptrCast(&vm_info)),
                 &info_count,
             );
-            assert(vm_info.page_size != 0);
-            break :blk @intCast(vm_info.page_size);
+            break :size @intCast(vm_info.page_size);
         },
-        .windows => blk: {
-            var info: std.os.windows.SYSTEM_INFO = undefined;
-            std.os.windows.kernel32.GetSystemInfo(&info);
-            break :blk info.dwPageSize;
+        .windows => {
+            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            switch (windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            )) {
+                .SUCCESS => break :size sbi.PageSize,
+                else => break :size 0,
+            }
         },
         else => if (builtin.link_libc)
-            @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
         else if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
             @compileError("unsupported target: freestanding/other")
         else
             @compileError("pageSize on " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " is not supported without linking libc, using the default implementation"),
     };
+    if (size == 0) size = page_size_max;
 
     assert(size >= page_size_min);
     assert(size <= page_size_max);
@@ -145,15 +155,15 @@ const CAllocator = struct {
     else {};
 
     pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
+        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
         else => false,
     };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
+        return @ptrCast(@alignCast(ptr - @sizeOf(usize)));
     }
 
-    fn alignedAlloc(len: usize, alignment: mem.Alignment) ?[*]u8 {
+    fn alignedAlloc(len: usize, alignment: Alignment) ?[*]u8 {
         const alignment_bytes = alignment.toByteUnits();
         if (supports_posix_memalign) {
             // The posix_memalign only accepts alignment values that are a
@@ -201,7 +211,7 @@ const CAllocator = struct {
     fn alloc(
         _: *anyopaque,
         len: usize,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         return_address: usize,
     ) ?[*]u8 {
         _ = return_address;
@@ -212,7 +222,7 @@ const CAllocator = struct {
     fn resize(
         _: *anyopaque,
         buf: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) bool {
@@ -233,7 +243,7 @@ const CAllocator = struct {
     fn remap(
         context: *anyopaque,
         memory: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) ?[*]u8 {
@@ -245,7 +255,7 @@ const CAllocator = struct {
     fn free(
         _: *anyopaque,
         buf: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         return_address: usize,
     ) void {
         _ = alignment;
@@ -281,12 +291,12 @@ const raw_c_allocator_vtable: Allocator.VTable = .{
 fn rawCAlloc(
     context: *anyopaque,
     len: usize,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     return_address: usize,
 ) ?[*]u8 {
     _ = context;
     _ = return_address;
-    assert(alignment.compare(.lte, comptime .fromByteUnits(@alignOf(std.c.max_align_t))));
+    assert(alignment.compare(.lte, .of(std.c.max_align_t)));
     // Note that this pointer cannot be aligncasted to max_align_t because if
     // len is < max_align_t then the alignment can be smaller. For example, if
     // max_align_t is 16, but the user requests 8 bytes, there is no built-in
@@ -299,7 +309,7 @@ fn rawCAlloc(
 fn rawCResize(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     new_len: usize,
     return_address: usize,
 ) bool {
@@ -314,7 +324,7 @@ fn rawCResize(
 fn rawCRemap(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     new_len: usize,
     return_address: usize,
 ) ?[*]u8 {
@@ -327,7 +337,7 @@ fn rawCRemap(
 fn rawCFree(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     return_address: usize,
 ) void {
     _ = context;
@@ -425,7 +435,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn alloc(
             ctx: *anyopaque,
             len: usize,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -436,7 +446,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             ra: usize,
         ) bool {
@@ -451,7 +461,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn remap(
             context: *anyopaque,
             memory: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             return_address: usize,
         ) ?[*]u8 {
@@ -466,7 +476,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn free(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -512,7 +522,7 @@ test PageAllocator {
     }
 
     if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, page_size_min, 128);
+        const slice = try allocator.alignedAlloc(u8, .fromByteUnits(page_size_min), 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
@@ -609,7 +619,7 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
     const allocator = validationAllocator.allocator();
 
     // Test a few alignment values, smaller and bigger than the type's one
-    inline for ([_]u29{ 1, 2, 4, 8, 16, 32, 64 }) |alignment| {
+    inline for ([_]Alignment{ .@"1", .@"2", .@"4", .@"8", .@"16", .@"32", .@"64" }) |alignment| {
         // initial
         var slice = try allocator.alignedAlloc(u8, alignment, 10);
         try testing.expect(slice.len == 10);
@@ -640,7 +650,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var align_mask: usize = undefined;
     align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
 
-    var slice = try allocator.alignedAlloc(u8, large_align, 500);
+    var slice = try allocator.alignedAlloc(u8, .fromByteUnits(large_align), 500);
     try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
 
     if (allocator.resize(slice, 100)) {
@@ -669,17 +679,17 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     const debug_allocator = fib.allocator();
 
     const alloc_size = pageSize() * 2 + 50;
-    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
-    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    var stuff_to_free = std.array_list.Managed([]align(16) u8).init(debug_allocator);
     // On Windows, VirtualAlloc returns addresses aligned to a 64K boundary,
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
     while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), pageSize() * 32)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+        slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);

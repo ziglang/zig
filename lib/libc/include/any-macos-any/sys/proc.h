@@ -216,6 +216,7 @@ struct extern_proc {
 #define P_DIRTY_LAUNCH_IN_PROGRESS              0x00000200      /* launch is in progress */
 #define P_DIRTY_DEFER_ALWAYS                    0x00000400      /* defer going to idle-exit after every dirty->clean transition.
 	                                                         * For legacy jetsam policy only. This is the default with the other policies.*/
+#define P_DIRTY_SHUTDOWN_ON_CLEAN               0x00000800      /* process should shutdown on going clean */
 
 #define P_DIRTY_IS_DIRTY                        (P_DIRTY | P_DIRTY_SHUTDOWN)
 #define P_DIRTY_IDLE_EXIT_ENABLED               (P_DIRTY_TRACK|P_DIRTY_ALLOW_IDLE_EXIT)

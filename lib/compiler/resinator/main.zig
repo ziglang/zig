@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const removeComments = @import("comments.zig").removeComments;
 const parseAndRemoveLineCommands = @import("source_mapping.zig").parseAndRemoveLineCommands;
 const compile = @import("compile.zig").compile;
+const Dependencies = @import("compile.zig").Dependencies;
 const Diagnostics = @import("errors.zig").Diagnostics;
 const cli = @import("cli.zig");
 const preprocess = @import("preprocess.zig");
@@ -12,6 +13,7 @@ const cvtres = @import("cvtres.zig");
 const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePage;
 const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
+const compiler_util = @import("../util.zig");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -22,14 +24,14 @@ pub fn main() !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const stderr = std.io.getStdErr();
-    const stderr_config = std.io.tty.detectConfig(stderr);
+    const stderr = std.fs.File.stderr();
+    const stderr_config = std.Io.tty.detectConfig(stderr);
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        try renderErrorMessage(stderr.writer(), stderr_config, .err, "expected zig lib dir as first argument", .{});
+        try renderErrorMessage(std.debug.lockStderrWriter(&.{}), stderr_config, .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
     const zig_lib_dir = args[1];
@@ -41,12 +43,14 @@ pub fn main() !void {
         cli_args = args[3..];
     }
 
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = std.io.getStdOut(),
+                .out = stdout,
                 .in = undefined, // won't be receiving messages
-                .receive_fifo = undefined, // won't be receiving messages
             },
         },
         false => .{
@@ -81,48 +85,34 @@ pub fn main() !void {
     defer options.deinit();
 
     if (options.print_help_and_exit) {
-        const stdout = std.io.getStdOut();
-        try cli.writeUsage(stdout.writer(), "zig rc");
+        try cli.writeUsage(stdout, "zig rc");
+        try stdout.flush();
         return;
     }
 
     // Don't allow verbose when integrating with Zig via stdout
     options.verbose = false;
 
-    const stdout_writer = std.io.getStdOut().writer();
     if (options.verbose) {
-        try options.dumpVerbose(stdout_writer);
-        try stdout_writer.writeByte('\n');
+        try options.dumpVerbose(stdout);
+        try stdout.writeByte('\n');
+        try stdout.flush();
     }
 
-    var dependencies_list = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (dependencies_list.items) |item| {
-            allocator.free(item);
-        }
-        dependencies_list.deinit();
-    }
-    const maybe_dependencies_list: ?*std.ArrayList([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
+    var dependencies = Dependencies.init(allocator);
+    defer dependencies.deinit();
+    const maybe_dependencies: ?*Dependencies = if (options.depfile_path != null) &dependencies else null;
 
-    const include_paths = getIncludePaths(arena, options.auto_includes, zig_lib_dir) catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        else => |e| {
-            switch (e) {
-                error.MsvcIncludesNotFound => {
-                    try error_handler.emitMessage(allocator, .err, "MSVC include paths could not be automatically detected", .{});
-                },
-                error.MingwIncludesNotFound => {
-                    try error_handler.emitMessage(allocator, .err, "MinGW include paths could not be automatically detected", .{});
-                },
-            }
-            try error_handler.emitMessage(allocator, .note, "to disable auto includes, use the option /:auto-includes none", .{});
-            std.process.exit(1);
-        },
+    var include_paths = LazyIncludePaths{
+        .arena = arena,
+        .auto_includes_option = options.auto_includes,
+        .zig_lib_dir = zig_lib_dir,
+        .target_machine_type = options.coff_options.target,
     };
 
     const full_input = full_input: {
-        if (options.preprocess != .no) {
-            var preprocessed_buf = std.ArrayList(u8).init(allocator);
+        if (options.input_format == .rc and options.preprocess != .no) {
+            var preprocessed_buf: std.Io.Writer.Allocating = .init(allocator);
             errdefer preprocessed_buf.deinit();
 
             // We're going to throw away everything except the final preprocessed output anyway,
@@ -131,39 +121,58 @@ pub fn main() !void {
             defer aro_arena_state.deinit();
             const aro_arena = aro_arena_state.allocator();
 
-            var comp = aro.Compilation.init(aro_arena, std.fs.cwd());
+            var stderr_buf: [512]u8 = undefined;
+            var stderr_writer = stderr.writer(&stderr_buf);
+            var diagnostics: aro.Diagnostics = switch (zig_integration) {
+                false => .{ .output = .{ .to_writer = .{
+                    .writer = &stderr_writer.interface,
+                    .color = stderr_config,
+                } } },
+                true => .{ .output = .{ .to_list = .{
+                    .arena = .init(allocator),
+                } } },
+            };
+            defer diagnostics.deinit();
+
+            var comp = aro.Compilation.init(aro_arena, aro_arena, &diagnostics, std.fs.cwd());
             defer comp.deinit();
 
-            var argv = std.ArrayList([]const u8).init(comp.gpa);
-            defer argv.deinit();
+            var argv: std.ArrayList([]const u8) = .empty;
+            defer argv.deinit(aro_arena);
 
-            try argv.append("arocc"); // dummy command name
-            try preprocess.appendAroArgs(aro_arena, &argv, options, include_paths);
-            try argv.append(switch (options.input_source) {
+            try argv.append(aro_arena, "arocc"); // dummy command name
+            const resolved_include_paths = try include_paths.get(&error_handler);
+            try preprocess.appendAroArgs(aro_arena, &argv, options, resolved_include_paths);
+            try argv.append(aro_arena, switch (options.input_source) {
                 .stdio => "-",
                 .filename => |filename| filename,
             });
 
             if (options.verbose) {
-                try stdout_writer.writeAll("Preprocessor: arocc (built-in)\n");
+                try stdout.writeAll("Preprocessor: arocc (built-in)\n");
                 for (argv.items[0 .. argv.items.len - 1]) |arg| {
-                    try stdout_writer.print("{s} ", .{arg});
+                    try stdout.print("{s} ", .{arg});
                 }
-                try stdout_writer.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
+                try stdout.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
+                try stdout.flush();
             }
 
-            preprocess.preprocess(&comp, preprocessed_buf.writer(), argv.items, maybe_dependencies_list) catch |err| switch (err) {
+            preprocess.preprocess(&comp, &preprocessed_buf.writer, argv.items, maybe_dependencies) catch |err| switch (err) {
                 error.GeneratedSourceError => {
-                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessor setup (this is always a bug):", &comp);
+                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessor setup (this is always a bug)", &comp);
                     std.process.exit(1);
                 },
                 // ArgError can occur if e.g. the .rc file is not found
                 error.ArgError, error.PreprocessError => {
-                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessing:", &comp);
+                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessing", &comp);
                     std.process.exit(1);
                 },
-                error.StreamTooLong => {
+                error.FileTooBig => {
                     try error_handler.emitMessage(allocator, .err, "failed during preprocessing: maximum file size exceeded", .{});
+                    std.process.exit(1);
+                },
+                error.WriteFailed => {
+                    try error_handler.emitMessage(allocator, .err, "failed during preprocessing: error writing the preprocessed output", .{});
                     std.process.exit(1);
                 },
                 error.OutOfMemory => |e| return e,
@@ -173,13 +182,14 @@ pub fn main() !void {
         } else {
             switch (options.input_source) {
                 .stdio => |file| {
-                    break :full_input file.readToEndAlloc(allocator, std.math.maxInt(usize)) catch |err| {
+                    var file_reader = file.reader(&.{});
+                    break :full_input file_reader.interface.allocRemaining(allocator, .unlimited) catch |err| {
                         try error_handler.emitMessage(allocator, .err, "unable to read input from stdin: {s}", .{@errorName(err)});
                         std.process.exit(1);
                     };
                 },
                 .filename => |input_filename| {
-                    break :full_input std.fs.cwd().readFileAlloc(allocator, input_filename, std.math.maxInt(usize)) catch |err| {
+                    break :full_input std.fs.cwd().readFileAlloc(input_filename, allocator, .unlimited) catch |err| {
                         try error_handler.emitMessage(allocator, .err, "unable to read input file path '{s}': {s}", .{ input_filename, @errorName(err) });
                         std.process.exit(1);
                     };
@@ -254,17 +264,19 @@ pub fn main() !void {
                 var diagnostics = Diagnostics.init(allocator);
                 defer diagnostics.deinit();
 
-                const res_stream_writer = res_stream.source.writer(allocator);
-                var output_buffered_stream = std.io.bufferedWriter(res_stream_writer);
+                var output_buffer: [4096]u8 = undefined;
+                var res_stream_writer = res_stream.source.writer(allocator, &output_buffer);
+                defer res_stream_writer.deinit(&res_stream.source);
+                const output_buffered_stream = res_stream_writer.interface();
 
-                compile(allocator, final_input, output_buffered_stream.writer(), .{
+                compile(allocator, final_input, output_buffered_stream, .{
                     .cwd = std.fs.cwd(),
                     .diagnostics = &diagnostics,
                     .source_mappings = &mapping_results.mappings,
-                    .dependencies_list = maybe_dependencies_list,
+                    .dependencies = maybe_dependencies,
                     .ignore_include_env_var = options.ignore_include_env_var,
                     .extra_include_paths = options.extra_include_paths.items,
-                    .system_include_paths = include_paths,
+                    .system_include_paths = try include_paths.get(&error_handler),
                     .default_language_id = options.default_language_id,
                     .default_code_page = default_code_page,
                     .disjoint_code_page = has_disjoint_code_page,
@@ -298,21 +310,23 @@ pub fn main() !void {
                     };
                     defer depfile.close();
 
-                    const depfile_writer = depfile.writer();
-                    var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
+                    var depfile_buffer: [1024]u8 = undefined;
+                    var depfile_writer = depfile.writer(&depfile_buffer);
                     switch (options.depfile_fmt) {
                         .json => {
-                            var write_stream = std.json.writeStream(depfile_buffered_writer.writer(), .{ .whitespace = .indent_2 });
-                            defer write_stream.deinit();
+                            var write_stream: std.json.Stringify = .{
+                                .writer = &depfile_writer.interface,
+                                .options = .{ .whitespace = .indent_2 },
+                            };
 
                             try write_stream.beginArray();
-                            for (dependencies_list.items) |dep_path| {
+                            for (dependencies.list.items) |dep_path| {
                                 try write_stream.write(dep_path);
                             }
                             try write_stream.endArray();
                         },
                     }
-                    try depfile_buffered_writer.flush();
+                    try depfile_writer.interface.flush();
                 }
             }
 
@@ -329,8 +343,8 @@ pub fn main() !void {
         std.debug.assert(options.output_format == .coff);
 
         // TODO: Maybe use a buffered file reader instead of reading file into memory -> fbs
-        var fbs = std.io.fixedBufferStream(res_data.bytes);
-        break :resources cvtres.parseRes(allocator, fbs.reader(), .{ .max_size = res_data.bytes.len }) catch |err| {
+        var res_reader: std.Io.Reader = .fixed(res_data.bytes);
+        break :resources cvtres.parseRes(allocator, &res_reader, .{ .max_size = res_data.bytes.len }) catch |err| {
             // TODO: Better errors
             try error_handler.emitMessage(allocator, .err, "unable to parse res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
             std.process.exit(1);
@@ -344,14 +358,15 @@ pub fn main() !void {
     };
     defer coff_stream.deinit(allocator);
 
-    var coff_output_buffered_stream = std.io.bufferedWriter(coff_stream.source.writer(allocator));
+    var coff_output_buffer: [4096]u8 = undefined;
+    var coff_output_buffered_stream = coff_stream.source.writer(allocator, &coff_output_buffer);
 
     var cvtres_diagnostics: cvtres.Diagnostics = .{ .none = {} };
-    cvtres.writeCoff(allocator, coff_output_buffered_stream.writer(), resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
+    cvtres.writeCoff(allocator, coff_output_buffered_stream.interface(), resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
         switch (err) {
             error.DuplicateResource => {
                 const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
-                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {f}, type: {f}, language: {f}]", .{
                     duplicate_resource.name_value,
                     fmtResourceType(duplicate_resource.type_value),
                     duplicate_resource.language,
@@ -360,7 +375,7 @@ pub fn main() !void {
             error.ResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "resource has a data length that is too large to be written into a coff section", .{});
-                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -369,7 +384,7 @@ pub fn main() !void {
             error.TotalResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "total resource data exceeds the maximum of the coff 'size of raw data' field", .{});
-                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -384,7 +399,7 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    try coff_output_buffered_stream.flush();
+    try coff_output_buffered_stream.interface().flush();
 }
 
 const IoStream = struct {
@@ -427,7 +442,7 @@ const IoStream = struct {
     pub const Source = union(enum) {
         file: std.fs.File,
         stdio: std.fs.File,
-        memory: std.ArrayListUnmanaged(u8),
+        memory: std.ArrayList(u8),
         /// The source has been closed and any usage of the Source in this state is illegal (except deinit).
         closed: void,
 
@@ -466,7 +481,10 @@ const IoStream = struct {
         pub fn readAll(self: Source, allocator: std.mem.Allocator) !Data {
             return switch (self) {
                 inline .file, .stdio => |file| .{
-                    .bytes = try file.readToEndAlloc(allocator, std.math.maxInt(usize)),
+                    .bytes = b: {
+                        var file_reader = file.reader(&.{});
+                        break :b try file_reader.interface.allocRemaining(allocator, .unlimited);
+                    },
                     .needs_free = true,
                 },
                 .memory => |list| .{ .bytes = list.items, .needs_free = false },
@@ -474,45 +492,103 @@ const IoStream = struct {
             };
         }
 
-        pub const WriterContext = struct {
-            self: *Source,
-            allocator: std.mem.Allocator,
-        };
-        pub const WriteError = std.mem.Allocator.Error || std.fs.File.WriteError;
-        pub const Writer = std.io.Writer(WriterContext, WriteError, write);
+        pub const Writer = union(enum) {
+            file: std.fs.File.Writer,
+            allocating: std.Io.Writer.Allocating,
 
-        pub fn write(ctx: WriterContext, bytes: []const u8) WriteError!usize {
-            switch (ctx.self.*) {
-                inline .file, .stdio => |file| return file.write(bytes),
-                .memory => |*list| {
-                    try list.appendSlice(ctx.allocator, bytes);
-                    return bytes.len;
-                },
-                .closed => unreachable,
+            pub const Error = std.mem.Allocator.Error || std.fs.File.WriteError;
+
+            pub fn interface(this: *@This()) *std.Io.Writer {
+                return switch (this.*) {
+                    .file => |*fw| &fw.interface,
+                    .allocating => |*a| &a.writer,
+                };
             }
-        }
 
-        pub fn writer(self: *Source, allocator: std.mem.Allocator) Writer {
-            return .{ .context = .{ .self = self, .allocator = allocator } };
+            pub fn deinit(this: *@This(), source: *Source) void {
+                switch (this.*) {
+                    .file => {},
+                    .allocating => |*a| source.memory = a.toArrayList(),
+                }
+                this.* = undefined;
+            }
+        };
+
+        pub fn writer(source: *Source, allocator: std.mem.Allocator, buffer: []u8) Writer {
+            return switch (source.*) {
+                .file, .stdio => |file| .{ .file = file.writer(buffer) },
+                .memory => |*list| .{ .allocating = .fromArrayList(allocator, list) },
+                .closed => unreachable,
+            };
         }
     };
 };
 
-fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8) ![]const []const u8 {
+const LazyIncludePaths = struct {
+    arena: std.mem.Allocator,
+    auto_includes_option: cli.Options.AutoIncludes,
+    zig_lib_dir: []const u8,
+    target_machine_type: std.coff.IMAGE.FILE.MACHINE,
+    resolved_include_paths: ?[]const []const u8 = null,
+
+    pub fn get(self: *LazyIncludePaths, error_handler: *ErrorHandler) ![]const []const u8 {
+        if (self.resolved_include_paths) |include_paths|
+            return include_paths;
+
+        return getIncludePaths(self.arena, self.auto_includes_option, self.zig_lib_dir, self.target_machine_type) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => |e| {
+                switch (e) {
+                    error.UnsupportedAutoIncludesMachineType => {
+                        try error_handler.emitMessage(self.arena, .err, "automatic include path detection is not supported for target '{s}'", .{@tagName(self.target_machine_type)});
+                    },
+                    error.MsvcIncludesNotFound => {
+                        try error_handler.emitMessage(self.arena, .err, "MSVC include paths could not be automatically detected", .{});
+                    },
+                    error.MingwIncludesNotFound => {
+                        try error_handler.emitMessage(self.arena, .err, "MinGW include paths could not be automatically detected", .{});
+                    },
+                }
+                try error_handler.emitMessage(self.arena, .note, "to disable auto includes, use the option /:auto-includes none", .{});
+                std.process.exit(1);
+            },
+        };
+    }
+};
+
+fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8, target_machine_type: std.coff.IMAGE.FILE.MACHINE) ![]const []const u8 {
+    if (auto_includes_option == .none) return &[_][]const u8{};
+
+    const includes_arch: std.Target.Cpu.Arch = switch (target_machine_type) {
+        .AMD64 => .x86_64,
+        .I386 => .x86,
+        .ARMNT => .thumb,
+        .ARM64 => .aarch64,
+        .ARM64EC => .aarch64,
+        .ARM64X => .aarch64,
+        .IA64, .EBC => {
+            return error.UnsupportedAutoIncludesMachineType;
+        },
+        // The above cases are exhaustive of all the `MachineType`s supported (see supported_targets in cvtres.zig)
+        // This is enforced by the argument parser in cli.zig.
+        else => unreachable,
+    };
+
     var includes = auto_includes_option;
     if (builtin.target.os.tag != .windows) {
         switch (includes) {
+            .none => unreachable,
             // MSVC can't be found when the host isn't Windows, so short-circuit.
             .msvc => return error.MsvcIncludesNotFound,
             // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
             .any => includes = .gnu,
-            .none, .gnu => {},
+            .gnu => {},
         }
     }
 
     while (true) {
         switch (includes) {
-            .none => return &[_][]const u8{},
+            .none => unreachable,
             .any, .msvc => {
                 // MSVC is only detectable on Windows targets. This unreachable is to signify
                 // that .any and .msvc should be dealt with on non-Windows targets before this point,
@@ -521,11 +597,12 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
 
                 const target_query: std.Target.Query = .{
                     .os_tag = .windows,
+                    .cpu_arch = includes_arch,
                     .abi = .msvc,
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);
                 const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, target, is_native_abi, true, null) catch {
+                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, &target, is_native_abi, true, null) catch {
                     if (includes == .any) {
                         // fall back to mingw
                         includes = .gnu;
@@ -546,11 +623,12 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
             .gnu => {
                 const target_query: std.Target.Query = .{
                     .os_tag = .windows,
+                    .cpu_arch = includes_arch,
                     .abi = .gnu,
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);
                 const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, target, is_native_abi, true, null) catch |err| switch (err) {
+                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, &target, is_native_abi, true, null) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
                     else => return error.MingwIncludesNotFound,
                 };
@@ -565,7 +643,7 @@ const SourceMappings = @import("source_mapping.zig").SourceMappings;
 
 const ErrorHandler = union(enum) {
     server: std.zig.Server,
-    tty: std.io.tty.Config,
+    tty: std.Io.tty.Config,
 
     pub fn emitCliDiagnostics(
         self: *ErrorHandler,
@@ -594,15 +672,20 @@ const ErrorHandler = union(enum) {
     ) !void {
         switch (self.*) {
             .server => |*server| {
-                var error_bundle = try aroDiagnosticsToErrorBundle(allocator, fail_msg, comp);
+                var error_bundle = try compiler_util.aroDiagnosticsToErrorBundle(
+                    comp.diagnostics,
+                    allocator,
+                    fail_msg,
+                );
                 defer error_bundle.deinit(allocator);
 
                 try server.serveErrorBundle(error_bundle);
             },
             .tty => {
-                // extra newline to separate this line from the aro errors
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, .err, "{s}\n", .{fail_msg});
-                aro.Diagnostics.render(comp, self.tty);
+                // aro errors have already been emitted
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, .err, "{s}", .{fail_msg});
             },
         }
     }
@@ -646,7 +729,9 @@ const ErrorHandler = union(enum) {
                 try server.serveErrorBundle(error_bundle);
             },
             .tty => {
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, msg_type, format, args);
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, msg_type, format, args);
             },
         }
     }
@@ -667,13 +752,13 @@ fn cliDiagnosticsToErrorBundle(
     });
 
     var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .empty;
+    var cur_notes: std.ArrayList(ErrorBundle.ErrorMessage) = .empty;
     defer cur_notes.deinit(gpa);
     for (diagnostics.errors.items) |err_details| {
         switch (err_details.type) {
             .err => {
                 if (cur_err) |err| {
-                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+                    try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
                 }
                 cur_err = .{
                     .msg = try bundle.addString(err_details.msg.items),
@@ -691,7 +776,7 @@ fn cliDiagnosticsToErrorBundle(
         }
     }
     if (cur_err) |err| {
-        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+        try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
     }
 
     return try bundle.toOwnedBundle("");
@@ -709,10 +794,10 @@ fn diagnosticsToErrorBundle(
     try bundle.init(gpa);
     errdefer bundle.deinit();
 
-    var msg_buf: std.ArrayListUnmanaged(u8) = .empty;
-    defer msg_buf.deinit(gpa);
+    var msg_buf: std.Io.Writer.Allocating = .init(gpa);
+    defer msg_buf.deinit();
     var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .empty;
+    var cur_notes: std.ArrayList(ErrorBundle.ErrorMessage) = .empty;
     defer cur_notes.deinit(gpa);
     for (diagnostics.errors.items) |err_details| {
         switch (err_details.type) {
@@ -735,7 +820,7 @@ fn diagnosticsToErrorBundle(
         const column = err_details.token.calculateColumn(source, 1, source_line_start) + 1;
 
         msg_buf.clearRetainingCapacity();
-        try err_details.render(msg_buf.writer(gpa), source, diagnostics.strings.items);
+        try err_details.render(&msg_buf.writer, source, diagnostics.strings.items);
 
         const src_loc = src_loc: {
             var src_loc: ErrorBundle.SourceLocation = .{
@@ -760,10 +845,10 @@ fn diagnosticsToErrorBundle(
         switch (err_details.type) {
             .err => {
                 if (cur_err) |err| {
-                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+                    try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
                 }
                 cur_err = .{
-                    .msg = try bundle.addString(msg_buf.items),
+                    .msg = try bundle.addString(msg_buf.written()),
                     .src_loc = src_loc,
                 };
                 cur_notes.clearRetainingCapacity();
@@ -771,7 +856,7 @@ fn diagnosticsToErrorBundle(
             .note => {
                 cur_err.?.notes_len += 1;
                 try cur_notes.append(gpa, .{
-                    .msg = try bundle.addString(msg_buf.items),
+                    .msg = try bundle.addString(msg_buf.written()),
                     .src_loc = src_loc,
                 });
             },
@@ -779,18 +864,10 @@ fn diagnosticsToErrorBundle(
         }
     }
     if (cur_err) |err| {
-        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+        try bundle.addRootErrorMessageWithNotes(err, cur_notes.items);
     }
 
     return try bundle.toOwnedBundle("");
-}
-
-fn flushErrorMessageIntoBundle(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMessage, notes: []const ErrorBundle.ErrorMessage) !void {
-    try wip.addRootErrorMessage(msg);
-    const notes_start = try wip.reserveNotes(@intCast(notes.len));
-    for (notes_start.., notes) |i, note| {
-        wip.extra.items[i] = @intFromEnum(wip.addErrorMessageAssumeCapacity(note));
-    }
 }
 
 fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
@@ -803,146 +880,3 @@ fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []con
     });
     return try bundle.toOwnedBundle("");
 }
-
-fn aroDiagnosticsToErrorBundle(
-    gpa: std.mem.Allocator,
-    fail_msg: []const u8,
-    comp: *aro.Compilation,
-) !ErrorBundle {
-    @branchHint(.cold);
-
-    var bundle: ErrorBundle.Wip = undefined;
-    try bundle.init(gpa);
-    errdefer bundle.deinit();
-
-    try bundle.addRootErrorMessage(.{
-        .msg = try bundle.addString(fail_msg),
-    });
-
-    var msg_writer = MsgWriter.init(gpa);
-    defer msg_writer.deinit();
-    var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .empty;
-    defer cur_notes.deinit(gpa);
-    for (comp.diagnostics.list.items) |msg| {
-        switch (msg.kind) {
-            // Clear the current error so that notes don't bleed into unassociated errors
-            .off, .warning => {
-                cur_err = null;
-                continue;
-            },
-            .note => if (cur_err == null) continue,
-            .@"fatal error", .@"error" => {},
-            .default => unreachable,
-        }
-        msg_writer.resetRetainingCapacity();
-        aro.Diagnostics.renderMessage(comp, &msg_writer, msg);
-
-        const src_loc = src_loc: {
-            if (msg_writer.path) |src_path| {
-                var src_loc: ErrorBundle.SourceLocation = .{
-                    .src_path = try bundle.addString(src_path),
-                    .line = msg_writer.line - 1, // 1-based -> 0-based
-                    .column = msg_writer.col - 1, // 1-based -> 0-based
-                    .span_start = 0,
-                    .span_main = 0,
-                    .span_end = 0,
-                };
-                if (msg_writer.source_line) |source_line| {
-                    src_loc.span_start = msg_writer.span_main;
-                    src_loc.span_main = msg_writer.span_main;
-                    src_loc.span_end = msg_writer.span_main;
-                    src_loc.source_line = try bundle.addString(source_line);
-                }
-                break :src_loc try bundle.addSourceLocation(src_loc);
-            }
-            break :src_loc ErrorBundle.SourceLocationIndex.none;
-        };
-
-        switch (msg.kind) {
-            .@"fatal error", .@"error" => {
-                if (cur_err) |err| {
-                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
-                }
-                cur_err = .{
-                    .msg = try bundle.addString(msg_writer.buf.items),
-                    .src_loc = src_loc,
-                };
-                cur_notes.clearRetainingCapacity();
-            },
-            .note => {
-                cur_err.?.notes_len += 1;
-                try cur_notes.append(gpa, .{
-                    .msg = try bundle.addString(msg_writer.buf.items),
-                    .src_loc = src_loc,
-                });
-            },
-            .off, .warning, .default => unreachable,
-        }
-    }
-    if (cur_err) |err| {
-        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
-    }
-
-    return try bundle.toOwnedBundle("");
-}
-
-// Similar to aro.Diagnostics.MsgWriter but:
-// - Writers to an ArrayList
-// - Only prints the message itself (no location, source line, error: prefix, etc)
-// - Keeps track of source path/line/col instead
-const MsgWriter = struct {
-    buf: std.ArrayList(u8),
-    path: ?[]const u8 = null,
-    // 1-indexed
-    line: u32 = undefined,
-    col: u32 = undefined,
-    source_line: ?[]const u8 = null,
-    span_main: u32 = undefined,
-
-    fn init(allocator: std.mem.Allocator) MsgWriter {
-        return .{
-            .buf = std.ArrayList(u8).init(allocator),
-        };
-    }
-
-    fn deinit(m: *MsgWriter) void {
-        m.buf.deinit();
-    }
-
-    fn resetRetainingCapacity(m: *MsgWriter) void {
-        m.buf.clearRetainingCapacity();
-        m.path = null;
-        m.source_line = null;
-    }
-
-    pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {
-        m.buf.writer().print(fmt, args) catch {};
-    }
-
-    pub fn write(m: *MsgWriter, msg: []const u8) void {
-        m.buf.writer().writeAll(msg) catch {};
-    }
-
-    pub fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
-        _ = m;
-        _ = color;
-    }
-
-    pub fn location(m: *MsgWriter, path: []const u8, line: u32, col: u32) void {
-        m.path = path;
-        m.line = line;
-        m.col = col;
-    }
-
-    pub fn start(m: *MsgWriter, kind: aro.Diagnostics.Kind) void {
-        _ = m;
-        _ = kind;
-    }
-
-    pub fn end(m: *MsgWriter, maybe_line: ?[]const u8, col: u32, end_with_splice: bool) void {
-        _ = end_with_splice;
-        m.source_line = maybe_line;
-        m.span_main = col;
-    }
-};

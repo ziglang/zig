@@ -11,6 +11,7 @@
 
 #include <__compare/ordering.h>
 #include <__compare/weak_order.h>
+#include <__concepts/boolean_testable.h>
 #include <__config>
 #include <__type_traits/decay.h>
 #include <__type_traits/is_same.h>
@@ -37,16 +38,15 @@ struct __fn {
   }
 
   template <class _Tp, class _Up>
-    requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
-  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_Tp&& __t, _Up&& __u, __priority_tag<0>) noexcept(noexcept(
+    requires is_same_v<decay_t<_Tp>, decay_t<_Up>> && requires(_Tp&& __t, _Up&& __u) {
+      { std::forward<_Tp>(__t) == std::forward<_Up>(__u) } -> __boolean_testable;
+      { std::forward<_Tp>(__t) < std::forward<_Up>(__u) } -> __boolean_testable;
+    }
+  _LIBCPP_HIDE_FROM_ABI static constexpr weak_ordering __go(_Tp&& __t, _Up&& __u, __priority_tag<0>) noexcept(noexcept(
       std::forward<_Tp>(__t) == std::forward<_Up>(__u) ? weak_ordering::equivalent
       : std::forward<_Tp>(__t) < std::forward<_Up>(__u)
           ? weak_ordering::less
-          : weak_ordering::greater))
-      -> decltype(std::forward<_Tp>(__t) == std::forward<_Up>(__u) ? weak_ordering::equivalent
-                  : std::forward<_Tp>(__t) < std::forward<_Up>(__u)
-                      ? weak_ordering::less
-                      : weak_ordering::greater) {
+          : weak_ordering::greater)) {
     return std::forward<_Tp>(__t) == std::forward<_Up>(__u) ? weak_ordering::equivalent
          : std::forward<_Tp>(__t) < std::forward<_Up>(__u)
              ? weak_ordering::less

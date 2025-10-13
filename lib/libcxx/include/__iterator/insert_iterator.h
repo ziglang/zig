@@ -11,12 +11,12 @@
 #define _LIBCPP___ITERATOR_INSERT_ITERATOR_H
 
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__iterator/iterator.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/addressof.h>
 #include <__ranges/access.h>
 #include <__utility/move.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -29,15 +29,15 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
 template <class _Container>
-using __insert_iterator_iter_t = ranges::iterator_t<_Container>;
+using __insert_iterator_iter_t _LIBCPP_NODEBUG = ranges::iterator_t<_Container>;
 #else
 template <class _Container>
-using __insert_iterator_iter_t = typename _Container::iterator;
+using __insert_iterator_iter_t _LIBCPP_NODEBUG = typename _Container::iterator;
 #endif
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Container>
-class _LIBCPP_TEMPLATE_VIS insert_iterator
+class insert_iterator
 #if _LIBCPP_STD_VER <= 14 || !defined(_LIBCPP_ABI_NO_ITERATOR_BASES)
     : public iterator<output_iterator_tag, void, void, void, void>
 #endif

@@ -1,9 +1,13 @@
 .{
-    .name = "standalone_test_cases",
+    .name = .standalone_test_cases,
+    .fingerprint = 0xc0dbdf9c3b92810b,
     .version = "0.0.0",
     .dependencies = .{
         .simple = .{
             .path = "simple",
+        },
+        .test_obj_link_run = .{
+            .path = "test_obj_link_run",
         },
         .test_runner_path = .{
             .path = "test_runner_path",
@@ -11,10 +15,6 @@
         .test_runner_module_imports = .{
             .path = "test_runner_module_imports",
         },
-        // https://github.com/ziglang/zig/issues/17483
-        //.issue_13970 = .{
-        //    .path = "issue_13970",
-        //},
         .shared_library = .{
             .path = "shared_library",
         },
@@ -33,8 +33,8 @@
         .issue_339 = .{
             .path = "issue_339",
         },
-        .issue_8550 = .{
-            .path = "issue_8550",
+        .compile_asm = .{
+            .path = "compile_asm",
         },
         .issue_794 = .{
             .path = "issue_794",
@@ -45,8 +45,8 @@
         .pkg_import = .{
             .path = "pkg_import",
         },
-        .use_alias = .{
-            .path = "use_alias",
+        .glibc_compat = .{
+            .path = "glibc_compat",
         },
         .install_raw_hex = .{
             .path = "install_raw_hex",
@@ -96,11 +96,17 @@
         .empty_env = .{
             .path = "empty_env",
         },
+        .env_vars = .{
+            .path = "env_vars",
+        },
         .issue_11595 = .{
             .path = "issue_11595",
         },
         .libcxx = .{
             .path = "libcxx",
+        },
+        .libfuzzer = .{
+            .path = "libfuzzer",
         },
         .load_dynamic_library = .{
             .path = "load_dynamic_library",
@@ -129,21 +135,9 @@
         .c_embed_path = .{
             .path = "c_embed_path",
         },
-        .pie = .{
-            .path = "pie",
-        },
         .issue_12706 = .{
             .path = "issue_12706",
         },
-        // TODO This test is disabled for doing naughty things in the build script.
-        // The logic needs to get moved to a child process instead of build.zig.
-        //.sigpipe = .{
-        //    .path = "sigpipe",
-        //},
-        // TODO restore this test
-        //.options = .{
-        //    .path = "options",
-        //},
         .strip_empty_loop = .{
             .path = "strip_empty_loop",
         },
@@ -155,9 +149,6 @@
         },
         .zerolength_check = .{
             .path = "zerolength_check",
-        },
-        .stack_iterator = .{
-            .path = "stack_iterator",
         },
         .coff_dwarf = .{
             .path = "coff_dwarf",
@@ -174,6 +165,9 @@
         .install_headers = .{
             .path = "install_headers",
         },
+        .dependency_options = .{
+            .path = "dependency_options",
+        },
         .dependencyFromBuildZig = .{
             .path = "dependencyFromBuildZig",
         },
@@ -186,11 +180,21 @@
         .empty_global_error_set = .{
             .path = "empty_global_error_set",
         },
-        .omit_cfi = .{
-            .path = "omit_cfi",
-        },
         .config_header = .{
             .path = "config_header",
+        },
+        .entry_point = .{
+            .path = "entry_point",
+        },
+        .run_cwd = .{
+            .path = "run_cwd",
+        },
+        // https://github.com/ziglang/zig/issues/25471
+        // .tsan = .{
+        //     .path = "tsan",
+        // },
+        .posix = .{
+            .path = "posix",
         },
     },
     .paths = .{

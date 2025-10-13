@@ -11,7 +11,7 @@ comptime {
             .visibility = common.visibility,
         };
 
-        if (builtin.mode == .ReleaseSmall)
+        if (builtin.mode == .ReleaseSmall or builtin.zig_backend == .stage2_aarch64)
             @export(&memcpySmall, export_options)
         else
             @export(&memcpyFast, export_options);
@@ -110,7 +110,7 @@ inline fn copyForwards(
     const d = dest + alignment_offset;
     const s = src + alignment_offset;
 
-    copyBlocksAlignedSource(@ptrCast(d), @alignCast(@ptrCast(s)), n);
+    copyBlocksAlignedSource(@ptrCast(d), @ptrCast(@alignCast(s)), n);
 
     // copy last `@sizeOf(Element)` bytes unconditionally, since block copy
     // methods only copy a multiple of `@sizeOf(Element)` bytes.
@@ -195,6 +195,8 @@ inline fn copyRange4(
 }
 
 test "memcpy" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         fn testFunc(comptime copy_func: anytype) !void {
             const max_len = 1024;

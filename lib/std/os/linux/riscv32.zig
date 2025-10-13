@@ -7,6 +7,8 @@ const SYS = linux.SYS;
 const uid_t = std.os.linux.uid_t;
 const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const timespec = std.os.linux.timespec;
@@ -15,8 +17,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@intFromEnum(number)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -24,8 +25,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={x10}" (-> usize),
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -34,8 +34,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -45,8 +44,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -57,8 +55,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{x11}" (arg2),
           [arg3] "{x12}" (arg3),
           [arg4] "{x13}" (arg4),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -70,8 +67,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{x12}" (arg3),
           [arg4] "{x13}" (arg4),
           [arg5] "{x14}" (arg5),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -92,8 +88,7 @@ pub fn syscall6(
           [arg4] "{x13}" (arg4),
           [arg5] "{x14}" (arg5),
           [arg6] "{x15}" (arg6),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -137,17 +132,6 @@ pub fn clone() callconv(.naked) usize {
         \\    # Exit
         \\    li a7, 93 # SYS_exit
         \\    ecall
-    );
-}
-
-pub const restore = restore_rt;
-
-pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ ecall
-        :
-        : [number] "{x17}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory"
     );
 }
 
@@ -198,30 +182,6 @@ pub const Flock = extern struct {
     __unused: [4]u8,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
 // The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {
     dev: dev_t,
@@ -256,15 +216,7 @@ pub const Stat = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const MMAP2_UNIT = 4096;
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_4.15";
 };
-
-/// TODO
-pub const ucontext_t = void;
-
-/// TODO
-pub const getcontext = {};

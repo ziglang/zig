@@ -20,7 +20,7 @@ pub const changeCurDirZ = posix.chdirZ;
 pub const GetCwdError = posix.GetCwdError;
 
 /// The result is a slice of `out_buffer`, from index `0`.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getCwd(out_buffer: []u8) ![]u8 {
     return posix.getcwd(out_buffer);
@@ -29,7 +29,7 @@ pub fn getCwd(out_buffer: []u8) ![]u8 {
 pub const GetCwdAllocError = Allocator.Error || posix.GetCwdError;
 
 /// Caller must free the returned memory.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
     // The use of max_path_bytes here is just a heuristic: most paths will fit
@@ -139,7 +139,7 @@ pub const EnvMap = struct {
     /// Same as `put` but the key and value become owned by the EnvMap rather
     /// than being copied.
     /// If `putMove` fails, the ownership of key and value does not transfer.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn putMove(self: *EnvMap, key: []u8, value: []u8) !void {
         assert(unicode.wtf8ValidateSlice(key));
         const get_or_put = try self.hash_map.getOrPut(key);
@@ -152,7 +152,7 @@ pub const EnvMap = struct {
     }
 
     /// `key` and `value` are copied into the EnvMap.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn put(self: *EnvMap, key: []const u8, value: []const u8) !void {
         assert(unicode.wtf8ValidateSlice(key));
         const value_copy = try self.copy(value);
@@ -171,7 +171,7 @@ pub const EnvMap = struct {
 
     /// Find the address of the value associated with a key.
     /// The returned pointer is invalidated if the map resizes.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn getPtr(self: EnvMap, key: []const u8) ?*[]const u8 {
         assert(unicode.wtf8ValidateSlice(key));
         return self.hash_map.getPtr(key);
@@ -180,7 +180,7 @@ pub const EnvMap = struct {
     /// Return the map's copy of the value associated with
     /// a key.  The returned string is invalidated if this
     /// key is removed from the map.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn get(self: EnvMap, key: []const u8) ?[]const u8 {
         assert(unicode.wtf8ValidateSlice(key));
         return self.hash_map.get(key);
@@ -188,7 +188,7 @@ pub const EnvMap = struct {
 
     /// Removes the item from the map and frees its value.
     /// This invalidates the value returned by get() for this key.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn remove(self: *EnvMap, key: []const u8) void {
         assert(unicode.wtf8ValidateSlice(key));
         const kv = self.hash_map.fetchRemove(key) orelse return;
@@ -387,14 +387,14 @@ pub const GetEnvVarOwnedError = error{
     EnvironmentVariableNotFound,
 
     /// On Windows, environment variable keys provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 };
 
 /// Caller must free returned memory.
-/// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
+/// On Windows, if `key` is not valid [WTF-8](https://wtf-8.codeberg.page/),
 /// then `error.InvalidWtf8` is returned.
-/// On Windows, the value is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the value is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the value is an opaque sequence of bytes with no particular encoding.
 pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (native_os == .windows) {
@@ -419,10 +419,10 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         return getenvW(key_w) != null;
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("hasEnvVarConstant is not supported for WASI without libc");
@@ -431,10 +431,10 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn hasNonEmptyEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.wtf8ToWtf16LeStringLiteral(key);
         const value = getenvW(key_w) orelse return false;
         return value.len != 0;
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -451,10 +451,10 @@ pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariab
 ///
 /// Since the key is comptime-known, no allocation is needed.
 ///
-/// On Windows, `key` must be valid UTF-8.
+/// On Windows, `key` must be valid WTF-8.
 pub fn parseEnvVarInt(comptime key: []const u8, comptime I: type, base: u8) ParseEnvVarIntError!I {
     if (native_os == .windows) {
-        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(key);
         const text = getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         return std.fmt.parseIntWithGenericCharacter(I, u16, text, base);
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -469,11 +469,11 @@ pub const HasEnvVarError = error{
     OutOfMemory,
 
     /// On Windows, environment variable keys provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 };
 
-/// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
+/// On Windows, if `key` is not valid [WTF-8](https://wtf-8.codeberg.page/),
 /// then `error.InvalidWtf8` is returned.
 pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     if (native_os == .windows) {
@@ -491,7 +491,7 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     }
 }
 
-/// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
+/// On Windows, if `key` is not valid [WTF-8](https://wtf-8.codeberg.page/),
 /// then `error.InvalidWtf8` is returned.
 pub fn hasNonEmptyEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     if (native_os == .windows) {
@@ -527,31 +527,33 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         @compileError("Windows-only");
     }
     const key_slice = mem.sliceTo(key, 0);
+    // '=' anywhere but the start makes this an invalid environment variable name
+    if (key_slice.len > 0 and std.mem.indexOfScalar(u16, key_slice[1..], '=') != null) {
+        return null;
+    }
     const ptr = windows.peb().ProcessParameters.Environment;
     var i: usize = 0;
     while (ptr[i] != 0) {
-        const key_start = i;
+        const key_value = mem.sliceTo(ptr[i..], 0);
 
         // There are some special environment variables that start with =,
         // so we need a special case to not treat = as a key/value separator
         // if it's the first character.
         // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
-        if (ptr[key_start] == '=') i += 1;
+        const equal_search_start: usize = if (key_value[0] == '=') 1 else 0;
+        const equal_index = std.mem.indexOfScalarPos(u16, key_value, equal_search_start, '=') orelse {
+            // This is enforced by CreateProcess.
+            // If violated, CreateProcess will fail with INVALID_PARAMETER.
+            unreachable; // must contain a =
+        };
 
-        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-        const this_key = ptr[key_start..i];
-
-        if (ptr[i] == '=') i += 1;
-
-        const value_start = i;
-        while (ptr[i] != 0) : (i += 1) {}
-        const this_value = ptr[value_start..i :0];
-
+        const this_key = key_value[0..equal_index];
         if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
-            return this_value;
+            return key_value[equal_index + 1 ..];
         }
 
-        i += 1; // skip over null byte
+        // skip past the NUL terminator
+        i += key_value.len + 1;
     }
     return null;
 }
@@ -735,7 +737,7 @@ pub const ArgIteratorWindows = struct {
 
     /// Returns the next argument and advances the iterator. Returns `null` if at the end of the
     /// command-line string. The iterator owns the returned slice.
-    /// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
     pub fn next(self: *ArgIteratorWindows) ?[:0]const u8 {
         return self.nextWithStrategy(next_strategy);
     }
@@ -769,7 +771,7 @@ pub const ArgIteratorWindows = struct {
             // check to see if we've emitted two consecutive surrogate
             // codepoints that form a valid surrogate pair in order
             // to ensure that we're always emitting well-formed WTF-8
-            // (https://simonsapin.github.io/wtf-8/#concatenating).
+            // (https://wtf-8.codeberg.page/#concatenating).
             //
             // If we do have a valid surrogate pair, we need to emit
             // the UTF-8 sequence for the codepoint that they encode
@@ -1194,7 +1196,7 @@ pub const ArgIterator = struct {
 
     /// Get the next argument. Returns 'null' if we are at the end.
     /// Returned slice is pointing to the iterator's internal buffer.
-    /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
     /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
     pub fn next(self: *ArgIterator) ?([:0]const u8) {
         return self.inner.next();
@@ -1232,17 +1234,17 @@ pub fn argsWithAllocator(allocator: Allocator) ArgIterator.InitError!ArgIterator
 }
 
 /// Caller must call argsFree on result.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.
     var it = try argsWithAllocator(allocator);
     defer it.deinit();
 
-    var contents = std.ArrayList(u8).init(allocator);
+    var contents = std.array_list.Managed(u8).init(allocator);
     defer contents.deinit();
 
-    var slice_list = std.ArrayList(usize).init(allocator);
+    var slice_list = std.array_list.Managed(usize).init(allocator);
     defer slice_list.deinit();
 
     while (it.next()) |arg| {
@@ -1254,7 +1256,7 @@ pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     const slice_sizes = slice_list.items;
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
     const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
-    const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
+    const buf = try allocator.alignedAlloc(u8, .of([]u8), total_bytes);
     errdefer allocator.free(buf);
 
     const result_slice_list = mem.bytesAsSlice([:0]u8, buf[0..slice_list_bytes]);
@@ -1550,103 +1552,108 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
 pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     const file = try std.fs.openFileAbsolute("/etc/passwd", .{});
     defer file.close();
+    var buffer: [4096]u8 = undefined;
+    var file_reader = file.reader(&buffer);
+    return posixGetUserInfoPasswdStream(name, &file_reader.interface) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        error.EndOfStream => return error.UserNotFound,
+        error.CorruptPasswordFile => return error.CorruptPasswordFile,
+    };
+}
 
-    const reader = file.reader();
-
+fn posixGetUserInfoPasswdStream(name: []const u8, reader: *std.Io.Reader) !UserInfo {
     const State = enum {
-        Start,
-        WaitForNextLine,
-        SkipPassword,
-        ReadUserId,
-        ReadGroupId,
+        start,
+        wait_for_next_line,
+        skip_password,
+        read_user_id,
+        read_group_id,
     };
 
-    var buf: [std.heap.page_size_min]u8 = undefined;
     var name_index: usize = 0;
-    var state = State.Start;
     var uid: posix.uid_t = 0;
     var gid: posix.gid_t = 0;
 
-    while (true) {
-        const amt_read = try reader.read(buf[0..]);
-        for (buf[0..amt_read]) |byte| {
-            switch (state) {
-                .Start => switch (byte) {
-                    ':' => {
-                        state = if (name_index == name.len) State.SkipPassword else State.WaitForNextLine;
-                    },
-                    '\n' => return error.CorruptPasswordFile,
-                    else => {
-                        if (name_index == name.len or name[name_index] != byte) {
-                            state = .WaitForNextLine;
-                        }
-                        name_index += 1;
-                    },
-                },
-                .WaitForNextLine => switch (byte) {
-                    '\n' => {
-                        name_index = 0;
-                        state = .Start;
-                    },
-                    else => continue,
-                },
-                .SkipPassword => switch (byte) {
-                    '\n' => return error.CorruptPasswordFile,
-                    ':' => {
-                        state = .ReadUserId;
-                    },
-                    else => continue,
-                },
-                .ReadUserId => switch (byte) {
-                    ':' => {
-                        state = .ReadGroupId;
-                    },
-                    '\n' => return error.CorruptPasswordFile,
-                    else => {
-                        const digit = switch (byte) {
-                            '0'...'9' => byte - '0',
-                            else => return error.CorruptPasswordFile,
-                        };
-                        {
-                            const ov = @mulWithOverflow(uid, 10);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            uid = ov[0];
-                        }
-                        {
-                            const ov = @addWithOverflow(uid, digit);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            uid = ov[0];
-                        }
-                    },
-                },
-                .ReadGroupId => switch (byte) {
-                    '\n', ':' => {
-                        return UserInfo{
-                            .uid = uid,
-                            .gid = gid,
-                        };
-                    },
-                    else => {
-                        const digit = switch (byte) {
-                            '0'...'9' => byte - '0',
-                            else => return error.CorruptPasswordFile,
-                        };
-                        {
-                            const ov = @mulWithOverflow(gid, 10);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            gid = ov[0];
-                        }
-                        {
-                            const ov = @addWithOverflow(gid, digit);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            gid = ov[0];
-                        }
-                    },
-                },
-            }
-        }
-        if (amt_read < buf.len) return error.UserNotFound;
+    sw: switch (State.start) {
+        .start => switch (try reader.takeByte()) {
+            ':' => {
+                if (name_index == name.len) {
+                    continue :sw .skip_password;
+                } else {
+                    continue :sw .wait_for_next_line;
+                }
+            },
+            '\n' => return error.CorruptPasswordFile,
+            else => |byte| {
+                if (name_index == name.len or name[name_index] != byte) {
+                    continue :sw .wait_for_next_line;
+                }
+                name_index += 1;
+                continue :sw .start;
+            },
+        },
+        .wait_for_next_line => switch (try reader.takeByte()) {
+            '\n' => {
+                name_index = 0;
+                continue :sw .start;
+            },
+            else => continue :sw .wait_for_next_line,
+        },
+        .skip_password => switch (try reader.takeByte()) {
+            '\n' => return error.CorruptPasswordFile,
+            ':' => {
+                continue :sw .read_user_id;
+            },
+            else => continue :sw .skip_password,
+        },
+        .read_user_id => switch (try reader.takeByte()) {
+            ':' => {
+                continue :sw .read_group_id;
+            },
+            '\n' => return error.CorruptPasswordFile,
+            else => |byte| {
+                const digit = switch (byte) {
+                    '0'...'9' => byte - '0',
+                    else => return error.CorruptPasswordFile,
+                };
+                {
+                    const ov = @mulWithOverflow(uid, 10);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    uid = ov[0];
+                }
+                {
+                    const ov = @addWithOverflow(uid, digit);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    uid = ov[0];
+                }
+                continue :sw .read_user_id;
+            },
+        },
+        .read_group_id => switch (try reader.takeByte()) {
+            '\n', ':' => return .{
+                .uid = uid,
+                .gid = gid,
+            },
+            else => |byte| {
+                const digit = switch (byte) {
+                    '0'...'9' => byte - '0',
+                    else => return error.CorruptPasswordFile,
+                };
+                {
+                    const ov = @mulWithOverflow(gid, 10);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    gid = ov[0];
+                }
+                {
+                    const ov = @addWithOverflow(gid, digit);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    gid = ov[0];
+                }
+                continue :sw .read_group_id;
+            },
+        },
     }
+    comptime unreachable;
 }
 
 pub fn getBaseAddress() usize {
@@ -1746,16 +1753,35 @@ pub const TotalSystemMemoryError = error{
 pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
     switch (native_os) {
         .linux => {
-            return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
+            var info: std.os.linux.Sysinfo = undefined;
+            const result: usize = std.os.linux.sysinfo(&info);
+            if (std.os.linux.E.init(result) != .SUCCESS) {
+                return error.UnknownTotalSystemMemory;
+            }
+            // Promote to u64 to avoid overflow on systems where info.totalram is a 32-bit usize
+            return @as(u64, info.totalram) * info.mem_unit;
         },
         .freebsd => {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
             posix.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
-                error.NameTooLong, error.UnknownName => unreachable,
+                error.UnknownName => unreachable,
                 else => return error.UnknownTotalSystemMemory,
             };
-            return @as(usize, @intCast(physmem));
+            return @as(u64, @intCast(physmem));
+        },
+        // whole Darwin family
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+            // "hw.memsize" returns uint64_t
+            var physmem: u64 = undefined;
+            var len: usize = @sizeOf(u64);
+            posix.sysctlbynameZ("hw.memsize", &physmem, &len, null, 0) catch |err| switch (err) {
+                error.PermissionDenied => unreachable, // only when setting values,
+                error.SystemResources => unreachable, // memory already on the stack
+                error.UnknownName => unreachable, // constant, known good value
+                else => return error.UnknownTotalSystemMemory,
+            };
+            return physmem;
         },
         .openbsd => {
             const mib: [2]c_int = [_]c_int{
@@ -1789,22 +1815,6 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
         },
         else => return error.UnknownTotalSystemMemory,
     }
-}
-
-fn totalSystemMemoryLinux() !u64 {
-    var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
-    defer file.close();
-    var buf: [50]u8 = undefined;
-    const amt = try file.read(&buf);
-    if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
-    const label = it.next().?;
-    if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
-    const int_text = it.next() orelse return error.Unexpected;
-    const units = it.next() orelse return error.Unexpected;
-    if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
-    const kilobytes = try std.fmt.parseInt(u64, int_text, 10);
-    return kilobytes * 1024;
 }
 
 /// Indicate that we are now terminating with a successful exit code.
@@ -1904,7 +1914,7 @@ pub fn createEnvironFromMap(
     var i: usize = 0;
 
     if (zig_progress_action == .add) {
-        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
         i += 1;
     }
 
@@ -1915,16 +1925,16 @@ pub fn createEnvironFromMap(
                 .add => unreachable,
                 .delete => continue,
                 .edit => {
-                    envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={d}", .{
+                    envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "{s}={d}", .{
                         pair.key_ptr.*, options.zig_progress_fd.?,
-                    });
+                    }, 0);
                     i += 1;
                     continue;
                 },
                 .nothing => {},
             };
 
-            envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* });
+            envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* }, 0);
             i += 1;
         }
     }
@@ -1974,7 +1984,7 @@ pub fn createEnvironFromExisting(
     var existing_index: usize = 0;
 
     if (zig_progress_action == .add) {
-        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
         i += 1;
     }
 
@@ -1983,7 +1993,7 @@ pub fn createEnvironFromExisting(
             .add => unreachable,
             .delete => continue,
             .edit => {
-                envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+                envp_buf[i] = try std.fmt.allocPrintSentinel(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
                 i += 1;
                 continue;
             },
@@ -2037,7 +2047,8 @@ test createNullDelimitedEnvMap {
 pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
-        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+        // Only need 2 trailing NUL code units for an empty environment
+        var max_chars_needed: usize = if (env_map.count() == 0) 2 else 1;
         var it = env_map.iterator();
         while (it.next()) |pair| {
             // +1 for '='
@@ -2061,12 +2072,14 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     }
     result[i] = 0;
     i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
+    // An empty environment is a special case that requires a redundant
+    // NUL terminator. CreateProcess will read the second code unit even
+    // though theoretically the first should be enough to recognize that the
+    // environment is empty (see https://nullprogram.com/blog/2023/08/23/)
+    if (env_map.count() == 0) {
+        result[i] = 0;
+        i += 1;
+    }
     return try allocator.realloc(result, i);
 }
 

@@ -9,7 +9,6 @@ pub export fn callbackFin(id: c_int, arg: ?*anyopaque) void {
 }
 
 // error
-// target=native
 //
 // :5:54: error: pointer to comptime-only type '?*tmp.GuSettings' must be comptime-known, but operand is runtime-known
 // :2:10: note: struct requires comptime because of this field

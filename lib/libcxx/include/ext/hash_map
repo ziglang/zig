@@ -201,23 +201,26 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 
 */
 
-#include <__config>
-#include <__hash_table>
-#include <algorithm>
-#include <ext/__hash>
-#include <functional>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/ext/hash_map>
+#else
+#  include <__config>
+#  include <__hash_table>
+#  include <algorithm>
+#  include <ext/__hash>
+#  include <functional>
 
-#if defined(__DEPRECATED) && __DEPRECATED
-#  if defined(_LIBCPP_WARNING)
+#  if defined(__DEPRECATED) && __DEPRECATED
+#    if defined(_LIBCPP_WARNING)
 _LIBCPP_WARNING("Use of the header <ext/hash_map> is deprecated.  Migrate to <unordered_map>")
-#  else
-#    warning Use of the header <ext/hash_map> is deprecated.  Migrate to <unordered_map>
+#    else
+#      warning Use of the header <ext/hash_map> is deprecated.  Migrate to <unordered_map>
+#    endif
 #  endif
-#endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 namespace __gnu_cxx {
 
@@ -312,17 +315,17 @@ public:
   _LIBCPP_HIDE_FROM_ABI explicit __hash_map_node_destructor(allocator_type& __na)
       : __na_(__na), __first_constructed(false), __second_constructed(false) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __hash_map_node_destructor(std::__hash_node_destructor<allocator_type>&& __x)
       : __na_(__x.__na_), __first_constructed(__x.__value_constructed), __second_constructed(__x.__value_constructed) {
     __x.__value_constructed = false;
   }
-#else  // _LIBCPP_CXX03_LANG
+#  else  // _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __hash_map_node_destructor(const std::__hash_node_destructor<allocator_type>& __x)
       : __na_(__x.__na_), __first_constructed(__x.__value_constructed), __second_constructed(__x.__value_constructed) {
     const_cast<bool&>(__x.__value_constructed) = false;
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI void operator()(pointer __p) {
     if (__second_constructed)
@@ -335,7 +338,7 @@ public:
 };
 
 template <class _HashIterator>
-class _LIBCPP_TEMPLATE_VIS __hash_map_iterator {
+class __hash_map_iterator {
   _HashIterator __i_;
 
   typedef const typename _HashIterator::value_type::first_type key_type;
@@ -373,19 +376,19 @@ public:
   }
 
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS hash_map;
+  friend class hash_map;
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS hash_multimap;
+  friend class hash_multimap;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_const_iterator;
+  friend class __hash_const_iterator;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_const_local_iterator;
+  friend class __hash_const_local_iterator;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_map_const_iterator;
+  friend class __hash_map_const_iterator;
 };
 
 template <class _HashIterator>
-class _LIBCPP_TEMPLATE_VIS __hash_map_const_iterator {
+class __hash_map_const_iterator {
   _HashIterator __i_;
 
   typedef const typename _HashIterator::value_type::first_type key_type;
@@ -427,13 +430,13 @@ public:
   }
 
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS hash_map;
+  friend class hash_map;
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS hash_multimap;
+  friend class hash_multimap;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_const_iterator;
+  friend class __hash_const_iterator;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_const_local_iterator;
+  friend class __hash_const_local_iterator;
 };
 
 template <class _Key,
@@ -441,7 +444,7 @@ template <class _Key,
           class _Hash  = hash<_Key>,
           class _Pred  = std::equal_to<_Key>,
           class _Alloc = std::allocator<std::pair<const _Key, _Tp> > >
-class _LIBCPP_TEMPLATE_VIS hash_map {
+class hash_map {
 public:
   // types
   typedef _Key key_type;
@@ -517,7 +520,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI const_iterator end() const { return __table_.end(); }
 
   _LIBCPP_HIDE_FROM_ABI std::pair<iterator, bool> insert(const value_type& __x) {
-    return __table_.__insert_unique(__x);
+    return __table_.__emplace_unique(__x);
   }
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator, const value_type& __x) { return insert(__x).first; }
   template <class _InputIterator>
@@ -622,7 +625,7 @@ template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
 template <class _InputIterator>
 inline void hash_map<_Key, _Tp, _Hash, _Pred, _Alloc>::insert(_InputIterator __first, _InputIterator __last) {
   for (; __first != __last; ++__first)
-    __table_.__insert_unique(*__first);
+    __table_.__emplace_unique(*__first);
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -667,7 +670,7 @@ template <class _Key,
           class _Hash  = hash<_Key>,
           class _Pred  = std::equal_to<_Key>,
           class _Alloc = std::allocator<std::pair<const _Key, _Tp> > >
-class _LIBCPP_TEMPLATE_VIS hash_multimap {
+class hash_multimap {
 public:
   // types
   typedef _Key key_type;
@@ -741,7 +744,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI const_iterator begin() const { return __table_.begin(); }
   _LIBCPP_HIDE_FROM_ABI const_iterator end() const { return __table_.end(); }
 
-  _LIBCPP_HIDE_FROM_ABI iterator insert(const value_type& __x) { return __table_.__insert_multi(__x); }
+  _LIBCPP_HIDE_FROM_ABI iterator insert(const value_type& __x) { return __table_.__emplace_multi(__x); }
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator, const value_type& __x) { return insert(__x); }
   template <class _InputIterator>
   _LIBCPP_HIDE_FROM_ABI void insert(_InputIterator __first, _InputIterator __last);
@@ -828,7 +831,7 @@ template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
 template <class _InputIterator>
 inline void hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::insert(_InputIterator __first, _InputIterator __last) {
   for (; __first != __last; ++__first)
-    __table_.__insert_multi(*__first);
+    __table_.__emplace_multi(*__first);
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -863,10 +866,11 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const hash_multimap<_Key, _Tp, _Has
 
 } // namespace __gnu_cxx
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <concepts>
-#  include <iterator>
-#  include <type_traits>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <concepts>
+#    include <iterator>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_HASH_MAP

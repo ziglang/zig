@@ -22,14 +22,14 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if __has_builtin(__is_trivially_destructible)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible
-    : public integral_constant<bool, __is_trivially_destructible(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_trivially_destructible
+    : integral_constant<bool, __is_trivially_destructible(_Tp)> {};
 
 #elif __has_builtin(__has_trivial_destructor)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible
-    : public integral_constant<bool, is_destructible<_Tp>::value&& __has_trivial_destructor(_Tp)> {};
+struct is_trivially_destructible
+    : integral_constant<bool, is_destructible<_Tp>::value&& __has_trivial_destructor(_Tp)> {};
 
 #else
 
@@ -39,7 +39,7 @@ struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_trivially_destructible_v = is_trivially_destructible<_Tp>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_trivially_destructible_v = is_trivially_destructible<_Tp>::value;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -30,7 +30,7 @@ var rt: u32 = undefined;
 // :10:12: note: call to function with comptime-only return type 'type' is evaluated at comptime
 // :13:10: note: return type declared here
 // :10:12: note: types are not available at runtime
-// :2:8: note: called from here
+// :2:8: note: called inline here
 // :19:8: error: unable to evaluate comptime expression
 // :19:5: note: operation is runtime due to this operand
 // :6:8: note: called at comptime from here

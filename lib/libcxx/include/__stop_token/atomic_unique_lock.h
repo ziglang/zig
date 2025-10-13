@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_GUARD_H
-#define _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_GUARD_H
+#ifndef _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_LOCK_H
+#define _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_LOCK_H
 
 #include <__bit/popcount.h>
 #include <__config>
@@ -28,7 +28,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // and LockedBit is the value of State when the lock bit is set, e.g  1 << 2
 template <class _State, _State _LockedBit>
 class _LIBCPP_AVAILABILITY_SYNC __atomic_unique_lock {
-  static_assert(std::__libcpp_popcount(static_cast<unsigned long long>(_LockedBit)) == 1,
+  static_assert(std::__popcount(static_cast<unsigned long long>(_LockedBit)) == 1,
                 "LockedBit must be an integer where only one bit is set");
 
   std::atomic<_State>& __state_;
@@ -133,8 +133,8 @@ private:
   _LIBCPP_HIDE_FROM_ABI static constexpr auto __set_locked_bit = [](_State __state) { return __state | _LockedBit; };
 };
 
-#endif // _LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_THREADS
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_GUARD_H
+#endif // _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_LOCK_H

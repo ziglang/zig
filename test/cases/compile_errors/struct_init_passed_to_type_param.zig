@@ -7,8 +7,6 @@ fn hi(comptime T: type) usize {
 export const value = hi(MyStruct{ .x = 12 });
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:33: error: expected type 'type', found 'tmp.MyStruct'
 // :1:18: note: struct declared here

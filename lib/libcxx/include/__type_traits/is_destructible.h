@@ -25,11 +25,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if __has_builtin(__is_destructible)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_destructible : _BoolConstant<__is_destructible(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_destructible : _BoolConstant<__is_destructible(_Tp)> {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_destructible_v = __is_destructible(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_destructible_v = __is_destructible(_Tp);
 #  endif
 
 #else // __has_builtin(__is_destructible)
@@ -62,28 +62,28 @@ struct __destructible_imp;
 
 template <class _Tp>
 struct __destructible_imp<_Tp, false>
-    : public integral_constant<bool, __is_destructor_wellformed<__remove_all_extents_t<_Tp> >::value> {};
+    : integral_constant<bool, __is_destructor_wellformed<__remove_all_extents_t<_Tp> >::value> {};
 
 template <class _Tp>
-struct __destructible_imp<_Tp, true> : public true_type {};
+struct __destructible_imp<_Tp, true> : true_type {};
 
 template <class _Tp, bool>
 struct __destructible_false;
 
 template <class _Tp>
-struct __destructible_false<_Tp, false> : public __destructible_imp<_Tp, is_reference<_Tp>::value> {};
+struct __destructible_false<_Tp, false> : __destructible_imp<_Tp, is_reference<_Tp>::value> {};
 
 template <class _Tp>
-struct __destructible_false<_Tp, true> : public false_type {};
+struct __destructible_false<_Tp, true> : false_type {};
 
 template <class _Tp>
-struct is_destructible : public __destructible_false<_Tp, is_function<_Tp>::value> {};
+struct is_destructible : __destructible_false<_Tp, is_function<_Tp>::value> {};
 
 template <class _Tp>
-struct is_destructible<_Tp[]> : public false_type {};
+struct is_destructible<_Tp[]> : false_type {};
 
 template <>
-struct is_destructible<void> : public false_type {};
+struct is_destructible<void> : false_type {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>

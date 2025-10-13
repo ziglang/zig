@@ -12,7 +12,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:39: error: expected integer type, found 'f32'

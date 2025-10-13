@@ -10,20 +10,23 @@
 #define _LIBCPP___STRING_CONSTEXPR_C_FUNCTIONS_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
 #include <__type_traits/datasizeof.h>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/is_always_bitcastable.h>
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constant_evaluated.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_equality_comparable.h>
+#include <__type_traits/is_integral.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_trivially_copyable.h>
 #include <__type_traits/is_trivially_lexicographically_comparable.h>
 #include <__type_traits/remove_cv.h>
+#include <__utility/element_count.h>
 #include <__utility/is_pointer_in_range.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -31,17 +34,13 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-// Type used to encode that a function takes an integer that represents a number
-// of elements as opposed to a number of bytes.
-enum class __element_count : size_t {};
-
 template <class _Tp>
 inline const bool __is_char_type = false;
 
 template <>
 inline const bool __is_char_type<char> = true;
 
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#if _LIBCPP_HAS_CHAR8_T
 template <>
 inline const bool __is_char_type<char8_t> = true;
 #endif
@@ -64,13 +63,13 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 size_t __constexpr_st
   return __builtin_strlen(reinterpret_cast<const char*>(__str));
 }
 
-// Because of __libcpp_is_trivially_lexicographically_comparable we know that comparing the object representations is
+// Because of __is_trivially_lexicographically_comparable_v we know that comparing the object representations is
 // equivalent to a std::memcmp. Since we have multiple objects contiguously in memory, we can call memcmp once instead
 // of invoking it on every object individually.
 template <class _Tp, class _Up>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 int
 __constexpr_memcmp(const _Tp* __lhs, const _Up* __rhs, __element_count __n) {
-  static_assert(__libcpp_is_trivially_lexicographically_comparable<_Tp, _Up>::value,
+  static_assert(__is_trivially_lexicographically_comparable_v<_Tp, _Up>,
                 "_Tp and _Up have to be trivially lexicographically comparable");
 
   auto __count = static_cast<size_t>(__n);
@@ -147,7 +146,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp* __constexpr_memchr(_Tp*
     return nullptr;
   } else {
     char __value_buffer = 0;
-    __builtin_memcpy(&__value_buffer, &__value, sizeof(char));
+    __builtin_memcpy(&__value_buffer, std::addressof(__value), sizeof(char));
     return static_cast<_Tp*>(__builtin_memchr(__str, __value_buffer, __count));
   }
 }
@@ -205,23 +204,26 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp& __assign_trivially_copy
   return __dest;
 }
 
-template <class _Tp, class _Up, __enable_if_t<__is_always_bitcastable<_Up, _Tp>::value, int> = 0>
+template <class _Tp, class _Up>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp*
 __constexpr_memmove(_Tp* __dest, _Up* __src, __element_count __n) {
+  static_assert(__is_always_bitcastable<_Up, _Tp>::value);
   size_t __count = static_cast<size_t>(__n);
   if (__libcpp_is_constant_evaluated()) {
 #ifdef _LIBCPP_COMPILER_CLANG_BASED
-    if (is_same<__remove_cv_t<_Tp>, __remove_cv_t<_Up> >::value) {
+    if _LIBCPP_CONSTEXPR (is_same<__remove_cv_t<_Tp>, __remove_cv_t<_Up> >::value) {
       ::__builtin_memmove(__dest, __src, __count * sizeof(_Tp));
       return __dest;
-    }
+    } else
 #endif
-    if (std::__is_pointer_in_range(__src, __src + __count, __dest)) {
-      for (; __count > 0; --__count)
-        std::__assign_trivially_copyable(__dest[__count - 1], __src[__count - 1]);
-    } else {
-      for (size_t __i = 0; __i != __count; ++__i)
-        std::__assign_trivially_copyable(__dest[__i], __src[__i]);
+    {
+      if (std::__is_pointer_in_range(__src, __src + __count, __dest)) {
+        for (; __count > 0; --__count)
+          std::__assign_trivially_copyable(__dest[__count - 1], __src[__count - 1]);
+      } else {
+        for (size_t __i = 0; __i != __count; ++__i)
+          std::__assign_trivially_copyable(__dest[__i], __src[__i]);
+      }
     }
   } else if (__count > 0) {
     ::__builtin_memmove(__dest, __src, (__count - 1) * sizeof(_Tp) + __datasizeof_v<_Tp>);

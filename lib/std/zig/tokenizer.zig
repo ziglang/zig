@@ -17,8 +17,6 @@ pub const Token = struct {
         .{ "anyframe", .keyword_anyframe },
         .{ "anytype", .keyword_anytype },
         .{ "asm", .keyword_asm },
-        .{ "async", .keyword_async },
-        .{ "await", .keyword_await },
         .{ "break", .keyword_break },
         .{ "callconv", .keyword_callconv },
         .{ "catch", .keyword_catch },
@@ -55,7 +53,6 @@ pub const Token = struct {
         .{ "try", .keyword_try },
         .{ "union", .keyword_union },
         .{ "unreachable", .keyword_unreachable },
-        .{ "usingnamespace", .keyword_usingnamespace },
         .{ "var", .keyword_var },
         .{ "volatile", .keyword_volatile },
         .{ "while", .keyword_while },
@@ -146,8 +143,6 @@ pub const Token = struct {
         keyword_anyframe,
         keyword_anytype,
         keyword_asm,
-        keyword_async,
-        keyword_await,
         keyword_break,
         keyword_callconv,
         keyword_catch,
@@ -184,7 +179,6 @@ pub const Token = struct {
         keyword_try,
         keyword_union,
         keyword_unreachable,
-        keyword_usingnamespace,
         keyword_var,
         keyword_volatile,
         keyword_while,
@@ -273,8 +267,6 @@ pub const Token = struct {
                 .keyword_anyframe => "anyframe",
                 .keyword_anytype => "anytype",
                 .keyword_asm => "asm",
-                .keyword_async => "async",
-                .keyword_await => "await",
                 .keyword_break => "break",
                 .keyword_callconv => "callconv",
                 .keyword_catch => "catch",
@@ -311,7 +303,6 @@ pub const Token = struct {
                 .keyword_try => "try",
                 .keyword_union => "union",
                 .keyword_unreachable => "unreachable",
-                .keyword_usingnamespace => "usingnamespace",
                 .keyword_var => "var",
                 .keyword_volatile => "volatile",
                 .keyword_while => "while",
@@ -1730,10 +1721,14 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
     try std.testing.expectEqual(source.len, last_token.loc.end);
 }
 
-fn testPropertiesUpheld(context: void, source: []const u8) anyerror!void {
-    _ = context;
-    const source0 = try std.testing.allocator.dupeZ(u8, source);
-    defer std.testing.allocator.free(source0);
+fn testPropertiesUpheld(_: void, source: []const u8) !void {
+    var source0_buf: [512]u8 = undefined;
+    if (source.len + 1 > source0_buf.len)
+        return;
+    @memcpy(source0_buf[0..source.len], source);
+    source0_buf[source.len] = 0;
+    const source0 = source0_buf[0..source.len :0];
+
     var tokenizer = Tokenizer.init(source0);
     var tokenization_failed = false;
     while (true) {
@@ -1759,18 +1754,15 @@ fn testPropertiesUpheld(context: void, source: []const u8) anyerror!void {
         }
     }
 
-    if (source0.len > 0) for (source0, source0[1..][0..source0.len]) |cur, next| {
+    if (tokenization_failed) return;
+    for (source0) |cur| {
         // Property: No null byte allowed except at end.
         if (cur == 0) {
-            try std.testing.expect(tokenization_failed);
+            return error.TestUnexpectedResult;
         }
-        // Property: No ASCII control characters other than \n and \t are allowed.
-        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t') {
-            try std.testing.expect(tokenization_failed);
+        // Property: No ASCII control characters other than \n, \t, and \r are allowed.
+        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t' and cur != '\r') {
+            return error.TestUnexpectedResult;
         }
-        // Property: All '\r' must be followed by '\n'.
-        if (cur == '\r' and next != '\n') {
-            try std.testing.expect(tokenization_failed);
-        }
-    };
+    }
 }

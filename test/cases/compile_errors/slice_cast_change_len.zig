@@ -48,10 +48,10 @@ comptime {
 
 // error
 //
-// :3:31: error: cannot infer length of slice of 'type' from slice of 'comptime_int'
+// :3:31: error: cannot infer length of comptime-only '[]const type' from incompatible '[]const comptime_int'
 // :16:30: error: slice length '3' does not divide exactly into destination elements
-// :21:30: error: slice length '3' does not divide exactly into destination elements
+// :21:30: error: type '[3]u8' does not divide exactly into destination elements
 // :28:31: error: slice length '1' does not divide exactly into destination elements
-// :33:31: error: slice length '1' does not divide exactly into destination elements
+// :33:31: error: type '[1][4]u8' does not divide exactly into destination elements
 // :40:30: error: slice length '1' does not divide exactly into destination elements
-// :45:30: error: slice length '1' does not divide exactly into destination elements
+// :45:30: error: type '[1][3]u8' does not divide exactly into destination elements

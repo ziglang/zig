@@ -11,7 +11,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:19: error: expected type 'i32', found 'type'

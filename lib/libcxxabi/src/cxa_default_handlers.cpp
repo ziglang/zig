@@ -9,9 +9,9 @@
 // new_handler.
 //===----------------------------------------------------------------------===//
 
+#include <cstdlib> // std::abort
 #include <exception>
-#include <memory>
-#include <stdlib.h>
+#include <new>
 #include "abort_message.h"
 #include "cxxabi.h"
 #include "cxa_handlers.h"
@@ -23,17 +23,7 @@
 
 static constinit const char* cause = "uncaught";
 
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
-// Demangle the given string, or return the string as-is in case of an error.
-static std::unique_ptr<char const, void (*)(char const*)> demangle(char const* str)
-{
-#if !defined(LIBCXXABI_NON_DEMANGLING_TERMINATE)
-    if (const char* result = __cxxabiv1::__cxa_demangle(str, nullptr, nullptr, nullptr))
-        return {result, [](char const* p) { std::free(const_cast<char*>(p)); }};
-#endif
-    return {str, [](char const*) { /* nothing to free */ }};
-}
-
+#  ifndef _LIBCXXABI_NO_EXCEPTIONS
 __attribute__((noreturn))
 static void demangling_terminate_handler()
 {
@@ -42,18 +32,18 @@ static void demangling_terminate_handler()
 
     // If there is no uncaught exception, just note that we're terminating
     if (!globals)
-        abort_message("terminating");
+        __abort_message("terminating");
 
     __cxa_exception* exception_header = globals->caughtExceptions;
     if (!exception_header)
-        abort_message("terminating");
+        __abort_message("terminating");
 
     _Unwind_Exception* unwind_exception =
         reinterpret_cast<_Unwind_Exception*>(exception_header + 1) - 1;
 
     // If we're terminating due to a foreign exception
     if (!__isOurExceptionClass(unwind_exception))
-        abort_message("terminating due to %s foreign exception", cause);
+        __abort_message("terminating due to %s foreign exception", cause);
 
     void* thrown_object =
         __getExceptionClass(unwind_exception) == kOurDependentExceptionClass ?
@@ -61,7 +51,17 @@ static void demangling_terminate_handler()
             exception_header + 1;
     const __shim_type_info* thrown_type =
         static_cast<const __shim_type_info*>(exception_header->exceptionType);
-    auto name = demangle(thrown_type->name());
+
+    auto name = [str = thrown_type->name()] {
+#    ifndef LIBCXXABI_NON_DEMANGLING_TERMINATE
+      if (const char* result = __cxxabiv1::__cxa_demangle(str, nullptr, nullptr, nullptr))
+        // We're about to abort(), this memory can never be freed; so it's fine
+        // to just return a raw pointer
+        return result;
+#    endif
+      return str;
+    }();
+
     // If the uncaught exception can be caught with std::exception&
     const __shim_type_info* catch_type =
         static_cast<const __shim_type_info*>(&typeid(std::exception));
@@ -69,19 +69,19 @@ static void demangling_terminate_handler()
     {
         // Include the what() message from the exception
         const std::exception* e = static_cast<const std::exception*>(thrown_object);
-        abort_message("terminating due to %s exception of type %s: %s", cause, name.get(), e->what());
+        __abort_message("terminating due to %s exception of type %s: %s", cause, name, e->what());
     }
     else
     {
         // Else just note that we're terminating due to an exception
-        abort_message("terminating due to %s exception of type %s", cause, name.get());
+        __abort_message("terminating due to %s exception of type %s", cause, name);
     }
 }
 #else // !_LIBCXXABI_NO_EXCEPTIONS
 __attribute__((noreturn))
 static void demangling_terminate_handler()
 {
-    abort_message("terminating");
+    __abort_message("terminating");
 }
 #endif // !_LIBCXXABI_NO_EXCEPTIONS
 
@@ -95,7 +95,7 @@ static void demangling_unexpected_handler()
 static constexpr std::terminate_handler default_terminate_handler = demangling_terminate_handler;
 static constexpr std::terminate_handler default_unexpected_handler = demangling_unexpected_handler;
 #else // !LIBCXXABI_SILENT_TERMINATE
-static constexpr std::terminate_handler default_terminate_handler = ::abort;
+static constexpr std::terminate_handler default_terminate_handler = std::abort;
 static constexpr std::terminate_handler default_unexpected_handler = std::terminate;
 #endif // !LIBCXXABI_SILENT_TERMINATE
 

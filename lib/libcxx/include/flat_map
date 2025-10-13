@@ -1,0 +1,92 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_FLAT_MAP
+#define _LIBCPP_FLAT_MAP
+
+/*
+  Header <flat_map> synopsis
+
+#include <compare>              // see [compare.syn]
+#include <initializer_list>     // see [initializer.list.syn]
+
+namespace std {
+  // [flat.map], class template flat_map
+  template<class Key, class T, class Compare = less<Key>,
+           class KeyContainer = vector<Key>, class MappedContainer = vector<T>>
+    class flat_map;
+
+  struct sorted_unique_t { explicit sorted_unique_t() = default; };
+  inline constexpr sorted_unique_t sorted_unique{};
+
+  template<class Key, class T, class Compare, class KeyContainer, class MappedContainer,
+           class Allocator>
+    struct uses_allocator<flat_map<Key, T, Compare, KeyContainer, MappedContainer>,
+                          Allocator>;
+
+  // [flat.map.erasure], erasure for flat_map
+  template<class Key, class T, class Compare, class KeyContainer, class MappedContainer,
+           class Predicate>
+    typename flat_map<Key, T, Compare, KeyContainer, MappedContainer>::size_type
+      erase_if(flat_map<Key, T, Compare, KeyContainer, MappedContainer>& c, Predicate pred);
+
+  // [flat.multimap], class template flat_multimap
+  template<class Key, class T, class Compare = less<Key>,
+           class KeyContainer = vector<Key>, class MappedContainer = vector<T>>
+    class flat_multimap;
+
+  struct sorted_equivalent_t { explicit sorted_equivalent_t() = default; };
+  inline constexpr sorted_equivalent_t sorted_equivalent{};
+
+  template<class Key, class T, class Compare, class KeyContainer, class MappedContainer,
+           class Allocator>
+    struct uses_allocator<flat_multimap<Key, T, Compare, KeyContainer, MappedContainer>,
+                          Allocator>;
+
+  // [flat.multimap.erasure], erasure for flat_multimap
+  template<class Key, class T, class Compare, class KeyContainer, class MappedContainer,
+           class Predicate>
+    typename flat_multimap<Key, T, Compare, KeyContainer, MappedContainer>::size_type
+      erase_if(flat_multimap<Key, T, Compare, KeyContainer, MappedContainer>& c, Predicate pred);
+*/
+
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/__config>
+#else
+#  include <__config>
+
+#  if _LIBCPP_STD_VER >= 23
+#    include <__flat_map/flat_map.h>
+#    include <__flat_map/flat_multimap.h>
+#    include <__flat_map/sorted_equivalent.h>
+#    include <__flat_map/sorted_unique.h>
+#  endif
+
+// for feature-test macros
+#  include <version>
+
+// standard required includes
+
+// [iterator.range]
+#  include <__iterator/access.h>
+#  include <__iterator/data.h>
+#  include <__iterator/empty.h>
+#  include <__iterator/reverse_access.h>
+#  include <__iterator/size.h>
+
+// [flat.map.syn]
+#  include <compare>
+#  include <initializer_list>
+
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+
+#endif // _LIBCPP_FLAT_MAP

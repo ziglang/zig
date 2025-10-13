@@ -10,8 +10,6 @@ export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:36: error: type 'u32' cannot represent integer value '-1'
 // :8:27: error: type 'u32' cannot represent integer value '-1'

@@ -10,12 +10,12 @@
 #define _LIBCPP___TYPE_TRAITS_COMMON_REFERENCE_H
 
 #include <__config>
+#include <__type_traits/add_pointer.h>
 #include <__type_traits/common_type.h>
 #include <__type_traits/copy_cv.h>
 #include <__type_traits/copy_cvref.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_reference.h>
-#include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_cvref.h>
 #include <__type_traits/remove_reference.h>
 #include <__utility/declval.h>
@@ -30,7 +30,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 // Let COND_RES(X, Y) be:
 template <class _Xp, class _Yp>
-using __cond_res = decltype(false ? std::declval<_Xp (&)()>()() : std::declval<_Yp (&)()>()());
+using __cond_res _LIBCPP_NODEBUG = decltype(false ? std::declval<_Xp (&)()>()() : std::declval<_Yp (&)()>()());
 
 // Let `XREF(A)` denote a unary alias template `T` such that `T<U>` denotes the same type as `U`
 // with the addition of `A`'s cv and reference qualifiers, for a non-reference cv-unqualified type
@@ -39,7 +39,7 @@ using __cond_res = decltype(false ? std::declval<_Xp (&)()>()() : std::declval<_
 template <class _Tp>
 struct __xref {
   template <class _Up>
-  using __apply = __copy_cvref_t<_Tp, _Up>;
+  using __apply _LIBCPP_NODEBUG = __copy_cvref_t<_Tp, _Up>;
 };
 
 // Given types A and B, let X be remove_reference_t<A>, let Y be remove_reference_t<B>,
@@ -48,10 +48,10 @@ template <class _Ap, class _Bp, class _Xp = remove_reference_t<_Ap>, class _Yp =
 struct __common_ref;
 
 template <class _Xp, class _Yp>
-using __common_ref_t = typename __common_ref<_Xp, _Yp>::__type;
+using __common_ref_t _LIBCPP_NODEBUG = typename __common_ref<_Xp, _Yp>::__type;
 
 template <class _Xp, class _Yp>
-using __cv_cond_res = __cond_res<__copy_cv_t<_Xp, _Yp>&, __copy_cv_t<_Yp, _Xp>&>;
+using __cv_cond_res _LIBCPP_NODEBUG = __cond_res<__copy_cv_t<_Xp, _Yp>&, __copy_cv_t<_Yp, _Xp>&>;
 
 //    If A and B are both lvalue reference types, COMMON-REF(A, B) is
 //    COND-RES(COPYCV(X, Y)&, COPYCV(Y, X)&) if that type exists and is a reference type.
@@ -61,13 +61,13 @@ template <class _Ap, class _Bp, class _Xp, class _Yp>
     requires { typename __cv_cond_res<_Xp, _Yp>; } &&
     is_reference_v<__cv_cond_res<_Xp, _Yp>>
 struct __common_ref<_Ap&, _Bp&, _Xp, _Yp> {
-  using __type = __cv_cond_res<_Xp, _Yp>;
+  using __type _LIBCPP_NODEBUG = __cv_cond_res<_Xp, _Yp>;
 };
 // clang-format on
 
 //    Otherwise, let C be remove_reference_t<COMMON-REF(X&, Y&)>&&. ...
 template <class _Xp, class _Yp>
-using __common_ref_C = remove_reference_t<__common_ref_t<_Xp&, _Yp&>>&&;
+using __common_ref_C _LIBCPP_NODEBUG = remove_reference_t<__common_ref_t<_Xp&, _Yp&>>&&;
 
 //    .... If A and B are both rvalue reference types, C is well-formed, and
 //    is_convertible_v<A, C> && is_convertible_v<B, C> is true, then COMMON-REF(A, B) is C.
@@ -78,13 +78,13 @@ template <class _Ap, class _Bp, class _Xp, class _Yp>
     is_convertible_v<_Ap&&, __common_ref_C<_Xp, _Yp>> &&
     is_convertible_v<_Bp&&, __common_ref_C<_Xp, _Yp>>
 struct __common_ref<_Ap&&, _Bp&&, _Xp, _Yp> {
-  using __type = __common_ref_C<_Xp, _Yp>;
+  using __type _LIBCPP_NODEBUG = __common_ref_C<_Xp, _Yp>;
 };
 // clang-format on
 
 //    Otherwise, let D be COMMON-REF(const X&, Y&). ...
 template <class _Tp, class _Up>
-using __common_ref_D = __common_ref_t<const _Tp&, _Up&>;
+using __common_ref_D _LIBCPP_NODEBUG = __common_ref_t<const _Tp&, _Up&>;
 
 //    ... If A is an rvalue reference and B is an lvalue reference and D is well-formed and
 //    is_convertible_v<A, D> is true, then COMMON-REF(A, B) is D.
@@ -94,7 +94,7 @@ template <class _Ap, class _Bp, class _Xp, class _Yp>
     requires { typename __common_ref_D<_Xp, _Yp>; } &&
     is_convertible_v<_Ap&&, __common_ref_D<_Xp, _Yp>>
 struct __common_ref<_Ap&&, _Bp&, _Xp, _Yp> {
-  using __type = __common_ref_D<_Xp, _Yp>;
+  using __type _LIBCPP_NODEBUG = __common_ref_D<_Xp, _Yp>;
 };
 // clang-format on
 
@@ -110,11 +110,18 @@ struct __common_ref {};
 // Note C: For the common_reference trait applied to a parameter pack [...]
 
 template <class...>
-struct common_reference;
+struct _LIBCPP_NO_SPECIALIZATIONS common_reference;
 
 template <class... _Types>
 using common_reference_t = typename common_reference<_Types...>::type;
 
+template <class, class, template <class> class, template <class> class>
+struct basic_common_reference {};
+
+_LIBCPP_DIAGNOSTIC_PUSH
+#  if __has_warning("-Winvalid-specialization")
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-specialization")
+#  endif
 // bullet 1 - sizeof...(T) == 0
 template <>
 struct common_reference<> {};
@@ -122,7 +129,7 @@ struct common_reference<> {};
 // bullet 2 - sizeof...(T) == 1
 template <class _Tp>
 struct common_reference<_Tp> {
-  using type = _Tp;
+  using type _LIBCPP_NODEBUG = _Tp;
 };
 
 // bullet 3 - sizeof...(T) == 2
@@ -133,24 +140,25 @@ struct __common_reference_sub_bullet2 : __common_reference_sub_bullet3<_Tp, _Up>
 template <class _Tp, class _Up>
 struct __common_reference_sub_bullet1 : __common_reference_sub_bullet2<_Tp, _Up> {};
 
-// sub-bullet 1 - If T1 and T2 are reference types and COMMON-REF(T1, T2) is well-formed, then
-// the member typedef `type` denotes that type.
+// sub-bullet 1 - Let R be COMMON-REF(T1, T2). If T1 and T2 are reference types, R is well-formed, and
+// is_convertible_v<add_pointer_t<T1>, add_pointer_t<R>> && is_convertible_v<add_pointer_t<T2>, add_pointer_t<R>> is
+// true, then the member typedef type denotes R.
+
 template <class _Tp, class _Up>
 struct common_reference<_Tp, _Up> : __common_reference_sub_bullet1<_Tp, _Up> {};
 
 template <class _Tp, class _Up>
-  requires is_reference_v<_Tp> && is_reference_v<_Up> && requires { typename __common_ref_t<_Tp, _Up>; }
+  requires is_reference_v<_Tp> && is_reference_v<_Up> && requires { typename __common_ref_t<_Tp, _Up>; } &&
+           is_convertible_v<add_pointer_t<_Tp>, add_pointer_t<__common_ref_t<_Tp, _Up>>> &&
+           is_convertible_v<add_pointer_t<_Up>, add_pointer_t<__common_ref_t<_Tp, _Up>>>
 struct __common_reference_sub_bullet1<_Tp, _Up> {
-  using type = __common_ref_t<_Tp, _Up>;
+  using type _LIBCPP_NODEBUG = __common_ref_t<_Tp, _Up>;
 };
 
 // sub-bullet 2 - Otherwise, if basic_common_reference<remove_cvref_t<T1>, remove_cvref_t<T2>, XREF(T1), XREF(T2)>::type
 // is well-formed, then the member typedef `type` denotes that type.
-template <class, class, template <class> class, template <class> class>
-struct basic_common_reference {};
-
 template <class _Tp, class _Up>
-using __basic_common_reference_t =
+using __basic_common_reference_t _LIBCPP_NODEBUG =
     typename basic_common_reference<remove_cvref_t<_Tp>,
                                     remove_cvref_t<_Up>,
                                     __xref<_Tp>::template __apply,
@@ -159,7 +167,7 @@ using __basic_common_reference_t =
 template <class _Tp, class _Up>
   requires requires { typename __basic_common_reference_t<_Tp, _Up>; }
 struct __common_reference_sub_bullet2<_Tp, _Up> {
-  using type = __basic_common_reference_t<_Tp, _Up>;
+  using type _LIBCPP_NODEBUG = __basic_common_reference_t<_Tp, _Up>;
 };
 
 // sub-bullet 3 - Otherwise, if COND-RES(T1, T2) is well-formed,
@@ -167,7 +175,7 @@ struct __common_reference_sub_bullet2<_Tp, _Up> {
 template <class _Tp, class _Up>
   requires requires { typename __cond_res<_Tp, _Up>; }
 struct __common_reference_sub_bullet3<_Tp, _Up> {
-  using type = __cond_res<_Tp, _Up>;
+  using type _LIBCPP_NODEBUG = __cond_res<_Tp, _Up>;
 };
 
 // sub-bullet 4 & 5 - Otherwise, if common_type_t<T1, T2> is well-formed,
@@ -181,10 +189,11 @@ struct __common_reference_sub_bullet3 : common_type<_Tp, _Up> {};
 template <class _Tp, class _Up, class _Vp, class... _Rest>
   requires requires { typename common_reference_t<_Tp, _Up>; }
 struct common_reference<_Tp, _Up, _Vp, _Rest...> : common_reference<common_reference_t<_Tp, _Up>, _Vp, _Rest...> {};
+_LIBCPP_DIAGNOSTIC_POP
 
 // bullet 5 - Otherwise, there shall be no member `type`.
 template <class...>
-struct common_reference {};
+struct _LIBCPP_NO_SPECIALIZATIONS common_reference {};
 
 #endif // _LIBCPP_STD_VER >= 20
 

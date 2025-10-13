@@ -42,13 +42,24 @@ template <class charT, class traits, class Allocator>
 
 */
 
-#include <__config>
-#include <istream>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/iomanip>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if _LIBCPP_HAS_LOCALIZATION
+
+#    include <__iterator/istreambuf_iterator.h>
+#    include <__locale_dir/money.h>
+#    include <__locale_dir/time.h>
+#    include <__ostream/put_character_sequence.h>
+#    include <ios>
+#    include <iosfwd>
+#    include <version>
+
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -231,9 +242,9 @@ public:
 template <class _CharT, class _Traits, class _MoneyT>
 _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t7<_MoneyT>& __x) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     typename basic_istream<_CharT, _Traits>::sentry __s(__is);
     if (__s) {
       typedef istreambuf_iterator<_CharT, _Traits> _Ip;
@@ -243,11 +254,11 @@ operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t7<_MoneyT>& __x) {
       __mf.get(_Ip(__is), _Ip(), __x.__intl_, __is, __err, __x.__mon_);
       __is.setstate(__err);
     }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   } catch (...) {
     __is.__set_badbit_and_consider_rethrow();
   }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   return __is;
 }
 
@@ -280,9 +291,9 @@ public:
 template <class _CharT, class _Traits, class _MoneyT>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t8<_MoneyT>& __x) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     typename basic_ostream<_CharT, _Traits>::sentry __s(__os);
     if (__s) {
       typedef ostreambuf_iterator<_CharT, _Traits> _Op;
@@ -291,11 +302,11 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t8<_MoneyT>& __x) {
       if (__mf.put(_Op(__os), __x.__intl_, __os, __os.fill(), __x.__mon_).failed())
         __os.setstate(ios_base::badbit);
     }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   } catch (...) {
     __os.__set_badbit_and_consider_rethrow();
   }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   return __os;
 }
 
@@ -328,9 +339,9 @@ public:
 template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t9<_CharT>& __x) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     typename basic_istream<_CharT, _Traits>::sentry __s(__is);
     if (__s) {
       typedef istreambuf_iterator<_CharT, _Traits> _Ip;
@@ -340,11 +351,11 @@ operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t9<_CharT>& __x) {
       __tf.get(_Ip(__is), _Ip(), __is, __err, __x.__tm_, __x.__fmt_, __x.__fmt_ + _Traits::length(__x.__fmt_));
       __is.setstate(__err);
     }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   } catch (...) {
     __is.__set_badbit_and_consider_rethrow();
   }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   return __is;
 }
 
@@ -377,9 +388,9 @@ public:
 template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t10<_CharT>& __x) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     typename basic_ostream<_CharT, _Traits>::sentry __s(__os);
     if (__s) {
       typedef ostreambuf_iterator<_CharT, _Traits> _Op;
@@ -389,11 +400,11 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t10<_CharT>& __x) {
               .failed())
         __os.setstate(ios_base::badbit);
     }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   } catch (...) {
     __os.__set_badbit_and_consider_rethrow();
   }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   return __os;
 }
 
@@ -505,7 +516,7 @@ __quoted(basic_string<_CharT, _Traits, _Allocator>& __s, _CharT __delim = _CharT
   return __quoted_proxy<_CharT, _Traits, _Allocator>(__s, __delim, __escape);
 }
 
-#if _LIBCPP_STD_VER >= 14
+#    if _LIBCPP_STD_VER >= 14
 
 template <class _CharT>
 _LIBCPP_HIDE_FROM_ABI auto quoted(const _CharT* __s, _CharT __delim = _CharT('"'), _CharT __escape = _CharT('\\')) {
@@ -535,8 +546,31 @@ quoted(basic_string_view<_CharT, _Traits> __sv, _CharT __delim = _CharT('"'), _C
   return __quoted_output_proxy<_CharT, _Traits>(__sv.data(), __sv.data() + __sv.size(), __delim, __escape);
 }
 
-#endif // _LIBCPP_STD_VER >= 14
+#    endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_END_NAMESPACE_STD
+
+#  endif // _LIBCPP_HAS_LOCALIZATION
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <array>
+#    include <bitset>
+#    include <deque>
+#    include <format>
+#    include <functional>
+#    include <istream>
+#    include <ostream>
+#    include <print>
+#    include <queue>
+#    include <stack>
+#    include <unordered_map>
+#    include <vector>
+#  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 23
+#    include <locale>
+#  endif
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_IOMANIP

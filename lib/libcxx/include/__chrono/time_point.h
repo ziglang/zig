@@ -31,9 +31,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace chrono {
 
 template <class _Clock, class _Duration = typename _Clock::duration>
-class _LIBCPP_TEMPLATE_VIS time_point {
-  static_assert(__is_duration<_Duration>::value,
-                "Second template parameter of time_point must be a std::chrono::duration");
+class time_point {
+  static_assert(__is_duration_v<_Duration>, "Second template parameter of time_point must be a std::chrono::duration");
 
 public:
   typedef _Clock clock;
@@ -59,6 +58,19 @@ public:
 
   // arithmetic
 
+#if _LIBCPP_STD_VER >= 20
+  _LIBCPP_HIDE_FROM_ABI constexpr time_point& operator++() {
+    ++__d_;
+    return *this;
+  }
+  _LIBCPP_HIDE_FROM_ABI constexpr time_point operator++(int) { return time_point{__d_++}; }
+  _LIBCPP_HIDE_FROM_ABI constexpr time_point& operator--() {
+    --__d_;
+    return *this;
+  }
+  _LIBCPP_HIDE_FROM_ABI constexpr time_point operator--(int) { return time_point{__d_--}; }
+#endif // _LIBCPP_STD_VER >= 20
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 time_point& operator+=(const duration& __d) {
     __d_ += __d;
     return *this;
@@ -77,8 +89,7 @@ public:
 } // namespace chrono
 
 template <class _Clock, class _Duration1, class _Duration2>
-struct _LIBCPP_TEMPLATE_VIS
-common_type<chrono::time_point<_Clock, _Duration1>, chrono::time_point<_Clock, _Duration2> > {
+struct common_type<chrono::time_point<_Clock, _Duration1>, chrono::time_point<_Clock, _Duration2> > {
   typedef chrono::time_point<_Clock, typename common_type<_Duration1, _Duration2>::type> type;
 };
 
@@ -91,17 +102,17 @@ time_point_cast(const time_point<_Clock, _Duration>& __t) {
 }
 
 #if _LIBCPP_STD_VER >= 17
-template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
+template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration_v<_ToDuration>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI constexpr time_point<_Clock, _ToDuration> floor(const time_point<_Clock, _Duration>& __t) {
   return time_point<_Clock, _ToDuration>{chrono::floor<_ToDuration>(__t.time_since_epoch())};
 }
 
-template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
+template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration_v<_ToDuration>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI constexpr time_point<_Clock, _ToDuration> ceil(const time_point<_Clock, _Duration>& __t) {
   return time_point<_Clock, _ToDuration>{chrono::ceil<_ToDuration>(__t.time_since_epoch())};
 }
 
-template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
+template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration_v<_ToDuration>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI constexpr time_point<_Clock, _ToDuration> round(const time_point<_Clock, _Duration>& __t) {
   return time_point<_Clock, _ToDuration>{chrono::round<_ToDuration>(__t.time_since_epoch())};
 }

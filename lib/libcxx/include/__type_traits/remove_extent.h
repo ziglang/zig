@@ -10,7 +10,6 @@
 #define _LIBCPP___TYPE_TRAITS_REMOVE_EXTENT_H
 
 #include <__config>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -18,31 +17,18 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if __has_builtin(__remove_extent)
 template <class _Tp>
-struct remove_extent {
+struct _LIBCPP_NO_SPECIALIZATIONS remove_extent {
   using type _LIBCPP_NODEBUG = __remove_extent(_Tp);
 };
 
+#ifdef _LIBCPP_COMPILER_GCC
 template <class _Tp>
-using __remove_extent_t = __remove_extent(_Tp);
+using __remove_extent_t _LIBCPP_NODEBUG = typename remove_extent<_Tp>::type;
 #else
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS remove_extent {
-  typedef _Tp type;
-};
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS remove_extent<_Tp[]> {
-  typedef _Tp type;
-};
-template <class _Tp, size_t _Np>
-struct _LIBCPP_TEMPLATE_VIS remove_extent<_Tp[_Np]> {
-  typedef _Tp type;
-};
-
-template <class _Tp>
-using __remove_extent_t = typename remove_extent<_Tp>::type;
-#endif // __has_builtin(__remove_extent)
+using __remove_extent_t _LIBCPP_NODEBUG = __remove_extent(_Tp);
+#endif
 
 #if _LIBCPP_STD_VER >= 14
 template <class _Tp>

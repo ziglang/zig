@@ -5,9 +5,13 @@ EXPORTS
 #include "func.def.in"
 
 __daylight
+__p__daylight == __daylight
 __dstbias
+__p__dstbias == __dstbias
 __timezone
+__p__timezone == __timezone
 __tzname
+__p__tzname == __tzname
 _ctime32
 _ctime32_s
 _ctime64
@@ -18,6 +22,8 @@ _difftime32
 _difftime64
 F32(_ftime == _ftime32)
 F64(_ftime == _ftime64)
+F32(ftime == _ftime32)
+F64(ftime == _ftime64)
 _ftime32
 _ftime32_s
 _ftime64

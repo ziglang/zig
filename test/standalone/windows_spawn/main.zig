@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const windows = std.os.windows;
 const utf16Literal = std.unicode.utf8ToUtf16LeStringLiteral;
 
@@ -39,6 +40,9 @@ pub fn main() anyerror!void {
     // No PATH, so it should fail to find anything not in the cwd
     try testExecError(error.FileNotFound, allocator, "something_missing");
 
+    // make sure we don't get error.BadPath traversing out of cwd with a relative path
+    try testExecError(error.FileNotFound, allocator, "..\\.\\.\\.\\\\..\\more_missing");
+
     std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATH"),
         tmp_absolute_path_w,
@@ -51,6 +55,8 @@ pub fn main() anyerror!void {
     try testExec(allocator, "HeLLo.exe", "hello from exe\n");
     // without extension should find the .exe (case insensitive)
     try testExec(allocator, "heLLo", "hello from exe\n");
+    // with invalid cwd
+    try std.testing.expectError(error.FileNotFound, testExecWithCwd(allocator, "hello.exe", "missing_dir", ""));
 
     // now add a .bat
     try tmp.dir.writeFile(.{ .sub_path = "hello.bat", .data = "@echo hello from bat" });
@@ -65,7 +71,19 @@ pub fn main() anyerror!void {
     try testExec(allocator, "heLLo", "hello from exe\n");
 
     // now rename the exe to not have an extension
-    try tmp.dir.rename("hello.exe", "hello");
+    {
+        var attempt: u5 = 0;
+        while (true) break tmp.dir.rename("hello.exe", "hello") catch |err| switch (err) {
+            error.AccessDenied => {
+                if (attempt == 13) return error.AccessDenied;
+                // give the kernel a chance to finish closing the executable handle
+                std.os.windows.kernel32.Sleep(@as(u32, 1) << attempt >> 1);
+                attempt += 1;
+                continue;
+            },
+            else => |e| return e,
+        };
+    }
 
     // with extension should now fail
     try testExecError(error.FileNotFound, allocator, "hello.exe");
@@ -147,6 +165,48 @@ pub fn main() anyerror!void {
     // If we try to exec but provide a cwd that is an absolute path, the PATH
     // should still be searched and the goodbye.exe in something should be found.
     try testExecWithCwd(allocator, "goodbye", tmp_absolute_path, "hello from exe\n");
+
+    // introduce some extra path separators into the path which is dealt with inside the spawn call.
+    const denormed_something_subdir_size = std.mem.replacementSize(u16, something_subdir_abs_path, utf16Literal("\\"), utf16Literal("\\\\\\\\"));
+
+    const denormed_something_subdir_abs_path = try allocator.allocSentinel(u16, denormed_something_subdir_size, 0);
+    defer allocator.free(denormed_something_subdir_abs_path);
+
+    _ = std.mem.replace(u16, something_subdir_abs_path, utf16Literal("\\"), utf16Literal("\\\\\\\\"), denormed_something_subdir_abs_path);
+
+    const denormed_something_subdir_wtf8 = try std.unicode.wtf16LeToWtf8Alloc(allocator, denormed_something_subdir_abs_path);
+    defer allocator.free(denormed_something_subdir_wtf8);
+
+    // clear the path to ensure that the match comes from the cwd
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
+        utf16Literal("PATH"),
+        null,
+    ) == windows.TRUE);
+
+    try testExecWithCwd(allocator, "goodbye", denormed_something_subdir_wtf8, "hello from exe\n");
+
+    // normalization should also work if the non-normalized path is found in the PATH var.
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
+        utf16Literal("PATH"),
+        denormed_something_subdir_abs_path,
+    ) == windows.TRUE);
+    try testExec(allocator, "goodbye", "hello from exe\n");
+
+    // now make sure we can launch executables "outside" of the cwd
+    var subdir_cwd = try tmp.dir.openDir(denormed_something_subdir_wtf8, .{});
+    defer subdir_cwd.close();
+
+    try tmp.dir.rename("something/goodbye.exe", "hello.exe");
+    try subdir_cwd.setAsCwd();
+
+    // clear the PATH again
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
+        utf16Literal("PATH"),
+        null,
+    ) == windows.TRUE);
+
+    // while we're at it make sure non-windows separators work fine
+    try testExec(allocator, "../hello", "hello from exe\n");
 }
 
 fn testExecError(err: anyerror, allocator: std.mem.Allocator, command: []const u8) !void {

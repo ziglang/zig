@@ -118,14 +118,17 @@ struct tcphdr {
 };
 
 #define TCPOPT_EOL              0
+#define TCPOLEN_EOL             1
 #define TCPOPT_NOP              1
+#define TCPOLEN_NOP             1
 #define TCPOPT_MAXSEG           2
 #define TCPOLEN_MAXSEG          4
 #define TCPOPT_WINDOW           3
 #define TCPOLEN_WINDOW          3
-#define TCPOPT_SACK_PERMITTED   4               /* Experimental */
+#define TCPOPT_SACK_PERMITTED   4               /* SACK capability in SYN */
 #define TCPOLEN_SACK_PERMITTED  2
-#define TCPOPT_SACK             5               /* Experimental */
+#define TCPOPT_SACK             5
+#define TCPOLEN_SACKHDR         2
 #define TCPOLEN_SACK            8               /* len of sack block */
 #define TCPOPT_TIMESTAMP        8
 #define TCPOLEN_TIMESTAMP       10
@@ -151,8 +154,8 @@ struct tcphdr {
 #define TCPOPT_FASTOPEN                 34
 #define TCPOLEN_FASTOPEN_REQ            2
 
-#define TCPOPT_ACCECN0                  0xAC /* AccECN Order 0 */
-#define TCPOPT_ACCECN1                  0XAE /* AccECN Order 1 */
+#define TCPOPT_ACCECN0                  172 /* AccECN Order 0 */
+#define TCPOPT_ACCECN1                  174 /* AccECN Order 1 */
 #define TCPOLEN_ACCECN_EMPTY            2    /* Empty option contains kind and length */
 #define TCPOLEN_ACCECN_COUNTER          3    /* Length of each AccECN counter */
 

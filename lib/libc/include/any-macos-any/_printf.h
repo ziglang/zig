@@ -25,6 +25,9 @@
 #define	__PRINTF_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 
 __BEGIN_DECLS

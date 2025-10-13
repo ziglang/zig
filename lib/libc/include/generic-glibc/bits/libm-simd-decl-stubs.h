@@ -373,4 +373,48 @@
 #define __DECL_SIMD_tanpif32x
 #define __DECL_SIMD_tanpif64x
 #define __DECL_SIMD_tanpif128x
+
+#define __DECL_SIMD_acospi
+#define __DECL_SIMD_acospif
+#define __DECL_SIMD_acospil
+#define __DECL_SIMD_acospif16
+#define __DECL_SIMD_acospif32
+#define __DECL_SIMD_acospif64
+#define __DECL_SIMD_acospif128
+#define __DECL_SIMD_acospif32x
+#define __DECL_SIMD_acospif64x
+#define __DECL_SIMD_acospif128x
+
+#define __DECL_SIMD_asinpi
+#define __DECL_SIMD_asinpif
+#define __DECL_SIMD_asinpil
+#define __DECL_SIMD_asinpif16
+#define __DECL_SIMD_asinpif32
+#define __DECL_SIMD_asinpif64
+#define __DECL_SIMD_asinpif128
+#define __DECL_SIMD_asinpif32x
+#define __DECL_SIMD_asinpif64x
+#define __DECL_SIMD_asinpif128x
+
+#define __DECL_SIMD_atanpi
+#define __DECL_SIMD_atanpif
+#define __DECL_SIMD_atanpil
+#define __DECL_SIMD_atanpif16
+#define __DECL_SIMD_atanpif32
+#define __DECL_SIMD_atanpif64
+#define __DECL_SIMD_atanpif128
+#define __DECL_SIMD_atanpif32x
+#define __DECL_SIMD_atanpif64x
+#define __DECL_SIMD_atanpif128x
+
+#define __DECL_SIMD_atan2pi
+#define __DECL_SIMD_atan2pif
+#define __DECL_SIMD_atan2pil
+#define __DECL_SIMD_atan2pif16
+#define __DECL_SIMD_atan2pif32
+#define __DECL_SIMD_atan2pif64
+#define __DECL_SIMD_atan2pif128
+#define __DECL_SIMD_atan2pif32x
+#define __DECL_SIMD_atan2pif64x
+#define __DECL_SIMD_atan2pif128x
 #endif

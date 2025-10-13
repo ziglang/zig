@@ -2,7 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const os = builtin.os.tag;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+pub const panic = common.panic;
 
 // Ported from llvm-project d32170dbd5b0d54436537b6b75beaf44324e0c28
 
@@ -38,10 +39,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         .mips, .mipsel, .mips64, .mips64el => true,
         else => false,
     };
-    const riscv = switch (arch) {
-        .riscv32, .riscv64 => true,
-        else => false,
-    };
+    const riscv = arch.isRISCV();
     const powerpc64 = switch (arch) {
         .powerpc64, .powerpc64le => true,
         else => false,
@@ -85,6 +83,24 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         const result = std.os.linux.syscall3(.cacheflush, start, end - start, flags);
         std.debug.assert(result == 0);
         exportIt();
+    } else if (os == .netbsd and mips) {
+        // Replace with https://github.com/ziglang/zig/issues/23904 in the future.
+        const cfa: extern struct {
+            va: usize,
+            nbytes: usize,
+            whichcache: u32,
+        } = .{
+            .va = start,
+            .nbytes = end - start,
+            .whichcache = 3, // ICACHE | DCACHE
+        };
+        asm volatile ("syscall"
+            :
+            : [_] "{$2}" (165), // nr = SYS_sysarch
+              [_] "{$4}" (0), // op = MIPS_CACHEFLUSH
+              [_] "{$5}" (&cfa), // args = &cfa
+            : .{ .r1 = true, .r2 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
+        exportIt();
     } else if (mips and os == .openbsd) {
         // TODO
         //cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
@@ -96,11 +112,8 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
     } else if (arm64 and !apple) {
         // Get Cache Type Info.
         // TODO memoize this?
-        var ctr_el0: u64 = 0;
-        asm volatile (
-            \\mrs %[x], ctr_el0
-            \\
-            : [x] "=r" (ctr_el0),
+        const ctr_el0 = asm volatile ("mrs %[ctr_el0], ctr_el0"
+            : [ctr_el0] "=r" (-> u64),
         );
         // The DC and IC instructions must use 64-bit registers so we don't use
         // uintptr_t in case this runs in an IPL32 environment.
@@ -167,17 +180,15 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         exportIt();
     } else if (os == .linux and loongarch) {
         // See: https://github.com/llvm/llvm-project/blob/cf54cae26b65fc3201eff7200ffb9b0c9e8f9a13/compiler-rt/lib/builtins/clear_cache.c#L94-L95
-        asm volatile (
-            \\ ibar 0
-        );
+        asm volatile ("ibar 0");
         exportIt();
     }
+
+    std.valgrind.discardTranslations(@as([*]u8, @ptrFromInt(start))[0 .. end - start]);
 }
 
-const linkage = if (builtin.is_test) std.builtin.GlobalLinkage.internal else std.builtin.GlobalLinkage.weak;
-
 fn exportIt() void {
-    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
+    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // Darwin-only

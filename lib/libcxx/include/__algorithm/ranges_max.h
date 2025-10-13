@@ -9,7 +9,7 @@
 #ifndef _LIBCPP___ALGORITHM_RANGES_MAX_H
 #define _LIBCPP___ALGORITHM_RANGES_MAX_H
 
-#include <__algorithm/ranges_min_element.h>
+#include <__algorithm/min_element.h>
 #include <__assert>
 #include <__concepts/copyable.h>
 #include <__config>
@@ -36,8 +36,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __max {
-struct __fn {
+struct __max {
   template <class _Tp,
             class _Proj                                                    = identity,
             indirect_strict_weak_order<projected<const _Tp*, _Proj>> _Comp = ranges::less>
@@ -58,7 +57,7 @@ struct __fn {
         __il.begin() != __il.end(), "initializer_list must contain at least one element");
 
     auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) -> bool { return std::invoke(__comp, __rhs, __lhs); };
-    return *ranges::__min_element_impl(__il.begin(), __il.end(), __comp_lhs_rhs_swapped, __proj);
+    return *std::__min_element(__il.begin(), __il.end(), __comp_lhs_rhs_swapped, __proj);
   }
 
   template <input_range _Rp,
@@ -76,7 +75,7 @@ struct __fn {
       auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) -> bool {
         return std::invoke(__comp, __rhs, __lhs);
       };
-      return *ranges::__min_element_impl(std::move(__first), std::move(__last), __comp_lhs_rhs_swapped, __proj);
+      return *std::__min_element(std::move(__first), std::move(__last), __comp_lhs_rhs_swapped, __proj);
     } else {
       range_value_t<_Rp> __result = *__first;
       while (++__first != __last) {
@@ -87,10 +86,9 @@ struct __fn {
     }
   }
 };
-} // namespace __max
 
 inline namespace __cpo {
-inline constexpr auto max = __max::__fn{};
+inline constexpr auto max = __max{};
 } // namespace __cpo
 } // namespace ranges
 

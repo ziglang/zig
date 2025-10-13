@@ -10,21 +10,35 @@
 #ifndef _LIBCPP___BIT_REFERENCE
 #define _LIBCPP___BIT_REFERENCE
 
+#include <__algorithm/comp.h>
+#include <__algorithm/copy.h>
+#include <__algorithm/copy_backward.h>
 #include <__algorithm/copy_n.h>
-#include <__algorithm/fill_n.h>
+#include <__algorithm/equal.h>
 #include <__algorithm/min.h>
+#include <__algorithm/rotate.h>
+#include <__algorithm/swap_ranges.h>
+#include <__assert>
 #include <__bit/countr.h>
-#include <__bit/invert_if.h>
-#include <__bit/popcount.h>
 #include <__compare/ordering.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
+#include <__cstddef/size_t.h>
+#include <__functional/identity.h>
 #include <__fwd/bit_reference.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/construct_at.h>
 #include <__memory/pointer_traits.h>
 #include <__type_traits/conditional.h>
+#include <__type_traits/desugars_to.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_constant_evaluated.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/is_unsigned.h>
+#include <__type_traits/void_t.h>
+#include <__utility/pair.h>
 #include <__utility/swap.h>
-#include <cstring>
+#include <climits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -43,10 +57,69 @@ struct __has_storage_type {
   static const bool value = false;
 };
 
+template <class, class>
+struct __size_difference_type_traits {
+  using difference_type = ptrdiff_t;
+  using size_type       = size_t;
+};
+
+template <class _Cp>
+struct __size_difference_type_traits<_Cp, __void_t<typename _Cp::difference_type, typename _Cp::size_type> > {
+  using difference_type = typename _Cp::difference_type;
+  using size_type       = typename _Cp::size_type;
+};
+
+// The `__x_mask` functions are designed to work exclusively with any unsigned `_StorageType`s, including small
+// integral types such as unsigned char/short, `uint8_t`, and `uint16_t`. To prevent undefined behavior or
+// ambiguities due to integral promotions for the small integral types, all intermediate bitwise operations are
+// explicitly cast back to the unsigned `_StorageType`.
+
+// Creates a mask of type `_StorageType` with a specified number of leading zeros (__clz) and sets all remaining
+// bits to one.
+template <class _StorageType>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _StorageType __trailing_mask(unsigned __clz) {
+  static_assert(is_unsigned<_StorageType>::value, "__trailing_mask only works with unsigned types");
+  return static_cast<_StorageType>(~static_cast<_StorageType>(0)) >> __clz;
+}
+
+// Creates a mask of type `_StorageType` with a specified number of trailing zeros (__ctz) and sets all remaining
+// bits to one.
+template <class _StorageType>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _StorageType __leading_mask(unsigned __ctz) {
+  static_assert(is_unsigned<_StorageType>::value, "__leading_mask only works with unsigned types");
+  return static_cast<_StorageType>(~static_cast<_StorageType>(0)) << __ctz;
+}
+
+// Creates a mask of type `_StorageType` with a specified number of leading zeros (__clz), a specified number of
+// trailing zeros (__ctz), and sets all bits in between to one.
+template <class _StorageType>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _StorageType __middle_mask(unsigned __clz, unsigned __ctz) {
+  static_assert(is_unsigned<_StorageType>::value, "__middle_mask only works with unsigned types");
+  return std::__leading_mask<_StorageType>(__ctz) & std::__trailing_mask<_StorageType>(__clz);
+}
+
+// This function is designed to operate correctly even for smaller integral types like `uint8_t`, `uint16_t`,
+// or `unsigned short`.
+// See https://github.com/llvm/llvm-project/pull/122410.
+template <class _StoragePointer>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void
+__fill_masked_range(_StoragePointer __word, unsigned __clz, unsigned __ctz, bool __fill_val) {
+  static_assert(is_unsigned<typename pointer_traits<_StoragePointer>::element_type>::value,
+                "__fill_masked_range must be called with unsigned type");
+  using _StorageType = typename pointer_traits<_StoragePointer>::element_type;
+  _LIBCPP_ASSERT_VALID_INPUT_RANGE(
+      __ctz + __clz < sizeof(_StorageType) * CHAR_BIT, "__fill_masked_range called with invalid range");
+  _StorageType __m = std::__middle_mask<_StorageType>(__clz, __ctz);
+  if (__fill_val)
+    *__word |= __m;
+  else
+    *__word &= ~__m;
+}
+
 template <class _Cp, bool = __has_storage_type<_Cp>::value>
 class __bit_reference {
-  using __storage_type    = typename _Cp::__storage_type;
-  using __storage_pointer = typename _Cp::__storage_pointer;
+  using __storage_type _LIBCPP_NODEBUG    = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG = typename _Cp::__storage_pointer;
 
   __storage_pointer __seg_;
   __storage_type __mask_;
@@ -57,7 +130,7 @@ class __bit_reference {
   friend class __bit_iterator<_Cp, false>;
 
 public:
-  using __container = typename _Cp::__self;
+  using __container _LIBCPP_NODEBUG = typename _Cp::__self;
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __bit_reference(const __bit_reference&) = default;
 
@@ -92,7 +165,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void flip() _NOEXCEPT { *__seg_ ^= __mask_; }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __bit_iterator<_Cp, false> operator&() const _NOEXCEPT {
-    return __bit_iterator<_Cp, false>(__seg_, static_cast<unsigned>(std::__libcpp_ctz(__mask_)));
+    return __bit_iterator<_Cp, false>(__seg_, static_cast<unsigned>(std::__countr_zero(__mask_)));
   }
 
 private:
@@ -137,8 +210,8 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(bool& __x, 
 
 template <class _Cp>
 class __bit_const_reference {
-  using __storage_type    = typename _Cp::__storage_type;
-  using __storage_pointer = typename _Cp::__const_storage_pointer;
+  using __storage_type _LIBCPP_NODEBUG    = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG = typename _Cp::__const_storage_pointer;
 
   __storage_pointer __seg_;
   __storage_type __mask_;
@@ -147,7 +220,7 @@ class __bit_const_reference {
   friend class __bit_iterator<_Cp, true>;
 
 public:
-  using __container = typename _Cp::__self;
+  using __container _LIBCPP_NODEBUG = typename _Cp::__self;
 
   _LIBCPP_HIDE_FROM_ABI __bit_const_reference(const __bit_const_reference&) = default;
   __bit_const_reference& operator=(const __bit_const_reference&)            = delete;
@@ -161,7 +234,7 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __bit_iterator<_Cp, true> operator&() const _NOEXCEPT {
-    return __bit_iterator<_Cp, true>(__seg_, static_cast<unsigned>(std::__libcpp_ctz(__mask_)));
+    return __bit_iterator<_Cp, true>(__seg_, static_cast<unsigned>(std::__countr_zero(__mask_)));
   }
 
 private:
@@ -171,428 +244,12 @@ private:
         __mask_(__m) {}
 };
 
-// copy
-
-template <class _Cp, bool _IsConst>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cp, false> __copy_aligned(
-    __bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  using _In             = __bit_iterator<_Cp, _IsConst>;
-  using difference_type = typename _In::difference_type;
-  using __storage_type  = typename _In::__storage_type;
-
-  const int __bits_per_word = _In::__bits_per_word;
-  difference_type __n       = __last - __first;
-  if (__n > 0) {
-    // do first word
-    if (__first.__ctz_ != 0) {
-      unsigned __clz       = __bits_per_word - __first.__ctz_;
-      difference_type __dn = std::min(static_cast<difference_type>(__clz), __n);
-      __n -= __dn;
-      __storage_type __m = (~__storage_type(0) << __first.__ctz_) & (~__storage_type(0) >> (__clz - __dn));
-      __storage_type __b = *__first.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b;
-      __result.__seg_ += (__dn + __result.__ctz_) / __bits_per_word;
-      __result.__ctz_ = static_cast<unsigned>((__dn + __result.__ctz_) % __bits_per_word);
-      ++__first.__seg_;
-      // __first.__ctz_ = 0;
-    }
-    // __first.__ctz_ == 0;
-    // do middle words
-    __storage_type __nw = __n / __bits_per_word;
-    std::copy_n(std::__to_address(__first.__seg_), __nw, std::__to_address(__result.__seg_));
-    __n -= __nw * __bits_per_word;
-    __result.__seg_ += __nw;
-    // do last word
-    if (__n > 0) {
-      __first.__seg_ += __nw;
-      __storage_type __m = ~__storage_type(0) >> (__bits_per_word - __n);
-      __storage_type __b = *__first.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b;
-      __result.__ctz_ = static_cast<unsigned>(__n);
-    }
-  }
-  return __result;
-}
-
-template <class _Cp, bool _IsConst>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cp, false> __copy_unaligned(
-    __bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  using _In             = __bit_iterator<_Cp, _IsConst>;
-  using difference_type = typename _In::difference_type;
-  using __storage_type  = typename _In::__storage_type;
-
-  const int __bits_per_word = _In::__bits_per_word;
-  difference_type __n       = __last - __first;
-  if (__n > 0) {
-    // do first word
-    if (__first.__ctz_ != 0) {
-      unsigned __clz_f     = __bits_per_word - __first.__ctz_;
-      difference_type __dn = std::min(static_cast<difference_type>(__clz_f), __n);
-      __n -= __dn;
-      __storage_type __m   = (~__storage_type(0) << __first.__ctz_) & (~__storage_type(0) >> (__clz_f - __dn));
-      __storage_type __b   = *__first.__seg_ & __m;
-      unsigned __clz_r     = __bits_per_word - __result.__ctz_;
-      __storage_type __ddn = std::min<__storage_type>(__dn, __clz_r);
-      __m                  = (~__storage_type(0) << __result.__ctz_) & (~__storage_type(0) >> (__clz_r - __ddn));
-      *__result.__seg_ &= ~__m;
-      if (__result.__ctz_ > __first.__ctz_)
-        *__result.__seg_ |= __b << (__result.__ctz_ - __first.__ctz_);
-      else
-        *__result.__seg_ |= __b >> (__first.__ctz_ - __result.__ctz_);
-      __result.__seg_ += (__ddn + __result.__ctz_) / __bits_per_word;
-      __result.__ctz_ = static_cast<unsigned>((__ddn + __result.__ctz_) % __bits_per_word);
-      __dn -= __ddn;
-      if (__dn > 0) {
-        __m = ~__storage_type(0) >> (__bits_per_word - __dn);
-        *__result.__seg_ &= ~__m;
-        *__result.__seg_ |= __b >> (__first.__ctz_ + __ddn);
-        __result.__ctz_ = static_cast<unsigned>(__dn);
-      }
-      ++__first.__seg_;
-      // __first.__ctz_ = 0;
-    }
-    // __first.__ctz_ == 0;
-    // do middle words
-    unsigned __clz_r   = __bits_per_word - __result.__ctz_;
-    __storage_type __m = ~__storage_type(0) << __result.__ctz_;
-    for (; __n >= __bits_per_word; __n -= __bits_per_word, ++__first.__seg_) {
-      __storage_type __b = *__first.__seg_;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b << __result.__ctz_;
-      ++__result.__seg_;
-      *__result.__seg_ &= __m;
-      *__result.__seg_ |= __b >> __clz_r;
-    }
-    // do last word
-    if (__n > 0) {
-      __m                 = ~__storage_type(0) >> (__bits_per_word - __n);
-      __storage_type __b  = *__first.__seg_ & __m;
-      __storage_type __dn = std::min(__n, static_cast<difference_type>(__clz_r));
-      __m                 = (~__storage_type(0) << __result.__ctz_) & (~__storage_type(0) >> (__clz_r - __dn));
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b << __result.__ctz_;
-      __result.__seg_ += (__dn + __result.__ctz_) / __bits_per_word;
-      __result.__ctz_ = static_cast<unsigned>((__dn + __result.__ctz_) % __bits_per_word);
-      __n -= __dn;
-      if (__n > 0) {
-        __m = ~__storage_type(0) >> (__bits_per_word - __n);
-        *__result.__seg_ &= ~__m;
-        *__result.__seg_ |= __b >> __dn;
-        __result.__ctz_ = static_cast<unsigned>(__n);
-      }
-    }
-  }
-  return __result;
-}
-
-template <class _Cp, bool _IsConst>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __bit_iterator<_Cp, false>
-copy(__bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  if (__first.__ctz_ == __result.__ctz_)
-    return std::__copy_aligned(__first, __last, __result);
-  return std::__copy_unaligned(__first, __last, __result);
-}
-
-// copy_backward
-
-template <class _Cp, bool _IsConst>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cp, false> __copy_backward_aligned(
-    __bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  using _In             = __bit_iterator<_Cp, _IsConst>;
-  using difference_type = typename _In::difference_type;
-  using __storage_type  = typename _In::__storage_type;
-
-  const int __bits_per_word = _In::__bits_per_word;
-  difference_type __n       = __last - __first;
-  if (__n > 0) {
-    // do first word
-    if (__last.__ctz_ != 0) {
-      difference_type __dn = std::min(static_cast<difference_type>(__last.__ctz_), __n);
-      __n -= __dn;
-      unsigned __clz     = __bits_per_word - __last.__ctz_;
-      __storage_type __m = (~__storage_type(0) << (__last.__ctz_ - __dn)) & (~__storage_type(0) >> __clz);
-      __storage_type __b = *__last.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b;
-      __result.__ctz_ = static_cast<unsigned>(((-__dn & (__bits_per_word - 1)) + __result.__ctz_) % __bits_per_word);
-      // __last.__ctz_ = 0
-    }
-    // __last.__ctz_ == 0 || __n == 0
-    // __result.__ctz_ == 0 || __n == 0
-    // do middle words
-    __storage_type __nw = __n / __bits_per_word;
-    __result.__seg_ -= __nw;
-    __last.__seg_ -= __nw;
-    std::copy_n(std::__to_address(__last.__seg_), __nw, std::__to_address(__result.__seg_));
-    __n -= __nw * __bits_per_word;
-    // do last word
-    if (__n > 0) {
-      __storage_type __m = ~__storage_type(0) << (__bits_per_word - __n);
-      __storage_type __b = *--__last.__seg_ & __m;
-      *--__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b;
-      __result.__ctz_ = static_cast<unsigned>(-__n & (__bits_per_word - 1));
-    }
-  }
-  return __result;
-}
-
-template <class _Cp, bool _IsConst>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cp, false> __copy_backward_unaligned(
-    __bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  using _In             = __bit_iterator<_Cp, _IsConst>;
-  using difference_type = typename _In::difference_type;
-  using __storage_type  = typename _In::__storage_type;
-
-  const int __bits_per_word = _In::__bits_per_word;
-  difference_type __n       = __last - __first;
-  if (__n > 0) {
-    // do first word
-    if (__last.__ctz_ != 0) {
-      difference_type __dn = std::min(static_cast<difference_type>(__last.__ctz_), __n);
-      __n -= __dn;
-      unsigned __clz_l     = __bits_per_word - __last.__ctz_;
-      __storage_type __m   = (~__storage_type(0) << (__last.__ctz_ - __dn)) & (~__storage_type(0) >> __clz_l);
-      __storage_type __b   = *__last.__seg_ & __m;
-      unsigned __clz_r     = __bits_per_word - __result.__ctz_;
-      __storage_type __ddn = std::min(__dn, static_cast<difference_type>(__result.__ctz_));
-      if (__ddn > 0) {
-        __m = (~__storage_type(0) << (__result.__ctz_ - __ddn)) & (~__storage_type(0) >> __clz_r);
-        *__result.__seg_ &= ~__m;
-        if (__result.__ctz_ > __last.__ctz_)
-          *__result.__seg_ |= __b << (__result.__ctz_ - __last.__ctz_);
-        else
-          *__result.__seg_ |= __b >> (__last.__ctz_ - __result.__ctz_);
-        __result.__ctz_ = static_cast<unsigned>(((-__ddn & (__bits_per_word - 1)) + __result.__ctz_) % __bits_per_word);
-        __dn -= __ddn;
-      }
-      if (__dn > 0) {
-        // __result.__ctz_ == 0
-        --__result.__seg_;
-        __result.__ctz_ = static_cast<unsigned>(-__dn & (__bits_per_word - 1));
-        __m             = ~__storage_type(0) << __result.__ctz_;
-        *__result.__seg_ &= ~__m;
-        __last.__ctz_ -= __dn + __ddn;
-        *__result.__seg_ |= __b << (__result.__ctz_ - __last.__ctz_);
-      }
-      // __last.__ctz_ = 0
-    }
-    // __last.__ctz_ == 0 || __n == 0
-    // __result.__ctz_ != 0 || __n == 0
-    // do middle words
-    unsigned __clz_r   = __bits_per_word - __result.__ctz_;
-    __storage_type __m = ~__storage_type(0) >> __clz_r;
-    for (; __n >= __bits_per_word; __n -= __bits_per_word) {
-      __storage_type __b = *--__last.__seg_;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b >> __clz_r;
-      *--__result.__seg_ &= __m;
-      *__result.__seg_ |= __b << __result.__ctz_;
-    }
-    // do last word
-    if (__n > 0) {
-      __m                 = ~__storage_type(0) << (__bits_per_word - __n);
-      __storage_type __b  = *--__last.__seg_ & __m;
-      __clz_r             = __bits_per_word - __result.__ctz_;
-      __storage_type __dn = std::min(__n, static_cast<difference_type>(__result.__ctz_));
-      __m                 = (~__storage_type(0) << (__result.__ctz_ - __dn)) & (~__storage_type(0) >> __clz_r);
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b >> (__bits_per_word - __result.__ctz_);
-      __result.__ctz_ = static_cast<unsigned>(((-__dn & (__bits_per_word - 1)) + __result.__ctz_) % __bits_per_word);
-      __n -= __dn;
-      if (__n > 0) {
-        // __result.__ctz_ == 0
-        --__result.__seg_;
-        __result.__ctz_ = static_cast<unsigned>(-__n & (__bits_per_word - 1));
-        __m             = ~__storage_type(0) << __result.__ctz_;
-        *__result.__seg_ &= ~__m;
-        *__result.__seg_ |= __b << (__result.__ctz_ - (__bits_per_word - __n - __dn));
-      }
-    }
-  }
-  return __result;
-}
-
-template <class _Cp, bool _IsConst>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __bit_iterator<_Cp, false> copy_backward(
-    __bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  if (__last.__ctz_ == __result.__ctz_)
-    return std::__copy_backward_aligned(__first, __last, __result);
-  return std::__copy_backward_unaligned(__first, __last, __result);
-}
-
-// move
-
-template <class _Cp, bool _IsConst>
-inline _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cp, false>
-move(__bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  return std::copy(__first, __last, __result);
-}
-
-// move_backward
-
-template <class _Cp, bool _IsConst>
-inline _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cp, false> move_backward(
-    __bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsConst> __last, __bit_iterator<_Cp, false> __result) {
-  return std::copy_backward(__first, __last, __result);
-}
-
-// swap_ranges
-
-template <class _Cl, class _Cr>
-_LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cr, false> __swap_ranges_aligned(
-    __bit_iterator<_Cl, false> __first, __bit_iterator<_Cl, false> __last, __bit_iterator<_Cr, false> __result) {
-  using _I1             = __bit_iterator<_Cl, false>;
-  using difference_type = typename _I1::difference_type;
-  using __storage_type  = typename _I1::__storage_type;
-
-  const int __bits_per_word = _I1::__bits_per_word;
-  difference_type __n       = __last - __first;
-  if (__n > 0) {
-    // do first word
-    if (__first.__ctz_ != 0) {
-      unsigned __clz       = __bits_per_word - __first.__ctz_;
-      difference_type __dn = std::min(static_cast<difference_type>(__clz), __n);
-      __n -= __dn;
-      __storage_type __m  = (~__storage_type(0) << __first.__ctz_) & (~__storage_type(0) >> (__clz - __dn));
-      __storage_type __b1 = *__first.__seg_ & __m;
-      *__first.__seg_ &= ~__m;
-      __storage_type __b2 = *__result.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b1;
-      *__first.__seg_ |= __b2;
-      __result.__seg_ += (__dn + __result.__ctz_) / __bits_per_word;
-      __result.__ctz_ = static_cast<unsigned>((__dn + __result.__ctz_) % __bits_per_word);
-      ++__first.__seg_;
-      // __first.__ctz_ = 0;
-    }
-    // __first.__ctz_ == 0;
-    // do middle words
-    for (; __n >= __bits_per_word; __n -= __bits_per_word, ++__first.__seg_, ++__result.__seg_)
-      swap(*__first.__seg_, *__result.__seg_);
-    // do last word
-    if (__n > 0) {
-      __storage_type __m  = ~__storage_type(0) >> (__bits_per_word - __n);
-      __storage_type __b1 = *__first.__seg_ & __m;
-      *__first.__seg_ &= ~__m;
-      __storage_type __b2 = *__result.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b1;
-      *__first.__seg_ |= __b2;
-      __result.__ctz_ = static_cast<unsigned>(__n);
-    }
-  }
-  return __result;
-}
-
-template <class _Cl, class _Cr>
-_LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cr, false> __swap_ranges_unaligned(
-    __bit_iterator<_Cl, false> __first, __bit_iterator<_Cl, false> __last, __bit_iterator<_Cr, false> __result) {
-  using _I1             = __bit_iterator<_Cl, false>;
-  using difference_type = typename _I1::difference_type;
-  using __storage_type  = typename _I1::__storage_type;
-
-  const int __bits_per_word = _I1::__bits_per_word;
-  difference_type __n       = __last - __first;
-  if (__n > 0) {
-    // do first word
-    if (__first.__ctz_ != 0) {
-      unsigned __clz_f     = __bits_per_word - __first.__ctz_;
-      difference_type __dn = std::min(static_cast<difference_type>(__clz_f), __n);
-      __n -= __dn;
-      __storage_type __m  = (~__storage_type(0) << __first.__ctz_) & (~__storage_type(0) >> (__clz_f - __dn));
-      __storage_type __b1 = *__first.__seg_ & __m;
-      *__first.__seg_ &= ~__m;
-      unsigned __clz_r     = __bits_per_word - __result.__ctz_;
-      __storage_type __ddn = std::min<__storage_type>(__dn, __clz_r);
-      __m                  = (~__storage_type(0) << __result.__ctz_) & (~__storage_type(0) >> (__clz_r - __ddn));
-      __storage_type __b2  = *__result.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      if (__result.__ctz_ > __first.__ctz_) {
-        unsigned __s = __result.__ctz_ - __first.__ctz_;
-        *__result.__seg_ |= __b1 << __s;
-        *__first.__seg_ |= __b2 >> __s;
-      } else {
-        unsigned __s = __first.__ctz_ - __result.__ctz_;
-        *__result.__seg_ |= __b1 >> __s;
-        *__first.__seg_ |= __b2 << __s;
-      }
-      __result.__seg_ += (__ddn + __result.__ctz_) / __bits_per_word;
-      __result.__ctz_ = static_cast<unsigned>((__ddn + __result.__ctz_) % __bits_per_word);
-      __dn -= __ddn;
-      if (__dn > 0) {
-        __m  = ~__storage_type(0) >> (__bits_per_word - __dn);
-        __b2 = *__result.__seg_ & __m;
-        *__result.__seg_ &= ~__m;
-        unsigned __s = __first.__ctz_ + __ddn;
-        *__result.__seg_ |= __b1 >> __s;
-        *__first.__seg_ |= __b2 << __s;
-        __result.__ctz_ = static_cast<unsigned>(__dn);
-      }
-      ++__first.__seg_;
-      // __first.__ctz_ = 0;
-    }
-    // __first.__ctz_ == 0;
-    // do middle words
-    __storage_type __m = ~__storage_type(0) << __result.__ctz_;
-    unsigned __clz_r   = __bits_per_word - __result.__ctz_;
-    for (; __n >= __bits_per_word; __n -= __bits_per_word, ++__first.__seg_) {
-      __storage_type __b1 = *__first.__seg_;
-      __storage_type __b2 = *__result.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b1 << __result.__ctz_;
-      *__first.__seg_ = __b2 >> __result.__ctz_;
-      ++__result.__seg_;
-      __b2 = *__result.__seg_ & ~__m;
-      *__result.__seg_ &= __m;
-      *__result.__seg_ |= __b1 >> __clz_r;
-      *__first.__seg_ |= __b2 << __clz_r;
-    }
-    // do last word
-    if (__n > 0) {
-      __m                 = ~__storage_type(0) >> (__bits_per_word - __n);
-      __storage_type __b1 = *__first.__seg_ & __m;
-      *__first.__seg_ &= ~__m;
-      __storage_type __dn = std::min<__storage_type>(__n, __clz_r);
-      __m                 = (~__storage_type(0) << __result.__ctz_) & (~__storage_type(0) >> (__clz_r - __dn));
-      __storage_type __b2 = *__result.__seg_ & __m;
-      *__result.__seg_ &= ~__m;
-      *__result.__seg_ |= __b1 << __result.__ctz_;
-      *__first.__seg_ |= __b2 >> __result.__ctz_;
-      __result.__seg_ += (__dn + __result.__ctz_) / __bits_per_word;
-      __result.__ctz_ = static_cast<unsigned>((__dn + __result.__ctz_) % __bits_per_word);
-      __n -= __dn;
-      if (__n > 0) {
-        __m  = ~__storage_type(0) >> (__bits_per_word - __n);
-        __b2 = *__result.__seg_ & __m;
-        *__result.__seg_ &= ~__m;
-        *__result.__seg_ |= __b1 >> __dn;
-        *__first.__seg_ |= __b2 << __dn;
-        __result.__ctz_ = static_cast<unsigned>(__n);
-      }
-    }
-  }
-  return __result;
-}
-
-template <class _Cl, class _Cr>
-inline _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cr, false> swap_ranges(
-    __bit_iterator<_Cl, false> __first1, __bit_iterator<_Cl, false> __last1, __bit_iterator<_Cr, false> __first2) {
-  if (__first1.__ctz_ == __first2.__ctz_)
-    return std::__swap_ranges_aligned(__first1, __last1, __first2);
-  return std::__swap_ranges_unaligned(__first1, __last1, __first2);
-}
-
-// rotate
-
 template <class _Cp>
 struct __bit_array {
-  using difference_type   = typename _Cp::difference_type;
-  using __storage_type    = typename _Cp::__storage_type;
-  using __storage_pointer = typename _Cp::__storage_pointer;
-  using iterator          = typename _Cp::iterator;
+  using difference_type _LIBCPP_NODEBUG   = typename __size_difference_type_traits<_Cp>::difference_type;
+  using __storage_type _LIBCPP_NODEBUG    = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG = typename _Cp::__storage_pointer;
+  using iterator _LIBCPP_NODEBUG          = typename _Cp::iterator;
 
   static const unsigned __bits_per_word = _Cp::__bits_per_word;
   static const unsigned _Np             = 4;
@@ -618,170 +275,10 @@ struct __bit_array {
   }
 };
 
-template <class _Cp>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cp, false>
-rotate(__bit_iterator<_Cp, false> __first, __bit_iterator<_Cp, false> __middle, __bit_iterator<_Cp, false> __last) {
-  using _I1             = __bit_iterator<_Cp, false>;
-  using difference_type = typename _I1::difference_type;
-
-  difference_type __d1 = __middle - __first;
-  difference_type __d2 = __last - __middle;
-  _I1 __r              = __first + __d2;
-  while (__d1 != 0 && __d2 != 0) {
-    if (__d1 <= __d2) {
-      if (__d1 <= __bit_array<_Cp>::capacity()) {
-        __bit_array<_Cp> __b(__d1);
-        std::copy(__first, __middle, __b.begin());
-        std::copy(__b.begin(), __b.end(), std::copy(__middle, __last, __first));
-        break;
-      } else {
-        __bit_iterator<_Cp, false> __mp = std::swap_ranges(__first, __middle, __middle);
-        __first                         = __middle;
-        __middle                        = __mp;
-        __d2 -= __d1;
-      }
-    } else {
-      if (__d2 <= __bit_array<_Cp>::capacity()) {
-        __bit_array<_Cp> __b(__d2);
-        std::copy(__middle, __last, __b.begin());
-        std::copy_backward(__b.begin(), __b.end(), std::copy_backward(__first, __middle, __last));
-        break;
-      } else {
-        __bit_iterator<_Cp, false> __mp = __first + __d2;
-        std::swap_ranges(__first, __mp, __middle);
-        __first = __mp;
-        __d1 -= __d2;
-      }
-    }
-  }
-  return __r;
-}
-
-// equal
-
-template <class _Cp, bool _IC1, bool _IC2>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI bool __equal_unaligned(
-    __bit_iterator<_Cp, _IC1> __first1, __bit_iterator<_Cp, _IC1> __last1, __bit_iterator<_Cp, _IC2> __first2) {
-  using _It             = __bit_iterator<_Cp, _IC1>;
-  using difference_type = typename _It::difference_type;
-  using __storage_type  = typename _It::__storage_type;
-
-  const int __bits_per_word = _It::__bits_per_word;
-  difference_type __n       = __last1 - __first1;
-  if (__n > 0) {
-    // do first word
-    if (__first1.__ctz_ != 0) {
-      unsigned __clz_f     = __bits_per_word - __first1.__ctz_;
-      difference_type __dn = std::min(static_cast<difference_type>(__clz_f), __n);
-      __n -= __dn;
-      __storage_type __m   = (~__storage_type(0) << __first1.__ctz_) & (~__storage_type(0) >> (__clz_f - __dn));
-      __storage_type __b   = *__first1.__seg_ & __m;
-      unsigned __clz_r     = __bits_per_word - __first2.__ctz_;
-      __storage_type __ddn = std::min<__storage_type>(__dn, __clz_r);
-      __m                  = (~__storage_type(0) << __first2.__ctz_) & (~__storage_type(0) >> (__clz_r - __ddn));
-      if (__first2.__ctz_ > __first1.__ctz_) {
-        if ((*__first2.__seg_ & __m) != (__b << (__first2.__ctz_ - __first1.__ctz_)))
-          return false;
-      } else {
-        if ((*__first2.__seg_ & __m) != (__b >> (__first1.__ctz_ - __first2.__ctz_)))
-          return false;
-      }
-      __first2.__seg_ += (__ddn + __first2.__ctz_) / __bits_per_word;
-      __first2.__ctz_ = static_cast<unsigned>((__ddn + __first2.__ctz_) % __bits_per_word);
-      __dn -= __ddn;
-      if (__dn > 0) {
-        __m = ~__storage_type(0) >> (__bits_per_word - __dn);
-        if ((*__first2.__seg_ & __m) != (__b >> (__first1.__ctz_ + __ddn)))
-          return false;
-        __first2.__ctz_ = static_cast<unsigned>(__dn);
-      }
-      ++__first1.__seg_;
-      // __first1.__ctz_ = 0;
-    }
-    // __first1.__ctz_ == 0;
-    // do middle words
-    unsigned __clz_r   = __bits_per_word - __first2.__ctz_;
-    __storage_type __m = ~__storage_type(0) << __first2.__ctz_;
-    for (; __n >= __bits_per_word; __n -= __bits_per_word, ++__first1.__seg_) {
-      __storage_type __b = *__first1.__seg_;
-      if ((*__first2.__seg_ & __m) != (__b << __first2.__ctz_))
-        return false;
-      ++__first2.__seg_;
-      if ((*__first2.__seg_ & ~__m) != (__b >> __clz_r))
-        return false;
-    }
-    // do last word
-    if (__n > 0) {
-      __m                 = ~__storage_type(0) >> (__bits_per_word - __n);
-      __storage_type __b  = *__first1.__seg_ & __m;
-      __storage_type __dn = std::min(__n, static_cast<difference_type>(__clz_r));
-      __m                 = (~__storage_type(0) << __first2.__ctz_) & (~__storage_type(0) >> (__clz_r - __dn));
-      if ((*__first2.__seg_ & __m) != (__b << __first2.__ctz_))
-        return false;
-      __first2.__seg_ += (__dn + __first2.__ctz_) / __bits_per_word;
-      __first2.__ctz_ = static_cast<unsigned>((__dn + __first2.__ctz_) % __bits_per_word);
-      __n -= __dn;
-      if (__n > 0) {
-        __m = ~__storage_type(0) >> (__bits_per_word - __n);
-        if ((*__first2.__seg_ & __m) != (__b >> __dn))
-          return false;
-      }
-    }
-  }
-  return true;
-}
-
-template <class _Cp, bool _IC1, bool _IC2>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI bool __equal_aligned(
-    __bit_iterator<_Cp, _IC1> __first1, __bit_iterator<_Cp, _IC1> __last1, __bit_iterator<_Cp, _IC2> __first2) {
-  using _It             = __bit_iterator<_Cp, _IC1>;
-  using difference_type = typename _It::difference_type;
-  using __storage_type  = typename _It::__storage_type;
-
-  const int __bits_per_word = _It::__bits_per_word;
-  difference_type __n       = __last1 - __first1;
-  if (__n > 0) {
-    // do first word
-    if (__first1.__ctz_ != 0) {
-      unsigned __clz       = __bits_per_word - __first1.__ctz_;
-      difference_type __dn = std::min(static_cast<difference_type>(__clz), __n);
-      __n -= __dn;
-      __storage_type __m = (~__storage_type(0) << __first1.__ctz_) & (~__storage_type(0) >> (__clz - __dn));
-      if ((*__first2.__seg_ & __m) != (*__first1.__seg_ & __m))
-        return false;
-      ++__first2.__seg_;
-      ++__first1.__seg_;
-      // __first1.__ctz_ = 0;
-      // __first2.__ctz_ = 0;
-    }
-    // __first1.__ctz_ == 0;
-    // __first2.__ctz_ == 0;
-    // do middle words
-    for (; __n >= __bits_per_word; __n -= __bits_per_word, ++__first1.__seg_, ++__first2.__seg_)
-      if (*__first2.__seg_ != *__first1.__seg_)
-        return false;
-    // do last word
-    if (__n > 0) {
-      __storage_type __m = ~__storage_type(0) >> (__bits_per_word - __n);
-      if ((*__first2.__seg_ & __m) != (*__first1.__seg_ & __m))
-        return false;
-    }
-  }
-  return true;
-}
-
-template <class _Cp, bool _IC1, bool _IC2>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-equal(__bit_iterator<_Cp, _IC1> __first1, __bit_iterator<_Cp, _IC1> __last1, __bit_iterator<_Cp, _IC2> __first2) {
-  if (__first1.__ctz_ == __first2.__ctz_)
-    return std::__equal_aligned(__first1, __last1, __first2);
-  return std::__equal_unaligned(__first1, __last1, __first2);
-}
-
 template <class _Cp, bool _IsConst, typename _Cp::__storage_type>
 class __bit_iterator {
 public:
-  using difference_type = typename _Cp::difference_type;
+  using difference_type = typename __size_difference_type_traits<_Cp>::difference_type;
   using value_type      = bool;
   using pointer         = __bit_iterator;
 #ifndef _LIBCPP_ABI_BITSET_VECTOR_BOOL_CONST_SUBSCRIPT_RETURN_BOOL
@@ -792,8 +289,8 @@ public:
   using iterator_category = random_access_iterator_tag;
 
 private:
-  using __storage_type = typename _Cp::__storage_type;
-  using __storage_pointer =
+  using __storage_type _LIBCPP_NODEBUG = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG =
       __conditional_t<_IsConst, typename _Cp::__const_storage_pointer, typename _Cp::__storage_pointer>;
 
   static const unsigned __bits_per_word = _Cp::__bits_per_word;
@@ -832,6 +329,7 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 reference operator*() const _NOEXCEPT {
+    _LIBCPP_ASSERT_INTERNAL(__ctz_ < __bits_per_word, "Dereferencing an invalid __bit_iterator.");
     return __conditional_t<_IsConst, __bit_const_reference<_Cp>, __bit_reference<_Cp> >(
         __seg_, __storage_type(1) << __ctz_);
   }
@@ -956,7 +454,10 @@ private:
   _LIBCPP_HIDE_FROM_ABI
   _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit __bit_iterator(__storage_pointer __s, unsigned __ctz) _NOEXCEPT
       : __seg_(__s),
-        __ctz_(__ctz) {}
+        __ctz_(__ctz) {
+    _LIBCPP_ASSERT_INTERNAL(
+        __ctz_ < __bits_per_word, "__bit_iterator initialized with an invalid number of trailing zeros.");
+  }
 
   friend typename _Cp::__self;
 
@@ -968,7 +469,7 @@ private:
 
   template <bool _FillVal, class _Dp>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend void
-  __fill_n_bool(__bit_iterator<_Dp, false> __first, typename _Dp::size_type __n);
+  __fill_n_bool(__bit_iterator<_Dp, false> __first, typename __size_difference_type_traits<_Dp>::size_type __n);
 
   template <class _Dp, bool _IC>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false> __copy_aligned(
@@ -977,44 +478,65 @@ private:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false> __copy_unaligned(
       __bit_iterator<_Dp, _IC> __first, __bit_iterator<_Dp, _IC> __last, __bit_iterator<_Dp, false> __result);
   template <class _Dp, bool _IC>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false>
-  copy(__bit_iterator<_Dp, _IC> __first, __bit_iterator<_Dp, _IC> __last, __bit_iterator<_Dp, false> __result);
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend pair<__bit_iterator<_Dp, _IC>, __bit_iterator<_Dp, false> >
+  __copy_impl::operator()(
+      __bit_iterator<_Dp, _IC> __first, __bit_iterator<_Dp, _IC> __last, __bit_iterator<_Dp, false> __result) const;
   template <class _Dp, bool _IC>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false> __copy_backward_aligned(
       __bit_iterator<_Dp, _IC> __first, __bit_iterator<_Dp, _IC> __last, __bit_iterator<_Dp, false> __result);
   template <class _Dp, bool _IC>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false> __copy_backward_unaligned(
       __bit_iterator<_Dp, _IC> __first, __bit_iterator<_Dp, _IC> __last, __bit_iterator<_Dp, false> __result);
-  template <class _Dp, bool _IC>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false>
-  copy_backward(__bit_iterator<_Dp, _IC> __first, __bit_iterator<_Dp, _IC> __last, __bit_iterator<_Dp, false> __result);
+  template <class _AlgPolicy>
+  friend struct __copy_backward_impl;
   template <class _Cl, class _Cr>
-  friend __bit_iterator<_Cr, false>
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Cr, false>
       __swap_ranges_aligned(__bit_iterator<_Cl, false>, __bit_iterator<_Cl, false>, __bit_iterator<_Cr, false>);
   template <class _Cl, class _Cr>
-  friend __bit_iterator<_Cr, false>
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Cr, false>
       __swap_ranges_unaligned(__bit_iterator<_Cl, false>, __bit_iterator<_Cl, false>, __bit_iterator<_Cr, false>);
-  template <class _Cl, class _Cr>
-  friend __bit_iterator<_Cr, false>
-      swap_ranges(__bit_iterator<_Cl, false>, __bit_iterator<_Cl, false>, __bit_iterator<_Cr, false>);
-  template <class _Dp>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false>
-      rotate(__bit_iterator<_Dp, false>, __bit_iterator<_Dp, false>, __bit_iterator<_Dp, false>);
-  template <class _Dp, bool _IC1, bool _IC2>
+  template <class, class _Cl, class _Cr>
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend pair<__bit_iterator<_Cl, false>, __bit_iterator<_Cr, false> >
+      __swap_ranges(__bit_iterator<_Cl, false>, __bit_iterator<_Cl, false>, __bit_iterator<_Cr, false>);
+  template <class, class _Dp>
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend pair<__bit_iterator<_Dp, false>, __bit_iterator<_Dp, false> >
+      __rotate(__bit_iterator<_Dp, false>, __bit_iterator<_Dp, false>, __bit_iterator<_Dp, false>);
+  template <class _Dp, bool _IsConst1, bool _IsConst2>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend bool
-      __equal_aligned(__bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC2>);
-  template <class _Dp, bool _IC1, bool _IC2>
+      __equal_aligned(__bit_iterator<_Dp, _IsConst1>, __bit_iterator<_Dp, _IsConst1>, __bit_iterator<_Dp, _IsConst2>);
+  template <class _Dp, bool _IsConst1, bool _IsConst2>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend bool
-      __equal_unaligned(__bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC2>);
-  template <class _Dp, bool _IC1, bool _IC2>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 friend bool
-      equal(__bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC2>);
+      __equal_unaligned(__bit_iterator<_Dp, _IsConst1>, __bit_iterator<_Dp, _IsConst1>, __bit_iterator<_Dp, _IsConst2>);
+  template <class _Dp,
+            bool _IsConst1,
+            bool _IsConst2,
+            class _BinaryPredicate,
+            __enable_if_t<__desugars_to_v<__equal_tag, _BinaryPredicate, bool, bool>, int> >
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 friend bool __equal_iter_impl(
+      __bit_iterator<_Dp, _IsConst1>, __bit_iterator<_Dp, _IsConst1>, __bit_iterator<_Dp, _IsConst2>, _BinaryPredicate);
+  template <class _Dp,
+            bool _IsConst1,
+            bool _IsConst2,
+            class _Pred,
+            class _Proj1,
+            class _Proj2,
+            __enable_if_t<__desugars_to_v<__equal_tag, _Pred, bool, bool> && __is_identity<_Proj1>::value &&
+                              __is_identity<_Proj2>::value,
+                          int> >
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 friend bool __equal_impl(
+      __bit_iterator<_Dp, _IsConst1> __first1,
+      __bit_iterator<_Dp, _IsConst1> __last1,
+      __bit_iterator<_Dp, _IsConst2> __first2,
+      __bit_iterator<_Dp, _IsConst2>,
+      _Pred&,
+      _Proj1&,
+      _Proj2&);
   template <bool _ToFind, class _Dp, bool _IC>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, _IC>
-      __find_bool(__bit_iterator<_Dp, _IC>, typename _Dp::size_type);
+      __find_bool(__bit_iterator<_Dp, _IC>, typename __size_difference_type_traits<_Dp>::size_type);
   template <bool _ToCount, class _Dp, bool _IC>
-  friend typename __bit_iterator<_Dp, _IC>::difference_type _LIBCPP_HIDE_FROM_ABI
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 __count_bool(__bit_iterator<_Dp, _IC>, typename _Dp::size_type);
+  friend typename __bit_iterator<_Dp, _IC>::difference_type _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
+  __count_bool(__bit_iterator<_Dp, _IC>, typename __size_difference_type_traits<_Dp>::size_type);
 };
 
 _LIBCPP_END_NAMESPACE_STD

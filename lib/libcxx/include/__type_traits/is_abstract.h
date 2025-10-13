@@ -19,11 +19,11 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_abstract : public integral_constant<bool, __is_abstract(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_abstract : integral_constant<bool, __is_abstract(_Tp)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_abstract_v = __is_abstract(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_abstract_v = __is_abstract(_Tp);
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

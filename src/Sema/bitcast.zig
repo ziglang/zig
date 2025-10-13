@@ -102,7 +102,7 @@ fn bitCastInner(
         .arena = sema.arena,
         .skip_bits = skip_bits,
         .remaining_bits = dest_ty.bitSize(zcu),
-        .unpacked = std.ArrayList(InternPool.Index).init(sema.arena),
+        .unpacked = std.array_list.Managed(InternPool.Index).init(sema.arena),
     };
     switch (endian) {
         .little => {
@@ -163,7 +163,7 @@ fn bitCastSpliceInner(
         .arena = sema.arena,
         .skip_bits = 0,
         .remaining_bits = splice_offset,
-        .unpacked = std.ArrayList(InternPool.Index).init(sema.arena),
+        .unpacked = std.array_list.Managed(InternPool.Index).init(sema.arena),
     };
     switch (endian) {
         .little => {
@@ -216,7 +216,7 @@ const UnpackValueBits = struct {
     skip_bits: u64,
     remaining_bits: u64,
     extra_bits: u64 = undefined,
-    unpacked: std.ArrayList(InternPool.Index),
+    unpacked: std.array_list.Managed(InternPool.Index),
 
     fn add(unpack: *UnpackValueBits, val: Value) BitCastError!void {
         const pt = unpack.pt;
@@ -491,10 +491,7 @@ const PackValueBits = struct {
                         }
                     },
                 }
-                return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = elems },
-                } }));
+                return pt.aggregateValue(ty, elems);
             },
             .array => {
                 // Each element is padded up to its ABI size. The final element does not have trailing padding.
@@ -525,10 +522,7 @@ const PackValueBits = struct {
                     try pack.padding(elem_ty.bitSize(zcu));
                 }
 
-                return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = elems },
-                } }));
+                return pt.aggregateValue(ty, elems);
             },
             .@"struct" => switch (ty.containerLayout(zcu)) {
                 .auto => unreachable, // ill-defined layout
@@ -568,10 +562,7 @@ const PackValueBits = struct {
                         const val = (try ty.structFieldValueComptime(pt, field_idx)).?;
                         elem.* = val.toIntern();
                     }
-                    return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                        .ty = ty.toIntern(),
-                        .storage = .{ .elems = elems },
-                    } }));
+                    return pt.aggregateValue(ty, elems);
                 },
                 .@"packed" => {
                     // All fields are in order with no padding.
@@ -581,10 +572,7 @@ const PackValueBits = struct {
                         const field_ty = ty.fieldType(i, zcu);
                         elem.* = (try pack.get(field_ty)).toIntern();
                     }
-                    return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                        .ty = ty.toIntern(),
-                        .storage = .{ .elems = elems },
-                    } }));
+                    return pt.aggregateValue(ty, elems);
                 },
             },
             .@"union" => {

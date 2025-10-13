@@ -15,13 +15,17 @@
 #  pragma GCC system_header
 #endif
 
+#if _LIBCPP_STD_VER >= 17
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace pmr {
 template <class _ValueType>
-class _LIBCPP_AVAILABILITY_PMR _LIBCPP_TEMPLATE_VIS polymorphic_allocator;
+class _LIBCPP_AVAILABILITY_PMR polymorphic_allocator;
 } // namespace pmr
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP_STD_VER >= 17
 
 #endif // _LIBCPP___FWD_MEMORY_RESOURCE_H

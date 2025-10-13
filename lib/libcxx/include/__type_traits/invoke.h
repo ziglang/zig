@@ -22,6 +22,7 @@
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_void.h>
 #include <__type_traits/nat.h>
+#include <__type_traits/void_t.h>
 #include <__utility/declval.h>
 #include <__utility/forward.h>
 
@@ -29,7 +30,106 @@
 #  pragma GCC system_header
 #endif
 
+// This file defines the following libc++-internal API (back-ported to C++03):
+//
+// template <class... Args>
+// decltype(auto) __invoke(Args&&... args) noexcept(noexcept(std::invoke(std::forward<Args>(args...)))) {
+//   return std::invoke(std::forward<Args>(args)...);
+// }
+//
+// template <class Ret, class... Args>
+// Ret __invoke_r(Args&&... args) {
+//   return std::invoke_r(std::forward<Args>(args)...);
+// }
+//
+// template <class Func, class... Args>
+// struct __is_invocable : is_invocable<Func, Args...> {};
+//
+// template <class Func, class... Args>
+// inline const bool __is_invocable_v = is_invocable_v<Func, Args...>;
+//
+// template <class Ret, class Func, class... Args>
+// inline const bool __is_invocable_r_v = is_invocable_r_v<Ret, Func, Args...>;
+//
+// template <class Func, class... Args>
+// inline const bool __is_nothrow_invocable_v = is_nothrow_invocable_v<Func, Args...>;
+//
+// template <class Func, class... Args>
+// inline const bool __is_nothrow_invocable_r_v = is_nothrow_invocable_r_v<Func, Args...>;
+//
+// template <class Func, class... Args>
+// struct __invoke_result : invoke_result {};
+//
+// template <class Func, class... Args>
+// using __invoke_result_t = invoke_result_t<Func, Args...>;
+
 _LIBCPP_BEGIN_NAMESPACE_STD
+
+#if __has_builtin(__builtin_invoke)
+
+template <class, class... _Args>
+struct __invoke_result_impl {};
+
+template <class... _Args>
+struct __invoke_result_impl<__void_t<decltype(__builtin_invoke(std::declval<_Args>()...))>, _Args...> {
+  using type _LIBCPP_NODEBUG = decltype(__builtin_invoke(std::declval<_Args>()...));
+};
+
+template <class... _Args>
+using __invoke_result _LIBCPP_NODEBUG = __invoke_result_impl<void, _Args...>;
+
+template <class... _Args>
+using __invoke_result_t _LIBCPP_NODEBUG = typename __invoke_result<_Args...>::type;
+
+template <class... _Args>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR __invoke_result_t<_Args...> __invoke(_Args&&... __args)
+    _NOEXCEPT_(noexcept(__builtin_invoke(std::forward<_Args>(__args)...))) {
+  return __builtin_invoke(std::forward<_Args>(__args)...);
+}
+
+template <class _Void, class... _Args>
+inline const bool __is_invocable_impl = false;
+
+template <class... _Args>
+inline const bool __is_invocable_impl<__void_t<__invoke_result_t<_Args...> >, _Args...> = true;
+
+template <class... _Args>
+inline const bool __is_invocable_v = __is_invocable_impl<void, _Args...>;
+
+template <class... _Args>
+struct __is_invocable : integral_constant<bool, __is_invocable_v<_Args...> > {};
+
+template <class _Ret, bool, class... _Args>
+inline const bool __is_invocable_r_impl = false;
+
+template <class _Ret, class... _Args>
+inline const bool __is_invocable_r_impl<_Ret, true, _Args...> =
+    __is_core_convertible<__invoke_result_t<_Args...>, _Ret>::value || is_void<_Ret>::value;
+
+template <class _Ret, class... _Args>
+inline const bool __is_invocable_r_v = __is_invocable_r_impl<_Ret, __is_invocable_v<_Args...>, _Args...>;
+
+template <bool __is_invocable, class... _Args>
+inline const bool __is_nothrow_invocable_impl = false;
+
+template <class... _Args>
+inline const bool __is_nothrow_invocable_impl<true, _Args...> = noexcept(__builtin_invoke(std::declval<_Args>()...));
+
+template <class... _Args>
+inline const bool __is_nothrow_invocable_v = __is_nothrow_invocable_impl<__is_invocable_v<_Args...>, _Args...>;
+
+template <bool __is_invocable, class _Ret, class... _Args>
+inline const bool __is_nothrow_invocable_r_impl = false;
+
+template <class _Ret, class... _Args>
+inline const bool __is_nothrow_invocable_r_impl<true, _Ret, _Args...> =
+    __is_nothrow_core_convertible_v<__invoke_result_t<_Args...>, _Ret> || is_void<_Ret>::value;
+
+template <class _Ret, class... _Args>
+inline const bool __is_nothrow_invocable_r_v =
+    __is_nothrow_invocable_r_impl<__is_nothrow_invocable_v<_Args...>, _Ret, _Args...>;
+
+#else // __has_builtin(__builtin_invoke)
 
 template <class _DecayedFp>
 struct __member_pointer_class_type {};
@@ -44,12 +144,12 @@ template <class _Fp,
           class _DecayFp = __decay_t<_Fp>,
           class _DecayA0 = __decay_t<_A0>,
           class _ClassT  = typename __member_pointer_class_type<_DecayFp>::type>
-using __enable_if_bullet1 =
+using __enable_if_bullet1 _LIBCPP_NODEBUG =
     __enable_if_t<is_member_function_pointer<_DecayFp>::value &&
                   (is_same<_ClassT, _DecayA0>::value || is_base_of<_ClassT, _DecayA0>::value)>;
 
 template <class _Fp, class _A0, class _DecayFp = __decay_t<_Fp>, class _DecayA0 = __decay_t<_A0> >
-using __enable_if_bullet2 =
+using __enable_if_bullet2 _LIBCPP_NODEBUG =
     __enable_if_t<is_member_function_pointer<_DecayFp>::value && __is_reference_wrapper<_DecayA0>::value>;
 
 template <class _Fp,
@@ -57,7 +157,7 @@ template <class _Fp,
           class _DecayFp = __decay_t<_Fp>,
           class _DecayA0 = __decay_t<_A0>,
           class _ClassT  = typename __member_pointer_class_type<_DecayFp>::type>
-using __enable_if_bullet3 =
+using __enable_if_bullet3 _LIBCPP_NODEBUG =
     __enable_if_t<is_member_function_pointer<_DecayFp>::value &&
                   !(is_same<_ClassT, _DecayA0>::value || is_base_of<_ClassT, _DecayA0>::value) &&
                   !__is_reference_wrapper<_DecayA0>::value>;
@@ -67,12 +167,12 @@ template <class _Fp,
           class _DecayFp = __decay_t<_Fp>,
           class _DecayA0 = __decay_t<_A0>,
           class _ClassT  = typename __member_pointer_class_type<_DecayFp>::type>
-using __enable_if_bullet4 =
+using __enable_if_bullet4 _LIBCPP_NODEBUG =
     __enable_if_t<is_member_object_pointer<_DecayFp>::value &&
                   (is_same<_ClassT, _DecayA0>::value || is_base_of<_ClassT, _DecayA0>::value)>;
 
 template <class _Fp, class _A0, class _DecayFp = __decay_t<_Fp>, class _DecayA0 = __decay_t<_A0> >
-using __enable_if_bullet5 =
+using __enable_if_bullet5 _LIBCPP_NODEBUG =
     __enable_if_t<is_member_object_pointer<_DecayFp>::value && __is_reference_wrapper<_DecayA0>::value>;
 
 template <class _Fp,
@@ -80,7 +180,7 @@ template <class _Fp,
           class _DecayFp = __decay_t<_Fp>,
           class _DecayA0 = __decay_t<_A0>,
           class _ClassT  = typename __member_pointer_class_type<_DecayFp>::type>
-using __enable_if_bullet6 =
+using __enable_if_bullet6 _LIBCPP_NODEBUG =
     __enable_if_t<is_member_object_pointer<_DecayFp>::value &&
                   !(is_same<_ClassT, _DecayA0>::value || is_base_of<_ClassT, _DecayA0>::value) &&
                   !__is_reference_wrapper<_DecayA0>::value>;
@@ -159,7 +259,7 @@ struct __invokable_r {
 
   // FIXME: Check that _Ret, _Fp, and _Args... are all complete types, cv void,
   // or incomplete array types as required by the standard.
-  using _Result = decltype(__try_call<_Fp, _Args...>(0));
+  using _Result _LIBCPP_NODEBUG = decltype(__try_call<_Fp, _Args...>(0));
 
   using type              = __conditional_t<_IsNotSame<_Result, __nat>::value,
                                             __conditional_t<is_void<_Ret>::value, true_type, __is_core_convertible<_Result, _Ret> >,
@@ -167,7 +267,7 @@ struct __invokable_r {
   static const bool value = type::value;
 };
 template <class _Fp, class... _Args>
-using __invokable = __invokable_r<void, _Fp, _Args...>;
+using __is_invocable _LIBCPP_NODEBUG = __invokable_r<void, _Fp, _Args...>;
 
 template <bool _IsInvokable, bool _IsCVVoid, class _Ret, class _Fp, class... _Args>
 struct __nothrow_invokable_r_imp {
@@ -181,33 +281,51 @@ struct __nothrow_invokable_r_imp<true, false, _Ret, _Fp, _Args...> {
   template <class _Tp>
   static void __test_noexcept(_Tp) _NOEXCEPT;
 
-#ifdef _LIBCPP_CXX03_LANG
+#  ifdef _LIBCPP_CXX03_LANG
   static const bool value = false;
-#else
+#  else
   static const bool value =
       noexcept(_ThisT::__test_noexcept<_Ret>(std::__invoke(std::declval<_Fp>(), std::declval<_Args>()...)));
-#endif
+#  endif
 };
 
 template <class _Ret, class _Fp, class... _Args>
 struct __nothrow_invokable_r_imp<true, true, _Ret, _Fp, _Args...> {
-#ifdef _LIBCPP_CXX03_LANG
+#  ifdef _LIBCPP_CXX03_LANG
   static const bool value = false;
-#else
+#  else
   static const bool value = noexcept(std::__invoke(std::declval<_Fp>(), std::declval<_Args>()...));
-#endif
+#  endif
 };
 
 template <class _Ret, class _Fp, class... _Args>
-using __nothrow_invokable_r =
+using __nothrow_invokable_r _LIBCPP_NODEBUG =
     __nothrow_invokable_r_imp<__invokable_r<_Ret, _Fp, _Args...>::value, is_void<_Ret>::value, _Ret, _Fp, _Args...>;
 
 template <class _Fp, class... _Args>
-using __nothrow_invokable = __nothrow_invokable_r_imp<__invokable<_Fp, _Args...>::value, true, void, _Fp, _Args...>;
+using __nothrow_invokable _LIBCPP_NODEBUG =
+    __nothrow_invokable_r_imp<__is_invocable<_Fp, _Args...>::value, true, void, _Fp, _Args...>;
 
-template <class _Fp, class... _Args>
-struct __invoke_of
-    : public enable_if<__invokable<_Fp, _Args...>::value, typename __invokable_r<void, _Fp, _Args...>::_Result> {};
+template <class _Func, class... _Args>
+inline const bool __is_invocable_v = __is_invocable<_Func, _Args...>::value;
+
+template <class _Ret, class _Func, class... _Args>
+inline const bool __is_invocable_r_v = __invokable_r<_Ret, _Func, _Args...>::value;
+
+template <class _Func, class... _Args>
+inline const bool __is_nothrow_invocable_v = __nothrow_invokable<_Func, _Args...>::value;
+
+template <class _Ret, class _Func, class... _Args>
+inline const bool __is_nothrow_invocable_r_v = __nothrow_invokable_r<_Ret, _Func, _Args...>::value;
+
+template <class _Func, class... _Args>
+struct __invoke_result
+    : enable_if<__is_invocable_v<_Func, _Args...>, typename __invokable_r<void, _Func, _Args...>::_Result> {};
+
+template <class _Func, class... _Args>
+using __invoke_result_t _LIBCPP_NODEBUG = typename __invoke_result<_Func, _Args...>::type;
+
+#endif // __has_builtin(__builtin_invoke_r)
 
 template <class _Ret, bool = is_void<_Ret>::value>
 struct __invoke_void_return_wrapper {
@@ -225,45 +343,50 @@ struct __invoke_void_return_wrapper<_Ret, true> {
   }
 };
 
+template <class _Ret, class... _Args>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Ret __invoke_r(_Args&&... __args) {
+  return __invoke_void_return_wrapper<_Ret>::__call(std::forward<_Args>(__args)...);
+}
+
 #if _LIBCPP_STD_VER >= 17
 
 // is_invocable
 
 template <class _Fn, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS is_invocable : integral_constant<bool, __invokable<_Fn, _Args...>::value> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_invocable : bool_constant<__is_invocable_v<_Fn, _Args...> > {};
 
 template <class _Ret, class _Fn, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS is_invocable_r : integral_constant<bool, __invokable_r<_Ret, _Fn, _Args...>::value> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_invocable_r : bool_constant<__is_invocable_r_v<_Ret, _Fn, _Args...>> {};
 
 template <class _Fn, class... _Args>
-inline constexpr bool is_invocable_v = is_invocable<_Fn, _Args...>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_invocable_v = __is_invocable_v<_Fn, _Args...>;
 
 template <class _Ret, class _Fn, class... _Args>
-inline constexpr bool is_invocable_r_v = is_invocable_r<_Ret, _Fn, _Args...>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_invocable_r_v = __is_invocable_r_v<_Ret, _Fn, _Args...>;
 
 // is_nothrow_invocable
 
 template <class _Fn, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_invocable : integral_constant<bool, __nothrow_invokable<_Fn, _Args...>::value> {
-};
+struct _LIBCPP_NO_SPECIALIZATIONS is_nothrow_invocable : bool_constant<__is_nothrow_invocable_v<_Fn, _Args...> > {};
 
 template <class _Ret, class _Fn, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_invocable_r
-    : integral_constant<bool, __nothrow_invokable_r<_Ret, _Fn, _Args...>::value> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_nothrow_invocable_r
+    : bool_constant<__is_nothrow_invocable_r_v<_Ret, _Fn, _Args...>> {};
 
 template <class _Fn, class... _Args>
-inline constexpr bool is_nothrow_invocable_v = is_nothrow_invocable<_Fn, _Args...>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_nothrow_invocable_v = __is_nothrow_invocable_v<_Fn, _Args...>;
 
 template <class _Ret, class _Fn, class... _Args>
-inline constexpr bool is_nothrow_invocable_r_v = is_nothrow_invocable_r<_Ret, _Fn, _Args...>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_nothrow_invocable_r_v =
+    __is_nothrow_invocable_r_v<_Ret, _Fn, _Args...>;
 
 template <class _Fn, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS invoke_result : __invoke_of<_Fn, _Args...> {};
+struct _LIBCPP_NO_SPECIALIZATIONS invoke_result : __invoke_result<_Fn, _Args...> {};
 
 template <class _Fn, class... _Args>
-using invoke_result_t = typename invoke_result<_Fn, _Args...>::type;
+using invoke_result_t = __invoke_result_t<_Fn, _Args...>;
 
-#endif // _LIBCPP_STD_VER >= 17
+#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

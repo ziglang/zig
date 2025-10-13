@@ -11,8 +11,6 @@ fn foo(x: usize) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :9:10: error: expected type 'usize', found 'tmp.E'
 // :1:11: note: enum declared here

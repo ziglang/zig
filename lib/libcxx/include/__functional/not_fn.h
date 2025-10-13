@@ -16,6 +16,8 @@
 #include <__type_traits/decay.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_constructible.h>
+#include <__type_traits/is_member_pointer.h>
+#include <__type_traits/is_pointer.h>
 #include <__utility/forward.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -47,6 +49,27 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 auto not_fn(_Fn&& __f) {
 }
 
 #endif // _LIBCPP_STD_VER >= 17
+
+#if _LIBCPP_STD_VER >= 26
+
+template <auto _Fn>
+struct __nttp_not_fn_t {
+  template <class... _Args>
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Args&&... __args) const
+      noexcept(noexcept(!std::invoke(_Fn, std::forward<_Args>(__args)...)))
+          -> decltype(!std::invoke(_Fn, std::forward<_Args>(__args)...)) {
+    return !std::invoke(_Fn, std::forward<_Args>(__args)...);
+  }
+};
+
+template <auto _Fn>
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI constexpr auto not_fn() noexcept {
+  if constexpr (using _Ty = decltype(_Fn); is_pointer_v<_Ty> || is_member_pointer_v<_Ty>)
+    static_assert(_Fn != nullptr, "f cannot be equal to nullptr");
+  return __nttp_not_fn_t<_Fn>();
+}
+
+#endif // _LIBCPP_STD_VER >= 26
 
 _LIBCPP_END_NAMESPACE_STD
 

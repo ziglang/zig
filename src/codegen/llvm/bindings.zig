@@ -79,6 +79,7 @@ pub const TargetMachine = opaque {
         data_sections: bool,
         float_abi: FloatABI,
         abi_name: ?[*:0]const u8,
+        emulated_tls: bool,
     ) *TargetMachine;
 
     pub const dispose = LLVMDisposeTargetMachine;
@@ -87,16 +88,25 @@ pub const TargetMachine = opaque {
     pub const EmitOptions = extern struct {
         is_debug: bool,
         is_small: bool,
-        time_report: bool,
+        time_report_out: ?*[*:0]u8,
         tsan: bool,
         sancov: bool,
-        lto: bool,
+        lto: LtoPhase,
         allow_fast_isel: bool,
+        allow_machine_outliner: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,
         bitcode_filename: ?[*:0]const u8,
         coverage: Coverage,
+
+        pub const LtoPhase = enum(c_int) {
+            None,
+            ThinPreLink,
+            ThinPostLink,
+            FullPreLink,
+            FullPostLink,
+        };
 
         pub const Coverage = extern struct {
             CoverageType: Coverage.Type,
@@ -203,6 +213,7 @@ pub extern fn LLVMInitializeCSKYTargetInfo() void;
 pub extern fn LLVMInitializeVETargetInfo() void;
 pub extern fn LLVMInitializeARCTargetInfo() void;
 pub extern fn LLVMInitializeLoongArchTargetInfo() void;
+pub extern fn LLVMInitializeSPIRVTargetInfo() void;
 
 pub extern fn LLVMInitializeAArch64Target() void;
 pub extern fn LLVMInitializeAMDGPUTarget() void;
@@ -227,6 +238,7 @@ pub extern fn LLVMInitializeVETarget() void;
 pub extern fn LLVMInitializeCSKYTarget() void;
 pub extern fn LLVMInitializeARCTarget() void;
 pub extern fn LLVMInitializeLoongArchTarget() void;
+pub extern fn LLVMInitializeSPIRVTarget() void;
 
 pub extern fn LLVMInitializeAArch64TargetMC() void;
 pub extern fn LLVMInitializeAMDGPUTargetMC() void;
@@ -251,6 +263,7 @@ pub extern fn LLVMInitializeCSKYTargetMC() void;
 pub extern fn LLVMInitializeVETargetMC() void;
 pub extern fn LLVMInitializeARCTargetMC() void;
 pub extern fn LLVMInitializeLoongArchTargetMC() void;
+pub extern fn LLVMInitializeSPIRVTargetMC() void;
 
 pub extern fn LLVMInitializeAArch64AsmPrinter() void;
 pub extern fn LLVMInitializeAMDGPUAsmPrinter() void;
@@ -273,6 +286,7 @@ pub extern fn LLVMInitializeM68kAsmPrinter() void;
 pub extern fn LLVMInitializeVEAsmPrinter() void;
 pub extern fn LLVMInitializeARCAsmPrinter() void;
 pub extern fn LLVMInitializeLoongArchAsmPrinter() void;
+pub extern fn LLVMInitializeSPIRVAsmPrinter() void;
 
 pub extern fn LLVMInitializeAArch64AsmParser() void;
 pub extern fn LLVMInitializeAMDGPUAsmParser() void;
@@ -323,14 +337,6 @@ extern fn ZigLLVMWriteArchive(
 
 pub const ParseCommandLineOptions = ZigLLVMParseCommandLineOptions;
 extern fn ZigLLVMParseCommandLineOptions(argc: usize, argv: [*]const [*:0]const u8) void;
-
-pub const WriteImportLibrary = ZigLLVMWriteImportLibrary;
-extern fn ZigLLVMWriteImportLibrary(
-    def_path: [*:0]const u8,
-    coff_machine: c_uint,
-    output_lib_path: [*:0]const u8,
-    kill_at: bool,
-) bool;
 
 pub const GetHostCPUName = LLVMGetHostCPUName;
 extern fn LLVMGetHostCPUName() ?[*:0]u8;

@@ -29,6 +29,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Config/llvm-config.h" // for LLVM_ON_UNIX
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
 #include "llvm/Option/Option.h"
@@ -46,12 +47,14 @@
 #include "llvm/Support/StringSaver.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Host.h"
 #include <memory>
 #include <optional>
 #include <set>
 #include <system_error>
+
 using namespace clang;
 using namespace clang::driver;
 using namespace llvm::opt;
@@ -150,6 +153,11 @@ static bool SetBackdoorDriverOutputsFromEnvVars(Driver &TheDriver) {
       }
 
       const char *FilteringStr = ::getenv("CC_PRINT_HEADERS_FILTERING");
+      if (!FilteringStr) {
+        TheDriver.Diag(clang::diag::err_drv_print_header_env_var_invalid_format)
+            << EnvVar;
+        return false;
+      }
       HeaderIncludeFilteringKind Filtering;
       if (!stringToHeaderIncludeFiltering(FilteringStr, Filtering)) {
         TheDriver.Diag(clang::diag::err_drv_print_header_env_var)
@@ -160,7 +168,7 @@ static bool SetBackdoorDriverOutputsFromEnvVars(Driver &TheDriver) {
       if ((TheDriver.CCPrintHeadersFormat == HIFMT_Textual &&
            Filtering != HIFIL_None) ||
           (TheDriver.CCPrintHeadersFormat == HIFMT_JSON &&
-           Filtering != HIFIL_Only_Direct_System)) {
+           Filtering == HIFIL_None)) {
         TheDriver.Diag(clang::diag::err_drv_print_header_env_var_combination)
             << EnvVar << FilteringStr;
         return false;
@@ -292,7 +300,7 @@ static int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContex
   if (const char *OverrideStr = ::getenv("CCC_OVERRIDE_OPTIONS")) {
     // FIXME: Driver shouldn't take extra initial argument.
     driver::applyOverrideOptions(Args, OverrideStr, SavedStrings,
-                                 &llvm::errs());
+                                 "CCC_OVERRIDE_OPTIONS", &llvm::errs());
   }
 
   std::string Path = GetExecutablePath(ToolContext.Path, CanonicalPrefixes);
@@ -308,28 +316,33 @@ static int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContex
                            .Case("-fintegrated-cc1", false)
                            .Default(UseNewCC1Process);
 
-  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts =
-      CreateAndPopulateDiagOpts(Args);
+  std::unique_ptr<DiagnosticOptions> DiagOpts = CreateAndPopulateDiagOpts(Args);
+  // Driver's diagnostics don't use suppression mappings, so don't bother
+  // parsing them. CC1 still receives full args, so this doesn't impact other
+  // actions.
+  DiagOpts->DiagnosticSuppressionMappingsFile.clear();
 
-  TextDiagnosticPrinter *DiagClient
-    = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
+  TextDiagnosticPrinter *DiagClient =
+      new TextDiagnosticPrinter(llvm::errs(), *DiagOpts);
   FixupDiagPrefixExeName(DiagClient, ProgName);
 
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 
-  DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
+  DiagnosticsEngine Diags(DiagID, *DiagOpts, DiagClient);
 
   if (!DiagOpts->DiagnosticSerializationFile.empty()) {
     auto SerializedConsumer =
         clang::serialized_diags::create(DiagOpts->DiagnosticSerializationFile,
-                                        &*DiagOpts, /*MergeChildRecords=*/true);
+                                        *DiagOpts, /*MergeChildRecords=*/true);
     Diags.setClient(new ChainedDiagnosticConsumer(
         Diags.takeClient(), std::move(SerializedConsumer)));
   }
 
-  ProcessWarningOptions(Diags, *DiagOpts, /*ReportDiags=*/false);
+  auto VFS = llvm::vfs::getRealFileSystem();
+  ProcessWarningOptions(Diags, *DiagOpts, *VFS, /*ReportDiags=*/false);
 
-  Driver TheDriver(Path, llvm::sys::getDefaultTargetTriple(), Diags);
+  Driver TheDriver(Path, llvm::sys::getDefaultTargetTriple(), Diags,
+                   /*Title=*/"clang LLVM compiler", VFS);
   auto TargetAndMode = ToolChain::getTargetAndModeFromProgramName(ProgName);
   TheDriver.setTargetAndMode(TargetAndMode);
   // If -canonical-prefixes is set, GetExecutablePath will have resolved Path
@@ -345,10 +358,12 @@ static int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContex
   if (!SetBackdoorDriverOutputsFromEnvVars(TheDriver))
     return 1;
 
+  auto ExecuteCC1WithContext =
+      [&ToolContext](SmallVectorImpl<const char *> &ArgV) {
+        return ExecuteCC1Tool(ArgV, ToolContext);
+      };
   if (!UseNewCC1Process) {
-    TheDriver.CC1Main = [ToolContext](SmallVectorImpl<const char *> &ArgV) {
-      return ExecuteCC1Tool(ArgV, ToolContext);
-    };
+    TheDriver.CC1Main = ExecuteCC1WithContext;
     // Ensure the CC1Command actually catches cc1 crashes
     llvm::CrashRecoveryContext::Enable();
   }
@@ -427,7 +442,7 @@ static int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContex
   if (!UseNewCC1Process && IsCrash) {
     // When crashing in -fintegrated-cc1 mode, bury the timer pointers, because
     // the internal linked list might point to already released stack frames.
-    llvm::BuryPointer(llvm::TimerGroup::aquireDefaultGroup());
+    llvm::BuryPointer(llvm::TimerGroup::acquireTimerGlobals());
   } else {
     // If any timers were active but haven't been destroyed yet, print their
     // results now.  This happens in -disable-free mode.

@@ -24,11 +24,30 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // and __is_core_convertible<immovable-type,immovable-type> is true in C++17 and later.
 
 template <class _Tp, class _Up, class = void>
-struct __is_core_convertible : public false_type {};
+inline const bool __is_core_convertible_v = false;
 
 template <class _Tp, class _Up>
-struct __is_core_convertible<_Tp, _Up, decltype(static_cast<void (*)(_Up)>(0)(static_cast<_Tp (*)()>(0)()))>
-    : public true_type {};
+inline const bool
+    __is_core_convertible_v<_Tp, _Up, decltype(static_cast<void (*)(_Up)>(0)(static_cast<_Tp (*)()>(0)()))> = true;
+
+template <class _Tp, class _Up>
+using __is_core_convertible _LIBCPP_NODEBUG = integral_constant<bool, __is_core_convertible_v<_Tp, _Up> >;
+
+#if _LIBCPP_STD_VER >= 20
+
+template <class _Tp, class _Up>
+concept __core_convertible_to = __is_core_convertible_v<_Tp, _Up>;
+
+#endif // _LIBCPP_STD_VER >= 20
+
+template <class _Tp, class _Up, bool = __is_core_convertible_v<_Tp, _Up> >
+inline const bool __is_nothrow_core_convertible_v = false;
+
+#ifndef _LIBCPP_CXX03_LANG
+template <class _Tp, class _Up>
+inline const bool __is_nothrow_core_convertible_v<_Tp, _Up, true> =
+    noexcept(static_cast<void (*)(_Up) noexcept>(0)(static_cast<_Tp (*)() noexcept>(0)()));
+#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

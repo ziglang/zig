@@ -132,6 +132,11 @@ public:
 
     // arithmetic
 
+    constexpr time_point& operator++();    // C++20
+    constexpr time_point  operator++(int); // C++20
+    constexpr time_point& operator--();    // C++20
+    constexpr time_point  operator--(int); // C++20
+
     time_point& operator+=(const duration& d); // constexpr in C++17
     time_point& operator-=(const duration& d); // constexpr in C++17
 
@@ -300,6 +305,96 @@ template<class charT, class traits>                    // C++20
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const sys_days& dp);
 
+// [time.clock.utc], class utc_clock
+class utc_clock {                                      // C++20
+public:
+    using rep                       = a signed arithmetic type;
+    using period                    = ratio<unspecified, unspecified>;
+    using duration                  = chrono::duration<rep, period>;
+    using time_point                = chrono::time_point<utc_clock>;
+    static constexpr bool is_steady = unspecified;
+
+    static time_point now();
+
+    template<class Duration>
+      static sys_time<common_type_t<Duration, seconds>>
+        to_sys(const utc_time<Duration>& t);
+    template<class Duration>
+      static utc_time<common_type_t<Duration, seconds>>
+        from_sys(const sys_time<Duration>& t);
+};
+
+template<class Duration>
+using utc_time  = time_point<utc_clock, Duration>;      // C++20
+using utc_seconds = utc_time<seconds>;                  // C++20
+
+template<class charT, class traits, class Duration>     // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const utc_time<Duration>& t);
+
+struct leap_second_info {                               // C++20
+  bool    is_leap_second;
+  seconds elapsed;
+};
+
+template<class Duration>                                // C++20
+  leap_second_info get_leap_second_info(const utc_time<Duration>& ut);
+
+
+// [time.clock.tai], class tai_clock
+class tai_clock {                                      // C++20
+public:
+    using rep                       = a signed arithmetic type;
+    using period                    = ratio<unspecified, unspecified>;
+    using duration                  = chrono::duration<rep, period>;
+    using time_point                = chrono::time_point<tai_clock>;
+    static constexpr bool is_steady = unspecified;
+
+    static time_point now();
+
+    template<class Duration>
+      static utc_time<common_type_t<Duration, seconds>>
+        to_utc(const tai_time<Duration>& t);
+    template<class Duration>
+      static tai_time<common_type_t<Duration, seconds>>
+        from_utc(const utc_time<Duration>& t);
+};
+
+template<class Duration>
+using tai_time  = time_point<tai_clock, Duration>;      // C++20
+using tai_seconds = tai_time<seconds>;                  // C++20
+
+template<class charT, class traits, class Duration>     // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const tai_time<Duration>& t);
+
+// [time.clock.gps], class gps_clock
+class gps_clock {                                      // C++20
+public:
+    using rep                       = a signed arithmetic type;
+    using period                    = ratio<unspecified, unspecified>;
+    using duration                  = chrono::duration<rep, period>;
+    using time_point                = chrono::time_point<gps_clock>;
+    static constexpr bool is_steady = unspecified;
+
+    static time_point now();
+
+    template<class Duration>
+      static utc_time<common_type_t<Duration, seconds>>
+        to_utc(const gps_time<Duration>& t);
+    template<class Duration>
+      static gps_time<common_type_t<Duration, seconds>>
+        from_utc(const utc_time<Duration>& t);
+};
+
+template<class Duration>
+using gps_time  = time_point<gps_clock, Duration>;      // C++20
+using gps_seconds = gps_time<seconds>;                  // C++20
+
+template<class charT, class traits, class Duration>     // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const gps_time<Duration>& t);
+
 class file_clock                                        // C++20
 {
 public:
@@ -339,7 +434,7 @@ public:
 
 typedef steady_clock high_resolution_clock;
 
-// 25.7.8, local time           // C++20
+// [time.clock.local] local time           // C++20
 struct local_t {};
 template<class Duration>
   using local_time  = time_point<local_t, Duration>;
@@ -350,10 +445,10 @@ template<class charT, class traits, class Duration>     // C++20
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const local_time<Duration>& tp);
 
-// 25.8.2, class last_spec    // C++20
+// [time.cal.last] class last_spec    // C++20
 struct last_spec;
 
-// 25.8.3, class day          // C++20
+// [time.cal.day] class day          // C++20
 
 class day;
 constexpr bool operator==(const day& x, const day& y) noexcept;
@@ -366,7 +461,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const day& d);
 
-// 25.8.4, class month    // C++20
+// [time.cal.month] class month    // C++20
 class month;
 constexpr bool operator==(const month& x, const month& y) noexcept;
 constexpr strong_ordering operator<=>(const month& x, const month& y) noexcept;
@@ -379,7 +474,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const month& m);
 
-// 25.8.5, class year    // C++20
+// [time.cal.year] class year    // C++20
 class year;
 constexpr bool operator==(const year& x, const year& y) noexcept;
 constexpr strong_ordering operator<=>(const year& x, const year& y) noexcept;
@@ -392,7 +487,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const year& y);
 
-// 25.8.6, class weekday    // C++20
+// [time.cal.wd] class weekday    // C++20
 class weekday;
 
 constexpr bool operator==(const weekday& x, const weekday& y) noexcept;
@@ -404,7 +499,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const weekday& wd);
 
-// 25.8.7, class weekday_indexed    // C++20
+// [time.cal.wdidx] class weekday_indexed    // C++20
 
 class weekday_indexed;
 constexpr bool operator==(const weekday_indexed& x, const weekday_indexed& y) noexcept;
@@ -413,7 +508,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const weekday_indexed& wdi);
 
-// 25.8.8, class weekday_last    // C++20
+// [time.cal.wdlast] class weekday_last    // C++20
 class weekday_last;
 
 constexpr bool operator==(const weekday_last& x, const weekday_last& y) noexcept;
@@ -422,7 +517,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const weekday_last& wdl);
 
-// 25.8.9, class month_day    // C++20
+// [time.cal.md] class month_day    // C++20
 class month_day;
 
 constexpr bool operator==(const month_day& x, const month_day& y) noexcept;
@@ -432,7 +527,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const month_day& md);
 
-// 25.8.10, class month_day_last    // C++20
+// [time.cal.mdlast] class month_day_last    // C++20
 class month_day_last;
 
 constexpr bool operator==(const month_day_last& x, const month_day_last& y) noexcept;
@@ -442,7 +537,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const month_day_last& mdl);
 
-// 25.8.11, class month_weekday    // C++20
+// [time.cal.mwd] class month_weekday    // C++20
 class month_weekday;
 
 constexpr bool operator==(const month_weekday& x, const month_weekday& y) noexcept;
@@ -451,7 +546,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const month_weekday& mwd);
 
-// 25.8.12, class month_weekday_last    // C++20
+// [time.cal.mwdlast] class month_weekday_last    // C++20
 class month_weekday_last;
 
 constexpr bool operator==(const month_weekday_last& x, const month_weekday_last& y) noexcept;
@@ -461,7 +556,7 @@ template<class charT, class traits>
     operator<<(basic_ostream<charT, traits>& os, const month_weekday_last& mwdl);
 
 
-// 25.8.13, class year_month    // C++20
+// [time.cal.ym] class year_month    // C++20
 class year_month;
 
 constexpr bool operator==(const year_month& x, const year_month& y) noexcept;
@@ -479,7 +574,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const year_month& ym);
 
-// 25.8.14, class year_month_day class    // C++20
+// [time.cal.ymd] class year_month_day class    // C++20
 year_month_day;
 
 constexpr bool operator==(const year_month_day& x, const year_month_day& y) noexcept;
@@ -496,7 +591,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const year_month_day& ymd);
 
-// 25.8.15, class year_month_day_last    // C++20
+// [time.cal.ymdlast] class year_month_day_last    // C++20
 class year_month_day_last;
 
 constexpr bool operator==(const year_month_day_last& x, const year_month_day_last& y) noexcept;
@@ -519,7 +614,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const year_month_day_last& ymdl);
 
-// 25.8.16, class year_month_weekday    // C++20
+// [time.cal.ymwd] class year_month_weekday    // C++20
 class year_month_weekday;
 
 constexpr bool operator==(const year_month_weekday& x,
@@ -542,7 +637,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const year_month_weekday& ymwd);
 
-// 25.8.17, class year_month_weekday_last    // C++20
+// [time.cal.ymwdlast] class year_month_weekday_last    // C++20
 class year_month_weekday_last;
 
 constexpr bool operator==(const year_month_weekday_last& x,
@@ -564,7 +659,7 @@ template<class charT, class traits>
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const year_month_weekday_last& ymwdl);
 
-// 25.8.18, civil calendar conventional syntax operators    // C++20
+// [time.cal.operators] civil calendar conventional syntax operators    // C++20
 constexpr year_month
   operator/(const year& y, const month& m) noexcept;
 constexpr year_month
@@ -755,7 +850,7 @@ template<class charT, class traits>                                             
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const local_info& li);
 
-// 25.10.5, class time_zone                                                      // C++20
+// [time.zone.timezone] class time_zone                                                      // C++20
 enum class choose {earliest, latest};
 class time_zone {
   time_zone(time_zone&&) = default;
@@ -859,14 +954,20 @@ strong_ordering operator<=>(const time_zone_link& x, const time_zone_link& y);  
 }  // chrono
 
 namespace std {
+  template<class Rep, class Period, class charT>
+    struct formatter<chrono::duration<Rep, Period>, charT>;                       // C++20
   template<class Duration, class charT>
     struct formatter<chrono::sys_time<Duration>, charT>;                          // C++20
   template<class Duration, class charT>
-    struct formatter<chrono::filetime<Duration>, charT>;                          // C++20
+    struct formatter<chrono::utc_time<Duration>, charT>;                          // C++20
+  template<class Duration, class charT>
+    struct formatter<chrono::tai_time<Duration>, charT>;                          // C++20
+  template<class Duration, class charT>
+    struct formatter<chrono::gps_time<Duration>, charT>;                          // C++20
+  template<class Duration, class charT>
+    struct formatter<chrono::file_time<Duration>, charT>;                         // C++20
   template<class Duration, class charT>
     struct formatter<chrono::local_time<Duration>, charT>;                        // C++20
-  template<class Rep, class Period, class charT>
-    struct formatter<chrono::duration<Rep, Period>, charT>;                       // C++20
   template<class charT> struct formatter<chrono::day, charT>;                     // C++20
   template<class charT> struct formatter<chrono::month, charT>;                   // C++20
   template<class charT> struct formatter<chrono::year, charT>;                    // C++20
@@ -939,84 +1040,90 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 
 // clang-format on
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/chrono>
+#else
+#  include <__config>
 
-#include <__chrono/duration.h>
-#include <__chrono/file_clock.h>
-#include <__chrono/high_resolution_clock.h>
-#include <__chrono/steady_clock.h>
-#include <__chrono/system_clock.h>
-#include <__chrono/time_point.h>
+#  include <__chrono/duration.h>
+#  include <__chrono/file_clock.h>
+#  include <__chrono/high_resolution_clock.h>
+#  include <__chrono/steady_clock.h>
+#  include <__chrono/system_clock.h>
+#  include <__chrono/time_point.h>
 
-#if _LIBCPP_STD_VER >= 20
-#  include <__chrono/calendar.h>
-#  include <__chrono/day.h>
-#  include <__chrono/exception.h>
-#  include <__chrono/hh_mm_ss.h>
-#  include <__chrono/literals.h>
-#  include <__chrono/local_info.h>
-#  include <__chrono/month.h>
-#  include <__chrono/month_weekday.h>
-#  include <__chrono/monthday.h>
-#  include <__chrono/sys_info.h>
-#  include <__chrono/weekday.h>
-#  include <__chrono/year.h>
-#  include <__chrono/year_month.h>
-#  include <__chrono/year_month_day.h>
-#  include <__chrono/year_month_weekday.h>
+#  if _LIBCPP_STD_VER >= 20
+#    include <__chrono/calendar.h>
+#    include <__chrono/day.h>
+#    include <__chrono/exception.h>
+#    include <__chrono/hh_mm_ss.h>
+#    include <__chrono/literals.h>
+#    include <__chrono/local_info.h>
+#    include <__chrono/month.h>
+#    include <__chrono/month_weekday.h>
+#    include <__chrono/monthday.h>
+#    include <__chrono/sys_info.h>
+#    include <__chrono/weekday.h>
+#    include <__chrono/year.h>
+#    include <__chrono/year_month.h>
+#    include <__chrono/year_month_day.h>
+#    include <__chrono/year_month_weekday.h>
 
-#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#    include <__chrono/formatter.h>
-#    include <__chrono/ostream.h>
-#    include <__chrono/parser_std_format_spec.h>
-#    include <__chrono/statically_widen.h>
+#    if _LIBCPP_HAS_LOCALIZATION
+#      include <__chrono/formatter.h>
+#      include <__chrono/ostream.h>
+#      include <__chrono/parser_std_format_spec.h>
+#      include <__chrono/statically_widen.h>
+#    endif
+
+#    if _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
+#      include <__chrono/gps_clock.h>
+#      include <__chrono/leap_second.h>
+#      include <__chrono/tai_clock.h>
+#      include <__chrono/time_zone.h>
+#      include <__chrono/time_zone_link.h>
+#      include <__chrono/tzdb.h>
+#      include <__chrono/tzdb_list.h>
+#      include <__chrono/utc_clock.h>
+#      include <__chrono/zoned_time.h>
+#    endif
+
 #  endif
 
-#  if !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&                            \
-      !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#    include <__chrono/leap_second.h>
-#    include <__chrono/time_zone.h>
-#    include <__chrono/time_zone_link.h>
-#    include <__chrono/tzdb.h>
-#    include <__chrono/tzdb_list.h>
-#    include <__chrono/zoned_time.h>
-#  endif
-
-#endif
-
-#include <version>
+#  include <version>
 
 // standard-mandated includes
 
 // [time.syn]
-#include <compare>
+#  include <compare>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
-#  include <cstdint>
-#  include <stdexcept>
-#  include <string_view>
-#  include <vector>
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <bit>
-#  include <concepts>
-#  include <cstring>
-#  include <forward_list>
-#  include <string>
-#  include <tuple>
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER == 20
-#  include <charconv>
-#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#    include <locale>
-#    include <ostream>
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
 #  endif
-#endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#    include <cstdint>
+#    include <stdexcept>
+#    include <string_view>
+#  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <bit>
+#    include <concepts>
+#    include <cstring>
+#    include <forward_list>
+#    include <string>
+#    include <tuple>
+#    include <vector>
+#  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER == 20
+#    include <charconv>
+#    if _LIBCPP_HAS_LOCALIZATION
+#      include <locale>
+#      include <ostream>
+#    endif
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CHRONO

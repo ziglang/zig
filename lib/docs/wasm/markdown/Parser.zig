@@ -29,13 +29,14 @@ const Node = Document.Node;
 const ExtraIndex = Document.ExtraIndex;
 const ExtraData = Document.ExtraData;
 const StringIndex = Document.StringIndex;
+const ArrayList = std.ArrayListUnmanaged;
 
 nodes: Node.List = .{},
-extra: std.ArrayListUnmanaged(u32) = .empty,
-scratch_extra: std.ArrayListUnmanaged(u32) = .empty,
-string_bytes: std.ArrayListUnmanaged(u8) = .empty,
-scratch_string: std.ArrayListUnmanaged(u8) = .empty,
-pending_blocks: std.ArrayListUnmanaged(Block) = .empty,
+extra: ArrayList(u32) = .empty,
+scratch_extra: ArrayList(u32) = .empty,
+string_bytes: ArrayList(u8) = .empty,
+scratch_string: ArrayList(u8) = .empty,
+pending_blocks: ArrayList(Block) = .empty,
 allocator: Allocator,
 
 const Parser = @This();
@@ -86,7 +87,8 @@ const Block = struct {
             continuation_indent: usize,
         },
         table: struct {
-            column_alignments: std.BoundedArray(Node.TableCellAlignment, max_table_columns) = .{},
+            column_alignments_buffer: [max_table_columns]Node.TableCellAlignment,
+            column_alignments_len: usize,
         },
         heading: struct {
             /// Between 1 and 6, inclusive.
@@ -140,7 +142,7 @@ const Block = struct {
     /// (e.g. for a blockquote, this would be everything except the leading
     /// `>`). If unsuccessful, returns null.
     fn match(b: Block, line: []const u8) ?[]const u8 {
-        const unindented = mem.trimLeft(u8, line, " \t");
+        const unindented = mem.trimStart(u8, line, " \t");
         const indent = line.len - unindented.len;
         return switch (b.tag) {
             .list => line,
@@ -156,7 +158,7 @@ const Block = struct {
             .table_row => null,
             .heading => null,
             .code_block => code_block: {
-                const trimmed = mem.trimRight(u8, unindented, " \t");
+                const trimmed = mem.trimEnd(u8, unindented, " \t");
                 if (mem.indexOfNone(u8, trimmed, "`") != null or trimmed.len != b.data.code_block.fence_len) {
                     const effective_indent = @min(indent, b.data.code_block.indent);
                     break :code_block line[effective_indent..];
@@ -225,7 +227,7 @@ pub fn feedLine(p: *Parser, line: []const u8) Allocator.Error!void {
         p.pending_blocks.items.len > 0 and
         p.pending_blocks.getLast().tag == .paragraph)
     {
-        try p.addScratchStringLine(mem.trimLeft(u8, rest_line, " \t"));
+        try p.addScratchStringLine(mem.trimStart(u8, rest_line, " \t"));
         return;
     }
 
@@ -261,7 +263,7 @@ pub fn feedLine(p: *Parser, line: []const u8) Allocator.Error!void {
         last_pending_block.canAccept()
     else
         .blocks;
-    const rest_line_trimmed = mem.trimLeft(u8, rest_line, " \t");
+    const rest_line_trimmed = mem.trimStart(u8, rest_line, " \t");
     switch (can_accept) {
         .blocks => {
             // If we're inside a list item and the rest of the line is blank, it
@@ -354,7 +356,8 @@ const BlockStart = struct {
             continuation_indent: usize,
         },
         table_row: struct {
-            cells: std.BoundedArray([]const u8, max_table_columns),
+            cells_buffer: [max_table_columns][]const u8,
+            cells_len: usize,
         },
         heading: struct {
             /// Between 1 and 6, inclusive.
@@ -422,7 +425,8 @@ fn appendBlockStart(p: *Parser, block_start: BlockStart) !void {
             try p.pending_blocks.append(p.allocator, .{
                 .tag = .table,
                 .data = .{ .table = .{
-                    .column_alignments = .{},
+                    .column_alignments_buffer = undefined,
+                    .column_alignments_len = 0,
                 } },
                 .string_start = p.scratch_string.items.len,
                 .extra_start = p.scratch_extra.items.len,
@@ -431,15 +435,19 @@ fn appendBlockStart(p: *Parser, block_start: BlockStart) !void {
 
         const current_row = p.scratch_extra.items.len - p.pending_blocks.getLast().extra_start;
         if (current_row <= 1) {
-            if (parseTableHeaderDelimiter(block_start.data.table_row.cells)) |alignments| {
-                p.pending_blocks.items[p.pending_blocks.items.len - 1].data.table.column_alignments = alignments;
+            var buffer: [max_table_columns]Node.TableCellAlignment = undefined;
+            const table_row = &block_start.data.table_row;
+            if (parseTableHeaderDelimiter(table_row.cells_buffer[0..table_row.cells_len], &buffer)) |alignments| {
+                const table = &p.pending_blocks.items[p.pending_blocks.items.len - 1].data.table;
+                @memcpy(table.column_alignments_buffer[0..alignments.len], alignments);
+                table.column_alignments_len = alignments.len;
                 if (current_row == 1) {
                     // We need to go back and mark the header row and its column
                     // alignments.
                     const datas = p.nodes.items(.data);
                     const header_data = datas[p.scratch_extra.getLast()];
                     for (p.extraChildren(header_data.container.children), 0..) |header_cell, i| {
-                        const alignment = if (i < alignments.len) alignments.buffer[i] else .unset;
+                        const alignment = if (i < alignments.len) alignments[i] else .unset;
                         const cell_data = &datas[@intFromEnum(header_cell)].table_cell;
                         cell_data.info.alignment = alignment;
                         cell_data.info.header = true;
@@ -480,8 +488,10 @@ fn appendBlockStart(p: *Parser, block_start: BlockStart) !void {
         // available in the BlockStart. We can immediately parse and append
         // these children now.
         const containing_table = p.pending_blocks.items[p.pending_blocks.items.len - 2];
-        const column_alignments = containing_table.data.table.column_alignments.slice();
-        for (block_start.data.table_row.cells.slice(), 0..) |cell_content, i| {
+        const table = &containing_table.data.table;
+        const column_alignments = table.column_alignments_buffer[0..table.column_alignments_len];
+        const table_row = &block_start.data.table_row;
+        for (table_row.cells_buffer[0..table_row.cells_len], 0..) |cell_content, i| {
             const cell_children = try p.parseInlines(cell_content);
             const alignment = if (i < column_alignments.len) column_alignments[i] else .unset;
             const cell = try p.addNode(.{
@@ -500,7 +510,7 @@ fn appendBlockStart(p: *Parser, block_start: BlockStart) !void {
 }
 
 fn startBlock(p: *Parser, line: []const u8) !?BlockStart {
-    const unindented = mem.trimLeft(u8, line, " \t");
+    const unindented = mem.trimStart(u8, line, " \t");
     const indent = line.len - unindented.len;
     if (isThematicBreak(line)) {
         // Thematic breaks take precedence over list items.
@@ -523,7 +533,8 @@ fn startBlock(p: *Parser, line: []const u8) !?BlockStart {
         return .{
             .tag = .table_row,
             .data = .{ .table_row = .{
-                .cells = table_row.cells,
+                .cells_buffer = table_row.cells_buffer,
+                .cells_len = table_row.cells_len,
             } },
             .rest = "",
         };
@@ -606,7 +617,8 @@ fn startListItem(unindented_line: []const u8) ?ListItemStart {
 }
 
 const TableRowStart = struct {
-    cells: std.BoundedArray([]const u8, max_table_columns),
+    cells_buffer: [max_table_columns][]const u8,
+    cells_len: usize,
 };
 
 fn startTableRow(unindented_line: []const u8) ?TableRowStart {
@@ -615,7 +627,8 @@ fn startTableRow(unindented_line: []const u8) ?TableRowStart {
         mem.endsWith(u8, unindented_line, "\\|") or
         !mem.endsWith(u8, unindented_line, "|")) return null;
 
-    var cells: std.BoundedArray([]const u8, max_table_columns) = .{};
+    var cells_buffer: [max_table_columns][]const u8 = undefined;
+    var cells: ArrayList([]const u8) = .initBuffer(&cells_buffer);
     const table_row_content = unindented_line[1 .. unindented_line.len - 1];
     var cell_start: usize = 0;
     var i: usize = 0;
@@ -623,7 +636,7 @@ fn startTableRow(unindented_line: []const u8) ?TableRowStart {
         switch (table_row_content[i]) {
             '\\' => i += 1,
             '|' => {
-                cells.append(table_row_content[cell_start..i]) catch return null;
+                cells.appendBounded(table_row_content[cell_start..i]) catch return null;
                 cell_start = i + 1;
             },
             '`' => {
@@ -641,20 +654,21 @@ fn startTableRow(unindented_line: []const u8) ?TableRowStart {
             else => {},
         }
     }
-    cells.append(table_row_content[cell_start..]) catch return null;
+    cells.appendBounded(table_row_content[cell_start..]) catch return null;
 
-    return .{ .cells = cells };
+    return .{ .cells_buffer = cells_buffer, .cells_len = cells.items.len };
 }
 
 fn parseTableHeaderDelimiter(
-    row_cells: std.BoundedArray([]const u8, max_table_columns),
-) ?std.BoundedArray(Node.TableCellAlignment, max_table_columns) {
-    var alignments: std.BoundedArray(Node.TableCellAlignment, max_table_columns) = .{};
-    for (row_cells.slice()) |content| {
+    row_cells: []const []const u8,
+    buffer: []Node.TableCellAlignment,
+) ?[]Node.TableCellAlignment {
+    var alignments: ArrayList(Node.TableCellAlignment) = .initBuffer(buffer);
+    for (row_cells) |content| {
         const alignment = parseTableHeaderDelimiterCell(content) orelse return null;
         alignments.appendAssumeCapacity(alignment);
     }
-    return alignments;
+    return alignments.items;
 }
 
 fn parseTableHeaderDelimiterCell(content: []const u8) ?Node.TableCellAlignment {
@@ -928,8 +942,8 @@ const InlineParser = struct {
     parent: *Parser,
     content: []const u8,
     pos: usize = 0,
-    pending_inlines: std.ArrayListUnmanaged(PendingInline) = .empty,
-    completed_inlines: std.ArrayListUnmanaged(CompletedInline) = .empty,
+    pending_inlines: ArrayList(PendingInline) = .empty,
+    completed_inlines: ArrayList(CompletedInline) = .empty,
 
     const PendingInline = struct {
         tag: Tag,

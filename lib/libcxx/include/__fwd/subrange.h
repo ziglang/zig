@@ -11,8 +11,8 @@
 
 #include <__concepts/copyable.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__iterator/concepts.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -28,7 +28,7 @@ enum class subrange_kind : bool { unsized, sized };
 
 template <input_or_output_iterator _Iter, sentinel_for<_Iter> _Sent, subrange_kind _Kind>
   requires(_Kind == subrange_kind::sized || !sized_sentinel_for<_Sent, _Iter>)
-class _LIBCPP_TEMPLATE_VIS subrange;
+class subrange;
 
 template <size_t _Index, class _Iter, class _Sent, subrange_kind _Kind>
   requires((_Index == 0 && copyable<_Iter>) || _Index == 1)

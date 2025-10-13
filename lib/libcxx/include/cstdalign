@@ -1,0 +1,59 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_CSTDALIGN
+#define _LIBCPP_CSTDALIGN
+
+/*
+    cstdalign synopsis
+
+Macros:
+
+    __alignas_is_defined
+    __alignof_is_defined
+
+*/
+
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/__config>
+#else
+#  include <__config>
+
+// <stdalign.h> is not provided by libc++
+#  if __has_include(<stdalign.h>)
+#    include <stdalign.h>
+#    ifdef _LIBCPP_STDALIGN_H
+#      error "If libc++ starts defining <stdalign.h>, the __has_include check should move to libc++'s <stdalign.h>"
+#    endif
+#  endif
+
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
+
+#  undef __alignas_is_defined
+#  define __alignas_is_defined 1
+
+#  undef __alignof_is_defined
+#  define __alignof_is_defined 1
+
+#  if _LIBCPP_STD_VER >= 20
+
+using __standard_header_cstdalign _LIBCPP_DEPRECATED_("removed in C++20.") _LIBCPP_NODEBUG = void;
+using __use_standard_header_cstdalign _LIBCPP_NODEBUG = __standard_header_cstdalign;
+
+#  elif _LIBCPP_STD_VER >= 17
+
+using __standard_header_cstdalign _LIBCPP_DEPRECATED _LIBCPP_NODEBUG = void;
+using __use_standard_header_cstdalign _LIBCPP_NODEBUG                = __standard_header_cstdalign;
+
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+
+#endif // _LIBCPP_CSTDALIGN

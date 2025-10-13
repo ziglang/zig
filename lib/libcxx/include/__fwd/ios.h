@@ -21,10 +21,10 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 class _LIBCPP_EXPORTED_FROM_ABI ios_base;
 
 template <class _CharT, class _Traits = char_traits<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_ios;
+class basic_ios;
 
 using ios = basic_ios<char>;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 using wios = basic_ios<wchar_t>;
 #endif
 

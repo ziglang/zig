@@ -19,10 +19,12 @@
 #include <__assert>
 #include <__charconv/chars_format.h>
 #include <__charconv/to_chars_floating_point.h>
+#include <__charconv/to_chars_integral.h>
 #include <__charconv/to_chars_result.h>
 #include <__concepts/arithmetic.h>
 #include <__concepts/same_as.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__format/concepts.h>
 #include <__format/format_parse_context.h>
 #include <__format/formatter.h>
@@ -36,9 +38,8 @@
 #include <__utility/move.h>
 #include <__utility/unreachable.h>
 #include <cmath>
-#include <cstddef>
 
-#ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#if _LIBCPP_HAS_LOCALIZATION
 #  include <__locale>
 #endif
 
@@ -140,8 +141,8 @@ struct __traits<double> {
 /// Depending on the maximum size required for a value, the buffer is allocated
 /// on the stack or the heap.
 template <floating_point _Fp>
-class _LIBCPP_TEMPLATE_VIS __float_buffer {
-  using _Traits = __traits<_Fp>;
+class __float_buffer {
+  using _Traits _LIBCPP_NODEBUG = __traits<_Fp>;
 
 public:
   // TODO FMT Improve this constructor to do a better estimate.
@@ -491,7 +492,7 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer(
   }
 }
 
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
 template <class _OutIt, class _Fp, class _CharT>
 _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(
     _OutIt __out_it,
@@ -576,7 +577,7 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(
   // alignment
   return __formatter::__fill(std::move(__out_it), __padding.__after_, __specs.__fill_);
 }
-#  endif // _LIBCPP_HAS_NO_LOCALIZATION
+#  endif // _LIBCPP_HAS_LOCALIZATION
 
 template <class _OutIt, class _CharT>
 _LIBCPP_HIDE_FROM_ABI _OutIt __format_floating_point_non_finite(
@@ -705,7 +706,7 @@ __format_floating_point(_Tp __value, _FormatContext& __ctx, __format_spec::__par
     }
   }
 
-#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+#  if _LIBCPP_HAS_LOCALIZATION
   if (__specs.__std_.__locale_specific_form_)
     return __formatter::__format_locale_specific_form(__ctx.out(), __buffer, __result, __ctx.locale(), __specs);
 #  endif
@@ -750,7 +751,7 @@ __format_floating_point(_Tp __value, _FormatContext& __ctx, __format_spec::__par
 } // namespace __formatter
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS __formatter_floating_point {
+struct __formatter_floating_point {
 public:
   template <class _ParseContext>
   _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {
@@ -768,13 +769,21 @@ public:
 };
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<float, _CharT> : public __formatter_floating_point<_CharT> {};
+struct formatter<float, _CharT> : public __formatter_floating_point<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<double, _CharT> : public __formatter_floating_point<_CharT> {};
+struct formatter<double, _CharT> : public __formatter_floating_point<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<long double, _CharT> : public __formatter_floating_point<_CharT> {};
+struct formatter<long double, _CharT> : public __formatter_floating_point<_CharT> {};
 
-#endif //_LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 23
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<float> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<double> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<long double> = true;
+#  endif // _LIBCPP_STD_VER >= 23
+#endif   // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

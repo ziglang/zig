@@ -50,9 +50,10 @@
 #define FSOPT_PACK_INVAL_ATTRS  0x00000008
 
 
-#define FSOPT_ATTR_CMN_EXTENDED 0x00000020
+#define FSOPT_ATTR_CMN_EXTENDED  0x00000020
 #define FSOPT_RETURN_REALDEV     0x00000200
 #define FSOPT_NOFOLLOW_ANY       0x00000800
+#define FSOPT_RESOLVE_BENEATH    0x00001000
 
 /* we currently aren't anywhere near this amount for a valid
  * fssearchblock.sizeofsearchparams1 or fssearchblock.sizeofsearchparams2
@@ -128,6 +129,12 @@ typedef struct vol_capabilities_attr {
  * XXX this value needs to be raised - 3893388
  */
 #define ATTR_MAX_BUFFER         8192
+
+
+/*
+ * Max size of attribute buffer if IOPOL_TYPE_VFS_SUPPORT_LONG_PATHS is enabled
+ */
+#define ATTR_MAX_BUFFER_LONGPATHS (ATTR_MAX_BUFFER - MAXPATHLEN + MAXLONGPATHLEN)
 
 /*
  * VOL_CAP_FMT_PERSISTENTOBJECTIDS: When set, the volume has object IDs
@@ -363,6 +370,9 @@ typedef struct vol_capabilities_attr {
  *
  * VOL_CAP_INT_PUNCHHOLE: When set, the volume supports the F_PUNCHHOLE
  * fcntl.
+ *
+ * VOL_CAP_INT_BARRIERFSYNC: When set, the volume supports the F_BARRIERFSYNC
+ * fcntl.
  */
 #define VOL_CAP_INT_SEARCHFS                    0x00000001
 #define VOL_CAP_INT_ATTRLIST                    0x00000002
@@ -387,6 +397,7 @@ typedef struct vol_capabilities_attr {
 #define VOL_CAP_INT_RENAME_SECLUDE              0x00200000
 #define VOL_CAP_INT_ATTRIBUTION_TAG             0x00400000
 #define VOL_CAP_INT_PUNCHHOLE                   0x00800000
+#define VOL_CAP_INT_BARRIERFSYNC                0x01000000
 
 typedef struct vol_attributes_attr {
 	attribute_set_t validattr;
@@ -488,15 +499,17 @@ typedef struct vol_attributes_attr {
 #define ATTR_VOL_ENCODINGSUSED                  0x00010000
 #define ATTR_VOL_CAPABILITIES                   0x00020000
 #define ATTR_VOL_UUID                           0x00040000
+#define ATTR_VOL_MOUNTEXTFLAGS                  0x00080000
 #define ATTR_VOL_FSTYPENAME                     0x00100000
 #define ATTR_VOL_FSSUBTYPE                      0x00200000
+#define ATTR_VOL_OWNER                          0x00400000
 #define ATTR_VOL_SPACEUSED                      0x00800000
 #define ATTR_VOL_QUOTA_SIZE                     0x10000000
 #define ATTR_VOL_RESERVED_SIZE                  0x20000000
 #define ATTR_VOL_ATTRIBUTES                     0x40000000
 #define ATTR_VOL_INFO                           0x80000000
 
-#define ATTR_VOL_VALIDMASK                      0xF0B7FFFF
+#define ATTR_VOL_VALIDMASK                      0xF0FFFFFF
 
 /*
  * The list of settable ATTR_VOL_* attributes include the following:

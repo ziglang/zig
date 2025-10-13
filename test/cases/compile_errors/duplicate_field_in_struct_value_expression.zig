@@ -14,8 +14,6 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:10: error: duplicate struct field name
 // :11:10: note: duplicate name here

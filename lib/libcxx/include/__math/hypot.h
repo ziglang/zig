@@ -9,16 +9,15 @@
 #ifndef _LIBCPP___MATH_HYPOT_H
 #define _LIBCPP___MATH_HYPOT_H
 
-#include <__algorithm/max.h>
 #include <__config>
 #include <__math/abs.h>
 #include <__math/exponential_functions.h>
+#include <__math/min_max.h>
 #include <__math/roots.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_arithmetic.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/promote.h>
-#include <__utility/pair.h>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -44,8 +43,8 @@ inline _LIBCPP_HIDE_FROM_ABI long double hypot(long double __x, long double __y)
 }
 
 template <class _A1, class _A2, __enable_if_t<is_arithmetic<_A1>::value && is_arithmetic<_A2>::value, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2>::type hypot(_A1 __x, _A2 __y) _NOEXCEPT {
-  using __result_type = typename __promote<_A1, _A2>::type;
+inline _LIBCPP_HIDE_FROM_ABI __promote_t<_A1, _A2> hypot(_A1 __x, _A2 __y) _NOEXCEPT {
+  using __result_type = __promote_t<_A1, _A2>;
   static_assert(!(_IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value), "");
   return __math::hypot((__result_type)__x, (__result_type)__y);
 }
@@ -63,7 +62,7 @@ _LIBCPP_HIDE_FROM_ABI _Real __hypot(_Real __x, _Real __y, _Real __z) {
   const _Real __overflow_scale     = __math::ldexp(_Real(1), -(__exp + 20));
 
   // Scale arguments depending on their size
-  const _Real __max_abs = std::max(__math::fabs(__x), std::max(__math::fabs(__y), __math::fabs(__z)));
+  const _Real __max_abs = __math::fmax(__math::fabs(__x), __math::fmax(__math::fabs(__y), __math::fabs(__z)));
   _Real __scale;
   if (__max_abs > __overflow_threshold) { // x*x + y*y + z*z might overflow
     __scale = __overflow_scale;
@@ -92,8 +91,8 @@ template <class _A1,
           class _A2,
           class _A3,
           std::enable_if_t< is_arithmetic_v<_A1> && is_arithmetic_v<_A2> && is_arithmetic_v<_A3>, int> = 0 >
-_LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2, _A3>::type hypot(_A1 __x, _A2 __y, _A3 __z) _NOEXCEPT {
-  using __result_type = typename __promote<_A1, _A2, _A3>::type;
+_LIBCPP_HIDE_FROM_ABI __promote_t<_A1, _A2, _A3> hypot(_A1 __x, _A2 __y, _A3 __z) _NOEXCEPT {
+  using __result_type = __promote_t<_A1, _A2, _A3>;
   static_assert(!(
       std::is_same_v<_A1, __result_type> && std::is_same_v<_A2, __result_type> && std::is_same_v<_A3, __result_type>));
   return __math::__hypot(

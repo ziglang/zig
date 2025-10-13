@@ -19,15 +19,15 @@
 
 #include <__assert>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__fwd/mdspan.h>
 #include <__mdspan/extents.h>
+#include <__memory/addressof.h>
+#include <__type_traits/common_type.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_nothrow_constructible.h>
 #include <__utility/integer_sequence.h>
-#include <cinttypes>
-#include <cstddef>
-#include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -59,7 +59,7 @@ private:
 
     index_type __prod = __ext.extent(0);
     for (rank_type __r = 1; __r < extents_type::rank(); __r++) {
-      bool __overflowed = __builtin_mul_overflow(__prod, __ext.extent(__r), &__prod);
+      bool __overflowed = __builtin_mul_overflow(__prod, __ext.extent(__r), std::addressof(__prod));
       if (__overflowed)
         return false;
     }

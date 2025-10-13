@@ -116,7 +116,7 @@ locale ios_base::getloc() const {
 }
 
 // xalloc
-#if defined(_LIBCPP_HAS_C_ATOMIC_IMP) && !defined(_LIBCPP_HAS_NO_THREADS)
+#if _LIBCPP_HAS_C_ATOMIC_IMP && _LIBCPP_HAS_THREADS
 atomic<int> ios_base::__xindex_{0};
 #else
 int ios_base::__xindex_ = 0;
@@ -217,7 +217,7 @@ void ios_base::clear(iostate state) {
     __rdstate_ = state | badbit;
 
   if (((state | (__rdbuf_ ? goodbit : badbit)) & __exceptions_) != 0)
-    __throw_failure("ios_base::clear");
+    std::__throw_failure("ios_base::clear");
 }
 
 // init
@@ -253,24 +253,24 @@ void ios_base::copyfmt(const ios_base& rhs) {
     size_t newesize = sizeof(event_callback) * rhs.__event_size_;
     new_callbacks.reset(static_cast<event_callback*>(malloc(newesize)));
     if (!new_callbacks)
-      __throw_bad_alloc();
+      std::__throw_bad_alloc();
 
     size_t newisize = sizeof(int) * rhs.__event_size_;
     new_ints.reset(static_cast<int*>(malloc(newisize)));
     if (!new_ints)
-      __throw_bad_alloc();
+      std::__throw_bad_alloc();
   }
   if (__iarray_cap_ < rhs.__iarray_size_) {
     size_t newsize = sizeof(long) * rhs.__iarray_size_;
     new_longs.reset(static_cast<long*>(malloc(newsize)));
     if (!new_longs)
-      __throw_bad_alloc();
+      std::__throw_bad_alloc();
   }
   if (__parray_cap_ < rhs.__parray_size_) {
     size_t newsize = sizeof(void*) * rhs.__parray_size_;
     new_pointers.reset(static_cast<void**>(malloc(newsize)));
     if (!new_pointers)
-      __throw_bad_alloc();
+      std::__throw_bad_alloc();
   }
   // Got everything we need.  Copy everything but __rdstate_, __rdbuf_ and __exceptions_
   __fmtflags_           = rhs.__fmtflags_;
@@ -361,18 +361,18 @@ void ios_base::swap(ios_base& rhs) noexcept {
 
 void ios_base::__set_badbit_and_consider_rethrow() {
   __rdstate_ |= badbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#if _LIBCPP_HAS_EXCEPTIONS
   if (__exceptions_ & badbit)
     throw;
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_EXCEPTIONS
 }
 
 void ios_base::__set_failbit_and_consider_rethrow() {
   __rdstate_ |= failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#if _LIBCPP_HAS_EXCEPTIONS
   if (__exceptions_ & failbit)
     throw;
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_EXCEPTIONS
 }
 
 bool ios_base::sync_with_stdio(bool sync) {

@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #target=wasm32-wasi-selfhosted
@@ -8,7 +9,7 @@ pub fn main() !void {
     try foo(false);
 }
 fn foo(recurse: bool) !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout();
     if (recurse) return foo(true);
     try stdout.writeAll("non-recursive path\n");
 }
@@ -21,7 +22,7 @@ pub fn main() !void {
     try foo(true);
 }
 fn foo(recurse: bool) !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout();
     if (recurse) return stdout.writeAll("x==1\n");
     try stdout.writeAll("non-recursive path\n");
 }

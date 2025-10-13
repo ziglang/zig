@@ -15,8 +15,10 @@ const dl = @import("../dynamic_library.zig");
 const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
 const native_endian = native_arch.endian();
+const is_loongarch = native_arch.isLoongArch();
 const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPowerPC();
+const is_riscv = native_arch.isRISCV();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -39,15 +41,13 @@ const arch_bits = switch (native_arch) {
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
+    .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     .s390x => @import("linux/s390x.zig"),
-    else => struct {
-        pub const ucontext_t = void;
-        pub const getcontext = {};
-    },
+    else => struct {},
 };
 
 const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
@@ -92,8 +92,6 @@ pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
-pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
-pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
 pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
@@ -101,21 +99,15 @@ pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
-pub const mcontext_t = arch_bits.mcontext_t;
 pub const mode_t = arch_bits.mode_t;
-pub const msghdr = arch_bits.msghdr;
-pub const msghdr_const = arch_bits.msghdr_const;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
 pub const timeval = arch_bits.timeval;
 pub const timezone = arch_bits.timezone;
-pub const ucontext_t = arch_bits.ucontext_t;
 pub const user_desc = arch_bits.user_desc;
-pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
-pub const pie = @import("linux/pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
@@ -147,6 +139,7 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
         else => syscalls.X64,
     },
     .xtensa => syscalls.Xtensa,
+    .or1k => syscalls.OpenRisc,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -279,7 +272,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .hexagon, .s390x => packed struct(u32) {
+    .hexagon, .m68k, .s390x => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -333,7 +326,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -355,7 +348,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -377,7 +370,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .sparc64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -402,7 +395,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u6 = 0,
+        _27: u6 = 0,
     },
     .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -426,7 +419,7 @@ pub const O = switch (native_arch) {
         _20: u1 = 0,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -448,7 +441,7 @@ pub const O = switch (native_arch) {
         SYNC: bool = false,
         PATH: bool = false,
         TMPFILE: bool = false,
-        _: u9 = 0,
+        _23: u9 = 0,
     },
     .hexagon, .s390x => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -467,14 +460,35 @@ pub const O = switch (native_arch) {
         NOFOLLOW: bool = false,
         NOATIME: bool = false,
         CLOEXEC: bool = false,
-        _17: u1 = 0,
+        _20: u1 = 0,
         PATH: bool = false,
-        _: u10 = 0,
+        _22: u10 = 0,
 
         // #define O_RSYNC    04010000
         // #define O_SYNC     04010000
         // #define O_TMPFILE 020200000
         // #define O_NDELAY O_NONBLOCK
+    },
+    .m68k => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _20: u1 = 0,
+        PATH: bool = false,
+        _22: u10 = 0,
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
@@ -485,7 +499,11 @@ pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 /// Whether an external or internal getauxval implementation is used.
 const extern_getauxval = switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
-    .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
+    .stage2_arm,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    .stage2_sparc64,
+    => false,
     else => !builtin.link_libc,
 };
 
@@ -502,6 +520,7 @@ pub const getauxval = if (extern_getauxval) struct {
 }.getauxval else getauxvalImpl;
 
 fn getauxvalImpl(index: usize) callconv(.c) usize {
+    @disableInstrumentation();
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -620,7 +639,13 @@ pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
 }
 
 pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
-    return syscall4(.utimensat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(times), flags);
+    return syscall4(
+        if (@hasField(SYS, "utimensat")) .utimensat else .utimensat_time64,
+        @as(usize, @bitCast(@as(isize, dirfd))),
+        @intFromPtr(path),
+        @intFromPtr(times),
+        flags,
+    );
 }
 
 pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
@@ -647,23 +672,62 @@ pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
     }
 }
 
-pub fn futex_wait(uaddr: *const i32, futex_op: u32, val: i32, timeout: ?*const timespec) usize {
-    return syscall4(.futex, @intFromPtr(uaddr), futex_op, @as(u32, @bitCast(val)), @intFromPtr(timeout));
+// The 4th parameter to the v1 futex syscall can either be an optional
+// pointer to a timespec, or a uint32, depending on which "op" is being
+// performed.
+pub const futex_param4 = extern union {
+    timeout: ?*const timespec,
+    /// On all platforms only the bottom 32-bits of `val2` are relevant.
+    /// This is 64-bit to match the pointer in the union.
+    val2: usize,
+};
+
+/// The futex v1 syscall, see also the newer the futex2_{wait,wakeup,requeue,waitv} syscalls.
+///
+/// The futex_op parameter is a sub-command and flags.  The sub-command
+/// defines which of the subsequent paramters are relevant.
+pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
+    return syscall6(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+        @intFromPtr(val2timeout.timeout),
+        @intFromPtr(uaddr2),
+        val3,
+    );
 }
 
-pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
-    return syscall3(.futex, @intFromPtr(uaddr), futex_op, @as(u32, @bitCast(val)));
+/// Three-argument variation of the v1 futex call.  Only suitable for a
+/// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
+pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
+    return syscall3(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+    );
 }
 
-/// Given an array of `futex_waitv`, wait on each uaddr.
+/// Four-argument variation on the v1 futex call.  Only suitable for
+/// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
+pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
+    return syscall4(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+        @intFromPtr(timeout),
+    );
+}
+
+/// Given an array of `futex2_waitone`, wait on each uaddr.
 /// The thread wakes if a futex_wake() is performed at any uaddr.
-/// The syscall returns immediately if any waiter has *uaddr != val.
-/// timeout is an optional timeout value for the operation.
-/// Each waiter has individual flags.
-/// The `flags` argument for the syscall should be used solely for specifying
-/// the timeout as realtime, if needed.
-/// Flags for private futexes, sizes, etc. should be used on the
-/// individual flags of each waiter.
+/// The syscall returns immediately if any futex has *uaddr != val.
+/// timeout is an optional, absolute timeout value for the operation.
+/// The `flags` argument is for future use and currently should be `.{}`.
+/// Flags for private futexes, sizes, etc. should be set on the
+/// individual flags of each `futex2_waitone`.
 ///
 /// Returns the array index of one of the woken futexes.
 /// No further information is provided: any number of other futexes may also
@@ -671,42 +735,43 @@ pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
 /// the returned index may refer to any one of them.
 /// (It is not necessaryily the futex with the smallest index, nor the one
 /// most recently woken, nor...)
+///
+/// Requires at least kernel v5.16.
 pub fn futex2_waitv(
-    /// List of futexes to wait on.
-    waiters: [*]futex_waitv,
-    /// Length of `waiters`.
+    futexes: [*]const futex2_waitone,
+    /// Length of `futexes`.  Max of FUTEX2_WAITONE_MAX.
     nr_futexes: u32,
-    /// Flag for timeout (monotonic/realtime).
-    flags: u32,
-    /// Optional absolute timeout.
-    timeout: ?*const timespec,
+    flags: FUTEX2_FLAGS_WAITV,
+    /// Optional absolute timeout.  Always 64-bit, even on 32-bit platforms.
+    timeout: ?*const kernel_timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
     return syscall5(
         .futex_waitv,
-        @intFromPtr(waiters),
+        @intFromPtr(futexes),
         nr_futexes,
-        flags,
+        @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
-        @bitCast(@as(isize, @intFromEnum(clockid))),
+        @intFromEnum(clockid),
     );
 }
 
-/// Wait on a futex.
-/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
-/// futex2 familiy of calls.
+/// Wait on a single futex.
+/// Identical to the futex v1 `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 family of calls.
+///
+/// Requires at least kernel v6.7.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
     /// Value of `uaddr`.
     val: usize,
-    /// Bitmask.
+    /// Bitmask to match against incoming wakeup masks.  Must not be zero.
     mask: usize,
-    /// `FUTEX2` flags.
-    flags: u32,
-    /// Optional absolute timeout.
-    timeout: ?*const timespec,
+    flags: FUTEX2_FLAGS,
+    /// Optional absolute timeout.  Always 64-bit, even on 32-bit platforms.
+    timeout: ?*const kernel_timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
@@ -715,52 +780,55 @@ pub fn futex2_wait(
         @intFromPtr(uaddr),
         val,
         mask,
-        flags,
+        @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
-        @bitCast(@as(isize, @intFromEnum(clockid))),
+        @intFromEnum(clockid),
     );
 }
 
-/// Wake a number of futexes.
-/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// Wake (subset of) waiters on given futex.
+/// Identical to the traditional `FUTEX.FUTEX_WAKE_BITSET` op, except it is part of the
 /// futex2 family of calls.
+///
+/// Requires at least kernel v6.7.
 pub fn futex2_wake(
-    /// Address of the futex(es) to wake.
+    /// Futex to wake
     uaddr: *const anyopaque,
-    /// Bitmask
+    /// Bitmask to match against waiters.
     mask: usize,
-    /// Number of the futexes to wake.
-    nr: i32,
-    /// `FUTEX2` flags.
-    flags: u32,
+    /// Maximum number of waiters on the futex to wake.
+    nr_wake: i32,
+    flags: FUTEX2_FLAGS,
 ) usize {
     return syscall4(
         .futex_wake,
         @intFromPtr(uaddr),
         mask,
-        @bitCast(@as(isize, nr)),
-        flags,
+        @as(u32, @bitCast(nr_wake)),
+        @as(u32, @bitCast(flags)),
     );
 }
 
-/// Requeue a waiter from one futex to another.
+/// Wake and/or requeue waiter(s) from one futex to another.
 /// Identical to `FUTEX.CMP_REQUEUE`, except it is part of the futex2 family of calls.
+///
+/// Requires at least kernel v6.7.
 pub fn futex2_requeue(
-    /// Array describing the source and destination futex.
-    waiters: [*]futex_waitv,
-    /// Unused.
-    flags: u32,
-    /// Number of futexes to wake.
+    /// The source and destination futexes.  Must be a 2-element array.
+    waiters: [*]const futex2_waitone,
+    /// Currently unused.
+    flags: FUTEX2_FLAGS_REQUEUE,
+    /// Maximum number of waiters to wake on the source futex.
     nr_wake: i32,
-    /// Number of futexes to requeue.
+    /// Maximum number of waiters to transfer to the destination futex.
     nr_requeue: i32,
 ) usize {
     return syscall4(
         .futex_requeue,
         @intFromPtr(waiters),
-        flags,
-        @bitCast(@as(isize, nr_wake)),
-        @bitCast(@as(isize, nr_requeue)),
+        @as(u32, @bitCast(flags)),
+        @as(u32, @bitCast(nr_wake)),
+        @as(u32, @bitCast(nr_requeue)),
     );
 }
 
@@ -885,7 +953,7 @@ pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: u32, dev: u32) usize {
     return syscall4(.mknodat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, dev);
 }
 
-pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
+pub fn mount(special: ?[*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
     return syscall5(.mount, @intFromPtr(special), @intFromPtr(dir), @intFromPtr(fstype), flags, data);
 }
 
@@ -906,7 +974,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             prot,
             @as(u32, @bitCast(flags)),
             @bitCast(@as(isize, fd)),
-            @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
+            @truncate(@as(u64, @bitCast(offset)) / std.heap.pageSize()),
         );
     } else {
         // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
@@ -967,29 +1035,71 @@ pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(.munmap, @intFromPtr(address), length);
 }
 
+pub fn mlock(address: [*]const u8, length: usize) usize {
+    return syscall2(.mlock, @intFromPtr(address), length);
+}
+
+pub fn munlock(address: [*]const u8, length: usize) usize {
+    return syscall2(.munlock, @intFromPtr(address), length);
+}
+
+pub const MLOCK = packed struct(u32) {
+    ONFAULT: bool = false,
+    _1: u31 = 0,
+};
+
+pub fn mlock2(address: [*]const u8, length: usize, flags: MLOCK) usize {
+    return syscall3(.mlock2, @intFromPtr(address), length, @as(u32, @bitCast(flags)));
+}
+
+pub const MCL = if (native_arch.isSPARC() or native_arch.isPowerPC()) packed struct(u32) {
+    _0: u13 = 0,
+    CURRENT: bool = false,
+    FUTURE: bool = false,
+    ONFAULT: bool = false,
+    _4: u16 = 0,
+} else packed struct(u32) {
+    CURRENT: bool = false,
+    FUTURE: bool = false,
+    ONFAULT: bool = false,
+    _3: u29 = 0,
+};
+
+pub fn mlockall(flags: MCL) usize {
+    return syscall1(.mlockall, @as(u32, @bitCast(flags)));
+}
+
+pub fn munlockall() usize {
+    return syscall0(.munlockall);
+}
+
 pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
-    if (@hasField(SYS, "poll")) {
-        return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)));
-    } else {
-        return syscall5(
-            .ppoll,
-            @intFromPtr(fds),
+    return if (@hasField(SYS, "poll"))
+        return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)))
+    else
+        ppoll(
+            fds,
             n,
-            @intFromPtr(if (timeout >= 0)
-                &timespec{
+            if (timeout >= 0)
+                @constCast(&timespec{
                     .sec = @divTrunc(timeout, 1000),
                     .nsec = @rem(timeout, 1000) * 1000000,
-                }
+                })
             else
-                null),
-            0,
-            NSIG / 8,
+                null,
+            null,
         );
-    }
 }
 
 pub fn ppoll(fds: [*]pollfd, n: nfds_t, timeout: ?*timespec, sigmask: ?*const sigset_t) usize {
-    return syscall5(.ppoll, @intFromPtr(fds), n, @intFromPtr(timeout), @intFromPtr(sigmask), NSIG / 8);
+    return syscall5(
+        if (@hasField(SYS, "ppoll")) .ppoll else .ppoll_time64,
+        @intFromPtr(fds),
+        n,
+        @intFromPtr(timeout),
+        @intFromPtr(sigmask),
+        NSIG / 8,
+    );
 }
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
@@ -1123,12 +1233,15 @@ pub fn access(path: [*:0]const u8, mode: u32) usize {
     if (@hasField(SYS, "access")) {
         return syscall2(.access, @intFromPtr(path), mode);
     } else {
-        return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(path), mode, 0);
+        return faccessat(AT.FDCWD, path, mode, 0);
     }
 }
 
 pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
-    return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, flags);
+    if (flags == 0) {
+        return syscall3(.faccessat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
+    }
+    return syscall4(.faccessat2, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, flags);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
@@ -1513,7 +1626,11 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
             }
         }
     }
-    return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_gettime")) .clock_gettime else .clock_gettime64,
+        @intFromEnum(clk_id),
+        @intFromPtr(tp),
+    );
 }
 
 fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
@@ -1527,16 +1644,24 @@ fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
 }
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
-    return syscall2(.clock_getres, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_getres")) .clock_getres else .clock_getres_time64,
+        @as(usize, @bitCast(@as(isize, clk_id))),
+        @intFromPtr(tp),
+    );
 }
 
 pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
-    return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_settime")) .clock_settime else .clock_settime64,
+        @as(usize, @bitCast(@as(isize, clk_id))),
+        @intFromPtr(tp),
+    );
 }
 
 pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
     return syscall4(
-        .clock_nanosleep,
+        if (@hasField(SYS, "clock_nanosleep")) .clock_nanosleep else .clock_nanosleep_time64,
         @intFromEnum(clockid),
         @as(u32, @bitCast(flags)),
         @intFromPtr(request),
@@ -1704,28 +1829,32 @@ pub fn setgroups(size: usize, list: [*]const gid_t) usize {
     }
 }
 
-pub fn setsid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.setsid))));
+pub fn setsid() usize {
+    return syscall0(.setsid);
 }
 
 pub fn getpid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.getpid))));
+    // Casts result to a pid_t, safety-checking >= 0, because getpid() cannot fail
+    return @intCast(@as(u32, @truncate(syscall0(.getpid))));
 }
 
 pub fn getppid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.getppid))));
+    // Casts result to a pid_t, safety-checking >= 0, because getppid() cannot fail
+    return @intCast(@as(u32, @truncate(syscall0(.getppid))));
 }
 
 pub fn gettid() pid_t {
-    return @bitCast(@as(u32, @truncate(syscall0(.gettid))));
+    // Casts result to a pid_t, safety-checking >= 0, because gettid() cannot fail
+    return @intCast(@as(u32, @truncate(syscall0(.gettid))));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {
     return syscall4(.rt_sigprocmask, flags, @intFromPtr(set), @intFromPtr(oldset), NSIG / 8);
 }
 
-pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
-    assert(sig >= 1);
+pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
+    assert(sig > 0);
+    assert(sig < NSIG);
     assert(sig != SIG.KILL);
     assert(sig != SIG.STOP);
 
@@ -1734,14 +1863,23 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
-        ksa = k_sigaction{
-            .handler = new.handler.handler,
-            .flags = new.flags | SA.RESTORER,
-            .mask = undefined,
-            .restorer = @ptrCast(restorer_fn),
-        };
-        @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
+        if (native_arch == .hexagon or is_loongarch or is_mips or is_riscv) {
+            ksa = .{
+                .handler = new.handler.handler,
+                .flags = new.flags,
+                .mask = new.mask,
+            };
+        } else {
+            // Zig needs to install our arch restorer function with any signal handler, so
+            // must copy the Sigaction struct
+            const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
+            ksa = .{
+                .handler = new.handler.handler,
+                .flags = new.flags | SA.RESTORER,
+                .mask = new.mask,
+                .restorer = @ptrCast(restorer_fn),
+            };
+        }
     }
 
     const ksa_arg = if (act != null) @intFromPtr(&ksa) else 0;
@@ -1756,8 +1894,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
-        old.flags = @as(c_uint, @truncate(oldksa.flags));
-        @memcpy(@as([*]u8, @ptrCast(&old.mask))[0..mask_size], @as([*]const u8, @ptrCast(&oldksa.mask)));
+        old.flags = oldksa.flags;
+        old.mask = oldksa.mask;
     }
 
     return 0;
@@ -1765,25 +1903,64 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
 const usize_bits = @typeInfo(usize).int.bits;
 
-pub fn sigaddset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
-    const val = @as(u32, @intCast(1)) << shift;
-    (set.*)[@as(usize, @intCast(s)) / usize_bits] |= val;
+/// Defined as one greater than the largest defined signal number.
+pub const NSIG = if (is_mips) 128 else 65;
+
+/// Linux kernel's sigset_t.  This is logically 64-bit on most
+/// architectures, but 128-bit on MIPS.  Contrast with the 1024-bit
+/// sigset_t exported by the glibc and musl library ABIs.
+pub const sigset_t = [(NSIG - 1 + 7) / @bitSizeOf(SigsetElement)]SigsetElement;
+
+const SigsetElement = c_ulong;
+
+const sigset_len = @typeInfo(sigset_t).array.len;
+
+/// Zig's SIGRTMIN, but is a function for compatibility with glibc
+pub fn sigrtmin() u8 {
+    // Default is 32 in the kernel UAPI: https://github.com/torvalds/linux/blob/78109c591b806e41987e0b83390e61d675d1f724/include/uapi/asm-generic/signal.h#L50
+    // AFAICT, all architectures that override this also set it to 32:
+    // https://github.com/search?q=repo%3Atorvalds%2Flinux+sigrtmin+path%3Auapi&type=code
+    return 32;
 }
 
-pub fn sigdelset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
-    const val = @as(u32, @intCast(1)) << shift;
-    (set.*)[@as(usize, @intCast(s)) / usize_bits] ^= val;
+/// Zig's SIGRTMAX, but is a function for compatibility with glibc
+pub fn sigrtmax() u8 {
+    return NSIG - 1;
 }
 
-pub fn sigismember(set: *const sigset_t, sig: u6) bool {
-    const s = sig - 1;
-    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
+/// Zig's version of sigemptyset.  Returns initialized sigset_t.
+pub fn sigemptyset() sigset_t {
+    return [_]SigsetElement{0} ** sigset_len;
+}
+
+/// Zig's version of sigfillset.  Returns initalized sigset_t.
+pub fn sigfillset() sigset_t {
+    return [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
+}
+
+fn sigset_bit_index(sig: usize) struct { word: usize, mask: SigsetElement } {
+    assert(sig > 0);
+    assert(sig < NSIG);
+    const bit = sig - 1;
+    return .{
+        .word = bit / @bitSizeOf(SigsetElement),
+        .mask = @as(SigsetElement, 1) << @truncate(bit % @bitSizeOf(SigsetElement)),
+    };
+}
+
+pub fn sigaddset(set: *sigset_t, sig: usize) void {
+    const index = sigset_bit_index(sig);
+    (set.*)[index.word] |= index.mask;
+}
+
+pub fn sigdelset(set: *sigset_t, sig: usize) void {
+    const index = sigset_bit_index(sig);
+    (set.*)[index.word] ^= index.mask;
+}
+
+pub fn sigismember(set: *const sigset_t, sig: usize) bool {
+    const index = sigset_bit_index(sig);
+    return ((set.*)[index.word] & index.mask) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1894,7 +2071,7 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
 
 pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
     return syscall5(
-        .recvmmsg,
+        if (@hasField(SYS, "recvmmsg")) .recvmmsg else .recvmmsg_time64,
         @as(usize, @bitCast(@as(isize, fd))),
         @intFromPtr(msgvec),
         vlen,
@@ -1970,16 +2147,16 @@ pub fn sendfile(outfd: i32, infd: i32, offset: ?*i64, count: usize) usize {
     }
 }
 
-pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: *[2]i32) usize {
+pub fn socketpair(domain: u32, socket_type: u32, protocol: u32, fd: *[2]i32) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.socketpair, &[4]usize{ @as(usize, @intCast(domain)), @as(usize, @intCast(socket_type)), @as(usize, @intCast(protocol)), @intFromPtr(fd) });
+        return socketcall(SC.socketpair, &[4]usize{ domain, socket_type, protocol, @intFromPtr(fd) });
     }
-    return syscall4(.socketpair, @as(usize, @intCast(domain)), @as(usize, @intCast(socket_type)), @as(usize, @intCast(protocol)), @intFromPtr(fd));
+    return syscall4(.socketpair, domain, socket_type, protocol, @intFromPtr(fd));
 }
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.accept, &[4]usize{ fd, addr, len, 0 });
+        return socketcall(SC.accept, &[4]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), 0 });
     }
     return accept4(fd, addr, len, 0);
 }
@@ -1992,8 +2169,8 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No fstat syscall on this architecture.");
     } else if (@hasField(SYS, "fstat64")) {
@@ -2004,8 +2181,8 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 }
 
 pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No stat syscall on this architecture.");
     } else if (@hasField(SYS, "stat64")) {
@@ -2016,8 +2193,8 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No lstat syscall on this architecture.");
     } else if (@hasField(SYS, "lstat64")) {
@@ -2028,8 +2205,8 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (native_arch == .riscv32) {
-        // riscv32 has made the interesting decision to not implement some of
+    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
+        // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No fstatat syscall on this architecture.");
     } else if (@hasField(SYS, "fstatat64")) {
@@ -2221,7 +2398,7 @@ pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeou
         @as(usize, @intCast(maxevents)),
         @as(usize, @bitCast(@as(isize, timeout))),
         @intFromPtr(sigmask),
-        @sizeOf(sigset_t),
+        NSIG / 8,
     );
 }
 
@@ -2243,11 +2420,21 @@ pub const itimerspec = extern struct {
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
-    return syscall2(.timerfd_gettime, @bitCast(@as(isize, fd)), @intFromPtr(curr_value));
+    return syscall2(
+        if (@hasField(SYS, "timerfd_gettime")) .timerfd_gettime else .timerfd_gettime64,
+        @bitCast(@as(isize, fd)),
+        @intFromPtr(curr_value),
+    );
 }
 
 pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(.timerfd_settime, @bitCast(@as(isize, fd)), @as(u32, @bitCast(flags)), @intFromPtr(new_value), @intFromPtr(old_value));
+    return syscall4(
+        if (@hasField(SYS, "timerfd_settime")) .timerfd_settime else .timerfd_settime64,
+        @bitCast(@as(isize, fd)),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(new_value),
+        @intFromPtr(old_value),
+    );
 }
 
 // Flags for the 'setitimer' system call
@@ -2571,6 +2758,71 @@ pub fn cachestat(
 
 pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
     return syscall3(.map_shadow_stack, addr, size, flags);
+}
+
+pub const Sysinfo = switch (native_abi) {
+    .gnux32, .muslx32 => extern struct {
+        /// Seconds since boot
+        uptime: i64,
+        /// 1, 5, and 15 minute load averages
+        loads: [3]u64,
+        /// Total usable main memory size
+        totalram: u64,
+        /// Available memory size
+        freeram: u64,
+        /// Amount of shared memory
+        sharedram: u64,
+        /// Memory used by buffers
+        bufferram: u64,
+        /// Total swap space size
+        totalswap: u64,
+        /// swap space still available
+        freeswap: u64,
+        /// Number of current processes
+        procs: u16,
+        /// Explicit padding for m68k
+        pad: u16,
+        /// Total high memory size
+        totalhigh: u64,
+        /// Available high memory size
+        freehigh: u64,
+        /// Memory unit size in bytes
+        mem_unit: u32,
+    },
+    else => extern struct {
+        /// Seconds since boot
+        uptime: isize,
+        /// 1, 5, and 15 minute load averages
+        loads: [3]usize,
+        /// Total usable main memory size
+        totalram: usize,
+        /// Available memory size
+        freeram: usize,
+        /// Amount of shared memory
+        sharedram: usize,
+        /// Memory used by buffers
+        bufferram: usize,
+        /// Total swap space size
+        totalswap: usize,
+        /// swap space still available
+        freeswap: usize,
+        /// Number of current processes
+        procs: u16,
+        /// Explicit padding for m68k
+        pad: u16,
+        /// Total high memory size
+        totalhigh: usize,
+        /// Available high memory size
+        freehigh: usize,
+        /// Memory unit size in bytes
+        mem_unit: u32,
+        /// Pad
+        _f: [20 - 2 * @sizeOf(usize) - @sizeOf(u32)]u8,
+    },
+};
+
+pub fn sysinfo(info: *Sysinfo) usize {
+    return syscall1(.sysinfo, @intFromPtr(info));
 }
 
 pub const E = switch (native_arch) {
@@ -3253,37 +3505,97 @@ pub const FALLOC = struct {
     pub const FL_UNSHARE_RANGE = 0x40;
 };
 
-pub const FUTEX = struct {
-    pub const WAIT = 0;
-    pub const WAKE = 1;
-    pub const FD = 2;
-    pub const REQUEUE = 3;
-    pub const CMP_REQUEUE = 4;
-    pub const WAKE_OP = 5;
-    pub const LOCK_PI = 6;
-    pub const UNLOCK_PI = 7;
-    pub const TRYLOCK_PI = 8;
-    pub const WAIT_BITSET = 9;
-    pub const WAKE_BITSET = 10;
-    pub const WAIT_REQUEUE_PI = 11;
-    pub const CMP_REQUEUE_PI = 12;
-
-    pub const PRIVATE_FLAG = 128;
-
-    pub const CLOCK_REALTIME = 256;
-
-    /// Max numbers of elements in a `futex_waitv` array.
-    pub const WAITV_MAX = 128;
+// Futex v1 API commands.  See futex man page for each command's
+// interpretation of the futex arguments.
+pub const FUTEX_COMMAND = enum(u7) {
+    WAIT = 0,
+    WAKE = 1,
+    FD = 2,
+    REQUEUE = 3,
+    CMP_REQUEUE = 4,
+    WAKE_OP = 5,
+    LOCK_PI = 6,
+    UNLOCK_PI = 7,
+    TRYLOCK_PI = 8,
+    WAIT_BITSET = 9,
+    WAKE_BITSET = 10,
+    WAIT_REQUEUE_PI = 11,
+    CMP_REQUEUE_PI = 12,
 };
 
-pub const FUTEX2 = struct {
-    pub const SIZE_U8 = 0x00;
-    pub const SIZE_U16 = 0x01;
-    pub const SIZE_U32 = 0x02;
-    pub const SIZE_U64 = 0x03;
-    pub const NUMA = 0x04;
+/// Futex v1 API command and flags for the `futex_op` parameter
+pub const FUTEX_OP = packed struct(u32) {
+    cmd: FUTEX_COMMAND,
+    private: bool,
+    realtime: bool = false, // realtime clock vs. monotonic clock
+    _reserved: u23 = 0,
+};
 
-    pub const PRIVATE = FUTEX.PRIVATE_FLAG;
+/// Futex v1 FUTEX_WAKE_OP `val3` operation:
+pub const FUTEX_WAKE_OP = packed struct(u32) {
+    cmd: FUTEX_WAKE_OP_CMD,
+    /// From C API `FUTEX_OP_ARG_SHIFT`:  Use (1 << oparg) as operand
+    arg_shift: bool = false,
+    cmp: FUTEX_WAKE_OP_CMP,
+    oparg: u12,
+    cmdarg: u12,
+};
+
+/// Futex v1 cmd for FUTEX_WAKE_OP `val3` command.
+pub const FUTEX_WAKE_OP_CMD = enum(u3) {
+    /// uaddr2 = oparg
+    SET = 0,
+    /// uaddr2 += oparg
+    ADD = 1,
+    /// uaddr2 |= oparg
+    OR = 2,
+    /// uaddr2 &= ~oparg
+    ANDN = 3,
+    /// uaddr2 ^= oparg
+    XOR = 4,
+};
+
+/// Futex v1 comparison op for FUTEX_WAKE_OP `val3` cmp
+pub const FUTEX_WAKE_OP_CMP = enum(u4) {
+    EQ = 0,
+    NE = 1,
+    LT = 2,
+    LE = 3,
+    GT = 4,
+    GE = 5,
+};
+
+/// Max numbers of elements in a `futex2_waitone` array.
+pub const FUTEX2_WAITONE_MAX = 128;
+
+/// For futex v2 API, the size of the futex at the uaddr.  v1 futex are
+/// always implicitly U32.  As of kernel v6.14, only U32 is implemented
+/// for v2 futexes.
+pub const FUTEX2_SIZE = enum(u2) {
+    U8 = 0,
+    U16 = 1,
+    U32 = 2,
+    U64 = 3,
+};
+
+/// As of kernel 6.14 there are no defined flags to futex2_waitv.
+pub const FUTEX2_FLAGS_WAITV = packed struct(u32) {
+    _reserved: u32 = 0,
+};
+
+/// As of kernel 6.14 there are no defined flags to futex2_requeue.
+pub const FUTEX2_FLAGS_REQUEUE = packed struct(u32) {
+    _reserved: u32 = 0,
+};
+
+/// Flags for futex v2 APIs (futex2_wait, futex2_wake, futex2_requeue, but
+/// not the futex2_waitv syscall, but also used in the futex2_waitone struct).
+pub const FUTEX2_FLAGS = packed struct(u32) {
+    size: FUTEX2_SIZE,
+    numa: bool = false,
+    _reserved: u4 = 0,
+    private: bool,
+    _undefined: u24 = 0,
 };
 
 pub const PROT = struct {
@@ -3297,8 +3609,7 @@ pub const PROT = struct {
     pub const EXEC = 0x4;
     /// page may be used for atomic ops
     pub const SEM = switch (native_arch) {
-        // TODO: also xtensa
-        .mips, .mipsel, .mips64, .mips64el => 0x10,
+        .mips, .mipsel, .mips64, .mips64el, .xtensa => 0x10,
         else => 0x8,
     };
     /// mprotect flag: extend change to start of growsdown vma
@@ -3359,7 +3670,6 @@ pub const SA = if (is_mips) struct {
     pub const RESETHAND = 0x80000000;
     pub const ONSTACK = 0x08000000;
     pub const NODEFER = 0x40000000;
-    pub const RESTORER = 0x04000000;
 } else if (is_sparc) struct {
     pub const NOCLDSTOP = 0x8;
     pub const NOCLDWAIT = 0x100;
@@ -3369,6 +3679,14 @@ pub const SA = if (is_mips) struct {
     pub const ONSTACK = 0x1;
     pub const NODEFER = 0x20;
     pub const RESTORER = 0x04000000;
+} else if (native_arch == .hexagon or is_loongarch or is_riscv) struct {
+    pub const NOCLDSTOP = 1;
+    pub const NOCLDWAIT = 2;
+    pub const SIGINFO = 4;
+    pub const RESTART = 0x10000000;
+    pub const RESETHAND = 0x80000000;
+    pub const ONSTACK = 0x08000000;
+    pub const NODEFER = 0x40000000;
 } else struct {
     pub const NOCLDSTOP = 1;
     pub const NOCLDWAIT = 2;
@@ -3385,6 +3703,7 @@ pub const SIG = if (is_mips) struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
+    // https://github.com/torvalds/linux/blob/ca91b9500108d4cf083a635c2e11c884d5dd20ea/arch/mips/include/uapi/asm/signal.h#L25
     pub const HUP = 1;
     pub const INT = 2;
     pub const QUIT = 3;
@@ -3392,33 +3711,32 @@ pub const SIG = if (is_mips) struct {
     pub const TRAP = 5;
     pub const ABRT = 6;
     pub const IOT = ABRT;
-    pub const BUS = 7;
+    pub const EMT = 7;
     pub const FPE = 8;
     pub const KILL = 9;
-    pub const USR1 = 10;
+    pub const BUS = 10;
     pub const SEGV = 11;
-    pub const USR2 = 12;
+    pub const SYS = 12;
     pub const PIPE = 13;
     pub const ALRM = 14;
     pub const TERM = 15;
-    pub const STKFLT = 16;
-    pub const CHLD = 17;
-    pub const CONT = 18;
-    pub const STOP = 19;
-    pub const TSTP = 20;
-    pub const TTIN = 21;
-    pub const TTOU = 22;
-    pub const URG = 23;
-    pub const XCPU = 24;
-    pub const XFSZ = 25;
-    pub const VTALRM = 26;
-    pub const PROF = 27;
-    pub const WINCH = 28;
-    pub const IO = 29;
-    pub const POLL = 29;
-    pub const PWR = 30;
-    pub const SYS = 31;
-    pub const UNUSED = SIG.SYS;
+    pub const USR1 = 16;
+    pub const USR2 = 17;
+    pub const CHLD = 18;
+    pub const PWR = 19;
+    pub const WINCH = 20;
+    pub const URG = 21;
+    pub const IO = 22;
+    pub const POLL = IO;
+    pub const STOP = 23;
+    pub const TSTP = 24;
+    pub const CONT = 25;
+    pub const TTIN = 26;
+    pub const TTOU = 27;
+    pub const VTALRM = 28;
+    pub const PROF = 29;
+    pub const XCPU = 30;
+    pub const XFZ = 31;
 
     pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
     pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
@@ -4029,6 +4347,12 @@ pub const SO = if (is_mips) struct {
 };
 
 pub const SCM = struct {
+    // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=f777d1112ee597d7f7dd3ca232220873a34ad0c8#n178
+    pub const RIGHTS = 1;
+    pub const CREDENTIALS = 2;
+    pub const SECURITY = 3;
+    pub const PIDFD = 4;
+
     pub const WIFI_STATUS = SO.WIFI_STATUS;
     pub const TIMESTAMPING_OPT_STATS = 54;
     pub const TIMESTAMPING_PKTINFO = 58;
@@ -4210,6 +4534,285 @@ pub const IPV6 = struct {
     pub const UNICAST_IF = 76;
     pub const RECVFRAGSIZE = 77;
     pub const FREEBIND = 78;
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/ip.h?id=64e844505bc08cde3f346f193cbbbab0096fef54#n24
+pub const IPTOS = struct {
+    pub const TOS_MASK = 0x1e;
+    pub fn TOS(t: anytype) @TypeOf(t) {
+        return t & TOS_MASK;
+    }
+
+    pub const MINCOST = 0x02;
+    pub const RELIABILITY = 0x04;
+    pub const THROUGHPUT = 0x08;
+    pub const LOWDELAY = 0x10;
+
+    pub const PREC_MASK = 0xe0;
+    pub fn PREC(t: anytype) @TypeOf(t) {
+        return t & PREC_MASK;
+    }
+
+    pub const PREC_ROUTINE = 0x00;
+    pub const PREC_PRIORITY = 0x20;
+    pub const PREC_IMMEDIATE = 0x40;
+    pub const PREC_FLASH = 0x60;
+    pub const PREC_FLASHOVERRIDE = 0x80;
+    pub const PREC_CRITIC_ECP = 0xa0;
+    pub const PREC_INTERNETCONTROL = 0xc0;
+    pub const PREC_NETCONTROL = 0xe0;
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=b1e904999542ad6764eafa54545f1c55776006d1#n43
+pub const linger = extern struct {
+    onoff: i32, // non-zero to linger on close
+    linger: i32, // time to linger in seconds
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/in.h?id=64e844505bc08cde3f346f193cbbbab0096fef54#n250
+pub const in_pktinfo = extern struct {
+    ifindex: i32,
+    spec_dst: u32,
+    addr: u32,
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/ipv6.h?id=f24987ef6959a7efaf79bffd265522c3df18d431#n22
+pub const in6_pktinfo = extern struct {
+    addr: [16]u8,
+    ifindex: i32,
+};
+
+/// IEEE 802.3 Ethernet magic constants. The frame sizes omit the preamble
+/// and FCS/CRC (frame check sequence).
+pub const ETH = struct {
+    /// Octets in one ethernet addr
+    pub const ALEN = 6;
+    /// Octets in ethernet type field
+    pub const TLEN = 2;
+    /// Total octets in header
+    pub const HLEN = 14;
+    /// Min. octets in frame sans FC
+    pub const ZLEN = 60;
+    /// Max. octets in payload
+    pub const DATA_LEN = 1500;
+    /// Max. octets in frame sans FCS
+    pub const FRAME_LEN = 1514;
+    /// Octets in the FCS
+    pub const FCS_LEN = 4;
+
+    /// Min IPv4 MTU per RFC791
+    pub const MIN_MTU = 68;
+    /// 65535, same as IP_MAX_MTU
+    pub const MAX_MTU = 0xFFFF;
+
+    /// These are the defined Ethernet Protocol ID's.
+    pub const P = struct {
+        /// Ethernet Loopback packet
+        pub const LOOP = 0x0060;
+        /// Xerox PUP packet
+        pub const PUP = 0x0200;
+        /// Xerox PUP Addr Trans packet
+        pub const PUPAT = 0x0201;
+        /// TSN (IEEE 1722) packet
+        pub const TSN = 0x22F0;
+        /// ERSPAN version 2 (type III)
+        pub const ERSPAN2 = 0x22EB;
+        /// Internet Protocol packet
+        pub const IP = 0x0800;
+        /// CCITT X.25
+        pub const X25 = 0x0805;
+        /// Address Resolution packet
+        pub const ARP = 0x0806;
+        /// G8BPQ AX.25 Ethernet Packet [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const BPQ = 0x08FF;
+        /// Xerox IEEE802.3 PUP packet
+        pub const IEEEPUP = 0x0a00;
+        /// Xerox IEEE802.3 PUP Addr Trans packet
+        pub const IEEEPUPAT = 0x0a01;
+        /// B.A.T.M.A.N.-Advanced packet [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const BATMAN = 0x4305;
+        /// DEC Assigned proto
+        pub const DEC = 0x6000;
+        /// DEC DNA Dump/Load
+        pub const DNA_DL = 0x6001;
+        /// DEC DNA Remote Console
+        pub const DNA_RC = 0x6002;
+        /// DEC DNA Routing
+        pub const DNA_RT = 0x6003;
+        /// DEC LAT
+        pub const LAT = 0x6004;
+        /// DEC Diagnostics
+        pub const DIAG = 0x6005;
+        /// DEC Customer use
+        pub const CUST = 0x6006;
+        /// DEC Systems Comms Arch
+        pub const SCA = 0x6007;
+        /// Trans Ether Bridging
+        pub const TEB = 0x6558;
+        /// Reverse Addr Res packet
+        pub const RARP = 0x8035;
+        /// Appletalk DDP
+        pub const ATALK = 0x809B;
+        /// Appletalk AARP
+        pub const AARP = 0x80F3;
+        /// 802.1Q VLAN Extended Header
+        pub const P_8021Q = 0x8100;
+        /// ERSPAN type II
+        pub const ERSPAN = 0x88BE;
+        /// IPX over DIX
+        pub const IPX = 0x8137;
+        /// IPv6 over bluebook
+        pub const IPV6 = 0x86DD;
+        /// IEEE Pause frames. See 802.3 31B
+        pub const PAUSE = 0x8808;
+        /// Slow Protocol. See 802.3ad 43B
+        pub const SLOW = 0x8809;
+        /// Web-cache coordination protocol defined in draft-wilson-wrec-wccp-v2-00.txt
+        pub const WCCP = 0x883E;
+        /// MPLS Unicast traffic
+        pub const MPLS_UC = 0x8847;
+        /// MPLS Multicast traffic
+        pub const MPLS_MC = 0x8848;
+        /// MultiProtocol Over ATM
+        pub const ATMMPOA = 0x884c;
+        /// PPPoE discovery messages
+        pub const PPP_DISC = 0x8863;
+        /// PPPoE session messages
+        pub const PPP_SES = 0x8864;
+        /// HPNA, wlan link local tunnel
+        pub const LINK_CTL = 0x886c;
+        /// Frame-based ATM Transport over Ethernet
+        pub const ATMFATE = 0x8884;
+        /// Port Access Entity (IEEE 802.1X)
+        pub const PAE = 0x888E;
+        /// PROFINET
+        pub const PROFINET = 0x8892;
+        /// Multiple proprietary protocols
+        pub const REALTEK = 0x8899;
+        /// ATA over Ethernet
+        pub const AOE = 0x88A2;
+        /// EtherCAT
+        pub const ETHERCAT = 0x88A4;
+        /// 802.1ad Service VLAN
+        pub const @"8021AD" = 0x88A8;
+        /// 802.1 Local Experimental 1.
+        pub const @"802_EX1" = 0x88B5;
+        /// 802.11 Preauthentication
+        pub const PREAUTH = 0x88C7;
+        /// TIPC
+        pub const TIPC = 0x88CA;
+        /// Link Layer Discovery Protocol
+        pub const LLDP = 0x88CC;
+        /// Media Redundancy Protocol
+        pub const MRP = 0x88E3;
+        /// 802.1ae MACsec
+        pub const MACSEC = 0x88E5;
+        /// 802.1ah Backbone Service Tag
+        pub const @"8021AH" = 0x88E7;
+        /// 802.1Q MVRP
+        pub const MVRP = 0x88F5;
+        /// IEEE 1588 Timesync
+        pub const @"1588" = 0x88F7;
+        /// NCSI protocol
+        pub const NCSI = 0x88F8;
+        /// IEC 62439-3 PRP/HSRv0
+        pub const PRP = 0x88FB;
+        /// Connectivity Fault Management
+        pub const CFM = 0x8902;
+        /// Fibre Channel over Ethernet
+        pub const FCOE = 0x8906;
+        /// Infiniband over Ethernet
+        pub const IBOE = 0x8915;
+        /// TDLS
+        pub const TDLS = 0x890D;
+        /// FCoE Initialization Protocol
+        pub const FIP = 0x8914;
+        /// IEEE 802.21 Media Independent Handover Protocol
+        pub const @"80221" = 0x8917;
+        /// IEC 62439-3 HSRv1
+        pub const HSR = 0x892F;
+        /// Network Service Header
+        pub const NSH = 0x894F;
+        /// Ethernet loopback packet, per IEEE 802.3
+        pub const LOOPBACK = 0x9000;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ1 = 0x9100;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ2 = 0x9200;
+        /// deprecated QinQ VLAN [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const QINQ3 = 0x9300;
+        /// Ethertype DSA [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const EDSA = 0xDADA;
+        /// Fake VLAN Header for DSA [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const DSA_8021Q = 0xDADB;
+        /// A5PSW Tag Value [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const DSA_A5PSW = 0xE001;
+        /// ForCES inter-FE LFB type
+        pub const IFE = 0xED3E;
+        /// IBM af_iucv [ NOT AN OFFICIALLY REGISTERED ID ]
+        pub const AF_IUCV = 0xFBFB;
+        /// If the value in the ethernet type is more than this value then the frame is Ethernet II. Else it is 802.3
+        pub const @"802_3_MIN" = 0x0600;
+
+        // Non DIX types. Won't clash for 1500 types.
+
+        /// Dummy type for 802.3 frames
+        pub const @"802_3" = 0x0001;
+        /// Dummy protocol id for AX.25
+        pub const AX25 = 0x0002;
+        /// Every packet (be careful!!!)
+        pub const ALL = 0x0003;
+        /// 802.2 frames
+        pub const @"802_2" = 0x0004;
+        /// Internal only
+        pub const SNAP = 0x0005;
+        /// DEC DDCMP: Internal only
+        pub const DDCMP = 0x0006;
+        /// Dummy type for WAN PPP frames
+        pub const WAN_PPP = 0x0007;
+        /// Dummy type for PPP MP frames
+        pub const PPP_MP = 0x0008;
+        /// Localtalk pseudo type
+        pub const LOCALTALK = 0x0009;
+        /// CAN: Controller Area Network
+        pub const CAN = 0x000C;
+        /// CANFD: CAN flexible data rate
+        pub const CANFD = 0x000D;
+        /// CANXL: eXtended frame Length
+        pub const CANXL = 0x000E;
+        /// Dummy type for Atalk over PPP
+        pub const PPPTALK = 0x0010;
+        /// 802.2 frames
+        pub const TR_802_2 = 0x0011;
+        /// Mobitex (kaz@cafe.net)
+        pub const MOBITEX = 0x0015;
+        /// Card specific control frames
+        pub const CONTROL = 0x0016;
+        /// Linux-IrDA
+        pub const IRDA = 0x0017;
+        /// Acorn Econet
+        pub const ECONET = 0x0018;
+        /// HDLC frames
+        pub const HDLC = 0x0019;
+        /// 1A for ArcNet :-)
+        pub const ARCNET = 0x001A;
+        /// Distributed Switch Arch.
+        pub const DSA = 0x001B;
+        /// Trailer switch tagging
+        pub const TRAILER = 0x001C;
+        /// Nokia Phonet frames
+        pub const PHONET = 0x00F5;
+        /// IEEE802.15.4 frame
+        pub const IEEE802154 = 0x00F6;
+        /// ST-Ericsson CAIF protocol
+        pub const CAIF = 0x00F7;
+        /// Multiplexed DSA protocol
+        pub const XDSA = 0x00F8;
+        /// Qualcomm multiplexing and aggregation protocol
+        pub const MAP = 0x00F9;
+        /// Management component transport protocol packets
+        pub const MCTP = 0x00FA;
+    };
 };
 
 pub const MSG = struct {
@@ -5144,43 +5747,38 @@ pub const TFD = switch (native_arch) {
     },
 };
 
-/// NSIG is the total number of signals defined.
-/// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
-pub const NSIG = if (is_mips) 128 else 65;
-
-pub const sigset_t = [1024 / 32]u32;
-
-pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.len;
-pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
-
 const k_sigaction_funcs = struct {
     const handler = ?*align(1) const fn (i32) callconv(.c) void;
     const restorer = *const fn () callconv(.c) void;
 };
 
+/// Kernel sigaction struct, as expected by the `rt_sigaction` syscall.  Includes `restorer` on
+/// targets where userspace is responsible for hooking up `rt_sigreturn`.
 pub const k_sigaction = switch (native_arch) {
-    .mips, .mipsel => extern struct {
+    .mips, .mipsel, .mips64, .mips64el => extern struct {
         flags: c_uint,
         handler: k_sigaction_funcs.handler,
-        mask: [4]c_ulong,
-        restorer: k_sigaction_funcs.restorer,
+        mask: sigset_t,
     },
-    .mips64, .mips64el => extern struct {
-        flags: c_uint,
+    .hexagon, .loongarch32, .loongarch64, .riscv32, .riscv64 => extern struct {
         handler: k_sigaction_funcs.handler,
-        mask: [2]c_ulong,
-        restorer: k_sigaction_funcs.restorer,
+        flags: c_ulong,
+        mask: sigset_t,
     },
     else => extern struct {
         handler: k_sigaction_funcs.handler,
         flags: c_ulong,
         restorer: k_sigaction_funcs.restorer,
-        mask: [2]c_uint,
+        mask: sigset_t,
     },
 };
 
+/// Kernel Sigaction wrapper for the actual ABI `k_sigaction`.  The Zig
+/// linux.zig wrapper library still does some pre-processing on
+/// sigaction() calls (to add the `restorer` field).
+///
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = extern struct {
+pub const Sigaction = struct {
     pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
     pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
@@ -5189,13 +5787,11 @@ pub const Sigaction = extern struct {
         sigaction: ?sigaction_fn,
     },
     mask: sigset_t,
-    flags: c_uint,
-    restorer: ?*const fn () callconv(.c) void = null,
+    flags: switch (native_arch) {
+        .mips, .mipsel, .mips64, .mips64el => c_uint,
+        else => c_ulong,
+    },
 };
-
-const sigset_len = @typeInfo(sigset_t).array.len;
-pub const empty_sigset = [_]u32{0} ** sigset_len;
-pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
 pub const SFD = struct {
     pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
@@ -6063,7 +6659,7 @@ pub const IORING_REGISTER = enum(u32) {
 
     // register/unregister io_uring fd with the ring
     REGISTER_RING_FDS,
-    NREGISTER_RING_FDS,
+    UNREGISTER_RING_FDS,
 
     // register ring based provide buffer group
     REGISTER_PBUF_RING,
@@ -6075,8 +6671,31 @@ pub const IORING_REGISTER = enum(u32) {
     // register a range of fixed file slots for automatic slot allocation
     REGISTER_FILE_ALLOC_RANGE,
 
+    // return status information for a buffer group
+    REGISTER_PBUF_STATUS,
+
+    // set/clear busy poll settings
+    REGISTER_NAPI,
+    UNREGISTER_NAPI,
+
+    REGISTER_CLOCK,
+
+    // clone registered buffers from source ring to current ring
+    REGISTER_CLONE_BUFFERS,
+
+    // send MSG_RING without having a ring
+    REGISTER_SEND_MSG_RING,
+
+    // register a netdev hw rx queue for zerocopy
+    REGISTER_ZCRX_IFQ,
+
+    // resize CQ ring
+    REGISTER_RESIZE_RINGS,
+
+    REGISTER_MEM_REGION,
+
     // flag added to the opcode to use a registered ring fd
-    IORING_REGISTER_USE_REGISTERED_RING = 1 << 31,
+    REGISTER_USE_REGISTERED_RING = 1 << 31,
 
     _,
 };
@@ -6131,6 +6750,13 @@ pub const io_uring_notification_register = extern struct {
     resv2: u64,
     data: u64,
     resv3: u64,
+};
+
+pub const io_uring_napi = extern struct {
+    busy_poll_to: u32,
+    prefer_busy_poll: u8,
+    _pad: [3]u8,
+    resv: u64,
 };
 
 /// Skip updating fd indexes set to this value in the fd table */
@@ -8608,8 +9234,26 @@ pub const perf_event_attr = extern struct {
         write_backward: bool = false,
         /// include namespaces data
         namespaces: bool = false,
+        /// include ksymbol events
+        ksymbol: bool = false,
+        /// include BPF events
+        bpf_event: bool = false,
+        /// generate AUX records instead of events
+        aux_output: bool = false,
+        /// include cgroup events
+        cgroup: bool = false,
+        /// include text poke events
+        text_poke: bool = false,
+        /// use build ID in mmap2 events
+        build_id: bool = false,
+        /// children only inherit if cloned with CLONE_THREAD
+        inherit_thread: bool = false,
+        /// event is removed from task on exec
+        remove_on_exec: bool = false,
+        /// send synchronous SIGTRAP on event
+        sigtrap: bool = false,
 
-        __reserved_1: u35 = 0,
+        __reserved_1: u26 = 0,
     } = .{},
     /// wakeup every n events, or
     /// bytes before wakeup
@@ -8652,6 +9296,118 @@ pub const perf_event_attr = extern struct {
     sample_max_stack: u16 = 0,
     /// Align to u64
     __reserved_2: u16 = 0,
+
+    aux_sample_size: u32 = 0,
+    aux_action: packed struct(u32) {
+        /// start AUX area tracing paused
+        start_paused: bool = false,
+        /// on overflow, pause AUX area tracing
+        pause: bool = false,
+        /// on overflow, resume AUX area tracing
+        @"resume": bool = false,
+
+        __reserved_3: u29 = 0,
+    } = .{},
+
+    /// User provided data if sigtrap == true
+    sig_data: u64 = 0,
+
+    /// Extension of config2
+    config3: u64 = 0,
+};
+
+pub const perf_event_header = extern struct {
+    /// Event type: sample/mmap/fork/etc.
+    type: PERF.RECORD,
+    /// Additional informations on the event: kernel/user/hypervisor/etc.
+    misc: packed struct(u16) {
+        cpu_mode: PERF.RECORD.MISC.CPU_MODE,
+        _: u9,
+        PROC_MAP_PARSE_TIMEOUT: bool,
+        bit13: packed union {
+            MMAP_DATA: bool,
+            COMM_EXEC: bool,
+            FORK_EXEC: bool,
+            SWITCH_OUT: bool,
+        },
+        bit14: packed union {
+            EXACT_IP: bool,
+            SWITCH_OUT_PREEMPT: bool,
+            MMAP_BUILD_ID: bool,
+        },
+        EXT_RESERVED: bool,
+    },
+    /// Size of the following record
+    size: u16,
+};
+
+pub const perf_event_mmap_page = extern struct {
+    /// Version number of this struct
+    version: u32,
+    /// Lowest version this is compatible with
+    compt_version: u32,
+    /// Seqlock for synchronization
+    lock: u32,
+    /// Hardware counter identifier
+    index: u32,
+    /// Add to hardware counter value
+    offset: i64,
+    /// Time the event was active
+    time_enabled: u64,
+    /// Time the event was running
+    time_running: u64,
+    capabilities: packed struct(u64) {
+        /// If kernel version < 3.12
+        /// this rapresents both user_rdpmc and user_time (user_rdpmc | user_time)
+        /// otherwise deprecated.
+        bit0: bool,
+        /// Set if bit0 is deprecated
+        bit0_is_deprecated: bool,
+        /// Hardware support for userspace read of performance counters
+        user_rdpmc: bool,
+        /// Hardware support for a constant non stop timestamp counter (Eg. TSC on x86)
+        user_time: bool,
+        /// The time_zero field is used
+        user_time_zero: bool,
+        /// The time_{cycle,mask} fields are used
+        user_time_short: bool,
+        ____res: u58,
+    },
+    /// If capabilities.user_rdpmc
+    /// this field reports the bit-width of the value read with rdpmc() or equivalent
+    pcm_width: u16,
+    /// If capabilities.user_time the following fields can be used to compute the time
+    /// delta since time_enabled (in ns) using RDTSC or similar
+    time_shift: u16,
+    time_mult: u32,
+    time_offset: u64,
+    /// If capabilities.user_time_zero the hardware clock can be calculated from
+    /// sample timestamps
+    time_zero: u64,
+    /// Header size
+    size: u32,
+    __reserved_1: u32,
+    /// The following fields are used to compute the timestamp when the hardware clock
+    /// is less than 64bit wide
+    time_cycles: u64,
+    time_mask: u64,
+    __reserved: [116 * 8]u8,
+    /// Head in the data section
+    data_head: u64,
+    /// Userspace written tail
+    data_tail: u64,
+    /// Where the buffer starts
+    data_offset: u64,
+    /// Data buffer size
+    data_size: u64,
+    // if aux is used, head in the data section
+    aux_head: u64,
+    // if aux is used, userspace written tail
+    aux_tail: u64,
+    // if aux is used, where the buffer starts
+    aux_offset: u64,
+    // if aux is used, data buffer size
+    aux_size: u64,
 };
 
 pub const PERF = struct {
@@ -8763,6 +9519,41 @@ pub const PERF = struct {
             pub const NO_CYCLES = 1 << 15;
             pub const TYPE_SAVE = 1 << 16;
             pub const MAX = 1 << 17;
+        };
+    };
+
+    pub const RECORD = enum(u32) {
+        MMAP = 1,
+        LOST = 2,
+        COMM = 3,
+        EXIT = 4,
+        THROTTLE = 5,
+        UNTHROTTLE = 6,
+        FORK = 7,
+        READ = 8,
+        SAMPLE = 9,
+        MMAP2 = 10,
+        AUX = 11,
+        ITRACE_START = 12,
+        LOST_SAMPLES = 13,
+        SWITCH = 14,
+        SWITCH_CPU_WIDE = 15,
+        NAMESPACES = 16,
+        KSYMBOL = 17,
+        BPF_EVENT = 18,
+        CGROUP = 19,
+        TEXT_POKE = 20,
+        AUX_OUTPUT_HW_ID = 21,
+
+        const MISC = struct {
+            pub const CPU_MODE = enum(u3) {
+                UNKNOWN = 0,
+                KERNEL = 1,
+                USER = 2,
+                HYPERVISOR = 3,
+                GUEST_KERNEL = 4,
+                GUEST_USER = 5,
+            };
         };
     };
 
@@ -8926,19 +9717,46 @@ pub const PTRACE = struct {
     pub const SECCOMP_GET_FILTER = 0x420c;
     pub const SECCOMP_GET_METADATA = 0x420d;
     pub const GET_SYSCALL_INFO = 0x420e;
+
+    pub const EVENT = struct {
+        pub const FORK = 1;
+        pub const VFORK = 2;
+        pub const CLONE = 3;
+        pub const EXEC = 4;
+        pub const VFORK_DONE = 5;
+        pub const EXIT = 6;
+        pub const SECCOMP = 7;
+        pub const STOP = 128;
+    };
+
+    pub const O = struct {
+        pub const TRACESYSGOOD = 1;
+        pub const TRACEFORK = 1 << PTRACE.EVENT.FORK;
+        pub const TRACEVFORK = 1 << PTRACE.EVENT.VFORK;
+        pub const TRACECLONE = 1 << PTRACE.EVENT.CLONE;
+        pub const TRACEEXEC = 1 << PTRACE.EVENT.EXEC;
+        pub const TRACEVFORKDONE = 1 << PTRACE.EVENT.VFORK_DONE;
+        pub const TRACEEXIT = 1 << PTRACE.EVENT.EXIT;
+        pub const TRACESECCOMP = 1 << PTRACE.EVENT.SECCOMP;
+
+        pub const EXITKILL = 1 << 20;
+        pub const SUSPEND_SECCOMP = 1 << 21;
+
+        pub const MASK = 0x000000ff | PTRACE.O.EXITKILL | PTRACE.O.SUSPEND_SECCOMP;
+    };
 };
 
-/// A waiter for vectorized wait.
-pub const futex_waitv = extern struct {
-    // Expected value at uaddr
+/// For futex2_waitv and futex2_requeue. Arrays of `futex2_waitone` allow
+/// waiting on multiple futexes in one call.
+pub const futex2_waitone = extern struct {
+    /// Expected value at uaddr, should match size of futex.
     val: u64,
-    /// User address to wait on.
+    /// User address to wait on.  Top-bits must be 0 on 32-bit.
     uaddr: u64,
     /// Flags for this waiter.
-    flags: u32,
+    flags: FUTEX2_FLAGS,
     /// Reserved member to preserve alignment.
-    /// Should be 0.
-    __reserved: u32,
+    __reserved: u32 = 0,
 };
 
 pub const cache_stat_range = extern struct {
@@ -8965,4 +9783,161 @@ pub const cache_stat = extern struct {
 pub const SHADOW_STACK = struct {
     /// Set up a restore token in the shadow stack.
     pub const SET_TOKEN: u64 = 1 << 0;
+};
+
+pub const msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: usize,
+    control: ?*anyopaque,
+    controllen: usize,
+    flags: u32,
+};
+
+pub const msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]const iovec_const,
+    iovlen: usize,
+    control: ?*const anyopaque,
+    controllen: usize,
+    flags: u32,
+};
+
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=b320789d6883cc00ac78ce83bccbfe7ed58afcf0#n105
+pub const cmsghdr = extern struct {
+    len: usize,
+    level: i32,
+    type: i32,
+};
+
+/// The syscalls, but with Zig error sets, going through libc if linking libc,
+/// and with some footguns eliminated.
+pub const wrapped = struct {
+    pub const lfs64_abi = builtin.link_libc and (builtin.abi.isGnu() or builtin.abi.isAndroid());
+    const system = if (builtin.link_libc) std.c else std.os.linux;
+
+    pub const SendfileError = std.posix.UnexpectedError || error{
+        /// `out_fd` is an unconnected socket, or out_fd closed its read end.
+        BrokenPipe,
+        /// Descriptor is not valid or locked, or an mmap(2)-like operation is not available for in_fd.
+        UnsupportedOperation,
+        /// Nonblocking I/O has been selected but the write would block.
+        WouldBlock,
+        /// Unspecified error while reading from in_fd.
+        InputOutput,
+        /// Insufficient kernel memory to read from in_fd.
+        SystemResources,
+        /// `offset` is not `null` but the input file is not seekable.
+        Unseekable,
+    };
+
+    pub fn sendfile(
+        out_fd: fd_t,
+        in_fd: fd_t,
+        in_offset: ?*off_t,
+        in_len: usize,
+    ) SendfileError!usize {
+        const adjusted_len = @min(in_len, 0x7ffff000); // Prevents EOVERFLOW.
+        const sendfileSymbol = if (lfs64_abi) system.sendfile64 else system.sendfile;
+        const rc = sendfileSymbol(out_fd, in_fd, in_offset, adjusted_len);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .BADF => return invalidApiUsage(), // Always a race condition.
+            .FAULT => return invalidApiUsage(), // Segmentation fault.
+            .OVERFLOW => return unexpectedErrno(.OVERFLOW), // We avoid passing too large of a `count`.
+            .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
+            .INVAL => return error.UnsupportedOperation,
+            .AGAIN => return error.WouldBlock,
+            .IO => return error.InputOutput,
+            .PIPE => return error.BrokenPipe,
+            .NOMEM => return error.SystemResources,
+            .NXIO => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    pub const CopyFileRangeError = std.posix.UnexpectedError || error{
+        /// One of:
+        /// * One or more file descriptors are not valid.
+        /// * fd_in is not open for reading; or fd_out is not open for writing.
+        /// * The O_APPEND flag is set for the open file description referred
+        /// to by the file descriptor fd_out.
+        BadFileFlags,
+        /// One of:
+        /// * An attempt was made to write at a position past the maximum file
+        ///   offset the kernel supports.
+        /// * An attempt was made to write a range that exceeds the allowed
+        ///   maximum file size. The maximum file size differs between
+        ///   filesystem implementations and can be different from the maximum
+        ///   allowed file offset.
+        /// * An attempt was made to write beyond the process's file size
+        ///   resource limit. This may also result in the process receiving a
+        ///   SIGXFSZ signal.
+        FileTooBig,
+        /// One of:
+        /// * either fd_in or fd_out is not a regular file
+        /// * flags argument is not zero
+        /// * fd_in and fd_out refer to the same file and the source and target ranges overlap.
+        InvalidArguments,
+        /// A low-level I/O error occurred while copying.
+        InputOutput,
+        /// Either fd_in or fd_out refers to a directory.
+        IsDir,
+        OutOfMemory,
+        /// There is not enough space on the target filesystem to complete the copy.
+        NoSpaceLeft,
+        /// (since Linux 5.19) the filesystem does not support this operation.
+        OperationNotSupported,
+        /// The requested source or destination range is too large to represent
+        /// in the specified data types.
+        Overflow,
+        /// fd_out refers to an immutable file.
+        PermissionDenied,
+        /// Either fd_in or fd_out refers to an active swap file.
+        SwapFile,
+        /// The files referred to by fd_in and fd_out are not on the same
+        /// filesystem, and the source and target filesystems are not of the
+        /// same type, or do not support cross-filesystem copy.
+        NotSameFileSystem,
+    };
+
+    pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: u32) CopyFileRangeError!usize {
+        const use_c = std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 });
+        const sys = if (use_c) std.c else std.os.linux;
+        const rc = sys.copy_file_range(fd_in, off_in, fd_out, off_out, len, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .BADF => return error.BadFileFlags,
+            .FBIG => return error.FileTooBig,
+            .INVAL => return error.InvalidArguments,
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOMEM => return error.OutOfMemory,
+            .NOSPC => return error.NoSpaceLeft,
+            .OPNOTSUPP => return error.OperationNotSupported,
+            .OVERFLOW => return error.Overflow,
+            .PERM => return error.PermissionDenied,
+            .TXTBSY => return error.SwapFile,
+            .XDEV => return error.NotSameFileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    const unexpectedErrno = std.posix.unexpectedErrno;
+
+    fn invalidApiUsage() error{Unexpected} {
+        if (builtin.mode == .Debug) @panic("invalid API usage");
+        return error.Unexpected;
+    }
+
+    fn errno(rc: anytype) E {
+        if (builtin.link_libc) {
+            return if (rc == -1) @enumFromInt(std.c._errno().*) else .SUCCESS;
+        } else {
+            return errnoFromSyscall(rc);
+        }
+    }
 };

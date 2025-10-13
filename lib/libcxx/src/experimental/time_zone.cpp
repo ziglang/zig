@@ -29,6 +29,15 @@
 // These quirks often use a 12h interval; this is the scan interval of zdump,
 // which implies there are no sys_info objects with a duration of less than 12h.
 
+// Work around https://gcc.gnu.org/bugzilla/show_bug.cgi?id=120502
+
+#include <__config>
+
+// TODO(LLVM 23): When upgrading to GCC 16 this can be removed
+#ifdef _LIBCPP_COMPILER_GCC
+#  pragma GCC optimize("-O0")
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -199,7 +208,7 @@ __format(const __tz::__continuation& __continuation, const string& __letters, se
                    // active at the end. This should be determined separately.
                    return chrono::seconds{0};
                  else
-                   static_assert(sizeof(_Tp) == 0); // TODO TZDB static_assert(false); after droping clang-16 support
+                   static_assert(false);
 
                  std::__libcpp_unreachable();
                },
@@ -225,7 +234,7 @@ __format(const __tz::__continuation& __continuation, const string& __letters, se
         else if constexpr (same_as<_Tp, __tz::__constrained_weekday>)
           return __value(__year, __month);
         else
-          static_assert(sizeof(_Tp) == 0); // TODO TZDB static_assert(false); after droping clang-16 support
+          static_assert(false);
 
         std::__libcpp_unreachable();
       },
@@ -668,7 +677,7 @@ __first_rule(seconds __stdoff, const vector<__tz::__rule>& __rules) {
                __continuation_end,
                __continuation.__stdoff + __save,
                chrono::duration_cast<minutes>(__save),
-               __continuation.__format},
+               chrono::__format(__continuation, __continuation.__format, __save)},
       true};
 }
 
@@ -688,7 +697,7 @@ __get_sys_info(sys_seconds __time,
         else if constexpr (same_as<_Tp, __tz::__save>)
           return chrono::__get_sys_info_basic(__time, __continuation_begin, __continuation, __value.__time);
         else
-          static_assert(sizeof(_Tp) == 0); // TODO TZDB static_assert(false); after droping clang-16 support
+          static_assert(false);
 
         std::__libcpp_unreachable();
       },

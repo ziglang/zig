@@ -17,8 +17,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
         : [number] "{r7}" (@intFromEnum(number)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -26,8 +25,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r0}" (-> usize),
         : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -36,8 +34,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -47,8 +44,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -59,8 +55,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -72,8 +67,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -94,8 +88,7 @@ pub fn syscall6(
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
           [arg6] "{r5}" (arg6),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -141,14 +134,12 @@ pub fn restore() callconv(.naked) noreturn {
             \\ svc #0
             :
             : [number] "I" (@intFromEnum(SYS.sigreturn)),
-            : "memory"
-        ),
+            : .{ .memory = true }),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{r7}" (@intFromEnum(SYS.sigreturn)),
-            : "memory"
-        ),
+            : .{ .memory = true }),
     }
 }
 
@@ -159,18 +150,14 @@ pub fn restore_rt() callconv(.naked) noreturn {
             \\ svc #0
             :
             : [number] "I" (@intFromEnum(SYS.rt_sigreturn)),
-            : "memory"
         ),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{r7}" (@intFromEnum(SYS.rt_sigreturn)),
-            : "memory"
         ),
     }
 }
-
-pub const MMAP2_UNIT = 4096;
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -239,26 +226,6 @@ pub const Flock = extern struct {
     __unused: [4]u8,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
 pub const time_t = isize;
@@ -309,41 +276,5 @@ pub const timezone = extern struct {
     minuteswest: i32,
     dsttime: i32,
 };
-
-pub const mcontext_t = extern struct {
-    trap_no: usize,
-    error_code: usize,
-    oldmask: usize,
-    arm_r0: usize,
-    arm_r1: usize,
-    arm_r2: usize,
-    arm_r3: usize,
-    arm_r4: usize,
-    arm_r5: usize,
-    arm_r6: usize,
-    arm_r7: usize,
-    arm_r8: usize,
-    arm_r9: usize,
-    arm_r10: usize,
-    arm_fp: usize,
-    arm_ip: usize,
-    arm_sp: usize,
-    arm_lr: usize,
-    arm_pc: usize,
-    arm_cpsr: usize,
-    fault_address: usize,
-};
-
-pub const ucontext_t = extern struct {
-    flags: usize,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: sigset_t,
-    regspace: [64]u64,
-};
-
-/// TODO
-pub const getcontext = {};
 
 pub const Elf_Symndx = u32;

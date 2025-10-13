@@ -42,6 +42,7 @@
 #include <__assert>
 #include <__config>
 #include <charconv>
+#include <cstddef>
 
 #include "include/ryu/common.h"
 #include "include/ryu/d2fixed.h"
@@ -478,7 +479,7 @@ struct __floating_decimal_64 {
           36893488u, 7378697u, 1475739u, 295147u, 59029u, 11805u, 2361u, 472u, 94u, 18u, 3u };
 
         unsigned long _Trailing_zero_bits;
-#ifdef _LIBCPP_HAS_BITSCAN64
+#if _LIBCPP_HAS_BITSCAN64
         (void) _BitScanForward64(&_Trailing_zero_bits, __v.__mantissa); // __v.__mantissa is guaranteed nonzero
 #else // ^^^ 64-bit ^^^ / vvv 32-bit vvv
         const uint32_t _Low_mantissa = static_cast<uint32_t>(__v.__mantissa);

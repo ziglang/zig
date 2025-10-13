@@ -39,19 +39,19 @@ inline _LIBCPP_HIDE_FROM_ABI double sqrt(_A1 __x) _NOEXCEPT {
 
 // cbrt
 
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI float cbrt(float __x) _NOEXCEPT { return __builtin_cbrtf(__x); }
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI float cbrt(float __x) _NOEXCEPT { return __builtin_cbrtf(__x); }
 
 template <class = int>
-_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI double cbrt(double __x) _NOEXCEPT {
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI double cbrt(double __x) _NOEXCEPT {
   return __builtin_cbrt(__x);
 }
 
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI long double cbrt(long double __x) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI long double cbrt(long double __x) _NOEXCEPT {
   return __builtin_cbrtl(__x);
 }
 
 template <class _A1, __enable_if_t<is_integral<_A1>::value, int> = 0>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI double cbrt(_A1 __x) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI double cbrt(_A1 __x) _NOEXCEPT {
   return __builtin_cbrt((double)__x);
 }
 

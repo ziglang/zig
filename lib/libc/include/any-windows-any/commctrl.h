@@ -3827,7 +3827,7 @@ extern "C" {
 #define TreeView_ShowInfoTip(hwnd, hitem) (DWORD)SNDMSG ((hwnd), TVM_SHOWINFOTIP, 0,(LPARAM) (hitem))
 
   typedef enum _TVITEMPART {
-    TVGIPR_BUTTON = 0x0001,
+    TVGIPR_BUTTON = 0x0001
   } TVITEMPART;
 
   typedef struct tagTVGETITEMPARTRECTINFO {
@@ -5534,7 +5534,7 @@ WINCOMMCTRLAPI WINBOOL WINAPI Str_SetPtrW (LPWSTR *ppsz, LPCWSTR psz);
 #if NTDDI_VERSION >= 0x06000000
   enum _LI_METRIC {
     LIM_SMALL,
-    LIM_LARGE,
+    LIM_LARGE
   };
 
   WINCOMMCTRLAPI HRESULT WINAPI LoadIconMetric (HINSTANCE hinst, PCWSTR pszName, int lims, HICON *phico);

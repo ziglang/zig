@@ -100,7 +100,13 @@ template <class _Tp, class _Up>
 inline const bool __desugars_to_v<__equal_tag, ranges::equal_to, _Tp, _Up> = true;
 
 template <class _Tp, class _Up>
+inline const bool __desugars_to_v<__totally_ordered_less_tag, ranges::less, _Tp, _Up> = true;
+
+template <class _Tp, class _Up>
 inline const bool __desugars_to_v<__less_tag, ranges::less, _Tp, _Up> = true;
+
+template <class _Tp, class _Up>
+inline const bool __desugars_to_v<__greater_tag, ranges::greater, _Tp, _Up> = true;
 
 #endif // _LIBCPP_STD_VER >= 20
 

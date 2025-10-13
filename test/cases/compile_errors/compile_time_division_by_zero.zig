@@ -10,4 +10,4 @@ export fn entry() usize {
 // error
 //
 // :3:16: error: division by zero here causes illegal behavior
-// :1:14: note: called from here
+// :1:14: note: called at comptime here

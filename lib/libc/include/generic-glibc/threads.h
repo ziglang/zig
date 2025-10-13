@@ -16,6 +16,12 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
+
+// zig patch: threads header was added in glibc 2.28
+#if __GLIBC__ == 2 && __GLIBC_MINOR__ < 28
+   #error "threads.h did not exist before glibc 2.28"
+#endif /* error for glibc before 2.28 */
+
 #ifndef _THREADS_H
 #define _THREADS_H	1
 

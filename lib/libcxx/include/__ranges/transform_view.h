@@ -34,9 +34,11 @@
 #include <__ranges/view_interface.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/decay.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_object.h>
 #include <__type_traits/is_reference.h>
+#include <__type_traits/is_referenceable.h>
 #include <__type_traits/maybe_const.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
@@ -62,7 +64,7 @@ concept __regular_invocable_with_range_ref = regular_invocable<_Fn, range_refere
 template <class _View, class _Fn>
 concept __transform_view_constraints =
     view<_View> && is_object_v<_Fn> && regular_invocable<_Fn&, range_reference_t<_View>> &&
-    __can_reference<invoke_result_t<_Fn&, range_reference_t<_View>>>;
+    __is_referenceable_v<invoke_result_t<_Fn&, range_reference_t<_View>>>;
 
 #  if _LIBCPP_STD_VER >= 23
 template <input_range _View, move_constructible _Fn>
@@ -135,22 +137,22 @@ transform_view(_Range&&, _Fn) -> transform_view<views::all_t<_Range>, _Fn>;
 
 template <class _View>
 struct __transform_view_iterator_concept {
-  using type = input_iterator_tag;
+  using type _LIBCPP_NODEBUG = input_iterator_tag;
 };
 
 template <random_access_range _View>
 struct __transform_view_iterator_concept<_View> {
-  using type = random_access_iterator_tag;
+  using type _LIBCPP_NODEBUG = random_access_iterator_tag;
 };
 
 template <bidirectional_range _View>
 struct __transform_view_iterator_concept<_View> {
-  using type = bidirectional_iterator_tag;
+  using type _LIBCPP_NODEBUG = bidirectional_iterator_tag;
 };
 
 template <forward_range _View>
 struct __transform_view_iterator_concept<_View> {
-  using type = forward_iterator_tag;
+  using type _LIBCPP_NODEBUG = forward_iterator_tag;
 };
 
 template <class, class>
@@ -158,7 +160,7 @@ struct __transform_view_iterator_category_base {};
 
 template <forward_range _View, class _Fn>
 struct __transform_view_iterator_category_base<_View, _Fn> {
-  using _Cat = typename iterator_traits<iterator_t<_View>>::iterator_category;
+  using _Cat _LIBCPP_NODEBUG = typename iterator_traits<iterator_t<_View>>::iterator_category;
 
   using iterator_category =
       conditional_t< is_reference_v<invoke_result_t<_Fn&, range_reference_t<_View>>>,
@@ -173,10 +175,11 @@ template <input_range _View, copy_constructible _Fn>
 #  endif
   requires __transform_view_constraints<_View, _Fn>
 template <bool _Const>
-class transform_view<_View, _Fn>::__iterator : public __transform_view_iterator_category_base<_View, _Fn> {
+class transform_view<_View, _Fn>::__iterator
+    : public __transform_view_iterator_category_base<_View, __maybe_const<_Const, _Fn>> {
 
-  using _Parent = __maybe_const<_Const, transform_view>;
-  using _Base   = __maybe_const<_Const, _View>;
+  using _Parent _LIBCPP_NODEBUG = __maybe_const<_Const, transform_view>;
+  using _Base _LIBCPP_NODEBUG   = __maybe_const<_Const, _View>;
 
   _Parent* __parent_ = nullptr;
 
@@ -190,7 +193,7 @@ public:
   iterator_t<_Base> __current_ = iterator_t<_Base>();
 
   using iterator_concept = typename __transform_view_iterator_concept<_View>::type;
-  using value_type       = remove_cvref_t<invoke_result_t<_Fn&, range_reference_t<_Base>>>;
+  using value_type       = remove_cvref_t<invoke_result_t<__maybe_const<_Const, _Fn>&, range_reference_t<_Base>>>;
   using difference_type  = range_difference_t<_Base>;
 
   _LIBCPP_HIDE_FROM_ABI __iterator()
@@ -336,8 +339,8 @@ template <input_range _View, copy_constructible _Fn>
   requires __transform_view_constraints<_View, _Fn>
 template <bool _Const>
 class transform_view<_View, _Fn>::__sentinel {
-  using _Parent = __maybe_const<_Const, transform_view>;
-  using _Base   = __maybe_const<_Const, _View>;
+  using _Parent _LIBCPP_NODEBUG = __maybe_const<_Const, transform_view>;
+  using _Base _LIBCPP_NODEBUG   = __maybe_const<_Const, _View>;
 
   sentinel_t<_Base> __end_ = sentinel_t<_Base>();
 
@@ -396,7 +399,7 @@ struct __fn {
     requires constructible_from<decay_t<_Fn>, _Fn>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Fn&& __f) const
       noexcept(is_nothrow_constructible_v<decay_t<_Fn>, _Fn>) {
-    return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Fn>(__f)));
+    return __pipeable(std::__bind_back(*this, std::forward<_Fn>(__f)));
   }
 };
 } // namespace __transform

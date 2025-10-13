@@ -10,9 +10,8 @@
 #define _LIBCPP___UTILITY_NO_DESTROY_H
 
 #include <__config>
-#include <__type_traits/is_constant_evaluated.h>
+#include <__new/placement_new_delete.h>
 #include <__utility/forward.h>
-#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

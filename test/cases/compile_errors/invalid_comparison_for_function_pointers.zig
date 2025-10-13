@@ -6,7 +6,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:21: error: operator > not allowed for type 'fn () void'

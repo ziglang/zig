@@ -32,7 +32,14 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
-pub const backend_can_print = !(builtin.zig_backend == .stage2_spirv64 or builtin.zig_backend == .stage2_riscv64);
+pub const backend_can_print = switch (builtin.zig_backend) {
+    .stage2_aarch64,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    .stage2_spirv,
+    => false,
+    else => true,
+};
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
@@ -99,7 +106,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         .error_set,
         => {
             if (actual != expected) {
-                print("expected {}, found {}\n", .{ expected, actual });
+                print("expected {any}, found {any}\n", .{ expected, actual });
                 return error.TestExpectedEqual;
             }
         },
@@ -128,15 +135,9 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         .array => |array| try expectEqualSlices(array.child, &expected, &actual),
 
         .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!std.meta.eql(expected[i], actual[i])) {
-                    print("index {d} incorrect. expected {any}, found {any}\n", .{
-                        i, expected[i], actual[i],
-                    });
-                    return error.TestExpectedEqual;
-                }
-            }
+            const expect_array: [info.len]info.child = expected;
+            const actual_array: [info.len]info.child = actual;
+            try expectEqualSlices(info.child, &expect_array, &actual_array);
         },
 
         .@"struct" => |structType| {
@@ -147,7 +148,18 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
+                const first_size = @bitSizeOf(union_info.fields[0].type);
+                inline for (union_info.fields) |field| {
+                    if (@bitSizeOf(field.type) != first_size) {
+                        @compileError("Unable to compare untagged unions with varying field sizes for type " ++ @typeName(@TypeOf(actual)));
+                    }
+                }
+
+                const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(T));
+                return expectEqual(
+                    @as(BackingInt, @bitCast(expected)),
+                    @as(BackingInt, @bitCast(actual)),
+                );
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));
@@ -250,9 +262,13 @@ test "expectEqual null" {
 
 /// This function is intended to be used only in tests. When the formatted result of the template
 /// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
-/// they are not equal, then returns an error. It depends on `expectEqualStrings()` for printing
+/// they are not equal, then returns an error. It depends on `expectEqualStrings` for printing
 /// diagnostics.
 pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
+    if (@inComptime()) {
+        var buffer: [std.fmt.count(template, args)]u8 = undefined;
+        return expectEqualStrings(expected, try std.fmt.bufPrint(&buffer, template, args));
+    }
     const actual = try std.fmt.allocPrint(allocator, template, args);
     defer allocator.free(actual);
     return expectEqualStrings(expected, actual);
@@ -336,12 +352,9 @@ test expectApproxEqRel {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
+/// The colorized output is optional and controlled by the return of `std.Io.tty.detectConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
-    if (expected.ptr == actual.ptr and expected.len == actual.len) {
-        return;
-    }
     const diff_index: usize = diff_index: {
         const shortest = @min(expected.len, actual.len);
         var index: usize = 0;
@@ -350,12 +363,21 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         }
         break :diff_index if (expected.len == actual.len) return else shortest;
     };
+    if (!backend_can_print) return error.TestExpectedEqual;
+    const stderr_w = std.debug.lockStderrWriter(&.{});
+    defer std.debug.unlockStderrWriter();
+    failEqualSlices(T, expected, actual, diff_index, stderr_w) catch {};
+    return error.TestExpectedEqual;
+}
 
-    if (!backend_can_print) {
-        return error.TestExpectedEqual;
-    }
-
-    print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
+fn failEqualSlices(
+    comptime T: type,
+    expected: []const T,
+    actual: []const T,
+    diff_index: usize,
+    w: *std.Io.Writer,
+) !void {
+    try w.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
     // TODO: Should this be configurable by the caller?
     const max_lines: usize = 16;
@@ -373,8 +395,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const stderr = std.io.getStdErr();
-    const ttyconf = std.io.tty.detectConfig(stderr);
+    const ttyconf = std.Io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -390,47 +411,47 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     // that is usually useful.
     const index_fmt = if (T == u8) "0x{X}" else "{}";
 
-    print("\n============ expected this output: =============  len: {} (0x{X})\n\n", .{ expected.len, expected.len });
+    try w.print("\n============ expected this output: =============  len: {} (0x{X})\n\n", .{ expected.len, expected.len });
     if (window_start > 0) {
         if (T == u8) {
-            print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+            try w.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
         } else {
-            print("... truncated ...\n", .{});
+            try w.print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.writer()) catch {};
+    differ.write(w) catch {};
     if (expected_truncated) {
         const end_offset = window_start + expected_window.len;
         const num_missing_items = expected.len - (window_start + expected_window.len);
         if (T == u8) {
-            print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+            try w.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
         } else {
-            print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+            try w.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
         }
     }
 
     // now reverse expected/actual and print again
     differ.expected = actual_window;
     differ.actual = expected_window;
-    print("\n============= instead found this: ==============  len: {} (0x{X})\n\n", .{ actual.len, actual.len });
+    try w.print("\n============= instead found this: ==============  len: {} (0x{X})\n\n", .{ actual.len, actual.len });
     if (window_start > 0) {
         if (T == u8) {
-            print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+            try w.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
         } else {
-            print("... truncated ...\n", .{});
+            try w.print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.writer()) catch {};
+    differ.write(w) catch {};
     if (actual_truncated) {
         const end_offset = window_start + actual_window.len;
         const num_missing_items = actual.len - (window_start + actual_window.len);
         if (T == u8) {
-            print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+            try w.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
         } else {
-            print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+            try w.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
         }
     }
-    print("\n================================================\n\n", .{});
+    try w.print("\n================================================\n\n", .{});
 
     return error.TestExpectedEqual;
 }
@@ -440,11 +461,11 @@ fn SliceDiffer(comptime T: type) type {
         start_index: usize,
         expected: []const T,
         actual: []const T,
-        ttyconf: std.io.tty.Config,
+        ttyconf: std.Io.tty.Config,
 
         const Self = @This();
 
-        pub fn write(self: Self, writer: anytype) !void {
+        pub fn write(self: Self, writer: *std.Io.Writer) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
@@ -463,9 +484,9 @@ fn SliceDiffer(comptime T: type) type {
 const BytesDiffer = struct {
     expected: []const u8,
     actual: []const u8,
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
 
-    pub fn write(self: BytesDiffer, writer: anytype) !void {
+    pub fn write(self: BytesDiffer, writer: *std.Io.Writer) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -482,7 +503,7 @@ const BytesDiffer = struct {
             if (chunk.len < 16) {
                 var missing_columns = (16 - chunk.len) * 3;
                 if (chunk.len < 8) missing_columns += 1;
-                try writer.writeByteNTimes(' ', missing_columns);
+                try writer.splatByteAll(' ', missing_columns);
             }
             for (chunk, 0..) |byte, col| {
                 const diff = diffs.isSet(col);
@@ -511,7 +532,7 @@ const BytesDiffer = struct {
         }
     }
 
-    fn writeDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(writer, .red);
         try writer.print(fmt, args);
         if (diff) try self.ttyconf.setColor(writer, .reset);
@@ -620,6 +641,11 @@ pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {
 
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
     if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
+        if (@inComptime()) {
+            @compileError(std.fmt.comptimePrint("\nexpected:\n{s}\nfound:\n{s}\ndifference starts at index {d}", .{
+                expected, actual, diff_index,
+            }));
+        }
         print("\n====== expected this output: =========\n", .{});
         printWithVisibleNewlines(expected);
         print("\n======== instead found this: =========\n", .{});
@@ -796,8 +822,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
                 print("Vector len not the same, expected {d}, found {d}\n", .{ info.len, @typeInfo(@TypeOf(actual)).vector.len });
                 return error.TestExpectedEqual;
             }
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
+            inline for (0..info.len) |i| {
                 expectEqualDeep(expected[i], actual[i]) catch |e| {
                     print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
@@ -1091,7 +1116,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         const arg_i_str = comptime str: {
             var str_buf: [100]u8 = undefined;
             const args_i = i + 1;
-            const str_len = std.fmt.formatIntBuf(&str_buf, args_i, 10, .lower, .{});
+            const str_len = std.fmt.printInt(&str_buf, args_i, 10, .lower, .{});
             break :str str_buf[0..str_len];
         };
         @field(args, arg_i_str) = @field(extra_args, field.name);
@@ -1121,7 +1146,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
                     print(
-                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {}",
+                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {f}",
                         .{
                             fail_index,
                             needed_alloc_count,
@@ -1175,3 +1200,105 @@ pub inline fn fuzz(
 ) anyerror!void {
     return @import("root").fuzz(context, testOne, options);
 }
+
+/// A `std.Io.Reader` that writes a predetermined list of buffers during `stream`.
+pub const Reader = struct {
+    calls: []const Call,
+    interface: std.Io.Reader,
+    next_call_index: usize,
+    next_offset: usize,
+    /// Further reduces how many bytes are written in each `stream` call.
+    artificial_limit: std.Io.Limit = .unlimited,
+
+    pub const Call = struct {
+        buffer: []const u8,
+    };
+
+    pub fn init(buffer: []u8, calls: []const Call) Reader {
+        return .{
+            .next_call_index = 0,
+            .next_offset = 0,
+            .interface = .{
+                .vtable = &.{ .stream = stream },
+                .buffer = buffer,
+                .seek = 0,
+                .end = 0,
+            },
+            .calls = calls,
+        };
+    }
+
+    fn stream(io_r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
+        if (r.calls.len - r.next_call_index == 0) return error.EndOfStream;
+        const call = r.calls[r.next_call_index];
+        const buffer = r.artificial_limit.sliceConst(limit.sliceConst(call.buffer[r.next_offset..]));
+        const n = try w.write(buffer);
+        r.next_offset += n;
+        if (call.buffer.len - r.next_offset == 0) {
+            r.next_call_index += 1;
+            r.next_offset = 0;
+        }
+        return n;
+    }
+};
+
+/// A `std.Io.Reader` that gets its data from another `std.Io.Reader`, and always
+/// writes to its own buffer (and returns 0) during `stream` and `readVec`.
+pub const ReaderIndirect = struct {
+    in: *std.Io.Reader,
+    interface: std.Io.Reader,
+
+    pub fn init(in: *std.Io.Reader, buffer: []u8) ReaderIndirect {
+        return .{
+            .in = in,
+            .interface = .{
+                .vtable = &.{
+                    .stream = stream,
+                    .readVec = readVec,
+                },
+                .buffer = buffer,
+                .seek = 0,
+                .end = 0,
+            },
+        };
+    }
+
+    fn readVec(r: *std.Io.Reader, _: [][]u8) std.Io.Reader.Error!usize {
+        try streamInner(r);
+        return 0;
+    }
+
+    fn stream(r: *std.Io.Reader, _: *std.Io.Writer, _: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        try streamInner(r);
+        return 0;
+    }
+
+    fn streamInner(r: *std.Io.Reader) std.Io.Reader.Error!void {
+        const r_indirect: *ReaderIndirect = @alignCast(@fieldParentPtr("interface", r));
+
+        // If there's no room remaining in the buffer at all, make room.
+        if (r.buffer.len == r.end) {
+            try r.rebase(r.buffer.len);
+        }
+
+        var writer: std.Io.Writer = .{
+            .buffer = r.buffer,
+            .end = r.end,
+            .vtable = &.{
+                .drain = std.Io.Writer.unreachableDrain,
+                .rebase = std.Io.Writer.unreachableRebase,
+            },
+        };
+        defer r.end = writer.end;
+
+        r_indirect.in.streamExact(&writer, r.buffer.len - r.end) catch |err| switch (err) {
+            // Only forward EndOfStream if no new bytes were written to the buffer
+            error.EndOfStream => |e| if (r.end == writer.end) {
+                return e;
+            },
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
+    }
+};

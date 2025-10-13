@@ -12,9 +12,9 @@
 
 #include <__config>
 #include <__functional/binary_function.h>
-#include <__functional/invoke.h>
 #include <__functional/unary_function.h>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_same.h>
 #include <__utility/declval.h>
 
@@ -77,6 +77,7 @@ struct __maybe_derive_from_unary_function // bool is true
 template <class _Tp>
 struct __maybe_derive_from_unary_function<_Tp, false> {};
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Tp, bool = __derives_from_binary_function<_Tp>::value>
 struct __maybe_derive_from_binary_function // bool is true
     : public __derives_from_binary_function<_Tp>::type {};
@@ -99,6 +100,7 @@ struct __weak_result_type_imp<_Tp, false>
 
 template <class _Tp>
 struct __weak_result_type : public __weak_result_type_imp<_Tp> {};
+_LIBCPP_SUPPRESS_DEPRECATED_POP
 
 // 0 argument case
 
@@ -219,11 +221,6 @@ struct __weak_result_type<_Rp (_Cp::*)(_A1, _A2, _A3...) const volatile> {
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_BINDER_TYPEDEFS)
   using result_type _LIBCPP_NODEBUG _LIBCPP_DEPRECATED_IN_CXX17 = _Rp;
 #endif
-};
-
-template <class _Tp, class... _Args>
-struct __invoke_return {
-  typedef decltype(std::__invoke(std::declval<_Tp>(), std::declval<_Args>()...)) type;
 };
 
 _LIBCPP_END_NAMESPACE_STD

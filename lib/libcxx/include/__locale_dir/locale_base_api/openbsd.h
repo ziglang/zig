@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___LOCALE_LOCALE_BASE_API_OPENBSD_H
-#define _LIBCPP___LOCALE_LOCALE_BASE_API_OPENBSD_H
+#ifndef _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_OPENBSD_H
+#define _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_OPENBSD_H
 
 #include <__support/xlocale/__strtonum_fallback.h>
 #include <clocale>
@@ -16,4 +16,4 @@
 #include <ctype.h>
 #include <cwctype>
 
-#endif // _LIBCPP___LOCALE_LOCALE_BASE_API_OPENBSD_H
+#endif // _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_OPENBSD_H

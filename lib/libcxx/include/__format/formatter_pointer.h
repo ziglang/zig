@@ -11,13 +11,13 @@
 #define _LIBCPP___FORMAT_FORMATTER_POINTER_H
 
 #include <__config>
+#include <__cstddef/nullptr_t.h>
 #include <__format/concepts.h>
 #include <__format/format_parse_context.h>
 #include <__format/formatter.h>
 #include <__format/formatter_integral.h>
 #include <__format/formatter_output.h>
 #include <__format/parser_std_format_spec.h>
-#include <cstddef>
 #include <cstdint>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -29,7 +29,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS __formatter_pointer {
+struct __formatter_pointer {
 public:
   template <class _ParseContext>
   _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {
@@ -59,13 +59,21 @@ public:
 // - template<> struct formatter<void*, charT>;
 // - template<> struct formatter<const void*, charT>;
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<nullptr_t, _CharT> : public __formatter_pointer<_CharT> {};
+struct formatter<nullptr_t, _CharT> : public __formatter_pointer<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<void*, _CharT> : public __formatter_pointer<_CharT> {};
+struct formatter<void*, _CharT> : public __formatter_pointer<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<const void*, _CharT> : public __formatter_pointer<_CharT> {};
+struct formatter<const void*, _CharT> : public __formatter_pointer<_CharT> {};
 
-#endif //_LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 23
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<nullptr_t> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<void*> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<const void*> = true;
+#  endif // _LIBCPP_STD_VER >= 23
+#endif   // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

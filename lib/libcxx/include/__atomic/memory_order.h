@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // to pin the underlying type in C++20.
 enum __legacy_memory_order { __mo_relaxed, __mo_consume, __mo_acquire, __mo_release, __mo_acq_rel, __mo_seq_cst };
 
-using __memory_order_underlying_t = underlying_type<__legacy_memory_order>::type;
+using __memory_order_underlying_t _LIBCPP_NODEBUG = __underlying_type_t<__legacy_memory_order>;
 
 #if _LIBCPP_STD_VER >= 20
 
@@ -37,7 +37,7 @@ enum class memory_order : __memory_order_underlying_t {
   seq_cst = __mo_seq_cst
 };
 
-static_assert(is_same<underlying_type<memory_order>::type, __memory_order_underlying_t>::value,
+static_assert(is_same<__underlying_type_t<memory_order>, __memory_order_underlying_t>::value,
               "unexpected underlying type for std::memory_order");
 
 inline constexpr auto memory_order_relaxed = memory_order::relaxed;

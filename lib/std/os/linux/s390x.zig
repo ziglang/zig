@@ -17,8 +17,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc 0"
         : [ret] "={r2}" (-> usize),
         : [number] "{r1}" (@intFromEnum(number)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -26,8 +25,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r2}" (-> usize),
         : [number] "{r1}" (@intFromEnum(number)),
           [arg1] "{r2}" (arg1),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -36,8 +34,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r1}" (@intFromEnum(number)),
           [arg1] "{r2}" (arg1),
           [arg2] "{r3}" (arg2),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -47,8 +44,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r2}" (arg1),
           [arg2] "{r3}" (arg2),
           [arg3] "{r4}" (arg3),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -59,8 +55,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r3}" (arg2),
           [arg3] "{r4}" (arg3),
           [arg4] "{r5}" (arg4),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -72,8 +67,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r4}" (arg3),
           [arg4] "{r5}" (arg4),
           [arg5] "{r6}" (arg5),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize) usize {
@@ -86,8 +80,7 @@ pub fn syscall6(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg4] "{r5}" (arg4),
           [arg5] "{r6}" (arg5),
           [arg6] "{r7}" (arg6),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -161,7 +154,6 @@ pub fn restore_rt() callconv(.naked) noreturn {
         \\svc 0
         :
         : [number] "{r1}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory"
     );
 }
 
@@ -207,30 +199,6 @@ pub const Flock = extern struct {
     pid: pid_t,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    __pad1: i32 = 0,
-    iovlen: i32,
-    control: ?*anyopaque,
-    __pad2: i32 = 0,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    __pad1: i32 = 0,
-    iovlen: i32,
-    control: ?*const anyopaque,
-    __pad2: i32 = 0,
-    controllen: socklen_t,
-    flags: i32,
-};
-
 // The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {
     dev: dev_t,
@@ -267,20 +235,3 @@ pub const VDSO = struct {
     pub const CGT_SYM = "__kernel_clock_gettime";
     pub const CGT_VER = "LINUX_2.6.29";
 };
-
-pub const ucontext_t = extern struct {
-    flags: u64,
-    link: ?*ucontext_t,
-    stack: stack_t,
-    mcontext: mcontext_t,
-    sigmask: sigset_t,
-};
-
-pub const mcontext_t = extern struct {
-    __regs1: [18]u64,
-    __regs2: [18]u32,
-    __regs3: [16]f64,
-};
-
-/// TODO
-pub const getcontext = {};

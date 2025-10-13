@@ -38,19 +38,26 @@
 #define __LOCALE_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 
+#if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE >= 200809L
+#include <_locale_posix2008.h>
+#endif
+
+_LIBC_SINGLE_BY_DEFAULT()
+
 struct lconv {
-	char	*decimal_point;
-	char	*thousands_sep;
-	char	*grouping;
-	char	*int_curr_symbol;
-	char	*currency_symbol;
-	char	*mon_decimal_point;
-	char	*mon_thousands_sep;
-	char	*mon_grouping;
-	char	*positive_sign;
-	char	*negative_sign;
+	char	*_LIBC_CSTR decimal_point;
+	char	*_LIBC_CSTR thousands_sep;
+	char	*_LIBC_CSTR grouping;
+	char	*_LIBC_CSTR int_curr_symbol;
+	char	*_LIBC_CSTR currency_symbol;
+	char	*_LIBC_CSTR mon_decimal_point;
+	char	*_LIBC_CSTR mon_thousands_sep;
+	char	*_LIBC_CSTR mon_grouping;
+	char	*_LIBC_CSTR positive_sign;
+	char	*_LIBC_CSTR negative_sign;
 	char	int_frac_digits;
 	char	frac_digits;
 	char	p_cs_precedes;

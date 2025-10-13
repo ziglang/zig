@@ -40,6 +40,3 @@ void __cdecl tzset(void)
 {
   _tzset();
 }
-
-// Dummy/unused __imp_ wrappers, to make GNU ld not autoexport these symbols.
-void __cdecl (*__MINGW_IMP_SYMBOL(tzset))(void) = tzset;

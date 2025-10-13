@@ -39,7 +39,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using __libcpp_timespec_t = ::timespec;
+using __libcpp_timespec_t _LIBCPP_NODEBUG = ::timespec;
 
 //
 // Mutex

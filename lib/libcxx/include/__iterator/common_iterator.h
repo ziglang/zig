@@ -26,7 +26,9 @@
 #include <__iterator/iterator_traits.h>
 #include <__iterator/readable_traits.h>
 #include <__memory/addressof.h>
+#include <__type_traits/conditional.h>
 #include <__type_traits/is_pointer.h>
+#include <__type_traits/is_referenceable.h>
 #include <__utility/declval.h>
 #include <variant>
 
@@ -156,7 +158,7 @@ public:
       ++*this;
       return __tmp;
     } else if constexpr (requires(_Iter& __i) {
-                           { *__i++ } -> __can_reference;
+                           { *__i++ } -> __referenceable;
                          } || !__can_use_postfix_proxy<_Iter>) {
       return std::__unchecked_get<_Iter>(__hold_)++;
     } else {
@@ -235,7 +237,7 @@ public:
     return std::__unchecked_get<_Sent>(__x.__hold_) - std::__unchecked_get<_I2>(__y.__hold_);
   }
 
-  _LIBCPP_HIDE_FROM_ABI friend constexpr iter_rvalue_reference_t<_Iter>
+  _LIBCPP_HIDE_FROM_ABI friend constexpr decltype(auto)
   iter_move(const common_iterator& __i) noexcept(noexcept(ranges::iter_move(std::declval<const _Iter&>())))
     requires input_iterator<_Iter>
   {
@@ -271,13 +273,13 @@ concept __common_iter_has_ptr_op = requires(const common_iterator<_Iter, _Sent>&
 
 template <class, class>
 struct __arrow_type_or_void {
-  using type = void;
+  using type _LIBCPP_NODEBUG = void;
 };
 
 template <class _Iter, class _Sent>
   requires __common_iter_has_ptr_op<_Iter, _Sent>
 struct __arrow_type_or_void<_Iter, _Sent> {
-  using type = decltype(std::declval<const common_iterator<_Iter, _Sent>&>().operator->());
+  using type _LIBCPP_NODEBUG = decltype(std::declval<const common_iterator<_Iter, _Sent>&>().operator->());
 };
 
 template <input_iterator _Iter, class _Sent>

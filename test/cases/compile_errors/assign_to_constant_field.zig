@@ -9,7 +9,5 @@ export fn derp() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:6: error: cannot assign to constant

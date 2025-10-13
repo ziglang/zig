@@ -21,6 +21,7 @@
 #define _SYS_HWPROBE_H 1
 
 #include <features.h>
+#include <sched.h>
 #include <stddef.h>
 #include <errno.h>
 #ifdef __has_include
@@ -63,22 +64,39 @@ struct riscv_hwprobe {
 
 __BEGIN_DECLS
 
-extern int __riscv_hwprobe (struct riscv_hwprobe *__pairs, size_t __pair_count,
-			    size_t __cpu_count, unsigned long int *__cpus,
-			    unsigned int __flags)
-     __nonnull ((1)) __wur
-     __fortified_attr_access (__read_write__, 1, 2)
-     __fortified_attr_access (__read_only__, 4, 3);
+#if defined __cplusplus || !__GNUC_PREREQ (2, 7)
+# define __RISCV_HWPROBE_CPUS_TYPE cpu_set_t *
+#else
+/* The fourth argument to __riscv_hwprobe should be a null pointer or a
+   pointer to a cpu_set_t (either the fixed-size type or allocated with
+   CPU_ALLOC).  However, early versions of this header file used the
+   argument type unsigned long int *.  The transparent union allows
+   the argument to be either cpu_set_t * or unsigned long int * for
+   compatibility.  The older header file requiring unsigned long int *
+   can be identified by the lack of the __RISCV_HWPROBE_CPUS_TYPE macro.
+   In C++ and with compilers that do not support transparent unions, the
+   argument type must be cpu_set_t *.  */
+typedef union {
+	cpu_set_t *__cs;
+	unsigned long int *__ul;
+} __RISCV_HWPROBE_CPUS_TYPE __attribute__ ((__transparent_union__));
+# define __RISCV_HWPROBE_CPUS_TYPE __RISCV_HWPROBE_CPUS_TYPE
+#endif
 
-/* A pointer to the __riscv_hwprobe vDSO function is passed as the second
+extern int __riscv_hwprobe (struct riscv_hwprobe *__pairs,
+			    size_t __pair_count, size_t __cpusetsize,
+			    __RISCV_HWPROBE_CPUS_TYPE __cpus,
+			    unsigned int __flags)
+     __THROW __nonnull ((1)) __attr_access ((__read_write__, 1, 2));
+
+/* A pointer to the __riscv_hwprobe function is passed as the second
    argument to ifunc selector routines. Include a function pointer type for
    convenience in calling the function in those settings. */
-typedef int (*__riscv_hwprobe_t) (struct riscv_hwprobe *__pairs, size_t __pair_count,
-				  size_t __cpu_count, unsigned long int *__cpus,
+typedef int (*__riscv_hwprobe_t) (struct riscv_hwprobe *__pairs,
+				  size_t __pair_count, size_t __cpusetsize,
+				  __RISCV_HWPROBE_CPUS_TYPE __cpus,
 				  unsigned int __flags)
-     __nonnull ((1)) __wur
-     __fortified_attr_access (__read_write__, 1, 2)
-     __fortified_attr_access (__read_only__, 4, 3);
+     __nonnull ((1)) __attr_access ((__read_write__, 1, 2));
 
 /* Helper function usable from ifunc selectors that probes a single key. */
 static __inline int

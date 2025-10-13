@@ -19,20 +19,20 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_enum : public integral_constant<bool, __is_enum(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_enum : integral_constant<bool, __is_enum(_Tp)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_enum_v = __is_enum(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_enum_v = __is_enum(_Tp);
 #endif
 
 #if _LIBCPP_STD_VER >= 23
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_scoped_enum : bool_constant<__is_scoped_enum(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_scoped_enum : bool_constant<__is_scoped_enum(_Tp)> {};
 
 template <class _Tp>
-inline constexpr bool is_scoped_enum_v = __is_scoped_enum(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_scoped_enum_v = __is_scoped_enum(_Tp);
 
 #endif // _LIBCPP_STD_VER >= 23
 

@@ -13,7 +13,9 @@
 #include <__config>
 #include <__functional/binary_function.h>
 #include <__functional/unary_function.h>
+#include <__fwd/functional.h>
 #include <__type_traits/desugars_to.h>
+#include <__type_traits/is_integral.h>
 #include <__utility/forward.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -29,7 +31,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS plus : __binary_function<_Tp, _Tp, _Tp> {
+struct plus : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x + __y;
@@ -47,7 +49,7 @@ inline const bool __desugars_to_v<__plus_tag, plus<void>, _Tp, _Up> = true;
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS plus<void> {
+struct plus<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) + std::forward<_T2>(__u))) //
@@ -63,7 +65,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS minus : __binary_function<_Tp, _Tp, _Tp> {
+struct minus : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x - __y;
@@ -73,7 +75,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(minus);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS minus<void> {
+struct minus<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) - std::forward<_T2>(__u))) //
@@ -89,7 +91,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS multiplies : __binary_function<_Tp, _Tp, _Tp> {
+struct multiplies : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x * __y;
@@ -99,7 +101,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(multiplies);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS multiplies<void> {
+struct multiplies<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) * std::forward<_T2>(__u))) //
@@ -115,7 +117,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS divides : __binary_function<_Tp, _Tp, _Tp> {
+struct divides : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x / __y;
@@ -125,7 +127,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(divides);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS divides<void> {
+struct divides<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) / std::forward<_T2>(__u))) //
@@ -141,7 +143,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS modulus : __binary_function<_Tp, _Tp, _Tp> {
+struct modulus : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x % __y;
@@ -151,7 +153,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(modulus);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS modulus<void> {
+struct modulus<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) % std::forward<_T2>(__u))) //
@@ -167,7 +169,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS negate : __unary_function<_Tp, _Tp> {
+struct negate : __unary_function<_Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x) const { return -__x; }
 };
@@ -175,7 +177,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(negate);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS negate<void> {
+struct negate<void> {
   template <class _Tp>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_Tp&& __x) const
       noexcept(noexcept(-std::forward<_Tp>(__x))) //
@@ -193,7 +195,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS bit_and : __binary_function<_Tp, _Tp, _Tp> {
+struct bit_and : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x & __y;
@@ -203,7 +205,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(bit_and);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS bit_and<void> {
+struct bit_and<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) &
@@ -216,13 +218,13 @@ struct _LIBCPP_TEMPLATE_VIS bit_and<void> {
 
 #if _LIBCPP_STD_VER >= 14
 template <class _Tp = void>
-struct _LIBCPP_TEMPLATE_VIS bit_not : __unary_function<_Tp, _Tp> {
+struct bit_not : __unary_function<_Tp, _Tp> {
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x) const { return ~__x; }
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(bit_not);
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS bit_not<void> {
+struct bit_not<void> {
   template <class _Tp>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_Tp&& __x) const
       noexcept(noexcept(~std::forward<_Tp>(__x))) //
@@ -238,7 +240,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS bit_or : __binary_function<_Tp, _Tp, _Tp> {
+struct bit_or : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x | __y;
@@ -248,7 +250,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(bit_or);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS bit_or<void> {
+struct bit_or<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) | std::forward<_T2>(__u))) //
@@ -264,7 +266,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS bit_xor : __binary_function<_Tp, _Tp, _Tp> {
+struct bit_xor : __binary_function<_Tp, _Tp, _Tp> {
   typedef _Tp __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _Tp operator()(const _Tp& __x, const _Tp& __y) const {
     return __x ^ __y;
@@ -274,7 +276,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(bit_xor);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS bit_xor<void> {
+struct bit_xor<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) ^ std::forward<_T2>(__u))) //
@@ -292,7 +294,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS equal_to : __binary_function<_Tp, _Tp, bool> {
+struct equal_to : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x == __y;
@@ -302,7 +304,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(equal_to);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS equal_to<void> {
+struct equal_to<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) == std::forward<_T2>(__u))) //
@@ -327,7 +329,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS not_equal_to : __binary_function<_Tp, _Tp, bool> {
+struct not_equal_to : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x != __y;
@@ -337,7 +339,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(not_equal_to);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS not_equal_to<void> {
+struct not_equal_to<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) != std::forward<_T2>(__u))) //
@@ -348,12 +350,8 @@ struct _LIBCPP_TEMPLATE_VIS not_equal_to<void> {
 };
 #endif
 
-#if _LIBCPP_STD_VER >= 14
-template <class _Tp = void>
-#else
 template <class _Tp>
-#endif
-struct _LIBCPP_TEMPLATE_VIS less : __binary_function<_Tp, _Tp, bool> {
+struct less : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x < __y;
@@ -364,9 +362,12 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(less);
 template <class _Tp>
 inline const bool __desugars_to_v<__less_tag, less<_Tp>, _Tp, _Tp> = true;
 
+template <class _Tp>
+inline const bool __desugars_to_v<__totally_ordered_less_tag, less<_Tp>, _Tp, _Tp> = is_integral<_Tp>::value;
+
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS less<void> {
+struct less<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) < std::forward<_T2>(__u))) //
@@ -376,8 +377,11 @@ struct _LIBCPP_TEMPLATE_VIS less<void> {
   typedef void is_transparent;
 };
 
+template <class _Tp, class _Up>
+inline const bool __desugars_to_v<__less_tag, less<>, _Tp, _Up> = true;
+
 template <class _Tp>
-inline const bool __desugars_to_v<__less_tag, less<>, _Tp, _Tp> = true;
+inline const bool __desugars_to_v<__totally_ordered_less_tag, less<>, _Tp, _Tp> = is_integral<_Tp>::value;
 #endif
 
 #if _LIBCPP_STD_VER >= 14
@@ -385,7 +389,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS less_equal : __binary_function<_Tp, _Tp, bool> {
+struct less_equal : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x <= __y;
@@ -395,7 +399,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(less_equal);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS less_equal<void> {
+struct less_equal<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) <= std::forward<_T2>(__u))) //
@@ -411,7 +415,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS greater_equal : __binary_function<_Tp, _Tp, bool> {
+struct greater_equal : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x >= __y;
@@ -421,7 +425,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(greater_equal);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS greater_equal<void> {
+struct greater_equal<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) >=
@@ -437,7 +441,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS greater : __binary_function<_Tp, _Tp, bool> {
+struct greater : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x > __y;
@@ -445,9 +449,12 @@ struct _LIBCPP_TEMPLATE_VIS greater : __binary_function<_Tp, _Tp, bool> {
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(greater);
 
+template <class _Tp>
+inline const bool __desugars_to_v<__greater_tag, greater<_Tp>, _Tp, _Tp> = true;
+
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS greater<void> {
+struct greater<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) > std::forward<_T2>(__u))) //
@@ -456,6 +463,9 @@ struct _LIBCPP_TEMPLATE_VIS greater<void> {
   }
   typedef void is_transparent;
 };
+
+template <class _Tp, class _Up>
+inline const bool __desugars_to_v<__greater_tag, greater<>, _Tp, _Up> = true;
 #endif
 
 // Logical operations
@@ -465,7 +475,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS logical_and : __binary_function<_Tp, _Tp, bool> {
+struct logical_and : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x && __y;
@@ -475,7 +485,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(logical_and);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS logical_and<void> {
+struct logical_and<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) && std::forward<_T2>(__u))) //
@@ -491,7 +501,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS logical_not : __unary_function<_Tp, bool> {
+struct logical_not : __unary_function<_Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x) const { return !__x; }
 };
@@ -499,7 +509,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(logical_not);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS logical_not<void> {
+struct logical_not<void> {
   template <class _Tp>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_Tp&& __x) const
       noexcept(noexcept(!std::forward<_Tp>(__x))) //
@@ -515,7 +525,7 @@ template <class _Tp = void>
 #else
 template <class _Tp>
 #endif
-struct _LIBCPP_TEMPLATE_VIS logical_or : __binary_function<_Tp, _Tp, bool> {
+struct logical_or : __binary_function<_Tp, _Tp, bool> {
   typedef bool __result_type; // used by valarray
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI bool operator()(const _Tp& __x, const _Tp& __y) const {
     return __x || __y;
@@ -525,7 +535,7 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(logical_or);
 
 #if _LIBCPP_STD_VER >= 14
 template <>
-struct _LIBCPP_TEMPLATE_VIS logical_or<void> {
+struct logical_or<void> {
   template <class _T1, class _T2>
   _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
       noexcept(noexcept(std::forward<_T1>(__t) || std::forward<_T2>(__u))) //

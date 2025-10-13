@@ -48,7 +48,7 @@ _LIBCPP_EXPORTED_FROM_ABI size_t mbsnrtowcs(
     size_t dest_remaining   = max_dest_chars - dest_converted;
 
     if (dst == nullptr) {
-      result = mbrtowc(NULL, *src + source_converted, source_remaining, ps);
+      result = mbrtowc(nullptr, *src + source_converted, source_remaining, ps);
     } else if (dest_remaining >= source_remaining) {
       // dst has enough space to translate in-place.
       result = mbrtowc(dst + dest_converted, *src + source_converted, source_remaining, ps);
@@ -86,7 +86,7 @@ _LIBCPP_EXPORTED_FROM_ABI size_t mbsnrtowcs(
 
   if (dst) {
     if (result == terminated_sequence)
-      *src = NULL;
+      *src = nullptr;
     else
       *src += source_converted;
   }

@@ -22,8 +22,6 @@ export fn entry() void {
     }
 }
 // error
-// backend=stage2
-// target=native
 //
 // :15:17: error: incompatible types: '*align(1:0:1) u2' and '*align(2:8:2) u2'
 // :16:14: note: type '*align(1:0:1) u2' here

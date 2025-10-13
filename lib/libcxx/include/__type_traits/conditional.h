@@ -36,13 +36,19 @@ template <bool _Cond, class _IfRes, class _ElseRes>
 using _If _LIBCPP_NODEBUG = typename _IfImpl<_Cond>::template _Select<_IfRes, _ElseRes>;
 
 template <bool _Bp, class _If, class _Then>
-struct _LIBCPP_TEMPLATE_VIS conditional {
+struct _LIBCPP_NO_SPECIALIZATIONS conditional {
   using type _LIBCPP_NODEBUG = _If;
 };
+
+_LIBCPP_DIAGNOSTIC_PUSH
+#if __has_warning("-Winvalid-specialization")
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-specialization")
+#endif
 template <class _If, class _Then>
-struct _LIBCPP_TEMPLATE_VIS conditional<false, _If, _Then> {
+struct conditional<false, _If, _Then> {
   using type _LIBCPP_NODEBUG = _Then;
 };
+_LIBCPP_DIAGNOSTIC_POP
 
 #if _LIBCPP_STD_VER >= 14
 template <bool _Bp, class _IfRes, class _ElseRes>

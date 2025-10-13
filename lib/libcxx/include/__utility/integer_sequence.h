@@ -10,8 +10,8 @@
 #define _LIBCPP___UTILITY_INTEGER_SEQUENCE_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/is_integral.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -25,19 +25,19 @@ struct __tuple_indices;
 template <class _IdxType, _IdxType... _Values>
 struct __integer_sequence {
   template <template <class _OIdxType, _OIdxType...> class _ToIndexSeq, class _ToIndexType>
-  using __convert = _ToIndexSeq<_ToIndexType, _Values...>;
+  using __convert _LIBCPP_NODEBUG = _ToIndexSeq<_ToIndexType, _Values...>;
 
   template <size_t _Sp>
-  using __to_tuple_indices = __tuple_indices<(_Values + _Sp)...>;
+  using __to_tuple_indices _LIBCPP_NODEBUG = __tuple_indices<(_Values + _Sp)...>;
 };
 
 #if __has_builtin(__make_integer_seq)
 template <size_t _Ep, size_t _Sp>
-using __make_indices_imp =
+using __make_indices_imp _LIBCPP_NODEBUG =
     typename __make_integer_seq<__integer_sequence, size_t, _Ep - _Sp>::template __to_tuple_indices<_Sp>;
 #elif __has_builtin(__integer_pack)
 template <size_t _Ep, size_t _Sp>
-using __make_indices_imp =
+using __make_indices_imp _LIBCPP_NODEBUG =
     typename __integer_sequence<size_t, __integer_pack(_Ep - _Sp)...>::template __to_tuple_indices<_Sp>;
 #else
 #  error "No known way to get an integer pack from the compiler"
@@ -46,7 +46,7 @@ using __make_indices_imp =
 #if _LIBCPP_STD_VER >= 14
 
 template <class _Tp, _Tp... _Ip>
-struct _LIBCPP_TEMPLATE_VIS integer_sequence {
+struct integer_sequence {
   typedef _Tp value_type;
   static_assert(is_integral<_Tp>::value, "std::integer_sequence can only be instantiated with an integral type");
   static _LIBCPP_HIDE_FROM_ABI constexpr size_t size() noexcept { return sizeof...(_Ip); }

@@ -36,10 +36,9 @@ export fn d() callconv(.naked) noreturn {
 }
 
 // error
-// backend=stage2
 //
 // :2:5: error: local variable in naked function
 // :10:5: error: local variable in naked function
 // :23:5: error: local variable in naked function
 // :30:13: error: local variable in naked function
-// :35:12: note: called from here
+// :35:12: note: called inline here

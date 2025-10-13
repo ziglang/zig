@@ -47,13 +47,16 @@ WITH THE ACCESS, USE OR PERFORMANCE OF THIS SOFTWARE.
 #define _WORDEXP_H
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 #include <sys/_types/_size_t.h>
 #include <Availability.h>
 
+_LIBC_SINGLE_BY_DEFAULT()
+
 typedef struct {
 	size_t we_wordc;
-	char **we_wordv;
+	char *_LIBC_CSTR *_LIBC_COUNT(we_wordc)	we_wordv;
 	size_t we_offs;
 } wordexp_t;
 

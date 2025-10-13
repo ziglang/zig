@@ -96,7 +96,7 @@ fn findProgramByNamePosix(name: []const u8, path: ?[]const u8, buf: []u8) ?[]con
 }
 
 pub const Filesystem = union(enum) {
-    real: void,
+    real: std.fs.Dir,
     fake: []const Entry,
 
     const Entry = struct {
@@ -172,8 +172,8 @@ pub const Filesystem = union(enum) {
 
     pub fn exists(fs: Filesystem, path: []const u8) bool {
         switch (fs) {
-            .real => {
-                std.fs.cwd().access(path, .{}) catch return false;
+            .real => |cwd| {
+                cwd.access(path, .{}) catch return false;
                 return true;
             },
             .fake => |paths| return existsFake(paths, path),
@@ -210,8 +210,8 @@ pub const Filesystem = union(enum) {
     /// Otherwise returns a slice of `buf`. If the file is larger than `buf` partial contents are returned
     pub fn readFile(fs: Filesystem, path: []const u8, buf: []u8) ?[]const u8 {
         return switch (fs) {
-            .real => {
-                const file = std.fs.cwd().openFile(path, .{}) catch return null;
+            .real => |cwd| {
+                const file = cwd.openFile(path, .{}) catch return null;
                 defer file.close();
 
                 const bytes_read = file.readAll(buf) catch return null;
@@ -223,7 +223,7 @@ pub const Filesystem = union(enum) {
 
     pub fn openDir(fs: Filesystem, dir_name: []const u8) std.fs.Dir.OpenError!Dir {
         return switch (fs) {
-            .real => .{ .dir = try std.fs.cwd().openDir(dir_name, .{ .access_sub_paths = false, .iterate = true }) },
+            .real => |cwd| .{ .dir = try cwd.openDir(dir_name, .{ .access_sub_paths = false, .iterate = true }) },
             .fake => |entries| .{ .fake = .{ .entries = entries, .path = dir_name } },
         };
     }

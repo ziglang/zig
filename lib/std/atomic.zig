@@ -10,8 +10,6 @@ pub fn Value(comptime T: type) type {
             return .{ .raw = value };
         }
 
-        pub const fence = @compileError("@fence is deprecated, use other atomics to establish ordering");
-
         pub inline fn load(self: *const Self, comptime order: AtomicOrder) T {
             return @atomicLoad(T, &self.raw, order);
         }
@@ -378,13 +376,8 @@ pub inline fn spinLoopHint() void {
         .armeb,
         .thumb,
         .thumbeb,
-        => {
-            const can_yield = comptime std.Target.arm.featureSetHasAny(builtin.target.cpu.features, .{
-                .has_v6k, .has_v6m,
-            });
-            if (can_yield) {
-                asm volatile ("yield");
-            }
+        => if (comptime builtin.cpu.hasAny(.arm, &.{ .has_v6k, .has_v6m })) {
+            asm volatile ("yield");
         },
 
         // The 8-bit immediate specifies the amount of cycles to pause for. We can't really be too
@@ -393,8 +386,10 @@ pub inline fn spinLoopHint() void {
         => asm volatile ("pause(#1)"),
 
         .riscv32,
+        .riscv32be,
         .riscv64,
-        => if (comptime std.Target.riscv.featureSetHas(builtin.target.cpu.features, .zihintpause)) {
+        .riscv64be,
+        => if (comptime builtin.cpu.has(.riscv, .zihintpause)) {
             asm volatile ("pause");
         },
 
@@ -430,7 +425,7 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
 
         // https://github.com/llvm/llvm-project/blob/e379094328e49731a606304f7e3559d4f1fa96f9/clang/lib/Basic/Targets/Hexagon.h#L145-L151
         .hexagon,
-        => if (std.Target.hexagon.featureSetHas(cpu.features, .v73)) 64 else 32,
+        => if (cpu.has(.hexagon, .v73)) 64 else 32,
 
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_arm.go#L7
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips.go#L7
