@@ -3613,7 +3613,7 @@ pub const ShutdownError = error{
     BlockingOperationInProgress,
 
     /// The network subsystem has failed.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketUnconnected,
@@ -3635,7 +3635,7 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
             .WSAECONNRESET => return error.ConnectionResetByPeer,
             .WSAEINPROGRESS => return error.BlockingOperationInProgress,
             .WSAEINVAL => unreachable,
-            .WSAENETDOWN => return error.NetworkSubsystemFailed,
+            .WSAENETDOWN => return error.NetworkDown,
             .WSAENOTCONN => return error.SocketUnconnected,
             .WSAENOTSOCK => unreachable,
             .WSANOTINITIALISED => unreachable,
@@ -3697,7 +3697,7 @@ pub const BindError = error{
     ReadOnlyFileSystem,
 
     /// The network subsystem has failed.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     FileDescriptorNotASocket,
 
@@ -3718,7 +3718,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
                 .WSAEFAULT => unreachable, // invalid pointers
                 .WSAEINVAL => return error.AlreadyBound,
                 .WSAENOBUFS => return error.SystemResources,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETDOWN => return error.NetworkDown,
                 else => |err| return windows.unexpectedWSAError(err),
             }
             unreachable;
@@ -3763,7 +3763,7 @@ pub const ListenError = error{
     OperationNotSupported,
 
     /// The network subsystem has failed.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     /// Ran out of system resources
     /// On Windows it can either run out of socket descriptors or buffer space
@@ -3782,7 +3782,7 @@ pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable, // not initialized WSA
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETDOWN => return error.NetworkDown,
                 .WSAEADDRINUSE => return error.AddressInUse,
                 .WSAEISCONN => return error.AlreadyConnected,
                 .WSAEINVAL => return error.SocketNotBound,
@@ -3840,7 +3840,7 @@ pub const AcceptError = error{
     ConnectionResetByPeer,
 
     /// The network subsystem has failed.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     /// The referenced socket is not a type that supports connection-oriented service.
     OperationNotSupported,
@@ -3893,7 +3893,7 @@ pub fn accept(
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                     .WSAEINVAL => return error.SocketNotListening,
                     .WSAEMFILE => return error.ProcessFdQuotaExceeded,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETDOWN => return error.NetworkDown,
                     .WSAENOBUFS => return error.FileDescriptorNotASocket,
                     .WSAEOPNOTSUPP => return error.OperationNotSupported,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
@@ -3964,7 +3964,7 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             if (windows.ws2_32.ioctlsocket(sock, windows.ws2_32.FIONBIO, &mode) == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSANOTINITIALISED => unreachable,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETDOWN => return error.NetworkDown,
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
@@ -4105,7 +4105,7 @@ pub const GetSockNameError = error{
     SystemResources,
 
     /// The network subsystem has failed.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     /// Socket hasn't been bound yet
     SocketNotBound,
@@ -4119,7 +4119,7 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETDOWN => return error.NetworkDown,
                 .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
                 .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                 .WSAEINVAL => return error.SocketNotBound,
@@ -4148,7 +4148,7 @@ pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETDOWN => return error.NetworkDown,
                 .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
                 .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                 .WSAEINVAL => return error.SocketNotBound,
@@ -6057,7 +6057,7 @@ pub const SendError = error{
     NetworkUnreachable,
 
     /// The local network interface used to reach the destination is down.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     /// The destination address is not listening.
     ConnectionRefused,
@@ -6106,7 +6106,7 @@ pub fn sendmsg(
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
                     // TODO: WSAEINPROGRESS, WSAEINTR
                     .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETDOWN => return error.NetworkDown,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
                     .WSAENOTCONN => return error.SocketUnconnected,
@@ -6146,7 +6146,7 @@ pub fn sendmsg(
                 .HOSTUNREACH => return error.NetworkUnreachable,
                 .NETUNREACH => return error.NetworkUnreachable,
                 .NOTCONN => return error.SocketUnconnected,
-                .NETDOWN => return error.NetworkSubsystemFailed,
+                .NETDOWN => return error.NetworkDown,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -6209,7 +6209,7 @@ pub fn sendto(
                 .WSAEHOSTUNREACH => return error.NetworkUnreachable,
                 // TODO: WSAEINPROGRESS, WSAEINTR
                 .WSAEINVAL => unreachable,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETDOWN => return error.NetworkDown,
                 .WSAENETRESET => return error.ConnectionResetByPeer,
                 .WSAENETUNREACH => return error.NetworkUnreachable,
                 .WSAENOTCONN => return error.SocketUnconnected,
@@ -6251,7 +6251,7 @@ pub fn sendto(
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketUnconnected,
-            .NETDOWN => return error.NetworkSubsystemFailed,
+            .NETDOWN => return error.NetworkDown,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -6390,7 +6390,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
 
 pub const PollError = error{
     /// The network subsystem has failed.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     /// The kernel had no space to allocate file descriptor tables.
     SystemResources,
@@ -6401,7 +6401,7 @@ pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
         switch (windows.poll(fds.ptr, @intCast(fds.len), timeout)) {
             windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETDOWN => return error.NetworkDown,
                 .WSAENOBUFS => return error.SystemResources,
                 // TODO: handle more errors
                 else => |err| return windows.unexpectedWSAError(err),
@@ -6473,7 +6473,7 @@ pub const RecvFromError = error{
     MessageTooBig,
 
     /// The network subsystem has failed.
-    NetworkSubsystemFailed,
+    NetworkDown,
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketUnconnected,
@@ -6504,7 +6504,7 @@ pub fn recvfrom(
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEINVAL => return error.SocketNotBound,
                     .WSAEMSGSIZE => return error.MessageTooBig,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETDOWN => return error.NetworkDown,
                     .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSAETIMEDOUT => return error.ConnectionTimedOut,
@@ -6578,7 +6578,7 @@ pub fn recvmsg(
             .PIPE => return error.BrokenPipe,
             .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
             .CONNRESET => return error.ConnectionResetByPeer,
-            .NETDOWN => return error.NetworkSubsystemFailed,
+            .NETDOWN => return error.NetworkDown,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -6601,7 +6601,7 @@ pub const SetSockOptError = error{
     PermissionDenied,
 
     OperationNotSupported,
-    NetworkSubsystemFailed,
+    NetworkDown,
     FileDescriptorNotASocket,
     SocketNotBound,
     NoDevice,
@@ -6614,7 +6614,7 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETDOWN => return error.NetworkDown,
                 .WSAEFAULT => unreachable,
                 .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                 .WSAEINVAL => return error.SocketNotBound,
