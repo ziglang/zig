@@ -7,9 +7,9 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectError = testing.expectError;
 
-/// Priority Dequeue for storing generic data. Initialize with `init`.
+/// A priority queue for storing generic data.
 ///
-/// If a priority dequeue is constructed from slice `{5, 8, 2, 9, 7, 1, 4, 4}`, then
+/// If a priority queue is constructed from slice `{5, 8, 2, 9, 7, 1, 4, 4}`, then
 /// a `compareFn` returning:
 ///
 ///   + `Order.lt` will create a min heap, in which the smallest value will have the highest
