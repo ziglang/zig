@@ -153,19 +153,12 @@ fn __aeabi_cdcmple(_: f64, _: f64) callconv(.naked) void {
     );
 }
 
-const le = builtin.cpu.arch.endian() == .little;
-const CPSRFlags = if (le) packed struct {
+const CPSRFlags = packed struct {
     filler: u28,
     v: u1,
     c: u1,
     z: u1,
     n: u1,
-} else packed struct {
-    n: u1,
-    z: u1,
-    c: u1,
-    v: u1,
-    filler: u28,
 };
 
 const CPSR = packed union {
@@ -179,6 +172,7 @@ fn call__aeabi_cdcmpxx(comptime func: __aeabi_cdcmpxx, a: f64, b: f64) CPSR {
     const A: u64 = @bitCast(a);
     const B: u64 = @bitCast(b);
 
+    const le = builtin.cpu.arch.endian() == .little;
     const a_lo: u32 = if (le) @truncate(A) else @truncate(A >> 32);
     const a_hi: u32 = if (le) @truncate(A >> 32) else @truncate(A);
     const b_lo: u32 = if (le) @truncate(B) else @truncate(B >> 32);
