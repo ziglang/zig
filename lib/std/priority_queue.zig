@@ -37,7 +37,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         }
 
         /// Insert a new element, maintaining priority.
-        pub fn add(self: *Self, allocator: Allocator, elem: T) !void {
+        pub fn push(self: *Self, allocator: Allocator, elem: T) !void {
             try self.ensureUnusedCapacity(allocator, 1);
             addUnchecked(self, elem);
         }
@@ -300,12 +300,12 @@ test "add and remove min heap" {
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 54);
-    try queue.add(allocator, 12);
-    try queue.add(allocator, 7);
-    try queue.add(allocator, 23);
-    try queue.add(allocator, 25);
-    try queue.add(allocator, 13);
+    try queue.push(allocator, 54);
+    try queue.push(allocator, 12);
+    try queue.push(allocator, 7);
+    try queue.push(allocator, 23);
+    try queue.push(allocator, 25);
+    try queue.push(allocator, 13);
     try expectEqual(@as(u32, 7), queue.remove());
     try expectEqual(@as(u32, 12), queue.remove());
     try expectEqual(@as(u32, 13), queue.remove());
@@ -319,12 +319,12 @@ test "add and remove same min heap" {
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
     try expectEqual(@as(u32, 1), queue.remove());
     try expectEqual(@as(u32, 1), queue.remove());
     try expectEqual(@as(u32, 1), queue.remove());
@@ -346,9 +346,9 @@ test "edge case 3 elements" {
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 9);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 9);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 2);
     try expectEqual(@as(u32, 2), queue.remove());
     try expectEqual(@as(u32, 3), queue.remove());
     try expectEqual(@as(u32, 9), queue.remove());
@@ -360,9 +360,9 @@ test "peek" {
     defer queue.deinit(allocator);
 
     try expect(queue.peek() == null);
-    try queue.add(allocator, 9);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 9);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 2);
     try expectEqual(@as(u32, 2), queue.peek().?);
     try expectEqual(@as(u32, 2), queue.peek().?);
 }
@@ -374,7 +374,7 @@ test "sift up with odd indices" {
 
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
-        try queue.add(allocator, e);
+        try queue.push(allocator, e);
     }
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
@@ -438,12 +438,12 @@ test "add and remove max heap" {
     var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 54);
-    try queue.add(allocator, 12);
-    try queue.add(allocator, 7);
-    try queue.add(allocator, 23);
-    try queue.add(allocator, 25);
-    try queue.add(allocator, 13);
+    try queue.push(allocator, 54);
+    try queue.push(allocator, 12);
+    try queue.push(allocator, 7);
+    try queue.push(allocator, 23);
+    try queue.push(allocator, 25);
+    try queue.push(allocator, 13);
     try expectEqual(@as(u32, 54), queue.remove());
     try expectEqual(@as(u32, 25), queue.remove());
     try expectEqual(@as(u32, 23), queue.remove());
@@ -457,12 +457,12 @@ test "add and remove same max heap" {
     var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
     try expectEqual(@as(u32, 2), queue.remove());
     try expectEqual(@as(u32, 2), queue.remove());
     try expectEqual(@as(u32, 1), queue.remove());
@@ -482,7 +482,7 @@ test "iterator" {
 
     const items = [_]u32{ 54, 12, 7, 23, 25, 13 };
     for (items) |e| {
-        _ = try queue.add(allocator, e);
+        _ = try queue.push(allocator, e);
         try map.put(e, {});
     }
 
@@ -501,7 +501,7 @@ test "remove at index" {
 
     const items = [_]u32{ 2, 1, 8, 9, 3, 4, 5 };
     for (items) |e| {
-        _ = try queue.add(allocator, e);
+        _ = try queue.push(allocator, e);
     }
 
     var it = queue.iterator();
@@ -540,9 +540,9 @@ test "shrinkAndFree" {
     try queue.ensureTotalCapacity(allocator, 4);
     try expect(queue.capacity() >= 4);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 3);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 3);
     try expect(queue.capacity() >= 4);
     try expectEqual(@as(usize, 3), queue.count());
 
@@ -561,9 +561,9 @@ test "update min heap" {
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 55);
-    try queue.add(allocator, 44);
-    try queue.add(allocator, 11);
+    try queue.push(allocator, 55);
+    try queue.push(allocator, 44);
+    try queue.push(allocator, 11);
     try queue.update(55, 5);
     try queue.update(44, 4);
     try queue.update(11, 1);
@@ -577,10 +577,10 @@ test "update same min heap" {
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
     try expectEqual(@as(u32, 1), queue.remove());
@@ -594,9 +594,9 @@ test "update max heap" {
     var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 55);
-    try queue.add(allocator, 44);
-    try queue.add(allocator, 11);
+    try queue.push(allocator, 55);
+    try queue.push(allocator, 44);
+    try queue.push(allocator, 11);
     try queue.update(55, 5);
     try queue.update(44, 1);
     try queue.update(11, 4);
@@ -610,10 +610,10 @@ test "update same max heap" {
     var queue = PQgt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
     try expectEqual(@as(u32, 5), queue.remove());
@@ -627,7 +627,7 @@ test "update after remove" {
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
+    try queue.push(allocator, 1);
     try expectEqual(@as(u32, 1), queue.remove());
     try expectError(error.ElementNotFound, queue.update(1, 1));
 }
@@ -663,13 +663,13 @@ test "add and remove min heap with context comparator" {
     var queue = CPQlt.init(context[0..]);
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 0);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 4);
-    try queue.add(allocator, 5);
-    try queue.add(allocator, 6);
+    try queue.push(allocator, 0);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 4);
+    try queue.push(allocator, 5);
+    try queue.push(allocator, 6);
     try expectEqual(@as(usize, 6), queue.remove());
     try expectEqual(@as(usize, 4), queue.remove());
     try expectEqual(@as(usize, 3), queue.remove());
