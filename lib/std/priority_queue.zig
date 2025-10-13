@@ -75,9 +75,8 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             return if (self.items.len > 0) self.items[0] else null;
         }
 
-        /// Remove and return the highest priority element from the queue.
-        /// Returns `null` if empty.
-        pub fn remove(self: *Self) ?T {
+        /// Remove and return the highest priority element from the queue, or null if empty
+        pub fn pop(self: *Self) ?T {
             return if (self.items.len > 0) self.removeIndex(0) else null;
         }
 
@@ -300,12 +299,12 @@ test "add and remove min heap" {
     try queue.push(allocator, 23);
     try queue.push(allocator, 25);
     try queue.push(allocator, 13);
-    try expectEqual(@as(u32, 7), queue.remove());
-    try expectEqual(@as(u32, 12), queue.remove());
-    try expectEqual(@as(u32, 13), queue.remove());
-    try expectEqual(@as(u32, 23), queue.remove());
-    try expectEqual(@as(u32, 25), queue.remove());
-    try expectEqual(@as(u32, 54), queue.remove());
+    try expectEqual(@as(u32, 7), queue.pop());
+    try expectEqual(@as(u32, 12), queue.pop());
+    try expectEqual(@as(u32, 13), queue.pop());
+    try expectEqual(@as(u32, 23), queue.pop());
+    try expectEqual(@as(u32, 25), queue.pop());
+    try expectEqual(@as(u32, 54), queue.pop());
 }
 
 test "add and remove same min heap" {
@@ -319,12 +318,12 @@ test "add and remove same min heap" {
     try queue.push(allocator, 2);
     try queue.push(allocator, 1);
     try queue.push(allocator, 1);
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 2), queue.remove());
-    try expectEqual(@as(u32, 2), queue.remove());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 2), queue.pop());
+    try expectEqual(@as(u32, 2), queue.pop());
 }
 
 test "remove from empty" {
@@ -332,7 +331,7 @@ test "remove from empty" {
     var queue = PQlt.init({});
     defer queue.deinit(allocator);
 
-    try expect(queue.remove() == null);
+    try expect(queue.pop() == null);
 }
 
 test "edge case 3 elements" {
@@ -343,9 +342,9 @@ test "edge case 3 elements" {
     try queue.push(allocator, 9);
     try queue.push(allocator, 3);
     try queue.push(allocator, 2);
-    try expectEqual(@as(u32, 2), queue.remove());
-    try expectEqual(@as(u32, 3), queue.remove());
-    try expectEqual(@as(u32, 9), queue.remove());
+    try expectEqual(@as(u32, 2), queue.pop());
+    try expectEqual(@as(u32, 3), queue.pop());
+    try expectEqual(@as(u32, 9), queue.pop());
 }
 
 test "peek" {
@@ -373,7 +372,7 @@ test "sift up with odd indices" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.remove());
+        try expectEqual(e, queue.pop());
     }
 }
 
@@ -387,7 +386,7 @@ test "addSlice" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.remove());
+        try expectEqual(e, queue.pop());
     }
 }
 
@@ -399,7 +398,7 @@ test "fromOwnedSlice trivial case 0" {
     defer queue.deinit(allocator);
 
     try expectEqual(@as(usize, 0), queue.count());
-    try expect(queue.remove() == null);
+    try expect(queue.pop() == null);
 }
 
 test "fromOwnedSlice trivial case 1" {
@@ -410,8 +409,8 @@ test "fromOwnedSlice trivial case 1" {
     defer queue.deinit(allocator);
 
     try expectEqual(@as(usize, 1), queue.count());
-    try expectEqual(items[0], queue.remove());
-    try expect(queue.remove() == null);
+    try expectEqual(items[0], queue.pop());
+    try expect(queue.pop() == null);
 }
 
 test "fromOwnedSlice" {
@@ -423,7 +422,7 @@ test "fromOwnedSlice" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.remove());
+        try expectEqual(e, queue.pop());
     }
 }
 
@@ -438,12 +437,12 @@ test "add and remove max heap" {
     try queue.push(allocator, 23);
     try queue.push(allocator, 25);
     try queue.push(allocator, 13);
-    try expectEqual(@as(u32, 54), queue.remove());
-    try expectEqual(@as(u32, 25), queue.remove());
-    try expectEqual(@as(u32, 23), queue.remove());
-    try expectEqual(@as(u32, 13), queue.remove());
-    try expectEqual(@as(u32, 12), queue.remove());
-    try expectEqual(@as(u32, 7), queue.remove());
+    try expectEqual(@as(u32, 54), queue.pop());
+    try expectEqual(@as(u32, 25), queue.pop());
+    try expectEqual(@as(u32, 23), queue.pop());
+    try expectEqual(@as(u32, 13), queue.pop());
+    try expectEqual(@as(u32, 12), queue.pop());
+    try expectEqual(@as(u32, 7), queue.pop());
 }
 
 test "add and remove same max heap" {
@@ -457,12 +456,12 @@ test "add and remove same max heap" {
     try queue.push(allocator, 2);
     try queue.push(allocator, 1);
     try queue.push(allocator, 1);
-    try expectEqual(@as(u32, 2), queue.remove());
-    try expectEqual(@as(u32, 2), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 2), queue.pop());
+    try expectEqual(@as(u32, 2), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
 }
 
 test "iterator" {
@@ -510,10 +509,10 @@ test "remove at index" {
     try expectEqual(queue.removeIndex(two_idx), 2);
 
     var i: usize = 0;
-    while (queue.remove()) |n| : (i += 1) {
+    while (queue.pop()) |n| : (i += 1) {
         try expectEqual(n, sorted_items[i]);
     }
-    try expectEqual(queue.remove(), null);
+    try expectEqual(queue.pop(), null);
 }
 
 test "iterator while empty" {
@@ -544,10 +543,10 @@ test "shrinkAndFree" {
     try expectEqual(@as(usize, 3), queue.capacity());
     try expectEqual(@as(usize, 3), queue.count());
 
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 2), queue.remove());
-    try expectEqual(@as(u32, 3), queue.remove());
-    try expect(queue.remove() == null);
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 2), queue.pop());
+    try expectEqual(@as(u32, 3), queue.pop());
+    try expect(queue.pop() == null);
 }
 
 test "update min heap" {
@@ -561,9 +560,9 @@ test "update min heap" {
     try queue.update(55, 5);
     try queue.update(44, 4);
     try queue.update(11, 1);
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 4), queue.remove());
-    try expectEqual(@as(u32, 5), queue.remove());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 4), queue.pop());
+    try expectEqual(@as(u32, 5), queue.pop());
 }
 
 test "update same min heap" {
@@ -577,10 +576,10 @@ test "update same min heap" {
     try queue.push(allocator, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    try expectEqual(@as(u32, 1), queue.remove());
-    try expectEqual(@as(u32, 2), queue.remove());
-    try expectEqual(@as(u32, 4), queue.remove());
-    try expectEqual(@as(u32, 5), queue.remove());
+    try expectEqual(@as(u32, 1), queue.pop());
+    try expectEqual(@as(u32, 2), queue.pop());
+    try expectEqual(@as(u32, 4), queue.pop());
+    try expectEqual(@as(u32, 5), queue.pop());
 }
 
 test "update max heap" {
@@ -594,9 +593,9 @@ test "update max heap" {
     try queue.update(55, 5);
     try queue.update(44, 1);
     try queue.update(11, 4);
-    try expectEqual(@as(u32, 5), queue.remove());
-    try expectEqual(@as(u32, 4), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 5), queue.pop());
+    try expectEqual(@as(u32, 4), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
 }
 
 test "update same max heap" {
@@ -610,10 +609,10 @@ test "update same max heap" {
     try queue.push(allocator, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    try expectEqual(@as(u32, 5), queue.remove());
-    try expectEqual(@as(u32, 4), queue.remove());
-    try expectEqual(@as(u32, 2), queue.remove());
-    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 5), queue.pop());
+    try expectEqual(@as(u32, 4), queue.pop());
+    try expectEqual(@as(u32, 2), queue.pop());
+    try expectEqual(@as(u32, 1), queue.pop());
 }
 
 test "update after remove" {
@@ -622,7 +621,7 @@ test "update after remove" {
     defer queue.deinit(allocator);
 
     try queue.push(allocator, 1);
-    try expectEqual(@as(u32, 1), queue.remove());
+    try expectEqual(@as(u32, 1), queue.pop());
     try expectError(error.ElementNotFound, queue.update(1, 1));
 }
 
@@ -640,7 +639,7 @@ test "siftUp in remove" {
 
     const sorted_items = [_]u32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 100, 101, 103, 104, 105, 106 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.remove());
+        try expectEqual(e, queue.pop());
     }
 }
 
@@ -664,11 +663,11 @@ test "add and remove min heap with context comparator" {
     try queue.push(allocator, 4);
     try queue.push(allocator, 5);
     try queue.push(allocator, 6);
-    try expectEqual(@as(usize, 6), queue.remove());
-    try expectEqual(@as(usize, 4), queue.remove());
-    try expectEqual(@as(usize, 3), queue.remove());
-    try expectEqual(@as(usize, 1), queue.remove());
-    try expectEqual(@as(usize, 2), queue.remove());
-    try expectEqual(@as(usize, 0), queue.remove());
-    try expectEqual(@as(usize, 5), queue.remove());
+    try expectEqual(@as(usize, 6), queue.pop());
+    try expectEqual(@as(usize, 4), queue.pop());
+    try expectEqual(@as(usize, 3), queue.pop());
+    try expectEqual(@as(usize, 1), queue.pop());
+    try expectEqual(@as(usize, 2), queue.pop());
+    try expectEqual(@as(usize, 0), queue.pop());
+    try expectEqual(@as(usize, 5), queue.pop());
 }
