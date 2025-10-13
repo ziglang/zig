@@ -395,13 +395,15 @@ pub const Node = extern struct {
             switch (file_reader.mode) {
                 .positional => {
                     const fr_buf = file_reader.interface.buffered();
-                    const buf_copy_size = interface.write(fr_buf) catch unreachable;
-                    file_reader.interface.toss(buf_copy_size);
-                    if (buf_copy_size < fr_buf.len) return buf_copy_size;
-                    assert(file_reader.logicalPos() == file_reader.pos);
+                    if (fr_buf.len > 0) {
+                        const n = interface.write(fr_buf) catch unreachable;
+                        file_reader.interface.toss(n);
+                        return n;
+                    }
 
+                    assert(file_reader.logicalPos() == file_reader.pos);
                     const w: *Writer = @fieldParentPtr("interface", interface);
-                    const copy_size: usize = @intCast(w.mf.copyFileRange(
+                    const n: usize = @intCast(w.mf.copyFileRange(
                         file_reader.file,
                         file_reader.pos,
                         w.ni.fileLocation(w.mf, true).offset + interface.end,
@@ -410,8 +412,10 @@ pub const Node = extern struct {
                         w.err = err;
                         return error.WriteFailed;
                     });
-                    interface.end += copy_size;
-                    return copy_size;
+                    if (n == 0) return error.Unimplemented;
+                    file_reader.pos += n;
+                    interface.end += n;
+                    return n;
                 },
                 .streaming,
                 .streaming_reading,
