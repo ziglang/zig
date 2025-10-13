@@ -43,14 +43,14 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         /// A slice of generic data.
         items: []T,
         /// The number of values that can be stored without allocating new memory.
-        cap: usize,
+        capacity: usize,
         /// The priority order of elements in the queue.
         context: Context,
 
         /// A priority queue containing no elements.
         pub const empty: Self = .{
             .items = &.{},
-            .cap = 0,
+            .capacity = 0,
             .context = undefined,
         };
 
@@ -58,7 +58,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         pub fn withContext(context: Context) Self {
             return Self{
                 .items = &.{},
-                .cap = 0,
+                .capacity = 0,
                 .context = context,
             };
         }
@@ -155,15 +155,15 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
         /// Return the number of elements that can be added to the priority queue
         /// before more memory is allocated.
-        pub fn capacity(self: Self) usize {
-            return self.cap;
+        pub fn getCapacity(self: Self) usize {
+            return self.capacity;
         }
 
         /// Returns a slice of all the items plus the extra capacity, whose memory
         /// contents are `undefined`.
         fn allocatedSlice(self: Self) []T {
             // `items.len` is the length, not the capacity.
-            return self.items.ptr[0..self.cap];
+            return self.items.ptr[0..self.capacity];
         }
 
         /// Ensure that the highest priority element is at the root of the queue
@@ -194,7 +194,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         pub fn fromOwnedSlice(items: []T, context: Context) Self {
             var self = Self{
                 .items = items,
-                .cap = items.len,
+                .capacity = items.len,
                 .context = context,
             };
 
@@ -208,7 +208,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
         /// Ensure that the priority queue can fit at least `new_capacity` items.
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) !void {
-            var better_capacity = self.cap;
+            var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
@@ -217,7 +217,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             const old_memory = self.allocatedSlice();
             const new_memory = try allocator.realloc(old_memory, better_capacity);
             self.items.ptr = new_memory.ptr;
-            self.cap = new_memory.len;
+            self.capacity = new_memory.len;
         }
 
         /// Ensure that the queue can fit at least `additional_count` **more** items.
@@ -230,7 +230,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
         /// Reduce allocated capacity to `new_capacity`.
         pub fn shrinkAndFree(self: *Self, allocator: Allocator, new_capacity: usize) void {
-            assert(new_capacity <= self.cap);
+            assert(new_capacity <= self.capacity);
 
             // Cannot shrink to smaller than the current queue size without invalidating the heap property
             assert(new_capacity >= self.items.len);
@@ -243,7 +243,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             };
 
             self.items.ptr = new_memory.ptr;
-            self.cap = new_memory.len;
+            self.capacity = new_memory.len;
         }
 
         /// Remove all elements from the items slice.
@@ -255,7 +255,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         pub fn clearAndFree(self: *Self, allocator: Allocator) void {
             allocator.free(self.allocatedSlice());
             self.items = &.{};
-            self.cap = 0;
+            self.capacity = 0;
             self.context = undefined;
         }
 
@@ -317,7 +317,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
                 print("{}, ", .{e});
             }
             print("len: {} ", .{self.items.len});
-            print("capacity: {}", .{self.cap});
+            print("capacity: {}", .{self.capacity});
             print(" }}\n", .{});
         }
     };
@@ -579,16 +579,16 @@ test "shrinkAndFree" {
     defer queue.deinit(allocator);
 
     try queue.ensureTotalCapacity(allocator, 4);
-    try expect(queue.capacity() >= 4);
+    try expect(queue.getCapacity() >= 4);
 
     try queue.push(allocator, 1);
     try queue.push(allocator, 2);
     try queue.push(allocator, 3);
-    try expect(queue.capacity() >= 4);
+    try expect(queue.getCapacity() >= 4);
     try expectEqual(@as(usize, 3), queue.count());
 
     queue.shrinkAndFree(allocator, 3);
-    try expectEqual(@as(usize, 3), queue.capacity());
+    try expectEqual(@as(usize, 3), queue.getCapacity());
     try expectEqual(@as(usize, 3), queue.count());
 
     try expectEqual(@as(u32, 1), queue.pop());
