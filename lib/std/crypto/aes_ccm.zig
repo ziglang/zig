@@ -13,12 +13,17 @@ const modes = crypto.core.modes;
 const AuthenticationError = crypto.errors.AuthenticationError;
 const cbc_mac = @import("cbc_mac.zig");
 
-/// Common instances with AES and standard parameters
+/// AES-128-CCM* with no authentication (encryption-only, 13-byte nonce).
 pub const Aes128Ccm0 = AesCcm(crypto.core.aes.Aes128, 0, 13);
+/// AES-128-CCM with 8-byte authentication tag and 13-byte nonce.
 pub const Aes128Ccm8 = AesCcm(crypto.core.aes.Aes128, 8, 13);
+/// AES-128-CCM with 16-byte authentication tag and 13-byte nonce.
 pub const Aes128Ccm16 = AesCcm(crypto.core.aes.Aes128, 16, 13);
+/// AES-256-CCM* with no authentication (encryption-only, 13-byte nonce).
 pub const Aes256Ccm0 = AesCcm(crypto.core.aes.Aes256, 0, 13);
+/// AES-256-CCM with 8-byte authentication tag and 13-byte nonce.
 pub const Aes256Ccm8 = AesCcm(crypto.core.aes.Aes256, 8, 13);
+/// AES-256-CCM with 16-byte authentication tag and 13-byte nonce.
 pub const Aes256Ccm16 = AesCcm(crypto.core.aes.Aes256, 16, 13);
 
 /// AES-CCM authenticated encryption (NIST SP 800-38C, RFC 3610).
