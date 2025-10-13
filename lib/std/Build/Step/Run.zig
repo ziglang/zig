@@ -1770,7 +1770,11 @@ fn evalZigTest(
                     const msg = std.mem.trim(u8, stderr_contents, "\n");
                     if (tr_hdr.flags.fail) {
                         const err_name = body[@sizeOf(TrHdr)..][0..tr_hdr.flags.err_name_len];
-                        try run.step.addError("'{s}' failed with error {s}: {s}", .{name, err_name, msg});
+                        if (msg.len > 0) {
+                            try run.step.addError("'{s}' failed with error {s}: {s}", .{name, err_name, msg});
+                        } else {
+                            try run.step.addError("'{s}' failed with error {s}", .{name, err_name});
+                        }
                     }
                     else {
                         const label = if (tr_hdr.flags.leak)
