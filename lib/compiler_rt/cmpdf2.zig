@@ -201,7 +201,7 @@ fn call__aeabi_cdcmpxx(comptime func: __aeabi_cdcmpxx, a: f64, b: f64) CPSR {
 // https://github.com/llvm/llvm-project/blob/7eee67202378932d03331ad04e7d07ed4d988381/compiler-rt/test/builtins/Unit/arm/aeabi_cdcmpeq_test.c
 //
 test "test __aeabi_cdcmpeq" {
-    if (!builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (!builtin.cpu.arch.isArm() or builtin.cpu.arch.isThumb() or builtin.cpu.has(.arm, .pacbti)) return error.SkipZigTest;
 
     const t = std.testing;
     const nan = std.math.nan(f64);
@@ -226,7 +226,7 @@ test "test __aeabi_cdcmpeq" {
 // https://github.com/llvm/llvm-project/blob/7eee67202378932d03331ad04e7d07ed4d988381/compiler-rt/test/builtins/Unit/arm/aeabi_cdcmple_test.c
 //
 test "test __aeabi_cdcmple" {
-    if (!builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (!builtin.cpu.arch.isArm() or builtin.cpu.arch.isThumb() or builtin.cpu.has(.arm, .pacbti)) return error.SkipZigTest;
 
     const t = std.testing;
     const nan = std.math.nan(f64);
