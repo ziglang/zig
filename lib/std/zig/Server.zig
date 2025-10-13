@@ -97,7 +97,8 @@ pub const Message = struct {
             skip: bool,
             leak: bool,
             fuzz: bool,
-            log_err_count: u28 = 0,
+            log_err_count: u16 = 0,
+            err_name_len: u12 = 0,
         };
     };
 
@@ -205,12 +206,13 @@ pub fn serveEmitDigest(
     try s.out.flush();
 }
 
-pub fn serveTestResults(s: *Server, msg: OutMessage.TestResults) !void {
+pub fn serveTestResults(s: *Server, msg: OutMessage.TestResults, err_name: []const u8) !void {
     try s.serveMessageHeader(.{
         .tag = .test_results,
-        .bytes_len = @intCast(@sizeOf(OutMessage.TestResults)),
+        .bytes_len = @intCast(@sizeOf(OutMessage.TestResults) + err_name.len),
     });
     try s.out.writeStruct(msg, .little);
+    try s.out.writeAll(err_name);
     try s.out.flush();
 }
 

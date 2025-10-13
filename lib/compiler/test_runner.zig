@@ -135,9 +135,11 @@ fn mainServer() !void {
                 var fail = false;
                 var skip = false;
                 is_fuzz_test = false;
+                var err_name: ?[]const u8 = null;
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => skip = true,
                     else => {
+                        err_name = @errorName(err);
                         fail = true;
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace);
@@ -145,6 +147,7 @@ fn mainServer() !void {
                     },
                 };
                 const leak = testing.allocator_instance.deinit() == .leak;
+                const err_name_slice = err_name orelse "";
                 try server.serveTestResults(.{
                     .index = index,
                     .flags = .{
@@ -156,8 +159,12 @@ fn mainServer() !void {
                             @FieldType(std.zig.Server.Message.TestResults.Flags, "log_err_count"),
                             log_err_count,
                         ),
+                        .err_name_len = std.math.lossyCast(
+                            @FieldType(std.zig.Server.Message.TestResults.Flags, "err_name_len"),
+                            err_name_slice.len,
+                        ),
                     },
-                });
+                }, err_name_slice);
             },
             .start_fuzzing => {
                 // This ensures that this code won't be analyzed and hence reference fuzzer symbols
