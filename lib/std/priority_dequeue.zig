@@ -154,16 +154,9 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             return if (self.len > 0) self.removeIndex(0) else null;
         }
 
-        /// Pop the largest element from the dequeue. Returns
-        /// `null` if empty.
-        pub fn removeMaxOrNull(self: *Self) ?T {
-            return if (self.len > 0) self.removeMax() else null;
-        }
-
-        /// Remove and return the largest element from the
-        /// dequeue.
-        pub fn removeMax(self: *Self) T {
-            return self.removeIndex(self.maxIndex().?);
+        /// Remove and return the largest element from the dequeue, or `null` if empty.
+        pub fn removeMax(self: *Self) ?T {
+            return if (self.len > 0) self.removeIndex(self.maxIndex().?) else null;
         }
 
         /// Remove and return element at index. Indices are in the
@@ -571,7 +564,7 @@ test "removeOrNull empty" {
     defer queue.deinit(allocator);
 
     try expect(queue.removeMin() == null);
-    try expect(queue.removeMaxOrNull() == null);
+    try expect(queue.removeMax() == null);
 }
 
 test "edge case 3 elements" {
@@ -884,7 +877,7 @@ test "shrinkAndFree" {
     try expectEqual(@as(u32, 3), queue.removeMax());
     try expectEqual(@as(u32, 2), queue.removeMax());
     try expectEqual(@as(u32, 1), queue.removeMax());
-    try expect(queue.removeMaxOrNull() == null);
+    try expect(queue.removeMax() == null);
 }
 
 test "fuzz testing min" {
@@ -937,7 +930,7 @@ fn fuzzTestMax(rng: std.Random, queue_size: usize) !void {
     defer queue.deinit(allocator);
 
     var last_removed: ?u32 = null;
-    while (queue.removeMaxOrNull()) |next| {
+    while (queue.removeMax()) |next| {
         if (last_removed) |last| {
             try expect(last >= next);
         }
@@ -976,7 +969,7 @@ fn fuzzTestMinMax(rng: std.Random, queue_size: usize) !void {
             }
             last_min = next;
         } else {
-            const next = queue.removeMax();
+            const next = queue.removeMax().?;
             if (last_max) |last| {
                 try expect(last >= next);
             }
