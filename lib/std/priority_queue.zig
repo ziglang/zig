@@ -69,15 +69,20 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             }
         }
 
+        /// Returns `true` if the queue is empty and `false if not.
+        pub fn isEmpty(self: Self) bool {
+            return if (self.items.len > 0) false else true;
+        }
+
         /// Look at the highest priority element in the queue. Returns
         /// `null` if empty.
         pub fn peek(self: *Self) ?T {
-            return if (self.items.len > 0) self.items[0] else null;
+            return if (!self.isEmpty()) self.items[0] else null;
         }
 
         /// Remove and return the highest priority element from the queue, or null if empty
         pub fn pop(self: *Self) ?T {
-            return if (self.items.len > 0) self.removeIndex(0) else null;
+            return if (!self.isEmpty()) self.removeIndex(0) else null;
         }
 
         /// Remove and return element at index. Indices are in the
