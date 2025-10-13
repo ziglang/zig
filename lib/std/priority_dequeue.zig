@@ -51,10 +51,15 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             }
         }
 
+        /// Returns `true` if the queue is empty and `false if not.
+        pub fn isEmpty(self: Self) bool {
+            return if (self.len > 0) false else true;
+        }
+
         fn addUnchecked(self: *Self, elem: T) void {
             self.items[self.len] = elem;
 
-            if (self.len > 0) {
+            if (!self.isEmpty()) {
                 const start = self.getStartForSiftUp(elem, self.len);
                 self.siftUp(start);
             }
@@ -130,7 +135,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         /// Look at the smallest element in the dequeue. Returns
         /// `null` if empty.
         pub fn peekMin(self: *Self) ?T {
-            return if (self.len > 0) self.items[0] else null;
+            return if (!self.isEmpty()) self.items[0] else null;
         }
 
         /// Look at the largest element in the dequeue. Returns
@@ -151,12 +156,12 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
 
         /// Remove and return the smallest element from the dequeue, or `null` if empty
         pub fn removeMin(self: *Self) ?T {
-            return if (self.len > 0) self.removeIndex(0) else null;
+            return if (!self.isEmpty()) self.removeIndex(0) else null;
         }
 
         /// Remove and return the largest element from the dequeue, or `null` if empty.
         pub fn removeMax(self: *Self) ?T {
-            return if (self.len > 0) self.removeIndex(self.maxIndex().?) else null;
+            return if (!self.isEmpty()) self.removeIndex(self.maxIndex().?) else null;
         }
 
         /// Remove and return element at index. Indices are in the
