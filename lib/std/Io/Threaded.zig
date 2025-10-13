@@ -1988,7 +1988,7 @@ fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: Io.net.Socket.Handle) Io.net
 
 fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.net.Stream.Reader.Error!usize {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
+    const fd = stream.socket.handle;
 
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
     var i: usize = 0;
@@ -2001,9 +2001,54 @@ fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.n
     }
     const dest = iovecs_buffer[0..i];
     assert(dest[0].len > 0);
-    const n = try posix.readv(stream.socket.handle, dest);
-    if (n == 0) return error.EndOfStream;
-    return n;
+
+    if (native_os == .wasi and !builtin.link_libc) while (true) {
+        try pool.checkCancel();
+        var n: usize = undefined;
+        switch (std.os.wasi.fd_read(fd, dest.ptr, dest.len, &n)) {
+            .SUCCESS => {
+                if (n == 0) return error.EndOfStream;
+                return n;
+            },
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
+            .AGAIN => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err),
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketUnconnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .NOTCAPABLE => return error.AccessDenied,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+
+    while (true) {
+        try pool.checkCancel();
+        const rc = posix.system.readv(fd, dest.ptr, @intCast(dest.len));
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                const n: usize = @intCast(rc);
+                if (n == 0) return error.EndOfStream;
+                return n;
+            },
+            .INTR => continue,
+            .INVAL => |err| return errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
+            .AGAIN => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketUnconnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .PIPE => return error.BrokenPipe,
+            .NETDOWN => return error.NetworkDown,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 const have_sendmmsg = builtin.os.tag == .linux;
@@ -2071,7 +2116,7 @@ fn netSendOne(
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
                     // TODO: WSAEINPROGRESS, WSAEINTR
                     .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETDOWN => return error.NetworkDown,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
                     .WSAENETUNREACH => return error.NetworkUnreachable,
                     .WSAENOTCONN => return error.SocketUnconnected,
@@ -2114,7 +2159,7 @@ fn netSendOne(
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketUnconnected,
-            .NETDOWN => return error.NetworkSubsystemFailed,
+            .NETDOWN => return error.NetworkDown,
             else => |err| return posix.unexpectedErrno(err),
         }
     }

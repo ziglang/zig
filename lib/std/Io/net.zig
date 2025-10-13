@@ -1087,13 +1087,18 @@ pub const Stream = struct {
         stream: Stream,
         err: ?Error,
 
-        pub const Error = std.posix.ReadError || error{
-            SocketNotBound,
-            MessageTooBig,
-            NetworkSubsystemFailed,
+        pub const Error = error{
+            SystemResources,
+            BrokenPipe,
             ConnectionResetByPeer,
+            ConnectionTimedOut,
             SocketUnconnected,
-        } || Io.Cancelable || Io.Writer.Error || error{EndOfStream};
+            /// The file descriptor does not hold the required rights to read
+            /// from it.
+            AccessDenied,
+            NetworkDown,
+            EndOfStream,
+        } || Io.Cancelable || Io.UnexpectedError;
 
         pub fn init(stream: Stream, io: Io, buffer: []u8) Reader {
             return .{
@@ -1140,7 +1145,7 @@ pub const Stream = struct {
             ConnectionResetByPeer,
             SocketNotBound,
             MessageTooBig,
-            NetworkSubsystemFailed,
+            NetworkDown,
             SystemResources,
             SocketUnconnected,
             Unexpected,
