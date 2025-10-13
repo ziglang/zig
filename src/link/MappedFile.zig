@@ -142,6 +142,8 @@ pub const Node = extern struct {
         }
     };
 
+    pub const FileLocation = struct { offset: u64, size: u64 };
+
     pub const Index = enum(u32) {
         none,
         _,
@@ -273,7 +275,7 @@ pub const Node = extern struct {
             ni: Node.Index,
             mf: *const MappedFile,
             set_has_content: bool,
-        ) struct { offset: u64, size: u64 } {
+        ) FileLocation {
             var offset, const size = ni.location(mf).resolve(mf);
             var parent_ni = ni;
             while (true) {
@@ -400,8 +402,6 @@ pub const Node = extern struct {
                         file_reader.interface.toss(n);
                         return n;
                     }
-
-                    assert(file_reader.logicalPos() == file_reader.pos);
                     const w: *Writer = @fieldParentPtr("interface", interface);
                     const n: usize = @intCast(w.mf.copyFileRange(
                         file_reader.file,
