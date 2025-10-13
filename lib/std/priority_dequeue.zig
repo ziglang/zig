@@ -37,8 +37,8 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             allocator.free(self.items);
         }
 
-        /// Insert a new element, maintaining priority.
-        pub fn add(self: *Self, allocator: Allocator, elem: T) !void {
+        /// Insert a new element into the dequeue, maintaining priority.
+        pub fn push(self: *Self, allocator: Allocator, elem: T) !void {
             try self.ensureUnusedCapacity(allocator, 1);
             addUnchecked(self, elem);
         }
@@ -155,12 +155,12 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         }
 
         /// Remove and return the smallest element from the dequeue, or `null` if empty
-        pub fn removeMin(self: *Self) ?T {
+        pub fn popMin(self: *Self) ?T {
             return if (!self.isEmpty()) self.removeIndex(0) else null;
         }
 
         /// Remove and return the largest element from the dequeue, or `null` if empty.
-        pub fn removeMax(self: *Self) ?T {
+        pub fn popMax(self: *Self) ?T {
             return if (!self.isEmpty()) self.removeIndex(self.maxIndex().?) else null;
         }
 
@@ -460,19 +460,19 @@ test "add and remove min" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 54);
-    try queue.add(allocator, 12);
-    try queue.add(allocator, 7);
-    try queue.add(allocator, 23);
-    try queue.add(allocator, 25);
-    try queue.add(allocator, 13);
+    try queue.push(allocator, 54);
+    try queue.push(allocator, 12);
+    try queue.push(allocator, 7);
+    try queue.push(allocator, 23);
+    try queue.push(allocator, 25);
+    try queue.push(allocator, 13);
 
-    try expectEqual(@as(u32, 7), queue.removeMin());
-    try expectEqual(@as(u32, 12), queue.removeMin());
-    try expectEqual(@as(u32, 13), queue.removeMin());
-    try expectEqual(@as(u32, 23), queue.removeMin());
-    try expectEqual(@as(u32, 25), queue.removeMin());
-    try expectEqual(@as(u32, 54), queue.removeMin());
+    try expectEqual(@as(u32, 7), queue.popMin());
+    try expectEqual(@as(u32, 12), queue.popMin());
+    try expectEqual(@as(u32, 13), queue.popMin());
+    try expectEqual(@as(u32, 23), queue.popMin());
+    try expectEqual(@as(u32, 25), queue.popMin());
+    try expectEqual(@as(u32, 54), queue.popMin());
 }
 
 test "add and remove min structs" {
@@ -488,19 +488,19 @@ test "add and remove min structs" {
     }.order).init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, .{ .size = 54 });
-    try queue.add(allocator, .{ .size = 12 });
-    try queue.add(allocator, .{ .size = 7 });
-    try queue.add(allocator, .{ .size = 23 });
-    try queue.add(allocator, .{ .size = 25 });
-    try queue.add(allocator, .{ .size = 13 });
+    try queue.push(allocator, .{ .size = 54 });
+    try queue.push(allocator, .{ .size = 12 });
+    try queue.push(allocator, .{ .size = 7 });
+    try queue.push(allocator, .{ .size = 23 });
+    try queue.push(allocator, .{ .size = 25 });
+    try queue.push(allocator, .{ .size = 13 });
 
-    try expectEqual(@as(u32, 7), queue.removeMin().?.size);
-    try expectEqual(@as(u32, 12), queue.removeMin().?.size);
-    try expectEqual(@as(u32, 13), queue.removeMin().?.size);
-    try expectEqual(@as(u32, 23), queue.removeMin().?.size);
-    try expectEqual(@as(u32, 25), queue.removeMin().?.size);
-    try expectEqual(@as(u32, 54), queue.removeMin().?.size);
+    try expectEqual(@as(u32, 7), queue.popMin().?.size);
+    try expectEqual(@as(u32, 12), queue.popMin().?.size);
+    try expectEqual(@as(u32, 13), queue.popMin().?.size);
+    try expectEqual(@as(u32, 23), queue.popMin().?.size);
+    try expectEqual(@as(u32, 25), queue.popMin().?.size);
+    try expectEqual(@as(u32, 54), queue.popMin().?.size);
 }
 
 test "add and remove max" {
@@ -508,19 +508,19 @@ test "add and remove max" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 54);
-    try queue.add(allocator, 12);
-    try queue.add(allocator, 7);
-    try queue.add(allocator, 23);
-    try queue.add(allocator, 25);
-    try queue.add(allocator, 13);
+    try queue.push(allocator, 54);
+    try queue.push(allocator, 12);
+    try queue.push(allocator, 7);
+    try queue.push(allocator, 23);
+    try queue.push(allocator, 25);
+    try queue.push(allocator, 13);
 
-    try expectEqual(@as(u32, 54), queue.removeMax());
-    try expectEqual(@as(u32, 25), queue.removeMax());
-    try expectEqual(@as(u32, 23), queue.removeMax());
-    try expectEqual(@as(u32, 13), queue.removeMax());
-    try expectEqual(@as(u32, 12), queue.removeMax());
-    try expectEqual(@as(u32, 7), queue.removeMax());
+    try expectEqual(@as(u32, 54), queue.popMax());
+    try expectEqual(@as(u32, 25), queue.popMax());
+    try expectEqual(@as(u32, 23), queue.popMax());
+    try expectEqual(@as(u32, 13), queue.popMax());
+    try expectEqual(@as(u32, 12), queue.popMax());
+    try expectEqual(@as(u32, 7), queue.popMax());
 }
 
 test "add and remove same min" {
@@ -528,19 +528,19 @@ test "add and remove same min" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
 
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 2), queue.removeMin());
-    try expectEqual(@as(u32, 2), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 2), queue.popMin());
+    try expectEqual(@as(u32, 2), queue.popMin());
 }
 
 test "add and remove same max" {
@@ -548,19 +548,19 @@ test "add and remove same max" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
 
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
 }
 
 test "removeOrNull empty" {
@@ -568,8 +568,8 @@ test "removeOrNull empty" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try expect(queue.removeMin() == null);
-    try expect(queue.removeMax() == null);
+    try expect(queue.popMin() == null);
+    try expect(queue.popMax() == null);
 }
 
 test "edge case 3 elements" {
@@ -577,13 +577,13 @@ test "edge case 3 elements" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 9);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 9);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 2);
 
-    try expectEqual(@as(u32, 2), queue.removeMin());
-    try expectEqual(@as(u32, 3), queue.removeMin());
-    try expectEqual(@as(u32, 9), queue.removeMin());
+    try expectEqual(@as(u32, 2), queue.popMin());
+    try expectEqual(@as(u32, 3), queue.popMin());
+    try expectEqual(@as(u32, 9), queue.popMin());
 }
 
 test "edge case 3 elements max" {
@@ -591,13 +591,13 @@ test "edge case 3 elements max" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 9);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 9);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 2);
 
-    try expectEqual(@as(u32, 9), queue.removeMax());
-    try expectEqual(@as(u32, 3), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
+    try expectEqual(@as(u32, 9), queue.popMax());
+    try expectEqual(@as(u32, 3), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
 }
 
 test "peekMin" {
@@ -607,9 +607,9 @@ test "peekMin" {
 
     try expect(queue.peekMin() == null);
 
-    try queue.add(allocator, 9);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 9);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 2);
 
     try expect(queue.peekMin().? == 2);
     try expect(queue.peekMin().? == 2);
@@ -622,43 +622,43 @@ test "peekMax" {
 
     try expect(queue.peekMin() == null);
 
-    try queue.add(allocator, 9);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 9);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 2);
 
     try expect(queue.peekMax().? == 9);
     try expect(queue.peekMax().? == 9);
 }
 
-test "sift up with odd indices, removeMin" {
+test "sift up with odd indices, popMin" {
     const allocator = std.testing.allocator;
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
-        try queue.add(allocator, e);
+        try queue.push(allocator, e);
     }
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.popMin());
     }
 }
 
-test "sift up with odd indices, removeMax" {
+test "sift up with odd indices, popMax" {
     const allocator = std.testing.allocator;
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
-        try queue.add(allocator, e);
+        try queue.push(allocator, e);
     }
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMax());
+        try expectEqual(e, queue.popMax());
     }
 }
 
@@ -672,7 +672,7 @@ test "addSlice min" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.popMin());
     }
 }
 
@@ -686,7 +686,7 @@ test "addSlice max" {
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMax());
+        try expectEqual(e, queue.popMax());
     }
 }
 
@@ -699,7 +699,7 @@ test "fromOwnedSlice trivial case 0" {
     defer queue.deinit(allocator);
 
     try expectEqual(@as(usize, 0), queue.len);
-    try expect(queue.removeMin() == null);
+    try expect(queue.popMin() == null);
 }
 
 test "fromOwnedSlice trivial case 1" {
@@ -710,8 +710,8 @@ test "fromOwnedSlice trivial case 1" {
     defer queue.deinit(allocator);
 
     try expectEqual(@as(usize, 1), queue.len);
-    try expectEqual(items[0], queue.removeMin());
-    try expect(queue.removeMin() == null);
+    try expectEqual(items[0], queue.popMin());
+    try expect(queue.popMin() == null);
 }
 
 test "fromOwnedSlice" {
@@ -723,7 +723,7 @@ test "fromOwnedSlice" {
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.popMin());
     }
 }
 
@@ -732,15 +732,15 @@ test "update min queue" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 55);
-    try queue.add(allocator, 44);
-    try queue.add(allocator, 11);
+    try queue.push(allocator, 55);
+    try queue.push(allocator, 44);
+    try queue.push(allocator, 11);
     try queue.update(55, 5);
     try queue.update(44, 4);
     try queue.update(11, 1);
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 4), queue.removeMin());
-    try expectEqual(@as(u32, 5), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 4), queue.popMin());
+    try expectEqual(@as(u32, 5), queue.popMin());
 }
 
 test "update same min queue" {
@@ -748,16 +748,16 @@ test "update same min queue" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 2), queue.removeMin());
-    try expectEqual(@as(u32, 4), queue.removeMin());
-    try expectEqual(@as(u32, 5), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 2), queue.popMin());
+    try expectEqual(@as(u32, 4), queue.popMin());
+    try expectEqual(@as(u32, 5), queue.popMin());
 }
 
 test "update max queue" {
@@ -765,16 +765,16 @@ test "update max queue" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 55);
-    try queue.add(allocator, 44);
-    try queue.add(allocator, 11);
+    try queue.push(allocator, 55);
+    try queue.push(allocator, 44);
+    try queue.push(allocator, 11);
     try queue.update(55, 5);
     try queue.update(44, 1);
     try queue.update(11, 4);
 
-    try expectEqual(@as(u32, 5), queue.removeMax());
-    try expectEqual(@as(u32, 4), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 5), queue.popMax());
+    try expectEqual(@as(u32, 4), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
 }
 
 test "update same max queue" {
@@ -782,16 +782,16 @@ test "update same max queue" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 2);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    try expectEqual(@as(u32, 5), queue.removeMax());
-    try expectEqual(@as(u32, 4), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 5), queue.popMax());
+    try expectEqual(@as(u32, 4), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
 }
 
 test "update after remove" {
@@ -799,8 +799,8 @@ test "update after remove" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 1);
-    try expectEqual(@as(u32, 1), queue.removeMin());
+    try queue.push(allocator, 1);
+    try expectEqual(@as(u32, 1), queue.popMin());
     try expectError(error.ElementNotFound, queue.update(1, 1));
 }
 
@@ -815,7 +815,7 @@ test "iterator" {
 
     const items = [_]u32{ 54, 12, 7, 23, 25, 13 };
     for (items) |e| {
-        _ = try queue.add(allocator, e);
+        _ = try queue.push(allocator, e);
         _ = try map.put(e, {});
     }
 
@@ -832,9 +832,9 @@ test "remove at index" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 1);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 1);
 
     var it = queue.iterator();
     var elem = it.next();
@@ -846,9 +846,9 @@ test "remove at index" {
     } else unreachable;
 
     try expectEqual(queue.removeIndex(two_idx), 2);
-    try expectEqual(queue.removeMin(), 1);
-    try expectEqual(queue.removeMin(), 3);
-    try expectEqual(queue.removeMin(), null);
+    try expectEqual(queue.popMin(), 1);
+    try expectEqual(queue.popMin(), 3);
+    try expectEqual(queue.popMin(), null);
 }
 
 test "iterator while empty" {
@@ -869,9 +869,9 @@ test "shrinkAndFree" {
     try queue.ensureTotalCapacity(allocator, 4);
     try expect(queue.capacity() >= 4);
 
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 3);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 3);
     try expect(queue.capacity() >= 4);
     try expectEqual(@as(usize, 3), queue.len);
 
@@ -879,10 +879,10 @@ test "shrinkAndFree" {
     try expectEqual(@as(usize, 3), queue.capacity());
     try expectEqual(@as(usize, 3), queue.len);
 
-    try expectEqual(@as(u32, 3), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expect(queue.removeMax() == null);
+    try expectEqual(@as(u32, 3), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expect(queue.popMax() == null);
 }
 
 test "fuzz testing min" {
@@ -906,7 +906,7 @@ fn fuzzTestMin(rng: std.Random, comptime queue_size: usize) !void {
     defer queue.deinit(allocator);
 
     var last_removed: ?u32 = null;
-    while (queue.removeMin()) |next| {
+    while (queue.popMin()) |next| {
         if (last_removed) |last| {
             try expect(last <= next);
         }
@@ -935,7 +935,7 @@ fn fuzzTestMax(rng: std.Random, queue_size: usize) !void {
     defer queue.deinit(allocator);
 
     var last_removed: ?u32 = null;
-    while (queue.removeMax()) |next| {
+    while (queue.popMax()) |next| {
         if (last_removed) |last| {
             try expect(last >= next);
         }
@@ -968,13 +968,13 @@ fn fuzzTestMinMax(rng: std.Random, queue_size: usize) !void {
     var i: usize = 0;
     while (i < queue_size) : (i += 1) {
         if (i % 2 == 0) {
-            const next = queue.removeMin().?;
+            const next = queue.popMin().?;
             if (last_min) |last| {
                 try expect(last <= next);
             }
             last_min = next;
         } else {
-            const next = queue.removeMax().?;
+            const next = queue.popMax().?;
             if (last_max) |last| {
                 try expect(last >= next);
             }
@@ -1009,20 +1009,20 @@ test "add and remove" {
     var queue = CPDQ.init(context[0..]);
     defer queue.deinit(allocator);
 
-    try queue.add(allocator, 0);
-    try queue.add(allocator, 1);
-    try queue.add(allocator, 2);
-    try queue.add(allocator, 3);
-    try queue.add(allocator, 4);
-    try queue.add(allocator, 5);
-    try queue.add(allocator, 6);
-    try expectEqual(@as(usize, 6), queue.removeMin());
-    try expectEqual(@as(usize, 5), queue.removeMax());
-    try expectEqual(@as(usize, 3), queue.removeMin());
-    try expectEqual(@as(usize, 0), queue.removeMax());
-    try expectEqual(@as(usize, 4), queue.removeMin());
-    try expectEqual(@as(usize, 2), queue.removeMax());
-    try expectEqual(@as(usize, 1), queue.removeMin());
+    try queue.push(allocator, 0);
+    try queue.push(allocator, 1);
+    try queue.push(allocator, 2);
+    try queue.push(allocator, 3);
+    try queue.push(allocator, 4);
+    try queue.push(allocator, 5);
+    try queue.push(allocator, 6);
+    try expectEqual(@as(usize, 6), queue.popMin());
+    try expectEqual(@as(usize, 5), queue.popMax());
+    try expectEqual(@as(usize, 3), queue.popMin());
+    try expectEqual(@as(usize, 0), queue.popMax());
+    try expectEqual(@as(usize, 4), queue.popMin());
+    try expectEqual(@as(usize, 2), queue.popMax());
+    try expectEqual(@as(usize, 1), queue.popMin());
 }
 
 var all_cmps_unique = true;
@@ -1037,12 +1037,12 @@ test "don't compare a value to a copy of itself" {
     }.uniqueLessThan).init({});
     defer depq.deinit(allocator);
 
-    try depq.add(allocator, 1);
-    try depq.add(allocator, 2);
-    try depq.add(allocator, 3);
-    try depq.add(allocator, 4);
-    try depq.add(allocator, 5);
-    try depq.add(allocator, 6);
+    try depq.push(allocator, 1);
+    try depq.push(allocator, 2);
+    try depq.push(allocator, 3);
+    try depq.push(allocator, 4);
+    try depq.push(allocator, 5);
+    try depq.push(allocator, 6);
 
     _ = depq.removeIndex(2);
     try expectEqual(all_cmps_unique, true);
