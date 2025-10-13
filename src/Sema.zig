@@ -9952,8 +9952,19 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 dest_ty.fmt(pt), container,
             });
         },
+        .array => {
+            const elem_ty = dest_ty.childType(zcu);
+            if (!elem_ty.hasWellDefinedLayout(zcu)) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(src, "cannot @bitCast to '{f}'", .{dest_ty.fmt(pt)});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.errNote(src, msg, "array element type '{f}' does not have a guaranteed in-memory layout", .{elem_ty.fmt(pt)});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+        },
 
-        .array,
         .bool,
         .float,
         .int,
@@ -10015,8 +10026,19 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 operand_ty.fmt(pt), container,
             });
         },
+        .array => {
+            const elem_ty = operand_ty.childType(zcu);
+            if (!elem_ty.hasWellDefinedLayout(zcu)) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(src, "cannot @bitCast from '{f}'", .{operand_ty.fmt(pt)});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.errNote(src, msg, "array element type '{f}' does not have a guaranteed in-memory layout", .{elem_ty.fmt(pt)});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+        },
 
-        .array,
         .bool,
         .float,
         .int,
