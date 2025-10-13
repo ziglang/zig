@@ -869,7 +869,6 @@ fn dirStatPathPosix(
     const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
 
     const flags: u32 = if (!options.follow_symlinks) posix.AT.SYMLINK_NOFOLLOW else 0;
-    const fstatat_sym = if (posix.lfs64_abi) posix.system.fstatat64 else posix.system.fstatat;
 
     while (true) {
         try pool.checkCancel();
@@ -895,7 +894,9 @@ fn dirStatPathPosix(
 
 fn fileStatPosix(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    const fstat_sym = if (posix.lfs64_abi) posix.system.fstat64 else posix.system.fstat;
+
+    if (posix.Stat == void) return error.Streaming;
+
     while (true) {
         try pool.checkCancel();
         var stat = std.mem.zeroes(posix.Stat);
@@ -969,6 +970,10 @@ fn fileStatWasi(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.
 
 const have_flock = @TypeOf(posix.system.flock) != void;
 const openat_sym = if (posix.lfs64_abi) posix.system.openat64 else posix.system.openat;
+const fstat_sym = if (posix.lfs64_abi) posix.system.fstat64 else posix.system.fstat;
+const fstatat_sym = if (posix.lfs64_abi) posix.system.fstatat64 else posix.system.fstatat;
+const lseek_sym = if (posix.lfs64_abi) posix.system.lseek64 else posix.system.lseek;
+const preadv_sym = if (posix.lfs64_abi) posix.system.preadv64 else posix.system.preadv;
 
 fn dirCreateFilePosix(
     userdata: ?*anyopaque,
@@ -1423,7 +1428,6 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
         }
     };
 
-    const preadv_sym = if (posix.lfs64_abi) posix.system.preadv64 else posix.system.preadv;
     while (true) {
         try pool.checkCancel();
         const rc = preadv_sym(file.handle, dest.ptr, @intCast(dest.len), @bitCast(offset));
@@ -1461,11 +1465,59 @@ fn fileSeekBy(userdata: ?*anyopaque, file: Io.File, offset: i64) Io.File.SeekErr
 
 fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    try pool.checkCancel();
+    const fd = file.handle;
 
-    _ = file;
-    _ = offset;
-    @panic("TODO");
+    if (native_os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) while (true) {
+        try pool.checkCancel();
+        var result: u64 = undefined;
+        switch (posix.errno(posix.system.llseek(fd, offset, &result, posix.SEEK.SET))) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .INVAL => return error.Unseekable,
+            .OVERFLOW => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            .NXIO => return error.Unseekable,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+
+    if (native_os == .windows) {
+        try pool.checkCancel();
+        return windows.SetFilePointerEx_BEGIN(fd, offset);
+    }
+
+    if (native_os == .wasi and !builtin.link_libc) while (true) {
+        try pool.checkCancel();
+        var new_offset: std.os.wasi.filesize_t = undefined;
+        switch (std.os.wasi.fd_seek(fd, @bitCast(offset), .SET, &new_offset)) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .INVAL => return error.Unseekable,
+            .OVERFLOW => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            .NXIO => return error.Unseekable,
+            .NOTCAPABLE => return error.AccessDenied,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+
+    if (posix.SEEK == void) return error.Unseekable;
+
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(lseek_sym(fd, @bitCast(offset), posix.SEEK.SET))) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .INVAL => return error.Unseekable,
+            .OVERFLOW => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            .NXIO => return error.Unseekable,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posix.off_t) Io.File.PWriteError!usize {

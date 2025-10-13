@@ -488,6 +488,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
         error.NameTooLong => unreachable,
         error.FileNotFound => unreachable,
         error.InvalidUtf8 => unreachable,
+        error.Streaming => unreachable,
         error.Canceled => return error.Canceled,
         else => |e| return e,
     };
@@ -5262,7 +5263,6 @@ pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
 
 pub const SeekError = std.Io.File.SeekError;
 
-/// Repositions read/write file offset relative to the beginning.
 pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     if (native_os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;

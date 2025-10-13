@@ -666,8 +666,8 @@ pub const VTable = struct {
     fileReadStreaming: *const fn (?*anyopaque, File, data: [][]u8) File.ReadStreamingError!usize,
     /// Returns 0 on end of stream.
     fileReadPositional: *const fn (?*anyopaque, File, data: [][]u8, offset: u64) File.ReadPositionalError!usize,
-    fileSeekBy: *const fn (?*anyopaque, File, offset: i64) File.SeekError!void,
-    fileSeekTo: *const fn (?*anyopaque, File, offset: u64) File.SeekError!void,
+    fileSeekBy: *const fn (?*anyopaque, File, relative_offset: i64) File.SeekError!void,
+    fileSeekTo: *const fn (?*anyopaque, File, absolute_offset: u64) File.SeekError!void,
 
     now: *const fn (?*anyopaque, Clock) Clock.Error!Timestamp,
     sleep: *const fn (?*anyopaque, Timeout) SleepError!void,
