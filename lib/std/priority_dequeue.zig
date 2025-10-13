@@ -149,16 +149,9 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             return self.bestItemAtIndices(1, 2, .gt).index;
         }
 
-        /// Pop the smallest element from the dequeue. Returns
-        /// `null` if empty.
-        pub fn removeMinOrNull(self: *Self) ?T {
-            return if (self.len > 0) self.removeMin() else null;
-        }
-
-        /// Remove and return the smallest element from the
-        /// dequeue.
-        pub fn removeMin(self: *Self) T {
-            return self.removeIndex(0);
+        /// Remove and return the smallest element from the dequeue, or `null` if empty
+        pub fn removeMin(self: *Self) ?T {
+            return if (self.len > 0) self.removeIndex(0) else null;
         }
 
         /// Pop the largest element from the dequeue. Returns
@@ -504,12 +497,12 @@ test "add and remove min structs" {
     try queue.add(allocator, .{ .size = 25 });
     try queue.add(allocator, .{ .size = 13 });
 
-    try expectEqual(@as(u32, 7), queue.removeMin().size);
-    try expectEqual(@as(u32, 12), queue.removeMin().size);
-    try expectEqual(@as(u32, 13), queue.removeMin().size);
-    try expectEqual(@as(u32, 23), queue.removeMin().size);
-    try expectEqual(@as(u32, 25), queue.removeMin().size);
-    try expectEqual(@as(u32, 54), queue.removeMin().size);
+    try expectEqual(@as(u32, 7), queue.removeMin().?.size);
+    try expectEqual(@as(u32, 12), queue.removeMin().?.size);
+    try expectEqual(@as(u32, 13), queue.removeMin().?.size);
+    try expectEqual(@as(u32, 23), queue.removeMin().?.size);
+    try expectEqual(@as(u32, 25), queue.removeMin().?.size);
+    try expectEqual(@as(u32, 54), queue.removeMin().?.size);
 }
 
 test "add and remove max" {
@@ -577,7 +570,7 @@ test "removeOrNull empty" {
     var queue = PDQ.init({});
     defer queue.deinit(allocator);
 
-    try expect(queue.removeMinOrNull() == null);
+    try expect(queue.removeMin() == null);
     try expect(queue.removeMaxOrNull() == null);
 }
 
@@ -708,7 +701,7 @@ test "fromOwnedSlice trivial case 0" {
     defer queue.deinit(allocator);
 
     try expectEqual(@as(usize, 0), queue.len);
-    try expect(queue.removeMinOrNull() == null);
+    try expect(queue.removeMin() == null);
 }
 
 test "fromOwnedSlice trivial case 1" {
@@ -720,7 +713,7 @@ test "fromOwnedSlice trivial case 1" {
 
     try expectEqual(@as(usize, 1), queue.len);
     try expectEqual(items[0], queue.removeMin());
-    try expect(queue.removeMinOrNull() == null);
+    try expect(queue.removeMin() == null);
 }
 
 test "fromOwnedSlice" {
@@ -857,7 +850,7 @@ test "remove at index" {
     try expectEqual(queue.removeIndex(two_idx), 2);
     try expectEqual(queue.removeMin(), 1);
     try expectEqual(queue.removeMin(), 3);
-    try expectEqual(queue.removeMinOrNull(), null);
+    try expectEqual(queue.removeMin(), null);
 }
 
 test "iterator while empty" {
@@ -915,7 +908,7 @@ fn fuzzTestMin(rng: std.Random, comptime queue_size: usize) !void {
     defer queue.deinit(allocator);
 
     var last_removed: ?u32 = null;
-    while (queue.removeMinOrNull()) |next| {
+    while (queue.removeMin()) |next| {
         if (last_removed) |last| {
             try expect(last <= next);
         }
@@ -977,7 +970,7 @@ fn fuzzTestMinMax(rng: std.Random, queue_size: usize) !void {
     var i: usize = 0;
     while (i < queue_size) : (i += 1) {
         if (i % 2 == 0) {
-            const next = queue.removeMin();
+            const next = queue.removeMin().?;
             if (last_min) |last| {
                 try expect(last <= next);
             }
