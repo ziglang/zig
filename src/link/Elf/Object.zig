@@ -1207,6 +1207,17 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
                 _ = try zlib_stream.reader.streamRemaining(&aw.writer);
                 return aw.toOwnedSlice();
             },
+            .ZSTD => {
+                var input: std.Io.Reader = .fixed(data[@sizeOf(elf.Elf64_Chdr)..]);
+                var stream: std.compress.zstd.Decompress = .init(&input, &.{}, .{});
+                const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
+                var aw: std.Io.Writer.Allocating = .init(gpa);
+                defer aw.deinit();
+                try aw.ensureUnusedCapacity(size);
+                _ = try stream.reader.streamRemaining(&aw.writer);
+
+                return aw.toOwnedSlice();
+            },
             else => @panic("TODO unhandled compression scheme"),
         }
     }
