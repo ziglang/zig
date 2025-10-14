@@ -893,8 +893,13 @@ pub const DynamicBitSetUnmanaged = struct {
 
     /// Set all bits to 1.
     pub fn setAll(self: *Self) void {
-        const masks_len = numMasks(self.bit_length);
-        @memset(self.masks[0..masks_len], std.math.maxInt(MaskInt));
+        const num_masks = numMasks(self.bit_length);
+        @memset(self.masks[0..num_masks], std.math.maxInt(MaskInt));
+        if (num_masks > 0) {
+            const padding_bits = num_masks * @bitSizeOf(MaskInt) - self.bit_length;
+            const last_item_mask = (~@as(MaskInt, 0)) >> @as(ShiftInt, @intCast(padding_bits));
+            self.masks[num_masks - 1] = last_item_mask;
+        }
     }
 
     /// Flips a specific bit in the bit set
@@ -1163,6 +1168,16 @@ pub const DynamicBitSet = struct {
     /// Removes a specific bit from the bit set
     pub fn unset(self: *Self, index: usize) void {
         self.unmanaged.unset(index);
+    }
+
+    /// Set all bits to 0.
+    pub fn unsetAll(self: *Self) void {
+        self.unmanaged.unsetAll();
+    }
+
+    /// Set all bits to 1.
+    pub fn setAll(self: *Self) void {
+        self.unmanaged.setAll();
     }
 
     /// Flips a specific bit in the bit set
@@ -1812,6 +1827,11 @@ test DynamicBitSet {
 
         try testEql(tmp, b, size);
         try testBitSet(&a, &b, size);
+
+        b.unsetAll();
+        try testing.expectEqual(0, b.count());
+        b.setAll();
+        try testing.expectEqual(size, b.count());
     }
 }
 
