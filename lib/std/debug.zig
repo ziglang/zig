@@ -938,8 +938,8 @@ const StackIterator = union(enum) {
             .fp => |fp| {
                 if (fp == 0) return .end; // we reached the "sentinel" base pointer
 
-                const bp_addr = applyOffset(fp, bp_offset) orelse return .end;
-                const ra_addr = applyOffset(fp, ra_offset) orelse return .end;
+                const bp_addr = applyOffset(fp, fp_to_bp_offset) orelse return .end;
+                const ra_addr = applyOffset(fp, fp_to_ra_offset) orelse return .end;
 
                 if (bp_addr == 0 or !mem.isAligned(bp_addr, @alignOf(usize)) or
                     ra_addr == 0 or !mem.isAligned(ra_addr, @alignOf(usize)))
@@ -950,7 +950,7 @@ const StackIterator = union(enum) {
 
                 const bp_ptr: *const usize = @ptrFromInt(bp_addr);
                 const ra_ptr: *const usize = @ptrFromInt(ra_addr);
-                const bp = applyOffset(bp_ptr.*, bp_bias) orelse return .end;
+                const bp = applyOffset(bp_ptr.*, stack_bias) orelse return .end;
 
                 // The stack grows downards, so `bp > fp` should always hold. If it doesn't, this
                 // frame is invalid, so we'll treat it as though it we reached end of stack. The
@@ -967,29 +967,35 @@ const StackIterator = union(enum) {
     }
 
     /// Offset of the saved base pointer (previous frame pointer) wrt the frame pointer.
-    const bp_offset = off: {
-        // On RISC-V the frame pointer points to the top of the saved register
-        // area, on pretty much every other architecture it points to the stack
-        // slot where the previous frame pointer is saved.
+    const fp_to_bp_offset = off: {
+        // On LoongArch and RISC-V, the frame pointer points to the top of the saved register area,
+        // in which the base pointer is the first word.
         if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
-        // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
+        // On SPARC, the frame pointer points to the save area which holds 16 slots for the local
+        // and incoming registers. The base pointer (i6) is stored in its customary save slot.
         if (native_arch.isSPARC()) break :off 14 * @sizeOf(usize);
+        // Everywhere else, the frame pointer points directly to the location of the base pointer.
         break :off 0;
     };
 
     /// Offset of the saved return address wrt the frame pointer.
-    const ra_offset = off: {
-        if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -1 * @sizeOf(usize);
-        if (native_arch.isSPARC()) break :off 15 * @sizeOf(usize);
+    const fp_to_ra_offset = off: {
+        // On LoongArch and RISC-V, the frame pointer points to the top of the saved register area,
+        // in which the return address is the second word.
+        if (native_arch.isRISCV() or native_arch.isLoongArch()) break :off -1 * @sizeOf(usize);
         if (native_arch.isPowerPC64()) break :off 2 * @sizeOf(usize);
         // On s390x, r14 is the link register and we need to grab it from its customary slot in the
         // register save area (ELF ABI s390x Supplement §1.2.2.2).
         if (native_arch == .s390x) break :off 14 * @sizeOf(usize);
+        // On SPARC, the frame pointer points to the save area which holds 16 slots for the local
+        // and incoming registers. The return address (i7) is stored in its customary save slot.
+        if (native_arch.isSPARC()) break :off 15 * @sizeOf(usize);
         break :off @sizeOf(usize);
     };
 
-    /// Value to add to a base pointer after loading it from the stack. Yes, SPARC really does this.
-    const bp_bias = bias: {
+    /// Value to add to the stack pointer and frame/base pointers to get the real location being
+    /// pointed to. Yes, SPARC really does this.
+    const stack_bias = bias: {
         if (native_arch.isSPARC()) break :bias 2047;
         break :bias 0;
     };
