@@ -825,8 +825,19 @@ const StackIterator = union(enum) {
             // in our caller's frame and above.
             return .{ .di = .init(&.current()) };
         }
-        flushSparcWindows();
-        return .{ .fp = @frameAddress() };
+        return .{
+            // On SPARC, the frame pointer will point to the previous frame's save area,
+            // meaning we will read the previous return address and thus miss a frame.
+            // Instead, start at the stack pointer so we get the return address from the
+            // current frame's save area. The addition of the stack bias cannot fail here
+            // since we know we have a valid stack pointer.
+            .fp = if (native_arch.isSPARC()) sp: {
+                flushSparcWindows();
+                break :sp asm (""
+                    : [_] "={o6}" (-> usize),
+                ) + stack_bias;
+            } else @frameAddress(),
+        };
     }
     fn deinit(si: *StackIterator) void {
         switch (si.*) {
