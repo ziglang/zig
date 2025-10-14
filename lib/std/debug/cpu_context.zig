@@ -870,6 +870,8 @@ const Sparc = extern struct {
     pub const Gpr = if (native_arch == .sparc64) u64 else u32;
 
     pub inline fn current() Sparc {
+        flushWindows();
+
         var ctx: Sparc = undefined;
         asm volatile (if (Gpr == u64)
                 \\ stx %g0, [%l0 + 0]
@@ -931,6 +933,15 @@ const Sparc = extern struct {
             : [gprs] "{l0}" (&ctx),
             : .{ .o7 = true, .memory = true });
         return ctx;
+    }
+
+    noinline fn flushWindows() void {
+        // Flush all register windows except the current one (hence `noinline`). This ensures that
+        // we actually see meaningful data on the stack when we walk the frame chain.
+        if (comptime builtin.target.cpu.has(.sparc, .v9))
+            asm volatile ("flushw" ::: .{ .memory = true })
+        else
+            asm volatile ("ta 3" ::: .{ .memory = true }); // ST_FLUSH_WINDOWS
     }
 
     pub fn dwarfRegisterBytes(ctx: *Sparc, register_num: u16) DwarfRegisterError![]u8 {

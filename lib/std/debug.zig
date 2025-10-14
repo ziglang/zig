@@ -807,7 +807,6 @@ const StackIterator = union(enum) {
     /// `@frameAddress` and `cpu_context.Native.current` as the caller's stack frame and
     /// our own are one and the same.
     inline fn init(opt_context_ptr: ?CpuContextPtr) error{CannotUnwindFromContext}!StackIterator {
-        flushSparcWindows();
         if (opt_context_ptr) |context_ptr| {
             if (SelfInfo == void or !SelfInfo.can_unwind) return error.CannotUnwindFromContext;
             // Use `di_first` here so we report the PC in the context before unwinding any further.
@@ -826,6 +825,7 @@ const StackIterator = union(enum) {
             // in our caller's frame and above.
             return .{ .di = .init(&.current()) };
         }
+        flushSparcWindows();
         return .{ .fp = @frameAddress() };
     }
     fn deinit(si: *StackIterator) void {
