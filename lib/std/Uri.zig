@@ -39,7 +39,7 @@ pub const GetHostAllocError = GetHostError || error{OutOfMemory};
 ///
 /// See also:
 /// * `getHost`
-pub fn getHostAlloc(uri: Uri, arena: Allocator) GetHostAllocError![]const u8 {
+pub fn getHostAlloc(uri: Uri, arena: Allocator) GetHostAllocError!HostName {
     const component = uri.host orelse return error.UriMissingHost;
     const bytes = try component.toRawMaybeAlloc(arena);
     return .{ .bytes = bytes };
