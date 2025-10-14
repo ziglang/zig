@@ -10703,6 +10703,8 @@ pub const recvmsg = switch (native_os) {
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 
+pub extern "c" fn getuid() uid_t;
+
 pub extern "c" fn setuid(uid: uid_t) c_int;
 pub extern "c" fn setgid(gid: gid_t) c_int;
 pub extern "c" fn seteuid(euid: uid_t) c_int;
