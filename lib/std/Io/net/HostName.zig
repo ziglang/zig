@@ -396,20 +396,24 @@ fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, optio
             std.posix.RR.A => {
                 const data = record.packet[record.data_off..][0..record.data_len];
                 if (data.len != 4) return error.InvalidDnsARecord;
-                options.addresses_buffer[addresses_len] = .{ .ip4 = .{
-                    .bytes = data[0..4].*,
-                    .port = options.port,
-                } };
-                addresses_len += 1;
+                if (addresses_len < options.addresses_buffer.len) {
+                    options.addresses_buffer[addresses_len] = .{ .ip4 = .{
+                        .bytes = data[0..4].*,
+                        .port = options.port,
+                    } };
+                    addresses_len += 1;
+                }
             },
             std.posix.RR.AAAA => {
                 const data = record.packet[record.data_off..][0..record.data_len];
                 if (data.len != 16) return error.InvalidDnsAAAARecord;
-                options.addresses_buffer[addresses_len] = .{ .ip6 = .{
-                    .bytes = data[0..16].*,
-                    .port = options.port,
-                } };
-                addresses_len += 1;
+                if (addresses_len < options.addresses_buffer.len) {
+                    options.addresses_buffer[addresses_len] = .{ .ip6 = .{
+                        .bytes = data[0..16].*,
+                        .port = options.port,
+                    } };
+                    addresses_len += 1;
+                }
             },
             std.posix.RR.CNAME => {
                 _, canonical_name = expand(record.packet, record.data_off, options.canonical_name_buffer) catch
@@ -472,6 +476,7 @@ fn lookupHostsReader(host_name: HostName, options: LookupOptions, reader: *Io.Re
             error.ReadFailed => return error.ReadFailed,
             error.EndOfStream => break,
         };
+        reader.toss(1);
         var split_it = std.mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
 
