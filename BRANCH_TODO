@@ -10,6 +10,7 @@
 * move max_iovecs_len to std.Io
 * address the cancelation race condition (signal received between checkCancel and syscall)
 * update signal values to be an enum
+* delete the deprecated fs.File functions
 * move fs.File.Writer to Io
 * add non-blocking flag to net and fs operations, handle EAGAIN
 * finish moving std.fs to Io

@@ -55,6 +55,7 @@ gpa: Allocator,
 /// Not thread-safe - lock `mutex` if potentially accessing from multiple
 /// threads at once.
 arena: Allocator,
+io: Io,
 /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
 zcu: ?*Zcu,
 /// Contains different state depending on the `CacheMode` used by this `Compilation`.
@@ -1077,26 +1078,26 @@ pub const CObject = struct {
             diag.* = undefined;
         }
 
-        pub fn count(diag: Diag) u32 {
+        pub fn count(diag: *const Diag) u32 {
             var total: u32 = 1;
             for (diag.sub_diags) |sub_diag| total += sub_diag.count();
             return total;
         }
 
-        pub fn addToErrorBundle(diag: Diag, eb: *ErrorBundle.Wip, bundle: Bundle, note: *u32) !void {
-            const err_msg = try eb.addErrorMessage(try diag.toErrorMessage(eb, bundle, 0));
+        pub fn addToErrorBundle(diag: *const Diag, io: Io, eb: *ErrorBundle.Wip, bundle: Bundle, note: *u32) !void {
+            const err_msg = try eb.addErrorMessage(try diag.toErrorMessage(io, eb, bundle, 0));
             eb.extra.items[note.*] = @intFromEnum(err_msg);
             note.* += 1;
-            for (diag.sub_diags) |sub_diag| try sub_diag.addToErrorBundle(eb, bundle, note);
+            for (diag.sub_diags) |sub_diag| try sub_diag.addToErrorBundle(io, eb, bundle, note);
         }
 
         pub fn toErrorMessage(
-            diag: Diag,
+            diag: *const Diag,
+            io: Io,
             eb: *ErrorBundle.Wip,
             bundle: Bundle,
             notes_len: u32,
         ) !ErrorBundle.ErrorMessage {
-            const io = eb.io;
             var start = diag.src_loc.offset;
             var end = diag.src_loc.offset;
             for (diag.src_ranges) |src_range| {
@@ -1307,14 +1308,14 @@ pub const CObject = struct {
                 return bundle;
             }
 
-            pub fn addToErrorBundle(bundle: Bundle, eb: *ErrorBundle.Wip) !void {
+            pub fn addToErrorBundle(bundle: Bundle, io: Io, eb: *ErrorBundle.Wip) !void {
                 for (bundle.diags) |diag| {
                     const notes_len = diag.count() - 1;
-                    try eb.addRootErrorMessage(try diag.toErrorMessage(eb, bundle, notes_len));
+                    try eb.addRootErrorMessage(try diag.toErrorMessage(io, eb, bundle, notes_len));
                     if (notes_len > 0) {
                         var note = try eb.reserveNotes(notes_len);
                         for (diag.sub_diags) |sub_diag|
-                            try sub_diag.addToErrorBundle(eb, bundle, &note);
+                            try sub_diag.addToErrorBundle(io, eb, bundle, &note);
                     }
                 }
             }
@@ -1906,7 +1907,7 @@ pub const CreateDiagnostic = union(enum) {
         return error.CreateFail;
     }
 };
-pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options: CreateOptions) error{
+pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic, options: CreateOptions) error{
     OutOfMemory,
     Unexpected,
     CurrentWorkingDirectoryUnlinked,
@@ -2114,6 +2115,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
         const cache = try arena.create(Cache);
         cache.* = .{
             .gpa = gpa,
+            .io = io,
             .manifest_dir = options.dirs.local_cache.handle.makeOpenPath("h", .{}) catch |err| {
                 return diag.fail(.{ .create_cache_path = .{ .which = .local, .sub = "h", .err = err } });
             },
@@ -2232,6 +2234,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
         comp.* = .{
             .gpa = gpa,
             .arena = arena,
+            .io = io,
             .zcu = opt_zcu,
             .cache_use = undefined, // populated below
             .bin_file = null, // populated below if necessary
@@ -3919,13 +3922,14 @@ fn addBuf(list: *std.array_list.Managed([]const u8), buf: []const u8) void {
 /// This function is temporally single-threaded.
 pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
     const gpa = comp.gpa;
+    const io = comp.io;
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
     defer bundle.deinit();
 
     for (comp.failed_c_objects.values()) |diag_bundle| {
-        try diag_bundle.addToErrorBundle(&bundle);
+        try diag_bundle.addToErrorBundle(io, &bundle);
     }
 
     for (comp.failed_win32_resources.values()) |error_bundle| {
@@ -5310,6 +5314,7 @@ fn docsCopyModule(
     name: []const u8,
     tar_file_writer: *fs.File.Writer,
 ) !void {
+    const io = comp.io;
     const root = module.root;
     var mod_dir = d: {
         const root_dir, const sub_path = root.openInfo(comp.dirs);
@@ -5343,9 +5348,9 @@ fn docsCopyModule(
         };
         defer file.close();
         const stat = try file.stat();
-        var file_reader: fs.File.Reader = .initSize(file, &buffer, stat.size);
+        var file_reader: fs.File.Reader = .initSize(file.adaptToNewApi(), io, &buffer, stat.size);
 
-        archiver.writeFile(entry.path, &file_reader, stat.mtime) catch |err| {
+        archiver.writeFileTimestamp(entry.path, &file_reader, stat.mtime) catch |err| {
             return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive {f}{s}: {t}", .{
                 root.fmt(comp), entry.path, err,
             });
@@ -5365,6 +5370,7 @@ fn workerDocsWasm(comp: *Compilation, parent_prog_node: std.Progress.Node) void 
 
 fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubUpdateError!void {
     const gpa = comp.gpa;
+    const io = comp.io;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -5373,7 +5379,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
     const optimize_mode = std.builtin.OptimizeMode.ReleaseSmall;
     const output_mode = std.builtin.OutputMode.Exe;
     const resolved_target: Package.Module.ResolvedTarget = .{
-        .result = std.zig.system.resolveTargetQuery(.{
+        .result = std.zig.system.resolveTargetQuery(io, .{
             .cpu_arch = .wasm32,
             .os_tag = .freestanding,
             .cpu_features_add = std.Target.wasm.featureSet(&.{
@@ -5449,7 +5455,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
     try root_mod.deps.put(arena, "Walk", walk_mod);
 
     var sub_create_diag: CreateDiagnostic = undefined;
-    const sub_compilation = Compilation.create(gpa, arena, &sub_create_diag, .{
+    const sub_compilation = Compilation.create(gpa, arena, io, &sub_create_diag, .{
         .dirs = dirs,
         .self_exe_path = comp.self_exe_path,
         .config = config,
@@ -5667,6 +5673,8 @@ pub fn translateC(
 ) !CImportResult {
     dev.check(.translate_c_command);
 
+    const gpa = comp.gpa;
+    const io = comp.io;
     const tmp_basename = std.fmt.hex(std.crypto.random.int(u64));
     const tmp_sub_path = "tmp" ++ fs.path.sep_str ++ tmp_basename;
     const cache_dir = comp.dirs.local_cache.handle;
@@ -5706,9 +5714,9 @@ pub fn translateC(
 
         const mcpu = mcpu: {
             var buf: std.ArrayListUnmanaged(u8) = .empty;
-            defer buf.deinit(comp.gpa);
+            defer buf.deinit(gpa);
 
-            try buf.print(comp.gpa, "-mcpu={s}", .{target.cpu.model.name});
+            try buf.print(gpa, "-mcpu={s}", .{target.cpu.model.name});
 
             // TODO better serialization https://github.com/ziglang/zig/issues/4584
             const all_features_list = target.cpu.arch.allFeaturesList();
@@ -5718,7 +5726,7 @@ pub fn translateC(
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-                try buf.print(comp.gpa, "{c}{s}", .{ plus_or_minus, feature.name });
+                try buf.print(gpa, "{c}{s}", .{ plus_or_minus, feature.name });
             }
             break :mcpu try buf.toOwnedSlice(arena);
         };
@@ -5731,7 +5739,7 @@ pub fn translateC(
     }
 
     var stdout: []u8 = undefined;
-    try @import("main.zig").translateC(comp.gpa, arena, argv.items, prog_node, &stdout);
+    try @import("main.zig").translateC(gpa, arena, io, argv.items, prog_node, &stdout);
 
     if (out_dep_path) |dep_file_path| add_deps: {
         if (comp.verbose_cimport) log.info("processing dep file at {s}", .{dep_file_path});
@@ -5767,7 +5775,7 @@ pub fn translateC(
             fatal("unable to read {}-byte translate-c message body: {s}", .{ header.bytes_len, @errorName(err) });
         switch (header.tag) {
             .error_bundle => {
-                const error_bundle = try std.zig.Server.allocErrorBundle(comp.gpa, body);
+                const error_bundle = try std.zig.Server.allocErrorBundle(gpa, body);
                 return .{
                     .digest = undefined,
                     .cache_hit = false,
@@ -6154,6 +6162,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     log.debug("updating C object: {s}", .{c_object.src.src_path});
 
     const gpa = comp.gpa;
+    const io = comp.io;
 
     if (c_object.clearStatus(gpa)) {
         // There was previous failure.
@@ -6353,7 +6362,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                var stderr_reader = child.stderr.?.readerStreaming(&.{});
+                var stderr_reader = child.stderr.?.readerStreaming(io, &.{});
                 const stderr = try stderr_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
 
                 const term = child.wait() catch |err| {
@@ -6362,7 +6371,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 switch (term) {
                     .Exited => |code| if (code != 0) if (out_diag_path) |diag_file_path| {
-                        const bundle = CObject.Diag.Bundle.parse(gpa, diag_file_path) catch |err| {
+                        const bundle = CObject.Diag.Bundle.parse(gpa, io, diag_file_path) catch |err| {
                             log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
                             return comp.failCObj(c_object, "clang exited with code {d}", .{code});
                         };
@@ -7807,6 +7816,7 @@ fn buildOutputFromZig(
     defer tracy_trace.end();
 
     const gpa = comp.gpa;
+    const io = comp.io;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -7880,7 +7890,7 @@ fn buildOutputFromZig(
     };
 
     var sub_create_diag: CreateDiagnostic = undefined;
-    const sub_compilation = Compilation.create(gpa, arena, &sub_create_diag, .{
+    const sub_compilation = Compilation.create(gpa, arena, io, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .cache_mode = .whole,
         .parent_whole_cache = parent_whole_cache,
@@ -7948,6 +7958,7 @@ pub fn build_crt_file(
     defer tracy_trace.end();
 
     const gpa = comp.gpa;
+    const io = comp.io;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -8016,7 +8027,7 @@ pub fn build_crt_file(
     }
 
     var sub_create_diag: CreateDiagnostic = undefined;
-    const sub_compilation = Compilation.create(gpa, arena, &sub_create_diag, .{
+    const sub_compilation = Compilation.create(gpa, arena, io, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,

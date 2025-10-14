@@ -1142,7 +1142,7 @@ fn dirOpenFile(
     }
     const fd: posix.fd_t = while (true) {
         try pool.checkCancel();
-        const rc = openat_sym(dir.handle, sub_path_posix, os_flags, 0);
+        const rc = openat_sym(dir.handle, sub_path_posix, os_flags, @as(posix.mode_t, 0));
         switch (posix.errno(rc)) {
             .SUCCESS => break @intCast(rc),
             .INTR => continue,
@@ -2259,10 +2259,11 @@ fn netSendMany(
         const rc = posix.system.sendmmsg(handle, clamped_msgs.ptr, @intCast(clamped_msgs.len), flags);
         switch (posix.errno(rc)) {
             .SUCCESS => {
-                for (clamped_messages[0..rc], clamped_msgs[0..rc]) |*message, *msg| {
+                const n: usize = @intCast(rc);
+                for (clamped_messages[0..n], clamped_msgs[0..n]) |*message, *msg| {
                     message.data_len = msg.len;
                 }
-                return rc;
+                return n;
             },
             .AGAIN => |err| return errnoBug(err),
             .ALREADY => return error.FastOpenAlreadyInProgress,

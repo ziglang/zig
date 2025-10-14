@@ -321,7 +321,6 @@ fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, w: *Writer, indent: usize) !
 
 pub const Wip = struct {
     gpa: Allocator,
-    io: Io,
     string_bytes: std.ArrayListUnmanaged(u8),
     /// The first thing in this array is a ErrorMessageList.
     extra: std.ArrayListUnmanaged(u32),

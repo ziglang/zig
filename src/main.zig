@@ -312,7 +312,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         });
     } else if (mem.eql(u8, cmd, "fmt")) {
         dev.check(.fmt_command);
-        return @import("fmt.zig").run(gpa, arena, cmd_args);
+        return @import("fmt.zig").run(gpa, arena, io, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return jitCmd(gpa, arena, io, cmd_args, .{
             .cmd_name = "objcopy",
@@ -376,7 +376,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(arena, io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
-        return cmdDumpZir(arena, cmd_args);
+        return cmdDumpZir(arena, io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "llvm-ints")) {
         return cmdDumpLlvmInts(gpa, arena, cmd_args);
     } else {
@@ -3376,7 +3376,7 @@ fn buildOutputType(
     try create_module.rpath_list.appendSlice(arena, rpath_dedup.keys());
 
     var create_diag: Compilation.CreateDiagnostic = undefined;
-    const comp = Compilation.create(gpa, arena, &create_diag, .{
+    const comp = Compilation.create(gpa, arena, io, &create_diag, .{
         .dirs = dirs,
         .thread_pool = &thread_pool,
         .self_exe_path = switch (native_os) {
@@ -3554,7 +3554,6 @@ fn buildOutputType(
             var stdin_reader = fs.File.stdin().reader(io, &stdin_buffer);
             var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
             try serve(
-                io,
                 comp,
                 &stdin_reader.interface,
                 &stdout_writer.interface,
@@ -3581,7 +3580,6 @@ fn buildOutputType(
             var output = stream.writer(io, &stdout_buffer);
 
             try serve(
-                io,
                 comp,
                 &input.interface,
                 &output.interface,
@@ -4051,7 +4049,6 @@ fn saveState(comp: *Compilation, incremental: bool) void {
 }
 
 fn serve(
-    io: Io,
     comp: *Compilation,
     in: *Io.Reader,
     out: *Io.Writer,
@@ -4104,7 +4101,7 @@ fn serve(
                     defer arena_instance.deinit();
                     const arena = arena_instance.allocator();
                     var output: Compilation.CImportResult = undefined;
-                    try cmdTranslateC(io, comp, arena, &output, file_system_inputs, main_progress_node);
+                    try cmdTranslateC(comp, arena, &output, file_system_inputs, main_progress_node);
                     defer output.deinit(gpa);
 
                     if (file_system_inputs.items.len != 0) {
@@ -4537,6 +4534,8 @@ fn cmdTranslateC(
 ) !void {
     dev.check(.translate_c_command);
 
+    const io = comp.io;
+
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -4600,7 +4599,7 @@ fn cmdTranslateC(
         };
         defer zig_file.close();
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
-        var file_reader = zig_file.reader(&.{});
+        var file_reader = zig_file.reader(io, &.{});
         _ = try stdout_writer.interface.sendFileAll(&file_reader, .unlimited);
         try stdout_writer.interface.flush();
         return cleanExit();
@@ -5156,6 +5155,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
 
                 var fetch: Package.Fetch = .{
                     .arena = std.heap.ArenaAllocator.init(gpa),
+                    .io = io,
                     .location = .{ .relative_path = phantom_package_root },
                     .location_tok = 0,
                     .hash_tok = .none,
@@ -5278,7 +5278,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
             try root_mod.deps.put(arena, "@build", build_mod);
 
             var create_diag: Compilation.CreateDiagnostic = undefined;
-            const comp = Compilation.create(gpa, arena, &create_diag, .{
+            const comp = Compilation.create(gpa, arena, io, &create_diag, .{
                 .libc_installation = libc_installation,
                 .dirs = dirs,
                 .root_name = "build",
@@ -5522,7 +5522,7 @@ fn jitCmd(
         }
 
         var create_diag: Compilation.CreateDiagnostic = undefined;
-        const comp = Compilation.create(gpa, arena, &create_diag, .{
+        const comp = Compilation.create(gpa, arena, io, &create_diag, .{
             .dirs = dirs,
             .root_name = options.cmd_name,
             .config = config,
@@ -6400,10 +6400,7 @@ fn cmdDumpLlvmInts(
 }
 
 /// This is only enabled for debug builds.
-fn cmdDumpZir(
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdDumpZir(arena: Allocator, io: Io, args: []const []const u8) !void {
     dev.check(.dump_zir_command);
 
     const Zir = std.zig.Zir;
@@ -6415,7 +6412,7 @@ fn cmdDumpZir(
     };
     defer f.close();
 
-    const zir = try Zcu.loadZirCache(arena, f);
+    const zir = try Zcu.loadZirCache(arena, io, f);
     var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
     {
@@ -6914,6 +6911,7 @@ fn cmdFetch(
 
     var fetch: Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(gpa),
+        .io = io,
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
         .hash_tok = .none,

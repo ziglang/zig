@@ -4149,6 +4149,14 @@ const posix_msghdr_const = extern struct {
     flags: u32,
 };
 
+pub const mmsghdr = switch (native_os) {
+    .linux => linux.mmsghdr,
+    else => extern struct {
+        hdr: msghdr,
+        len: u32,
+    },
+};
+
 pub const cmsghdr = switch (native_os) {
     .linux => if (@bitSizeOf(usize) > @bitSizeOf(i32) and builtin.abi.isMusl()) posix_cmsghdr else linux.cmsghdr,
     // https://github.com/emscripten-core/emscripten/blob/96371ed7888fc78c040179f4d4faa82a6a07a116/system/lib/libc/musl/include/sys/socket.h#L44
@@ -10665,6 +10673,7 @@ pub extern "c" fn sendto(
     addrlen: socklen_t,
 ) isize;
 pub extern "c" fn sendmsg(sockfd: fd_t, msg: *const msghdr_const, flags: u32) isize;
+pub extern "c" fn sendmmsg(sockfd: fd_t, msgvec: [*]mmsghdr, n: c_uint, flags: u32) c_int;
 
 pub extern "c" fn recv(
     sockfd: fd_t,

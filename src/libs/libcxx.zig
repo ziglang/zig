@@ -123,6 +123,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
+    const io = comp.io;
     const root_name = "c++";
     const output_mode = .Lib;
     const link_mode = .static;
@@ -263,7 +264,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     const misc_task: Compilation.MiscTask = .libcxx;
 
     var sub_create_diag: Compilation.CreateDiagnostic = undefined;
-    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, io, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
@@ -318,6 +319,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
+    const io = comp.io;
     const root_name = "c++abi";
     const output_mode = .Lib;
     const link_mode = .static;
@@ -455,7 +457,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const misc_task: Compilation.MiscTask = .libcxxabi;
 
     var sub_create_diag: Compilation.CreateDiagnostic = undefined;
-    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, io, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
