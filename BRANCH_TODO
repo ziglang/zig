@@ -10,5 +10,6 @@
 * address the cancelation race condition (signal received between checkCancel and syscall)
 * update signal values to be an enum
 * move fs.File.Writer to Io
+* add non-blocking flag to network operations, handle EAGAIN
 * finish moving std.fs to Io
 * finish moving all of std.posix into Threaded
