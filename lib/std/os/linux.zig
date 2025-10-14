@@ -8370,6 +8370,13 @@ pub const MADV = struct {
     pub const SOFT_OFFLINE = 101;
 };
 
+pub const Madvice = enum(u32) {
+    _, // TODO: add options
+};
+pub const Fadvice = enum(u32) {
+    _, // TODO: add options
+};
+
 pub const POSIX_FADV = switch (native_arch) {
     .s390x => if (@typeInfo(usize).int.bits == 64) struct {
         pub const NORMAL = 0;
