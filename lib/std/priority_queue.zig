@@ -108,7 +108,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
         /// Returns `true` if the priority queue is empty and `false` if not.
         pub fn isEmpty(self: Self) bool {
-            return if (self.items.len > 0) false else true;
+            return self.items.len == 0;
         }
 
         /// Return the highest priority element from the queue, or `null` if empty.

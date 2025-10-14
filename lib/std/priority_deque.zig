@@ -86,7 +86,7 @@ pub fn PriorityDeque(comptime T: type, comptime Context: type, comptime compareF
 
         /// Returns `true` if the deque is empty and `false` if not.
         pub fn isEmpty(self: Self) bool {
-            return if (self.len > 0) false else true;
+            return self.len == 0;
         }
 
         fn addUnchecked(self: *Self, elem: T) void {
