@@ -206,6 +206,9 @@ pub const IpAddress = union(enum) {
         SystemFdQuotaExceeded,
         /// The requested address family (IPv4 or IPv6) is not supported by the operating system.
         AddressFamilyUnsupported,
+        ProtocolUnsupportedBySystem,
+        ProtocolUnsupportedByAddressFamily,
+        SocketModeUnsupported,
     } || Io.UnexpectedError || Io.Cancelable;
 
     pub const ListenOptions = struct {
@@ -216,6 +219,16 @@ pub const IpAddress = union(enum) {
         /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
         /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
         reuse_address: bool = false,
+        /// Only connection-oriented modes may be used here, which includes:
+        /// * `Socket.Mode.stream`
+        /// * `Socket.Mode.seqpacket`
+        mode: Socket.Mode = .stream,
+        /// Only connection-oriented protocols may be used here, which includes:
+        /// * `Protocol.tcp`
+        /// * `Protocol.tp`
+        /// * `Protocol.dccp`
+        /// * `Protocol.sctp`
+        protocol: Protocol = .tcp,
     };
 
     /// Waits for a TCP connection. When using this API, `bind` does not need
@@ -276,7 +289,6 @@ pub const IpAddress = union(enum) {
         ConnectionPending,
         ConnectionRefused,
         ConnectionResetByPeer,
-        AlreadyConnected,
         HostUnreachable,
         NetworkUnreachable,
         ConnectionTimedOut,
@@ -842,7 +854,22 @@ pub const UnixAddress = struct {
         } };
     }
 
-    pub const ConnectError = error{} || Io.Cancelable || Io.UnexpectedError;
+    pub const ConnectError = error{
+        SystemResources,
+        ProcessFdQuotaExceeded,
+        SystemFdQuotaExceeded,
+        AddressFamilyUnsupported,
+        ProtocolUnsupportedBySystem,
+        ProtocolUnsupportedByAddressFamily,
+        SocketModeUnsupported,
+        AccessDenied,
+        PermissionDenied,
+        SymLinkLoop,
+        FileNotFound,
+        NotDir,
+        ReadOnlyFileSystem,
+        WouldBlock,
+    } || Io.Cancelable || Io.UnexpectedError;
 
     pub fn connect(ua: *const UnixAddress, io: Io) ConnectError!Stream {
         assert(ua.path.len <= max_len);
