@@ -4229,8 +4229,8 @@ pub const CONTEXT = switch (native_arch) {
         SegSs: DWORD,
         ExtendedRegisters: [512]BYTE,
 
-        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
-            return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+            return .{ .bp = ctx.Ebp, .ip = ctx.Eip, .sp = ctx.Esp };
         }
     },
     .x86_64 => extern struct {
