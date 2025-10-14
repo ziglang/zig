@@ -1039,7 +1039,7 @@ fn dirCreateFilePosix(
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
             .OPNOTSUPP => return error.FileLocksNotSupported,
-            //.AGAIN => return error.WouldBlock,
+            .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
             .NXIO => return error.NoDevice,
             .ILSEQ => return error.BadPathName,
@@ -1064,7 +1064,7 @@ fn dirCreateFilePosix(
                 .BADF => |err| return errnoBug(err),
                 .INVAL => |err| return errnoBug(err), // invalid parameters
                 .NOLCK => return error.SystemResources,
-                //.AGAIN => return error.WouldBlock,
+                .AGAIN => return error.WouldBlock,
                 .OPNOTSUPP => return error.FileLocksNotSupported,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1168,7 +1168,7 @@ fn dirOpenFile(
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
             .OPNOTSUPP => return error.FileLocksNotSupported,
-            //.AGAIN => return error.WouldBlock,
+            .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
             .NXIO => return error.NoDevice,
             .ILSEQ => return error.BadPathName,
@@ -1193,7 +1193,7 @@ fn dirOpenFile(
                 .BADF => |err| return errnoBug(err),
                 .INVAL => |err| return errnoBug(err), // invalid parameters
                 .NOLCK => return error.SystemResources,
-                //.AGAIN => return error.WouldBlock,
+                .AGAIN => return error.WouldBlock,
                 .OPNOTSUPP => return error.FileLocksNotSupported,
                 else => |err| return posix.unexpectedErrno(err),
             }
