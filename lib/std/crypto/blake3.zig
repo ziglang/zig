@@ -663,7 +663,7 @@ fn compressSubtreeToParentNode(input: []const u8, key: [8]u32, chunk_counter: u6
 
 fn leftSubtreeLen(input_len: usize) usize {
     const full_chunks = (input_len - 1) / chunk_length;
-    return roundDownToPowerOf2(full_chunks) * chunk_length;
+    return @intCast(roundDownToPowerOf2(full_chunks) * chunk_length);
 }
 
 fn parentOutput(parent_block: []const u8, key: [8]u32, flags: Flags) Output {
@@ -908,20 +908,20 @@ pub const Blake3 = struct {
             if (subtree_len <= chunk_length) {
                 var chunk_state = ChunkState.init(self.key, self.chunk.flags);
                 chunk_state.chunk_counter = self.chunk.chunk_counter;
-                chunk_state.update(inp[0..subtree_len]);
+                chunk_state.update(inp[0..@intCast(subtree_len)]);
                 const output = chunk_state.output();
                 const cv = output.chainingValue();
                 self.pushCv(cv, chunk_state.chunk_counter);
             } else {
                 var cv_pair: [2 * digest_length]u8 = undefined;
-                compressSubtreeToParentNode(inp[0..subtree_len], self.key, self.chunk.chunk_counter, self.chunk.flags, &cv_pair);
+                compressSubtreeToParentNode(inp[0..@intCast(subtree_len)], self.key, self.chunk.chunk_counter, self.chunk.flags, &cv_pair);
                 const left_cv = loadCvWords(cv_pair[0..digest_length].*);
                 const right_cv = loadCvWords(cv_pair[digest_length..][0..digest_length].*);
                 self.pushCv(left_cv, self.chunk.chunk_counter);
                 self.pushCv(right_cv, self.chunk.chunk_counter + (subtree_chunks / 2));
             }
             self.chunk.chunk_counter += subtree_chunks;
-            inp = inp[subtree_len..];
+            inp = inp[@intCast(subtree_len)..];
         }
 
         if (inp.len > 0) {
