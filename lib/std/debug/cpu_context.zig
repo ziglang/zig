@@ -40,6 +40,26 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             },
             .pc = @truncate(uc.mcontext.pc),
         };
+    } else if (native_arch.isSPARC() and native_os == .linux) {
+        const SparcStackFrame = extern struct {
+            l: [8]usize,
+            i: [8]usize,
+            _x: [8]usize,
+        };
+
+        // When invoking a signal handler, the kernel builds an `rt_signal_frame` structure on the
+        // stack and passes a pointer to its `info` field to the signal handler. This implies that
+        // prior to said `info` field, we will find the `ss` field which, among other things,
+        // contains the incoming and local registers of the interrupted code.
+        const frame = @as(*const SparcStackFrame, @ptrFromInt(@as(usize, @intFromPtr(ctx_ptr)) - @sizeOf(SparcStackFrame)));
+
+        return .{
+            .g = uc.mcontext.g,
+            .o = uc.mcontext.o,
+            .l = frame.l,
+            .i = frame.i,
+            .pc = uc.mcontext.pc,
+        };
     }
 
     // Only unified conversions from here.
@@ -1370,9 +1390,32 @@ const signal_ucontext_t = switch (native_os) {
                 lr: u32,
             },
         },
-        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sparc/include/uapi/asm/uctx.h
-        .sparc => @compileError("sparc-linux ucontext_t missing"),
-        .sparc64 => @compileError("sparc64-linux ucontext_t missing"),
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sparc/kernel/signal_32.c#L48-L49
+        .sparc => extern struct {
+            // Not actually a `ucontext_t` at all because, uh, reasons?
+
+            _info: std.os.linux.siginfo_t,
+            mcontext: extern struct {
+                _psr: u32,
+                pc: u32,
+                _npc: u32,
+                _y: u32,
+                g: [8]u32,
+                o: [8]u32,
+            },
+        },
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sparc/kernel/signal_64.c#L247-L248
+        .sparc64 => extern struct {
+            // Ditto...
+
+            _info: std.os.linux.siginfo_t,
+            mcontext: extern struct {
+                g: [8]u64,
+                o: [8]u64,
+                _tstate: u64,
+                pc: u64,
+            },
+        },
         else => unreachable,
     },
     // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/sys/_ucontext.h
@@ -1497,14 +1540,14 @@ const signal_ucontext_t = switch (native_os) {
         },
     },
     // This needs to be audited by someone with access to the Solaris headers.
-    .solaris => extern struct {
-        _flags: u64,
-        _link: ?*signal_ucontext_t,
-        _sigmask: std.c.sigset_t,
-        _stack: std.c.stack_t,
-        mcontext: switch (native_arch) {
-            .sparc64 => @compileError("sparc64-solaris mcontext_t missing"),
-            .x86_64 => extern struct {
+    .solaris => switch (native_arch) {
+        .sparc64 => @compileError("sparc64-solaris ucontext_t missing"),
+        .x86_64 => extern struct {
+            _flags: u64,
+            _link: ?*signal_ucontext_t,
+            _sigmask: std.c.sigset_t,
+            _stack: std.c.stack_t,
+            mcontext: extern struct {
                 r15: u64,
                 r14: u64,
                 r13: u64,
@@ -1524,8 +1567,8 @@ const signal_ucontext_t = switch (native_os) {
                 _err: i64,
                 rip: u64,
             },
-            else => unreachable,
         },
+        else => unreachable,
     },
     // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/ucontext.h
     .illumos => extern struct {
@@ -1637,7 +1680,7 @@ const signal_ucontext_t = switch (native_os) {
             },
         },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sparc64/include/signal.h
-        .sparc64 => @compileError("sparc64-openbsd mcontext_t missing"),
+        .sparc64 => @compileError("sparc64-openbsd ucontext_t missing"),
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/i386/include/signal.h
         .x86 => extern struct {
             mcontext: extern struct {
