@@ -54,7 +54,7 @@ pub fn syscall_fork() usize {
         \\ 2:
         : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@intFromEnum(SYS.fork)),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall0(number: SYS) usize {
@@ -66,7 +66,7 @@ pub fn syscall0(number: SYS) usize {
         \\ 1:
         : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@intFromEnum(number)),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -79,7 +79,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={o0}" (-> usize),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -93,7 +93,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -108,7 +108,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -124,7 +124,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -141,7 +141,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn syscall6(
@@ -167,7 +167,7 @@ pub fn syscall6(
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
           [arg6] "{o5}" (arg6),
-        : .{ .memory = true, .xcc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -233,7 +233,7 @@ pub fn restore_rt() callconv(.c) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .memory = true, .xcc = true, .o0 = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+        : .{ .memory = true, .icc = true, .o0 = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
 pub const F = struct {
