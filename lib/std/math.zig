@@ -1178,9 +1178,14 @@ pub inline fn floor(value: anytype) @TypeOf(value) {
 /// Returns the nearest power of two less than or equal to value, or
 /// zero if value is less than or equal to zero.
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
-    const uT = std.meta.Int(.unsigned, @typeInfo(T).int.bits);
+    comptime assert(switch (@typeInfo(T)) {
+        .int, .comptime_int => true,
+        else => false,
+    });
+
     if (value <= 0) return 0;
-    return @as(T, 1) << log2_int(uT, @as(uT, @intCast(value)));
+    const one: T = 1;
+    return one << @intCast(log2(value));
 }
 
 test floorPowerOfTwo {
@@ -1189,18 +1194,21 @@ test floorPowerOfTwo {
 }
 
 fn testFloorPowerOfTwo() !void {
-    try testing.expect(floorPowerOfTwo(u32, 63) == 32);
-    try testing.expect(floorPowerOfTwo(u32, 64) == 64);
-    try testing.expect(floorPowerOfTwo(u32, 65) == 64);
-    try testing.expect(floorPowerOfTwo(u32, 0) == 0);
-    try testing.expect(floorPowerOfTwo(u4, 7) == 4);
-    try testing.expect(floorPowerOfTwo(u4, 8) == 8);
-    try testing.expect(floorPowerOfTwo(u4, 9) == 8);
-    try testing.expect(floorPowerOfTwo(u4, 0) == 0);
-    try testing.expect(floorPowerOfTwo(i4, 7) == 4);
-    try testing.expect(floorPowerOfTwo(i4, -8) == 0);
-    try testing.expect(floorPowerOfTwo(i4, -1) == 0);
-    try testing.expect(floorPowerOfTwo(i4, 0) == 0);
+    try testing.expectEqual(@as(u32, 32), floorPowerOfTwo(u32, 63));
+    try testing.expectEqual(@as(u32, 64), floorPowerOfTwo(u32, 64));
+    try testing.expectEqual(@as(u32, 64), floorPowerOfTwo(u32, 65));
+    try testing.expectEqual(@as(u32, 0), floorPowerOfTwo(u32, 0));
+    try testing.expectEqual(@as(u4, 4), floorPowerOfTwo(u4, 7));
+    try testing.expectEqual(@as(u4, 8), floorPowerOfTwo(u4, 8));
+    try testing.expectEqual(@as(u4, 8), floorPowerOfTwo(u4, 9));
+    try testing.expectEqual(@as(u4, 0), floorPowerOfTwo(u4, 0));
+    try testing.expectEqual(@as(i4, 4), floorPowerOfTwo(i4, 7));
+    try testing.expectEqual(@as(i4, 0), floorPowerOfTwo(i4, -8));
+    try testing.expectEqual(@as(i4, 0), floorPowerOfTwo(i4, -1));
+    try testing.expectEqual(@as(i4, 0), floorPowerOfTwo(i4, 0));
+    try testing.expectEqual(@as(comptime_int, 64), floorPowerOfTwo(comptime_int, 127));
+    try testing.expectEqual(@as(comptime_int, 128), floorPowerOfTwo(comptime_int, 128));
+    try testing.expectEqual(@as(comptime_int, 128), floorPowerOfTwo(comptime_int, 129));
 }
 
 /// Returns the smallest integral value not less than the given floating point number.
@@ -1210,37 +1218,38 @@ pub inline fn ceil(value: anytype) @TypeOf(value) {
     return @ceil(value);
 }
 
-/// Returns the next power of two (if the value is not already a power of two).
-/// Only unsigned integers can be used. Zero is not an allowed input.
-/// Result is a type with 1 more bit than the input type.
-pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(T).int.signedness, @typeInfo(T).int.bits + 1) {
-    comptime assert(@typeInfo(T) == .int);
-    comptime assert(@typeInfo(T).int.signedness == .unsigned);
-    assert(value != 0);
-    const PromotedType = std.meta.Int(@typeInfo(T).int.signedness, @typeInfo(T).int.bits + 1);
-    const ShiftType = std.math.Log2Int(PromotedType);
-    return @as(PromotedType, 1) << @as(ShiftType, @intCast(@typeInfo(T).int.bits - @clz(value - 1)));
+/// The return type of the function `std.math.ceilPowerOfTwoPromote`,
+/// for an input of type `T`.
+pub fn CeilPowerOfTwoPromote(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .comptime_int => comptime_int,
+        .int => |info| std.meta.Int(
+            .unsigned,
+            // at a minimum, return `u1`
+            @max(info.bits + @intFromBool(info.signedness == .unsigned), 1),
+        ),
+        else => @compileError("ceilPowerOfTwo does not operate on type " ++ @typeName(T)),
+    };
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
-/// Only unsigned integers can be used. Zero is not an allowed input.
-/// If the value doesn't fit, returns an error.
-pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
-    comptime assert(@typeInfo(T) == .int);
-    const info = @typeInfo(T).int;
-    comptime assert(info.signedness == .unsigned);
-    const PromotedType = std.meta.Int(info.signedness, info.bits + 1);
-    const overflowBit = @as(PromotedType, 1) << info.bits;
+/// Operates on integer types. Result type is the most restricted type that can
+/// represent all possible outputs.
+pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) CeilPowerOfTwoPromote(T) {
+    if (value <= 1) return 1;
+    const one: CeilPowerOfTwoPromote(T) = 1;
+    return one << @intCast(log2(value - 1) + 1);
+}
+
+/// Returns the next power of two (if the value is not already a power of two).
+/// Operates on integer types. If the value doesn't fit, returns an error.
+pub fn ceilPowerOfTwo(comptime T: type, value: T) error{Overflow}!T {
     const x = ceilPowerOfTwoPromote(T, value);
-    if (overflowBit & x != 0) {
-        return error.Overflow;
-    }
-    return @as(T, @intCast(x));
+    return if (T == comptime_int or x <= maxInt(T)) @intCast(x) else error.Overflow;
 }
 
-/// Returns the next power of two (if the value is not already a power
-/// of two). Only unsigned integers can be used. Zero is not an
-/// allowed input. Asserts that the value fits.
+/// Returns the next power of two (if the value is not already a power of two).
+/// Operates on integer types. Asserts that the value fits.
 pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
     return ceilPowerOfTwo(T, value) catch unreachable;
 }
@@ -1260,6 +1269,9 @@ fn testCeilPowerOfTwoPromote() !void {
     try testing.expectEqual(@as(u6, 8), ceilPowerOfTwoPromote(u5, 8));
     try testing.expectEqual(@as(u6, 16), ceilPowerOfTwoPromote(u5, 9));
     try testing.expectEqual(@as(u5, 16), ceilPowerOfTwoPromote(u4, 9));
+    try testing.expectEqual(@as(comptime_int, 128), ceilPowerOfTwoPromote(comptime_int, 127));
+    try testing.expectEqual(@as(comptime_int, 128), ceilPowerOfTwoPromote(comptime_int, 128));
+    try testing.expectEqual(@as(comptime_int, 256), ceilPowerOfTwoPromote(comptime_int, 129));
 }
 
 test ceilPowerOfTwo {
