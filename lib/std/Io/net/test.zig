@@ -46,46 +46,26 @@ test "parse IPv6 address, check raw bytes" {
 }
 
 test "parse and render IPv6 addresses" {
-    // TODO make this test parsing and rendering only, then it doesn't need I/O
-    const io = testing.io;
+    try testParseAndRenderIp6Address("FF01:0:0:0:0:0:0:FB", "ff01::fb");
+    try testParseAndRenderIp6Address("FF01::Fb", "ff01::fb");
+    try testParseAndRenderIp6Address("::1", "::1");
+    try testParseAndRenderIp6Address("::", "::");
+    try testParseAndRenderIp6Address("1::", "1::");
+    try testParseAndRenderIp6Address("2001:db8::", "2001:db8::");
+    try testParseAndRenderIp6Address("::1234:5678", "::1234:5678");
+    try testParseAndRenderIp6Address("2001:db8::1234:5678", "2001:db8::1234:5678");
+    try testParseAndRenderIp6Address("FF01::FB%1234", "ff01::fb%1234");
+    try testParseAndRenderIp6Address("::ffff:123.5.123.5", "::ffff:123.5.123.5");
+}
 
+fn testParseAndRenderIp6Address(input: []const u8, expected_output: []const u8) !void {
     var buffer: [100]u8 = undefined;
-    const ips = [_][]const u8{
-        "FF01:0:0:0:0:0:0:FB",
-        "FF01::Fb",
-        "::1",
-        "::",
-        "1::",
-        "2001:db8::",
-        "::1234:5678",
-        "2001:db8::1234:5678",
-        "FF01::FB%1234",
-        "::ffff:123.5.123.5",
-    };
-    const printed = [_][]const u8{
-        "ff01::fb",
-        "ff01::fb",
-        "::1",
-        "::",
-        "1::",
-        "2001:db8::",
-        "::1234:5678",
-        "2001:db8::1234:5678",
-        "ff01::fb%1234",
-        "::ffff:123.5.123.5",
-    };
-    for (ips, 0..) |ip, i| {
-        const addr = net.IpAddress.parseIp6(ip, 0) catch unreachable;
-        var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
-        try testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
+    const parsed = net.Ip6Address.Unresolved.parse(input);
+    const actual_printed = try std.fmt.bufPrint(&buffer, "{f}", .{parsed.success});
+    try testing.expectEqualStrings(expected_output, actual_printed);
+}
 
-        if (builtin.os.tag == .linux) {
-            const addr_via_resolve = net.IpAddress.resolveIp6(io, ip, 0) catch unreachable;
-            var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr_via_resolve}) catch unreachable;
-            try testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
-        }
-    }
-
+test "IPv6 address parse failures" {
     try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6(":::", 0));
     try testing.expectError(error.Overflow, net.IpAddress.parseIp6("FF001::FB", 0));
     try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6("FF01::Fb:zig", 0));
@@ -93,13 +73,9 @@ test "parse and render IPv6 addresses" {
     try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("FF01:", 0));
     try testing.expectError(error.InvalidIpv4Mapping, net.IpAddress.parseIp6("::123.123.123.123", 0));
     try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("1", 0));
-    // TODO Make this test pass on other operating systems.
-    if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin() or builtin.os.tag == .windows) {
-        try testing.expectError(error.Incomplete, net.IpAddress.resolveIp6(io, "ff01::fb%", 0));
-        // Assumes IFNAMESIZE will always be a multiple of 2
-        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6(io, "ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
-        try testing.expectError(error.Overflow, net.IpAddress.resolveIp6(io, "ff01::fb%12345678901234", 0));
-    }
+    try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("ff01::fb%", 0));
+    try testing.expectError(error.Overflow, net.IpAddress.parseIp6("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
+    try testing.expectError(error.Overflow, net.IpAddress.parseIp6("ff01::fb%12345678901234", 0));
 }
 
 test "invalid but parseable IPv6 scope ids" {
