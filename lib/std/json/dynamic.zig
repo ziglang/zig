@@ -74,6 +74,39 @@ pub const Value = union(enum) {
         }
     }
 
+    pub fn zonStringify(value: @This(), zon_serializer: anytype, options: std.zon.Serializer.ValueOptions) !void {
+        switch (value) {
+            .null => try std.fmt.format(zon_serializer.writer, "{}", .{null}),
+            .bool => |inner| try std.fmt.format(zon_serializer.writer, "{}", .{inner}),
+            .integer => |inner| try zon_serializer.int(inner),
+            .float => |inner| try zon_serializer.float(inner),
+            .number_string, .string => |inner| try zon_serializer.string(inner),
+            .array => |inner| {
+                var container = try zon_serializer.beginTuple(
+                    .{ .whitespace_style = .{ .fields = inner.items.len } },
+                );
+                for (inner.items) |item| {
+                    try container.fieldArbitraryDepth(item, options);
+                }
+                try container.end();
+            },
+            .object => |inner| {
+                var container = try zon_serializer.beginStruct(
+                    .{ .whitespace_style = .{ .fields = inner.count() } },
+                );
+                var it = inner.iterator();
+                while (it.next()) |*kv| {
+                    try container.fieldArbitraryDepth(
+                        kv.key_ptr.*,
+                        kv.value_ptr.*,
+                        options,
+                    );
+                }
+                try container.end();
+            },
+        }
+    }
+
     pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!@This() {
         // The grammar of the stack is:
         //  (.array | .object .string)*
