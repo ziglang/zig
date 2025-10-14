@@ -51,6 +51,8 @@ pub fn StaticBitSet(comptime size: usize) type {
 /// A bit set with static size, which is backed by a single integer.
 /// This set is good for sets with a small size, but may generate
 /// inefficient code for larger sets, especially in debug mode.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn IntegerBitSet(comptime size: u16) type {
     return packed struct {
         const Self = @This();
@@ -65,17 +67,22 @@ pub fn IntegerBitSet(comptime size: u16) type {
         /// The integer type used to shift a mask in this bit set
         pub const ShiftInt = std.math.Log2Int(MaskInt);
 
+        /// A bit set with no elements present.
+        pub const empty: Self = .{ .mask = 0 };
+        /// A bit set with all elements present.
+        pub const full: Self = .{ .mask = ~@as(MaskInt, 0) };
+
         /// The bit mask, as a single integer
         mask: MaskInt,
 
-        /// Creates a bit set with no elements present.
+        /// Deprecated: use `.empty`
         pub fn initEmpty() Self {
-            return .{ .mask = 0 };
+            return .empty;
         }
 
-        /// Creates a bit set with all elements present.
+        /// Deprecated: use `.full`
         pub fn initFull() Self {
-            return .{ .mask = ~@as(MaskInt, 0) };
+            return .full;
         }
 
         /// Returns the number of bits in this bit set
@@ -323,6 +330,8 @@ pub fn IntegerBitSet(comptime size: u16) type {
 /// A bit set with static size, which is backed by an array of usize.
 /// This set is good for sets with a larger size, but may use
 /// more bytes than necessary if your set is small.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     const mask_info: std.builtin.Type = @typeInfo(MaskIntType);
 
@@ -372,6 +381,15 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// The integer type used to shift a mask in this bit set
         pub const ShiftInt = std.math.Log2Int(MaskInt);
 
+        /// A bit set with no elements present.
+        pub const empty: Self = .{ .masks = @splat(0) };
+
+        /// A bit set with all elements present.
+        pub const full: Self = if (num_masks == 0)
+            .{ .masks = .{} }
+        else
+            .{ .masks = [_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask} };
+
         // bits in one mask
         const mask_len = @bitSizeOf(MaskInt);
         // total number of masks
@@ -387,18 +405,14 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Padding bits at the end are undefined.
         masks: [num_masks]MaskInt,
 
-        /// Creates a bit set with no elements present.
+        /// Deprecated: use `.empty`
         pub fn initEmpty() Self {
-            return .{ .masks = [_]MaskInt{0} ** num_masks };
+            return .empty;
         }
 
-        /// Creates a bit set with all elements present.
+        /// Deprecated: use `.full`
         pub fn initFull() Self {
-            if (num_masks == 0) {
-                return .{ .masks = .{} };
-            } else {
-                return .{ .masks = [_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask} };
-            }
+            return .full;
         }
 
         /// Returns the number of bits in this bit set
