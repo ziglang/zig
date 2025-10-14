@@ -1756,11 +1756,80 @@ fn netListenIpPosix(
     };
 }
 
-fn netListenUnix(userdata: ?*anyopaque, address: Io.net.UnixAddress) Io.net.UnixAddress.ListenError!Io.net.Socket.Handle {
+fn netListenUnix(
+    userdata: ?*anyopaque,
+    address: *const Io.net.UnixAddress,
+    options: Io.net.UnixAddress.ListenOptions,
+) Io.net.UnixAddress.ListenError!Io.net.Socket.Handle {
+    if (!Io.net.has_unix_sockets) return error.AddressFamilyUnsupported;
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    _ = pool;
-    _ = address;
-    @panic("TODO");
+    const protocol: u32 = 0;
+    const socket_fd = while (true) {
+        try pool.checkCancel();
+        const flags: u32 = posix.SOCK.STREAM | if (socket_flags_unsupported) 0 else posix.SOCK.CLOEXEC;
+        const socket_rc = posix.system.socket(posix.AF.UNIX, flags, protocol);
+        switch (posix.errno(socket_rc)) {
+            .SUCCESS => {
+                const fd: posix.fd_t = @intCast(socket_rc);
+                errdefer posix.close(fd);
+                if (socket_flags_unsupported) while (true) {
+                    try pool.checkCancel();
+                    switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, @as(usize, posix.FD_CLOEXEC)))) {
+                        .SUCCESS => break,
+                        .INTR => continue,
+                        else => |err| return posix.unexpectedErrno(err),
+                    }
+                };
+                break fd;
+            },
+            .INTR => continue,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+    errdefer posix.close(socket_fd);
+
+    var storage: UnixAddress = undefined;
+    const addr_len = addressUnixToPosix(address, &storage);
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.bind(socket_fd, &storage.any, addr_len))) {
+            .SUCCESS => break,
+            .INTR => continue,
+            .ACCES => return error.AccessDenied,
+            .PERM => return error.PermissionDenied,
+            .ADDRINUSE => return error.AddressInUse,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .ADDRNOTAVAIL => return error.AddressUnavailable,
+            .NOMEM => return error.SystemResources,
+            .LOOP => return error.SymLinkLoop,
+            .NOENT => return error.FileNotFound,
+            .NOTDIR => return error.NotDir,
+            .ROFS => return error.ReadOnlyFileSystem,
+            .BADF => |err| return errnoBug(err), // always a race condition if this error is returned
+            .INVAL => |err| return errnoBug(err), // invalid parameters
+            .NOTSOCK => |err| return errnoBug(err), // invalid `sockfd`
+            .FAULT => |err| return errnoBug(err), // invalid `addr` pointer
+            .NAMETOOLONG => |err| return errnoBug(err),
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+
+    while (true) {
+        try pool.checkCancel();
+        switch (posix.errno(posix.system.listen(socket_fd, options.kernel_backlog))) {
+            .SUCCESS => break,
+            .ADDRINUSE => return error.AddressInUse,
+            .BADF => |err| return errnoBug(err),
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+
+    return socket_fd;
 }
 
 fn posixBind(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
@@ -1791,7 +1860,7 @@ fn posixConnect(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.socka
             .ADDRINUSE => return error.AddressInUse,
             .ADDRNOTAVAIL => return error.AddressUnavailable,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
-            .AGAIN, .INPROGRESS => |err| return errnoBug(err),
+            .AGAIN, .INPROGRESS => return error.WouldBlock,
             .ALREADY => return error.ConnectionPending,
             .BADF => |err| return errnoBug(err),
             .CONNREFUSED => return error.ConnectionRefused,
@@ -1804,8 +1873,8 @@ fn posixConnect(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.socka
             .PROTOTYPE => |err| return errnoBug(err),
             .TIMEDOUT => return error.ConnectionTimedOut,
             .CONNABORTED => |err| return errnoBug(err),
+            .ACCES => return error.AccessDenied,
             // UNIX socket error codes:
-            .ACCES => |err| return errnoBug(err),
             .PERM => |err| return errnoBug(err),
             .NOENT => |err| return errnoBug(err),
             else => |err| return posix.unexpectedErrno(err),
@@ -1867,7 +1936,10 @@ fn netConnectIpPosix(
     } };
 }
 
-fn netConnectUnix(userdata: ?*anyopaque, address: Io.net.UnixAddress) Io.net.UnixAddress.ConnectError!Io.net.Socket.Handle {
+fn netConnectUnix(
+    userdata: ?*anyopaque,
+    address: *const Io.net.UnixAddress,
+) Io.net.UnixAddress.ConnectError!Io.net.Socket.Handle {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     _ = address;
@@ -2503,6 +2575,11 @@ const PosixAddress = extern union {
     in6: posix.sockaddr.in6,
 };
 
+const UnixAddress = extern union {
+    any: posix.sockaddr,
+    un: posix.sockaddr.un,
+};
+
 fn posixAddressFamily(a: *const Io.net.IpAddress) posix.sa_family_t {
     return switch (a.*) {
         .ip4 => posix.AF.INET,
@@ -2529,6 +2606,13 @@ fn addressToPosix(a: *const Io.net.IpAddress, storage: *PosixAddress) posix.sock
             return @sizeOf(posix.sockaddr.in6);
         },
     };
+}
+
+fn addressUnixToPosix(a: *const Io.net.UnixAddress, storage: *UnixAddress) posix.socklen_t {
+    @memcpy(storage.un.path[0..a.path.len], a.path);
+    storage.un.family = posix.AF.UNIX;
+    storage.un.path[a.path.len] = 0;
+    return @sizeOf(posix.sockaddr.un);
 }
 
 fn address4FromPosix(in: *posix.sockaddr.in) Io.net.Ip4Address {

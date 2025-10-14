@@ -51,6 +51,8 @@ pub const has_unix_sockets = switch (native_os) {
     else => true,
 };
 
+pub const default_kernel_backlog = 128;
+
 pub const IpAddress = union(enum) {
     ip4: Ip4Address,
     ip6: Ip6Address,
@@ -210,7 +212,7 @@ pub const IpAddress = union(enum) {
         /// How many connections the kernel will accept on the application's behalf.
         /// If more than this many connections pool in the kernel, clients will start
         /// seeing "Connection refused".
-        kernel_backlog: u31 = 128,
+        kernel_backlog: u31 = default_kernel_backlog,
         /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
         /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
         reuse_address: bool = false,
@@ -288,6 +290,11 @@ pub const IpAddress = union(enum) {
         ProtocolUnsupportedBySystem,
         ProtocolUnsupportedByAddressFamily,
         SocketModeUnsupported,
+        /// The user tried to connect to a broadcast address without having the socket broadcast flag enabled or
+        /// the connection request failed because of a local firewall rule.
+        AccessDenied,
+        /// Non-blocking was requested and the operation cannot return immediately.
+        WouldBlock,
     } || Io.Timeout.Error || Io.UnexpectedError || Io.Cancelable;
 
     pub const ConnectOptions = struct {
@@ -804,19 +811,40 @@ pub const UnixAddress = struct {
         return .{ .path = p };
     }
 
-    pub const ListenError = error{};
+    pub const ListenError = error{
+        AddressFamilyUnsupported,
+        AddressInUse,
+        NetworkDown,
+        SystemResources,
+        SymLinkLoop,
+        FileNotFound,
+        NotDir,
+        ReadOnlyFileSystem,
+        ProcessFdQuotaExceeded,
+        SystemFdQuotaExceeded,
+        AccessDenied,
+        PermissionDenied,
+        AddressUnavailable,
+    } || Io.Cancelable || Io.UnexpectedError;
 
-    pub fn listen(ua: UnixAddress, io: Io) ListenError!Server {
+    pub const ListenOptions = struct {
+        /// How many connections the kernel will accept on the application's behalf.
+        /// If more than this many connections pool in the kernel, clients will start
+        /// seeing "Connection refused".
+        kernel_backlog: u31 = default_kernel_backlog,
+    };
+
+    pub fn listen(ua: *const UnixAddress, io: Io, options: ListenOptions) ListenError!Server {
         assert(ua.path.len <= max_len);
         return .{ .socket = .{
-            .handle = try io.vtable.netListenUnix(io.userdata, ua),
+            .handle = try io.vtable.netListenUnix(io.userdata, ua, options),
             .address = .{ .ip4 = .loopback(0) },
         } };
     }
 
-    pub const ConnectError = error{};
+    pub const ConnectError = error{} || Io.Cancelable || Io.UnexpectedError;
 
-    pub fn connect(ua: UnixAddress, io: Io) ConnectError!Stream {
+    pub fn connect(ua: *const UnixAddress, io: Io) ConnectError!Stream {
         assert(ua.path.len <= max_len);
         return .{ .socket = .{
             .handle = try io.vtable.netConnectUnix(io.userdata, ua),

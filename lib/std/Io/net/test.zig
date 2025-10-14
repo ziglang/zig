@@ -273,7 +273,7 @@ test "listen on a unix socket, send bytes, receive bytes" {
     const socket_addr = try net.UnixAddress.init(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
 
-    var server = try socket_addr.listen(io);
+    var server = try socket_addr.listen(io, .{});
     defer server.socket.close(io);
 
     const S = struct {
