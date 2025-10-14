@@ -438,6 +438,13 @@ pub const Ip6Address = struct {
 
         pub fn parse(text: []const u8) Parsed {
             if (text.len < 2) return .unexpected_end;
+            if (std.ascii.startsWithIgnoreCase(text, "::ffff:")) ip4_mapped: {
+                const a4 = (Ip4Address.parse(text["::ffff:".len..], 0) catch break :ip4_mapped).bytes;
+                return .{ .success = .{
+                    .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a4[0], a4[1], a4[2], a4[3] },
+                    .interface_name = null,
+                } };
+            }
             // Has to be u16 elements to handle 3-digit hex numbers from compression.
             var parts: [8]u16 = @splat(0);
             var parts_i: u8 = 0;
@@ -623,7 +630,7 @@ pub const Ip6Address = struct {
 
     /// This is a pure function but it cannot handle IPv6 addresses that have
     /// scope ids ("%foo" at the end). To also handle those, `resolve` must be
-    /// called instead.
+    /// called instead, or the lower level `Unresolved` API may be used.
     pub fn parse(buffer: []const u8, port: u16) ParseError!Ip6Address {
         switch (Unresolved.parse(buffer)) {
             .success => |p| return .{
