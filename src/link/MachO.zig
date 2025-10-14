@@ -915,7 +915,7 @@ pub fn readArMagic(file: std.fs.File, offset: usize, buffer: *[Archive.SARMAG]u8
     return buffer[0..Archive.SARMAG];
 }
 
-fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !void {
+fn addObject(self: *MachO, path: Path, handle_index: File.HandleIndex, offset: u64) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -929,17 +929,15 @@ fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !v
     });
     errdefer gpa.free(abs_path);
 
-    const mtime: u64 = mtime: {
-        const file = self.getFileHandle(handle);
-        const stat = file.stat() catch break :mtime 0;
-        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
-    };
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    const file = self.getFileHandle(handle_index);
+    const stat = try file.stat();
+    const mtime = stat.mtime.toSeconds();
+    const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .object = .{
         .offset = offset,
         .path = abs_path,
-        .file_handle = handle,
-        .mtime = mtime,
+        .file_handle = handle_index,
+        .mtime = @intCast(mtime),
         .index = index,
     } });
     try self.objects.append(gpa, index);

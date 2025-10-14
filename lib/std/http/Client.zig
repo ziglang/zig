@@ -377,17 +377,17 @@ pub const Connection = struct {
         }
     };
 
-    pub const ReadError = std.crypto.tls.Client.ReadError || Io.net.Stream.ReadError;
+    pub const ReadError = std.crypto.tls.Client.ReadError || Io.net.Stream.Reader.Error;
 
     pub fn getReadError(c: *const Connection) ?ReadError {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
                 const tls: *const Tls = @alignCast(@fieldParentPtr("connection", c));
-                return tls.client.read_err orelse c.stream_reader.getError();
+                return tls.client.read_err orelse c.stream_reader.err.?;
             },
             .plain => {
-                return c.stream_reader.getError();
+                return c.stream_reader.err.?;
             },
         };
     }

@@ -44,22 +44,24 @@ pub fn spawn(ids: *IncrementalDebugServer) void {
 }
 fn runThread(ids: *IncrementalDebugServer) void {
     const gpa = ids.zcu.gpa;
+    const io = ids.zcu.comp.io;
 
     var cmd_buf: [1024]u8 = undefined;
     var text_out: std.ArrayListUnmanaged(u8) = .empty;
     defer text_out.deinit(gpa);
 
-    const addr = std.net.Address.parseIp6("::", port) catch unreachable;
-    var server = addr.listen(.{}) catch @panic("IncrementalDebugServer: failed to listen");
-    defer server.deinit();
-    const conn = server.accept() catch @panic("IncrementalDebugServer: failed to accept");
-    defer conn.stream.close();
+    const addr: std.Io.net.IpAddress = .{ .ip6 = .loopback(port) };
+    var server = addr.listen(io, .{}) catch @panic("IncrementalDebugServer: failed to listen");
+    defer server.deinit(io);
+    var stream = server.accept(io) catch @panic("IncrementalDebugServer: failed to accept");
+    defer stream.close(io);
 
-    var stream_reader = conn.stream.reader(&cmd_buf);
+    var stream_reader = stream.reader(io, &cmd_buf);
+    var stream_writer = stream.writer(io, &.{});
 
     while (ids.running.load(.monotonic)) {
-        conn.stream.writeAll("zig> ") catch @panic("IncrementalDebugServer: failed to write");
-        const untrimmed = stream_reader.interface().takeSentinel('\n') catch |err| switch (err) {
+        stream_writer.interface.writeAll("zig> ") catch @panic("IncrementalDebugServer: failed to write");
+        const untrimmed = stream_reader.interface.takeSentinel('\n') catch |err| switch (err) {
             error.EndOfStream => break,
             else => @panic("IncrementalDebugServer: failed to read command"),
         };
@@ -72,7 +74,7 @@ fn runThread(ids: *IncrementalDebugServer) void {
         text_out.clearRetainingCapacity();
         {
             if (!ids.mutex.tryLock()) {
-                conn.stream.writeAll("waiting for in-progress update to finish...\n") catch @panic("IncrementalDebugServer: failed to write");
+                stream_writer.interface.writeAll("waiting for in-progress update to finish...\n") catch @panic("IncrementalDebugServer: failed to write");
                 ids.mutex.lock();
             }
             defer ids.mutex.unlock();
@@ -81,7 +83,7 @@ fn runThread(ids: *IncrementalDebugServer) void {
             handleCommand(ids.zcu, &allocating.writer, cmd, arg) catch @panic("IncrementalDebugServer: out of memory");
         }
         text_out.append(gpa, '\n') catch @panic("IncrementalDebugServer: out of memory");
-        conn.stream.writeAll(text_out.items) catch @panic("IncrementalDebugServer: failed to write");
+        stream_writer.interface.writeAll(text_out.items) catch @panic("IncrementalDebugServer: failed to write");
     }
     std.debug.print("closing incremental debug server\n", .{});
 }
@@ -373,6 +375,7 @@ fn printType(ty: Type, zcu: *const Zcu, w: anytype) !void {
 }
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 const Compilation = @import("Compilation.zig");

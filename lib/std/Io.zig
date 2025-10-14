@@ -878,6 +878,10 @@ pub const Timestamp = struct {
         return @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_s));
     }
 
+    pub fn toNanoseconds(t: Timestamp) i96 {
+        return t.nanoseconds;
+    }
+
     pub fn formatNumber(t: Timestamp, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return w.printInt(t.nanoseconds, n.mode.base() orelse 10, n.case, .{
             .precision = n.precision,

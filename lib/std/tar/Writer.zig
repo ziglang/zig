@@ -39,6 +39,15 @@ pub fn writeDir(w: *Writer, sub_path: []const u8, options: Options) Error!void {
 
 pub const WriteFileError = Io.Writer.FileError || Error || Io.File.Reader.SizeError;
 
+pub fn writeFileTimestamp(
+    w: *Writer,
+    sub_path: []const u8,
+    file_reader: *Io.File.Reader,
+    mtime: Io.Timestamp,
+) WriteFileError!void {
+    return writeFile(w, sub_path, file_reader, @intCast(mtime.toSeconds()));
+}
+
 pub fn writeFile(
     w: *Writer,
     sub_path: []const u8,
