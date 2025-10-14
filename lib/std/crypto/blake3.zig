@@ -204,7 +204,7 @@ fn hashManyPortable(inputs: [][*]const u8, num_inputs: usize, blocks: usize, key
 fn transposeNxN(comptime Vec: type, comptime n: comptime_int, vecs: *[n]Vec) void {
     if (@typeInfo(Vec).vector.len != n) @compileError("vector width must match N");
 
-    var temp: [n]Vec = vecs.*;
+    const temp: [n]Vec = vecs.*;
 
     inline for (0..n) |i| {
         inline for (0..n) |j| {
