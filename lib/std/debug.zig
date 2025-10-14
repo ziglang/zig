@@ -996,7 +996,7 @@ const StackIterator = union(enum) {
     /// Value to add to the stack pointer and frame/base pointers to get the real location being
     /// pointed to. Yes, SPARC really does this.
     const stack_bias = bias: {
-        if (native_arch.isSPARC()) break :bias 2047;
+        if (native_arch == .sparc64) break :bias 2047;
         break :bias 0;
     };
 
