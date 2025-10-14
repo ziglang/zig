@@ -728,7 +728,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Wri
             }
             // `ret_addr` is the return address, which is *after* the function call.
             // Subtract 1 to get an address *in* the function call for a better source location.
-            try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
+            try printSourceAtAddress(di_gpa, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
             printed_any_frame = true;
         },
     };
@@ -777,7 +777,7 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
     for (st.instruction_addresses[0..captured_frames]) |ret_addr| {
         // `ret_addr` is the return address, which is *after* the function call.
         // Subtract 1 to get an address *in* the function call for a better source location.
-        try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
+        try printSourceAtAddress(di_gpa, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
     }
     if (n_frames > captured_frames) {
         tty_config.setColor(writer, .bold) catch {};
@@ -1009,6 +1009,13 @@ const StackIterator = union(enum) {
     const stack_bias = bias: {
         if (native_arch == .sparc64) break :bias 2047;
         break :bias 0;
+    };
+
+    /// On some oddball architectures, a return address points to the call instruction rather than
+    /// the instruction following it.
+    const ra_call_offset = off: {
+        if (native_arch.isSPARC()) break :off 0;
+        break :off 1;
     };
 
     fn applyOffset(addr: usize, comptime off: comptime_int) ?usize {
