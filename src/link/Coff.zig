@@ -610,7 +610,7 @@ fn create(
         .Obj => false,
     };
     const machine = target.toCoffMachine();
-    const timestamp: u32 = if (options.repro) 0 else @truncate(@as(u64, @bitCast(std.time.timestamp())));
+    const timestamp: u32 = 0;
     const major_subsystem_version = options.major_subsystem_version orelse 6;
     const minor_subsystem_version = options.minor_subsystem_version orelse 0;
     const magic: std.coff.OptionalHeader.Magic = switch (target.ptrBitWidth()) {
