@@ -1438,6 +1438,22 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
         break :info .{ addr, name };
     };
     const opt_cpu_context: ?cpu_context.Native = cpu_context.fromPosixSignalContext(ctx_ptr);
+
+    if (native_arch.isSPARC()) {
+        // It's unclear to me whether this is a QEMU bug or also real kernel behavior, but in the
+        // former, I observed that the most recent register window wasn't getting spilled on the
+        // stack as expected when a signal arrived. A `flushw` from the signal handler does not
+        // appear to be sufficient either. On the other hand, when doing a synchronous stack trace
+        // and using `flushw`, this all appears to work as expected. So, *probably* a QEMU bug, but
+        // someone with real SPARC hardware should verify.
+        //
+        // In any case, the register save area exists specifically so that register windows can be
+        // spilled asynchronously. This means that it should be perfectly fine for us to manually do
+        // so here.
+        const ctx = opt_cpu_context.?;
+        @as(*[16]usize, @ptrFromInt(ctx.o[6] + StackIterator.stack_bias)).* = ctx.l ++ ctx.i;
+    }
+
     handleSegfault(addr, name, if (opt_cpu_context) |*ctx| ctx else null);
 }
 
