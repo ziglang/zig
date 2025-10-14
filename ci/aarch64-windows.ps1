@@ -59,7 +59,7 @@ Write-Output "Main test suite..."
   -Dstatic-llvm `
   -Dskip-non-native `
   -Denable-symlinks-windows `
-  --test-timeout-ms 60_000
+  --test-timeout 60s
 CheckLastExitCode
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.

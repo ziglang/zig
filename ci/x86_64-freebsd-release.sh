@@ -52,7 +52,7 @@ stage3-release/bin/zig build test docs \
   -Dskip-macos \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  --test-timeout-ms 60_000
+  --test-timeout 60s
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

@@ -52,7 +52,7 @@ stage3-debug/bin/zig build test docs \
   -Dskip-macos \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  --test-timeout-ms 60_000
+  --test-timeout 60s
 
 stage3-debug/bin/zig build \
   --prefix stage4-debug \

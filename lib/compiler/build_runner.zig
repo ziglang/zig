@@ -108,7 +108,7 @@ pub fn main() !void {
     var summary: ?Summary = null;
     var max_rss: u64 = 0;
     var skip_oom_steps = false;
-    var test_timeout_ms: ?u64 = null;
+    var test_timeout_ns: ?u64 = null;
     var color: Color = .auto;
     var help_menu = false;
     var steps_menu = false;
@@ -189,14 +189,41 @@ pub fn main() !void {
                 };
             } else if (mem.eql(u8, arg, "--skip-oom-steps")) {
                 skip_oom_steps = true;
-            } else if (mem.eql(u8, arg, "--test-timeout-ms")) {
-                const millis_str = nextArgOrFatal(args, &arg_idx);
-                test_timeout_ms = std.fmt.parseInt(u64, millis_str, 10) catch |err| {
-                    std.debug.print("invalid millisecond count: '{s}': {s}\n", .{
-                        millis_str, @errorName(err),
-                    });
-                    process.exit(1);
+            } else if (mem.eql(u8, arg, "--test-timeout")) {
+                const units: []const struct { []const u8, u64 } = &.{
+                    .{ "ns", 1 },
+                    .{ "nanosecond", 1 },
+                    .{ "us", std.time.ns_per_us },
+                    .{ "microsecond", std.time.ns_per_us },
+                    .{ "ms", std.time.ns_per_ms },
+                    .{ "millisecond", std.time.ns_per_ms },
+                    .{ "s", std.time.ns_per_s },
+                    .{ "second", std.time.ns_per_s },
+                    .{ "m", std.time.ns_per_min },
+                    .{ "minute", std.time.ns_per_min },
+                    .{ "h", std.time.ns_per_hour },
+                    .{ "hour", std.time.ns_per_hour },
                 };
+                const timeout_str = nextArgOrFatal(args, &arg_idx);
+                const num_end_idx = std.mem.findLastNone(u8, timeout_str, "abcdefghijklmnopqrstuvwxyz") orelse fatal(
+                    "invalid timeout '{s}': expected unit (ns, us, ms, s, m, h)",
+                    .{timeout_str},
+                );
+                const num_str = timeout_str[0 .. num_end_idx + 1];
+                const unit_str = timeout_str[num_end_idx + 1 ..];
+                const unit_factor: f64 = for (units) |unit_and_factor| {
+                    if (std.mem.eql(u8, unit_str, unit_and_factor[0])) {
+                        break @floatFromInt(unit_and_factor[1]);
+                    }
+                } else fatal(
+                    "invalid timeout '{s}': invalid unit '{s}' (expected ns, us, ms, s, m, h)",
+                    .{ timeout_str, unit_str },
+                );
+                const num_parsed = std.fmt.parseFloat(f64, num_str) catch |err| fatal(
+                    "invalid timeout '{s}': invalid number '{s}' ({t})",
+                    .{ timeout_str, num_str, err },
+                );
+                test_timeout_ns = std.math.lossyCast(u64, unit_factor * num_parsed);
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArgOrFatal(args, &arg_idx);
                 builder.addSearchPrefix(search_prefix);
@@ -480,10 +507,7 @@ pub fn main() !void {
         .max_rss_is_default = false,
         .max_rss_mutex = .{},
         .skip_oom_steps = skip_oom_steps,
-        .unit_test_timeout_ns = ns: {
-            const ms = test_timeout_ms orelse break :ns null;
-            break :ns std.math.mul(u64, ms, std.time.ns_per_ms) catch null;
-        },
+        .unit_test_timeout_ns = test_timeout_ns,
 
         .watch = watch,
         .web_server = undefined, // set after `prepare`
@@ -1584,7 +1608,8 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
-        \\  --test-timeout-ms <ms>       Limit execution time of unit tests, terminating if exceeded
+        \\  --test-timeout <timeout>     Limit execution time of unit tests, terminating if exceeded.
+        \\                               The timeout must include a unit: ns, us, ms, s, m, h
         \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
         \\    needed                     (Default) Lazy dependencies are fetched as needed
         \\    all                        Lazy dependencies are always fetched

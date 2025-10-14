@@ -1814,7 +1814,7 @@ fn pollZigTest(
     // test. For instance, if the test runner leaves this much time between us requesting a test to
     // start and it acknowledging the test starting, we terminate the child and raise an error. This
     // *should* never happen, but could in theory be caused by some very unlucky IB in a test.
-    const response_timeout_ns = options.unit_test_timeout_ns orelse 60 * std.time.ns_per_s;
+    const response_timeout_ns = @max(options.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
 
     const stdout = poller.reader(.stdout);
     const stderr = poller.reader(.stderr);

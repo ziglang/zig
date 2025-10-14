@@ -60,7 +60,7 @@ Write-Output "Main test suite..."
   -Dskip-non-native `
   -Dskip-release `
   -Denable-symlinks-windows `
-  --test-timeout-ms 240_000
+  --test-timeout 4m
 CheckLastExitCode
 
 Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."

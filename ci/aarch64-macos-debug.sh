@@ -47,4 +47,4 @@ stage3-debug/bin/zig build test docs \
   -Dstatic-llvm \
   -Dskip-non-native \
   --search-prefix "$PREFIX" \
-  --test-timeout-ms 60_000
+  --test-timeout 60s
