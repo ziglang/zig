@@ -861,7 +861,10 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
         for (imsec.strings.items, imsec.subsections.items) |str, *imsec_msub| {
             const string = imsec.bytes.items[str.pos..][0..str.len];
             const res = try msec.insert(gpa, string);
-            if (!res.found_existing) {
+            if (res.found_existing) {
+                const msub = msec.mergeSubsection(res.sub.*);
+                msub.alignment = msub.alignment.maxStrict(atom_ptr.alignment);
+            } else {
                 const msub_index = try msec.addMergeSubsection(gpa);
                 const msub = msec.mergeSubsection(msub_index);
                 msub.merge_section_index = imsec.merge_section_index;
