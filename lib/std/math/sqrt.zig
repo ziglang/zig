@@ -1,6 +1,6 @@
 const std = @import("../std.zig");
 const math = std.math;
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const TypeId = std.builtin.TypeId;
 const maxInt = std.math.maxInt;
 
@@ -61,20 +61,25 @@ fn sqrt_int(comptime T: type, value: T) Sqrt(T) {
     }
 }
 
-test sqrt_int {
-    try expect(sqrt_int(u32, 3) == 1);
-    try expect(sqrt_int(u32, 4) == 2);
-    try expect(sqrt_int(u32, 5) == 2);
-    try expect(sqrt_int(u32, 8) == 2);
-    try expect(sqrt_int(u32, 9) == 3);
-    try expect(sqrt_int(u32, 10) == 3);
+fn fullEqual(expected: anytype, actual: anytype) !void {
+    try expectEqual(@TypeOf(expected), @TypeOf(actual));
+    try expectEqual(expected, actual);
+}
 
-    try expect(sqrt_int(u0, 0) == 0);
-    try expect(sqrt_int(u1, 1) == 1);
-    try expect(sqrt_int(u2, 3) == 1);
-    try expect(sqrt_int(u3, 4) == 2);
-    try expect(sqrt_int(u4, 8) == 2);
-    try expect(sqrt_int(u4, 9) == 3);
+test sqrt_int {
+    try fullEqual(@as(u16, 1), sqrt_int(u32, 3));
+    try fullEqual(@as(u16, 2), sqrt_int(u32, 4));
+    try fullEqual(@as(u16, 2), sqrt_int(u32, 5));
+    try fullEqual(@as(u16, 2), sqrt_int(u32, 8));
+    try fullEqual(@as(u16, 3), sqrt_int(u32, 9));
+    try fullEqual(@as(u16, 3), sqrt_int(u32, 10));
+
+    try fullEqual(@as(u0, 0), sqrt_int(u0, 0));
+    try fullEqual(@as(u1, 1), sqrt_int(u1, 1));
+    try fullEqual(@as(u1, 1), sqrt_int(u2, 3));
+    try fullEqual(@as(u2, 2), sqrt_int(u3, 4));
+    try fullEqual(@as(u2, 2), sqrt_int(u4, 8));
+    try fullEqual(@as(u2, 3), sqrt_int(u4, 9));
 }
 
 /// Returns the return type `sqrt` will return given an operand of type `T`.
