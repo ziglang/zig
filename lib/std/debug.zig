@@ -925,7 +925,8 @@ const StackIterator = union(enum) {
                 const di_gpa = getDebugInfoAllocator();
                 const ret_addr = di.unwindFrame(di_gpa, unwind_context) catch |err| {
                     const pc = unwind_context.pc;
-                    it.* = .{ .fp = unwind_context.getFp() };
+                    const fp = unwind_context.getFp();
+                    it.* = .{ .fp = fp };
                     return .{ .switch_to_fp = .{
                         .address = pc,
                         .err = err,
