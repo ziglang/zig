@@ -70,7 +70,7 @@ pub const IpAddress = union(enum) {
     pub fn parseLiteral(text: []const u8) ParseLiteralError!IpAddress {
         if (text.len == 0) return error.InvalidAddress;
         if (text[0] == '[') {
-            const addr_end = std.mem.indexOfScalar(u8, text, ']') orelse
+            const addr_end = std.mem.findScalar(u8, text, ']') orelse
                 return error.InvalidAddress;
             const addr_text = text[1..addr_end];
             const port: u16 = p: {
@@ -80,7 +80,7 @@ pub const IpAddress = union(enum) {
             };
             return parseIp6(addr_text, port) catch error.InvalidAddress;
         }
-        if (std.mem.indexOfScalar(u8, text, ':')) |i| {
+        if (std.mem.findScalar(u8, text, ':')) |i| {
             const addr = Ip4Address.parse(text[0..i], 0) catch return error.InvalidAddress;
             return .{ .ip4 = .{
                 .bytes = addr.bytes,
@@ -431,17 +431,22 @@ pub const Ip6Address = struct {
         pub const Parsed = union(enum) {
             success: Unresolved,
             invalid_byte: usize,
-            unexpected_end,
+            incomplete,
             junk_after_end: usize,
             interface_name_oversized: usize,
+            invalid_ip4_mapping: usize,
+            overflow: usize,
         };
 
         pub fn parse(text: []const u8) Parsed {
-            if (text.len < 2) return .unexpected_end;
-            if (std.ascii.startsWithIgnoreCase(text, "::ffff:")) ip4_mapped: {
-                const a4 = (Ip4Address.parse(text["::ffff:".len..], 0) catch break :ip4_mapped).bytes;
+            if (text.len < 2) return .incomplete;
+            const ip4_prefix = "::ffff:";
+            if (std.ascii.startsWithIgnoreCase(text, ip4_prefix)) {
+                const parsed = Ip4Address.parse(text[ip4_prefix.len..], 0) catch
+                    return .{ .invalid_ip4_mapping = ip4_prefix.len };
+                const b = parsed.bytes;
                 return .{ .success = .{
-                    .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a4[0], a4[1], a4[2], a4[3] },
+                    .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, b[0], b[1], b[2], b[3] },
                     .interface_name = null,
                 } };
             }
@@ -457,7 +462,9 @@ pub const Ip6Address = struct {
                 .digit => c: switch (text[text_i]) {
                     'a'...'f' => |c| {
                         const digit = c - 'a' + 10;
-                        parts[parts_i] = parts[parts_i] * 16 + digit;
+                        parts[parts_i] = (std.math.mul(u16, parts[parts_i], 16) catch return .{
+                            .overflow = text_i,
+                        }) + digit;
                         if (digit_i == 4) return .{ .invalid_byte = text_i };
                         digit_i += 1;
                         text_i += 1;
@@ -470,7 +477,9 @@ pub const Ip6Address = struct {
                     'A'...'F' => |c| continue :c c - 'A' + 'a',
                     '0'...'9' => |c| {
                         const digit = c - '0';
-                        parts[parts_i] = parts[parts_i] * 16 + digit;
+                        parts[parts_i] = (std.math.mul(u16, parts[parts_i], 16) catch return .{
+                            .overflow = text_i,
+                        }) + digit;
                         if (digit_i == 4) return .{ .invalid_byte = text_i };
                         digit_i += 1;
                         text_i += 1;
@@ -497,7 +506,7 @@ pub const Ip6Address = struct {
                             if (parts.len - parts_i == 0) continue :state .end;
                             digit_i = 0;
                             text_i += 1;
-                            if (text.len - text_i == 0) return .unexpected_end;
+                            if (text.len - text_i == 0) return .incomplete;
                             continue :c text[text_i];
                         }
                     },
@@ -507,6 +516,7 @@ pub const Ip6Address = struct {
                         text_i += 1;
                         const name = text[text_i..];
                         if (name.len > Interface.Name.max_len) return .{ .interface_name_oversized = text_i };
+                        if (name.len == 0) return .incomplete;
                         interface_name_text = name;
                         text_i = @intCast(text.len);
                         continue :state .end;
@@ -521,7 +531,7 @@ pub const Ip6Address = struct {
                         @memmove(parts[parts.len - src.len ..], src);
                         @memset(parts[s..][0..remaining], 0);
                     } else {
-                        if (remaining != 0) return .unexpected_end;
+                        if (remaining != 0) return .incomplete;
                     }
 
                     // Workaround that can be removed when this proposal is
