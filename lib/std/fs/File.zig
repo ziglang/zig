@@ -655,6 +655,17 @@ pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
     return posix.pread(self.handle, buffer, offset);
 }
 
+/// Deprecated in favor of `Reader`.
+pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!usize {
+    var index: usize = 0;
+    while (index != buffer.len) {
+        const amt = try self.pread(buffer[index..], offset + index);
+        if (amt == 0) break;
+        index += amt;
+    }
+    return index;
+}
+
 /// See https://github.com/ziglang/zig/issues/7699
 pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
     if (is_windows) {
@@ -697,6 +708,14 @@ pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
     }
 }
 
+/// Deprecated in favor of `Writer`.
+pub fn pwriteAll(self: File, bytes: []const u8, offset: u64) PWriteError!void {
+    var index: usize = 0;
+    while (index < bytes.len) {
+        index += try self.pwrite(bytes[index..], offset + index);
+    }
+}
+
 /// On Windows, this function currently does alter the file pointer.
 /// https://github.com/ziglang/zig/issues/12783
 pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
@@ -730,6 +749,31 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
     }
 
     return posix.pwritev(self.handle, iovecs, offset);
+}
+
+/// Deprecated in favor of `Writer`.
+pub const CopyRangeError = posix.CopyFileRangeError;
+
+/// Deprecated in favor of `Writer`.
+pub fn copyRange(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!u64 {
+    const adjusted_len = math.cast(usize, len) orelse maxInt(usize);
+    const result = try posix.copy_file_range(in.handle, in_offset, out.handle, out_offset, adjusted_len, 0);
+    return result;
+}
+
+/// Deprecated in favor of `Writer`.
+pub fn copyRangeAll(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!u64 {
+    var total_bytes_copied: u64 = 0;
+    var in_off = in_offset;
+    var out_off = out_offset;
+    while (total_bytes_copied < len) {
+        const amt_copied = try copyRange(in, in_off, out, out_off, len - total_bytes_copied);
+        if (amt_copied == 0) return total_bytes_copied;
+        total_bytes_copied += amt_copied;
+        in_off += amt_copied;
+        out_off += amt_copied;
+    }
+    return total_bytes_copied;
 }
 
 /// Deprecated in favor of `Io.File.Reader`.
