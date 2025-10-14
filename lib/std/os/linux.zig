@@ -39,6 +39,7 @@ const arch_bits = switch (native_arch) {
     .hexagon => @import("linux/hexagon.zig"),
     .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
+    .sparc => @import("linux/sparc32.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
     .m68k => @import("linux/m68k.zig"),
@@ -113,7 +114,7 @@ pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
-pub const SYS = switch (@import("builtin").cpu.arch) {
+pub const SYS = switch (builtin.cpu.arch) {
     .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .aarch64, .aarch64_be => syscalls.Arm64,
