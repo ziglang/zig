@@ -1076,6 +1076,8 @@ pub const Socket = struct {
 pub const Stream = struct {
     socket: Socket,
 
+    const max_iovecs_len = 8;
+
     pub fn close(s: *Stream, io: Io) void {
         io.vtable.netClose(io.userdata, s.socket.handle);
         s.* = undefined;
@@ -1097,7 +1099,6 @@ pub const Stream = struct {
             /// from it.
             AccessDenied,
             NetworkDown,
-            EndOfStream,
         } || Io.Cancelable || Io.UnexpectedError;
 
         pub fn init(stream: Stream, io: Io, buffer: []u8) Reader {
@@ -1128,10 +1129,22 @@ pub const Stream = struct {
         fn readVec(io_r: *Io.Reader, data: [][]u8) Io.Reader.Error!usize {
             const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
             const io = r.io;
-            return io.vtable.netRead(io.userdata, r.stream, data) catch |err| {
+            var iovecs_buffer: [max_iovecs_len][]u8 = undefined;
+            const dest_n, const data_size = try io_r.writableVector(&iovecs_buffer, data);
+            const dest = iovecs_buffer[0..dest_n];
+            assert(dest[0].len > 0);
+            const n = io.vtable.netRead(io.userdata, r.stream.socket.handle, dest) catch |err| {
                 r.err = err;
                 return error.ReadFailed;
             };
+            if (n == 0) {
+                return error.EndOfStream;
+            }
+            if (n > data_size) {
+                r.interface.end += n - data_size;
+                return data_size;
+            }
+            return n;
         }
     };
 
@@ -1166,7 +1179,8 @@ pub const Stream = struct {
             const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
             const io = w.io;
             const buffered = io_w.buffered();
-            const n = io.vtable.netWrite(io.userdata, w.stream, buffered, data, splat) catch |err| {
+            const handle = w.stream.socket.handle;
+            const n = io.vtable.netWrite(io.userdata, handle, buffered, data, splat) catch |err| {
                 w.err = err;
                 return error.WriteFailed;
             };
