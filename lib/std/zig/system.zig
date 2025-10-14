@@ -206,9 +206,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
             .linux => {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
-                // The release field sometimes has a weird format,
-                // `Version.parse` will attempt to find some meaningful interpretation.
-                if (std.SemanticVersion.parse(release)) |ver| {
+                if (std.SemanticVersion.parseUtsnameRelease(release)) |ver| {
                     os.version_range.linux.range.min = ver;
                     os.version_range.linux.range.max = ver;
                 } else |err| switch (err) {
@@ -219,7 +217,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
             .solaris, .illumos => {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
-                if (std.SemanticVersion.parse(release)) |ver| {
+                if (std.SemanticVersion.parseUtsnameRelease(release)) |ver| {
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |err| switch (err) {
