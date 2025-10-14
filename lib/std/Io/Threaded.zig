@@ -1986,9 +1986,8 @@ fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: Io.net.Socket.Handle) Io.net
     } };
 }
 
-fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.net.Stream.Reader.Error!usize {
+fn netReadPosix(userdata: ?*anyopaque, fd: Io.net.Socket.Handle, data: [][]u8) Io.net.Stream.Reader.Error!usize {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
-    const fd = stream.socket.handle;
 
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
     var i: usize = 0;
@@ -2006,11 +2005,9 @@ fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.n
         try pool.checkCancel();
         var n: usize = undefined;
         switch (std.os.wasi.fd_read(fd, dest.ptr, dest.len, &n)) {
-            .SUCCESS => {
-                if (n == 0) return error.EndOfStream;
-                return n;
-            },
+            .SUCCESS => return n,
             .INTR => continue,
+
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
@@ -2029,12 +2026,9 @@ fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.n
         try pool.checkCancel();
         const rc = posix.system.readv(fd, dest.ptr, @intCast(dest.len));
         switch (posix.errno(rc)) {
-            .SUCCESS => {
-                const n: usize = @intCast(rc);
-                if (n == 0) return error.EndOfStream;
-                return n;
-            },
+            .SUCCESS => return @intCast(rc),
             .INTR => continue,
+
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
@@ -2359,7 +2353,7 @@ fn netReceive(
 
 fn netWritePosix(
     userdata: ?*anyopaque,
-    stream: Io.net.Stream,
+    fd: Io.net.Socket.Handle,
     header: []const u8,
     data: []const []const u8,
     splat: usize,
@@ -2406,7 +2400,7 @@ fn netWritePosix(
         },
     };
     const flags = posix.MSG.NOSIGNAL;
-    return posix.sendmsg(stream.socket.handle, &msg, flags);
+    return posix.sendmsg(fd, &msg, flags);
 }
 
 fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
