@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "right shift overflowed bits")) {
+    if (std.mem.eql(u8, message, "exact right shift shifted out 1 bits")) {
         std.process.exit(0);
     }
     std.process.exit(1);
