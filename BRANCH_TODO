@@ -5,11 +5,12 @@
 * fix Group.wait not handling cancelation (need to move impl of ResetEvent to Threaded)
 * implement cancelRequest for non-linux posix
 * finish converting all Threaded into directly calling system functions and handling EINTR
+* audit the TODOs
 
 * move max_iovecs_len to std.Io
 * address the cancelation race condition (signal received between checkCancel and syscall)
 * update signal values to be an enum
 * move fs.File.Writer to Io
-* add non-blocking flag to network operations, handle EAGAIN
+* add non-blocking flag to net and fs operations, handle EAGAIN
 * finish moving std.fs to Io
 * finish moving all of std.posix into Threaded
