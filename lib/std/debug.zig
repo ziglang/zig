@@ -886,6 +886,8 @@ const StackIterator = union(enum) {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
+        .sparc,
+        .sparc64,
         => .ideal,
         // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms#Respect-the-purpose-of-specific-CPU-registers
         .aarch64 => if (builtin.target.os.tag.isDarwin()) .safe else .unsafe,
