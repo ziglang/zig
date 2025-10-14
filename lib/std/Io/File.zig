@@ -139,6 +139,8 @@ pub const OpenError = error{
     ///   kernel (e.g., for module/firmware loading), and write access was
     ///   requested.
     FileBusy,
+    /// Non-blocking was requested and the operation cannot return immediately.
+    WouldBlock,
 } || Io.Dir.PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 pub fn close(file: File, io: Io) void {
