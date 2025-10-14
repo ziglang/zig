@@ -56,6 +56,7 @@ test "parse and render IPv6 addresses" {
     try testParseAndRenderIp6Address("2001:db8::1234:5678", "2001:db8::1234:5678");
     try testParseAndRenderIp6Address("FF01::FB%1234", "ff01::fb%1234");
     try testParseAndRenderIp6Address("::ffff:123.5.123.5", "::ffff:123.5.123.5");
+    try testParseAndRenderIp6Address("ff01::fb%12345678901234", "ff01::fb%12345678901234");
 }
 
 fn testParseAndRenderIp6Address(input: []const u8, expected_output: []const u8) !void {
@@ -66,16 +67,19 @@ fn testParseAndRenderIp6Address(input: []const u8, expected_output: []const u8) 
 }
 
 test "IPv6 address parse failures" {
-    try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6(":::", 0));
-    try testing.expectError(error.Overflow, net.IpAddress.parseIp6("FF001::FB", 0));
-    try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6("FF01::Fb:zig", 0));
-    try testing.expectError(error.InvalidEnd, net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
-    try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("FF01:", 0));
-    try testing.expectError(error.InvalidIpv4Mapping, net.IpAddress.parseIp6("::123.123.123.123", 0));
-    try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("1", 0));
-    try testing.expectError(error.Incomplete, net.IpAddress.parseIp6("ff01::fb%", 0));
-    try testing.expectError(error.Overflow, net.IpAddress.parseIp6("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2), 0));
-    try testing.expectError(error.Overflow, net.IpAddress.parseIp6("ff01::fb%12345678901234", 0));
+    try testing.expectError(error.ParseFailed, net.IpAddress.parseIp6(":::", 0));
+
+    const Unresolved = net.Ip6Address.Unresolved;
+
+    try testing.expectEqual(Unresolved.Parsed{ .invalid_byte = 2 }, Unresolved.parse(":::"));
+    try testing.expectEqual(Unresolved.Parsed{ .overflow = 4 }, Unresolved.parse("FF001::FB"));
+    try testing.expectEqual(Unresolved.Parsed{ .invalid_byte = 9 }, Unresolved.parse("FF01::Fb:zig"));
+    try testing.expectEqual(Unresolved.Parsed{ .junk_after_end = 19 }, Unresolved.parse("FF01:0:0:0:0:0:0:FB:"));
+    try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("FF01:"));
+    try testing.expectEqual(Unresolved.Parsed{ .invalid_byte = 5 }, Unresolved.parse("::123.123.123.123"));
+    try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("1"));
+    try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("ff01::fb%"));
+    try testing.expectEqual(Unresolved.Parsed{ .interface_name_oversized = 9 }, Unresolved.parse("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2)));
 }
 
 test "invalid but parseable IPv6 scope ids" {
