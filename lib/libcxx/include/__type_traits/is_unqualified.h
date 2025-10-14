@@ -6,14 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___BIT_BIT_LOG2_H
-#define _LIBCPP___BIT_BIT_LOG2_H
+#ifndef _LIBCPP___TYPE_TRAITS_IS_UNQUALIFIED_H
+#define _LIBCPP___TYPE_TRAITS_IS_UNQUALIFIED_H
 
-#include <__assert>
-#include <__bit/countl.h>
 #include <__config>
-#include <__type_traits/integer_traits.h>
-#include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -22,12 +18,8 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __bit_log2(_Tp __t) _NOEXCEPT {
-  static_assert(__is_unsigned_integer_v<_Tp>, "__bit_log2 requires an unsigned integer type");
-  _LIBCPP_ASSERT_INTERNAL(__t != 0, "logarithm of 0 is undefined");
-  return numeric_limits<_Tp>::digits - 1 - std::__countl_zero(__t);
-}
+inline const bool __is_unqualified_v = __is_same(_Tp, __remove_cvref(_Tp));
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP___BIT_BIT_LOG2_H
+#endif // _LIBCPP___TYPE_TRAITS_IS_UNQUALIFIED_H
