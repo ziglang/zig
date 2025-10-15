@@ -281,7 +281,6 @@ pub const IpAddress = union(enum) {
     }
 
     pub const ConnectError = error{
-        AddressInUse,
         AddressUnavailable,
         AddressFamilyUnsupported,
         /// Insufficient memory or other resource internal to the operating system.
@@ -291,7 +290,7 @@ pub const IpAddress = union(enum) {
         ConnectionResetByPeer,
         HostUnreachable,
         NetworkUnreachable,
-        ConnectionTimedOut,
+        Timeout,
         /// One of the `ConnectOptions` is not supported by the Io
         /// implementation.
         OptionUnsupported,
@@ -1165,7 +1164,7 @@ pub const Stream = struct {
             SystemResources,
             BrokenPipe,
             ConnectionResetByPeer,
-            ConnectionTimedOut,
+            Timeout,
             SocketUnconnected,
             /// The file descriptor does not hold the required rights to read
             /// from it.

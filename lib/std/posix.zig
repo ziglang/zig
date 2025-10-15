@@ -845,7 +845,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -874,7 +874,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -914,7 +914,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -936,7 +936,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -983,7 +983,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1016,7 +1016,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1134,7 +1134,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1160,7 +1160,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -4189,7 +4189,7 @@ pub const ConnectError = error{
 
     /// Timeout  while  attempting  connection.   The server may be too busy to accept new connections.  Note
     /// that for IP sockets the timeout may be very long when syncookies are enabled on the server.
-    ConnectionTimedOut,
+    Timeout,
 
     /// This error occurs when no global event loop is configured,
     /// and connecting to the socket would block.
@@ -4220,7 +4220,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
             .WSAECONNREFUSED => return error.ConnectionRefused,
             .WSAECONNRESET => return error.ConnectionResetByPeer,
-            .WSAETIMEDOUT => return error.ConnectionTimedOut,
+            .WSAETIMEDOUT => return error.Timeout,
             .WSAEHOSTUNREACH, // TODO: should we return NetworkUnreachable in this case as well?
             .WSAENETUNREACH,
             => return error.NetworkUnreachable,
@@ -4257,7 +4257,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NOENT => return error.FileNotFound, // Returned when socket is AF.UNIX and the given path does not exist.
             .CONNABORTED => unreachable, // Tried to reuse socket that previously received error.ConnectionRefused.
             else => |err| return unexpectedErrno(err),
@@ -4317,7 +4317,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .CONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         },
@@ -6449,7 +6449,7 @@ pub const RecvFromError = error{
     SystemResources,
 
     ConnectionResetByPeer,
-    ConnectionTimedOut,
+    Timeout,
 
     /// The socket has not been bound.
     SocketNotBound,
@@ -6492,7 +6492,7 @@ pub fn recvfrom(
                     .WSAENETDOWN => return error.NetworkDown,
                     .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
-                    .WSAETIMEDOUT => return error.ConnectionTimedOut,
+                    .WSAETIMEDOUT => return error.Timeout,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
@@ -6512,7 +6512,7 @@ pub fn recvfrom(
                 .NOMEM => return error.SystemResources,
                 .CONNREFUSED => return error.ConnectionRefused,
                 .CONNRESET => return error.ConnectionResetByPeer,
-                .TIMEDOUT => return error.ConnectionTimedOut,
+                .TIMEDOUT => return error.Timeout,
                 .PIPE => return error.BrokenPipe,
                 else => |err| return unexpectedErrno(err),
             }
