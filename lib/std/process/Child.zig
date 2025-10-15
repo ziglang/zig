@@ -60,6 +60,9 @@ stdin_behavior: StdIo,
 stdout_behavior: StdIo,
 stderr_behavior: StdIo,
 
+/// Set to spawn a detached process.
+detached: bool,
+
 /// Set to change the user id when spawning the child process.
 uid: if (native_os == .windows or native_os == .wasi) void else ?posix.uid_t,
 
@@ -179,6 +182,7 @@ pub const SpawnError = error{
     posix.ExecveError ||
     posix.SetIdError ||
     posix.SetPgidError ||
+    posix.SetSidError ||
     posix.ChangeCurDirError ||
     windows.CreateProcessError ||
     windows.GetProcessMemoryInfoError ||
@@ -222,6 +226,7 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         .term = null,
         .env_map = null,
         .cwd = null,
+        .detached = false,
         .uid = if (native_os == .windows or native_os == .wasi) {} else null,
         .gid = if (native_os == .windows or native_os == .wasi) {} else null,
         .pgid = if (native_os == .windows or native_os == .wasi) {} else null,
@@ -235,13 +240,25 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
     };
 }
 
+/// Call this if you have no intention of calling `kill` or `wait` to properly
+/// dispose of any resources related to the child process.
+pub fn deinit(self: *ChildProcess) void {
+    if (native_os == .windows) {
+        posix.close(self.thread_handle);
+        posix.close(self.id);
+    }
+    self.cleanupStreams();
+}
+
 pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
     const user_info = try process.getUserInfo(name);
     self.uid = user_info.uid;
     self.gid = user_info.gid;
 }
 
-/// On success must call `kill` or `wait`.
+/// On success must call `kill` or `wait`. In the case of a detached process,
+/// consider using `deinit` instead if you have no intention of synchronizing
+/// with the child.
 /// After spawning the `id` is available.
 pub fn spawn(self: *ChildProcess) SpawnError!void {
     if (!process.can_spawn) {
@@ -630,6 +647,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     const pid_result = try posix.fork();
     if (pid_result == 0) {
         // we are the child
+        if (self.detached) {
+            _ = posix.setsid() catch |err| forkChildErrReport(err_pipe[1], err);
+        }
+
         setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
@@ -874,6 +895,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         .create_suspended = self.start_suspended,
         .create_unicode_environment = true,
         .create_no_window = self.create_no_window,
+        .detached_process = self.detached,
     };
 
     run: {
