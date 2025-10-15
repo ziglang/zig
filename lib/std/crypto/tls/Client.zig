@@ -1158,7 +1158,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
                 P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, pv.server_key) catch
                     return failRead(c, error.TlsBadRecordMac);
                 // TODO use scalar, non-slice version
-                const msg = mem.trimRight(u8, cleartext, "\x00");
+                const msg = mem.trimEnd(u8, cleartext, "\x00");
                 break :cleartext .{ msg.len - 1, @enumFromInt(msg[msg.len - 1]) };
             },
             .tls_1_2 => {

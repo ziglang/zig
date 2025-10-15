@@ -328,16 +328,16 @@ pub fn dumpHex(bytes: []const u8) void {
 }
 
 /// Prints a hexadecimal view of the bytes, returning any error that occurs.
-pub fn dumpHexFallible(bw: *Writer, ttyconf: tty.Config, bytes: []const u8) !void {
+pub fn dumpHexFallible(bw: *Writer, tty_config: tty.Config, bytes: []const u8) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
         const address = (@intFromPtr(bytes.ptr) + 0x10 * (std.math.divCeil(usize, chunks.index orelse bytes.len, 16) catch unreachable)) - 0x10;
-        try ttyconf.setColor(bw, .dim);
+        try tty_config.setColor(bw, .dim);
         // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
         // Also, make sure all lines are aligned by padding the address.
         try bw.print("{x:0>[1]}  ", .{ address, @sizeOf(usize) * 2 });
-        try ttyconf.setColor(bw, .reset);
+        try tty_config.setColor(bw, .reset);
 
         // 2. Print the bytes.
         for (window, 0..) |byte, index| {
@@ -357,7 +357,7 @@ pub fn dumpHexFallible(bw: *Writer, ttyconf: tty.Config, bytes: []const u8) !voi
                 try bw.writeByte(byte);
             } else {
                 // Related: https://github.com/ziglang/zig/issues/7600
-                if (ttyconf == .windows_api) {
+                if (tty_config == .windows_api) {
                     try bw.writeByte('.');
                     continue;
                 }

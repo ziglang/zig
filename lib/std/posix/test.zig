@@ -536,7 +536,7 @@ test "sigset empty/full" {
 
     var set: posix.sigset_t = posix.sigemptyset();
     for (1..posix.NSIG) |i| {
-        const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+        const sig = std.enums.fromInt(posix.SIG, i) orelse continue;
         try expectEqual(false, posix.sigismember(&set, sig));
     }
 
@@ -565,29 +565,29 @@ test "sigset add/del" {
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
     for (1..posix.NSIG) |i| {
-        const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+        const sig = std.enums.fromInt(posix.SIG, i) orelse continue;
         try expectEqual(false, posix.sigismember(&sigset, sig));
     }
     for (1..posix.NSIG) |i| {
         if (!reserved_signo(i)) {
-            const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+            const sig = std.enums.fromInt(posix.SIG, i) orelse continue;
             posix.sigaddset(&sigset, sig);
         }
     }
     for (1..posix.NSIG) |i| {
         if (!reserved_signo(i)) {
-            const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+            const sig = std.enums.fromInt(posix.SIG, i) orelse continue;
             try expectEqual(true, posix.sigismember(&sigset, sig));
         }
     }
     for (1..posix.NSIG) |i| {
         if (!reserved_signo(i)) {
-            const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+            const sig = std.enums.fromInt(posix.SIG, i) orelse continue;
             posix.sigdelset(&sigset, sig);
         }
     }
     for (1..posix.NSIG) |i| {
-        const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+        const sig = std.enums.fromInt(posix.SIG, i) orelse continue;
         try expectEqual(false, posix.sigismember(&sigset, sig));
     }
 }

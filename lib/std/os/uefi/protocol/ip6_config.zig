@@ -44,7 +44,7 @@ pub const Ip6Config = extern struct {
     pub fn setData(
         self: *const Ip6Config,
         comptime data_type: std.meta.Tag(DataType),
-        payload: *const std.meta.TagPayload(DataType, data_type),
+        payload: *const @FieldType(DataType, @tagName(data_type)),
     ) SetDataError!void {
         const data_size = @sizeOf(@TypeOf(payload));
         switch (self._set_data(self, data_type, data_size, @ptrCast(payload))) {
@@ -64,8 +64,8 @@ pub const Ip6Config = extern struct {
     pub fn getData(
         self: *const Ip6Config,
         comptime data_type: std.meta.Tag(DataType),
-    ) GetDataError!std.meta.TagPayload(DataType, data_type) {
-        const DataPayload = std.meta.TagPayload(DataType, data_type);
+    ) GetDataError!@FieldType(DataType, @tagName(data_type)) {
+        const DataPayload = @FieldType(DataType, @tagName(data_type));
 
         var payload: DataPayload = undefined;
         var payload_size: usize = @sizeOf(DataPayload);
