@@ -88,7 +88,7 @@ pub const LookupResult = union(enum) {
 /// Adds any number of `IpAddress` into resolved, exactly one canonical_name,
 /// and then always finishes by adding one `LookupResult.end` entry.
 ///
-/// Guaranteed not to block if provided queue has capacity at least 8.
+/// Guaranteed not to block if provided queue has capacity at least 16.
 pub fn lookup(
     host_name: HostName,
     io: Io,
@@ -216,11 +216,13 @@ pub fn connect(
     } });
     defer lookup_task.cancel(io);
 
-    var select: Io.Select(union(enum) { ip_connect: IpAddress.ConnectError!Stream }) = .init;
-    defer select.cancel(io);
+    const Result = union(enum) { connect_result: IpAddress.ConnectError!Stream };
+    var finished_task_buffer: [results_buffer.len]Result = undefined;
+    var select: Io.Select(Result) = .init(io, &finished_task_buffer);
+    defer select.cancel();
 
     while (results.getOne(io)) |result| switch (result) {
-        .address => |address| select.async(io, .ip_connect, IpAddress.connect, .{ address, io, options }),
+        .address => |address| select.async(.connect_result, IpAddress.connect, .{ address, io, options }),
         .canonical_name => continue,
         .end => |lookup_result| {
             try lookup_result;
@@ -230,8 +232,8 @@ pub fn connect(
 
     var aggregate_error: ConnectError = error.UnknownHostName;
 
-    while (select.remaining != 0) switch (select.wait(io)) {
-        .ip_connect => |ip_connect| if (ip_connect) |stream| return stream else |err| switch (err) {
+    while (select.outstanding != 0) switch (try select.wait()) {
+        .connect_result => |connect_result| if (connect_result) |stream| return stream else |err| switch (err) {
             error.SystemResources => |e| return e,
             error.OptionUnsupported => |e| return e,
             error.ProcessFdQuotaExceeded => |e| return e,

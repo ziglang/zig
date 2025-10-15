@@ -315,8 +315,8 @@ pub const IpAddress = union(enum) {
     };
 
     /// Initiates a connection-oriented network stream.
-    pub fn connect(address: *const IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
-        return io.vtable.netConnectIp(io.userdata, address, options);
+    pub fn connect(address: IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
+        return io.vtable.netConnectIp(io.userdata, &address, options);
     }
 };
 

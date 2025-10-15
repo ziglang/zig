@@ -639,7 +639,7 @@ pub const VTable = struct {
         /// Copied and then passed to `start`.
         context: []const u8,
         context_alignment: std.mem.Alignment,
-        start: *const fn (context: *const anyopaque) void,
+        start: *const fn (*Group, context: *const anyopaque) void,
     ) void,
     groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
     groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
@@ -1005,7 +1005,8 @@ pub const Group = struct {
     pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
-            fn start(context: *const anyopaque) void {
+            fn start(group: *Group, context: *const anyopaque) void {
+                _ = group;
                 const args_casted: *const Args = @ptrCast(@alignCast(context));
                 @call(.auto, function, args_casted.*);
             }
@@ -1032,6 +1033,85 @@ pub const Group = struct {
         io.vtable.groupCancel(io.userdata, g, token);
     }
 };
+
+pub fn Select(comptime U: type) type {
+    return struct {
+        io: Io,
+        group: Group,
+        queue: Queue(U),
+        outstanding: usize,
+
+        const S = @This();
+
+        pub const Union = U;
+
+        pub const Field = std.meta.FieldEnum(U);
+
+        pub fn init(io: Io, buffer: []U) S {
+            return .{
+                .io = io,
+                .queue = .init(buffer),
+                .group = .init,
+                .outstanding = 0,
+            };
+        }
+
+        /// Calls `function` with `args` asynchronously. The resource spawned is
+        /// owned by the select.
+        ///
+        /// `function` must have return type matching the `field` field of `Union`.
+        ///
+        /// `function` *may* be called immediately, before `async` returns.
+        ///
+        /// After this is called, `wait` or `cancel` must be called before the
+        /// select is deinitialized.
+        ///
+        /// Threadsafe.
+        ///
+        /// Related:
+        /// * `Io.async`
+        /// * `Group.async`
+        pub fn async(
+            s: *S,
+            comptime field: Field,
+            function: anytype,
+            args: std.meta.ArgsTuple(@TypeOf(function)),
+        ) void {
+            const Args = @TypeOf(args);
+            const TypeErased = struct {
+                fn start(group: *Group, context: *const anyopaque) void {
+                    const args_casted: *const Args = @ptrCast(@alignCast(context));
+                    const unerased_select: *S = @fieldParentPtr("group", group);
+                    const elem = @unionInit(U, @tagName(field), @call(.auto, function, args_casted.*));
+                    unerased_select.queue.putOneUncancelable(unerased_select.io, elem);
+                }
+            };
+            _ = @atomicRmw(usize, &s.outstanding, .Add, 1, .monotonic);
+            s.io.vtable.groupAsync(s.io.userdata, &s.group, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+        }
+
+        /// Blocks until another task of the select finishes.
+        ///
+        /// Asserts there is at least one more `outstanding` task.
+        ///
+        /// Not threadsafe.
+        pub fn wait(s: *S) Io.Cancelable!U {
+            s.outstanding -= 1;
+            return s.queue.getOne(s.io);
+        }
+
+        /// Equivalent to `wait` but requests cancellation on all remaining
+        /// tasks owned by the select.
+        ///
+        /// It is illegal to call `wait` after this.
+        ///
+        /// Idempotent. Not threadsafe.
+        pub fn cancel(s: *S) void {
+            s.outstanding = 0;
+            s.group.cancel(s.io);
+        }
+    };
+}
 
 pub const Mutex = struct {
     state: State,

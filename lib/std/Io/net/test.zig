@@ -1,5 +1,7 @@
-const std = @import("std");
 const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const net = std.Io.net;
 const mem = std.mem;
 const testing = std.testing;
@@ -126,33 +128,56 @@ test "resolve DNS" {
         const localhost_v4 = try net.IpAddress.parse("127.0.0.1", 80);
         const localhost_v6 = try net.IpAddress.parse("::2", 80);
 
-        var addresses_buffer: [8]net.IpAddress = undefined;
-        var canon_name_buffer: [net.HostName.max_len]u8 = undefined;
-        const result = try net.HostName.lookup(try .init("localhost"), io, .{
+        var canonical_name_buffer: [net.HostName.max_len]u8 = undefined;
+        var results_buffer: [32]net.HostName.LookupResult = undefined;
+        var results: Io.Queue(net.HostName.LookupResult) = .init(&results_buffer);
+
+        net.HostName.lookup(try .init("localhost"), io, &results, .{
             .port = 80,
-            .addresses_buffer = &addresses_buffer,
-            .canonical_name_buffer = &canon_name_buffer,
+            .canonical_name_buffer = &canonical_name_buffer,
         });
-        for (addresses_buffer[0..result.addresses_len]) |addr| {
-            if (addr.eql(&localhost_v4) or addr.eql(&localhost_v6)) break;
-        } else @panic("unexpected address for localhost");
+
+        var addresses_found: usize = 0;
+
+        while (results.getOne(io)) |result| switch (result) {
+            .address => |address| {
+                if (address.eql(&localhost_v4) or address.eql(&localhost_v6))
+                    addresses_found += 1;
+            },
+            .canonical_name => |canonical_name| try testing.expectEqualStrings("localhost", canonical_name.bytes),
+            .end => |end| {
+                try end;
+                break;
+            },
+        } else |err| return err;
+
+        try testing.expect(addresses_found != 0);
     }
 
     {
         // The tests are required to work even when there is no Internet connection,
         // so some of these errors we must accept and skip the test.
-        var addresses_buffer: [8]net.IpAddress = undefined;
-        var canon_name_buffer: [net.HostName.max_len]u8 = undefined;
-        const result = net.HostName.lookup(try .init("example.com"), io, .{
+        var canonical_name_buffer: [net.HostName.max_len]u8 = undefined;
+        var results_buffer: [16]net.HostName.LookupResult = undefined;
+        var results: Io.Queue(net.HostName.LookupResult) = .init(&results_buffer);
+
+        net.HostName.lookup(try .init("example.com"), io, &results, .{
             .port = 80,
-            .addresses_buffer = &addresses_buffer,
-            .canonical_name_buffer = &canon_name_buffer,
-        }) catch |err| switch (err) {
-            error.UnknownHostName => return error.SkipZigTest,
-            error.NameServerFailure => return error.SkipZigTest,
-            else => return err,
-        };
-        _ = result;
+            .canonical_name_buffer = &canonical_name_buffer,
+        });
+
+        while (results.getOne(io)) |result| switch (result) {
+            .address => {},
+            .canonical_name => {},
+            .end => |end| {
+                end catch |err| switch (err) {
+                    error.UnknownHostName => return error.SkipZigTest,
+                    error.NameServerFailure => return error.SkipZigTest,
+                    else => return err,
+                };
+                break;
+            },
+        } else |err| return err;
     }
 }
 
