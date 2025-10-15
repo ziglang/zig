@@ -458,7 +458,7 @@ const GroupClosure = struct {
     group: *Io.Group,
     /// Points to sibling `GroupClosure`. Used for walking the group to cancel all.
     node: std.SinglyLinkedList.Node,
-    func: *const fn (context: *anyopaque) void,
+    func: *const fn (*Io.Group, context: *anyopaque) void,
     context_alignment: std.mem.Alignment,
     context_len: usize,
 
@@ -476,7 +476,7 @@ const GroupClosure = struct {
             return;
         }
         current_closure = closure;
-        gc.func(gc.contextPointer());
+        gc.func(group, gc.contextPointer());
         current_closure = null;
 
         // In case a cancel happens after successful task completion, prevents
@@ -512,7 +512,7 @@ fn groupAsync(
     group: *Io.Group,
     context: []const u8,
     context_alignment: std.mem.Alignment,
-    start: *const fn (context: *const anyopaque) void,
+    start: *const fn (*Io.Group, context: *const anyopaque) void,
 ) void {
     if (builtin.single_threaded) return start(context.ptr);
     const pool: *Pool = @ptrCast(@alignCast(userdata));
@@ -520,7 +520,7 @@ fn groupAsync(
     const gpa = pool.allocator;
     const n = GroupClosure.contextEnd(context_alignment, context.len);
     const gc: *GroupClosure = @ptrCast(@alignCast(gpa.alignedAlloc(u8, .of(GroupClosure), n) catch {
-        return start(context.ptr);
+        return start(group, context.ptr);
     }));
     gc.* = .{
         .closure = .{
@@ -548,7 +548,7 @@ fn groupAsync(
     pool.threads.ensureTotalCapacityPrecise(gpa, thread_capacity) catch {
         pool.mutex.unlock();
         gc.free(gpa);
-        return start(context.ptr);
+        return start(group, context.ptr);
     };
 
     pool.run_queue.prepend(&gc.closure.node);
@@ -558,7 +558,7 @@ fn groupAsync(
             assert(pool.run_queue.popFirst() == &gc.closure.node);
             pool.mutex.unlock();
             gc.free(gpa);
-            return start(context.ptr);
+            return start(group, context.ptr);
         };
         pool.threads.appendAssumeCapacity(thread);
     }
@@ -2662,6 +2662,7 @@ fn netLookupFallible(
                     .{ .address = addr },
                     .{ .canonical_name = copyCanon(options.canonical_name_buffer, name) },
                 });
+                return;
             } else |_| {}
         }
 
