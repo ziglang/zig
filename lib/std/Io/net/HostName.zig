@@ -63,8 +63,6 @@ pub fn eql(a: HostName, b: HostName) bool {
 
 pub const LookupOptions = struct {
     port: u16,
-    /// Must have at least length 2.
-    addresses_buffer: []IpAddress,
     canonical_name_buffer: *[max_len]u8,
     /// `null` means either.
     family: ?IpAddress.Family = null,
@@ -81,487 +79,23 @@ pub const LookupError = error{
     DetectingNetworkConfigurationFailed,
 } || Io.Clock.Error || IpAddress.BindError || Io.Cancelable;
 
-pub const LookupResult = struct {
-    /// How many `LookupOptions.addresses_buffer` elements are populated.
-    addresses_len: usize,
+pub const LookupResult = union(enum) {
+    address: IpAddress,
     canonical_name: HostName,
-
-    pub const empty: LookupResult = .{
-        .addresses_len = 0,
-        .canonical_name = undefined,
-    };
+    end: LookupError!void,
 };
 
-pub fn lookup(host_name: HostName, io: Io, options: LookupOptions) LookupError!LookupResult {
-    const name = host_name.bytes;
-    assert(name.len <= max_len);
-    assert(options.addresses_buffer.len >= 2);
-
-    if (native_os == .windows) @compileError("TODO");
-    if (builtin.link_libc) @compileError("TODO");
-    if (native_os == .linux) {
-        if (options.family != .ip6) {
-            if (IpAddress.parseIp4(name, options.port)) |addr| {
-                options.addresses_buffer[0] = addr;
-                return .{ .addresses_len = 1, .canonical_name = copyCanon(options.canonical_name_buffer, name) };
-            } else |_| {}
-        }
-        if (options.family != .ip4) {
-            if (IpAddress.parseIp6(name, options.port)) |addr| {
-                options.addresses_buffer[0] = addr;
-                return .{ .addresses_len = 1, .canonical_name = copyCanon(options.canonical_name_buffer, name) };
-            } else |_| {}
-        }
-        {
-            const result = try lookupHosts(host_name, io, options);
-            if (result.addresses_len > 0) return sortLookupResults(options, result);
-        }
-        {
-            // RFC 6761 Section 6.3.3
-            // Name resolution APIs and libraries SHOULD recognize
-            // localhost names as special and SHOULD always return the IP
-            // loopback address for address queries and negative responses
-            // for all other query types.
-
-            // Check for equal to "localhost(.)" or ends in ".localhost(.)"
-            const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
-            if (std.mem.endsWith(u8, name, localhost) and
-                (name.len == localhost.len or name[name.len - localhost.len] == '.'))
-            {
-                var i: usize = 0;
-                if (options.family != .ip6) {
-                    options.addresses_buffer[i] = .{ .ip4 = .loopback(options.port) };
-                    i += 1;
-                }
-                if (options.family != .ip4) {
-                    options.addresses_buffer[i] = .{ .ip6 = .loopback(options.port) };
-                    i += 1;
-                }
-                const canon_name = "localhost";
-                const canon_name_dest = options.canonical_name_buffer[0..canon_name.len];
-                canon_name_dest.* = canon_name.*;
-                return sortLookupResults(options, .{
-                    .addresses_len = i,
-                    .canonical_name = .{ .bytes = canon_name_dest },
-                });
-            }
-        }
-        {
-            const result = try lookupDnsSearch(host_name, io, options);
-            if (result.addresses_len > 0) return sortLookupResults(options, result);
-        }
-        return error.UnknownHostName;
-    }
-    @compileError("unimplemented");
-}
-
-fn sortLookupResults(options: LookupOptions, result: LookupResult) !LookupResult {
-    const addresses = options.addresses_buffer[0..result.addresses_len];
-    // No further processing is needed if there are fewer than 2 results or
-    // if there are only IPv4 results.
-    if (addresses.len < 2) return result;
-    const all_ip4 = for (addresses) |a| switch (a) {
-        .ip4 => continue,
-        .ip6 => break false,
-    } else true;
-    if (all_ip4) return result;
-
-    // RFC 3484/6724 describes how destination address selection is
-    // supposed to work. However, to implement it requires making a bunch
-    // of networking syscalls, which is unnecessarily high latency,
-    // especially if implemented serially. Furthermore, rules 3, 4, and 7
-    // have excessive runtime and code size cost and dubious benefit.
-    //
-    // Therefore, this logic sorts only using values available without
-    // doing any syscalls, relying on the calling code to have a
-    // meta-strategy such as attempting connection to multiple results at
-    // once and keeping the fastest response while canceling the others.
-
-    const S = struct {
-        pub fn lessThan(s: @This(), lhs: IpAddress, rhs: IpAddress) bool {
-            return sortKey(s, lhs) < sortKey(s, rhs);
-        }
-
-        fn sortKey(s: @This(), a: IpAddress) i32 {
-            _ = s;
-            var da6: Ip6Address = .{
-                .port = 65535,
-                .bytes = undefined,
-            };
-            switch (a) {
-                .ip6 => |ip6| {
-                    da6.bytes = ip6.bytes;
-                    da6.interface = ip6.interface;
-                },
-                .ip4 => |ip4| {
-                    da6.bytes[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-                    da6.bytes[12..].* = ip4.bytes;
-                },
-            }
-            const da6_scope: i32 = da6.scope();
-            const da6_prec: i32 = da6.policy().prec;
-            var key: i32 = 0;
-            key |= da6_prec << 20;
-            key |= (15 - da6_scope) << 16;
-            return key;
-        }
-    };
-    std.mem.sort(IpAddress, addresses, @as(S, .{}), S.lessThan);
-    return result;
-}
-
-fn lookupDnsSearch(host_name: HostName, io: Io, options: LookupOptions) LookupError!LookupResult {
-    const rc = ResolvConf.init(io) catch return error.ResolvConfParseFailed;
-
-    // Count dots, suppress search when >=ndots or name ends in
-    // a dot, which is an explicit request for global scope.
-    const dots = std.mem.countScalar(u8, host_name.bytes, '.');
-    const search_len = if (dots >= rc.ndots or std.mem.endsWith(u8, host_name.bytes, ".")) 0 else rc.search_len;
-    const search = rc.search_buffer[0..search_len];
-
-    var canon_name = host_name.bytes;
-
-    // Strip final dot for canon, fail if multiple trailing dots.
-    if (std.mem.endsWith(u8, canon_name, ".")) canon_name.len -= 1;
-    if (std.mem.endsWith(u8, canon_name, ".")) return error.UnknownHostName;
-
-    // Name with search domain appended is set up in `canon_name`. This
-    // both provides the desired default canonical name (if the requested
-    // name is not a CNAME record) and serves as a buffer for passing the
-    // full requested name to `lookupDns`.
-    @memcpy(options.canonical_name_buffer[0..canon_name.len], canon_name);
-    options.canonical_name_buffer[canon_name.len] = '.';
-    var it = std.mem.tokenizeAny(u8, search, " \t");
-    while (it.next()) |token| {
-        @memcpy(options.canonical_name_buffer[canon_name.len + 1 ..][0..token.len], token);
-        const lookup_canon_name = options.canonical_name_buffer[0 .. canon_name.len + 1 + token.len];
-        const result = try lookupDns(io, lookup_canon_name, &rc, options);
-        if (result.addresses_len > 0) return sortLookupResults(options, result);
-    }
-
-    const lookup_canon_name = options.canonical_name_buffer[0..canon_name.len];
-    return lookupDns(io, lookup_canon_name, &rc, options);
-}
-
-fn lookupDns(io: Io, lookup_canon_name: []const u8, rc: *const ResolvConf, options: LookupOptions) LookupError!LookupResult {
-    const family_records: [2]struct { af: IpAddress.Family, rr: u8 } = .{
-        .{ .af = .ip6, .rr = std.posix.RR.A },
-        .{ .af = .ip4, .rr = std.posix.RR.AAAA },
-    };
-    var query_buffers: [2][280]u8 = undefined;
-    var answer_buffer: [2 * 512]u8 = undefined;
-    var queries_buffer: [2][]const u8 = undefined;
-    var answers_buffer: [2][]const u8 = undefined;
-    var nq: usize = 0;
-    var answer_buffer_i: usize = 0;
-
-    for (family_records) |fr| {
-        if (options.family != fr.af) {
-            const entropy = std.crypto.random.array(u8, 2);
-            const len = writeResolutionQuery(&query_buffers[nq], 0, lookup_canon_name, 1, fr.rr, entropy);
-            queries_buffer[nq] = query_buffers[nq][0..len];
-            nq += 1;
-        }
-    }
-
-    var ip4_mapped: [ResolvConf.max_nameservers]IpAddress = undefined;
-    var any_ip6 = false;
-    for (rc.nameservers(), &ip4_mapped) |*ns, *m| {
-        m.* = .{ .ip6 = .fromAny(ns.*) };
-        any_ip6 = any_ip6 or ns.* == .ip6;
-    }
-    var socket = s: {
-        if (any_ip6) ip6: {
-            const ip6_addr: IpAddress = .{ .ip6 = .unspecified(0) };
-            const socket = ip6_addr.bind(io, .{ .ip6_only = true, .mode = .dgram }) catch |err| switch (err) {
-                error.AddressFamilyUnsupported => break :ip6,
-                else => |e| return e,
-            };
-            break :s socket;
-        }
-        any_ip6 = false;
-        const ip4_addr: IpAddress = .{ .ip4 = .unspecified(0) };
-        const socket = try ip4_addr.bind(io, .{ .mode = .dgram });
-        break :s socket;
-    };
-    defer socket.close(io);
-
-    const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
-    const queries = queries_buffer[0..nq];
-    const answers = answers_buffer[0..queries.len];
-    var answers_remaining = answers.len;
-    for (answers) |*answer| answer.len = 0;
-
-    // boot clock is chosen because time the computer is suspended should count
-    // against time spent waiting for external messages to arrive.
-    const clock: Io.Clock = .boot;
-    var now_ts = try clock.now(io);
-    const final_ts = now_ts.addDuration(.fromSeconds(rc.timeout_seconds));
-    const attempt_duration: Io.Duration = .{
-        .nanoseconds = std.time.ns_per_s * @as(usize, rc.timeout_seconds) / rc.attempts,
-    };
-
-    send: while (now_ts.nanoseconds < final_ts.nanoseconds) : (now_ts = try clock.now(io)) {
-        const max_messages = queries_buffer.len * ResolvConf.max_nameservers;
-        {
-            var message_buffer: [max_messages]Io.net.OutgoingMessage = undefined;
-            var message_i: usize = 0;
-            for (queries, answers) |query, *answer| {
-                if (answer.len != 0) continue;
-                for (mapped_nameservers) |*ns| {
-                    message_buffer[message_i] = .{
-                        .address = ns,
-                        .data_ptr = query.ptr,
-                        .data_len = query.len,
-                    };
-                    message_i += 1;
-                }
-            }
-            _ = io.vtable.netSend(io.userdata, socket.handle, message_buffer[0..message_i], .{});
-        }
-
-        const timeout: Io.Timeout = .{ .deadline = .{
-            .raw = now_ts.addDuration(attempt_duration),
-            .clock = clock,
-        } };
-
-        while (true) {
-            var message_buffer: [max_messages]Io.net.IncomingMessage = undefined;
-            const buf = answer_buffer[answer_buffer_i..];
-            const recv_err, const recv_n = socket.receiveManyTimeout(io, &message_buffer, buf, .{}, timeout);
-            for (message_buffer[0..recv_n]) |*received_message| {
-                const reply = received_message.data;
-                // Ignore non-identifiable packets.
-                if (reply.len < 4) continue;
-
-                // Ignore replies from addresses we didn't send to.
-                const ns = for (mapped_nameservers) |*ns| {
-                    if (received_message.from.eql(ns)) break ns;
-                } else {
-                    continue;
-                };
-
-                // Find which query this answer goes with, if any.
-                const query, const answer = for (queries, answers) |query, *answer| {
-                    if (reply[0] == query[0] and reply[1] == query[1]) break .{ query, answer };
-                } else {
-                    continue;
-                };
-                if (answer.len != 0) continue;
-
-                // Only accept positive or negative responses; retry immediately on
-                // server failure, and ignore all other codes such as refusal.
-                switch (reply[3] & 15) {
-                    0, 3 => {
-                        answer.* = reply;
-                        answer_buffer_i += reply.len;
-                        answers_remaining -= 1;
-                        if (answer_buffer.len - answer_buffer_i == 0) break :send;
-                        if (answers_remaining == 0) break :send;
-                    },
-                    2 => {
-                        var retry_message: Io.net.OutgoingMessage = .{
-                            .address = ns,
-                            .data_ptr = query.ptr,
-                            .data_len = query.len,
-                        };
-                        _ = io.vtable.netSend(io.userdata, socket.handle, (&retry_message)[0..1], .{});
-                        continue;
-                    },
-                    else => continue,
-                }
-            }
-            if (recv_err) |err| switch (err) {
-                error.Canceled => return error.Canceled,
-                error.Timeout => continue :send,
-                else => continue,
-            };
-        }
-    } else {
-        return error.NameServerFailure;
-    }
-
-    var addresses_len: usize = 0;
-    var canonical_name: ?HostName = null;
-
-    for (answers) |answer| {
-        var it = DnsResponse.init(answer) catch {
-            // TODO accept a diagnostics struct and append warnings
-            continue;
-        };
-        while (it.next() catch {
-            // TODO accept a diagnostics struct and append warnings
-            continue;
-        }) |record| switch (record.rr) {
-            std.posix.RR.A => {
-                const data = record.packet[record.data_off..][0..record.data_len];
-                if (data.len != 4) return error.InvalidDnsARecord;
-                if (addresses_len < options.addresses_buffer.len) {
-                    options.addresses_buffer[addresses_len] = .{ .ip4 = .{
-                        .bytes = data[0..4].*,
-                        .port = options.port,
-                    } };
-                    addresses_len += 1;
-                }
-            },
-            std.posix.RR.AAAA => {
-                const data = record.packet[record.data_off..][0..record.data_len];
-                if (data.len != 16) return error.InvalidDnsAAAARecord;
-                if (addresses_len < options.addresses_buffer.len) {
-                    options.addresses_buffer[addresses_len] = .{ .ip6 = .{
-                        .bytes = data[0..16].*,
-                        .port = options.port,
-                    } };
-                    addresses_len += 1;
-                }
-            },
-            std.posix.RR.CNAME => {
-                _, canonical_name = expand(record.packet, record.data_off, options.canonical_name_buffer) catch
-                    return error.InvalidDnsCnameRecord;
-            },
-            else => continue,
-        };
-    }
-
-    if (addresses_len != 0) return .{
-        .addresses_len = addresses_len,
-        .canonical_name = canonical_name orelse .{ .bytes = lookup_canon_name },
-    };
-
-    return error.NameServerFailure;
-}
-
-fn lookupHosts(host_name: HostName, io: Io, options: LookupOptions) !LookupResult {
-    const file = Io.File.openAbsolute(io, "/etc/hosts", .{}) catch |err| switch (err) {
-        error.FileNotFound,
-        error.NotDir,
-        error.AccessDenied,
-        => return .empty,
-
-        error.Canceled => |e| return e,
-
-        else => {
-            // TODO populate optional diagnostic struct
-            return error.DetectingNetworkConfigurationFailed;
-        },
-    };
-    defer file.close(io);
-
-    var line_buf: [512]u8 = undefined;
-    var file_reader = file.reader(io, &line_buf);
-    return lookupHostsReader(host_name, options, &file_reader.interface) catch |err| switch (err) {
-        error.ReadFailed => switch (file_reader.err.?) {
-            error.Canceled => |e| return e,
-            else => {
-                // TODO populate optional diagnostic struct
-                return error.DetectingNetworkConfigurationFailed;
-            },
-        },
-    };
-}
-
-fn lookupHostsReader(host_name: HostName, options: LookupOptions, reader: *Io.Reader) error{ReadFailed}!LookupResult {
-    var addresses_len: usize = 0;
-    var canonical_name: ?HostName = null;
-    while (true) {
-        const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
-            error.StreamTooLong => {
-                // Skip lines that are too long.
-                _ = reader.discardDelimiterInclusive('\n') catch |e| switch (e) {
-                    error.EndOfStream => break,
-                    error.ReadFailed => return error.ReadFailed,
-                };
-                continue;
-            },
-            error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => break,
-        };
-        reader.toss(1);
-        var split_it = std.mem.splitScalar(u8, line, '#');
-        const no_comment_line = split_it.first();
-
-        var line_it = std.mem.tokenizeAny(u8, no_comment_line, " \t");
-        const ip_text = line_it.next() orelse continue;
-        var first_name_text: ?[]const u8 = null;
-        while (line_it.next()) |name_text| {
-            if (std.mem.eql(u8, name_text, host_name.bytes)) {
-                if (first_name_text == null) first_name_text = name_text;
-                break;
-            }
-        } else continue;
-
-        if (canonical_name == null) {
-            if (HostName.init(first_name_text.?)) |name_text| {
-                if (name_text.bytes.len <= options.canonical_name_buffer.len) {
-                    const canonical_name_dest = options.canonical_name_buffer[0..name_text.bytes.len];
-                    @memcpy(canonical_name_dest, name_text.bytes);
-                    canonical_name = .{ .bytes = canonical_name_dest };
-                }
-            } else |_| {}
-        }
-
-        if (options.family != .ip6) {
-            if (IpAddress.parseIp4(ip_text, options.port)) |addr| {
-                options.addresses_buffer[addresses_len] = addr;
-                addresses_len += 1;
-                if (options.addresses_buffer.len - addresses_len == 0) return .{
-                    .addresses_len = addresses_len,
-                    .canonical_name = canonical_name orelse copyCanon(options.canonical_name_buffer, ip_text),
-                };
-            } else |_| {}
-        }
-        if (options.family != .ip4) {
-            if (IpAddress.parseIp6(ip_text, options.port)) |addr| {
-                options.addresses_buffer[addresses_len] = addr;
-                addresses_len += 1;
-                if (options.addresses_buffer.len - addresses_len == 0) return .{
-                    .addresses_len = addresses_len,
-                    .canonical_name = canonical_name orelse copyCanon(options.canonical_name_buffer, ip_text),
-                };
-            } else |_| {}
-        }
-    }
-    if (canonical_name == null) assert(addresses_len == 0);
-    return .{
-        .addresses_len = addresses_len,
-        .canonical_name = canonical_name orelse undefined,
-    };
-}
-
-fn copyCanon(canonical_name_buffer: *[max_len]u8, name: []const u8) HostName {
-    const dest = canonical_name_buffer[0..name.len];
-    @memcpy(dest, name);
-    return .{ .bytes = dest };
-}
-
-/// Writes DNS resolution query packet data to `w`; at most 280 bytes.
-fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u8, entropy: [2]u8) usize {
-    // This implementation is ported from musl libc.
-    // A more idiomatic "ziggy" implementation would be welcome.
-    var name = dname;
-    if (std.mem.endsWith(u8, name, ".")) name.len -= 1;
-    assert(name.len <= 253);
-    const n = 17 + name.len + @intFromBool(name.len != 0);
-
-    // Construct query template - ID will be filled later
-    q[0..2].* = entropy;
-    @memset(q[2..n], 0);
-    q[2] = @as(u8, op) * 8 + 1;
-    q[5] = 1;
-    @memcpy(q[13..][0..name.len], name);
-    var i: usize = 13;
-    var j: usize = undefined;
-    while (q[i] != 0) : (i = j + 1) {
-        j = i;
-        while (q[j] != 0 and q[j] != '.') : (j += 1) {}
-        // TODO determine the circumstances for this and whether or
-        // not this should be an error.
-        if (j - i - 1 > 62) unreachable;
-        q[i - 1] = @intCast(j - i);
-    }
-    q[i + 1] = ty;
-    q[i + 3] = class;
-    return n;
+/// Adds any number of `IpAddress` into resolved, exactly one canonical_name,
+/// and then always finishes by adding one `LookupResult.end` entry.
+///
+/// Guaranteed not to block if provided queue has capacity at least 8.
+pub fn lookup(
+    host_name: HostName,
+    io: Io,
+    resolved: *Io.Queue(LookupResult),
+    options: LookupOptions,
+) void {
+    return io.vtable.netLookup(io.userdata, host_name, resolved, options);
 }
 
 pub const ExpandError = error{InvalidDnsPacket} || ValidateError;
@@ -672,33 +206,43 @@ pub fn connect(
     port: u16,
     options: IpAddress.ConnectOptions,
 ) ConnectError!Stream {
-    var addresses_buffer: [32]IpAddress = undefined;
-    var canonical_name_buffer: [HostName.max_len]u8 = undefined;
+    var canonical_name_buffer: [max_len]u8 = undefined;
+    var results_buffer: [32]HostName.LookupResult = undefined;
+    var results: Io.Queue(LookupResult) = .init(&results_buffer);
 
-    const results = try lookup(host_name, io, .{
+    var lookup_task = io.async(HostName.lookup, .{ host_name, io, &results, .{
         .port = port,
-        .addresses_buffer = &addresses_buffer,
         .canonical_name_buffer = &canonical_name_buffer,
-    });
-    const addresses = addresses_buffer[0..results.addresses_len];
+    } });
+    defer lookup_task.cancel(io);
 
-    if (addresses.len == 0) return error.UnknownHostName;
+    var select: Io.Select(union(enum) { ip_connect: IpAddress.ConnectError!Stream }) = .init;
+    defer select.cancel(io);
 
-    // TODO instead of serially, use a Select API to send out
-    // the connections simultaneously and then keep the first
-    // successful one, canceling the rest.
+    while (results.getOne(io)) |result| switch (result) {
+        .address => |address| select.async(io, .ip_connect, IpAddress.connect, .{ address, io, options }),
+        .canonical_name => continue,
+        .end => |lookup_result| {
+            try lookup_result;
+            break;
+        },
+    } else |err| return err;
 
-    // TODO On Linux this should additionally use an Io.Queue based
-    // DNS resolution API in order to send out a connection after
-    // each DNS response before waiting for the rest of them.
+    var aggregate_error: ConnectError = error.UnknownHostName;
 
-    for (addresses) |*addr| {
-        return addr.connect(io, options) catch |err| switch (err) {
-            error.ConnectionRefused => continue,
-            else => |e| return e,
-        };
-    }
-    return error.ConnectionRefused;
+    while (select.remaining != 0) switch (select.wait(io)) {
+        .ip_connect => |ip_connect| if (ip_connect) |stream| return stream else |err| switch (err) {
+            error.SystemResources => |e| return e,
+            error.OptionUnsupported => |e| return e,
+            error.ProcessFdQuotaExceeded => |e| return e,
+            error.SystemFdQuotaExceeded => |e| return e,
+            error.Canceled => |e| return e,
+            error.WouldBlock => return error.Unexpected,
+            else => |e| aggregate_error = e,
+        },
+    };
+
+    return aggregate_error;
 }
 
 pub const ResolvConf = struct {
@@ -713,7 +257,7 @@ pub const ResolvConf = struct {
     pub const max_nameservers = 3;
 
     /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
-    fn init(io: Io) !ResolvConf {
+    pub fn init(io: Io) !ResolvConf {
         var rc: ResolvConf = .{
             .nameservers_buffer = undefined,
             .nameservers_len = 0,
@@ -749,7 +293,7 @@ pub const ResolvConf = struct {
     const Directive = enum { options, nameserver, domain, search };
     const Option = enum { ndots, attempts, timeout };
 
-    fn parse(rc: *ResolvConf, io: Io, reader: *Io.Reader) !void {
+    pub fn parse(rc: *ResolvConf, io: Io, reader: *Io.Reader) !void {
         while (reader.takeSentinel('\n')) |line_with_comment| {
             const line = line: {
                 var split = std.mem.splitScalar(u8, line_with_comment, '#');
@@ -799,7 +343,7 @@ pub const ResolvConf = struct {
         rc.nameservers_len += 1;
     }
 
-    fn nameservers(rc: *const ResolvConf) []const IpAddress {
+    pub fn nameservers(rc: *const ResolvConf) []const IpAddress {
         return rc.nameservers_buffer[0..rc.nameservers_len];
     }
 };

@@ -1,3 +1,4 @@
+* Threaded: rename Pool to Threaded
 * Threaded: finish linux impl (all tests passing)
 * Threaded: finish macos impl 
 * Threaded: finish windows impl 
@@ -14,4 +15,6 @@
 * move fs.File.Writer to Io
 * add non-blocking flag to net and fs operations, handle EAGAIN
 * finish moving std.fs to Io
+* migrate child process into std.Io
+* eliminate std.Io.poll (it should be replaced by "select" functionality)
 * finish moving all of std.posix into Threaded

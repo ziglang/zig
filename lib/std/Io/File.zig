@@ -153,7 +153,7 @@ pub const ReadStreamingError = error{
     IsDir,
     BrokenPipe,
     ConnectionResetByPeer,
-    ConnectionTimedOut,
+    Timeout,
     NotOpenForReading,
     SocketUnconnected,
     /// This error occurs when no global event loop is configured,

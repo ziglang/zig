@@ -649,9 +649,11 @@ pub const VTable = struct {
     select: *const fn (?*anyopaque, futures: []const *AnyFuture) usize,
 
     mutexLock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) Cancelable!void,
+    mutexLockUncancelable: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) void,
     mutexUnlock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) void,
 
     conditionWait: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex) Cancelable!void,
+    conditionWaitUncancelable: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex) void,
     conditionWake: *const fn (?*anyopaque, cond: *Condition, wake: Condition.Wake) void,
 
     dirMake: *const fn (?*anyopaque, Dir, sub_path: []const u8, mode: Dir.Mode) Dir.MakeError!void,
@@ -686,6 +688,7 @@ pub const VTable = struct {
     netClose: *const fn (?*anyopaque, handle: net.Socket.Handle) void,
     netInterfaceNameResolve: *const fn (?*anyopaque, *const net.Interface.Name) net.Interface.Name.ResolveError!net.Interface,
     netInterfaceName: *const fn (?*anyopaque, net.Interface) net.Interface.NameError!net.Interface.Name,
+    netLookup: *const fn (?*anyopaque, net.HostName, *Queue(net.HostName.LookupResult), net.HostName.LookupOptions) void,
 };
 
 pub const Cancelable = error{
@@ -1030,7 +1033,7 @@ pub const Group = struct {
     }
 };
 
-pub const Mutex = if (true) struct {
+pub const Mutex = struct {
     state: State,
 
     pub const State = enum(usize) {
@@ -1073,59 +1076,41 @@ pub const Mutex = if (true) struct {
         return io.vtable.mutexLock(io.userdata, prev_state, mutex);
     }
 
+    /// Same as `lock` but cannot be canceled.
+    pub fn lockUncancelable(mutex: *Mutex, io: std.Io) void {
+        const prev_state: State = @enumFromInt(@atomicRmw(
+            usize,
+            @as(*usize, @ptrCast(&mutex.state)),
+            .And,
+            ~@intFromEnum(State.unlocked),
+            .acquire,
+        ));
+        if (prev_state.isUnlocked()) {
+            @branchHint(.likely);
+            return;
+        }
+        return io.vtable.mutexLockUncancelable(io.userdata, prev_state, mutex);
+    }
+
     pub fn unlock(mutex: *Mutex, io: std.Io) void {
         const prev_state = @cmpxchgWeak(State, &mutex.state, .locked_once, .unlocked, .release, .acquire) orelse {
             @branchHint(.likely);
             return;
         };
-        std.debug.assert(prev_state != .unlocked); // mutex not locked
+        assert(prev_state != .unlocked); // mutex not locked
         return io.vtable.mutexUnlock(io.userdata, prev_state, mutex);
-    }
-} else struct {
-    state: std.atomic.Value(u32),
-
-    pub const State = void;
-
-    pub const init: Mutex = .{ .state = .init(unlocked) };
-
-    pub const unlocked: u32 = 0b00;
-    pub const locked: u32 = 0b01;
-    pub const contended: u32 = 0b11; // must contain the `locked` bit for x86 optimization below
-
-    pub fn tryLock(m: *Mutex) bool {
-        // On x86, use `lock bts` instead of `lock cmpxchg` as:
-        // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
-        // - `lock bts` is smaller instruction-wise which makes it better for inlining
-        if (builtin.target.cpu.arch.isX86()) {
-            const locked_bit = @ctz(locked);
-            return m.state.bitSet(locked_bit, .acquire) == 0;
-        }
-
-        // Acquire barrier ensures grabbing the lock happens before the critical section
-        // and that the previous lock holder's critical section happens before we grab the lock.
-        return m.state.cmpxchgWeak(unlocked, locked, .acquire, .monotonic) == null;
-    }
-
-    /// Avoids the vtable for uncontended locks.
-    pub fn lock(m: *Mutex, io: Io) Cancelable!void {
-        if (!m.tryLock()) {
-            @branchHint(.unlikely);
-            try io.vtable.mutexLock(io.userdata, {}, m);
-        }
-    }
-
-    pub fn unlock(m: *Mutex, io: Io) void {
-        io.vtable.mutexUnlock(io.userdata, {}, m);
     }
 };
 
-/// Supports exactly 1 waiter. More than 1 simultaneous wait on the same
-/// condition is illegal.
 pub const Condition = struct {
     state: u64 = 0,
 
     pub fn wait(cond: *Condition, io: Io, mutex: *Mutex) Cancelable!void {
         return io.vtable.conditionWait(io.userdata, cond, mutex);
+    }
+
+    pub fn waitUncancelable(cond: *Condition, io: Io, mutex: *Mutex) void {
+        return io.vtable.conditionWaitUncancelable(io.userdata, cond, mutex);
     }
 
     pub fn signal(cond: *Condition, io: Io) void {
@@ -1137,9 +1122,9 @@ pub const Condition = struct {
     }
 
     pub const Wake = enum {
-        /// wake up only one thread
+        /// Wake up only one thread.
         one,
-        /// wake up all thread
+        /// Wake up all threads.
         all,
     };
 };
@@ -1180,10 +1165,24 @@ pub const TypeErasedQueue = struct {
 
     pub fn put(q: *TypeErasedQueue, io: Io, elements: []const u8, min: usize) Cancelable!usize {
         assert(elements.len >= min);
-
+        if (elements.len == 0) return 0;
         try q.mutex.lock(io);
         defer q.mutex.unlock(io);
+        return putLocked(q, io, elements, min, false);
+    }
 
+    /// Same as `put` but cannot be canceled.
+    pub fn putUncancelable(q: *TypeErasedQueue, io: Io, elements: []const u8, min: usize) usize {
+        assert(elements.len >= min);
+        if (elements.len == 0) return 0;
+        q.mutex.lockUncancelable(io);
+        defer q.mutex.unlock(io);
+        return putLocked(q, io, elements, min, true) catch |err| switch (err) {
+            error.Canceled => unreachable,
+        };
+    }
+
+    fn putLocked(q: *TypeErasedQueue, io: Io, elements: []const u8, min: usize, uncancelable: bool) Cancelable!usize {
         // Getters have first priority on the data, and only when the getters
         // queue is empty do we start populating the buffer.
 
@@ -1226,7 +1225,10 @@ pub const TypeErasedQueue = struct {
 
             var pending: Put = .{ .remaining = remaining, .condition = .{}, .node = .{} };
             q.putters.append(&pending.node);
-            try pending.condition.wait(io, &q.mutex);
+            if (uncancelable)
+                pending.condition.waitUncancelable(io, &q.mutex)
+            else
+                try pending.condition.wait(io, &q.mutex);
             remaining = pending.remaining;
         }
     }
@@ -1347,6 +1349,16 @@ pub fn Queue(Elem: type) type {
             return @divExact(try q.type_erased.put(io, @ptrCast(elements), min * @sizeOf(Elem)), @sizeOf(Elem));
         }
 
+        /// Same as `put` but blocks until all elements have been added to the queue.
+        pub fn putAll(q: *@This(), io: Io, elements: []const Elem) Cancelable!void {
+            assert(try q.put(io, elements, elements.len) == elements.len);
+        }
+
+        /// Same as `put` but cannot be interrupted.
+        pub fn putUncancelable(q: *@This(), io: Io, elements: []const Elem, min: usize) usize {
+            return @divExact(q.type_erased.putUncancelable(io, @ptrCast(elements), min * @sizeOf(Elem)), @sizeOf(Elem));
+        }
+
         /// Receives elements from the beginning of the queue. The function
         /// returns when at least `min` elements have been populated inside
         /// `buffer`.
@@ -1362,10 +1374,19 @@ pub fn Queue(Elem: type) type {
             assert(try q.put(io, &.{item}, 1) == 1);
         }
 
+        pub fn putOneUncancelable(q: *@This(), io: Io, item: Elem) void {
+            assert(q.putUncancelable(io, &.{item}, 1) == 1);
+        }
+
         pub fn getOne(q: *@This(), io: Io) Cancelable!Elem {
             var buf: [1]Elem = undefined;
             assert(try q.get(io, &buf, 1) == 1);
             return buf[0];
+        }
+
+        /// Returns buffer length in `Elem` units.
+        pub fn capacity(q: *const @This()) usize {
+            return @divExact(q.type_erased.buffer.len, @sizeOf(Elem));
         }
     };
 }
