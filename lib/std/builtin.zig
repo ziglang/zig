@@ -46,7 +46,7 @@ pub const StackTrace = struct {
 
         // TODO: why on earth are we using stderr's ttyconfig?
         // If we want colored output, we should just make a formatter out of `writeStackTrace`.
-        const tty_config = std.Io.tty.detectConfig(.stderr());
+        const tty_config: std.Io.tty.Config = .detect(.stderr());
         try writer.writeAll("\n");
         try std.debug.writeStackTrace(st, writer, tty_config);
     }

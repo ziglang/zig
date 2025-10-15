@@ -313,21 +313,21 @@ pub inline fn getSelfDebugInfo() !*SelfInfo {
 pub fn dumpHex(bytes: []const u8) void {
     const bw = lockStderrWriter(&.{});
     defer unlockStderrWriter();
-    const ttyconf = tty.detectConfig(.stderr());
-    dumpHexFallible(bw, ttyconf, bytes) catch {};
+    const tty_config: tty.Config = .detect(.stderr());
+    dumpHexFallible(bw, tty_config, bytes) catch {};
 }
 
 /// Prints a hexadecimal view of the bytes, returning any error that occurs.
-pub fn dumpHexFallible(bw: *Writer, ttyconf: tty.Config, bytes: []const u8) !void {
+pub fn dumpHexFallible(bw: *Writer, tty_config: tty.Config, bytes: []const u8) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
         const address = (@intFromPtr(bytes.ptr) + 0x10 * (std.math.divCeil(usize, chunks.index orelse bytes.len, 16) catch unreachable)) - 0x10;
-        try ttyconf.setColor(bw, .dim);
+        try tty_config.setColor(bw, .dim);
         // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
         // Also, make sure all lines are aligned by padding the address.
         try bw.print("{x:0>[1]}  ", .{ address, @sizeOf(usize) * 2 });
-        try ttyconf.setColor(bw, .reset);
+        try tty_config.setColor(bw, .reset);
 
         // 2. Print the bytes.
         for (window, 0..) |byte, index| {
@@ -347,7 +347,7 @@ pub fn dumpHexFallible(bw: *Writer, ttyconf: tty.Config, bytes: []const u8) !voi
                 try bw.writeByte(byte);
             } else {
                 // Related: https://github.com/ziglang/zig/issues/7600
-                if (ttyconf == .windows_api) {
+                if (tty_config == .windows_api) {
                     try bw.writeByte('.');
                     continue;
                 }
@@ -535,7 +535,7 @@ pub fn defaultPanic(
             _ = panicking.fetchAdd(1, .seq_cst);
 
             trace: {
-                const tty_config = tty.detectConfig(.stderr());
+                const tty_config: tty.Config = .detect(.stderr());
 
                 const stderr = lockStderrWriter(&.{});
                 defer unlockStderrWriter();
@@ -736,7 +736,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Wri
 }
 /// A thin wrapper around `writeCurrentStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
-    const tty_config = tty.detectConfig(.stderr());
+    const tty_config: tty.Config = .detect(.stderr());
     const stderr = lockStderrWriter(&.{});
     defer unlockStderrWriter();
     writeCurrentStackTrace(.{
@@ -787,7 +787,7 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
 }
 /// A thin wrapper around `writeStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpStackTrace(st: *const std.builtin.StackTrace) void {
-    const tty_config = tty.detectConfig(.stderr());
+    const tty_config: tty.Config = .detect(.stderr());
     const stderr = lockStderrWriter(&.{});
     defer unlockStderrWriter();
     writeStackTrace(st, stderr, tty_config) catch |err| switch (err) {
@@ -1460,7 +1460,7 @@ pub fn defaultHandleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContex
             _ = panicking.fetchAdd(1, .seq_cst);
 
             trace: {
-                const tty_config = tty.detectConfig(.stderr());
+                const tty_config: tty.Config = .detect(.stderr());
 
                 const stderr = lockStderrWriter(&.{});
                 defer unlockStderrWriter();
@@ -1517,7 +1517,7 @@ test "manage resources correctly" {
         &di,
         &discarding.writer,
         S.showMyTrace(),
-        tty.detectConfig(.stderr()),
+        .detect(.stderr()),
     );
 }
 
@@ -1579,7 +1579,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = tty.detectConfig(.stderr());
+            const tty_config: tty.Config = .detect(.stderr());
             const stderr = lockStderrWriter(&.{});
             defer unlockStderrWriter();
             const end = @min(t.index, size);
