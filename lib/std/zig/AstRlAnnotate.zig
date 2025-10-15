@@ -310,7 +310,6 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .unreachable_literal,
         .asm_simple,
         .@"asm",
-        .asm_legacy,
         .enum_literal,
         .error_value,
         .anyframe_literal,
