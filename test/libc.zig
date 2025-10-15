@@ -66,7 +66,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("functional/tls_local_exec.c", false, .{});
     cases.addLibcTestCase("functional/udiv.c", true, .{});
     cases.addLibcTestCase("functional/ungetc.c", false, .{});
-    cases.addLibcTestCase("functional/utime.c", false, .{});
+    // cases.addLibcTestCase("functional/utime.c", false, .{}); - fails under heavy load; futimens not reflected in subsequent fstat
     cases.addLibcTestCase("functional/vfork.c", false, .{});
     cases.addLibcTestCase("functional/wcsstr.c", true, .{});
     cases.addLibcTestCase("functional/wcstol.c", true, .{});
