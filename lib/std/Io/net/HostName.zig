@@ -273,7 +273,7 @@ pub fn connectMany(
         .address => |address| group.async(io, enqueueConnection, .{ address, io, results, options }),
         .canonical_name => continue,
         .end => |lookup_result| {
-            group.wait(io);
+            group.waitUncancelable(io);
             results.putOneUncancelable(io, .{ .end = lookup_result });
             return;
         },
