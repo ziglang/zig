@@ -3988,6 +3988,12 @@ pub const Shut = enum(u32) {
     pub const RDWR: u32 = @intFromEnum(Shut.rdwr);
 };
 
+/// SYNC_FILE_RANGE_* flags
+pub const SyncFileRange = packed struct(u32) {
+    _: u32 = 0, // TODO: fill out
+};
+
+/// Deprecated alias to Sock
 pub const SOCK = Sock;
 /// SOCK_* Socket type and flags
 pub const Sock = packed struct(u32) {
