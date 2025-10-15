@@ -1364,6 +1364,17 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         pub fn growCapacity(minimum: usize) usize {
             return minimum +| (minimum / 2 + init_capacity);
         }
+
+        /// Split the list to two half. Returns the right half of the list,
+        /// and keeps the left half. Item at `index` belongs to the right half.
+        pub fn splitAt(self: *Self, gpa: Allocator, index: usize) Allocator.Error!Self {
+            const right_half_len = self.items.len - index;
+            var right_half: Self = try .initCapacity(gpa, right_half_len);
+            right_half.items.len = right_half_len;
+            @memmove(right_half.items[0..], self.items[index..]);
+            self.items.len = index;
+            return right_half;
+        }
     };
 }
 
@@ -2375,4 +2386,21 @@ test "insertSlice*" {
 
     list.insertSliceAssumeCapacity(6, "ij");
     try testing.expectEqualStrings("abefghijcd", list.items);
+}
+
+test "splitAt" {
+    const gpa = testing.allocator;
+
+    var list: ArrayList(usize) = .empty;
+    defer list.deinit(gpa);
+
+    for (0..10) |n| {
+        try list.append(gpa, n);
+    }
+
+    var right_half = try list.splitAt(gpa, 5);
+    defer right_half.deinit(gpa);
+
+    try testing.expectEqualSlices(usize, &.{ 0, 1, 2, 3, 4 }, list.items);
+    try testing.expectEqualSlices(usize, &.{ 5, 6, 7, 8, 9 }, right_half.items);
 }
