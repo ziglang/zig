@@ -667,7 +667,8 @@ pub const VTable = struct {
     dirOpenFile: *const fn (?*anyopaque, Dir, sub_path: []const u8, File.OpenFlags) File.OpenError!File,
     fileStat: *const fn (?*anyopaque, File) File.StatError!File.Stat,
     fileClose: *const fn (?*anyopaque, File) void,
-    pwrite: *const fn (?*anyopaque, File, buffer: []const u8, offset: std.posix.off_t) File.PWriteError!usize,
+    fileWriteStreaming: *const fn (?*anyopaque, File, buffer: [][]const u8) File.WriteStreamingError!usize,
+    fileWritePositional: *const fn (?*anyopaque, File, buffer: [][]const u8, offset: u64) File.WritePositionalError!usize,
     /// Returns 0 on end of stream.
     fileReadStreaming: *const fn (?*anyopaque, File, data: [][]u8) File.ReadStreamingError!usize,
     /// Returns 0 on end of stream.
