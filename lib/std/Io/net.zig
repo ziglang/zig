@@ -1154,6 +1154,11 @@ pub const Stream = struct {
         s.* = undefined;
     }
 
+    /// Same as `close` but doesn't try to set `Stream` to `undefined`.
+    pub fn closeConst(s: *const Stream, io: Io) void {
+        io.vtable.netClose(io.userdata, s.socket.handle);
+    }
+
     pub const Reader = struct {
         io: Io,
         interface: Io.Reader,
