@@ -172,24 +172,19 @@ pub const ReadStreamingError = error{
 pub const ReadPositionalError = ReadStreamingError || error{Unseekable};
 
 pub fn readPositional(file: File, io: Io, buffer: []u8, offset: u64) ReadPositionalError!usize {
-    return io.vtable.pread(io.userdata, file, buffer, offset);
+    return io.vtable.fileReadPositional(io.userdata, file, buffer, offset);
 }
 
-pub const WriteError = std.fs.File.WriteError || Io.Cancelable;
+pub const WriteStreamingError = error{} || Io.UnexpectedError || Io.Cancelable;
 
-pub fn write(file: File, io: Io, buffer: []const u8) WriteError!usize {
+pub fn write(file: File, io: Io, buffer: []const u8) WriteStreamingError!usize {
     return @errorCast(file.pwrite(io, buffer, -1));
 }
 
-pub fn writeAll(file: File, io: Io, bytes: []const u8) WriteError!void {
-    var index: usize = 0;
-    while (index < bytes.len) index += try file.write(io, bytes[index..]);
-}
+pub const WritePositionalError = WriteStreamingError || error{Unseekable};
 
-pub const PWriteError = std.fs.File.PWriteError || Io.Cancelable;
-
-pub fn pwrite(file: File, io: Io, buffer: []const u8, offset: std.posix.off_t) PWriteError!usize {
-    return io.vtable.pwrite(io.userdata, file, buffer, offset);
+pub fn writePositional(file: File, io: Io, buffer: []const u8, offset: u64) WritePositionalError!usize {
+    return io.vtable.fileWritePositional(io.userdata, file, buffer, offset);
 }
 
 pub fn openAbsolute(io: Io, absolute_path: []const u8, flags: OpenFlags) OpenError!File {

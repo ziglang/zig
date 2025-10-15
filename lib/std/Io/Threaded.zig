@@ -190,7 +190,8 @@ pub fn io(t: *Threaded) Io {
             },
             .dirOpenFile = dirOpenFile,
             .fileClose = fileClose,
-            .pwrite = pwrite,
+            .fileWriteStreaming = fileWriteStreaming,
+            .fileWritePositional = fileWritePositional,
             .fileReadStreaming = fileReadStreaming,
             .fileReadPositional = fileReadPositional,
             .fileSeekBy = fileSeekBy,
@@ -1611,14 +1612,30 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
     }
 }
 
-fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posix.off_t) Io.File.PWriteError!usize {
+fn fileWritePositional(
+    userdata: ?*anyopaque,
+    file: Io.File,
+    buffer: [][]const u8,
+    offset: u64,
+) Io.File.WritePositionalError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    try t.checkCancel();
-    const fs_file: std.fs.File = .{ .handle = file.handle };
-    return switch (offset) {
-        -1 => fs_file.write(buffer),
-        else => fs_file.pwrite(buffer, @bitCast(offset)),
-    };
+    while (true) {
+        try t.checkCancel();
+        _ = file;
+        _ = buffer;
+        _ = offset;
+        @panic("TODO");
+    }
+}
+
+fn fileWriteStreaming(userdata: ?*anyopaque, file: Io.File, buffer: [][]const u8) Io.File.WriteStreamingError!usize {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    while (true) {
+        try t.checkCancel();
+        _ = file;
+        _ = buffer;
+        @panic("TODO");
+    }
 }
 
 fn nowPosix(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestamp {
