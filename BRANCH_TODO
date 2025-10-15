@@ -1,7 +1,7 @@
-* Threaded: rename Pool to Threaded
 * Threaded: finish linux impl (all tests passing)
 * Threaded: finish macos impl 
 * Threaded: finish windows impl 
+* Threaded: glibc impl of netLookup
 
 * fix Group.wait not handling cancelation (need to move impl of ResetEvent to Threaded)
 * implement cancelRequest for non-linux posix
