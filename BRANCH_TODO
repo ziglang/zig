@@ -3,7 +3,7 @@
 * Threaded: finish windows impl 
 * Threaded: glibc impl of netLookup
 
-* fix Group.wait not handling cancelation (need to move impl of ResetEvent to Threaded)
+* eliminate dependency on std.Thread (Mutex, Condition, maybe more)
 * implement cancelRequest for non-linux posix
 * finish converting all Threaded into directly calling system functions and handling EINTR
 * audit the TODOs

@@ -641,12 +641,13 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (*Group, context: *const anyopaque) void,
     ) void,
-    groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
+    groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) Cancelable!void,
+    groupWaitUncancelable: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
     groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
 
     /// Blocks until one of the futures from the list has a result ready, such
     /// that awaiting it will not block. Returns that index.
-    select: *const fn (?*anyopaque, futures: []const *AnyFuture) usize,
+    select: *const fn (?*anyopaque, futures: []const *AnyFuture) Cancelable!usize,
 
     mutexLock: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) Cancelable!void,
     mutexLockUncancelable: *const fn (?*anyopaque, prev_state: Mutex.State, mutex: *Mutex) void,
@@ -1017,10 +1018,19 @@ pub const Group = struct {
     /// Blocks until all tasks of the group finish.
     ///
     /// Idempotent. Not threadsafe.
-    pub fn wait(g: *Group, io: Io) void {
+    pub fn wait(g: *Group, io: Io) Cancelable!void {
         const token = g.token orelse return;
         g.token = null;
-        io.vtable.groupWait(io.userdata, g, token);
+        return io.vtable.groupWait(io.userdata, g, token);
+    }
+
+    /// Equivalent to `wait` except uninterruptible.
+    ///
+    /// Idempotent. Not threadsafe.
+    pub fn waitUncancelable(g: *Group, io: Io) void {
+        const token = g.token orelse return;
+        g.token = null;
+        io.vtable.groupWaitUncancelable(io.userdata, g, token);
     }
 
     /// Equivalent to `wait` but requests cancellation on all tasks owned by
@@ -1095,7 +1105,7 @@ pub fn Select(comptime U: type) type {
         /// Asserts there is at least one more `outstanding` task.
         ///
         /// Not threadsafe.
-        pub fn wait(s: *S) Io.Cancelable!U {
+        pub fn wait(s: *S) Cancelable!U {
             s.outstanding -= 1;
             return s.queue.getOne(s.io);
         }
