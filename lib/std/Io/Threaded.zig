@@ -133,7 +133,6 @@ fn worker(t: *Threaded) void {
             closure.start(closure);
             t.mutex.lock();
             if (is_concurrent) {
-                // TODO also pop thread and join sometimes
                 t.concurrent_count -= 1;
             }
         }
@@ -1175,7 +1174,7 @@ fn dirCreateFilePosix(
         fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
         while (true) {
             try t.checkCancel();
-            switch (posix.errno(posix.fcntl(fd, posix.F.SETFL, fl_flags))) {
+            switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFL, fl_flags))) {
                 .SUCCESS => break,
                 .INTR => continue,
                 else => |err| return posix.unexpectedErrno(err),
@@ -1304,7 +1303,7 @@ fn dirOpenFile(
         fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
         while (true) {
             try t.checkCancel();
-            switch (posix.errno(posix.fcntl(fd, posix.F.SETFL, fl_flags))) {
+            switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFL, fl_flags))) {
                 .SUCCESS => break,
                 .INTR => continue,
                 else => |err| return posix.unexpectedErrno(err),
@@ -2263,7 +2262,6 @@ fn netSendOne(
                     .WSAEDESTADDRREQ => unreachable, // A destination address is required.
                     .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                    // TODO: WSAEINPROGRESS, WSAEINTR
                     .WSAEINVAL => unreachable,
                     .WSAENETDOWN => return error.NetworkDown,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
@@ -3186,11 +3184,11 @@ fn lookupDns(
 
     for (answers) |answer| {
         var it = HostName.DnsResponse.init(answer) catch {
-            // TODO accept a diagnostics struct and append warnings
+            // Here we could potentially add diagnostics to the results queue.
             continue;
         };
         while (it.next() catch {
-            // TODO accept a diagnostics struct and append warnings
+            // Here we could potentially add diagnostics to the results queue.
             continue;
         }) |record| switch (record.rr) {
             std.posix.RR.A => {
@@ -3239,7 +3237,7 @@ fn lookupHosts(
         error.Canceled => |e| return e,
 
         else => {
-            // TODO populate optional diagnostic struct
+            // Here we could add more detailed diagnostics to the results queue.
             return error.DetectingNetworkConfigurationFailed;
         },
     };
@@ -3251,7 +3249,7 @@ fn lookupHosts(
         error.ReadFailed => switch (file_reader.err.?) {
             error.Canceled => |e| return e,
             else => {
-                // TODO populate optional diagnostic struct
+                // Here we could add more detailed diagnostics to the results queue.
                 return error.DetectingNetworkConfigurationFailed;
             },
         },
