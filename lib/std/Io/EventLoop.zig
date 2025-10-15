@@ -1410,7 +1410,7 @@ fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.o
         .NOMEM => return error.SystemResources,
         .NOTCONN => return error.SocketUnconnected,
         .CONNRESET => return error.ConnectionResetByPeer,
-        .TIMEDOUT => return error.ConnectionTimedOut,
+        .TIMEDOUT => return error.Timeout,
         .NXIO => return error.Unseekable,
         .SPIPE => return error.Unseekable,
         .OVERFLOW => return error.Unseekable,

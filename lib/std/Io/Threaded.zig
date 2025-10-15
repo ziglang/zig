@@ -8,6 +8,8 @@ const windows = std.os.windows;
 const std = @import("../std.zig");
 const Io = std.Io;
 const net = std.Io.net;
+const HostName = std.Io.net.HostName;
+const IpAddress = std.Io.net.IpAddress;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const posix = std.posix;
@@ -156,9 +158,11 @@ pub fn io(pool: *Pool) Io {
             .groupCancel = groupCancel,
 
             .mutexLock = mutexLock,
+            .mutexLockUncancelable = mutexLockUncancelable,
             .mutexUnlock = mutexUnlock,
 
             .conditionWait = conditionWait,
+            .conditionWaitUncancelable = conditionWaitUncancelable,
             .conditionWake = conditionWake,
 
             .dirMake = switch (builtin.os.tag) {
@@ -235,6 +239,7 @@ pub fn io(pool: *Pool) Io {
             .netReceive = netReceive,
             .netInterfaceNameResolve = netInterfaceNameResolve,
             .netInterfaceName = netInterfaceName,
+            .netLookup = netLookup,
         },
     };
 }
@@ -653,26 +658,63 @@ fn checkCancel(pool: *Pool) error{Canceled}!void {
     if (cancelRequested(pool)) return error.Canceled;
 }
 
-fn mutexLock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) error{Canceled}!void {
-    _ = userdata;
+fn mutexLock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) Io.Cancelable!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     if (prev_state == .contended) {
-        std.Thread.Futex.wait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
+        try pool.checkCancel();
+        futexWait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
     }
-    while (@atomicRmw(
-        Io.Mutex.State,
-        &mutex.state,
-        .Xchg,
-        .contended,
-        .acquire,
-    ) != .unlocked) {
-        std.Thread.Futex.wait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
+    while (@atomicRmw(Io.Mutex.State, &mutex.state, .Xchg, .contended, .acquire) != .unlocked) {
+        try pool.checkCancel();
+        futexWait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
     }
 }
+
+fn mutexLockUncancelable(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) void {
+    _ = userdata;
+    if (prev_state == .contended) {
+        futexWait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
+    }
+    while (@atomicRmw(Io.Mutex.State, &mutex.state, .Xchg, .contended, .acquire) != .unlocked) {
+        futexWait(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
+    }
+}
+
 fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) void {
     _ = userdata;
     _ = prev_state;
     if (@atomicRmw(Io.Mutex.State, &mutex.state, .Xchg, .unlocked, .release) == .contended) {
-        std.Thread.Futex.wake(@ptrCast(&mutex.state), 1);
+        futexWake(@ptrCast(&mutex.state), 1);
+    }
+}
+
+fn conditionWaitUncancelable(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const pool_io = pool.io();
+    comptime assert(@TypeOf(cond.state) == u64);
+    const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
+    const cond_state = &ints[0];
+    const cond_epoch = &ints[1];
+    const one_waiter = 1;
+    const waiter_mask = 0xffff;
+    const one_signal = 1 << 16;
+    const signal_mask = 0xffff << 16;
+    var epoch = cond_epoch.load(.acquire);
+    var state = cond_state.fetchAdd(one_waiter, .monotonic);
+    assert(state & waiter_mask != waiter_mask);
+    state += one_waiter;
+
+    mutex.unlock(pool_io);
+    defer mutex.lockUncancelable(pool_io);
+
+    while (true) {
+        futexWait(cond_epoch, epoch);
+        epoch = cond_epoch.load(.acquire);
+        state = cond_state.load(.monotonic);
+        while (state & signal_mask != 0) {
+            const new_state = state - one_waiter - one_signal;
+            state = cond_state.cmpxchgWeak(state, new_state, .acquire, .monotonic) orelse return;
+        }
     }
 }
 
@@ -702,20 +744,18 @@ fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) I
     state += one_waiter;
 
     mutex.unlock(pool.io());
-    defer mutex.lock(pool.io()) catch @panic("TODO");
-
-    var futex_deadline = std.Thread.Futex.Deadline.init(null);
+    defer mutex.lockUncancelable(pool.io());
 
     while (true) {
-        futex_deadline.wait(cond_epoch, epoch) catch |err| switch (err) {
-            error.Timeout => unreachable,
-        };
+        try pool.checkCancel();
+        futexWait(cond_epoch, epoch);
 
         epoch = cond_epoch.load(.acquire);
         state = cond_state.load(.monotonic);
 
-        // Try to wake up by consuming a signal and decremented the waiter we added previously.
-        // Acquire barrier ensures code before the wake() which added the signal happens before we decrement it and return.
+        // Try to wake up by consuming a signal and decremented the waiter we
+        // added previously. Acquire barrier ensures code before the wake()
+        // which added the signal happens before we decrement it and return.
         while (state & signal_mask != 0) {
             const new_state = state - one_waiter - one_signal;
             state = cond_state.cmpxchgWeak(state, new_state, .acquire, .monotonic) orelse return;
@@ -740,8 +780,10 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
         const signals = (state & signal_mask) / one_signal;
 
         // Reserves which waiters to wake up by incrementing the signals count.
-        // Therefore, the signals count is always less than or equal to the waiters count.
-        // We don't need to Futex.wake if there's nothing to wake up or if other wake() threads have reserved to wake up the current waiters.
+        // Therefore, the signals count is always less than or equal to the
+        // waiters count. We don't need to Futex.wake if there's nothing to
+        // wake up or if other wake() threads have reserved to wake up the
+        // current waiters.
         const wakeable = waiters - signals;
         if (wakeable == 0) {
             return;
@@ -752,16 +794,23 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
             .all => wakeable,
         };
 
-        // Reserve the amount of waiters to wake by incrementing the signals count.
-        // Release barrier ensures code before the wake() happens before the signal it posted and consumed by the wait() threads.
+        // Reserve the amount of waiters to wake by incrementing the signals
+        // count. Release barrier ensures code before the wake() happens before
+        // the signal it posted and consumed by the wait() threads.
         const new_state = state + (one_signal * to_wake);
         state = cond_state.cmpxchgWeak(state, new_state, .release, .monotonic) orelse {
             // Wake up the waiting threads we reserved above by changing the epoch value.
-            // NOTE: a waiting thread could miss a wake up if *exactly* ((1<<32)-1) wake()s happen between it observing the epoch and sleeping on it.
-            // This is very unlikely due to how many precise amount of Futex.wake() calls that would be between the waiting thread's potential preemption.
             //
-            // Release barrier ensures the signal being added to the state happens before the epoch is changed.
-            // If not, the waiting thread could potentially deadlock from missing both the state and epoch change:
+            // A waiting thread could miss a wake up if *exactly* ((1<<32)-1)
+            // wake()s happen between it observing the epoch and sleeping on
+            // it. This is very unlikely due to how many precise amount of
+            // Futex.wake() calls that would be between the waiting thread's
+            // potential preemption.
+            //
+            // Release barrier ensures the signal being added to the state
+            // happens before the epoch is changed. If not, the waiting thread
+            // could potentially deadlock from missing both the state and epoch
+            // change:
             //
             // - T2: UPDATE(&epoch, 1) (reordered before the state change)
             // - T1: e = LOAD(&epoch)
@@ -769,7 +818,7 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
             // - T2: UPDATE(&state, signal) + FUTEX_WAKE(&epoch)
             // - T1: s & signals == 0 -> FUTEX_WAIT(&epoch, e) (missed both epoch change and state change)
             _ = cond_epoch.fetchAdd(1, .release);
-            std.Thread.Futex.wake(cond_epoch, to_wake);
+            futexWake(cond_epoch, to_wake);
             return;
         };
     }
@@ -1298,7 +1347,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return posix.unexpectedErrno(err),
         }
@@ -1321,7 +1370,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             else => |err| return posix.unexpectedErrno(err),
         }
     }
@@ -1420,7 +1469,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1446,7 +1495,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1693,9 +1742,9 @@ fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
 
 fn netListenIpPosix(
     userdata: ?*anyopaque,
-    address: net.IpAddress,
-    options: net.IpAddress.ListenOptions,
-) net.IpAddress.ListenError!net.Server {
+    address: IpAddress,
+    options: IpAddress.ListenOptions,
+) IpAddress.ListenError!net.Server {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(&address);
     const socket_fd = try openSocketPosix(pool, family, .{
@@ -1831,7 +1880,7 @@ fn posixConnect(pool: *Pool, socket_fd: posix.socket_t, addr: *const posix.socka
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => |err| return errnoBug(err),
             .PROTOTYPE => |err| return errnoBug(err),
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .CONNABORTED => |err| return errnoBug(err),
             .ACCES => return error.AccessDenied,
             .PERM => |err| return errnoBug(err),
@@ -1904,9 +1953,9 @@ fn setSocketOption(pool: *Pool, fd: posix.fd_t, level: i32, opt_name: u32, optio
 
 fn netConnectIpPosix(
     userdata: ?*anyopaque,
-    address: *const net.IpAddress,
-    options: net.IpAddress.ConnectOptions,
-) net.IpAddress.ConnectError!net.Stream {
+    address: *const IpAddress,
+    options: IpAddress.ConnectOptions,
+) IpAddress.ConnectError!net.Stream {
     if (options.timeout != .none) @panic("TODO");
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(address);
@@ -1941,9 +1990,9 @@ fn netConnectUnix(
 
 fn netBindIpPosix(
     userdata: ?*anyopaque,
-    address: *const net.IpAddress,
-    options: net.IpAddress.BindOptions,
-) net.IpAddress.BindError!net.Socket {
+    address: *const IpAddress,
+    options: IpAddress.BindOptions,
+) IpAddress.BindError!net.Socket {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(address);
     const socket_fd = try openSocketPosix(pool, family, options);
@@ -1958,7 +2007,7 @@ fn netBindIpPosix(
     };
 }
 
-fn openSocketPosix(pool: *Pool, family: posix.sa_family_t, options: net.IpAddress.BindOptions) !posix.socket_t {
+fn openSocketPosix(pool: *Pool, family: posix.sa_family_t, options: IpAddress.BindOptions) !posix.socket_t {
     const mode = posixSocketMode(options.mode);
     const protocol = posixProtocol(options.protocol);
     const socket_fd = while (true) {
@@ -2081,7 +2130,7 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return posix.unexpectedErrno(err),
         }
@@ -2102,7 +2151,7 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
-            .TIMEDOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.Timeout,
             .PIPE => return error.BrokenPipe,
             .NETDOWN => return error.NetworkDown,
             else => |err| return posix.unexpectedErrno(err),
@@ -2563,6 +2612,118 @@ fn netInterfaceName(userdata: ?*anyopaque, interface: net.Interface) net.Interfa
     @panic("unimplemented");
 }
 
+fn netLookup(
+    userdata: ?*anyopaque,
+    host_name: HostName,
+    resolved: *Io.Queue(HostName.LookupResult),
+    options: HostName.LookupOptions,
+) void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    const pool_io = pool.io();
+    resolved.putOneUncancelable(pool_io, .{ .end = netLookupFallible(pool, host_name, resolved, options) });
+}
+
+fn netLookupFallible(
+    pool: *Pool,
+    host_name: HostName,
+    resolved: *Io.Queue(HostName.LookupResult),
+    options: HostName.LookupOptions,
+) !void {
+    const pool_io = pool.io();
+    const name = host_name.bytes;
+    assert(name.len <= HostName.max_len);
+
+    if (is_windows) {
+        // TODO use GetAddrInfoExW / GetAddrInfoExCancel
+        @compileError("TODO");
+    }
+
+    // On Linux, glibc provides getaddrinfo_a which is capable of supporting our semantics.
+    // However, musl's POSIX-compliant getaddrinfo is not, so we bypass it.
+
+    if (builtin.target.isGnuLibC()) {
+        // TODO use getaddrinfo_a / gai_cancel
+    }
+
+    if (native_os == .linux) {
+        if (options.family != .ip4) {
+            if (IpAddress.parseIp6(name, options.port)) |addr| {
+                try resolved.putAll(pool_io, &.{
+                    .{ .address = addr },
+                    .{ .canonical_name = copyCanon(options.canonical_name_buffer, name) },
+                });
+                return;
+            } else |_| {}
+        }
+
+        if (options.family != .ip6) {
+            if (IpAddress.parseIp4(name, options.port)) |addr| {
+                try resolved.putAll(pool_io, &.{
+                    .{ .address = addr },
+                    .{ .canonical_name = copyCanon(options.canonical_name_buffer, name) },
+                });
+            } else |_| {}
+        }
+
+        lookupHosts(pool, host_name, resolved, options) catch |err| switch (err) {
+            error.UnknownHostName => {},
+            else => |e| return e,
+        };
+
+        // RFC 6761 Section 6.3.3
+        // Name resolution APIs and libraries SHOULD recognize
+        // localhost names as special and SHOULD always return the IP
+        // loopback address for address queries and negative responses
+        // for all other query types.
+
+        // Check for equal to "localhost(.)" or ends in ".localhost(.)"
+        const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
+        if (std.mem.endsWith(u8, name, localhost) and
+            (name.len == localhost.len or name[name.len - localhost.len] == '.'))
+        {
+            var results_buffer: [3]HostName.LookupResult = undefined;
+            var results_index: usize = 0;
+            if (options.family != .ip4) {
+                results_buffer[results_index] = .{ .address = .{ .ip6 = .loopback(options.port) } };
+                results_index += 1;
+            }
+            if (options.family != .ip6) {
+                results_buffer[results_index] = .{ .address = .{ .ip4 = .loopback(options.port) } };
+                results_index += 1;
+            }
+            const canon_name = "localhost";
+            const canon_name_dest = options.canonical_name_buffer[0..canon_name.len];
+            canon_name_dest.* = canon_name.*;
+            results_buffer[results_index] = .{ .canonical_name = .{ .bytes = canon_name_dest } };
+            results_index += 1;
+            try resolved.putAll(pool_io, results_buffer[0..results_index]);
+            return;
+        }
+
+        return lookupDnsSearch(pool, host_name, resolved, options);
+    }
+
+    if (native_os == .openbsd) {
+        // TODO use getaddrinfo_async / asr_abort
+    }
+
+    if (native_os == .freebsd) {
+        // TODO use dnsres_getaddrinfo
+    }
+
+    if (native_os.isDarwin()) {
+        // TODO use CFHostStartInfoResolution / CFHostCancelInfoResolution
+    }
+
+    if (builtin.link_libc) {
+        // This operating system lacks a way to resolve asynchronously. We are
+        // stuck with getaddrinfo.
+        @compileError("TODO");
+    }
+
+    return error.OptionUnsupported;
+}
+
 const PosixAddress = extern union {
     any: posix.sockaddr,
     in: posix.sockaddr.in,
@@ -2574,14 +2735,14 @@ const UnixAddress = extern union {
     un: posix.sockaddr.un,
 };
 
-fn posixAddressFamily(a: *const net.IpAddress) posix.sa_family_t {
+fn posixAddressFamily(a: *const IpAddress) posix.sa_family_t {
     return switch (a.*) {
         .ip4 => posix.AF.INET,
         .ip6 => posix.AF.INET6,
     };
 }
 
-fn addressFromPosix(posix_address: *PosixAddress) net.IpAddress {
+fn addressFromPosix(posix_address: *PosixAddress) IpAddress {
     return switch (posix_address.any.family) {
         posix.AF.INET => .{ .ip4 = address4FromPosix(&posix_address.in) },
         posix.AF.INET6 => .{ .ip6 = address6FromPosix(&posix_address.in6) },
@@ -2589,7 +2750,7 @@ fn addressFromPosix(posix_address: *PosixAddress) net.IpAddress {
     };
 }
 
-fn addressToPosix(a: *const net.IpAddress, storage: *PosixAddress) posix.socklen_t {
+fn addressToPosix(a: *const IpAddress, storage: *PosixAddress) posix.socklen_t {
     return switch (a.*) {
         .ip4 => |ip4| {
             storage.in = address4ToPosix(ip4);
@@ -2788,4 +2949,437 @@ fn pathToPosix(file_path: []const u8, buffer: *[posix.PATH_MAX]u8) Io.Dir.PathNa
     @memcpy(buffer[0..file_path.len], file_path);
     buffer[file_path.len] = 0;
     return buffer[0..file_path.len :0];
+}
+
+fn lookupDnsSearch(
+    pool: *Pool,
+    host_name: HostName,
+    resolved: *Io.Queue(HostName.LookupResult),
+    options: HostName.LookupOptions,
+) HostName.LookupError!void {
+    const pool_io = pool.io();
+    const rc = HostName.ResolvConf.init(pool_io) catch return error.ResolvConfParseFailed;
+
+    // Count dots, suppress search when >=ndots or name ends in
+    // a dot, which is an explicit request for global scope.
+    const dots = std.mem.countScalar(u8, host_name.bytes, '.');
+    const search_len = if (dots >= rc.ndots or std.mem.endsWith(u8, host_name.bytes, ".")) 0 else rc.search_len;
+    const search = rc.search_buffer[0..search_len];
+
+    var canon_name = host_name.bytes;
+
+    // Strip final dot for canon, fail if multiple trailing dots.
+    if (std.mem.endsWith(u8, canon_name, ".")) canon_name.len -= 1;
+    if (std.mem.endsWith(u8, canon_name, ".")) return error.UnknownHostName;
+
+    // Name with search domain appended is set up in `canon_name`. This
+    // both provides the desired default canonical name (if the requested
+    // name is not a CNAME record) and serves as a buffer for passing the
+    // full requested name to `lookupDns`.
+    @memcpy(options.canonical_name_buffer[0..canon_name.len], canon_name);
+    options.canonical_name_buffer[canon_name.len] = '.';
+    var it = std.mem.tokenizeAny(u8, search, " \t");
+    while (it.next()) |token| {
+        @memcpy(options.canonical_name_buffer[canon_name.len + 1 ..][0..token.len], token);
+        const lookup_canon_name = options.canonical_name_buffer[0 .. canon_name.len + 1 + token.len];
+        if (lookupDns(pool, lookup_canon_name, &rc, resolved, options)) |result| {
+            return result;
+        } else |err| switch (err) {
+            error.UnknownHostName => continue,
+            else => |e| return e,
+        }
+    }
+
+    const lookup_canon_name = options.canonical_name_buffer[0..canon_name.len];
+    return lookupDns(pool, lookup_canon_name, &rc, resolved, options);
+}
+
+fn lookupDns(
+    pool: *Pool,
+    lookup_canon_name: []const u8,
+    rc: *const HostName.ResolvConf,
+    resolved: *Io.Queue(HostName.LookupResult),
+    options: HostName.LookupOptions,
+) HostName.LookupError!void {
+    const pool_io = pool.io();
+    const family_records: [2]struct { af: IpAddress.Family, rr: u8 } = .{
+        .{ .af = .ip6, .rr = std.posix.RR.A },
+        .{ .af = .ip4, .rr = std.posix.RR.AAAA },
+    };
+    var query_buffers: [2][280]u8 = undefined;
+    var answer_buffer: [2 * 512]u8 = undefined;
+    var queries_buffer: [2][]const u8 = undefined;
+    var answers_buffer: [2][]const u8 = undefined;
+    var nq: usize = 0;
+    var answer_buffer_i: usize = 0;
+
+    for (family_records) |fr| {
+        if (options.family != fr.af) {
+            const entropy = std.crypto.random.array(u8, 2);
+            const len = writeResolutionQuery(&query_buffers[nq], 0, lookup_canon_name, 1, fr.rr, entropy);
+            queries_buffer[nq] = query_buffers[nq][0..len];
+            nq += 1;
+        }
+    }
+
+    var ip4_mapped: [HostName.ResolvConf.max_nameservers]IpAddress = undefined;
+    var any_ip6 = false;
+    for (rc.nameservers(), &ip4_mapped) |*ns, *m| {
+        m.* = .{ .ip6 = .fromAny(ns.*) };
+        any_ip6 = any_ip6 or ns.* == .ip6;
+    }
+    var socket = s: {
+        if (any_ip6) ip6: {
+            const ip6_addr: IpAddress = .{ .ip6 = .unspecified(0) };
+            const socket = ip6_addr.bind(pool_io, .{ .ip6_only = true, .mode = .dgram }) catch |err| switch (err) {
+                error.AddressFamilyUnsupported => break :ip6,
+                else => |e| return e,
+            };
+            break :s socket;
+        }
+        any_ip6 = false;
+        const ip4_addr: IpAddress = .{ .ip4 = .unspecified(0) };
+        const socket = try ip4_addr.bind(pool_io, .{ .mode = .dgram });
+        break :s socket;
+    };
+    defer socket.close(pool_io);
+
+    const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
+    const queries = queries_buffer[0..nq];
+    const answers = answers_buffer[0..queries.len];
+    var answers_remaining = answers.len;
+    for (answers) |*answer| answer.len = 0;
+
+    // boot clock is chosen because time the computer is suspended should count
+    // against time spent waiting for external messages to arrive.
+    const clock: Io.Clock = .boot;
+    var now_ts = try clock.now(pool_io);
+    const final_ts = now_ts.addDuration(.fromSeconds(rc.timeout_seconds));
+    const attempt_duration: Io.Duration = .{
+        .nanoseconds = std.time.ns_per_s * @as(usize, rc.timeout_seconds) / rc.attempts,
+    };
+
+    send: while (now_ts.nanoseconds < final_ts.nanoseconds) : (now_ts = try clock.now(pool_io)) {
+        const max_messages = queries_buffer.len * HostName.ResolvConf.max_nameservers;
+        {
+            var message_buffer: [max_messages]Io.net.OutgoingMessage = undefined;
+            var message_i: usize = 0;
+            for (queries, answers) |query, *answer| {
+                if (answer.len != 0) continue;
+                for (mapped_nameservers) |*ns| {
+                    message_buffer[message_i] = .{
+                        .address = ns,
+                        .data_ptr = query.ptr,
+                        .data_len = query.len,
+                    };
+                    message_i += 1;
+                }
+            }
+            _ = netSend(pool, socket.handle, message_buffer[0..message_i], .{});
+        }
+
+        const timeout: Io.Timeout = .{ .deadline = .{
+            .raw = now_ts.addDuration(attempt_duration),
+            .clock = clock,
+        } };
+
+        while (true) {
+            var message_buffer: [max_messages]Io.net.IncomingMessage = undefined;
+            const buf = answer_buffer[answer_buffer_i..];
+            const recv_err, const recv_n = socket.receiveManyTimeout(pool_io, &message_buffer, buf, .{}, timeout);
+            for (message_buffer[0..recv_n]) |*received_message| {
+                const reply = received_message.data;
+                // Ignore non-identifiable packets.
+                if (reply.len < 4) continue;
+
+                // Ignore replies from addresses we didn't send to.
+                const ns = for (mapped_nameservers) |*ns| {
+                    if (received_message.from.eql(ns)) break ns;
+                } else {
+                    continue;
+                };
+
+                // Find which query this answer goes with, if any.
+                const query, const answer = for (queries, answers) |query, *answer| {
+                    if (reply[0] == query[0] and reply[1] == query[1]) break .{ query, answer };
+                } else {
+                    continue;
+                };
+                if (answer.len != 0) continue;
+
+                // Only accept positive or negative responses; retry immediately on
+                // server failure, and ignore all other codes such as refusal.
+                switch (reply[3] & 15) {
+                    0, 3 => {
+                        answer.* = reply;
+                        answer_buffer_i += reply.len;
+                        answers_remaining -= 1;
+                        if (answer_buffer.len - answer_buffer_i == 0) break :send;
+                        if (answers_remaining == 0) break :send;
+                    },
+                    2 => {
+                        var retry_message: Io.net.OutgoingMessage = .{
+                            .address = ns,
+                            .data_ptr = query.ptr,
+                            .data_len = query.len,
+                        };
+                        _ = netSend(pool, socket.handle, (&retry_message)[0..1], .{});
+                        continue;
+                    },
+                    else => continue,
+                }
+            }
+            if (recv_err) |err| switch (err) {
+                error.Canceled => return error.Canceled,
+                error.Timeout => continue :send,
+                else => continue,
+            };
+        }
+    } else {
+        return error.NameServerFailure;
+    }
+
+    var addresses_len: usize = 0;
+    var canonical_name: ?HostName = null;
+
+    for (answers) |answer| {
+        var it = HostName.DnsResponse.init(answer) catch {
+            // TODO accept a diagnostics struct and append warnings
+            continue;
+        };
+        while (it.next() catch {
+            // TODO accept a diagnostics struct and append warnings
+            continue;
+        }) |record| switch (record.rr) {
+            std.posix.RR.A => {
+                const data = record.packet[record.data_off..][0..record.data_len];
+                if (data.len != 4) return error.InvalidDnsARecord;
+                try resolved.putOne(pool_io, .{ .address = .{ .ip4 = .{
+                    .bytes = data[0..4].*,
+                    .port = options.port,
+                } } });
+                addresses_len += 1;
+            },
+            std.posix.RR.AAAA => {
+                const data = record.packet[record.data_off..][0..record.data_len];
+                if (data.len != 16) return error.InvalidDnsAAAARecord;
+                try resolved.putOne(pool_io, .{ .address = .{ .ip6 = .{
+                    .bytes = data[0..16].*,
+                    .port = options.port,
+                } } });
+                addresses_len += 1;
+            },
+            std.posix.RR.CNAME => {
+                _, canonical_name = HostName.expand(record.packet, record.data_off, options.canonical_name_buffer) catch
+                    return error.InvalidDnsCnameRecord;
+            },
+            else => continue,
+        };
+    }
+
+    try resolved.putOne(pool_io, .{ .canonical_name = canonical_name orelse .{ .bytes = lookup_canon_name } });
+    if (addresses_len == 0) return error.NameServerFailure;
+}
+
+fn lookupHosts(
+    pool: *Pool,
+    host_name: HostName,
+    resolved: *Io.Queue(HostName.LookupResult),
+    options: HostName.LookupOptions,
+) !void {
+    const pool_io = pool.io();
+    const file = Io.File.openAbsolute(pool_io, "/etc/hosts", .{}) catch |err| switch (err) {
+        error.FileNotFound,
+        error.NotDir,
+        error.AccessDenied,
+        => return error.UnknownHostName,
+
+        error.Canceled => |e| return e,
+
+        else => {
+            // TODO populate optional diagnostic struct
+            return error.DetectingNetworkConfigurationFailed;
+        },
+    };
+    defer file.close(pool_io);
+
+    var line_buf: [512]u8 = undefined;
+    var file_reader = file.reader(pool_io, &line_buf);
+    return lookupHostsReader(pool, host_name, resolved, options, &file_reader.interface) catch |err| switch (err) {
+        error.ReadFailed => switch (file_reader.err.?) {
+            error.Canceled => |e| return e,
+            else => {
+                // TODO populate optional diagnostic struct
+                return error.DetectingNetworkConfigurationFailed;
+            },
+        },
+        error.Canceled => |e| return e,
+        error.UnknownHostName => |e| return e,
+    };
+}
+
+fn lookupHostsReader(
+    pool: *Pool,
+    host_name: HostName,
+    resolved: *Io.Queue(HostName.LookupResult),
+    options: HostName.LookupOptions,
+    reader: *Io.Reader,
+) error{ ReadFailed, Canceled, UnknownHostName }!void {
+    const pool_io = pool.io();
+    var addresses_len: usize = 0;
+    var canonical_name: ?HostName = null;
+    while (true) {
+        const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.StreamTooLong => {
+                // Skip lines that are too long.
+                _ = reader.discardDelimiterInclusive('\n') catch |e| switch (e) {
+                    error.EndOfStream => break,
+                    error.ReadFailed => return error.ReadFailed,
+                };
+                continue;
+            },
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => break,
+        };
+        reader.toss(1);
+        var split_it = std.mem.splitScalar(u8, line, '#');
+        const no_comment_line = split_it.first();
+
+        var line_it = std.mem.tokenizeAny(u8, no_comment_line, " \t");
+        const ip_text = line_it.next() orelse continue;
+        var first_name_text: ?[]const u8 = null;
+        while (line_it.next()) |name_text| {
+            if (std.mem.eql(u8, name_text, host_name.bytes)) {
+                if (first_name_text == null) first_name_text = name_text;
+                break;
+            }
+        } else continue;
+
+        if (canonical_name == null) {
+            if (HostName.init(first_name_text.?)) |name_text| {
+                if (name_text.bytes.len <= options.canonical_name_buffer.len) {
+                    const canonical_name_dest = options.canonical_name_buffer[0..name_text.bytes.len];
+                    @memcpy(canonical_name_dest, name_text.bytes);
+                    canonical_name = .{ .bytes = canonical_name_dest };
+                }
+            } else |_| {}
+        }
+
+        if (options.family != .ip6) {
+            if (IpAddress.parseIp4(ip_text, options.port)) |addr| {
+                try resolved.putOne(pool_io, .{ .address = addr });
+                addresses_len += 1;
+            } else |_| {}
+        }
+        if (options.family != .ip4) {
+            if (IpAddress.parseIp6(ip_text, options.port)) |addr| {
+                try resolved.putOne(pool_io, .{ .address = addr });
+                addresses_len += 1;
+            } else |_| {}
+        }
+    }
+
+    if (canonical_name) |canon_name| try resolved.putOne(pool_io, .{ .canonical_name = canon_name });
+    if (addresses_len == 0) return error.UnknownHostName;
+}
+
+/// Writes DNS resolution query packet data to `w`; at most 280 bytes.
+fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u8, entropy: [2]u8) usize {
+    // This implementation is ported from musl libc.
+    // A more idiomatic "ziggy" implementation would be welcome.
+    var name = dname;
+    if (std.mem.endsWith(u8, name, ".")) name.len -= 1;
+    assert(name.len <= 253);
+    const n = 17 + name.len + @intFromBool(name.len != 0);
+
+    // Construct query template - ID will be filled later
+    q[0..2].* = entropy;
+    @memset(q[2..n], 0);
+    q[2] = @as(u8, op) * 8 + 1;
+    q[5] = 1;
+    @memcpy(q[13..][0..name.len], name);
+    var i: usize = 13;
+    var j: usize = undefined;
+    while (q[i] != 0) : (i = j + 1) {
+        j = i;
+        while (q[j] != 0 and q[j] != '.') : (j += 1) {}
+        // TODO determine the circumstances for this and whether or
+        // not this should be an error.
+        if (j - i - 1 > 62) unreachable;
+        q[i - 1] = @intCast(j - i);
+    }
+    q[i + 1] = ty;
+    q[i + 3] = class;
+    return n;
+}
+
+fn copyCanon(canonical_name_buffer: *[HostName.max_len]u8, name: []const u8) HostName {
+    const dest = canonical_name_buffer[0..name.len];
+    @memcpy(dest, name);
+    return .{ .bytes = dest };
+}
+
+pub fn futexWait(ptr: *const std.atomic.Value(u32), expect: u32) void {
+    @branchHint(.cold);
+
+    if (native_os == .linux) {
+        const linux = std.os.linux;
+        const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
+        if (builtin.mode == .Debug) switch (linux.E.init(rc)) {
+            .SUCCESS => {}, // notified by `wake()`
+            .INTR => {}, // gives caller a chance to check cancellation
+            .AGAIN => {}, // ptr.* != expect
+            .INVAL => {}, // possibly timeout overflow
+            .TIMEDOUT => unreachable,
+            .FAULT => unreachable, // ptr was invalid
+            else => unreachable,
+        };
+        return;
+    }
+
+    @compileError("TODO");
+}
+
+pub fn futexWaitDuration(ptr: *const std.atomic.Value(u32), expect: u32, timeout: Io.Duration) void {
+    @branchHint(.cold);
+
+    if (native_os == .linux) {
+        const linux = std.os.linux;
+        var ts = timestampToPosix(timeout.toNanoseconds());
+        const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, &ts);
+        if (builtin.mode == .Debug) switch (linux.E.init(rc)) {
+            .SUCCESS => {}, // notified by `wake()`
+            .INTR => {}, // gives caller a chance to check cancellation
+            .AGAIN => {}, // ptr.* != expect
+            .TIMEDOUT => {},
+            .INVAL => {}, // possibly timeout overflow
+            .FAULT => unreachable, // ptr was invalid
+            else => unreachable,
+        };
+        return;
+    }
+
+    @compileError("TODO");
+}
+
+pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
+    @branchHint(.cold);
+
+    if (native_os == .linux) {
+        const linux = std.os.linux;
+        const rc = linux.futex_3arg(
+            &ptr.raw,
+            .{ .cmd = .WAKE, .private = true },
+            @min(max_waiters, std.math.maxInt(i32)),
+        );
+        if (builtin.mode == .Debug) switch (linux.E.init(rc)) {
+            .SUCCESS => {}, // successful wake up
+            .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
+            .FAULT => {}, // pointer became invalid while doing the wake
+            else => unreachable,
+        };
+        return;
+    }
+
+    @compileError("TODO");
 }
