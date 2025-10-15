@@ -144,7 +144,14 @@ pub const Node = extern struct {
         }
     };
 
-    pub const FileLocation = struct { offset: u64, size: u64 };
+    pub const FileLocation = struct {
+        offset: u64,
+        size: u64,
+
+        pub fn end(fl: FileLocation) u64 {
+            return fl.offset + fl.size;
+        }
+    };
 
     pub const Index = enum(u32) {
         none,

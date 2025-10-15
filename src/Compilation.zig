@@ -1989,7 +1989,6 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                         break :s if (is_exe_or_dyn_lib and build_options.have_llvm) .dyn_lib else .zcu;
                     },
                 }
-                if (options.config.use_new_linker) break :s .obj;
             }
             if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
