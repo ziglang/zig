@@ -557,7 +557,10 @@ test {
 
 const Io = @This();
 
-pub const EventLoop = @import("Io/EventLoop.zig");
+pub const Evented = switch (builtin.os.tag) {
+    .linux => @import("Io/IoUring.zig"),
+    else => void,
+};
 pub const Threaded = @import("Io/Threaded.zig");
 pub const net = @import("Io/net.zig");
 
