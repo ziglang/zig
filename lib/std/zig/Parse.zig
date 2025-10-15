@@ -2857,32 +2857,6 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
 
         _ = p.eatToken(.colon) orelse break :clobbers .none;
 
-        // For automatic upgrades; delete after 0.15.0 released.
-        if (p.tokenTag(p.tok_i) == .string_literal) {
-            while (p.eatToken(.string_literal)) |_| {
-                switch (p.tokenTag(p.tok_i)) {
-                    .comma => p.tok_i += 1,
-                    .colon, .r_paren, .r_brace, .r_bracket => break,
-                    // Likely just a missing comma; give error but continue parsing.
-                    else => try p.warnExpected(.comma),
-                }
-            }
-            const rparen = try p.expectToken(.r_paren);
-            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-            return p.addNode(.{
-                .tag = .asm_legacy,
-                .main_token = asm_token,
-                .data = .{ .node_and_extra = .{
-                    template,
-                    try p.addExtra(Node.AsmLegacy{
-                        .items_start = span.start,
-                        .items_end = span.end,
-                        .rparen = rparen,
-                    }),
-                } },
-            });
-        }
-
         break :clobbers (try p.expectExpr()).toOptional();
     } else .none;
 
