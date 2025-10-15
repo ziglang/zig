@@ -210,25 +210,38 @@ pub fn connect(
     var connect_many_queue: Io.Queue(ConnectManyResult) = .init(&connect_many_buffer);
 
     var connect_many = io.async(connectMany, .{ host_name, io, port, &connect_many_queue, options });
-    defer connect_many.cancel(io);
+    var saw_end = false;
+    defer {
+        connect_many.cancel(io);
+        if (!saw_end) while (true) switch (connect_many_queue.getOneUncancelable(io)) {
+            .connection => |loser| if (loser) |s| s.closeConst(io) else |_| continue,
+            .end => break,
+        };
+    }
 
     var aggregate_error: ConnectError = error.UnknownHostName;
 
     while (connect_many_queue.getOne(io)) |result| switch (result) {
         .connection => |connection| if (connection) |stream| return stream else |err| switch (err) {
-            error.SystemResources => |e| return e,
-            error.OptionUnsupported => |e| return e,
-            error.ProcessFdQuotaExceeded => |e| return e,
-            error.SystemFdQuotaExceeded => |e| return e,
-            error.Canceled => |e| return e,
+            error.SystemResources,
+            error.OptionUnsupported,
+            error.ProcessFdQuotaExceeded,
+            error.SystemFdQuotaExceeded,
+            error.Canceled,
+            => |e| return e,
+
             error.WouldBlock => return error.Unexpected,
+
             else => |e| aggregate_error = e,
         },
         .end => |end| {
+            saw_end = true;
             try end;
             return aggregate_error;
         },
-    } else |err| return err;
+    } else |err| switch (err) {
+        error.Canceled => |e| return e,
+    }
 }
 
 pub const ConnectManyResult = union(enum) {
@@ -255,7 +268,6 @@ pub fn connectMany(
     });
 
     var group: Io.Group = .init;
-    defer group.cancel(io);
 
     while (lookup_queue.getOne(io)) |dns_result| switch (dns_result) {
         .address => |address| group.async(io, enqueueConnection, .{ address, io, results, options }),
@@ -266,7 +278,10 @@ pub fn connectMany(
             return;
         },
     } else |err| switch (err) {
-        error.Canceled => |e| results.putOneUncancelable(io, .{ .end = e }),
+        error.Canceled => |e| {
+            group.cancel(io);
+            results.putOneUncancelable(io, .{ .end = e });
+        },
     }
 }
 
