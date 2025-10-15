@@ -149,7 +149,7 @@ fn mainImpl() !void {
     var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
 
     while (stdin_reader.takeDelimiterExclusive('\n')) |line| {
-        const trimmed = std.mem.trimRight(u8, line, '\r');
+        const trimmed = std.mem.trimEnd(u8, line, '\r');
         try parser.feedLine(trimmed);
     } else |err| switch (err) {
         error.EndOfStream => {},
