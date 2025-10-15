@@ -9,4 +9,4 @@ export fn foo() void {
 
 // error
 //
-// :4:5: error: asm cannot output to const local 'f'
+// :6:21: error: asm cannot output to const local 'f'
