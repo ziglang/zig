@@ -18,3 +18,4 @@
 * migrate child process into std.Io
 * eliminate std.Io.poll (it should be replaced by "select" functionality)
 * finish moving all of std.posix into Threaded
+* TCP fastopen - sends initial payload along with connection. can be done for idempotent http requests
