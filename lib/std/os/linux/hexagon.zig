@@ -154,11 +154,6 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const timeval = extern struct {
-    sec: time_t,
-    usec: i32,
-};
-
 pub const Flock = extern struct {
     type: i16,
     whence: i16,
@@ -208,7 +203,5 @@ pub const Stat = extern struct {
         return self.ctim;
     }
 };
-
-pub const Elf_Symndx = u32;
 
 pub const VDSO = void;

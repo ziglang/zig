@@ -88,7 +88,6 @@ pub fn clone(
 }
 
 pub const ARCH = arch_bits.ARCH;
-pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
@@ -103,8 +102,6 @@ pub const mode_t = arch_bits.mode_t;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
-pub const timeval = arch_bits.timeval;
-pub const timezone = arch_bits.timezone;
 pub const user_desc = arch_bits.user_desc;
 
 pub const tls = @import("linux/tls.zig");
@@ -1610,6 +1607,8 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
 pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, operation))));
 }
+
+pub const Elf_Symndx = if (native_arch == .s390x) u64 else u32;
 
 // We must follow the C calling convention when we call into the VDSO
 const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.c) usize;
@@ -8358,6 +8357,16 @@ pub const POSIX_FADV = switch (native_arch) {
         pub const DONTNEED = 4;
         pub const NOREUSE = 5;
     },
+};
+
+pub const timeval = extern struct {
+    tv_sec: isize,
+    tv_usec: i64,
+};
+
+pub const timezone = extern struct {
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 /// The timespec struct used by the kernel.

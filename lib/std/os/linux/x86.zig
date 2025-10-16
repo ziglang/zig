@@ -278,18 +278,6 @@ pub const Stat = extern struct {
     }
 };
 
-pub const timeval = extern struct {
-    sec: i32,
-    usec: i32,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
-
-pub const Elf_Symndx = u32;
-
 pub const user_desc = extern struct {
     entry_number: u32,
     base_addr: u32,

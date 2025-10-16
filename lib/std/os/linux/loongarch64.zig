@@ -176,11 +176,6 @@ pub const Stat = extern struct {
     }
 };
 
-pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: i64,
-};
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;
@@ -209,5 +204,3 @@ pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_5.10";
 };
-
-pub const Elf_Symndx = u32;

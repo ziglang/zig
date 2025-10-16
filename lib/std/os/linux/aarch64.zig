@@ -230,15 +230,3 @@ pub const Stat = extern struct {
         return self.ctim;
     }
 };
-
-pub const timeval = extern struct {
-    sec: isize,
-    usec: isize,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
-
-pub const Elf_Symndx = u32;

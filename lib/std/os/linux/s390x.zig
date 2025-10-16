@@ -186,11 +186,6 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-pub const timeval = extern struct {
-    sec: time_t,
-    usec: i64,
-};
-
 pub const Flock = extern struct {
     type: i16,
     whence: i16,
@@ -228,8 +223,6 @@ pub const Stat = extern struct {
         return self.ctim;
     }
 };
-
-pub const Elf_Symndx = u64;
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__kernel_clock_gettime";
