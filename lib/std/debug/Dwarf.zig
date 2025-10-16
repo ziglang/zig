@@ -1431,6 +1431,7 @@ pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 32,
         .arm, .armeb, .thumb, .thumbeb => 15,
+        .csky => 64,
         .hexagon => 76,
         .lanai => 2,
         .loongarch32, .loongarch64 => 64,
@@ -1450,6 +1451,7 @@ pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 29,
         .arm, .armeb, .thumb, .thumbeb => 11,
+        .csky => 14,
         .hexagon => 30,
         .lanai => 5,
         .loongarch32, .loongarch64 => 22,
@@ -1469,6 +1471,7 @@ pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 31,
         .arm, .armeb, .thumb, .thumbeb => 13,
+        .csky => 14,
         .hexagon => 29,
         .lanai => 4,
         .loongarch32, .loongarch64 => 3,

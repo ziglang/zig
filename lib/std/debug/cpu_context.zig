@@ -6,6 +6,7 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
     .arm, .armeb, .thumb, .thumbeb => Arm,
+    .csky => Csky,
     .hexagon => Hexagon,
     .lanai => Lanai,
     .loongarch32, .loongarch64 => LoongArch,
@@ -72,6 +73,13 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         .aarch64, .aarch64_be => .{
             .x = uc.mcontext.x ++ [_]u64{uc.mcontext.lr},
             .sp = uc.mcontext.sp,
+            .pc = uc.mcontext.pc,
+        },
+        .csky => .{
+            .r = uc.mcontext.r0_13 ++
+                [_]u32{ uc.mcontext.r14, uc.mcontext.r15 } ++
+                uc.mcontext.r16_30 ++
+                [_]u32{uc.mcontext.r31},
             .pc = uc.mcontext.pc,
         },
         .hexagon, .loongarch32, .loongarch64, .mips, .mipsel, .mips64, .mips64el, .or1k => .{
@@ -427,6 +435,37 @@ const Aarch64 = extern struct {
             48...63 => return error.UnsupportedRegister, // P0 - P15
             64...95 => return error.UnsupportedRegister, // V0 - V31
             96...127 => return error.UnsupportedRegister, // Z0 - Z31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Csky = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    pc: u32,
+
+    pub inline fn current() Csky {
+        var ctx: Csky = undefined;
+        asm volatile (
+            \\ stm r0-r31, (t0)
+            \\ grs t1, 1f
+            \\1:
+            \\ st32.w t1, (t0, 128)
+            :
+            : [ctx] "{r12}" (&ctx),
+            : .{ .r13 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Csky, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
 
             else => return error.InvalidRegister,
         }
