@@ -7096,12 +7096,6 @@ pub const IPPROTO = struct {
     pub const MAX = 256;
 };
 
-pub const RR = struct {
-    pub const A = 1;
-    pub const CNAME = 5;
-    pub const AAAA = 28;
-};
-
 pub const tcp_repair_opt = extern struct {
     opt_code: u32,
     opt_val: u32,

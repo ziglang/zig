@@ -5062,6 +5062,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
     var http_client: if (dev.env.supports(.fetch_command)) std.http.Client else struct {
         allocator: Allocator,
+        io: Io,
         fn deinit(_: @This()) void {}
     } = .{ .allocator = gpa, .io = io };
     defer http_client.deinit();

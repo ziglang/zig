@@ -3130,9 +3130,9 @@ fn lookupDns(
     options: HostName.LookupOptions,
 ) HostName.LookupError!void {
     const t_io = t.io();
-    const family_records: [2]struct { af: IpAddress.Family, rr: u8 } = .{
-        .{ .af = .ip6, .rr = std.posix.RR.A },
-        .{ .af = .ip4, .rr = std.posix.RR.AAAA },
+    const family_records: [2]struct { af: IpAddress.Family, rr: HostName.DnsRecord } = .{
+        .{ .af = .ip6, .rr = .A },
+        .{ .af = .ip4, .rr = .AAAA },
     };
     var query_buffers: [2][280]u8 = undefined;
     var answer_buffer: [2 * 512]u8 = undefined;
@@ -3280,7 +3280,7 @@ fn lookupDns(
             // Here we could potentially add diagnostics to the results queue.
             continue;
         }) |record| switch (record.rr) {
-            std.posix.RR.A => {
+            .A => {
                 const data = record.packet[record.data_off..][0..record.data_len];
                 if (data.len != 4) return error.InvalidDnsARecord;
                 try resolved.putOne(t_io, .{ .address = .{ .ip4 = .{
@@ -3289,7 +3289,7 @@ fn lookupDns(
                 } } });
                 addresses_len += 1;
             },
-            std.posix.RR.AAAA => {
+            .AAAA => {
                 const data = record.packet[record.data_off..][0..record.data_len];
                 if (data.len != 16) return error.InvalidDnsAAAARecord;
                 try resolved.putOne(t_io, .{ .address = .{ .ip6 = .{
@@ -3298,11 +3298,11 @@ fn lookupDns(
                 } } });
                 addresses_len += 1;
             },
-            std.posix.RR.CNAME => {
+            .CNAME => {
                 _, canonical_name = HostName.expand(record.packet, record.data_off, options.canonical_name_buffer) catch
                     return error.InvalidDnsCnameRecord;
             },
-            else => continue,
+            _ => continue,
         };
     }
 
@@ -3413,7 +3413,7 @@ fn lookupHostsReader(
 }
 
 /// Writes DNS resolution query packet data to `w`; at most 280 bytes.
-fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u8, entropy: [2]u8) usize {
+fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: HostName.DnsRecord, entropy: [2]u8) usize {
     // This implementation is ported from musl libc.
     // A more idiomatic "ziggy" implementation would be welcome.
     var name = dname;
@@ -3437,7 +3437,7 @@ fn writeResolutionQuery(q: *[280]u8, op: u4, dname: []const u8, class: u8, ty: u
         if (j - i - 1 > 62) unreachable;
         q[i - 1] = @intCast(j - i);
     }
-    q[i + 1] = ty;
+    q[i + 1] = @intFromEnum(ty);
     q[i + 3] = class;
     return n;
 }
