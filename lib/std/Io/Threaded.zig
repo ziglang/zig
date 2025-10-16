@@ -541,7 +541,7 @@ fn groupAsync(
     context_alignment: std.mem.Alignment,
     start: *const fn (*Io.Group, context: *const anyopaque) void,
 ) void {
-    if (builtin.single_threaded) return start(context.ptr);
+    if (builtin.single_threaded) return start(group, context.ptr);
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const cpu_count = t.cpu_count catch 1;
     const gpa = t.allocator;
