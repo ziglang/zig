@@ -43,7 +43,10 @@ const arch_bits = switch (native_arch) {
     .loongarch64 => @import("linux/loongarch64.zig"),
     .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
-    .mips64, .mips64el => @import("linux/mips64.zig"),
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => @import("linux/mipsn32.zig"),
+        else => @import("linux/mips64.zig"),
+    },
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     .s390x => @import("linux/s390x.zig"),
