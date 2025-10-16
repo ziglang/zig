@@ -242,10 +242,9 @@ const Aarch64 = extern struct {
             \\ str x1, [x0, #0x0f8]
             \\ adr x1, .
             \\ str x1, [x0, #0x100]
-            \\ ldr x1, [x0, #0x008]
             :
             : [ctx] "{x0}" (&ctx),
-            : .{ .memory = true });
+            : .{ .x1 = true, .memory = true });
         return ctx;
     }
 
@@ -469,10 +468,9 @@ const Hexagon = extern struct {
             \\ memw(r0 + #124) = r31
             \\ r1 = pc
             \\ memw(r0 + #128) = r1
-            \\ r1 = memw(r0 + #4)
             :
             : [ctx] "{r0}" (&ctx),
-            : .{ .memory = true });
+            : .{ .r1 = true, .memory = true });
         return ctx;
     }
 
@@ -594,7 +592,6 @@ const LoongArch = extern struct {
                 \\ bl 1f
                 \\1:
                 \\ st.d $ra, $t0, 256
-                \\ ld.d $ra, $t0, 8
             else
                 \\ st.w $zero, $t0, 0
                 \\ st.w $ra, $t0, 4
@@ -631,10 +628,9 @@ const LoongArch = extern struct {
                 \\ bl 1f
                 \\1:
                 \\ st.w $ra, $t0, 128
-                \\ ld.w $ra, $t0, 4
             :
             : [ctx] "{$r12}" (&ctx),
-            : .{ .memory = true });
+            : .{ .r1 = true, .memory = true });
         return ctx;
     }
 
@@ -734,7 +730,6 @@ const Mips = extern struct {
                 \\ bal 1f
                 \\1:
                 \\ sd $ra, 256($t0)
-                \\ ld $ra, 248($t0)
                 \\ .set pop
             else
                 \\ .set push
@@ -776,11 +771,10 @@ const Mips = extern struct {
                 \\ bal 1f
                 \\1:
                 \\ sw $ra, 128($t4)
-                \\ lw $ra, 124($t4)
                 \\ .set pop
             :
             : [ctx] "{$12}" (&ctx),
-            : .{ .memory = true });
+            : .{ .r31 = true, .memory = true });
         return ctx;
     }
 
@@ -916,7 +910,6 @@ const Powerpc = extern struct {
                 \\1:
                 \\ mflr 8
                 \\ std 8, 256(10)
-                \\ ld 8, 64(10)
             else
                 \\ stw 0, 0(10)
                 \\ stw 1, 4(10)
@@ -956,10 +949,9 @@ const Powerpc = extern struct {
                 \\1:
                 \\ mflr 8
                 \\ stw 8, 128(10)
-                \\ lwz 8, 32(10)
             :
             : [ctx] "{r10}" (&ctx),
-            : .{ .lr = true, .memory = true });
+            : .{ .r8 = true, .lr = true, .memory = true });
         return ctx;
     }
 
@@ -1068,7 +1060,6 @@ const Riscv = extern struct {
                 \\ jal ra, 1f
                 \\1:
                 \\ sd ra, 256(t0)
-                \\ ld ra, 8(t0)
             else
                 \\ sw zero, 0(t0)
                 \\ sw ra, 4(t0)
@@ -1105,10 +1096,9 @@ const Riscv = extern struct {
                 \\ jal ra, 1f
                 \\1:
                 \\ sw ra, 128(t0)
-                \\ lw ra, 4(t0)
             :
             : [ctx] "{t0}" (&ctx),
-            : .{ .memory = true });
+            : .{ .x1 = true, .memory = true });
         return ctx;
     }
 
@@ -1146,11 +1136,9 @@ const S390x = extern struct {
             \\ stm %%r0, %%r1, 128(%%r2)
             \\ larl %%r0, .
             \\ stg %%r0, 136(%%r2)
-            \\ lg %%r0, 0(%%r2)
-            \\ lg %%r1, 8(%%r2)
             :
             : [ctx] "{r2}" (&ctx),
-            : .{ .memory = true });
+            : .{ .r0 = true, .r1 = true, .memory = true });
         return ctx;
     }
 
@@ -1458,10 +1446,9 @@ const X86_64 = struct {
             \\ movq %%r15, 0x78(%%rdi)
             \\ leaq (%%rip), %%rax
             \\ movq %%rax, 0x80(%%rdi)
-            \\ movq 0x00(%%rdi), %%rax
             :
             : [gprs] "{rdi}" (&ctx.gprs.values),
-            : .{ .memory = true });
+            : .{ .rax = true, .memory = true });
         return ctx;
     }
 
