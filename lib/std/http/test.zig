@@ -91,6 +91,93 @@ test "trailers" {
     try expect(client.connection_pool.free_len == 1);
 }
 
+test "HTTP client handles 204 No Content response correctly" {
+    const test_server = try createTestServer(struct {
+        fn run(test_server: *TestServer) anyerror!void {
+            const net_server = &test_server.net_server;
+            var recv_buffer: [1024]u8 = undefined;
+            var send_buffer: [1024]u8 = undefined;
+
+            const connection = try net_server.accept();
+            defer connection.stream.close();
+
+            var connection_br = connection.stream.reader(&recv_buffer);
+            var connection_bw = connection.stream.writer(&send_buffer);
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
+
+            // Test both DELETE and GET methods with 204 response on the same connection
+            var remaining: usize = 2;
+            while (remaining != 0) : (remaining -= 1) {
+                try expectEqual(.ready, server.reader.state);
+                var request = try server.receiveHead();
+
+                // Send 204 No Content response
+                try request.respond("", .{
+                    .status = .no_content,
+                    .keep_alive = true,
+                });
+
+                try expectEqual(.ready, server.reader.state);
+            }
+        }
+    });
+    defer test_server.destroy();
+
+    const gpa = std.testing.allocator;
+
+    var client: http.Client = .{ .allocator = gpa };
+    defer client.deinit();
+
+    const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/test204", .{
+        test_server.port(),
+    });
+    defer gpa.free(location);
+    const uri = try std.Uri.parse(location);
+
+    // Test with DELETE method (which normally could have a response body)
+    {
+        var req = try client.request(.DELETE, uri, .{});
+        defer req.deinit();
+
+        try req.sendBodiless();
+        var response = try req.receiveHead(&.{});
+
+        try expectEqual(.no_content, response.head.status);
+
+        // The reader should return .ending immediately without trying to read a body
+        var transfer_buffer: [1024]u8 = undefined;
+        const reader = response.reader(&transfer_buffer);
+
+        // Ensure no body is read
+        const body = try reader.allocRemaining(gpa, .unlimited);
+        defer gpa.free(body);
+        try expectEqualStrings("", body);
+    }
+
+    // Test with GET method as well
+    {
+        var req = try client.request(.GET, uri, .{});
+        defer req.deinit();
+
+        try req.sendBodiless();
+        var response = try req.receiveHead(&.{});
+
+        try expectEqual(.no_content, response.head.status);
+
+        // The reader should return .ending immediately without trying to read a body
+        var transfer_buffer: [1024]u8 = undefined;
+        const reader = response.reader(&transfer_buffer);
+
+        // Ensure no body is read
+        const body = try reader.allocRemaining(gpa, .unlimited);
+        defer gpa.free(body);
+        try expectEqualStrings("", body);
+    }
+
+    // The connection should have been kept alive and reused
+    try expect(client.connection_pool.free_len == 1);
+}
+
 test "HTTP server handles a chunked transfer coding request" {
     const test_server = try createTestServer(struct {
         fn run(test_server: *TestServer) anyerror!void {
