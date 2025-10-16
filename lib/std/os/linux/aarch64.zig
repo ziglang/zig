@@ -1,18 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
-const linux = std.os.linux;
-const SYS = linux.SYS;
-const socklen_t = linux.socklen_t;
-const sockaddr = linux.sockaddr;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const uid_t = linux.uid_t;
-const gid_t = linux.gid_t;
-const pid_t = linux.pid_t;
-const stack_t = linux.stack_t;
-const sigset_t = linux.sigset_t;
-const timespec = std.os.linux.timespec;
+const SYS = std.os.linux.SYS;
 
 pub fn syscall0(number: SYS) u64 {
     return asm volatile ("svc #0"
@@ -135,7 +123,7 @@ pub fn clone() callconv(.naked) u64 {
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.naked) noreturn {
-    switch (@import("builtin").zig_backend) {
+    switch (builtin.zig_backend) {
         .stage2_c => asm volatile (
             \\ mov x8, %[number]
             \\ svc #0
@@ -170,28 +158,28 @@ pub const Stat = extern struct {
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
-    uid: uid_t,
-    gid: gid_t,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
     rdev: dev_t,
     __pad: u64,
     size: off_t,
     blksize: blksize_t,
     __pad2: i32,
     blocks: blkcnt_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: std.os.linux.timespec,
+    mtim: std.os.linux.timespec,
+    ctim: std.os.linux.timespec,
     __unused: [2]u32,
 
-    pub fn atime(self: @This()) timespec {
+    pub fn atime(self: @This()) std.os.linux.timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: @This()) timespec {
+    pub fn mtime(self: @This()) std.os.linux.timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: @This()) timespec {
+    pub fn ctime(self: @This()) std.os.linux.timespec {
         return self.ctim;
     }
 };

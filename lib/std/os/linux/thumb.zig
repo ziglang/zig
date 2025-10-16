@@ -4,8 +4,7 @@
 //! Save and restore r7 around the syscall without touching the stack pointer not
 //! to break the frame chain.
 const std = @import("../../std.zig");
-const linux = std.os.linux;
-const SYS = linux.SYS;
+const SYS = std.os.linux.SYS;
 
 pub fn syscall0(number: SYS) u32 {
     var buf: [2]u32 = .{ @intFromEnum(number), undefined };

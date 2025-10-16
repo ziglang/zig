@@ -1,17 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const linux = std.os.linux;
-const SYS = linux.SYS;
-const uid_t = std.os.linux.uid_t;
-const gid_t = std.os.linux.gid_t;
-const pid_t = std.os.linux.pid_t;
-const sockaddr = linux.sockaddr;
-const socklen_t = linux.socklen_t;
-const timespec = std.os.linux.timespec;
-const stack_t = std.os.linux.stack_t;
-const sigset_t = std.os.linux.sigset_t;
+const SYS = std.os.linux.SYS;
 
 pub fn syscall0(number: SYS) u64 {
     return asm volatile ("svc 0"
@@ -172,26 +161,26 @@ pub const Stat = extern struct {
     ino: ino_t,
     nlink: nlink_t,
     mode: mode_t,
-    uid: uid_t,
-    gid: gid_t,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
     rdev: dev_t,
     size: off_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: std.os.linux.timespec,
+    mtim: std.os.linux.timespec,
+    ctim: std.os.linux.timespec,
     blksize: blksize_t,
     blocks: blkcnt_t,
     __unused: [3]c_ulong,
 
-    pub fn atime(self: @This()) timespec {
+    pub fn atime(self: @This()) std.os.linux.timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: @This()) timespec {
+    pub fn mtime(self: @This()) std.os.linux.timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: @This()) timespec {
+    pub fn ctime(self: @This()) std.os.linux.timespec {
         return self.ctim;
     }
 };

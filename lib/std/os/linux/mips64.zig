@@ -1,18 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
-const linux = std.os.linux;
-const SYS = linux.SYS;
-const socklen_t = linux.socklen_t;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const uid_t = linux.uid_t;
-const gid_t = linux.gid_t;
-const pid_t = linux.pid_t;
-const stack_t = linux.stack_t;
-const sigset_t = linux.sigset_t;
-const sockaddr = linux.sockaddr;
-const timespec = linux.timespec;
+const SYS = std.os.linux.SYS;
 
 pub fn syscall0(number: SYS) u64 {
     return asm volatile (
@@ -243,8 +231,8 @@ pub const Stat = extern struct {
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
-    uid: uid_t,
-    gid: gid_t,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
     rdev: dev_t,
     __pad1: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     size: off_t,
@@ -258,21 +246,21 @@ pub const Stat = extern struct {
     __pad3: u32,
     blocks: blkcnt_t,
 
-    pub fn atime(self: @This()) timespec {
+    pub fn atime(self: @This()) std.os.linux.timespec {
         return .{
             .sec = self.atim,
             .nsec = self.atim_nsec,
         };
     }
 
-    pub fn mtime(self: @This()) timespec {
+    pub fn mtime(self: @This()) std.os.linux.timespec {
         return .{
             .sec = self.mtim,
             .nsec = self.mtim_nsec,
         };
     }
 
-    pub fn ctime(self: @This()) timespec {
+    pub fn ctime(self: @This()) std.os.linux.timespec {
         return .{
             .sec = self.ctim,
             .nsec = self.ctim_nsec,

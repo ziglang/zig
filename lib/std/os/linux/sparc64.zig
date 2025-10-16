@@ -1,19 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
-const pid_t = linux.pid_t;
-const uid_t = linux.uid_t;
-const clock_t = linux.clock_t;
-const stack_t = linux.stack_t;
-const sigset_t = linux.sigset_t;
-
-const linux = std.os.linux;
-const SYS = linux.SYS;
-const sockaddr = linux.sockaddr;
-const socklen_t = linux.socklen_t;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const timespec = linux.timespec;
+const SYS = std.os.linux.SYS;
 
 pub fn syscall_pipe(fd: *[2]i32) u64 {
     return asm volatile (
@@ -252,34 +239,35 @@ pub const blkcnt_t = i64;
 
 // The `stat64` definition used by the kernel.
 pub const Stat = extern struct {
-    dev: u64,
-    ino: u64,
-    nlink: u64,
+    dev: dev_t,
+    ino: ino_t,
+    nlink: nlink_t,
+    _pad: i32,
 
-    mode: u32,
-    uid: u32,
-    gid: u32,
+    mode: mode_t,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
     __pad0: u32,
 
-    rdev: u64,
+    rdev: dev_t,
     size: i64,
-    blksize: i64,
-    blocks: i64,
+    blksize: blksize_t,
+    blocks: blkcnt_t,
 
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: std.os.linux.timespec,
+    mtim: std.os.linux.timespec,
+    ctim: std.os.linux.timespec,
     __unused: [3]u64,
 
-    pub fn atime(self: @This()) timespec {
+    pub fn atime(self: @This()) std.os.linux.timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: @This()) timespec {
+    pub fn mtime(self: @This()) std.os.linux.timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: @This()) timespec {
+    pub fn ctime(self: @This()) std.os.linux.timespec {
         return self.ctim;
     }
 };
