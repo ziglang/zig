@@ -228,6 +228,8 @@ pub fn extract(
 }
 
 test "vector patterns" {
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+
     const base = @Vector(4, u32){ 10, 20, 30, 40 };
     const other_base = @Vector(4, u32){ 55, 66, 77, 88 };
 
