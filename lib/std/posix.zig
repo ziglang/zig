@@ -1205,7 +1205,7 @@ pub const WriteError = error{
 
     /// The socket type requires that message be sent atomically, and the size of the message
     /// to be sent made this impossible. The message is not transmitted.
-    MessageTooBig,
+    MessageOversize,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -1287,7 +1287,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .CONNRESET => return error.ConnectionResetByPeer,
             .BUSY => return error.DeviceBusy,
             .NXIO => return error.NoDevice,
-            .MSGSIZE => return error.MessageTooBig,
+            .MSGSIZE => return error.MessageOversize,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3487,7 +3487,7 @@ pub const SocketError = error{
     AccessDenied,
 
     /// The implementation does not support the specified address family.
-    AddressFamilyNotSupported,
+    AddressFamilyUnsupported,
 
     /// Unknown protocol, or protocol family not available.
     ProtocolFamilyNotAvailable,
@@ -3553,7 +3553,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
             return fd;
         },
         .ACCES => return error.AccessDenied,
-        .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+        .AFNOSUPPORT => return error.AddressFamilyUnsupported,
         .INVAL => return error.ProtocolFamilyNotAvailable,
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
@@ -3593,7 +3593,7 @@ pub fn socketpair(domain: u32, socket_type: u32, protocol: u32) SocketError![2]s
             return socks;
         },
         .ACCES => return error.AccessDenied,
-        .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+        .AFNOSUPPORT => return error.AddressFamilyUnsupported,
         .INVAL => return error.ProtocolFamilyNotAvailable,
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
@@ -3676,7 +3676,7 @@ pub const BindError = error{
     AddressNotAvailable,
 
     /// The address is not valid for the address family of socket.
-    AddressFamilyNotSupported,
+    AddressFamilyUnsupported,
 
     /// Too many symbolic links were encountered in resolving addr.
     SymLinkLoop,
@@ -3733,7 +3733,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
             .BADF => unreachable, // always a race condition if this error is returned
             .INVAL => unreachable, // invalid parameters
             .NOTSOCK => unreachable, // invalid `sockfd`
-            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .ADDRNOTAVAIL => return error.AddressNotAvailable,
             .FAULT => unreachable, // invalid `addr` pointer
             .LOOP => return error.SymLinkLoop,
@@ -4192,7 +4192,7 @@ pub const ConnectError = error{
     AddressNotAvailable,
 
     /// The passed address didn't have the correct address family in its sa_family field.
-    AddressFamilyNotSupported,
+    AddressFamilyUnsupported,
 
     /// Insufficient entries in the routing cache.
     SystemResources,
@@ -4247,7 +4247,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEWOULDBLOCK => return error.WouldBlock,
             .WSAEACCES => unreachable,
             .WSAENOBUFS => return error.SystemResources,
-            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
             else => |err| return windows.unexpectedWSAError(err),
         }
         return;
@@ -4260,7 +4260,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .PERM => return error.PermissionDenied,
             .ADDRINUSE => return error.AddressInUse,
             .ADDRNOTAVAIL => return error.AddressNotAvailable,
-            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN, .INPROGRESS => return error.WouldBlock,
             .ALREADY => return error.ConnectionPending,
             .BADF => unreachable, // sockfd is not a valid open file descriptor.
@@ -4322,7 +4322,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             .PERM => return error.PermissionDenied,
             .ADDRINUSE => return error.AddressInUse,
             .ADDRNOTAVAIL => return error.AddressNotAvailable,
-            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN => return error.SystemResources,
             .ALREADY => return error.ConnectionPending,
             .BADF => unreachable, // sockfd is not a valid open file descriptor.
@@ -6039,7 +6039,7 @@ pub const SendError = error{
 
     /// The  socket  type requires that message be sent atomically, and the size of the message
     /// to be sent made this impossible. The message is not transmitted.
-    MessageTooBig,
+    MessageOversize,
 
     /// The output queue for a network interface was full.  This generally indicates  that  the
     /// interface  has  stopped sending, but may be caused by transient congestion.  (Normally,
@@ -6066,7 +6066,7 @@ pub const SendError = error{
 
 pub const SendMsgError = SendError || error{
     /// The passed address didn't have the correct address family in its sa_family field.
-    AddressFamilyNotSupported,
+    AddressFamilyUnsupported,
 
     /// Returned when socket is AF.UNIX and the given path has a symlink loop.
     SymLinkLoop,
@@ -6098,10 +6098,10 @@ pub fn sendmsg(
                     .WSAEACCES => return error.AccessDenied,
                     .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAEMSGSIZE => return error.MessageOversize,
                     .WSAENOBUFS => return error.SystemResources,
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
                     .WSAEDESTADDRREQ => unreachable, // A destination address is required.
                     .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
@@ -6133,13 +6133,13 @@ pub fn sendmsg(
                 .INTR => continue,
                 .INVAL => unreachable, // Invalid argument passed.
                 .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-                .MSGSIZE => return error.MessageTooBig,
+                .MSGSIZE => return error.MessageOversize,
                 .NOBUFS => return error.SystemResources,
                 .NOMEM => return error.SystemResources,
                 .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
                 .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
                 .PIPE => return error.BrokenPipe,
-                .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .AFNOSUPPORT => return error.AddressFamilyUnsupported,
                 .LOOP => return error.SymLinkLoop,
                 .NAMETOOLONG => return error.NameTooLong,
                 .NOENT => return error.FileNotFound,
@@ -6178,7 +6178,7 @@ pub const SendToError = SendMsgError || error{
 /// Otherwise, the address of the target is given by `dest_addr` with `addrlen` specifying  its  size.
 ///
 /// If the message is too long to pass atomically through the underlying protocol,
-/// `SendError.MessageTooBig` is returned, and the message is not transmitted.
+/// `SendError.MessageOversize` is returned, and the message is not transmitted.
 ///
 /// There is no  indication  of  failure  to  deliver.
 ///
@@ -6201,10 +6201,10 @@ pub fn sendto(
                 .WSAEACCES => return error.AccessDenied,
                 .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
                 .WSAECONNRESET => return error.ConnectionResetByPeer,
-                .WSAEMSGSIZE => return error.MessageTooBig,
+                .WSAEMSGSIZE => return error.MessageOversize,
                 .WSAENOBUFS => return error.SystemResources,
                 .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
                 .WSAEDESTADDRREQ => unreachable, // A destination address is required.
                 .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
                 .WSAEHOSTUNREACH => return error.NetworkUnreachable,
@@ -6238,13 +6238,13 @@ pub fn sendto(
             .INTR => continue,
             .INVAL => return error.UnreachableAddress,
             .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-            .MSGSIZE => return error.MessageTooBig,
+            .MSGSIZE => return error.MessageOversize,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
             .PIPE => return error.BrokenPipe,
-            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .LOOP => return error.SymLinkLoop,
             .NAMETOOLONG => return error.NameTooLong,
             .NOENT => return error.FileNotFound,
@@ -6284,7 +6284,7 @@ pub fn send(
     flags: u32,
 ) SendError!usize {
     return sendto(sockfd, buf, flags, null, 0) catch |err| switch (err) {
-        error.AddressFamilyNotSupported => unreachable,
+        error.AddressFamilyUnsupported => unreachable,
         error.SymLinkLoop => unreachable,
         error.NameTooLong => unreachable,
         error.FileNotFound => unreachable,
@@ -6471,7 +6471,7 @@ pub const RecvFromError = error{
     SocketNotBound,
 
     /// The UDP message was too big for the buffer and part of it has been discarded
-    MessageTooBig,
+    MessageOversize,
 
     /// The network subsystem has failed.
     NetworkDown,
@@ -6504,7 +6504,7 @@ pub fn recvfrom(
                     .WSANOTINITIALISED => unreachable,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEINVAL => return error.SocketNotBound,
-                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAEMSGSIZE => return error.MessageOversize,
                     .WSAENETDOWN => return error.NetworkDown,
                     .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
@@ -6575,7 +6575,7 @@ pub fn recvmsg(
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-            .MSGSIZE => return error.MessageTooBig,
+            .MSGSIZE => return error.MessageOversize,
             .PIPE => return error.BrokenPipe,
             .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
             .CONNRESET => return error.ConnectionResetByPeer,
