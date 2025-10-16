@@ -15,7 +15,7 @@ const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const timespec = linux.timespec;
 
-pub fn syscall_pipe(fd: *[2]i32) usize {
+pub fn syscall_pipe(fd: *[2]i32) u64 {
     return asm volatile (
         \\ mov %[arg], %%g3
         \\ t 0x6d
@@ -29,13 +29,13 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\ st %%o1, [%%g3+4]
         \\ clr %%o0
         \\2:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(SYS.pipe)),
           [arg] "r" (fd),
         : .{ .memory = true, .g3 = true });
 }
 
-pub fn syscall_fork() usize {
+pub fn syscall_fork() u64 {
     // Linux/sparc64 fork() returns two values in %o0 and %o1:
     // - On the parent's side, %o0 is the child's PID and %o1 is 0.
     // - On the child's side, %o0 is the parent's PID and %o1 is 1.
@@ -52,58 +52,58 @@ pub fn syscall_fork() usize {
         \\ dec %%o1
         \\ and %%o1, %%o0, %%o0
         \\ 2:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(SYS.fork)),
         : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u64 {
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(number)),
         : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u64) u64 {
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
         : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
         : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
@@ -111,14 +111,14 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
@@ -127,14 +127,14 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
@@ -146,20 +146,20 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+) u64 {
     return asm volatile (
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
-        : [ret] "={o0}" (-> usize),
+        : [ret] "={o0}" (-> u64),
         : [number] "{g1}" (@intFromEnum(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
@@ -170,7 +170,7 @@ pub fn syscall6(
         : .{ .memory = true, .icc = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u64 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         i0,   i1,    i2,    i3,  i4,   i5,  sp
     //
@@ -274,12 +274,12 @@ pub const Flock = extern struct {
 
 pub const off_t = i64;
 pub const ino_t = u64;
-pub const time_t = isize;
+pub const time_t = i64;
 pub const mode_t = u32;
-pub const dev_t = usize;
+pub const dev_t = u64;
 pub const nlink_t = u32;
-pub const blksize_t = isize;
-pub const blkcnt_t = isize;
+pub const blksize_t = i64;
+pub const blkcnt_t = i64;
 
 // The `stat64` definition used by the kernel.
 pub const Stat = extern struct {

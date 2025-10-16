@@ -13,33 +13,33 @@ const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const timespec = std.os.linux.timespec;
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u64 {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
+        : [ret] "={x10}" (-> u64),
         : [number] "{x17}" (@intFromEnum(number)),
         : .{ .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u64) u64 {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
+        : [ret] "={x10}" (-> u64),
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
         : .{ .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
+        : [ret] "={x10}" (-> u64),
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
         : .{ .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
+        : [ret] "={x10}" (-> u64),
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
@@ -47,9 +47,9 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
+        : [ret] "={x10}" (-> u64),
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
@@ -58,9 +58,9 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
+        : [ret] "={x10}" (-> u64),
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
@@ -72,15 +72,15 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+) u64 {
     return asm volatile ("ecall"
-        : [ret] "={x10}" (-> usize),
+        : [ret] "={x10}" (-> u64),
         : [number] "{x17}" (@intFromEnum(number)),
           [arg1] "{x10}" (arg1),
           [arg2] "{x11}" (arg2),
@@ -91,7 +91,7 @@ pub fn syscall6(
         : .{ .memory = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u64 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         a0,   a1,    a2,    a3,  a4,   a5,  a6
     //
@@ -186,7 +186,7 @@ pub const Stat = extern struct {
     uid: uid_t,
     gid: gid_t,
     rdev: dev_t,
-    __pad: usize,
+    __pad: u64,
     size: off_t,
     blksize: blksize_t,
     __pad2: i32,

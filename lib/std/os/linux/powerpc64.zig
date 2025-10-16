@@ -14,48 +14,48 @@ const sigset_t = linux.sigset_t;
 const sockaddr = linux.sockaddr;
 const timespec = linux.timespec;
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u64 {
     // r0 is both an input register and a clobber. musl and glibc achieve this with
     // a "+" constraint, which isn't supported in Zig, so instead we separately list
     // r0 as both an input and an output. (Listing it as an input and a clobber would
     // cause the C backend to emit invalid code; see #25209.)
-    var r0_out: usize = undefined;
+    var r0_out: u64 = undefined;
     return asm volatile (
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
         \\ 1:
-        : [ret] "={r3}" (-> usize),
+        : [ret] "={r3}" (-> u64),
           [r0_out] "={r0}" (r0_out),
         : [number] "{r0}" (@intFromEnum(number)),
         : .{ .memory = true, .cr0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u64) u64 {
     // r0 is both an input and a clobber.
-    var r0_out: usize = undefined;
+    var r0_out: u64 = undefined;
     return asm volatile (
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
         \\ 1:
-        : [ret] "={r3}" (-> usize),
+        : [ret] "={r3}" (-> u64),
           [r0_out] "={r0}" (r0_out),
         : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
         : .{ .memory = true, .cr0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
     // These registers are both inputs and clobbers.
-    var r0_out: usize = undefined;
-    var r4_out: usize = undefined;
+    var r0_out: u64 = undefined;
+    var r4_out: u64 = undefined;
     return asm volatile (
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
         \\ 1:
-        : [ret] "={r3}" (-> usize),
+        : [ret] "={r3}" (-> u64),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
         : [number] "{r0}" (@intFromEnum(number)),
@@ -64,17 +64,17 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : .{ .memory = true, .cr0 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
     // These registers are both inputs and clobbers.
-    var r0_out: usize = undefined;
-    var r4_out: usize = undefined;
-    var r5_out: usize = undefined;
+    var r0_out: u64 = undefined;
+    var r4_out: u64 = undefined;
+    var r5_out: u64 = undefined;
     return asm volatile (
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
         \\ 1:
-        : [ret] "={r3}" (-> usize),
+        : [ret] "={r3}" (-> u64),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
           [r5_out] "={r5}" (r5_out),
@@ -85,18 +85,18 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .memory = true, .cr0 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
     // These registers are both inputs and clobbers.
-    var r0_out: usize = undefined;
-    var r4_out: usize = undefined;
-    var r5_out: usize = undefined;
-    var r6_out: usize = undefined;
+    var r0_out: u64 = undefined;
+    var r4_out: u64 = undefined;
+    var r5_out: u64 = undefined;
+    var r6_out: u64 = undefined;
     return asm volatile (
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
         \\ 1:
-        : [ret] "={r3}" (-> usize),
+        : [ret] "={r3}" (-> u64),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
           [r5_out] "={r5}" (r5_out),
@@ -109,19 +109,19 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .memory = true, .cr0 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
     // These registers are both inputs and clobbers.
-    var r0_out: usize = undefined;
-    var r4_out: usize = undefined;
-    var r5_out: usize = undefined;
-    var r6_out: usize = undefined;
-    var r7_out: usize = undefined;
+    var r0_out: u64 = undefined;
+    var r4_out: u64 = undefined;
+    var r5_out: u64 = undefined;
+    var r6_out: u64 = undefined;
+    var r7_out: u64 = undefined;
     return asm volatile (
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
         \\ 1:
-        : [ret] "={r3}" (-> usize),
+        : [ret] "={r3}" (-> u64),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
           [r5_out] "={r5}" (r5_out),
@@ -138,26 +138,26 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+) u64 {
     // These registers are both inputs and clobbers.
-    var r0_out: usize = undefined;
-    var r4_out: usize = undefined;
-    var r5_out: usize = undefined;
-    var r6_out: usize = undefined;
-    var r7_out: usize = undefined;
-    var r8_out: usize = undefined;
+    var r0_out: u64 = undefined;
+    var r4_out: u64 = undefined;
+    var r5_out: u64 = undefined;
+    var r6_out: u64 = undefined;
+    var r7_out: u64 = undefined;
+    var r8_out: u64 = undefined;
     return asm volatile (
         \\ sc
         \\ bns+ 1f
         \\ neg 3, 3
         \\ 1:
-        : [ret] "={r3}" (-> usize),
+        : [ret] "={r3}" (-> u64),
           [r0_out] "={r0}" (r0_out),
           [r4_out] "={r4}" (r4_out),
           [r5_out] "={r5}" (r5_out),
@@ -174,7 +174,7 @@ pub fn syscall6(
         : .{ .memory = true, .cr0 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u64 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         3,    4,     5,     6,   7,    8,   9
     //

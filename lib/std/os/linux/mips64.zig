@@ -14,19 +14,19 @@ const sigset_t = linux.sigset_t;
 const sockaddr = linux.sockaddr;
 const timespec = linux.timespec;
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
         \\ blez $2, 1f
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
         : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn syscall_pipe(fd: *[2]i32) usize {
+pub fn syscall_pipe(fd: *[2]i32) u64 {
     return asm volatile (
         \\ .set noat
         \\ .set noreorder
@@ -39,13 +39,13 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\ sw $2, 0($4)
         \\ sw $3, 4($4)
         \\ 2:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(SYS.pipe)),
           [fd] "{$4}" (fd),
         : .{ .r1 = true, .r3 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u64) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
@@ -53,34 +53,34 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         \\ nop
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
         : .{ .r1 = true, .r3 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
         \\ blez $2, 1f
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
         : .{ .r1 = true, .r3 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
         \\ blez $2, 1f
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
@@ -88,14 +88,14 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .r1 = true, .r3 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
         \\ blez $2, 1f
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
@@ -104,14 +104,14 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
         \\ blez $2, 1f
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
@@ -123,20 +123,20 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
         \\ blez $2, 1f
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
@@ -149,21 +149,21 @@ pub fn syscall6(
 
 pub fn syscall7(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-    arg7: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+    arg7: u64,
+) u64 {
     return asm volatile (
         \\ syscall
         \\ beq $7, $zero, 1f
         \\ blez $2, 1f
         \\ dsubu $2, $0, $2
         \\ 1:
-        : [ret] "={$2}" (-> usize),
+        : [ret] "={$2}" (-> u64),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
@@ -175,7 +175,7 @@ pub fn syscall7(
         : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u64 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         3,    4,     5,     6,   7,    8,   9
     //

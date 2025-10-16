@@ -16,33 +16,33 @@ const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const timespec = linux.timespec;
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -50,9 +50,9 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -61,9 +61,9 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -75,15 +75,15 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -94,7 +94,7 @@ pub fn syscall6(
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u64 {
     asm volatile (
         \\      movl $56,%%eax // SYS_clone
         \\      movq %%rdi,%%r11
@@ -146,11 +146,11 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const mode_t = usize;
-pub const time_t = isize;
-pub const nlink_t = usize;
-pub const blksize_t = isize;
-pub const blkcnt_t = isize;
+pub const mode_t = u64;
+pub const time_t = i64;
+pub const nlink_t = u64;
+pub const blksize_t = i64;
+pub const blkcnt_t = i64;
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -206,7 +206,7 @@ pub const dev_t = u64;
 pub const Stat = extern struct {
     dev: dev_t,
     ino: ino_t,
-    nlink: usize,
+    nlink: u64,
 
     mode: u32,
     uid: uid_t,
@@ -214,13 +214,13 @@ pub const Stat = extern struct {
     __pad0: u32,
     rdev: dev_t,
     size: off_t,
-    blksize: isize,
+    blksize: i64,
     blocks: i64,
 
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-    __unused: [3]isize,
+    __unused: [3]i64,
 
     pub fn atime(self: @This()) timespec {
         return self.atim;

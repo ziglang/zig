@@ -11,33 +11,33 @@ const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const timespec = std.os.linux.timespec;
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u32 {
     return asm volatile ("trap #0"
-        : [ret] "={d0}" (-> usize),
+        : [ret] "={d0}" (-> u32),
         : [number] "{d0}" (@intFromEnum(number)),
         : .{ .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u32) u32 {
     return asm volatile ("trap #0"
-        : [ret] "={d0}" (-> usize),
+        : [ret] "={d0}" (-> u32),
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
         : .{ .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
     return asm volatile ("trap #0"
-        : [ret] "={d0}" (-> usize),
+        : [ret] "={d0}" (-> u32),
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
           [arg2] "{d2}" (arg2),
         : .{ .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
     return asm volatile ("trap #0"
-        : [ret] "={d0}" (-> usize),
+        : [ret] "={d0}" (-> u32),
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
           [arg2] "{d2}" (arg2),
@@ -45,9 +45,9 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
     return asm volatile ("trap #0"
-        : [ret] "={d0}" (-> usize),
+        : [ret] "={d0}" (-> u32),
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
           [arg2] "{d2}" (arg2),
@@ -56,9 +56,9 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u32) u32 {
     return asm volatile ("trap #0"
-        : [ret] "={d0}" (-> usize),
+        : [ret] "={d0}" (-> u32),
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
           [arg2] "{d2}" (arg2),
@@ -70,15 +70,15 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u32,
+    arg2: u32,
+    arg3: u32,
+    arg4: u32,
+    arg5: u32,
+    arg6: u32,
+) u32 {
     return asm volatile ("trap #0"
-        : [ret] "={d0}" (-> usize),
+        : [ret] "={d0}" (-> u32),
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
           [arg2] "{d2}" (arg2),
@@ -89,7 +89,7 @@ pub fn syscall6(
         : .{ .memory = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u32 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         +4,   +8,    +12,   +16, +20,  +24, +28
     //
