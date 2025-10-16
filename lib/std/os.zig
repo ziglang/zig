@@ -201,10 +201,19 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
     }
 }
 
+pub const FstatatError = error{
+    SystemResources,
+    AccessDenied,
+    NameTooLong,
+    FileNotFound,
+    InvalidUtf8,
+    Unexpected,
+};
+
 /// WASI-only. Same as `fstatat` but targeting WASI.
 /// `pathname` should be encoded as valid UTF-8.
 /// See also `fstatat`.
-pub fn fstatat_wasi(dirfd: posix.fd_t, pathname: []const u8, flags: wasi.lookupflags_t) posix.FStatAtError!wasi.filestat_t {
+pub fn fstatat_wasi(dirfd: posix.fd_t, pathname: []const u8, flags: wasi.lookupflags_t) FstatatError!wasi.filestat_t {
     var stat: wasi.filestat_t = undefined;
     switch (wasi.path_filestat_get(dirfd, flags, pathname.ptr, pathname.len, &stat)) {
         .SUCCESS => return stat,

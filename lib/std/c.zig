@@ -6855,7 +6855,7 @@ pub const IFNAMESIZE = switch (native_os) {
     // https://github.com/SerenityOS/serenity/blob/9882848e0bf783dfc8e8a6d887a848d70d9c58f4/Kernel/API/POSIX/net/if.h#L50
     .openbsd, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => 16,
     .illumos => 32,
-    else => void,
+    else => {},
 };
 
 pub const stack_t = switch (native_os) {
