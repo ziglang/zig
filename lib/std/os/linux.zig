@@ -32,14 +32,9 @@ test {
 }
 
 const arch_bits = switch (native_arch) {
-    .x86 => @import("linux/x86.zig"),
-    .x86_64 => @import("linux/x86_64.zig"),
     .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
     .hexagon => @import("linux/hexagon.zig"),
-    .riscv32 => @import("linux/riscv32.zig"),
-    .riscv64 => @import("linux/riscv64.zig"),
-    .sparc64 => @import("linux/sparc64.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
     .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
@@ -49,7 +44,15 @@ const arch_bits = switch (native_arch) {
     },
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
+    .riscv32 => @import("linux/riscv32.zig"),
+    .riscv64 => @import("linux/riscv64.zig"),
     .s390x => @import("linux/s390x.zig"),
+    .sparc64 => @import("linux/sparc64.zig"),
+    .x86 => @import("linux/x86.zig"),
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => @import("linux/x32.zig"),
+        else => @import("linux/x86_64.zig"),
+    },
     else => struct {},
 };
 
@@ -113,8 +116,8 @@ pub const SECCOMP = @import("linux/seccomp.zig");
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (native_arch) {
     .arc => syscalls.Arc,
-    .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .aarch64, .aarch64_be => syscalls.Arm64,
+    .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
     .loongarch64 => syscalls.LoongArch64,
@@ -124,20 +127,20 @@ pub const SYS = switch (native_arch) {
         .gnuabin32, .muslabin32 => syscalls.MipsN32,
         else => syscalls.MipsN64,
     },
+    .or1k => syscalls.OpenRisc,
+    .powerpc, .powerpcle => syscalls.PowerPC,
+    .powerpc64, .powerpc64le => syscalls.PowerPC64,
     .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
     .s390x => syscalls.S390x,
     .sparc => syscalls.Sparc,
     .sparc64 => syscalls.Sparc64,
-    .powerpc, .powerpcle => syscalls.PowerPC,
-    .powerpc64, .powerpc64le => syscalls.PowerPC64,
     .x86 => syscalls.X86,
     .x86_64 => switch (builtin.abi) {
         .gnux32, .muslx32 => syscalls.X32,
         else => syscalls.X64,
     },
     .xtensa => syscalls.Xtensa,
-    .or1k => syscalls.OpenRisc,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
