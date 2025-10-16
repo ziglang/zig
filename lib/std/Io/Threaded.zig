@@ -3448,6 +3448,16 @@ fn copyCanon(canonical_name_buffer: *[HostName.max_len]u8, name: []const u8) Hos
     return .{ .bytes = dest };
 }
 
+/// Darwin XNU 7195.50.7.100.1 introduced __ulock_wait2 and migrated code paths (notably pthread_cond_t) towards it:
+/// https://github.com/apple/darwin-xnu/commit/d4061fb0260b3ed486147341b72468f836ed6c8f#diff-08f993cc40af475663274687b7c326cc6c3031e0db3ac8de7b24624610616be6
+///
+/// This XNU version appears to correspond to 11.0.1:
+/// https://kernelshaman.blogspot.com/2021/01/building-xnu-for-macos-big-sur-1101.html
+///
+/// ulock_wait() uses 32-bit micro-second timeouts where 0 = INFINITE or no-timeout
+/// ulock_wait2() uses 64-bit nano-second timeouts (with the same convention)
+const darwin_supports_ulock_wait2 = builtin.os.version_range.semver.min.major >= 11;
+
 fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Cancelable!void {
     @branchHint(.cold);
 
@@ -3462,6 +3472,33 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
             .INVAL => {}, // possibly timeout overflow
             .TIMEDOUT => unreachable,
             .FAULT => unreachable, // ptr was invalid
+            else => unreachable,
+        };
+        return;
+    }
+
+    if (native_os.isDarwin()) {
+        const c = std.c;
+        const flags: c.UL = .{
+            .op = .COMPARE_AND_WAIT,
+            .NO_ERRNO = true,
+        };
+        try t.checkCancel();
+        const status = if (darwin_supports_ulock_wait2)
+            c.__ulock_wait2(flags, ptr, expect, 0, 0)
+        else
+            c.__ulock_wait(flags, ptr, expect, 0);
+
+        if (status >= 0) return;
+
+        if (builtin.mode == .Debug) switch (@as(c.E, @enumFromInt(-status))) {
+            // Wait was interrupted by the OS or other spurious signalling.
+            .INTR => {},
+            // Address of the futex was paged out. This is unlikely, but possible in theory, and
+            // pthread/libdispatch on darwin bother to handle it. In this case we'll return
+            // without waiting, but the caller should retry anyway.
+            .FAULT => {},
+            .TIMEDOUT => unreachable,
             else => unreachable,
         };
         return;
@@ -3483,6 +3520,32 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
             .INVAL => {}, // possibly timeout overflow
             .TIMEDOUT => unreachable,
             .FAULT => unreachable, // ptr was invalid
+            else => unreachable,
+        };
+        return;
+    }
+
+    if (native_os.isDarwin()) {
+        const c = std.c;
+        const flags: c.UL = .{
+            .op = .COMPARE_AND_WAIT,
+            .NO_ERRNO = true,
+        };
+        const status = if (darwin_supports_ulock_wait2)
+            c.__ulock_wait2(flags, ptr, expect, 0, 0)
+        else
+            c.__ulock_wait(flags, ptr, expect, 0);
+
+        if (status >= 0) return;
+
+        if (builtin.mode == .Debug) switch (@as(c.E, @enumFromInt(-status))) {
+            // Wait was interrupted by the OS or other spurious signalling.
+            .INTR => {},
+            // Address of the futex was paged out. This is unlikely, but possible in theory, and
+            // pthread/libdispatch on darwin bother to handle it. In this case we'll return
+            // without waiting, but the caller should retry anyway.
+            .FAULT => {},
+            .TIMEDOUT => unreachable,
             else => unreachable,
         };
         return;
@@ -3530,6 +3593,27 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
             else => unreachable,
         };
         return;
+    }
+
+    if (native_os.isDarwin()) {
+        const c = std.c;
+        const flags: c.UL = .{
+            .op = .COMPARE_AND_WAIT,
+            .NO_ERRNO = true,
+            .WAKE_ALL = max_waiters > 1,
+        };
+        const is_debug = builtin.mode == .Debug;
+        while (true) {
+            const status = c.__ulock_wake(flags, ptr, 0);
+            if (status >= 0) return;
+            switch (@as(c.E, @enumFromInt(-status))) {
+                .INTR => continue, // spurious wake()
+                .FAULT => assert(!is_debug), // __ulock_wake doesn't generate EFAULT according to darwin pthread_cond_t
+                .NOENT => return, // nothing was woken up
+                .ALREADY => assert(!is_debug), // only for UL.Op.WAKE_THREAD
+                else => assert(!is_debug),
+            }
+        }
     }
 
     @compileError("TODO");
