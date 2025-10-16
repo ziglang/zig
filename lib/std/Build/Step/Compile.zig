@@ -55,6 +55,7 @@ global_base: ?u64 = null,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
+exact_filters: bool,
 filters: []const []const u8,
 test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -273,6 +274,7 @@ pub const Options = struct {
     linkage: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
+    exact_filters: bool = false,
     filters: []const []const u8 = &.{},
     test_runner: ?TestRunner = null,
     use_llvm: ?bool = null,
@@ -424,6 +426,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .installed_headers = std.array_list.Managed(HeaderInstallation).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
+        .exact_filters = options.exact_filters,
         .filters = options.filters,
         .test_runner = null, // set below
         .rdynamic = false,
@@ -1464,7 +1467,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     for (compile.filters) |filter| {
-        try zig_args.append("--test-filter");
+        const flag = if (compile.exact_filters) "--test-filter-exact" else "--test-filter";
+        try zig_args.append(flag);
         try zig_args.append(filter);
     }
 
