@@ -728,7 +728,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Wri
             }
             // `ret_addr` is the return address, which is *after* the function call.
             // Subtract 1 to get an address *in* the function call for a better source location.
-            try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
+            try printSourceAtAddress(di_gpa, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
             printed_any_frame = true;
         },
     };
@@ -777,7 +777,7 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
     for (st.instruction_addresses[0..captured_frames]) |ret_addr| {
         // `ret_addr` is the return address, which is *after* the function call.
         // Subtract 1 to get an address *in* the function call for a better source location.
-        try printSourceAtAddress(di_gpa, di, writer, ret_addr -| 1, tty_config);
+        try printSourceAtAddress(di_gpa, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
     }
     if (n_frames > captured_frames) {
         tty_config.setColor(writer, .bold) catch {};
@@ -807,14 +807,6 @@ const StackIterator = union(enum) {
     /// `@frameAddress` and `cpu_context.Native.current` as the caller's stack frame and
     /// our own are one and the same.
     inline fn init(opt_context_ptr: ?CpuContextPtr) error{CannotUnwindFromContext}!StackIterator {
-        if (builtin.cpu.arch.isSPARC()) {
-            // Flush all the register windows on stack.
-            if (builtin.cpu.has(.sparc, .v9)) {
-                asm volatile ("flushw" ::: .{ .memory = true });
-            } else {
-                asm volatile ("ta 3" ::: .{ .memory = true }); // ST_FLUSH_WINDOWS
-            }
-        }
         if (opt_context_ptr) |context_ptr| {
             if (SelfInfo == void or !SelfInfo.can_unwind) return error.CannotUnwindFromContext;
             // Use `di_first` here so we report the PC in the context before unwinding any further.
@@ -833,13 +825,34 @@ const StackIterator = union(enum) {
             // in our caller's frame and above.
             return .{ .di = .init(&.current()) };
         }
-        return .{ .fp = @frameAddress() };
+        return .{
+            // On SPARC, the frame pointer will point to the previous frame's save area,
+            // meaning we will read the previous return address and thus miss a frame.
+            // Instead, start at the stack pointer so we get the return address from the
+            // current frame's save area. The addition of the stack bias cannot fail here
+            // since we know we have a valid stack pointer.
+            .fp = if (native_arch.isSPARC()) sp: {
+                flushSparcWindows();
+                break :sp asm (""
+                    : [_] "={o6}" (-> usize),
+                ) + stack_bias;
+            } else @frameAddress(),
+        };
     }
     fn deinit(si: *StackIterator) void {
         switch (si.*) {
             .fp => {},
             .di, .di_first => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
         }
+    }
+
+    noinline fn flushSparcWindows() void {
+        // Flush all register windows except the current one (hence `noinline`). This ensures that
+        // we actually see meaningful data on the stack when we walk the frame chain.
+        if (comptime builtin.target.cpu.has(.sparc, .v9))
+            asm volatile ("flushw" ::: .{ .memory = true })
+        else
+            asm volatile ("ta 3" ::: .{ .memory = true }); // ST_FLUSH_WINDOWS
     }
 
     const FpUsability = enum {
@@ -873,6 +886,8 @@ const StackIterator = union(enum) {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
+        .sparc,
+        .sparc64,
         => .ideal,
         // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms#Respect-the-purpose-of-specific-CPU-registers
         .aarch64 => if (builtin.target.os.tag.isDarwin()) .safe else .unsafe,
@@ -923,7 +938,8 @@ const StackIterator = union(enum) {
                 const di_gpa = getDebugInfoAllocator();
                 const ret_addr = di.unwindFrame(di_gpa, unwind_context) catch |err| {
                     const pc = unwind_context.pc;
-                    it.* = .{ .fp = unwind_context.getFp() };
+                    const fp = unwind_context.getFp();
+                    it.* = .{ .fp = fp };
                     return .{ .switch_to_fp = .{
                         .address = pc,
                         .err = err,
@@ -935,8 +951,8 @@ const StackIterator = union(enum) {
             .fp => |fp| {
                 if (fp == 0) return .end; // we reached the "sentinel" base pointer
 
-                const bp_addr = applyOffset(fp, bp_offset) orelse return .end;
-                const ra_addr = applyOffset(fp, ra_offset) orelse return .end;
+                const bp_addr = applyOffset(fp, fp_to_bp_offset) orelse return .end;
+                const ra_addr = applyOffset(fp, fp_to_ra_offset) orelse return .end;
 
                 if (bp_addr == 0 or !mem.isAligned(bp_addr, @alignOf(usize)) or
                     ra_addr == 0 or !mem.isAligned(ra_addr, @alignOf(usize)))
@@ -947,7 +963,7 @@ const StackIterator = union(enum) {
 
                 const bp_ptr: *const usize = @ptrFromInt(bp_addr);
                 const ra_ptr: *const usize = @ptrFromInt(ra_addr);
-                const bp = applyOffset(bp_ptr.*, bp_bias) orelse return .end;
+                const bp = applyOffset(bp_ptr.*, stack_bias) orelse return .end;
 
                 // The stack grows downards, so `bp > fp` should always hold. If it doesn't, this
                 // frame is invalid, so we'll treat it as though it we reached end of stack. The
@@ -964,31 +980,44 @@ const StackIterator = union(enum) {
     }
 
     /// Offset of the saved base pointer (previous frame pointer) wrt the frame pointer.
-    const bp_offset = off: {
-        // On RISC-V the frame pointer points to the top of the saved register
-        // area, on pretty much every other architecture it points to the stack
-        // slot where the previous frame pointer is saved.
+    const fp_to_bp_offset = off: {
+        // On LoongArch and RISC-V, the frame pointer points to the top of the saved register area,
+        // in which the base pointer is the first word.
         if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
-        // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
+        // On SPARC, the frame pointer points to the save area which holds 16 slots for the local
+        // and incoming registers. The base pointer (i6) is stored in its customary save slot.
         if (native_arch.isSPARC()) break :off 14 * @sizeOf(usize);
+        // Everywhere else, the frame pointer points directly to the location of the base pointer.
         break :off 0;
     };
 
     /// Offset of the saved return address wrt the frame pointer.
-    const ra_offset = off: {
-        if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -1 * @sizeOf(usize);
-        if (native_arch.isSPARC()) break :off 15 * @sizeOf(usize);
+    const fp_to_ra_offset = off: {
+        // On LoongArch and RISC-V, the frame pointer points to the top of the saved register area,
+        // in which the return address is the second word.
+        if (native_arch.isRISCV() or native_arch.isLoongArch()) break :off -1 * @sizeOf(usize);
         if (native_arch.isPowerPC64()) break :off 2 * @sizeOf(usize);
         // On s390x, r14 is the link register and we need to grab it from its customary slot in the
         // register save area (ELF ABI s390x Supplement §1.2.2.2).
         if (native_arch == .s390x) break :off 14 * @sizeOf(usize);
+        // On SPARC, the frame pointer points to the save area which holds 16 slots for the local
+        // and incoming registers. The return address (i7) is stored in its customary save slot.
+        if (native_arch.isSPARC()) break :off 15 * @sizeOf(usize);
         break :off @sizeOf(usize);
     };
 
-    /// Value to add to a base pointer after loading it from the stack. Yes, SPARC really does this.
-    const bp_bias = bias: {
-        if (native_arch.isSPARC()) break :bias 2047;
+    /// Value to add to the stack pointer and frame/base pointers to get the real location being
+    /// pointed to. Yes, SPARC really does this.
+    const stack_bias = bias: {
+        if (native_arch == .sparc64) break :bias 2047;
         break :bias 0;
+    };
+
+    /// On some oddball architectures, a return address points to the call instruction rather than
+    /// the instruction following it.
+    const ra_call_offset = off: {
+        if (native_arch.isSPARC()) break :off 0;
+        break :off 1;
     };
 
     fn applyOffset(addr: usize, comptime off: comptime_int) ?usize {
@@ -1429,6 +1458,22 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
         break :info .{ addr, name };
     };
     const opt_cpu_context: ?cpu_context.Native = cpu_context.fromPosixSignalContext(ctx_ptr);
+
+    if (native_arch.isSPARC()) {
+        // It's unclear to me whether this is a QEMU bug or also real kernel behavior, but in the
+        // former, I observed that the most recent register window wasn't getting spilled on the
+        // stack as expected when a signal arrived. A `flushw` from the signal handler does not
+        // appear to be sufficient either. On the other hand, when doing a synchronous stack trace
+        // and using `flushw`, this all appears to work as expected. So, *probably* a QEMU bug, but
+        // someone with real SPARC hardware should verify.
+        //
+        // In any case, the register save area exists specifically so that register windows can be
+        // spilled asynchronously. This means that it should be perfectly fine for us to manually do
+        // so here.
+        const ctx = opt_cpu_context.?;
+        @as(*[16]usize, @ptrFromInt(ctx.o[6] + StackIterator.stack_bias)).* = ctx.l ++ ctx.i;
+    }
+
     handleSegfault(addr, name, if (opt_cpu_context) |*ctx| ctx else null);
 }
 

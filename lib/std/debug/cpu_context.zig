@@ -10,6 +10,7 @@ else switch (native_arch) {
     .loongarch32, .loongarch64 => LoongArch,
     .mips, .mipsel, .mips64, .mips64el => Mips,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
+    .sparc, .sparc64 => Sparc,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .s390x => S390x,
     .x86 => X86,
@@ -38,6 +39,26 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
                 break :s regs;
             },
             .pc = @truncate(uc.mcontext.pc),
+        };
+    } else if (native_arch.isSPARC() and native_os == .linux) {
+        const SparcStackFrame = extern struct {
+            l: [8]usize,
+            i: [8]usize,
+            _x: [8]usize,
+        };
+
+        // When invoking a signal handler, the kernel builds an `rt_signal_frame` structure on the
+        // stack and passes a pointer to its `info` field to the signal handler. This implies that
+        // prior to said `info` field, we will find the `ss` field which, among other things,
+        // contains the incoming and local registers of the interrupted code.
+        const frame = @as(*const SparcStackFrame, @ptrFromInt(@as(usize, @intFromPtr(ctx_ptr)) - @sizeOf(SparcStackFrame)));
+
+        return .{
+            .g = uc.mcontext.g,
+            .o = uc.mcontext.o,
+            .l = frame.l,
+            .i = frame.i,
+            .pc = uc.mcontext.pc,
         };
     }
 
@@ -859,6 +880,104 @@ const Powerpc = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Sparc = extern struct {
+    g: [8]Gpr,
+    o: [8]Gpr,
+    l: [8]Gpr,
+    i: [8]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (native_arch == .sparc64) u64 else u32;
+
+    pub inline fn current() Sparc {
+        flushWindows();
+
+        var ctx: Sparc = undefined;
+        asm volatile (if (Gpr == u64)
+                \\ stx %g0, [%l0 + 0]
+                \\ stx %g1, [%l0 + 8]
+                \\ stx %g2, [%l0 + 16]
+                \\ stx %g3, [%l0 + 24]
+                \\ stx %g4, [%l0 + 32]
+                \\ stx %g5, [%l0 + 40]
+                \\ stx %g6, [%l0 + 48]
+                \\ stx %g7, [%l0 + 56]
+                \\ stx %o0, [%l0 + 64]
+                \\ stx %o1, [%l0 + 72]
+                \\ stx %o2, [%l0 + 80]
+                \\ stx %o3, [%l0 + 88]
+                \\ stx %o4, [%l0 + 96]
+                \\ stx %o5, [%l0 + 104]
+                \\ stx %o6, [%l0 + 112]
+                \\ stx %o7, [%l0 + 120]
+                \\ stx %l0, [%l0 + 128]
+                \\ stx %l1, [%l0 + 136]
+                \\ stx %l2, [%l0 + 144]
+                \\ stx %l3, [%l0 + 152]
+                \\ stx %l4, [%l0 + 160]
+                \\ stx %l5, [%l0 + 168]
+                \\ stx %l6, [%l0 + 176]
+                \\ stx %l7, [%l0 + 184]
+                \\ stx %i0, [%l0 + 192]
+                \\ stx %i1, [%l0 + 200]
+                \\ stx %i2, [%l0 + 208]
+                \\ stx %i3, [%l0 + 216]
+                \\ stx %i4, [%l0 + 224]
+                \\ stx %i5, [%l0 + 232]
+                \\ stx %i6, [%l0 + 240]
+                \\ stx %i7, [%l0 + 248]
+                \\ call 1f
+                \\  stx %o7, [%l0 + 256]
+                \\1:
+            else
+                \\ std %g0, [%l0 + 0]
+                \\ std %g2, [%l0 + 8]
+                \\ std %g4, [%l0 + 16]
+                \\ std %g6, [%l0 + 24]
+                \\ std %o0, [%l0 + 32]
+                \\ std %o2, [%l0 + 40]
+                \\ std %o4, [%l0 + 48]
+                \\ std %o6, [%l0 + 56]
+                \\ std %l0, [%l0 + 64]
+                \\ std %l2, [%l0 + 72]
+                \\ std %l4, [%l0 + 80]
+                \\ std %l6, [%l0 + 88]
+                \\ std %i0, [%l0 + 96]
+                \\ std %i2, [%l0 + 104]
+                \\ std %i4, [%l0 + 112]
+                \\ std %i6, [%l0 + 120]
+                \\ call 1f
+                \\  st %o7, [%l0 + 128]
+                \\1:
+            :
+            : [gprs] "{l0}" (&ctx),
+            : .{ .o7 = true, .memory = true });
+        return ctx;
+    }
+
+    noinline fn flushWindows() void {
+        // Flush all register windows except the current one (hence `noinline`). This ensures that
+        // we actually see meaningful data on the stack when we walk the frame chain.
+        if (comptime builtin.target.cpu.has(.sparc, .v9))
+            asm volatile ("flushw" ::: .{ .memory = true })
+        else
+            asm volatile ("ta 3" ::: .{ .memory = true }); // ST_FLUSH_WINDOWS
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Sparc, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...7 => return @ptrCast(&ctx.g[register_num]),
+            8...15 => return @ptrCast(&ctx.o[register_num - 8]),
+            16...23 => return @ptrCast(&ctx.l[register_num - 16]),
+            24...31 => return @ptrCast(&ctx.i[register_num - 24]),
+            32 => return @ptrCast(&ctx.pc),
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
 const Riscv = extern struct {
     /// The numbered general-purpose registers r0 - r31. r0 must be zero.
     x: [32]Gpr,
@@ -1271,9 +1390,32 @@ const signal_ucontext_t = switch (native_os) {
                 lr: u32,
             },
         },
-        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sparc/include/uapi/asm/uctx.h
-        .sparc => @compileError("sparc-linux ucontext_t missing"),
-        .sparc64 => @compileError("sparc64-linux ucontext_t missing"),
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sparc/kernel/signal_32.c#L48-L49
+        .sparc => extern struct {
+            // Not actually a `ucontext_t` at all because, uh, reasons?
+
+            _info: std.os.linux.siginfo_t,
+            mcontext: extern struct {
+                _psr: u32,
+                pc: u32,
+                _npc: u32,
+                _y: u32,
+                g: [8]u32,
+                o: [8]u32,
+            },
+        },
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sparc/kernel/signal_64.c#L247-L248
+        .sparc64 => extern struct {
+            // Ditto...
+
+            _info: std.os.linux.siginfo_t,
+            mcontext: extern struct {
+                g: [8]u64,
+                o: [8]u64,
+                _tstate: u64,
+                pc: u64,
+            },
+        },
         else => unreachable,
     },
     // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/sys/_ucontext.h
@@ -1398,14 +1540,14 @@ const signal_ucontext_t = switch (native_os) {
         },
     },
     // This needs to be audited by someone with access to the Solaris headers.
-    .solaris => extern struct {
-        _flags: u64,
-        _link: ?*signal_ucontext_t,
-        _sigmask: std.c.sigset_t,
-        _stack: std.c.stack_t,
-        mcontext: switch (native_arch) {
-            .sparc64 => @compileError("sparc64-solaris mcontext_t missing"),
-            .x86_64 => extern struct {
+    .solaris => switch (native_arch) {
+        .sparc64 => @compileError("sparc64-solaris ucontext_t missing"),
+        .x86_64 => extern struct {
+            _flags: u64,
+            _link: ?*signal_ucontext_t,
+            _sigmask: std.c.sigset_t,
+            _stack: std.c.stack_t,
+            mcontext: extern struct {
                 r15: u64,
                 r14: u64,
                 r13: u64,
@@ -1425,8 +1567,8 @@ const signal_ucontext_t = switch (native_os) {
                 _err: i64,
                 rip: u64,
             },
-            else => unreachable,
         },
+        else => unreachable,
     },
     // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/ucontext.h
     .illumos => extern struct {
@@ -1538,7 +1680,7 @@ const signal_ucontext_t = switch (native_os) {
             },
         },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sparc64/include/signal.h
-        .sparc64 => @compileError("sparc64-openbsd mcontext_t missing"),
+        .sparc64 => @compileError("sparc64-openbsd ucontext_t missing"),
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/i386/include/signal.h
         .x86 => extern struct {
             mcontext: extern struct {
