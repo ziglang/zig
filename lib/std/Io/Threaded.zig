@@ -2814,7 +2814,7 @@ fn netLookupFallible(
         while (true) {
             try t.checkCancel();
             switch (posix.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
-                @as(posix.system.EAI, @enumFromInt(0)) => {},
+                @as(posix.system.EAI, @enumFromInt(0)) => break,
                 .ADDRFAMILY => return error.AddressFamilyUnsupported,
                 .AGAIN => return error.NameServerFailure,
                 .FAIL => return error.NameServerFailure,
@@ -2832,10 +2832,11 @@ fn netLookupFallible(
         defer if (res) |some| posix.system.freeaddrinfo(some);
 
         var it = res;
-        var canon_name: ?[]const u8 = null;
+        var canon_name: ?[*:0]const u8 = null;
         while (it) |info| : (it = info.next) {
             const addr = info.addr orelse continue;
-            try resolved.putOne(addressFromPosix(addr));
+            const storage: PosixAddress = .{ .any = addr.* };
+            try resolved.putOne(t_io, .{ .address = addressFromPosix(&storage) });
 
             if (info.canonname) |n| {
                 if (canon_name == null) {
@@ -2844,7 +2845,9 @@ fn netLookupFallible(
             }
         }
         if (canon_name) |n| {
-            try resolved.putOne(.{ .canonical_name = copyCanon(options.canonical_name_buffer, n) });
+            try resolved.putOne(t_io, .{
+                .canonical_name = copyCanon(options.canonical_name_buffer, std.mem.sliceTo(n, 0)),
+            });
         }
         return;
     }
@@ -2870,7 +2873,7 @@ fn posixAddressFamily(a: *const IpAddress) posix.sa_family_t {
     };
 }
 
-fn addressFromPosix(posix_address: *PosixAddress) IpAddress {
+fn addressFromPosix(posix_address: *const PosixAddress) IpAddress {
     return switch (posix_address.any.family) {
         posix.AF.INET => .{ .ip4 = address4FromPosix(&posix_address.in) },
         posix.AF.INET6 => .{ .ip6 = address6FromPosix(&posix_address.in6) },
@@ -2898,14 +2901,14 @@ fn addressUnixToPosix(a: *const net.UnixAddress, storage: *UnixAddress) posix.so
     return @sizeOf(posix.sockaddr.un);
 }
 
-fn address4FromPosix(in: *posix.sockaddr.in) net.Ip4Address {
+fn address4FromPosix(in: *const posix.sockaddr.in) net.Ip4Address {
     return .{
         .port = std.mem.bigToNative(u16, in.port),
         .bytes = @bitCast(in.addr),
     };
 }
 
-fn address6FromPosix(in6: *posix.sockaddr.in6) net.Ip6Address {
+fn address6FromPosix(in6: *const posix.sockaddr.in6) net.Ip6Address {
     return .{
         .port = std.mem.bigToNative(u16, in6.port),
         .bytes = in6.addr,
