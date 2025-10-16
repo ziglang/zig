@@ -147,13 +147,20 @@ pub fn expand(noalias packet: []const u8, start_i: usize, noalias dest_buffer: [
     return error.InvalidDnsPacket;
 }
 
+pub const DnsRecord = enum(u8) {
+    A = 1,
+    CNAME = 5,
+    AAAA = 28,
+    _,
+};
+
 pub const DnsResponse = struct {
     bytes: []const u8,
     bytes_index: u32,
     answers_remaining: u16,
 
     pub const Answer = struct {
-        rr: u8,
+        rr: DnsRecord,
         packet: []const u8,
         data_off: u32,
         data_len: u16,
@@ -190,7 +197,7 @@ pub const DnsResponse = struct {
         if (i + 10 + len > r.len) return error.InvalidDnsPacket;
         defer dr.bytes_index = i + 10 + len;
         return .{
-            .rr = r[i + 1],
+            .rr = @enumFromInt(r[i + 1]),
             .packet = r,
             .data_off = i + 10,
             .data_len = len,

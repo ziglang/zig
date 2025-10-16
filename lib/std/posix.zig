@@ -98,7 +98,6 @@ pub const POSIX_FADV = system.POSIX_FADV;
 pub const PR = system.PR;
 pub const PROT = system.PROT;
 pub const RLIM = system.RLIM;
-pub const RR = system.RR;
 pub const S = system.S;
 pub const SA = system.SA;
 pub const SC = system.SC;
