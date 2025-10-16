@@ -239,7 +239,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
         ),
-        else => _ = asm volatile (
+        else => asm volatile (
             \\ sc
             :
             : [number] "{r0}" (@intFromEnum(SYS.rt_sigreturn)),

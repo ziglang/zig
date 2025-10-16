@@ -134,12 +134,12 @@ pub fn restore() callconv(.naked) noreturn {
             \\ svc #0
             :
             : [number] "I" (@intFromEnum(SYS.sigreturn)),
-            : .{ .memory = true }),
+        ),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{r7}" (@intFromEnum(SYS.sigreturn)),
-            : .{ .memory = true }),
+        ),
     }
 }
 
