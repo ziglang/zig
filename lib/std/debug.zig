@@ -872,10 +872,14 @@ const StackIterator = union(enum) {
     };
 
     const fp_usability: FpUsability = switch (builtin.target.cpu.arch) {
+        .avr,
+        .csky,
         .mips,
         .mipsel,
         .mips64,
         .mips64el,
+        .msp430,
+        .xcore,
         => .useless,
         .hexagon,
         // The PowerPC ABIs don't actually strictly require a backchain pointer; they allow omitting
