@@ -116,7 +116,7 @@ const SingleThreadedImpl = struct {
             unreachable; // deadlock detected
         };
 
-        std.Thread.sleep(delay);
+        _ = delay;
         return error.Timeout;
     }
 

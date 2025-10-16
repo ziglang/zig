@@ -1356,6 +1356,11 @@ pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir
                 error.FileLocksNotSupported => unreachable, // locking folders is not supported
                 error.WouldBlock => unreachable, // can't happen for directories
                 error.FileBusy => unreachable, // can't happen for directories
+                error.SharingViolation => unreachable,
+                error.PipeBusy => unreachable,
+                error.ProcessNotFound => unreachable,
+                error.AntivirusInterference => unreachable,
+
                 else => |e| return e,
             };
             return .{ .fd = fd };

@@ -1282,7 +1282,7 @@ pub const TypeErasedQueue = struct {
 
         var remaining = elements;
         while (true) {
-            const getter: *Get = @fieldParentPtr("node", q.getters.popFirst() orelse break);
+            const getter: *Get = @alignCast(@fieldParentPtr("node", q.getters.popFirst() orelse break));
             const copy_len = @min(getter.remaining.len, remaining.len);
             @memcpy(getter.remaining[0..copy_len], remaining[0..copy_len]);
             remaining = remaining[copy_len..];
@@ -1379,7 +1379,7 @@ pub const TypeErasedQueue = struct {
             }
             // Copy directly from putters into buffer.
             while (remaining.len > 0) {
-                const putter: *Put = @fieldParentPtr("node", q.putters.popFirst() orelse break);
+                const putter: *Put = @alignCast(@fieldParentPtr("node", q.putters.popFirst() orelse break));
                 const copy_len = @min(putter.remaining.len, remaining.len);
                 @memcpy(remaining[0..copy_len], putter.remaining[0..copy_len]);
                 putter.remaining = putter.remaining[copy_len..];
@@ -1412,7 +1412,7 @@ pub const TypeErasedQueue = struct {
     /// buffers been fully copied.
     fn fillRingBufferFromPutters(q: *TypeErasedQueue, io: Io, len: usize) usize {
         while (true) {
-            const putter: *Put = @fieldParentPtr("node", q.putters.popFirst() orelse return len);
+            const putter: *Put = @alignCast(@fieldParentPtr("node", q.putters.popFirst() orelse return len));
             const available = q.buffer[q.put_index..];
             const copy_len = @min(available.len, putter.remaining.len);
             @memcpy(available[0..copy_len], putter.remaining[0..copy_len]);

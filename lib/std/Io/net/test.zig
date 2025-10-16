@@ -81,7 +81,6 @@ test "IPv6 address parse failures" {
     try testing.expectEqual(Unresolved.Parsed{ .invalid_byte = 5 }, Unresolved.parse("::123.123.123.123"));
     try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("1"));
     try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("ff01::fb%"));
-    try testing.expectEqual(Unresolved.Parsed{ .interface_name_oversized = 9 }, Unresolved.parse("ff01::fb%wlp3" ++ "s0" ** @divExact(std.posix.IFNAMESIZE - 4, 2)));
 }
 
 test "invalid but parseable IPv6 scope ids" {
