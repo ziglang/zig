@@ -447,7 +447,9 @@ pub const Ip6Address = struct {
     pub const Unresolved = struct {
         /// Big endian
         bytes: [16]u8,
-        interface_name: ?Interface.Name,
+        /// Has not been checked to be a valid native interface name.
+        /// Externally managed memory.
+        interface_name: ?[]const u8,
 
         pub const Parsed = union(enum) {
             success: Unresolved,
@@ -536,7 +538,6 @@ pub const Ip6Address = struct {
                         parts_i += 1;
                         text_i += 1;
                         const name = text[text_i..];
-                        if (name.len > Interface.Name.max_len) return .{ .interface_name_oversized = text_i };
                         if (name.len == 0) return .incomplete;
                         interface_name_text = name;
                         text_i = @intCast(text.len);
@@ -563,7 +564,7 @@ pub const Ip6Address = struct {
 
                     return .{ .success = .{
                         .bytes = @bitCast(parts),
-                        .interface_name = if (interface_name_text) |t| .fromSliceUnchecked(t) else null,
+                        .interface_name = interface_name_text,
                     } };
                 },
             }
@@ -646,7 +647,7 @@ pub const Ip6Address = struct {
                     }
                 }
             }
-            if (u.interface_name) |n| try w.print("%{s}", .{n.toSlice()});
+            if (u.interface_name) |n| try w.print("%{s}", .{n});
         }
     };
 
@@ -678,6 +679,8 @@ pub const Ip6Address = struct {
         /// If this is returned, more detailed diagnostics can be obtained by
         /// calling the `Parsed.init` function.
         ParseFailed,
+        /// The interface name is longer than the host operating system supports.
+        NameTooLong,
     } || Interface.Name.ResolveError;
 
     /// This function requires an `Io` parameter because it must query the operating
@@ -689,7 +692,11 @@ pub const Ip6Address = struct {
             .success => |p| return .{
                 .bytes = p.bytes,
                 .port = port,
-                .interface = if (p.interface_name) |n| try n.resolve(io) else .none,
+                .interface = i: {
+                    const text = p.interface_name orelse break :i .none;
+                    const name: Interface.Name = try .fromSlice(text);
+                    break :i try name.resolve(io);
+                },
             },
             else => return error.ParseFailed,
         };
@@ -946,7 +953,7 @@ pub const Interface = struct {
     pub const Name = struct {
         bytes: [max_len:0]u8,
 
-        pub const max_len = std.posix.IFNAMESIZE - 1;
+        pub const max_len = if (@TypeOf(std.posix.IFNAMESIZE) == void) 0 else std.posix.IFNAMESIZE - 1;
 
         pub fn toSlice(n: *const Name) []const u8 {
             return std.mem.sliceTo(&n.bytes, 0);

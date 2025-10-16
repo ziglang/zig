@@ -4929,6 +4929,7 @@ pub const AccessError = error{
     /// Windows-only; file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
     InvalidWtf8,
+    Canceled,
 } || UnexpectedError;
 
 /// check user's permissions for a file
