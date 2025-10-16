@@ -157,26 +157,6 @@ pub fn restore_rt() callconv(.naked) noreturn {
     );
 }
 
-pub const F = struct {
-    pub const DUPFD = 0;
-    pub const GETFD = 1;
-    pub const SETFD = 2;
-    pub const GETFL = 3;
-    pub const SETFL = 4;
-    pub const GETLK = 5;
-    pub const SETLK = 6;
-    pub const SETLKW = 7;
-    pub const SETOWN = 8;
-    pub const GETOWN = 9;
-    pub const SETSIG = 10;
-    pub const GETSIG = 11;
-
-    pub const SETOWN_EX = 15;
-    pub const GETOWN_EX = 16;
-
-    pub const GETOWNER_UIDS = 17;
-};
-
 pub const blksize_t = i64;
 pub const nlink_t = u64;
 pub const time_t = i64;
@@ -185,14 +165,6 @@ pub const off_t = i64;
 pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
-
-pub const Flock = extern struct {
-    type: i16,
-    whence: i16,
-    start: off_t,
-    len: off_t,
-    pid: pid_t,
-};
 
 // The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {

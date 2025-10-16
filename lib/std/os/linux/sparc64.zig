@@ -236,40 +236,9 @@ pub fn restore_rt() callconv(.c) void {
         : .{ .memory = true, .icc = true, .o0 = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
 }
 
-pub const F = struct {
-    pub const DUPFD = 0;
-    pub const GETFD = 1;
-    pub const SETFD = 2;
-    pub const GETFL = 3;
-    pub const SETFL = 4;
-
-    pub const SETOWN = 5;
-    pub const GETOWN = 6;
-    pub const GETLK = 7;
-    pub const SETLK = 8;
-    pub const SETLKW = 9;
-
-    pub const RDLCK = 1;
-    pub const WRLCK = 2;
-    pub const UNLCK = 3;
-
-    pub const SETOWN_EX = 15;
-    pub const GETOWN_EX = 16;
-
-    pub const GETOWNER_UIDS = 17;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";
-};
-
-pub const Flock = extern struct {
-    type: i16,
-    whence: i16,
-    start: off_t,
-    len: off_t,
-    pid: pid_t,
 };
 
 pub const off_t = i64;

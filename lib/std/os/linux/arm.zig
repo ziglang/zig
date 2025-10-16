@@ -159,32 +159,6 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const F = struct {
-    pub const DUPFD = 0;
-    pub const GETFD = 1;
-    pub const SETFD = 2;
-    pub const GETFL = 3;
-    pub const SETFL = 4;
-
-    pub const SETOWN = 8;
-    pub const GETOWN = 9;
-    pub const SETSIG = 10;
-    pub const GETSIG = 11;
-
-    pub const GETLK = 12;
-    pub const SETLK = 13;
-    pub const SETLKW = 14;
-
-    pub const RDLCK = 0;
-    pub const WRLCK = 1;
-    pub const UNLCK = 2;
-
-    pub const SETOWN_EX = 15;
-    pub const GETOWN_EX = 16;
-
-    pub const GETOWNER_UIDS = 17;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";
@@ -214,16 +188,6 @@ pub const HWCAP = struct {
     pub const IDIV = IDIVA | IDIVT;
     pub const LPAE = 1 << 20;
     pub const EVTSTRM = 1 << 21;
-};
-
-pub const Flock = extern struct {
-    type: i16,
-    whence: i16,
-    __pad0: [4]u8,
-    start: off_t,
-    len: off_t,
-    pid: pid_t,
-    __unused: [4]u8,
 };
 
 pub const blksize_t = i32;

@@ -88,8 +88,6 @@ pub fn clone(
 }
 
 pub const ARCH = arch_bits.ARCH;
-pub const F = arch_bits.F;
-pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
 pub const SC = arch_bits.SC;
 pub const Stat = arch_bits.Stat;
@@ -110,7 +108,7 @@ pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
-pub const SYS = switch (@import("builtin").cpu.arch) {
+pub const SYS = switch (native_arch) {
     .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .aarch64, .aarch64_be => syscalls.Arm64,
@@ -1595,6 +1593,70 @@ pub fn wait4(pid: pid_t, status: *u32, flags: u32, usage: ?*rusage) usize {
 pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
     return syscall5(.waitid, @intFromEnum(id_type), @as(usize, @bitCast(@as(isize, id))), @intFromPtr(infop), flags, 0);
 }
+
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
+
+    pub const GETLK = GET_SET_LK.GETLK;
+    pub const SETLK = GET_SET_LK.SETLK;
+    pub const SETLKW = GET_SET_LK.SETLKW;
+
+    const GET_SET_LK = if (@sizeOf(usize) == 64) extern struct {
+        pub const GETLK = if (is_mips) 14 else if (is_sparc) 7 else 5;
+        pub const SETLK = if (is_mips) 6 else if (is_sparc) 8 else 6;
+        pub const SETLKW = if (is_mips) 7 else if (is_sparc) 9 else 7;
+    } else extern struct {
+        // Ensure that 32-bit code uses the large-file variants (GETLK64, etc).
+
+        pub const GETLK = if (is_mips) 33 else 12;
+        pub const SETLK = if (is_mips) 34 else 13;
+        pub const SETLKW = if (is_mips) 35 else 14;
+    };
+
+    pub const SETOWN = if (is_mips) 24 else if (is_sparc) 6 else 8;
+    pub const GETOWN = if (is_mips) 23 else if (is_sparc) 5 else 9;
+
+    pub const SETSIG = 10;
+    pub const GETSIG = 11;
+
+    pub const SETOWN_EX = 15;
+    pub const GETOWN_EX = 16;
+
+    pub const GETOWNER_UIDS = 17;
+
+    pub const OFD_GETLK = 36;
+    pub const OFD_SETLK = 37;
+    pub const OFD_SETLKW = 38;
+
+    pub const RDLCK = if (is_sparc) 1 else 0;
+    pub const WRLCK = if (is_sparc) 2 else 1;
+    pub const UNLCK = if (is_sparc) 3 else 2;
+};
+
+pub const F_OWNER = enum(i32) {
+    TID = 0,
+    PID = 1,
+    PGRP = 2,
+    _,
+};
+
+pub const f_owner_ex = extern struct {
+    type: F_OWNER,
+    pid: pid_t,
+};
+
+pub const Flock = extern struct {
+    type: i16,
+    whence: i16,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    _unused: if (is_sparc) i16 else void,
+};
 
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
     if (@hasField(SYS, "fcntl64")) {
