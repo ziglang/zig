@@ -6598,6 +6598,11 @@ pub const IORING_ENTER_SQ_WAKEUP = 1 << 1;
 pub const IORING_ENTER_SQ_WAIT = 1 << 2;
 pub const IORING_ENTER_EXT_ARG = 1 << 3;
 pub const IORING_ENTER_REGISTERED_RING = 1 << 4;
+pub const IORING_ENTER_NO_IOWAIT = 1 << 7;
+
+pub const IORING_INT_FLAG_NO_IOWAIT = IORING_ENTER_NO_IOWAIT;
+
+pub const IORING_INT_FLAGS_MASK = IORING_ENTER_NO_IOWAIT;
 
 pub const io_uring_params = extern struct {
     sq_entries: u32,
@@ -6627,6 +6632,7 @@ pub const IORING_FEAT_NATIVE_WORKERS = 1 << 9;
 pub const IORING_FEAT_RSRC_TAGS = 1 << 10;
 pub const IORING_FEAT_CQE_SKIP = 1 << 11;
 pub const IORING_FEAT_LINKED_FILE = 1 << 12;
+pub const IORING_FEAT_NO_IOWAIT = 1 << 17;
 
 // io_uring_register opcodes and arguments
 pub const IORING_REGISTER = enum(u32) {
