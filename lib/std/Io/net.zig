@@ -1027,7 +1027,7 @@ pub const Socket = struct {
     /// Underlying platform-defined type which may or may not be
     /// interchangeable with a file system file descriptor.
     pub const Handle = switch (native_os) {
-        .windows => std.windows.ws2_32.SOCKET,
+        .windows => std.os.windows.ws2_32.SOCKET,
         else => std.posix.fd_t,
     };
 
