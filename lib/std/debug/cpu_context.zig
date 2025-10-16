@@ -10,6 +10,7 @@ else switch (native_arch) {
     .hexagon => Hexagon,
     .lanai => Lanai,
     .loongarch32, .loongarch64 => LoongArch,
+    .m68k => M68k,
     .mips, .mipsel, .mips64, .mips64el => Mips,
     .or1k => Or1k,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
@@ -85,6 +86,11 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         },
         .hexagon, .loongarch32, .loongarch64, .mips, .mipsel, .mips64, .mips64el, .or1k => .{
             .r = uc.mcontext.r,
+            .pc = uc.mcontext.pc,
+        },
+        .m68k => .{
+            .d = uc.mcontext.d,
+            .a = uc.mcontext.a,
             .pc = uc.mcontext.pc,
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => .{
@@ -691,6 +697,40 @@ const LoongArch = extern struct {
             64 => return @ptrCast(&ctx.pc),
 
             32...63 => return error.UnsupportedRegister, // f0 - f31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const M68k = extern struct {
+    /// The numbered data registers d0 - d7.
+    d: [8]u32,
+    /// The numbered address registers a0 - a7.
+    a: [8]u32,
+    pc: u32,
+
+    pub inline fn current() M68k {
+        var ctx: M68k = undefined;
+        asm volatile (
+            \\ movem.l %%d0 - %%a7, (%%a0)
+            \\ lea.l (%%pc), %%a1
+            \\ move.l %%a1, (%%a0, 64)
+            :
+            : [ctx] "{a0}" (&ctx),
+            : .{ .a1 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *M68k, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...7 => return @ptrCast(&ctx.d[register_num]),
+            8...15 => return @ptrCast(&ctx.a[register_num - 8]),
+            26 => return @ptrCast(&ctx.pc),
+
+            16...23 => return error.UnsupportedRegister, // fp0 - fp7
+            24...25 => return error.UnsupportedRegister, // Return columns in GCC...?
 
             else => return error.InvalidRegister,
         }
