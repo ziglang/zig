@@ -5,6 +5,7 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
     root.debug.CpuContext
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
+    .arc => Arc,
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .csky => Csky,
     .hexagon => Hexagon,
@@ -35,7 +36,20 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
     const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
 
     // Deal with some special cases first.
-    if (native_arch.isMIPS32() and native_os == .linux) {
+    if (native_arch == .arc and native_os == .linux) {
+        var native: Native = .{
+            .r = [_]u32{ uc.mcontext.r31, uc.mcontext.r30, 0, uc.mcontext.r28 } ++
+                uc.mcontext.r27_26 ++
+                uc.mcontext.r25_13 ++
+                uc.mcontext.r12_0,
+            .pcl = uc.mcontext.pcl,
+        };
+
+        // I have no idea why the kernel is storing these registers in such a bizarre order...
+        std.mem.reverse(native.r[0..]);
+
+        return native;
+    } else if (native_arch.isMIPS32() and native_os == .linux) {
         // The O32 kABI uses 64-bit fields for some reason.
         return .{
             .r = s: {
@@ -321,6 +335,68 @@ const X86_64 = struct {
             67...82 => return error.UnsupportedRegister, // xmm16 - xmm31 (AVX-512)
             118...125 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
             130...145 => return error.UnsupportedRegister, // r16 - r31 (APX)
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Arc = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    pcl: u32,
+
+    pub inline fn current() Arc {
+        var ctx: Arc = undefined;
+        asm volatile (
+            \\ st r0, [r8, 0]
+            \\ st r1, [r8, 4]
+            \\ st r2, [r8, 8]
+            \\ st r3, [r8, 12]
+            \\ st r4, [r8, 16]
+            \\ st r5, [r8, 20]
+            \\ st r6, [r8, 24]
+            \\ st r7, [r8, 28]
+            \\ st r8, [r8, 32]
+            \\ st r9, [r8, 36]
+            \\ st r10, [r8, 40]
+            \\ st r11, [r8, 44]
+            \\ st r12, [r8, 48]
+            \\ st r13, [r8, 52]
+            \\ st r14, [r8, 56]
+            \\ st r15, [r8, 60]
+            \\ st r16, [r8, 64]
+            \\ st r17, [r8, 68]
+            \\ st r18, [r8, 72]
+            \\ st r19, [r8, 76]
+            \\ st r20, [r8, 80]
+            \\ st r21, [r8, 84]
+            \\ st r22, [r8, 88]
+            \\ st r23, [r8, 92]
+            \\ st r24, [r8, 96]
+            \\ st r25, [r8, 100]
+            \\ st r26, [r8, 104]
+            \\ st r27, [r8, 108]
+            \\ st r28, [r8, 112]
+            \\ st r29, [r8, 116]
+            \\ st r30, [r8, 120]
+            \\ st r31, [r8, 124]
+            \\ st pcl, [r8, 128]
+            :
+            : [ctx] "{r8}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Arc, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            160 => return @ptrCast(&ctx.pcl),
+
+            32...57 => return error.UnsupportedRegister, // Extension Core Registers
+            58...127 => return error.UnsupportedRegister, // Reserved
+            128...159 => return error.UnsupportedRegister, // f0 - f31
 
             else => return error.InvalidRegister,
         }
@@ -1517,7 +1593,7 @@ const signal_ucontext_t = switch (native_os) {
                         _count: u32,
                     },
                     _status32: u32,
-                    pc: u32,
+                    pcl: u32,
                     r31: u32,
                     r27_26: [2]u32,
                     r12_0: [13]u32,
