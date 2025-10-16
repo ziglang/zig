@@ -12,6 +12,7 @@ else switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
     .sparc, .sparc64 => Sparc,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
+    .ve => Ve,
     .s390x => S390x,
     .x86 => X86,
     .x86_64 => X86_64,
@@ -1120,6 +1121,100 @@ const S390x = extern struct {
             48...63 => return error.UnsupportedRegister, // a0 - a15
             66...67 => return error.UnsupportedRegister, // z/OS stuff???
             68...83 => return error.UnsupportedRegister, // v16 - v31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Ve = extern struct {
+    s: [64]u64,
+    ic: u64,
+
+    pub inline fn current() Ve {
+        var ctx: Ve = undefined;
+        asm volatile (
+            \\ st %%s0, 0(, %%s8)
+            \\ st %%s1, 8(, %%s8)
+            \\ st %%s2, 16(, %%s8)
+            \\ st %%s3, 24(, %%s8)
+            \\ st %%s4, 32(, %%s8)
+            \\ st %%s5, 40(, %%s8)
+            \\ st %%s6, 48(, %%s8)
+            \\ st %%s7, 56(, %%s8)
+            \\ st %%s8, 64(, %%s8)
+            \\ st %%s9, 72(, %%s8)
+            \\ st %%s10, 80(, %%s8)
+            \\ st %%s11, 88(, %%s8)
+            \\ st %%s12, 96(, %%s8)
+            \\ st %%s13, 104(, %%s8)
+            \\ st %%s14, 112(, %%s8)
+            \\ st %%s15, 120(, %%s8)
+            \\ st %%s16, 128(, %%s8)
+            \\ st %%s17, 136(, %%s8)
+            \\ st %%s18, 144(, %%s8)
+            \\ st %%s19, 152(, %%s8)
+            \\ st %%s20, 160(, %%s8)
+            \\ st %%s21, 168(, %%s8)
+            \\ st %%s22, 176(, %%s8)
+            \\ st %%s23, 184(, %%s8)
+            \\ st %%s24, 192(, %%s8)
+            \\ st %%s25, 200(, %%s8)
+            \\ st %%s26, 208(, %%s8)
+            \\ st %%s27, 216(, %%s8)
+            \\ st %%s28, 224(, %%s8)
+            \\ st %%s29, 232(, %%s8)
+            \\ st %%s30, 240(, %%s8)
+            \\ st %%s31, 248(, %%s8)
+            \\ st %%s32, 256(, %%s8)
+            \\ st %%s33, 264(, %%s8)
+            \\ st %%s34, 272(, %%s8)
+            \\ st %%s35, 280(, %%s8)
+            \\ st %%s36, 288(, %%s8)
+            \\ st %%s37, 296(, %%s8)
+            \\ st %%s38, 304(, %%s8)
+            \\ st %%s39, 312(, %%s8)
+            \\ st %%s40, 320(, %%s8)
+            \\ st %%s41, 328(, %%s8)
+            \\ st %%s42, 336(, %%s8)
+            \\ st %%s43, 344(, %%s8)
+            \\ st %%s44, 352(, %%s8)
+            \\ st %%s45, 360(, %%s8)
+            \\ st %%s46, 368(, %%s8)
+            \\ st %%s47, 376(, %%s8)
+            \\ st %%s48, 384(, %%s8)
+            \\ st %%s49, 392(, %%s8)
+            \\ st %%s50, 400(, %%s8)
+            \\ st %%s51, 408(, %%s8)
+            \\ st %%s52, 416(, %%s8)
+            \\ st %%s53, 424(, %%s8)
+            \\ st %%s54, 432(, %%s8)
+            \\ st %%s55, 440(, %%s8)
+            \\ st %%s56, 448(, %%s8)
+            \\ st %%s57, 456(, %%s8)
+            \\ st %%s58, 464(, %%s8)
+            \\ st %%s59, 472(, %%s8)
+            \\ st %%s60, 480(, %%s8)
+            \\ st %%s61, 488(, %%s8)
+            \\ st %%s62, 496(, %%s8)
+            \\ st %%s63, 504(, %%s8)
+            \\ br.l 1f
+            \\1:
+            \\ st %%lr, 512(, %%s8)
+            :
+            : [ctx] "{s8}" (&ctx),
+            : .{ .s10 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Ve, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...63 => return @ptrCast(&ctx.s[register_num]),
+            144 => return @ptrCast(&ctx.ic),
+
+            64...127 => return error.UnsupportedRegister, // v0 - v63
+            128...143 => return error.UnsupportedRegister, // vm0 - vm15
 
             else => return error.InvalidRegister,
         }
