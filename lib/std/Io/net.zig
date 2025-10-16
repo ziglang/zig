@@ -209,6 +209,9 @@ pub const IpAddress = union(enum) {
         ProtocolUnsupportedBySystem,
         ProtocolUnsupportedByAddressFamily,
         SocketModeUnsupported,
+        /// One of the `ListenOptions` is not supported by the Io
+        /// implementation.
+        OptionUnsupported,
     } || Io.UnexpectedError || Io.Cancelable;
 
     pub const ListenOptions = struct {
@@ -1057,6 +1060,9 @@ pub const Socket = struct {
         /// Local end has been shut down on a connection-oriented socket, or
         /// the socket was never connected.
         SocketUnconnected,
+        /// An attempt was made to send to a network/broadcast address as
+        /// though it was a unicast address.
+        AccessDenied,
     } || Io.UnexpectedError || Io.Cancelable;
 
     /// Transfers `data` to `dest`, connectionless, in one packet.
@@ -1167,7 +1173,6 @@ pub const Stream = struct {
 
         pub const Error = error{
             SystemResources,
-            BrokenPipe,
             ConnectionResetByPeer,
             Timeout,
             SocketUnconnected,
@@ -1233,7 +1238,7 @@ pub const Stream = struct {
         pub const Error = std.posix.SendMsgError || error{
             ConnectionResetByPeer,
             SocketNotBound,
-            MessageTooBig,
+            MessageOversize,
             NetworkDown,
             SystemResources,
             SocketUnconnected,

@@ -117,11 +117,14 @@ pub fn unwindFrame(si: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error
         error.ReadFailed,
         error.OutOfMemory,
         error.Unexpected,
+        error.Canceled,
         => |e| return e,
+
         error.UnsupportedRegister,
         error.UnsupportedAddrSize,
         error.UnimplementedUserOpcode,
         => return error.UnsupportedDebugInfo,
+
         error.Overflow,
         error.EndOfStream,
         error.StreamTooLong,

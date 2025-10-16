@@ -35,9 +35,11 @@ tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.cr
 /// traffic over connections created with this `Client`.
 ssl_key_log: ?*std.crypto.tls.Client.SslKeyLog = null,
 
-/// When this is `true`, the next time this client performs an HTTPS request,
-/// it will first rescan the system for root certificates.
-next_https_rescan_certs: bool = true,
+/// The time used to decide whether certificates are expired.
+///
+/// When this is `null`, the next time this client performs an HTTPS request,
+/// it will first check the time and rescan the system for root certificates.
+now: ?Io.Timestamp = null,
 
 /// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
@@ -295,6 +297,7 @@ pub const Connection = struct {
         client: std.crypto.tls.Client,
         connection: Connection,
 
+        /// Asserts that `client.now` is non-null.
         fn create(
             client: *Client,
             remote_host: HostName,
@@ -320,7 +323,6 @@ pub const Connection = struct {
             const tls: *Tls = @ptrCast(base);
             var random_buffer: [176]u8 = undefined;
             std.crypto.random.bytes(&random_buffer);
-            const now_ts = if (Io.Clock.real.now(io)) |ts| ts.toSeconds() else |err| return err;
             tls.* = .{
                 .connection = .{
                     .client = client,
@@ -333,7 +335,7 @@ pub const Connection = struct {
                     .closing = false,
                     .protocol = .tls,
                 },
-                // TODO data race here on ca_bundle if the user sets next_https_rescan_certs to true
+                // TODO data race here on ca_bundle if the user sets `now` to null
                 .client = std.crypto.tls.Client.init(
                     &tls.connection.stream_reader.interface,
                     &tls.connection.stream_writer.interface,
@@ -344,7 +346,7 @@ pub const Connection = struct {
                         .read_buffer = tls_read_buffer,
                         .write_buffer = socket_write_buffer,
                         .entropy = &random_buffer,
-                        .realtime_now_seconds = now_ts,
+                        .realtime_now_seconds = client.now.?.toSeconds(),
                         // This is appropriate for HTTPS because the HTTP headers contain
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
@@ -1687,14 +1689,15 @@ pub fn request(
 
     if (protocol == .tls) {
         if (disable_tls) unreachable;
-        if (@atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
+        {
             client.ca_bundle_mutex.lock();
             defer client.ca_bundle_mutex.unlock();
 
-            if (client.next_https_rescan_certs) {
-                client.ca_bundle.rescan(client.allocator, io) catch
+            if (client.now == null) {
+                const now = try Io.Clock.real.now(io);
+                client.now = now;
+                client.ca_bundle.rescan(client.allocator, io, now) catch
                     return error.CertificateBundleLoadFailure;
-                @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
             }
         }
     }

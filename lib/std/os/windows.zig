@@ -1653,7 +1653,7 @@ pub fn WSASocketW(
         const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
         if (rc == ws2_32.INVALID_SOCKET) {
             switch (ws2_32.WSAGetLastError()) {
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
                 .WSAEMFILE => return error.ProcessFdQuotaExceeded,
                 .WSAENOBUFS => return error.SystemResources,
                 .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,

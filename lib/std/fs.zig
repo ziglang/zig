@@ -458,6 +458,8 @@ pub const SelfExePathError = error{
     /// On Windows, the volume does not contain a recognized file system. File
     /// system drivers might not be loaded, or the volume may be corrupt.
     UnrecognizedVolume,
+
+    Canceled,
 } || posix.SysCtlError;
 
 /// `selfExePath` except allocates the result on the heap.

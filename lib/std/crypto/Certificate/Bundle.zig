@@ -70,18 +70,18 @@ pub const RescanError = RescanLinuxError || RescanMacError || RescanWithPathErro
 /// file system standard locations for certificates.
 /// For operating systems that do not have standard CA installations to be
 /// found, this function clears the set of certificates.
-pub fn rescan(cb: *Bundle, gpa: Allocator, io: Io) RescanError!void {
+pub fn rescan(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp) RescanError!void {
     switch (builtin.os.tag) {
-        .linux => return rescanLinux(cb, gpa, io),
-        .macos => return rescanMac(cb, gpa),
-        .freebsd, .openbsd => return rescanWithPath(cb, gpa, io, "/etc/ssl/cert.pem"),
-        .netbsd => return rescanWithPath(cb, gpa, io, "/etc/openssl/certs/ca-certificates.crt"),
-        .dragonfly => return rescanWithPath(cb, gpa, io, "/usr/local/etc/ssl/cert.pem"),
-        .illumos => return rescanWithPath(cb, gpa, io, "/etc/ssl/cacert.pem"),
-        .haiku => return rescanWithPath(cb, gpa, io, "/boot/system/data/ssl/CARootCertificates.pem"),
+        .linux => return rescanLinux(cb, gpa, io, now),
+        .macos => return rescanMac(cb, gpa, io, now),
+        .freebsd, .openbsd => return rescanWithPath(cb, gpa, io, now, "/etc/ssl/cert.pem"),
+        .netbsd => return rescanWithPath(cb, gpa, io, now, "/etc/openssl/certs/ca-certificates.crt"),
+        .dragonfly => return rescanWithPath(cb, gpa, io, now, "/usr/local/etc/ssl/cert.pem"),
+        .illumos => return rescanWithPath(cb, gpa, io, now, "/etc/ssl/cacert.pem"),
+        .haiku => return rescanWithPath(cb, gpa, io, now, "/boot/system/data/ssl/CARootCertificates.pem"),
         // https://github.com/SerenityOS/serenity/blob/222acc9d389bc6b490d4c39539761b043a4bfcb0/Ports/ca-certificates/package.sh#L19
-        .serenity => return rescanWithPath(cb, gpa, io, "/etc/ssl/certs/ca-certificates.crt"),
-        .windows => return rescanWindows(cb, gpa),
+        .serenity => return rescanWithPath(cb, gpa, io, now, "/etc/ssl/certs/ca-certificates.crt"),
+        .windows => return rescanWindows(cb, gpa, io, now),
         else => {},
     }
 }
@@ -91,7 +91,7 @@ const RescanMacError = @import("Bundle/macos.zig").RescanMacError;
 
 const RescanLinuxError = AddCertsFromFilePathError || AddCertsFromDirPathError;
 
-fn rescanLinux(cb: *Bundle, gpa: Allocator, io: Io) RescanLinuxError!void {
+fn rescanLinux(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp) RescanLinuxError!void {
     // Possible certificate files; stop after finding one.
     const cert_file_paths = [_][]const u8{
         "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
@@ -114,7 +114,7 @@ fn rescanLinux(cb: *Bundle, gpa: Allocator, io: Io) RescanLinuxError!void {
 
     scan: {
         for (cert_file_paths) |cert_file_path| {
-            if (addCertsFromFilePathAbsolute(cb, gpa, io, cert_file_path)) |_| {
+            if (addCertsFromFilePathAbsolute(cb, gpa, io, now, cert_file_path)) |_| {
                 break :scan;
             } else |err| switch (err) {
                 error.FileNotFound => continue,
@@ -123,7 +123,7 @@ fn rescanLinux(cb: *Bundle, gpa: Allocator, io: Io) RescanLinuxError!void {
         }
 
         for (cert_dir_paths) |cert_dir_path| {
-            addCertsFromDirPathAbsolute(cb, gpa, io, cert_dir_path) catch |err| switch (err) {
+            addCertsFromDirPathAbsolute(cb, gpa, io, now, cert_dir_path) catch |err| switch (err) {
                 error.FileNotFound => continue,
                 else => |e| return e,
             };
@@ -135,10 +135,10 @@ fn rescanLinux(cb: *Bundle, gpa: Allocator, io: Io) RescanLinuxError!void {
 
 const RescanWithPathError = AddCertsFromFilePathError;
 
-fn rescanWithPath(cb: *Bundle, gpa: Allocator, io: Io, cert_file_path: []const u8) RescanWithPathError!void {
+fn rescanWithPath(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp, cert_file_path: []const u8) RescanWithPathError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
-    try addCertsFromFilePathAbsolute(cb, gpa, io, cert_file_path);
+    try addCertsFromFilePathAbsolute(cb, gpa, io, now, cert_file_path);
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
@@ -187,17 +187,18 @@ pub fn addCertsFromDirPathAbsolute(
     cb: *Bundle,
     gpa: Allocator,
     io: Io,
+    now: Io.Timestamp,
     abs_dir_path: []const u8,
 ) AddCertsFromDirPathError!void {
     assert(fs.path.isAbsolute(abs_dir_path));
     var iterable_dir = try fs.openDirAbsolute(abs_dir_path, .{ .iterate = true });
     defer iterable_dir.close();
-    return addCertsFromDir(cb, gpa, io, iterable_dir);
+    return addCertsFromDir(cb, gpa, io, now, iterable_dir);
 }
 
 pub const AddCertsFromDirError = AddCertsFromFilePathError;
 
-pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, io: Io, iterable_dir: fs.Dir) AddCertsFromDirError!void {
+pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp, iterable_dir: fs.Dir) AddCertsFromDirError!void {
     var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
@@ -205,7 +206,7 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, io: Io, iterable_dir: fs.Dir
             else => continue,
         }
 
-        try addCertsFromFilePath(cb, gpa, io, iterable_dir.adaptToNewApi(), entry.name);
+        try addCertsFromFilePath(cb, gpa, io, now, iterable_dir.adaptToNewApi(), entry.name);
     }
 }
 
@@ -215,9 +216,9 @@ pub fn addCertsFromFilePathAbsolute(
     cb: *Bundle,
     gpa: Allocator,
     io: Io,
+    now: Io.Timestamp,
     abs_file_path: []const u8,
 ) AddCertsFromFilePathError!void {
-    const now = try Io.Clock.real.now(io);
     var file = try fs.openFileAbsolute(abs_file_path, .{});
     defer file.close();
     var file_reader = file.reader(io, &.{});
@@ -228,10 +229,10 @@ pub fn addCertsFromFilePath(
     cb: *Bundle,
     gpa: Allocator,
     io: Io,
+    now: Io.Timestamp,
     dir: Io.Dir,
     sub_file_path: []const u8,
 ) AddCertsFromFilePathError!void {
-    const now = try Io.Clock.real.now(io);
     var file = try dir.openFile(io, sub_file_path, .{});
     defer file.close(io);
     var file_reader = file.reader(io, &.{});
@@ -335,5 +336,7 @@ test "scan for OS-provided certificates" {
     var bundle: Bundle = .{};
     defer bundle.deinit(gpa);
 
-    try bundle.rescan(gpa, io);
+    const now = try Io.Clock.real.now(io);
+
+    try bundle.rescan(gpa, io, now);
 }

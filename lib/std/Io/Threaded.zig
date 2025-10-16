@@ -966,7 +966,7 @@ fn dirStatPathPosix(
         try t.checkCancel();
         var stat = std.mem.zeroes(posix.Stat);
         switch (posix.errno(fstatat_sym(dir.handle, sub_path_posix, &stat, flags))) {
-            .SUCCESS => return statFromPosix(stat),
+            .SUCCESS => return statFromPosix(&stat),
             .INTR => continue,
             .INVAL => |err| return errnoBug(err),
             .BADF => |err| return errnoBug(err), // Always a race condition.
@@ -1166,8 +1166,9 @@ fn dirCreateFilePosix(
     if (has_flock_open_flags and flags.lock_nonblocking) {
         var fl_flags: usize = while (true) {
             try t.checkCancel();
-            switch (posix.errno(posix.system.fcntl(fd, posix.F.GETFL, 0))) {
-                .SUCCESS => break,
+            const rc = posix.system.fcntl(fd, posix.F.GETFL, @as(usize, 0));
+            switch (posix.errno(rc)) {
+                .SUCCESS => break @intCast(rc),
                 .INTR => continue,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1295,8 +1296,9 @@ fn dirOpenFile(
     if (has_flock_open_flags and flags.lock_nonblocking) {
         var fl_flags: usize = while (true) {
             try t.checkCancel();
-            switch (posix.errno(posix.system.fcntl(fd, posix.F.GETFL, 0))) {
-                .SUCCESS => break,
+            const rc = posix.system.fcntl(fd, posix.F.GETFL, @as(usize, 0));
+            switch (posix.errno(rc)) {
+                .SUCCESS => break @intCast(rc),
                 .INTR => continue,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1755,7 +1757,7 @@ fn sleepPosix(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
             .sec = std.math.maxInt(sec_type),
             .nsec = std.math.maxInt(nsec_type),
         };
-        break :t timestampToPosix(d.duration.nanoseconds);
+        break :t timestampToPosix(d.raw.toNanoseconds());
     };
     while (true) {
         try t.checkCancel();
@@ -1850,6 +1852,7 @@ fn netListenUnix(
         error.ProtocolUnsupportedBySystem => return error.AddressFamilyUnsupported,
         error.ProtocolUnsupportedByAddressFamily => return error.AddressFamilyUnsupported,
         error.SocketModeUnsupported => return error.AddressFamilyUnsupported,
+        error.OptionUnsupported => return error.Unexpected,
         else => |e| return e,
     };
     errdefer posix.close(socket_fd);
@@ -2037,7 +2040,10 @@ fn netConnectUnix(
 ) net.UnixAddress.ConnectError!net.Socket.Handle {
     if (!net.has_unix_sockets) return error.AddressFamilyUnsupported;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const socket_fd = try openSocketPosix(t, posix.AF.UNIX, .{ .mode = .stream });
+    const socket_fd = openSocketPosix(t, posix.AF.UNIX, .{ .mode = .stream }) catch |err| switch (err) {
+        error.OptionUnsupported => return error.Unexpected,
+        else => |e| return e,
+    };
     errdefer posix.close(socket_fd);
     var storage: UnixAddress = undefined;
     const addr_len = addressUnixToPosix(address, &storage);
@@ -2064,7 +2070,22 @@ fn netBindIpPosix(
     };
 }
 
-fn openSocketPosix(t: *Threaded, family: posix.sa_family_t, options: IpAddress.BindOptions) !posix.socket_t {
+fn openSocketPosix(
+    t: *Threaded,
+    family: posix.sa_family_t,
+    options: IpAddress.BindOptions,
+) error{
+    AddressFamilyUnsupported,
+    ProtocolUnsupportedBySystem,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    ProtocolUnsupportedByAddressFamily,
+    SocketModeUnsupported,
+    OptionUnsupported,
+    Unexpected,
+    Canceled,
+}!posix.socket_t {
     const mode = posixSocketMode(options.mode);
     const protocol = posixProtocol(options.protocol);
     const socket_fd = while (true) {
@@ -2209,7 +2230,7 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
             .NOTCONN => return error.SocketUnconnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.Timeout,
-            .PIPE => return error.BrokenPipe,
+            .PIPE => return error.SocketUnconnected,
             .NETDOWN => return error.NetworkDown,
             else => |err| return posix.unexpectedErrno(err),
         }
@@ -2253,29 +2274,29 @@ fn netSendOne(
     flags: u32,
 ) net.Socket.SendError!void {
     var addr: PosixAddress = undefined;
-    var iovec: posix.iovec = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
-    const msg: posix.msghdr = .{
+    var iovec: posix.iovec_const = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
+    const msg: posix.msghdr_const = .{
         .name = &addr.any,
         .namelen = addressToPosix(message.address, &addr),
-        .iov = iovec[0..1],
+        .iov = (&iovec)[0..1],
         .iovlen = 1,
         .control = @constCast(message.control.ptr),
-        .controllen = message.control.len,
+        .controllen = @intCast(message.control.len),
         .flags = 0,
     };
     while (true) {
         try t.checkCancel();
-        const rc = posix.system.sendmsg(handle, msg, flags);
+        const rc = posix.system.sendmsg(handle, &msg, flags);
         if (is_windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSAEACCES => return error.AccessDenied,
                     .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAEMSGSIZE => return error.MessageOversize,
                     .WSAENOBUFS => return error.SystemResources,
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
                     .WSAEDESTADDRREQ => unreachable, // A destination address is required.
                     .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
                     .WSAEHOSTUNREACH => return error.NetworkUnreachable,
@@ -2285,7 +2306,6 @@ fn netSendOne(
                     .WSAENETUNREACH => return error.NetworkUnreachable,
                     .WSAENOTCONN => return error.SocketUnconnected,
                     .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
-                    .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
                     else => |err| return windows.unexpectedWSAError(err),
                 }
@@ -2299,28 +2319,24 @@ fn netSendOne(
                 message.data_len = @intCast(rc);
                 return;
             },
+            .INTR => continue,
+
             .ACCES => return error.AccessDenied,
-            .AGAIN => return error.WouldBlock,
             .ALREADY => return error.FastOpenAlreadyInProgress,
             .BADF => |err| return errnoBug(err),
             .CONNRESET => return error.ConnectionResetByPeer,
             .DESTADDRREQ => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
-            .INTR => continue,
             .INVAL => |err| return errnoBug(err),
             .ISCONN => |err| return errnoBug(err),
-            .MSGSIZE => return error.MessageTooBig,
+            .MSGSIZE => return error.MessageOversize,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
             .NOTSOCK => |err| return errnoBug(err),
             .OPNOTSUPP => |err| return errnoBug(err),
-            .PIPE => return error.BrokenPipe,
-            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
-            .LOOP => return error.SymLinkLoop,
-            .NAMETOOLONG => return error.NameTooLong,
-            .NOENT => return error.FileNotFound,
-            .NOTDIR => return error.NotDir,
-            .HOSTUNREACH => return error.NetworkUnreachable,
+            .PIPE => return error.SocketUnconnected,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .HOSTUNREACH => return error.HostUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketUnconnected,
             .NETDOWN => return error.NetworkDown,
@@ -2447,7 +2463,7 @@ fn netReceive(
             .iov = (&iov)[0..1],
             .iovlen = 1,
             .control = message.control.ptr,
-            .controllen = message.control.len,
+            .controllen = @intCast(message.control.len),
             .flags = undefined,
         };
 
@@ -2465,7 +2481,7 @@ fn netReceive(
                         .trunc = (msg.flags & posix.MSG.TRUNC) != 0,
                         .ctrunc = (msg.flags & posix.MSG.CTRUNC) != 0,
                         .oob = (msg.flags & posix.MSG.OOB) != 0,
-                        .errqueue = (msg.flags & posix.MSG.ERRQUEUE) != 0,
+                        .errqueue = if (@hasDecl(posix.MSG, "ERRQUEUE")) (msg.flags & posix.MSG.ERRQUEUE) != 0 else false,
                     },
                 };
                 message_i += 1;
@@ -2605,6 +2621,7 @@ fn netInterfaceNameResolve(
             error.ProtocolUnsupportedBySystem => return error.Unexpected,
             error.ProtocolUnsupportedByAddressFamily => return error.Unexpected,
             error.SocketModeUnsupported => return error.Unexpected,
+            error.OptionUnsupported => return error.Unexpected,
             else => |e| return e,
         };
         defer posix.close(sock_fd);
@@ -3079,9 +3096,10 @@ fn lookupDns(
         }
     }
 
-    var ip4_mapped: [HostName.ResolvConf.max_nameservers]IpAddress = undefined;
+    var ip4_mapped_buffer: [HostName.ResolvConf.max_nameservers]IpAddress = undefined;
+    const ip4_mapped = ip4_mapped_buffer[0..rc.nameservers_len];
     var any_ip6 = false;
-    for (rc.nameservers(), &ip4_mapped) |*ns, *m| {
+    for (rc.nameservers(), ip4_mapped) |*ns, *m| {
         m.* = .{ .ip6 = .fromAny(ns.*) };
         any_ip6 = any_ip6 or ns.* == .ip6;
     }
@@ -3101,7 +3119,7 @@ fn lookupDns(
     };
     defer socket.close(t_io);
 
-    const mapped_nameservers = if (any_ip6) ip4_mapped[0..rc.nameservers_len] else rc.nameservers();
+    const mapped_nameservers = if (any_ip6) ip4_mapped else rc.nameservers();
     const queries = queries_buffer[0..nq];
     const answers = answers_buffer[0..queries.len];
     var answers_remaining = answers.len;

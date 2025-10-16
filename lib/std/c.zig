@@ -4104,7 +4104,7 @@ pub const msghdr = switch (native_os) {
     .visionos,
     .watchos,
     .serenity, // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L74-L82
-    => private.posix_msghdr,
+    => posix_msghdr,
     else => void,
 };
 
