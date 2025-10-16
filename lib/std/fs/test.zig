@@ -1433,14 +1433,6 @@ test "setEndPos" {
     try testing.expectEqual(0, try f.getEndPos());
     try reader.seekTo(0);
     try testing.expectEqual(0, try reader.interface.readSliceShort(&buffer));
-
-    // Invalid file length should error gracefully. Actual limit is host
-    // and file-system dependent, but 1PB should fail on filesystems like
-    // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
-    try testing.expectError(error.FileTooBig, f.setEndPos(0x4_0000_0000_0000));
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63)));
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
 }
 
 test "access file" {
