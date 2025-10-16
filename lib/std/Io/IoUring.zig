@@ -1469,7 +1469,7 @@ fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: std.
         .OVERFLOW => return error.Unseekable,
         .BUSY => return error.DeviceBusy,
         .CONNRESET => return error.ConnectionResetByPeer,
-        .MSGSIZE => return error.MessageTooBig,
+        .MSGSIZE => return error.MessageOversize,
         else => |err| return std.posix.unexpectedErrno(err),
     }
 }
