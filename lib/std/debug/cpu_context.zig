@@ -11,6 +11,7 @@ else switch (native_arch) {
     .lanai => Lanai,
     .loongarch32, .loongarch64 => LoongArch,
     .mips, .mipsel, .mips64, .mips64el => Mips,
+    .or1k => Or1k,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
     .sparc, .sparc64 => Sparc,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
@@ -812,6 +813,66 @@ const Mips = extern struct {
             179 => return error.UnsupportedRegister, // lo2 (ac2)
             180 => return error.UnsupportedRegister, // hi3 (ac3)
             181 => return error.UnsupportedRegister, // lo3 (ac3)
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Or1k = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    pc: u32,
+
+    pub inline fn current() Or1k {
+        var ctx: Or1k = undefined;
+        asm volatile (
+            \\ l.sw 0(r15), r0
+            \\ l.sw 4(r15), r1
+            \\ l.sw 8(r15), r2
+            \\ l.sw 12(r15), r3
+            \\ l.sw 16(r15), r4
+            \\ l.sw 20(r15), r5
+            \\ l.sw 24(r15), r6
+            \\ l.sw 28(r15), r7
+            \\ l.sw 32(r15), r8
+            \\ l.sw 36(r15), r9
+            \\ l.sw 40(r15), r10
+            \\ l.sw 44(r15), r11
+            \\ l.sw 48(r15), r12
+            \\ l.sw 52(r15), r13
+            \\ l.sw 56(r15), r14
+            \\ l.sw 60(r15), r15
+            \\ l.sw 64(r15), r16
+            \\ l.sw 68(r15), r17
+            \\ l.sw 72(r15), r18
+            \\ l.sw 76(r15), r19
+            \\ l.sw 80(r15), r20
+            \\ l.sw 84(r15), r21
+            \\ l.sw 88(r15), r22
+            \\ l.sw 92(r15), r23
+            \\ l.sw 96(r15), r24
+            \\ l.sw 100(r15), r25
+            \\ l.sw 104(r15), r26
+            \\ l.sw 108(r15), r27
+            \\ l.sw 112(r15), r28
+            \\ l.sw 116(r15), r29
+            \\ l.sw 120(r15), r30
+            \\ l.sw 124(r15), r31
+            \\ l.jal 1f
+            \\1:
+            \\ l.sw 128(r15), r9
+            :
+            : [ctx] "{r15}" (&ctx),
+            : .{ .r9 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Or1k, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            35 => return @ptrCast(&ctx.pc),
 
             else => return error.InvalidRegister,
         }

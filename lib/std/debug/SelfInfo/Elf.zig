@@ -101,7 +101,7 @@ pub const can_unwind: bool = s: {
             .x86,
             .x86_64,
         },
-        // Not supported yet: arc, arm/armeb/thumb/thumbeb, m68k, or1k, xtensa
+        // Not supported yet: arc, arm/armeb/thumb/thumbeb, m68k, xtensa
         .linux => &.{
             .aarch64,
             .aarch64_be,
@@ -111,6 +111,7 @@ pub const can_unwind: bool = s: {
             .mipsel,
             .mips64,
             .mips64el,
+            .or1k,
             .riscv32,
             .riscv64,
             .s390x,
