@@ -2792,7 +2792,61 @@ fn netLookupFallible(
     if (builtin.link_libc) {
         // This operating system lacks a way to resolve asynchronously. We are
         // stuck with getaddrinfo.
-        @compileError("TODO");
+        var name_buffer: [HostName.max_len + 1]u8 = undefined;
+        @memcpy(name_buffer[0..host_name.bytes.len], host_name.bytes);
+        name_buffer[host_name.bytes.len] = 0;
+        const name_c = name_buffer[0..host_name.bytes.len :0];
+
+        var port_buffer: [8]u8 = undefined;
+        const port_c = std.fmt.bufPrintZ(&port_buffer, "{d}", .{options.port}) catch unreachable;
+
+        const hints: posix.addrinfo = .{
+            .flags = .{ .NUMERICSERV = true },
+            .family = posix.AF.UNSPEC,
+            .socktype = posix.SOCK.STREAM,
+            .protocol = posix.IPPROTO.TCP,
+            .canonname = null,
+            .addr = null,
+            .addrlen = 0,
+            .next = null,
+        };
+        var res: ?*posix.addrinfo = null;
+        while (true) {
+            try t.checkCancel();
+            switch (posix.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
+                @as(posix.system.EAI, @enumFromInt(0)) => {},
+                .ADDRFAMILY => return error.AddressFamilyUnsupported,
+                .AGAIN => return error.NameServerFailure,
+                .FAIL => return error.NameServerFailure,
+                .FAMILY => return error.AddressFamilyUnsupported,
+                .MEMORY => return error.SystemResources,
+                .NODATA => return error.UnknownHostName,
+                .NONAME => return error.UnknownHostName,
+                .SYSTEM => switch (posix.errno(-1)) {
+                    .INTR => continue,
+                    else => |e| return posix.unexpectedErrno(e),
+                },
+                else => return error.Unexpected,
+            }
+        }
+        defer if (res) |some| posix.system.freeaddrinfo(some);
+
+        var it = res;
+        var canon_name: ?[]const u8 = null;
+        while (it) |info| : (it = info.next) {
+            const addr = info.addr orelse continue;
+            try resolved.putOne(addressFromPosix(addr));
+
+            if (info.canonname) |n| {
+                if (canon_name == null) {
+                    canon_name = n;
+                }
+            }
+        }
+        if (canon_name) |n| {
+            try resolved.putOne(.{ .canonical_name = copyCanon(options.canonical_name_buffer, n) });
+        }
+        return;
     }
 
     return error.OptionUnsupported;
