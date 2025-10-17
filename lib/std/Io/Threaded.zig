@@ -193,7 +193,11 @@ pub fn io(t: *Threaded) Io {
                 .wasi => dirCreateFileWasi,
                 else => dirCreateFilePosix,
             },
-            .dirOpenFile = dirOpenFile,
+            .dirOpenFile = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                .wasi => dirOpenFileWasi,
+                else => dirOpenFilePosix,
+            },
             .fileClose = fileClose,
             .fileWriteStreaming = fileWriteStreaming,
             .fileWritePositional = fileWritePositional,
@@ -1451,7 +1455,7 @@ fn dirCreateFileWasi(
     }
 }
 
-fn dirOpenFile(
+fn dirOpenFilePosix(
     userdata: ?*anyopaque,
     dir: Io.Dir,
     sub_path: []const u8,
@@ -1582,6 +1586,74 @@ fn dirOpenFile(
     }
 
     return .{ .handle = fd };
+}
+
+fn dirOpenFileWasi(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    flags: Io.File.OpenFlags,
+) Io.File.OpenError!Io.File {
+    if (builtin.link_libc) return dirOpenFilePosix(userdata, dir, sub_path, flags);
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const wasi = std.os.wasi;
+    var base: std.os.wasi.rights_t = .{};
+    // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or FD_WRITE
+    // is also set.
+    if (flags.isRead()) {
+        base.FD_READ = true;
+        base.FD_TELL = true;
+        base.FD_SEEK = true;
+        base.FD_FILESTAT_GET = true;
+        base.POLL_FD_READWRITE = true;
+    }
+    if (flags.isWrite()) {
+        base.FD_WRITE = true;
+        base.FD_TELL = true;
+        base.FD_SEEK = true;
+        base.FD_DATASYNC = true;
+        base.FD_FDSTAT_SET_FLAGS = true;
+        base.FD_SYNC = true;
+        base.FD_ALLOCATE = true;
+        base.FD_ADVISE = true;
+        base.FD_FILESTAT_SET_TIMES = true;
+        base.FD_FILESTAT_SET_SIZE = true;
+        base.POLL_FD_READWRITE = true;
+    }
+    const lookup_flags: wasi.lookupflags_t = .{};
+    const oflags: wasi.oflags_t = .{};
+    const inheriting: wasi.rights_t = .{};
+    const fdflags: wasi.fdflags_t = .{};
+    var fd: posix.fd_t = undefined;
+    while (true) {
+        try t.checkCancel();
+        switch (wasi.path_open(dir.handle, lookup_flags, sub_path.ptr, sub_path.len, oflags, base, inheriting, fdflags, &fd)) {
+            .SUCCESS => return .{ .handle = fd },
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .FAULT => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .ACCES => return error.AccessDenied,
+            .FBIG => return error.FileTooBig,
+            .OVERFLOW => return error.FileTooBig,
+            .ISDIR => return error.IsDir,
+            .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NODEV => return error.NoDevice,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.NotDir,
+            .PERM => return error.PermissionDenied,
+            .BUSY => return error.DeviceBusy,
+            .NOTCAPABLE => return error.AccessDenied,
+            .NAMETOOLONG => return error.NameTooLong,
+            .INVAL => return error.BadPathName,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn fileClose(userdata: ?*anyopaque, file: Io.File) void {
@@ -3319,7 +3391,7 @@ fn clockToPosix(clock: Io.Clock) posix.clockid_t {
 
 fn clockToWasi(clock: Io.Clock) std.os.wasi.clockid_t {
     return switch (clock) {
-        .realtime => .REALTIME,
+        .real => .REALTIME,
         .awake => .MONOTONIC,
         .boot => .MONOTONIC,
         .cpu_process => .PROCESS_CPUTIME_ID,
