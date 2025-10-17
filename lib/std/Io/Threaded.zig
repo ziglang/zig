@@ -174,7 +174,7 @@ pub fn io(t: *Threaded) Io {
             .dirStatPath = switch (builtin.os.tag) {
                 .linux => dirStatPathLinux,
                 .windows => @panic("TODO"),
-                .wasi => @panic("TODO"),
+                .wasi => dirStatPathWasi,
                 else => dirStatPathPosix,
             },
             .fileStat = switch (builtin.os.tag) {
@@ -978,6 +978,42 @@ fn dirStatPathPosix(
             .LOOP => return error.SymLinkLoop,
             .NOENT => return error.FileNotFound,
             .NOTDIR => return error.FileNotFound,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn dirStatPathWasi(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.StatPathOptions,
+) Io.Dir.StatPathError!Io.File.Stat {
+    if (builtin.link_libc) return dirStatPathPosix(userdata, dir, sub_path, options);
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const dir_fd = dir.handle;
+    const wasi = std.os.wasi;
+    const flags: wasi.lookupflags_t = .{
+        .SYMLINK_FOLLOW = @intFromBool(options.follow_symlinks),
+    };
+    var stat: wasi.filestat_t = undefined;
+    while (true) {
+        try t.checkCancel();
+        switch (wasi.path_filestat_get(dir_fd, flags, sub_path.ptr, sub_path.len, &stat)) {
+            .SUCCESS => return statFromWasi(stat),
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .INVAL => |err| errnoBug(err),
+            .BADF => |err| errnoBug(err), // Always a race condition.
+            .NOMEM => return error.SystemResources,
+            .ACCES => return error.AccessDenied,
+            .FAULT => |err| errnoBug(err),
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOTDIR => return error.FileNotFound,
+            .NOTCAPABLE => return error.AccessDenied,
             .ILSEQ => return error.BadPathName,
             else => |err| return posix.unexpectedErrno(err),
         }

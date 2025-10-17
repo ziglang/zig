@@ -2031,37 +2031,28 @@ test "invalid UTF-8/WTF-8 paths" {
             const invalid_path = try ctx.transformPath("\xFF");
 
             try testing.expectError(expected_err, ctx.dir.openFile(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.openFileZ(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.createFile(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.createFileZ(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.makeDir(invalid_path));
-            try testing.expectError(expected_err, ctx.dir.makeDirZ(invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.makePath(invalid_path));
             try testing.expectError(expected_err, ctx.dir.makeOpenPath(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.openDir(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.openDirZ(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.deleteFile(invalid_path));
-            try testing.expectError(expected_err, ctx.dir.deleteFileZ(invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.deleteDir(invalid_path));
-            try testing.expectError(expected_err, ctx.dir.deleteDirZ(invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.rename(invalid_path, invalid_path));
-            try testing.expectError(expected_err, ctx.dir.renameZ(invalid_path, invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.symLink(invalid_path, invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.symLinkZ(invalid_path, invalid_path, .{}));
             if (native_os == .wasi) {
                 try testing.expectError(expected_err, ctx.dir.symLinkWasi(invalid_path, invalid_path, .{}));
             }
 
             try testing.expectError(expected_err, ctx.dir.readLink(invalid_path, &[_]u8{}));
-            try testing.expectError(expected_err, ctx.dir.readLinkZ(invalid_path, &[_]u8{}));
             if (native_os == .wasi) {
                 try testing.expectError(expected_err, ctx.dir.readLinkWasi(invalid_path, &[_]u8{}));
             }
@@ -2075,7 +2066,6 @@ test "invalid UTF-8/WTF-8 paths" {
             try testing.expectError(expected_err, ctx.dir.writeFile(.{ .sub_path = invalid_path, .data = "" }));
 
             try testing.expectError(expected_err, ctx.dir.access(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.accessZ(invalid_path, .{}));
 
             var dir = ctx.dir.adaptToNewApi();
             try testing.expectError(expected_err, dir.updateFile(io, invalid_path, dir, invalid_path, .{}));
@@ -2085,37 +2075,25 @@ test "invalid UTF-8/WTF-8 paths" {
 
             if (native_os != .wasi) {
                 try testing.expectError(expected_err, ctx.dir.realpath(invalid_path, &[_]u8{}));
-                try testing.expectError(expected_err, ctx.dir.realpathZ(invalid_path, &[_]u8{}));
                 try testing.expectError(expected_err, ctx.dir.realpathAlloc(testing.allocator, invalid_path));
             }
 
             try testing.expectError(expected_err, fs.rename(ctx.dir, invalid_path, ctx.dir, invalid_path));
-            try testing.expectError(expected_err, fs.renameZ(ctx.dir, invalid_path, ctx.dir, invalid_path));
 
             if (native_os != .wasi and ctx.path_type != .relative) {
                 try testing.expectError(expected_err, fs.copyFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.makeDirAbsolute(invalid_path));
-                try testing.expectError(expected_err, fs.makeDirAbsoluteZ(invalid_path));
                 try testing.expectError(expected_err, fs.deleteDirAbsolute(invalid_path));
-                try testing.expectError(expected_err, fs.deleteDirAbsoluteZ(invalid_path));
                 try testing.expectError(expected_err, fs.renameAbsolute(invalid_path, invalid_path));
-                try testing.expectError(expected_err, fs.renameAbsoluteZ(invalid_path, invalid_path));
                 try testing.expectError(expected_err, fs.openDirAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.openDirAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.openFileAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.openFileAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.accessAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.accessAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.createFileAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.createFileAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.deleteFileAbsolute(invalid_path));
-                try testing.expectError(expected_err, fs.deleteFileAbsoluteZ(invalid_path));
                 try testing.expectError(expected_err, fs.deleteTreeAbsolute(invalid_path));
                 var readlink_buf: [fs.max_path_bytes]u8 = undefined;
                 try testing.expectError(expected_err, fs.readLinkAbsolute(invalid_path, &readlink_buf));
-                try testing.expectError(expected_err, fs.readLinkAbsoluteZ(invalid_path, &readlink_buf));
                 try testing.expectError(expected_err, fs.symLinkAbsolute(invalid_path, invalid_path, .{}));
-                try testing.expectError(expected_err, fs.symLinkAbsoluteZ(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.realpathAlloc(testing.allocator, invalid_path));
             }
         }

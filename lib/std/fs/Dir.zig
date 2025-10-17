@@ -2500,10 +2500,6 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         defer file.close();
         return file.stat();
     }
-    if (native_os == .wasi and !builtin.link_libc) {
-        const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
-        return Stat.fromWasi(st);
-    }
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
     return Io.Dir.statPath(.{ .handle = self.fd }, io, sub_path, .{});

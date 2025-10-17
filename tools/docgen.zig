@@ -36,6 +36,12 @@ pub fn main() !void {
     var args_it = try process.argsWithAllocator(arena);
     if (!args_it.skip()) @panic("expected self arg");
 
+    const gpa = arena;
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var opt_code_dir: ?[]const u8 = null;
     var opt_input: ?[]const u8 = null;
     var opt_output: ?[]const u8 = null;
@@ -77,7 +83,7 @@ pub fn main() !void {
     var code_dir = try fs.cwd().openDir(code_dir_path, .{});
     defer code_dir.close();
 
-    var in_file_reader = in_file.reader(&.{});
+    var in_file_reader = in_file.reader(io, &.{});
     const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .limited(max_doc_file_size));
 
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
