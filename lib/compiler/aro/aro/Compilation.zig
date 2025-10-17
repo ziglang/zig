@@ -171,10 +171,11 @@ pub fn init(gpa: Allocator, arena: Allocator, io: Io, diagnostics: *Diagnostics,
 
 /// Initialize Compilation with default environment,
 /// pragma handlers and emulation mode set to target.
-pub fn initDefault(gpa: Allocator, arena: Allocator, diagnostics: *Diagnostics, cwd: std.fs.Dir) !Compilation {
+pub fn initDefault(gpa: Allocator, arena: Allocator, io: Io, diagnostics: *Diagnostics, cwd: std.fs.Dir) !Compilation {
     var comp: Compilation = .{
         .gpa = gpa,
         .arena = arena,
+        .io = io,
         .diagnostics = diagnostics,
         .environment = try Environment.loadAll(gpa),
         .cwd = cwd,

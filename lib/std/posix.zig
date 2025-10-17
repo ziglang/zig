@@ -821,9 +821,6 @@ pub const ReadError = std.Io.File.ReadStreamingError;
 /// The corresponding POSIX limit is `maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (buf.len == 0) return 0;
-    if (native_os == .windows) {
-        return windows.ReadFile(fd, buf, null);
-    }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
             .base = buf.ptr,
@@ -1181,7 +1178,7 @@ pub const WriteError = error{
     PermissionDenied,
     BrokenPipe,
     SystemResources,
-    OperationAborted,
+    Canceled,
     NotOpenForWriting,
 
     /// The process cannot access the file because another process has locked
@@ -1597,10 +1594,7 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
             .PERM => return error.PermissionDenied,
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
-            .ILSEQ => |err| if (native_os == .wasi)
-                return error.InvalidUtf8
-            else
-                return unexpectedErrno(err),
+            .ILSEQ => return error.BadPathName,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1678,7 +1672,7 @@ pub fn openatWasi(
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
             .NOTCAPABLE => return error.AccessDenied,
-            .ILSEQ => return error.InvalidUtf8,
+            .ILSEQ => return error.BadPathName,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1773,10 +1767,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
             .NXIO => return error.NoDevice,
-            .ILSEQ => |err| if (native_os == .wasi)
-                return error.InvalidUtf8
-            else
-                return unexpectedErrno(err),
+            .ILSEQ => return error.BadPathName,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2084,10 +2075,7 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
         .NOMEM => return error.SystemResources,
         .NOSPC => return error.NoSpaceLeft,
         .ROFS => return error.ReadOnlyFileSystem,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2133,7 +2121,7 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
         .NOSPC => return error.NoSpaceLeft,
         .ROFS => return error.ReadOnlyFileSystem,
         .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2162,10 +2150,7 @@ pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:
         .NOMEM => return error.SystemResources,
         .NOSPC => return error.NoSpaceLeft,
         .ROFS => return error.ReadOnlyFileSystem,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2184,9 +2169,7 @@ pub const LinkError = UnexpectedError || error{
     NoSpaceLeft,
     ReadOnlyFileSystem,
     NotSameFileSystem,
-
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
+    BadPathName,
 };
 
 /// On WASI, both paths should be encoded as valid UTF-8.
@@ -2212,10 +2195,7 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8) LinkError!void {
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.NotSameFileSystem,
         .INVAL => unreachable,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2266,10 +2246,7 @@ pub fn linkatZ(
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.NotSameFileSystem,
         .INVAL => unreachable,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2315,7 +2292,7 @@ pub fn linkat(
             .ROFS => return error.ReadOnlyFileSystem,
             .XDEV => return error.NotSameFileSystem,
             .INVAL => unreachable,
-            .ILSEQ => return error.InvalidUtf8,
+            .ILSEQ => return error.BadPathName,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2398,10 +2375,7 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
         .NOTDIR => return error.NotDir,
         .NOMEM => return error.SystemResources,
         .ROFS => return error.ReadOnlyFileSystem,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2460,7 +2434,7 @@ pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatErro
         .ROFS => return error.ReadOnlyFileSystem,
         .NOTEMPTY => return error.DirNotEmpty,
         .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
+        .ILSEQ => return error.BadPathName,
 
         .INVAL => unreachable, // invalid flags, or pathname has . as last component
         .BADF => unreachable, // always a race condition
@@ -2493,10 +2467,7 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
         .ROFS => return error.ReadOnlyFileSystem,
         .EXIST => return error.DirNotEmpty,
         .NOTEMPTY => return error.DirNotEmpty,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
 
         .INVAL => unreachable, // invalid flags, or pathname has . as last component
         .BADF => unreachable, // always a race condition
@@ -2598,10 +2569,7 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
         .NOTEMPTY => return error.PathAlreadyExists,
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.RenameAcrossMountPoints,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2662,7 +2630,7 @@ fn renameatWasi(old: RelativePathWasi, new: RelativePathWasi) RenameError!void {
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.RenameAcrossMountPoints,
         .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2713,10 +2681,7 @@ pub fn renameatZ(
         .NOTEMPTY => return error.PathAlreadyExists,
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.RenameAcrossMountPoints,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2870,7 +2835,7 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDir
         .NOTDIR => return error.NotDir,
         .ROFS => return error.ReadOnlyFileSystem,
         .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2901,10 +2866,7 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: mode_t) MakeDir
         .ROFS => return error.ReadOnlyFileSystem,
         // dragonfly: when dir_fd is unlinked from filesystem
         .NOTCONN => return error.FileNotFound,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2973,10 +2935,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
         .NOSPC => return error.NoSpaceLeft,
         .NOTDIR => return error.NotDir,
         .ROFS => return error.ReadOnlyFileSystem,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3067,10 +3026,7 @@ pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
         .EXIST => return error.DirNotEmpty,
         .NOTEMPTY => return error.DirNotEmpty,
         .ROFS => return error.ReadOnlyFileSystem,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3145,10 +3101,7 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3254,10 +3207,7 @@ pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3299,7 +3249,7 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
         .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3332,10 +3282,7 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -4421,13 +4368,10 @@ pub const FStatAtError = FStatError || error{
 /// which is relative to `dirfd` handle.
 /// On WASI, `pathname` should be encoded as valid UTF-8.
 /// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
-/// See also `fstatatZ` and `std.os.fstatat_wasi`.
+/// See also `fstatatZ`.
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try std.os.fstatat_wasi(dirfd, pathname, .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-        return Stat.fromFilestat(filestat);
+        @compileError("use std.Io instead");
     } else if (native_os == .windows) {
         @compileError("fstatat is not yet implemented on Windows");
     } else {
@@ -4440,10 +4384,7 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
 /// See also `fstatat`.
 pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try std.os.fstatat_wasi(dirfd, mem.sliceTo(pathname, 0), .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-        return Stat.fromFilestat(filestat);
+        @compileError("use std.Io instead");
     }
 
     const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
@@ -4460,10 +4401,7 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
         .LOOP => return error.SymLinkLoop,
         .NOENT => return error.FileNotFound,
         .NOTDIR => return error.FileNotFound,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -4991,10 +4929,7 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
         .FAULT => unreachable,
         .IO => return error.InputOutput,
         .NOMEM => return error.SystemResources,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -5072,10 +5007,7 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
         .FAULT => unreachable,
         .IO => return error.InputOutput,
         .NOMEM => return error.SystemResources,
-        .ILSEQ => |err| if (native_os == .wasi)
-            return error.InvalidUtf8
-        else
-            return unexpectedErrno(err),
+        .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
 }

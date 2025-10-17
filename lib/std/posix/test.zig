@@ -226,49 +226,6 @@ test "linkat with different directories" {
     }
 }
 
-test "fstatat" {
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
-    // enable when `fstat` and `fstatat` are implemented on Windows
-    if (native_os == .windows) return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    // create dummy file
-    const contents = "nonsense";
-    try tmp.dir.writeFile(.{ .sub_path = "file.txt", .data = contents });
-
-    // fetch file's info on the opened fd directly
-    const file = try tmp.dir.openFile("file.txt", .{});
-    const stat = try posix.fstat(file.handle);
-    defer file.close();
-
-    // now repeat but using `fstatat` instead
-    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", posix.AT.SYMLINK_NOFOLLOW);
-
-    try expectEqual(stat.dev, statat.dev);
-    try expectEqual(stat.ino, statat.ino);
-    try expectEqual(stat.nlink, statat.nlink);
-    try expectEqual(stat.mode, statat.mode);
-    try expectEqual(stat.uid, statat.uid);
-    try expectEqual(stat.gid, statat.gid);
-    try expectEqual(stat.rdev, statat.rdev);
-    try expectEqual(stat.size, statat.size);
-    try expectEqual(stat.blksize, statat.blksize);
-
-    // The stat.blocks/statat.blocks count is managed by the filesystem and may
-    // change if the file is stored in a journal or "inline".
-    // try expectEqual(stat.blocks, statat.blocks);
-
-    // s390x-linux does not have nanosecond precision for fstat(), but it does for
-    // fstatat(). As a result, comparing the timestamps isn't worth the effort
-    if (!(builtin.cpu.arch == .s390x and builtin.os.tag == .linux)) {
-        try expectEqual(stat.atime(), statat.atime());
-        try expectEqual(stat.mtime(), statat.mtime());
-        try expectEqual(stat.ctime(), statat.ctime());
-    }
-}
-
 test "readlinkat" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
