@@ -1,34 +1,36 @@
+// TODO: A lot of this file is very likely wrong.
+
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const SYS = std.os.linux.SYS;
 
-pub fn syscall0(number: SYS) u64 {
+pub fn syscall0(number: SYS) u32 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> u64),
+        : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: u64) u64 {
+pub fn syscall1(number: SYS, arg1: u32) u32 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> u64),
+        : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
+pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> u64),
+        : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
+pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> u64),
+        : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -36,9 +38,9 @@ pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
+pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> u64),
+        : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -47,9 +49,9 @@ pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
+pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u32) u32 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> u64),
+        : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -61,15 +63,15 @@ pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u
 
 pub fn syscall6(
     number: SYS,
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    arg6: u64,
-) u64 {
+    arg1: u32,
+    arg2: u32,
+    arg3: u32,
+    arg4: u32,
+    arg5: u32,
+    arg6: u32,
+) u32 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> u64),
+        : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -80,7 +82,7 @@ pub fn syscall6(
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn clone() callconv(.naked) u64 {
+pub fn clone() callconv(.naked) u32 {
     asm volatile (
         \\      movl $56,%%eax // SYS_clone
         \\      movq %%rdi,%%r11
@@ -132,11 +134,11 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const mode_t = u64;
-pub const time_t = i64;
-pub const nlink_t = u64;
-pub const blksize_t = i64;
-pub const blkcnt_t = i64;
+pub const mode_t = u32;
+pub const time_t = i32;
+pub const nlink_t = u32;
+pub const blksize_t = i32;
+pub const blkcnt_t = i32;
 pub const off_t = i64;
 pub const ino_t = u64;
 pub const dev_t = u64;
@@ -160,21 +162,21 @@ pub const ARCH = struct {
 pub const Stat = extern struct {
     dev: dev_t,
     ino: ino_t,
-    nlink: u64,
+    nlink: nlink_t,
 
-    mode: u32,
+    mode: mode_t,
     uid: std.os.linux.uid_t,
     gid: std.os.linux.gid_t,
     __pad0: u32,
     rdev: dev_t,
     size: off_t,
-    blksize: i64,
+    blksize: blksize_t,
     blocks: i64,
 
     atim: std.os.linux.timespec,
     mtim: std.os.linux.timespec,
     ctim: std.os.linux.timespec,
-    __unused: [3]i64,
+    __unused: [3]i32,
 
     pub fn atime(self: @This()) std.os.linux.timespec {
         return self.atim;

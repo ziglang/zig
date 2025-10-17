@@ -32,21 +32,27 @@ test {
 }
 
 const arch_bits = switch (native_arch) {
-    .x86 => @import("linux/x86.zig"),
-    .x86_64 => @import("linux/x86_64.zig"),
     .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
     .hexagon => @import("linux/hexagon.zig"),
-    .riscv32 => @import("linux/riscv32.zig"),
-    .riscv64 => @import("linux/riscv64.zig"),
-    .sparc64 => @import("linux/sparc64.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
     .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
-    .mips64, .mips64el => @import("linux/mips64.zig"),
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => @import("linux/mipsn32.zig"),
+        else => @import("linux/mips64.zig"),
+    },
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
+    .riscv32 => @import("linux/riscv32.zig"),
+    .riscv64 => @import("linux/riscv64.zig"),
     .s390x => @import("linux/s390x.zig"),
+    .sparc64 => @import("linux/sparc64.zig"),
+    .x86 => @import("linux/x86.zig"),
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => @import("linux/x32.zig"),
+        else => @import("linux/x86_64.zig"),
+    },
     else => struct {},
 };
 
@@ -88,9 +94,6 @@ pub fn clone(
 }
 
 pub const ARCH = arch_bits.ARCH;
-pub const Elf_Symndx = arch_bits.Elf_Symndx;
-pub const F = arch_bits.F;
-pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
 pub const SC = arch_bits.SC;
 pub const Stat = arch_bits.Stat;
@@ -103,8 +106,6 @@ pub const mode_t = arch_bits.mode_t;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
-pub const timeval = arch_bits.timeval;
-pub const timezone = arch_bits.timezone;
 pub const user_desc = arch_bits.user_desc;
 
 pub const tls = @import("linux/tls.zig");
@@ -113,10 +114,10 @@ pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
-pub const SYS = switch (@import("builtin").cpu.arch) {
+pub const SYS = switch (native_arch) {
     .arc => syscalls.Arc,
-    .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .aarch64, .aarch64_be => syscalls.Arm64,
+    .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
     .loongarch64 => syscalls.LoongArch64,
@@ -126,20 +127,20 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
         .gnuabin32, .muslabin32 => syscalls.MipsN32,
         else => syscalls.MipsN64,
     },
+    .or1k => syscalls.OpenRisc,
+    .powerpc, .powerpcle => syscalls.PowerPC,
+    .powerpc64, .powerpc64le => syscalls.PowerPC64,
     .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
     .s390x => syscalls.S390x,
     .sparc => syscalls.Sparc,
     .sparc64 => syscalls.Sparc64,
-    .powerpc, .powerpcle => syscalls.PowerPC,
-    .powerpc64, .powerpc64le => syscalls.PowerPC64,
     .x86 => syscalls.X86,
     .x86_64 => switch (builtin.abi) {
         .gnux32, .muslx32 => syscalls.X32,
         else => syscalls.X64,
     },
     .xtensa => syscalls.Xtensa,
-    .or1k => syscalls.OpenRisc,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -1600,6 +1601,70 @@ pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
     return syscall5(.waitid, @intFromEnum(id_type), @as(usize, @bitCast(@as(isize, id))), @intFromPtr(infop), flags, 0);
 }
 
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
+
+    pub const GETLK = GET_SET_LK.GETLK;
+    pub const SETLK = GET_SET_LK.SETLK;
+    pub const SETLKW = GET_SET_LK.SETLKW;
+
+    const GET_SET_LK = if (@sizeOf(usize) == 64) extern struct {
+        pub const GETLK = if (is_mips) 14 else if (is_sparc) 7 else 5;
+        pub const SETLK = if (is_mips) 6 else if (is_sparc) 8 else 6;
+        pub const SETLKW = if (is_mips) 7 else if (is_sparc) 9 else 7;
+    } else extern struct {
+        // Ensure that 32-bit code uses the large-file variants (GETLK64, etc).
+
+        pub const GETLK = if (is_mips) 33 else 12;
+        pub const SETLK = if (is_mips) 34 else 13;
+        pub const SETLKW = if (is_mips) 35 else 14;
+    };
+
+    pub const SETOWN = if (is_mips) 24 else if (is_sparc) 6 else 8;
+    pub const GETOWN = if (is_mips) 23 else if (is_sparc) 5 else 9;
+
+    pub const SETSIG = 10;
+    pub const GETSIG = 11;
+
+    pub const SETOWN_EX = 15;
+    pub const GETOWN_EX = 16;
+
+    pub const GETOWNER_UIDS = 17;
+
+    pub const OFD_GETLK = 36;
+    pub const OFD_SETLK = 37;
+    pub const OFD_SETLKW = 38;
+
+    pub const RDLCK = if (is_sparc) 1 else 0;
+    pub const WRLCK = if (is_sparc) 2 else 1;
+    pub const UNLCK = if (is_sparc) 3 else 2;
+};
+
+pub const F_OWNER = enum(i32) {
+    TID = 0,
+    PID = 1,
+    PGRP = 2,
+    _,
+};
+
+pub const f_owner_ex = extern struct {
+    type: F_OWNER,
+    pid: pid_t,
+};
+
+pub const Flock = extern struct {
+    type: i16,
+    whence: i16,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    _unused: if (is_sparc) i16 else void,
+};
+
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
     if (@hasField(SYS, "fcntl64")) {
         return syscall3(.fcntl64, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
@@ -1611,6 +1676,8 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
 pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, operation))));
 }
+
+pub const Elf_Symndx = if (native_arch == .s390x) u64 else u32;
 
 // We must follow the C calling convention when we call into the VDSO
 const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.c) usize;
@@ -8359,6 +8426,16 @@ pub const POSIX_FADV = switch (native_arch) {
         pub const DONTNEED = 4;
         pub const NOREUSE = 5;
     },
+};
+
+pub const timeval = extern struct {
+    tv_sec: isize,
+    tv_usec: i64,
+};
+
+pub const timezone = extern struct {
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 /// The timespec struct used by the kernel.
