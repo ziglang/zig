@@ -8429,8 +8429,8 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: i64,
+    sec: isize,
+    usec: i64,
 };
 
 pub const timezone = extern struct {
