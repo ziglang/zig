@@ -1407,7 +1407,7 @@ test "setEndPos" {
         try f.setEndPos(initial_size);
         try testing.expectEqual(initial_size, try f.getEndPos());
         try reader.seekTo(0);
-        try testing.expectEqual(initial_size, reader.interface.readSliceShort(&buffer));
+        try testing.expectEqual(initial_size, try reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("ninebytes", buffer[0..@intCast(initial_size)]);
     }
 
@@ -1416,7 +1416,7 @@ test "setEndPos" {
         try f.setEndPos(larger);
         try testing.expectEqual(larger, try f.getEndPos());
         try reader.seekTo(0);
-        try testing.expectEqual(larger, reader.interface.readSliceShort(&buffer));
+        try testing.expectEqual(larger, try reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("ninebytes\x00\x00\x00\x00", buffer[0..@intCast(larger)]);
     }
 
