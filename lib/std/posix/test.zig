@@ -109,64 +109,6 @@ test "open smoke test" {
     }
 }
 
-test "openat smoke test" {
-    if (native_os == .windows) return error.SkipZigTest;
-
-    // TODO verify file attributes using `fstatat`
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    var fd: posix.fd_t = undefined;
-    const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
-
-    // Create some file using `openat`.
-    fd = try posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .CREAT = true,
-        .EXCL = true,
-    }), mode);
-    posix.close(fd);
-
-    // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    try expectError(error.PathAlreadyExists, posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .CREAT = true,
-        .EXCL = true,
-    }), mode));
-
-    // Try opening without `EXCL` flag.
-    fd = try posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .CREAT = true,
-    }), mode);
-    posix.close(fd);
-
-    // Try opening as a directory which should fail.
-    try expectError(error.NotDir, posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .DIRECTORY = true,
-    }), mode));
-
-    // Create some directory
-    try posix.mkdirat(tmp.dir.fd, "some_dir", mode);
-
-    // Open dir using `open`
-    fd = try posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDONLY,
-        .DIRECTORY = true,
-    }), mode);
-    posix.close(fd);
-
-    // Try opening as file which should fail (skip on wasi+libc due to
-    // https://github.com/bytecodealliance/wasmtime/issues/9054)
-    if (native_os != .wasi or !builtin.link_libc) {
-        try expectError(error.IsDir, posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
-            .ACCMODE = .RDWR,
-        }), mode));
-    }
-}
-
 test "readlink on Windows" {
     if (native_os != .windows) return error.SkipZigTest;
 

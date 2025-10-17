@@ -167,7 +167,7 @@ pub fn io(t: *Threaded) Io {
 
             .dirMake = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
-                .wasi => @panic("TODO"),
+                .wasi => dirMakeWasi,
                 else => dirMakePosix,
             },
             .dirStat = dirStat,
@@ -906,6 +906,37 @@ fn dirMakePosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: 
     }
 }
 
+fn dirMakeWasi(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
+    if (builtin.link_libc) return dirMakePosix(userdata, dir, sub_path, mode);
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    while (true) {
+        try t.checkCancel();
+        switch (std.os.wasi.path_create_directory(dir.handle, sub_path.ptr, sub_path.len)) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .ACCES => return error.AccessDenied,
+            .BADF => |err| return errnoBug(err),
+            .PERM => return error.PermissionDenied,
+            .DQUOT => return error.DiskQuota,
+            .EXIST => return error.PathAlreadyExists,
+            .FAULT => |err| return errnoBug(err),
+            .LOOP => return error.SymLinkLoop,
+            .MLINK => return error.LinkQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOSPC => return error.NoSpaceLeft,
+            .NOTDIR => return error.NotDir,
+            .ROFS => return error.ReadOnlyFileSystem,
+            .NOTCAPABLE => return error.AccessDenied,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
 fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     try t.checkCancel();
@@ -1005,13 +1036,13 @@ fn dirStatPathWasi(
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const wasi = std.os.wasi;
     const flags: wasi.lookupflags_t = .{
-        .SYMLINK_FOLLOW = @intFromBool(options.follow_symlinks),
+        .SYMLINK_FOLLOW = options.follow_symlinks,
     };
     var stat: wasi.filestat_t = undefined;
     while (true) {
         try t.checkCancel();
         switch (wasi.path_filestat_get(dir.handle, flags, sub_path.ptr, sub_path.len, &stat)) {
-            .SUCCESS => return statFromWasi(stat),
+            .SUCCESS => return statFromWasi(&stat),
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
@@ -1166,19 +1197,19 @@ fn dirAccessWasi(
     userdata: ?*anyopaque,
     dir: Io.Dir,
     sub_path: []const u8,
-    options: Io.File.OpenFlags,
-) Io.File.AccessError!void {
+    options: Io.Dir.AccessOptions,
+) Io.Dir.AccessError!void {
     if (builtin.link_libc) return dirAccessPosix(userdata, dir, sub_path, options);
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const wasi = std.os.wasi;
     const flags: wasi.lookupflags_t = .{
-        .SYMLINK_FOLLOW = @intFromBool(options.follow_symlinks),
+        .SYMLINK_FOLLOW = options.follow_symlinks,
     };
-    const stat = while (true) {
-        var stat: wasi.filestat_t = undefined;
+    var stat: wasi.filestat_t = undefined;
+    while (true) {
         try t.checkCancel();
         switch (wasi.path_filestat_get(dir.handle, flags, sub_path.ptr, sub_path.len, &stat)) {
-            .SUCCESS => break statFromWasi(stat),
+            .SUCCESS => break,
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
@@ -1194,9 +1225,9 @@ fn dirAccessWasi(
             .ILSEQ => return error.BadPathName,
             else => |err| return posix.unexpectedErrno(err),
         }
-    };
+    }
 
-    if (!options.mode.read and !options.mode.write and !options.mode.execute)
+    if (!options.read and !options.write and !options.execute)
         return;
 
     var directory: wasi.fdstat_t = undefined;
@@ -1204,14 +1235,14 @@ fn dirAccessWasi(
         return error.AccessDenied;
 
     var rights: wasi.rights_t = .{};
-    if (options.mode.read) {
+    if (options.read) {
         if (stat.filetype == .DIRECTORY) {
             rights.FD_READDIR = true;
         } else {
             rights.FD_READ = true;
         }
     }
-    if (options.mode.write)
+    if (options.write)
         rights.FD_WRITE = true;
 
     // No validation for execution.
@@ -3262,9 +3293,9 @@ fn statFromWasi(st: *const std.os.wasi.filestat_t) Io.File.Stat {
             .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
             else => .unknown,
         },
-        .atime = st.atim,
-        .mtime = st.mtim,
-        .ctime = st.ctim,
+        .atime = .fromNanoseconds(st.atim),
+        .mtime = .fromNanoseconds(st.mtim),
+        .ctime = .fromNanoseconds(st.ctim),
     };
 }
 
