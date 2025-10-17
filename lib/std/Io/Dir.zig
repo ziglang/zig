@@ -69,6 +69,30 @@ pub const OpenError = error{
     NetworkNotFound,
 } || PathNameError || Io.Cancelable || Io.UnexpectedError;
 
+pub const OpenOptions = struct {
+    /// `true` means the opened directory can be used as the `Dir` parameter
+    /// for functions which operate based on an open directory handle. When `false`,
+    /// such operations are Illegal Behavior.
+    access_sub_paths: bool = true,
+    /// `true` means the opened directory can be scanned for the files and sub-directories
+    /// of the result. It means the `iterate` function can be called.
+    iterate: bool = false,
+    /// `false` means it won't dereference the symlinks.
+    follow_symlinks: bool = true,
+};
+
+/// Opens a directory at the given path. The directory is a system resource that remains
+/// open until `close` is called on the result.
+///
+/// The directory cannot be iterated unless the `iterate` option is set to `true`.
+///
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+pub fn openDir(dir: Dir, io: Io, sub_path: []const u8, options: OpenOptions) OpenError!Dir {
+    return io.vtable.dirOpenDir(io.userdata, dir, sub_path, options);
+}
+
 pub fn openFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     return io.vtable.dirOpenFile(io.userdata, dir, sub_path, flags);
 }
