@@ -614,6 +614,7 @@ const test_targets = blk: {
                 .abi = .muslabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -640,6 +641,7 @@ const test_targets = blk: {
                 .abi = .gnuabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
 
         .{
@@ -674,6 +676,7 @@ const test_targets = blk: {
                 .abi = .muslabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -700,6 +703,7 @@ const test_targets = blk: {
                 .abi = .gnuabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
 
         .{
@@ -1136,6 +1140,7 @@ const test_targets = blk: {
                 .abi = .gnux32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1162,6 +1167,7 @@ const test_targets = blk: {
                 .abi = .muslx32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1829,7 +1835,6 @@ const c_abi_targets = blk: {
                 .os_tag = .linux,
                 .abi = .muslx32,
             },
-            .use_llvm = true,
         },
 
         // WASI Targets
