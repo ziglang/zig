@@ -712,6 +712,7 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabi,
             },
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -727,6 +728,7 @@ const test_targets = blk: {
                 .abi = .musleabi,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -769,6 +771,7 @@ const test_targets = blk: {
             .link_libc = true,
             // https://github.com/ziglang/zig/issues/2256
             .skip_modules = &.{"std"},
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1323,6 +1326,7 @@ const test_targets = blk: {
                 .abi = .eabi,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
