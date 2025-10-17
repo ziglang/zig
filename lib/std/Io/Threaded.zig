@@ -882,6 +882,8 @@ fn dirMakePosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: 
         switch (posix.errno(posix.system.mkdirat(dir.handle, sub_path_posix, mode))) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .ACCES => return error.AccessDenied,
             .BADF => |err| return errnoBug(err),
             .PERM => return error.PermissionDenied,
@@ -940,6 +942,8 @@ fn dirStatPathLinux(
         switch (linux.E.init(rc)) {
             .SUCCESS => return statFromLinux(&statx),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .ACCES => return error.AccessDenied,
             .BADF => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
@@ -973,6 +977,8 @@ fn dirStatPathPosix(
         switch (posix.errno(fstatat_sym(dir.handle, sub_path_posix, &stat, flags))) {
             .SUCCESS => return statFromPosix(&stat),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .INVAL => |err| return errnoBug(err),
             .BADF => |err| return errnoBug(err), // Always a race condition.
             .NOMEM => return error.SystemResources,
@@ -1035,6 +1041,8 @@ fn fileStatPosix(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
         switch (posix.errno(fstat_sym(file.handle, &stat))) {
             .SUCCESS => return statFromPosix(&stat),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .INVAL => |err| return errnoBug(err),
             .BADF => |err| return errnoBug(err),
             .NOMEM => return error.SystemResources,
@@ -1060,6 +1068,8 @@ fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
         switch (linux.E.init(rc)) {
             .SUCCESS => return statFromLinux(&statx),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .ACCES => |err| return errnoBug(err),
             .BADF => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
@@ -1090,6 +1100,8 @@ fn fileStatWasi(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.
         switch (std.os.wasi.fd_filestat_get(file.handle, &stat)) {
             .SUCCESS => return statFromWasi(&stat),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .INVAL => |err| return errnoBug(err),
             .BADF => |err| return errnoBug(err),
             .NOMEM => return error.SystemResources,
@@ -1253,6 +1265,7 @@ fn dirCreateFilePosix(
         switch (posix.errno(rc)) {
             .SUCCESS => break @intCast(rc),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
 
             .FAULT => |err| return errnoBug(err),
             .INVAL => return error.BadPathName,
@@ -1296,6 +1309,7 @@ fn dirCreateFilePosix(
             switch (posix.errno(posix.system.flock(fd, lock_flags))) {
                 .SUCCESS => break,
                 .INTR => continue,
+                .CANCELED => return error.Canceled,
 
                 .BADF => |err| return errnoBug(err),
                 .INVAL => |err| return errnoBug(err), // invalid parameters
@@ -1314,6 +1328,7 @@ fn dirCreateFilePosix(
             switch (posix.errno(rc)) {
                 .SUCCESS => break @intCast(rc),
                 .INTR => continue,
+                .CANCELED => return error.Canceled,
                 else => |err| return posix.unexpectedErrno(err),
             }
         };
@@ -1323,6 +1338,7 @@ fn dirCreateFilePosix(
             switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFL, fl_flags))) {
                 .SUCCESS => break,
                 .INTR => continue,
+                .CANCELED => return error.Canceled,
                 else => |err| return posix.unexpectedErrno(err),
             }
         }
@@ -1383,6 +1399,7 @@ fn dirOpenFile(
         switch (posix.errno(rc)) {
             .SUCCESS => break @intCast(rc),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
 
             .FAULT => |err| return errnoBug(err),
             .INVAL => return error.BadPathName,
@@ -1426,6 +1443,7 @@ fn dirOpenFile(
             switch (posix.errno(posix.system.flock(fd, lock_flags))) {
                 .SUCCESS => break,
                 .INTR => continue,
+                .CANCELED => return error.Canceled,
 
                 .BADF => |err| return errnoBug(err),
                 .INVAL => |err| return errnoBug(err), // invalid parameters
@@ -1444,6 +1462,7 @@ fn dirOpenFile(
             switch (posix.errno(rc)) {
                 .SUCCESS => break @intCast(rc),
                 .INTR => continue,
+                .CANCELED => return error.Canceled,
                 else => |err| return posix.unexpectedErrno(err),
             }
         };
@@ -1453,6 +1472,7 @@ fn dirOpenFile(
             switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFL, fl_flags))) {
                 .SUCCESS => break,
                 .INTR => continue,
+                .CANCELED => return error.Canceled,
                 else => |err| return posix.unexpectedErrno(err),
             }
         }
@@ -1526,6 +1546,8 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
         switch (std.os.wasi.fd_read(file.handle, dest.ptr, dest.len, &nread)) {
             .SUCCESS => return nread,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .BADF => |err| return errnoBug(err),
@@ -1547,6 +1569,8 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
@@ -1647,6 +1671,8 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
         switch (std.os.wasi.fd_pread(file.handle, dest.ptr, dest.len, offset, &nread)) {
             .SUCCESS => return nread,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
@@ -1672,6 +1698,8 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
         switch (posix.errno(rc)) {
             .SUCCESS => return @bitCast(rc),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
@@ -1711,6 +1739,8 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
         switch (posix.errno(posix.system.llseek(fd, offset, &result, posix.SEEK.SET))) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .BADF => |err| return errnoBug(err), // Always a race condition.
             .INVAL => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1731,6 +1761,8 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
         switch (std.os.wasi.fd_seek(fd, @bitCast(offset), .SET, &new_offset)) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .BADF => |err| return errnoBug(err), // Always a race condition.
             .INVAL => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1748,6 +1780,8 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
         switch (posix.errno(lseek_sym(fd, @bitCast(offset), posix.SEEK.SET))) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .BADF => |err| return errnoBug(err), // Always a race condition.
             .INVAL => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1845,6 +1879,7 @@ fn sleepLinux(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
         } }, &timespec, &timespec))) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
             .INVAL => return error.UnsupportedClock,
             else => |err| return posix.unexpectedErrno(err),
         }
@@ -1907,6 +1942,7 @@ fn sleepPosix(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
         try t.checkCancel();
         switch (posix.errno(posix.system.nanosleep(&timespec, &timespec))) {
             .INTR => continue,
+            .CANCELED => return error.Canceled,
             else => return, // This prong handles success as well as unexpected errors.
         }
     }
@@ -2024,6 +2060,8 @@ fn posixBindUnix(t: *Threaded, fd: posix.socket_t, addr: *const posix.sockaddr, 
         switch (posix.errno(posix.system.bind(fd, addr, addr_len))) {
             .SUCCESS => break,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .ACCES => return error.AccessDenied,
             .ADDRINUSE => return error.AddressInUse,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
@@ -2052,6 +2090,8 @@ fn posixBind(t: *Threaded, socket_fd: posix.socket_t, addr: *const posix.sockadd
         switch (posix.errno(posix.system.bind(socket_fd, addr, addr_len))) {
             .SUCCESS => break,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .ADDRINUSE => return error.AddressInUse,
             .BADF => |err| return errnoBug(err), // always a race condition if this error is returned
             .INVAL => |err| return errnoBug(err), // invalid parameters
@@ -2071,6 +2111,8 @@ fn posixConnect(t: *Threaded, socket_fd: posix.socket_t, addr: *const posix.sock
         switch (posix.errno(posix.system.connect(socket_fd, addr, addr_len))) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .ADDRNOTAVAIL => return error.AddressUnavailable,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN, .INPROGRESS => return error.WouldBlock,
@@ -2100,6 +2142,7 @@ fn posixConnectUnix(t: *Threaded, fd: posix.socket_t, addr: *const posix.sockadd
         switch (posix.errno(posix.system.connect(fd, addr, addr_len))) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
 
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN => return error.WouldBlock,
@@ -2129,6 +2172,8 @@ fn posixGetSockName(t: *Threaded, socket_fd: posix.fd_t, addr: *posix.sockaddr, 
         switch (posix.errno(posix.system.getsockname(socket_fd, addr, addr_len))) {
             .SUCCESS => break,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .BADF => |err| return errnoBug(err), // always a race condition
             .FAULT => |err| return errnoBug(err),
             .INVAL => |err| return errnoBug(err), // invalid parameters
@@ -2146,6 +2191,8 @@ fn setSocketOption(t: *Threaded, fd: posix.fd_t, level: i32, opt_name: u32, opti
         switch (posix.errno(posix.system.setsockopt(fd, level, opt_name, o.ptr, @intCast(o.len)))) {
             .SUCCESS => return,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .BADF => |err| return errnoBug(err), // always a race condition
             .NOTSOCK => |err| return errnoBug(err), // always a race condition
             .INVAL => |err| return errnoBug(err),
@@ -2245,12 +2292,15 @@ fn openSocketPosix(
                     switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, @as(usize, posix.FD_CLOEXEC)))) {
                         .SUCCESS => break,
                         .INTR => continue,
+                        .CANCELED => return error.Canceled,
                         else => |err| return posix.unexpectedErrno(err),
                     }
                 };
                 break fd;
             },
             .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .INVAL => return error.ProtocolUnsupportedBySystem,
             .MFILE => return error.ProcessFdQuotaExceeded,
@@ -2294,12 +2344,14 @@ fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: net.Socket.Handle) net.Serve
                     switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFD, @as(usize, posix.FD_CLOEXEC)))) {
                         .SUCCESS => break,
                         .INTR => continue,
+                        .CANCELED => return error.Canceled,
                         else => |err| return posix.unexpectedErrno(err),
                     }
                 };
                 break fd;
             },
             .INTR => continue,
+            .CANCELED => return error.Canceled,
             .AGAIN => |err| return errnoBug(err),
             .BADF => |err| return errnoBug(err), // always a race condition
             .CONNABORTED => return error.ConnectionAborted,
@@ -2343,6 +2395,7 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
         switch (std.os.wasi.fd_read(fd, dest.ptr, dest.len, &n)) {
             .SUCCESS => return n,
             .INTR => continue,
+            .CANCELED => return error.Canceled,
 
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
@@ -2364,6 +2417,7 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
+            .CANCELED => return error.Canceled,
 
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
@@ -2464,6 +2518,7 @@ fn netSendOne(
                 return;
             },
             .INTR => continue,
+            .CANCELED => return error.Canceled,
 
             .ACCES => return error.AccessDenied,
             .ALREADY => return error.FastOpenAlreadyInProgress,
@@ -2531,13 +2586,15 @@ fn netSendMany(
                 }
                 return n;
             },
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
             .AGAIN => |err| return errnoBug(err),
             .ALREADY => return error.FastOpenAlreadyInProgress,
             .BADF => |err| return errnoBug(err), // Always a race condition.
             .CONNRESET => return error.ConnectionResetByPeer,
             .DESTADDRREQ => |err| return errnoBug(err), // The socket is not connection-mode, and no peer address is set.
             .FAULT => |err| return errnoBug(err), // An invalid user space address was specified for an argument.
-            .INTR => continue,
             .INVAL => |err| return errnoBug(err), // Invalid argument passed.
             .ISCONN => |err| return errnoBug(err), // connection-mode socket was connected already but a recipient was specified
             .MSGSIZE => return error.MessageOversize,
@@ -2654,6 +2711,7 @@ fn netReceive(
                         continue :recv;
                     },
                     .INTR => continue,
+                    .CANCELED => return .{ error.Canceled, message_i },
 
                     .FAULT => |err| return .{ errnoBug(err), message_i },
                     .INVAL => |err| return .{ errnoBug(err), message_i },
@@ -2662,6 +2720,7 @@ fn netReceive(
                 }
             },
             .INTR => continue,
+            .CANCELED => return .{ error.Canceled, message_i },
 
             .BADF => |err| return .{ errnoBug(err), message_i },
             .NFILE => return .{ error.SystemFdQuotaExceeded, message_i },
@@ -2780,6 +2839,8 @@ fn netInterfaceNameResolve(
             switch (posix.errno(posix.system.ioctl(sock_fd, posix.SIOCGIFINDEX, @intFromPtr(&ifr)))) {
                 .SUCCESS => return .{ .index = @bitCast(ifr.ifru.ivalue) },
                 .INTR => continue,
+                .CANCELED => return error.Canceled,
+
                 .INVAL => |err| return errnoBug(err), // Bad parameters.
                 .NOTTY => |err| return errnoBug(err),
                 .NXIO => |err| return errnoBug(err),
@@ -2968,6 +3029,7 @@ fn netLookupFallible(
                 .NONAME => return error.UnknownHostName,
                 .SYSTEM => switch (posix.errno(-1)) {
                     .INTR => continue,
+                    .CANCELED => return error.Canceled,
                     else => |e| return posix.unexpectedErrno(e),
                 },
                 else => return error.Unexpected,
@@ -3754,7 +3816,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
             const status = c.__ulock_wake(flags, ptr, 0);
             if (status >= 0) return;
             switch (@as(c.E, @enumFromInt(-status))) {
-                .INTR => continue, // spurious wake()
+                .INTR, .CANCELED => continue, // spurious wake()
                 .FAULT => assert(!is_debug), // __ulock_wake doesn't generate EFAULT according to darwin pthread_cond_t
                 .NOENT => return, // nothing was woken up
                 .ALREADY => assert(!is_debug), // only for UL.Op.WAKE_THREAD
