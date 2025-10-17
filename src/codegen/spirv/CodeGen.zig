@@ -694,7 +694,7 @@ fn constInt(cg: *CodeGen, ty: Type, value: anytype) !Id {
             const truncated_value = if (backing_bits == 64)
                 value64
             else
-                value64 & (@as(u64, 1) << @intCast(backing_bits)) - 1;
+                value64 & ((@as(u64, 1) << @intCast(backing_bits)) - 1);
 
             break :blk switch (backing_bits) {
                 1...32 => .{ .uint32 = @truncate(truncated_value) },

@@ -400,7 +400,7 @@ pub const XxHash32 = struct {
     }
 
     fn avalanche(value: u32) u32 {
-        var acc = value ^ value >> 15;
+        var acc = value ^ (value >> 15);
         acc *%= prime_2;
         acc ^= acc >> 13;
         acc *%= prime_3;
