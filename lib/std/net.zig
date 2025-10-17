@@ -857,8 +857,8 @@ pub const TcpConnectToAddressError = posix.SocketError || posix.ConnectError;
 
 pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
     const nonblock = 0;
-    const sock_flags = posix.SOCK.STREAM | nonblock |
-        (if (native_os == .windows) 0 else posix.SOCK.CLOEXEC);
+    const winFlag = (if (native_os == .windows) 0 else posix.SOCK.CLOEXEC);
+    const sock_flags = posix.SOCK.DGRAM | nonblock | winFlag;
     const sockfd = try posix.socket(address.any.family, sock_flags, posix.IPPROTO.TCP);
     errdefer Stream.close(.{ .handle = sockfd });
 
@@ -866,6 +866,22 @@ pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
 
     return Stream{ .handle = sockfd };
 }
+
+
+pub const UdpConnectToAddressError = posix.SocketError || posix.ConnectError;
+
+pub fn udpConnectToAddress(address: Address) UdpConnectToAddressError!Stream {
+    const nonblock = 0;
+    const winFlag = (if (native_os == .windows) 0 else posix.SOCK.CLOEXEC);
+    const sock_flags = posix.SOCK.DGRAM | nonblock | winFlag;
+    const sockfd = try posix.socket(address.any.family, sock_flags, posix.IPPROTO.UDP);
+    errdefer Stream.close(.{ .handle = sockfd });
+
+    try posix.connect(sockfd, &address.any, address.getOsSockLen());
+
+    return Stream{ .handle = sockfd };
+}
+
 
 // TODO: Instead of having a massive error set, make the error set have categories, and then
 // store the sub-error as a diagnostic value.
