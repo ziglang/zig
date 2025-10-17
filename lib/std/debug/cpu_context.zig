@@ -1207,8 +1207,8 @@ const Sparc = extern struct {
                 \\ stx %i6, [%l0 + 240]
                 \\ stx %i7, [%l0 + 248]
                 \\ call 1f
-                \\  stx %o7, [%l0 + 256]
                 \\1:
+                \\ stx %o7, [%l0 + 256]
             else
                 \\ std %g0, [%l0 + 0]
                 \\ std %g2, [%l0 + 8]
@@ -1227,8 +1227,8 @@ const Sparc = extern struct {
                 \\ std %i4, [%l0 + 112]
                 \\ std %i6, [%l0 + 120]
                 \\ call 1f
-                \\  st %o7, [%l0 + 128]
                 \\1:
+                \\ st %o7, [%l0 + 128]
             :
             : [ctx] "{l0}" (&ctx),
             : .{ .o7 = true, .memory = true });
