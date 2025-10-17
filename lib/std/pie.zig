@@ -121,8 +121,9 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ bal 1f
                 \\ .gpword _DYNAMIC
-                \\ 1:
+                \\1:
                 \\ lw %[ret], 0($ra)
+                \\ nop
                 \\ addu %[ret], %[ret], $gp
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
@@ -133,7 +134,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .balign 8
                 \\ bal 1f
                 \\ .gpdword _DYNAMIC
-                \\ 1:
+                \\1:
                 \\ ld %[ret], 0($ra)
                 \\ daddu %[ret], %[ret], $gp
                 : [ret] "=r" (-> [*]const elf.Dyn),
