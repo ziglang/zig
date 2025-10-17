@@ -6969,73 +6969,80 @@ pub const STATX_ATTR_ENCRYPTED = 0x0800;
 pub const STATX_ATTR_AUTOMOUNT = 0x1000;
 
 pub const statx_timestamp = extern struct {
+    /// Number of seconds before or after `1970-01-01T00:00:00Z`.
     sec: i64,
+    /// Number of nanoseconds (0..999,999,999) after `sec`.
     nsec: u32,
+    // Reserved for future increases in resolution.
     __pad1: u32,
 };
 
 /// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
-    /// Mask of bits indicating filled fields
+    /// Mask of bits indicating filled fields.
     mask: u32,
-
-    /// Block size for filesystem I/O
+    /// Block size for filesystem I/O.
     blksize: u32,
-
-    /// Extra file attribute indicators
+    /// Extra file attribute indicators.
     attributes: u64,
-
-    /// Number of hard links
+    /// Number of hard links.
     nlink: u32,
-
-    /// User ID of owner
+    /// User ID of owner.
     uid: uid_t,
-
-    /// Group ID of owner
+    /// Group ID of owner.
     gid: gid_t,
-
-    /// File type and mode
+    /// File type and mode.
     mode: u16,
-    __pad1: u16,
-
-    /// Inode number
+    __spare0: u16,
+    /// Inode number.
     ino: u64,
-
-    /// Total size in bytes
+    /// Total size in bytes.
     size: u64,
-
-    /// Number of 512B blocks allocated
+    /// Number of 512B blocks allocated.
     blocks: u64,
-
     /// Mask to show what's supported in `attributes`.
     attributes_mask: u64,
-
-    /// Last access file timestamp
+    /// Last access file timestamp.
     atime: statx_timestamp,
-
-    /// Creation file timestamp
+    /// Creation file timestamp.
     btime: statx_timestamp,
-
-    /// Last status change file timestamp
+    /// Last status change file timestamp.
     ctime: statx_timestamp,
-
-    /// Last modification file timestamp
+    /// Last modification file timestamp.
     mtime: statx_timestamp,
-
     /// Major ID, if this file represents a device.
     rdev_major: u32,
-
     /// Minor ID, if this file represents a device.
     rdev_minor: u32,
-
     /// Major ID of the device containing the filesystem where this file resides.
     dev_major: u32,
-
     /// Minor ID of the device containing the filesystem where this file resides.
     dev_minor: u32,
-
-    __pad2: [14]u64,
+    /// Mount ID
+    mnt_id: u64,
+    /// Memory buffer alignment for direct I/O.
+    dio_mem_align: u32,
+    /// File offset alignment for direct I/O.
+    dio_offset_align: u32,
+    /// Subvolume identifier.
+    subvol: u64,
+    /// Min atomic write unit in bytes.
+    atomic_write_unit_min: u32,
+    /// Max atomic write unit in bytes.
+    atomic_write_unit_max: u32,
+    /// Max atomic write segment count.
+    atomic_write_segments_max: u32,
+    /// File offset alignment for direct I/O reads.
+    dio_read_offset_align: u32,
+    /// Optimised max atomic write unit in bytes.
+    atomic_write_unit_max_opt: u32,
+    __spare2: [1]u32,
+    __spare3: [8]u64,
 };
+
+comptime {
+    assert(@sizeOf(Statx) == 0x100);
+}
 
 pub const addrinfo = extern struct {
     flags: AI,
