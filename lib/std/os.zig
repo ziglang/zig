@@ -57,7 +57,7 @@ pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_o
 };
 
 /// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
-/// Otherwise use `access` or `accessZ`.
+/// Otherwise use `access`.
 pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     const ret = try windows.GetFileAttributesW(path);
     if (ret != windows.INVALID_FILE_ATTRIBUTES) {
