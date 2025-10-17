@@ -146,7 +146,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.Thread.sleep(std.time.ns_per_ms);
+                kernel32.Sleep(1);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
@@ -604,7 +604,7 @@ pub const ReadFileError = error{
     BrokenPipe,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
-    OperationAborted,
+    Canceled,
     /// Unable to read file due to lock.
     LockViolation,
     /// Known to be possible when:
@@ -654,7 +654,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
 
 pub const WriteFileError = error{
     SystemResources,
-    OperationAborted,
+    Canceled,
     BrokenPipe,
     NotOpenForWriting,
     /// The process cannot access the file because another process has locked
@@ -694,7 +694,7 @@ pub fn WriteFile(
         switch (GetLastError()) {
             .INVALID_USER_BUFFER => return error.SystemResources,
             .NOT_ENOUGH_MEMORY => return error.SystemResources,
-            .OPERATION_ABORTED => return error.OperationAborted,
+            .OPERATION_ABORTED => return error.Canceled,
             .NOT_ENOUGH_QUOTA => return error.SystemResources,
             .IO_PENDING => unreachable,
             .NO_DATA => return error.BrokenPipe,
