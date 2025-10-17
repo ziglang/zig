@@ -938,31 +938,6 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
         const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.createFileW(path_w.span(), flags);
     }
-    if (native_os == .wasi) {
-        return .{
-            .handle = try posix.openatWasi(self.fd, sub_path, .{}, .{
-                .CREAT = true,
-                .TRUNC = flags.truncate,
-                .EXCL = flags.exclusive,
-            }, .{}, .{
-                .FD_READ = flags.read,
-                .FD_WRITE = true,
-                .FD_DATASYNC = true,
-                .FD_SEEK = true,
-                .FD_TELL = true,
-                .FD_FDSTAT_SET_FLAGS = true,
-                .FD_SYNC = true,
-                .FD_ALLOCATE = true,
-                .FD_ADVISE = true,
-                .FD_FILESTAT_SET_TIMES = true,
-                .FD_FILESTAT_SET_SIZE = true,
-                .FD_FILESTAT_GET = true,
-                // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or
-                // FD_WRITE is also set.
-                .POLL_FD_READWRITE = true,
-            }, .{}),
-        };
-    }
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
     const new_file = try Io.Dir.createFile(self.adaptToNewApi(), io, sub_path, flags);
