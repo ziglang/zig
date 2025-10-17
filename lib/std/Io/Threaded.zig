@@ -898,7 +898,7 @@ fn dirMakePosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: 
             .CANCELED => return error.Canceled,
 
             .ACCES => return error.AccessDenied,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .PERM => return error.PermissionDenied,
             .DQUOT => return error.DiskQuota,
             .EXIST => return error.PathAlreadyExists,
@@ -930,7 +930,7 @@ fn dirMakeWasi(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: I
             .CANCELED => return error.Canceled,
 
             .ACCES => return error.AccessDenied,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .PERM => return error.PermissionDenied,
             .DQUOT => return error.DiskQuota,
             .EXIST => return error.PathAlreadyExists,
@@ -989,7 +989,7 @@ fn dirStatPathLinux(
             .CANCELED => return error.Canceled,
 
             .ACCES => return error.AccessDenied,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .FAULT => |err| return errnoBug(err),
             .INVAL => |err| return errnoBug(err),
             .LOOP => return error.SymLinkLoop,
@@ -1024,7 +1024,7 @@ fn dirStatPathPosix(
             .CANCELED => return error.Canceled,
 
             .INVAL => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOMEM => return error.SystemResources,
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
@@ -1060,7 +1060,7 @@ fn dirStatPathWasi(
             .CANCELED => return error.Canceled,
 
             .INVAL => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOMEM => return error.SystemResources,
             .ACCES => return error.AccessDenied,
             .FAULT => |err| return errnoBug(err),
@@ -1088,7 +1088,7 @@ fn fileStatPosix(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
             .CANCELED => return error.Canceled,
 
             .INVAL => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOMEM => return error.SystemResources,
             .ACCES => return error.AccessDenied,
             else => |err| return posix.unexpectedErrno(err),
@@ -1115,7 +1115,7 @@ fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
             .CANCELED => return error.Canceled,
 
             .ACCES => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .FAULT => |err| return errnoBug(err),
             .INVAL => |err| return errnoBug(err),
             .LOOP => |err| return errnoBug(err),
@@ -1147,7 +1147,7 @@ fn fileStatWasi(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.
             .CANCELED => return error.Canceled,
 
             .INVAL => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOMEM => return error.SystemResources,
             .ACCES => return error.AccessDenied,
             .NOTCAPABLE => return error.AccessDenied,
@@ -1220,7 +1220,7 @@ fn dirAccessWasi(
             .CANCELED => return error.Canceled,
 
             .INVAL => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOMEM => return error.SystemResources,
             .ACCES => return error.AccessDenied,
             .FAULT => |err| return errnoBug(err),
@@ -1305,7 +1305,7 @@ fn dirCreateFilePosix(
 
             .FAULT => |err| return errnoBug(err),
             .INVAL => return error.BadPathName,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
             .OVERFLOW => return error.FileTooBig,
@@ -1347,7 +1347,7 @@ fn dirCreateFilePosix(
                 .INTR => continue,
                 .CANCELED => return error.Canceled,
 
-                .BADF => |err| return errnoBug(err),
+                .BADF => |err| return errnoBug(err), // File descriptor used after closed.
                 .INVAL => |err| return errnoBug(err), // invalid parameters
                 .NOLCK => return error.SystemResources,
                 .AGAIN => return error.WouldBlock,
@@ -1427,7 +1427,7 @@ fn dirCreateFileWasi(
             .FAULT => |err| return errnoBug(err),
             // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
             .INVAL => return error.BadPathName,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
             .OVERFLOW => return error.FileTooBig,
@@ -1506,7 +1506,7 @@ fn dirOpenFile(
 
             .FAULT => |err| return errnoBug(err),
             .INVAL => return error.BadPathName,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
             .OVERFLOW => return error.FileTooBig,
@@ -1548,7 +1548,7 @@ fn dirOpenFile(
                 .INTR => continue,
                 .CANCELED => return error.Canceled,
 
-                .BADF => |err| return errnoBug(err),
+                .BADF => |err| return errnoBug(err), // File descriptor used after closed.
                 .INVAL => |err| return errnoBug(err), // invalid parameters
                 .NOLCK => return error.SystemResources,
                 .AGAIN => return error.WouldBlock,
@@ -1653,7 +1653,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
 
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
@@ -1678,7 +1678,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
-            .BADF => return error.NotOpenForReading, // can be a race condition
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
@@ -1779,7 +1779,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
-            .BADF => return error.NotOpenForReading, // can be a race condition
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
@@ -1807,7 +1807,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
-            .BADF => return error.NotOpenForReading, // can be a race condition
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
@@ -1844,7 +1844,7 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .INVAL => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
             .SPIPE => return error.Unseekable,
@@ -1866,7 +1866,7 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .INVAL => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
             .SPIPE => return error.Unseekable,
@@ -1885,7 +1885,7 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .INVAL => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
             .SPIPE => return error.Unseekable,
@@ -2111,7 +2111,7 @@ fn netListenIpPosix(
         switch (posix.errno(posix.system.listen(socket_fd, options.kernel_backlog))) {
             .SUCCESS => break,
             .ADDRINUSE => return error.AddressInUse,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             else => |err| return posix.unexpectedErrno(err),
         }
     }
@@ -2150,7 +2150,7 @@ fn netListenUnix(
         switch (posix.errno(posix.system.listen(socket_fd, options.kernel_backlog))) {
             .SUCCESS => break,
             .ADDRINUSE => return error.AddressInUse,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             else => |err| return posix.unexpectedErrno(err),
         }
     }
@@ -2178,7 +2178,7 @@ fn posixBindUnix(t: *Threaded, fd: posix.socket_t, addr: *const posix.sockaddr, 
             .ROFS => return error.ReadOnlyFileSystem,
             .PERM => return error.PermissionDenied,
 
-            .BADF => |err| return errnoBug(err), // always a race condition if this error is returned
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .INVAL => |err| return errnoBug(err), // invalid parameters
             .NOTSOCK => |err| return errnoBug(err), // invalid `sockfd`
             .FAULT => |err| return errnoBug(err), // invalid `addr` pointer
@@ -2197,7 +2197,7 @@ fn posixBind(t: *Threaded, socket_fd: posix.socket_t, addr: *const posix.sockadd
             .CANCELED => return error.Canceled,
 
             .ADDRINUSE => return error.AddressInUse,
-            .BADF => |err| return errnoBug(err), // always a race condition if this error is returned
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .INVAL => |err| return errnoBug(err), // invalid parameters
             .NOTSOCK => |err| return errnoBug(err), // invalid `sockfd`
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
@@ -2221,7 +2221,7 @@ fn posixConnect(t: *Threaded, socket_fd: posix.socket_t, addr: *const posix.sock
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN, .INPROGRESS => return error.WouldBlock,
             .ALREADY => return error.ConnectionPending,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .CONNREFUSED => return error.ConnectionRefused,
             .CONNRESET => return error.ConnectionResetByPeer,
             .FAULT => |err| return errnoBug(err),
@@ -2260,7 +2260,7 @@ fn posixConnectUnix(t: *Threaded, fd: posix.socket_t, addr: *const posix.sockadd
             .ROFS => return error.ReadOnlyFileSystem,
             .PERM => return error.PermissionDenied,
 
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .CONNABORTED => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .ISCONN => |err| return errnoBug(err),
@@ -2279,7 +2279,7 @@ fn posixGetSockName(t: *Threaded, socket_fd: posix.fd_t, addr: *posix.sockaddr, 
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
-            .BADF => |err| return errnoBug(err), // always a race condition
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .FAULT => |err| return errnoBug(err),
             .INVAL => |err| return errnoBug(err), // invalid parameters
             .NOTSOCK => |err| return errnoBug(err), // always a race condition
@@ -2298,7 +2298,7 @@ fn setSocketOption(t: *Threaded, fd: posix.fd_t, level: i32, opt_name: u32, opti
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
-            .BADF => |err| return errnoBug(err), // always a race condition
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOTSOCK => |err| return errnoBug(err), // always a race condition
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
@@ -2430,6 +2430,7 @@ fn openSocketPosix(
 }
 
 fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: net.Socket.Handle) net.Server.AcceptError!net.Stream {
+    if (!have_networking) return error.NetworkDown;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     var storage: PosixAddress = undefined;
     var addr_len: posix.socklen_t = @sizeOf(PosixAddress);
@@ -2456,11 +2457,12 @@ fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: net.Socket.Handle) net.Serve
             },
             .INTR => continue,
             .CANCELED => return error.Canceled,
+
             .AGAIN => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err), // always a race condition
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .CONNABORTED => return error.ConnectionAborted,
             .FAULT => |err| return errnoBug(err),
-            .INVAL => return error.SocketNotListening,
+            .INVAL => |err| return errnoBug(err),
             .NOTSOCK => |err| return errnoBug(err),
             .MFILE => return error.ProcessFdQuotaExceeded,
             .NFILE => return error.SystemFdQuotaExceeded,
@@ -2504,7 +2506,7 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
@@ -2526,7 +2528,7 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
             .NOTCONN => return error.SocketUnconnected,
@@ -2625,7 +2627,7 @@ fn netSendOne(
 
             .ACCES => return error.AccessDenied,
             .ALREADY => return error.FastOpenAlreadyInProgress,
-            .BADF => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .CONNRESET => return error.ConnectionResetByPeer,
             .DESTADDRREQ => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
@@ -2694,7 +2696,7 @@ fn netSendMany(
 
             .AGAIN => |err| return errnoBug(err),
             .ALREADY => return error.FastOpenAlreadyInProgress,
-            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .CONNRESET => return error.ConnectionResetByPeer,
             .DESTADDRREQ => |err| return errnoBug(err), // The socket is not connection-mode, and no peer address is set.
             .FAULT => |err| return errnoBug(err), // An invalid user space address was specified for an argument.
@@ -2905,7 +2907,7 @@ fn netWritePosix(
             .ACCES => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
             .ALREADY => return error.FastOpenAlreadyInProgress,
-            .BADF => |err| return errnoBug(err), // always a race condition
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .CONNRESET => return error.ConnectionResetByPeer,
             .DESTADDRREQ => |err| return errnoBug(err), // The socket is not connection-mode, and no peer address is set.
             .FAULT => |err| return errnoBug(err), // An invalid user space address was specified for an argument.
@@ -2979,7 +2981,7 @@ fn netInterfaceNameResolve(
                 .INVAL => |err| return errnoBug(err), // Bad parameters.
                 .NOTTY => |err| return errnoBug(err),
                 .NXIO => |err| return errnoBug(err),
-                .BADF => |err| return errnoBug(err), // Always a race condition.
+                .BADF => |err| return errnoBug(err), // File descriptor used after closed.
                 .FAULT => |err| return errnoBug(err), // Bad pointer parameter.
                 .IO => |err| return errnoBug(err), // sock_fd is not a file descriptor
                 .NODEV => return error.InterfaceNotFound,
