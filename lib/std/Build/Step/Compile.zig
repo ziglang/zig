@@ -1701,7 +1701,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // This prevents a warning, that should probably be upgraded to an error in Zig's
         // CLI parsing code, when the linker sees an -L directory that does not exist.
 
-        if (prefix_dir.accessZ("lib", .{})) |_| {
+        if (prefix_dir.access("lib", .{})) |_| {
             try zig_args.appendSlice(&.{
                 "-L", b.pathJoin(&.{ search_prefix, "lib" }),
             });
@@ -1712,7 +1712,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             }),
         }
 
-        if (prefix_dir.accessZ("include", .{})) |_| {
+        if (prefix_dir.access("include", .{})) |_| {
             try zig_args.appendSlice(&.{
                 "-I", b.pathJoin(&.{ search_prefix, "include" }),
             });
