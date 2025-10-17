@@ -309,6 +309,7 @@ pub const IpAddress = union(enum) {
         AccessDenied,
         /// Non-blocking was requested and the operation cannot return immediately.
         WouldBlock,
+        NetworkDown,
     } || Io.Timeout.Error || Io.UnexpectedError || Io.Cancelable;
 
     pub const ConnectOptions = struct {
@@ -1062,7 +1063,7 @@ pub const Socket = struct {
         AddressFamilyUnsupported,
         /// Another TCP Fast Open is already in progress.
         FastOpenAlreadyInProgress,
-        /// Network connection was unexpectedly closed by recipient.
+        /// Network session was unexpectedly closed by recipient.
         ConnectionResetByPeer,
         /// Local end has been shut down on a connection-oriented socket, or
         /// the socket was never connected.
@@ -1242,15 +1243,33 @@ pub const Stream = struct {
         stream: Stream,
         err: ?Error = null,
 
-        pub const Error = std.posix.SendMsgError || error{
+        pub const Error = error{
+            /// Another TCP Fast Open is already in progress.
+            FastOpenAlreadyInProgress,
+            /// Network session was unexpectedly closed by recipient.
             ConnectionResetByPeer,
-            SocketNotBound,
-            MessageOversize,
-            NetworkDown,
+            /// The output queue for a network interface was full. This generally indicates that the
+            /// interface has stopped sending, but may be caused by transient congestion. (Normally,
+            /// this does not occur in Linux. Packets are just silently dropped when a device queue
+            /// overflows.)
+            ///
+            /// This is also caused when there is not enough kernel memory available.
             SystemResources,
+            /// No route to network.
+            NetworkUnreachable,
+            /// Network reached but no route to host.
+            HostUnreachable,
+            /// The local network interface used to reach the destination is down.
+            NetworkDown,
+            /// The destination address is not listening.
+            ConnectionRefused,
+            /// The passed address didn't have the correct address family in its sa_family field.
+            AddressFamilyUnsupported,
+            /// Local end has been shut down on a connection-oriented socket, or
+            /// the socket was never connected.
             SocketUnconnected,
-            Unexpected,
-        } || Io.Cancelable;
+            SocketNotBound,
+        } || Io.UnexpectedError || Io.Cancelable;
 
         pub fn init(stream: Stream, io: Io, buffer: []u8) Writer {
             return .{
