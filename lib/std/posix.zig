@@ -2809,34 +2809,10 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirErro
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return mkdiratWasi(dir_fd, sub_dir_path, mode);
+        @compileError("use std.Io instead");
     } else {
         const sub_dir_path_c = try toPosixPath(sub_dir_path);
         return mkdiratZ(dir_fd, &sub_dir_path_c, mode);
-    }
-}
-
-pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
-    _ = mode;
-    switch (wasi.path_create_directory(dir_fd, sub_dir_path.ptr, sub_dir_path.len)) {
-        .SUCCESS => return,
-        .ACCES => return error.AccessDenied,
-        .BADF => unreachable,
-        .PERM => return error.PermissionDenied,
-        .DQUOT => return error.DiskQuota,
-        .EXIST => return error.PathAlreadyExists,
-        .FAULT => unreachable,
-        .LOOP => return error.SymLinkLoop,
-        .MLINK => return error.LinkQuotaExceeded,
-        .NAMETOOLONG => return error.NameTooLong,
-        .NOENT => return error.FileNotFound,
-        .NOMEM => return error.SystemResources,
-        .NOSPC => return error.NoSpaceLeft,
-        .NOTDIR => return error.NotDir,
-        .ROFS => return error.ReadOnlyFileSystem,
-        .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.BadPathName,
-        else => |err| return unexpectedErrno(err),
     }
 }
 

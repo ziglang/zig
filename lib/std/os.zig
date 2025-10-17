@@ -201,7 +201,13 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
     }
 }
 
-pub fn fstat_wasi(fd: posix.fd_t) posix.FStatError!wasi.filestat_t {
+pub const FstatError = error{
+    SystemResources,
+    AccessDenied,
+    Unexpected,
+};
+
+pub fn fstat_wasi(fd: posix.fd_t) FstatError!wasi.filestat_t {
     var stat: wasi.filestat_t = undefined;
     switch (wasi.fd_filestat_get(fd, &stat)) {
         .SUCCESS => return stat,
