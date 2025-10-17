@@ -16,6 +16,8 @@ sq: Sq,
 cq: Cq,
 flags: uflags.Setup,
 features: uflags.Features,
+/// matches int_flags in liburing
+init_flags: uflags.Init,
 
 /// A friendly way to setup an io_uring, with default linux.io_uring_params.
 /// `entries` must be a power of two between 1 and 32768, although the kernel
@@ -131,6 +133,7 @@ pub fn init_params(entries: u16, p: *Params) !IoUring {
         .cq = cq,
         .flags = p.flags,
         .features = p.features,
+        .init_flags = .{},
     };
 }
 
@@ -182,7 +185,7 @@ pub fn submit(self: *IoUring) !u32 {
 /// Matches the implementation of `io_uring_submit_and_wait()` in liburing.
 pub fn submit_and_wait(self: *IoUring, wait_nr: u32) !u32 {
     const submitted = self.flush_sq();
-    var flags: uflags.Enter = .{};
+    var flags: uflags.Enter = self.enter_flags();
     if (self.sq_ring_needs_enter(&flags) or wait_nr > 0) {
         if (wait_nr > 0 or self.flags.iopoll) {
             flags.getevents = true;
@@ -264,7 +267,7 @@ pub fn flush_sq(self: *IoUring) u32 {
 /// awakened. For the latter case, we set the SQ thread wakeup flag.
 /// Matches the implementation of `sq_ring_needs_enter()` in liburing.
 pub fn sq_ring_needs_enter(self: *IoUring, flags: *uflags.Enter) bool {
-    assert(flags.*.empty());
+    assert(flags.*.valid_init_flags());
     if (!self.flags.sqpoll) return true;
     if (@atomicLoad(Sq.Flags, self.sq.flags, .unordered).need_wakeup) {
         flags.*.sq_wakeup = true;
@@ -309,7 +312,12 @@ pub fn copy_cqes(self: *IoUring, cqes: []Cqe, wait_nr: u32) !u32 {
     const count = self.copy_cqes_ready(cqes);
     if (count > 0) return count;
     if (self.cq_ring_needs_flush() or wait_nr > 0) {
-        _ = try self.enter(0, wait_nr, .{ .getevents = true });
+        const flags = blk: {
+            var flags = self.enter_flags();
+            flags.getevents = true;
+            break :blk flags;
+        };
+        _ = try self.enter(0, wait_nr, flags);
         return self.copy_cqes_ready(cqes);
     }
     return 0;
@@ -372,6 +380,20 @@ pub fn cq_advance(self: *IoUring, count: u32) void {
         // been read.
         @atomicStore(u32, self.cq.head, self.cq.head.* +% count, .release);
     }
+}
+
+/// Enable/disable setting of iowait by the kernel.
+/// matches `io_uring_set_iowait` in liburing
+pub fn set_iowait(self: *IoUring, enable_iowait: bool) !void {
+    if (!self.features.no_iowait) {
+        return error.SystemOutdated;
+    }
+    self.init_flags.no_iowait = !enable_iowait;
+}
+
+/// matches `ring_enter_flags()` in liburing
+pub fn enter_flags(self: *IoUring) uflags.Enter {
+    return self.init_flags.enter_flags();
 }
 
 /// Queues (but does not submit) an SQE to perform a `splice(2)`
@@ -4190,13 +4212,41 @@ pub const uflags = struct {
         no_iowait: bool = false,
         _9: u24 = 0,
 
-        pub fn empty(enter_flags: Enter) bool {
-            return @as(u32, @bitCast(enter_flags)) == 0;
+        /// Ensure only `Init` flags usable in `Enter` are set
+        pub fn valid_init_flags(self: Enter) bool {
+            const valid_flags: u32 = @bitCast(Enter{ .registered_ring = true, .no_iowait = true });
+            const flags: u32 = @bitCast(self);
+            // check if any invalid flags are set
+            return (flags & ~valid_flags) == 0;
+        }
+
+        pub fn empty(flags: Enter) bool {
+            return @as(u32, @bitCast(flags)) == 0;
+        }
+    };
+
+    /// matches INT_FLAG_* in liburing
+    pub const Init = packed struct(u8) {
+        reg_reg_ring: bool = false,
+        app_mem: bool = false,
+        cq_enter: bool = false,
+        _4: u1 = 0,
+        /// matches `registered_ring` flag in `Enter`
+        reg_ring: bool = false,
+        _6: u2 = 0,
+        /// matches `no_iowait` flag in `Enter`
+        no_iowait: bool = false,
+
+        /// Return all valid `Enter` flags set in `Init`
+        pub fn enter_flags(self: Init) Enter {
+            const valid_flags: u8 = @bitCast(Init{ .reg_ring = true, .no_iowait = true });
+            const flags: u8 = @bitCast(self);
+            return @bitCast(@as(u32, @intCast(flags & valid_flags)));
         }
     };
 
     /// io_uring_params.features flags
-    const Features = packed struct(u32) {
+    pub const Features = packed struct(u32) {
         single_mmap: bool = false,
         nodrop: bool = false,
         submit_stable: bool = false,
@@ -4223,6 +4273,7 @@ pub const uflags = struct {
         }
     };
 };
+
 /// `io_uring_register(2)` opcodes and arguments
 /// matches `io_uring_register_op` in liburing
 pub const RegisterOp = enum(u8) {
