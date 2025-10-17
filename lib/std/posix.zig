@@ -3622,44 +3622,7 @@ pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
     }
 }
 
-pub const AcceptError = error{
-    ConnectionAborted,
-
-    /// The file descriptor sockfd does not refer to a socket.
-    FileDescriptorNotASocket,
-
-    /// The per-process limit on the number of open file descriptors has been reached.
-    ProcessFdQuotaExceeded,
-
-    /// The system-wide limit on the total number of open files has been reached.
-    SystemFdQuotaExceeded,
-
-    /// Not enough free memory.  This often means that the memory allocation  is  limited
-    /// by the socket buffer limits, not by the system memory.
-    SystemResources,
-
-    /// Socket is not listening for new connections.
-    SocketNotListening,
-
-    ProtocolFailure,
-
-    /// Firewall rules forbid connection.
-    BlockedByFirewall,
-
-    /// This error occurs when no global event loop is configured,
-    /// and accepting from the socket would block.
-    WouldBlock,
-
-    /// An incoming connection was indicated, but was subsequently terminated by the
-    /// remote peer prior to accepting the call.
-    ConnectionResetByPeer,
-
-    /// The network subsystem has failed.
-    NetworkDown,
-
-    /// The referenced socket is not a type that supports connection-oriented service.
-    OperationNotSupported,
-} || UnexpectedError;
+pub const AcceptError = std.Io.net.Server.AcceptError;
 
 /// Accept a connection on a socket.
 /// If `sockfd` is opened in non blocking mode, the function will

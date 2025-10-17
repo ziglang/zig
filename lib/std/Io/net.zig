@@ -1312,7 +1312,26 @@ pub const Server = struct {
         s.* = undefined;
     }
 
-    pub const AcceptError = std.posix.AcceptError || Io.Cancelable;
+    pub const AcceptError = error{
+        /// The per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+        /// The system-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+        /// Not enough free memory. This often means that the memory allocation is limited
+        /// by the socket buffer limits, not by the system memory.
+        SystemResources,
+        /// The network subsystem has failed.
+        NetworkDown,
+        /// No connection is already queued and ready to be accepted, and
+        /// the socket is configured as non-blocking.
+        WouldBlock,
+        /// An incoming connection was indicated, but was subsequently terminated by the
+        /// remote peer prior to accepting the call.
+        ConnectionAborted,
+        /// Firewall rules forbid connection.
+        BlockedByFirewall,
+        ProtocolFailure,
+    } || Io.UnexpectedError || Io.Cancelable;
 
     /// Blocks until a client connects to the server.
     pub fn accept(s: *Server, io: Io) AcceptError!Stream {
