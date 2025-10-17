@@ -495,6 +495,8 @@ test "mmap" {
         }
     }
 
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+
     // Map the upper half of the file
     {
         const file = try tmp.dir.openFile(test_out_file, .{});

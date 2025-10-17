@@ -533,9 +533,10 @@ fn getauxvalImpl(index: usize) callconv(.c) usize {
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
 const require_aligned_register_pair =
-    builtin.cpu.arch.isPowerPC32() or
+    builtin.cpu.arch.isArm() or
+    builtin.cpu.arch == .hexagon or
     builtin.cpu.arch.isMIPS32() or
-    builtin.cpu.arch.isArm();
+    builtin.cpu.arch.isPowerPC32();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -640,7 +641,7 @@ pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
 
 pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
     return syscall4(
-        if (@hasField(SYS, "utimensat")) .utimensat else .utimensat_time64,
+        if (@hasField(SYS, "utimensat") and native_arch != .hexagon) .utimensat else .utimensat_time64,
         @as(usize, @bitCast(@as(isize, dirfd))),
         @intFromPtr(path),
         @intFromPtr(times),
@@ -688,7 +689,7 @@ pub const futex_param4 = extern union {
 /// defines which of the subsequent paramters are relevant.
 pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
     return syscall6(
-        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
         @as(u32, @bitCast(futex_op)),
         val,
@@ -702,7 +703,7 @@ pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout:
 /// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
 pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
     return syscall3(
-        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
         @as(u32, @bitCast(futex_op)),
         val,
@@ -713,7 +714,7 @@ pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
 /// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
 pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
     return syscall4(
-        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
         @as(u32, @bitCast(futex_op)),
         val,
@@ -1093,7 +1094,7 @@ pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
 
 pub fn ppoll(fds: [*]pollfd, n: nfds_t, timeout: ?*timespec, sigmask: ?*const sigset_t) usize {
     return syscall5(
-        if (@hasField(SYS, "ppoll")) .ppoll else .ppoll_time64,
+        if (@hasField(SYS, "ppoll") and native_arch != .hexagon) .ppoll else .ppoll_time64,
         @intFromPtr(fds),
         n,
         @intFromPtr(timeout),
@@ -1627,7 +1628,7 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
         }
     }
     return syscall2(
-        if (@hasField(SYS, "clock_gettime")) .clock_gettime else .clock_gettime64,
+        if (@hasField(SYS, "clock_gettime") and native_arch != .hexagon) .clock_gettime else .clock_gettime64,
         @intFromEnum(clk_id),
         @intFromPtr(tp),
     );
@@ -1645,7 +1646,7 @@ fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
     return syscall2(
-        if (@hasField(SYS, "clock_getres")) .clock_getres else .clock_getres_time64,
+        if (@hasField(SYS, "clock_getres") and native_arch != .hexagon) .clock_getres else .clock_getres_time64,
         @as(usize, @bitCast(@as(isize, clk_id))),
         @intFromPtr(tp),
     );
@@ -1653,7 +1654,7 @@ pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
 
 pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(
-        if (@hasField(SYS, "clock_settime")) .clock_settime else .clock_settime64,
+        if (@hasField(SYS, "clock_settime") and native_arch != .hexagon) .clock_settime else .clock_settime64,
         @as(usize, @bitCast(@as(isize, clk_id))),
         @intFromPtr(tp),
     );
@@ -1661,7 +1662,7 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
 
 pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
     return syscall4(
-        if (@hasField(SYS, "clock_nanosleep")) .clock_nanosleep else .clock_nanosleep_time64,
+        if (@hasField(SYS, "clock_nanosleep") and native_arch != .hexagon) .clock_nanosleep else .clock_nanosleep_time64,
         @intFromEnum(clockid),
         @as(u32, @bitCast(flags)),
         @intFromPtr(request),
@@ -2071,7 +2072,7 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
 
 pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
     return syscall5(
-        if (@hasField(SYS, "recvmmsg")) .recvmmsg else .recvmmsg_time64,
+        if (@hasField(SYS, "recvmmsg") and native_arch != .hexagon) .recvmmsg else .recvmmsg_time64,
         @as(usize, @bitCast(@as(isize, fd))),
         @intFromPtr(msgvec),
         vlen,
@@ -2421,7 +2422,7 @@ pub const itimerspec = extern struct {
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
     return syscall2(
-        if (@hasField(SYS, "timerfd_gettime")) .timerfd_gettime else .timerfd_gettime64,
+        if (@hasField(SYS, "timerfd_gettime") and native_arch != .hexagon) .timerfd_gettime else .timerfd_gettime64,
         @bitCast(@as(isize, fd)),
         @intFromPtr(curr_value),
     );
@@ -2429,7 +2430,7 @@ pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
 
 pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
     return syscall4(
-        if (@hasField(SYS, "timerfd_settime")) .timerfd_settime else .timerfd_settime64,
+        if (@hasField(SYS, "timerfd_settime") and native_arch != .hexagon) .timerfd_settime else .timerfd_settime64,
         @bitCast(@as(isize, fd)),
         @as(u32, @bitCast(flags)),
         @intFromPtr(new_value),
@@ -2632,7 +2633,7 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime native_arch.isArm() or native_arch.isPowerPC32()) {
+    if (comptime native_arch.isArm() or native_arch == .hexagon or native_arch.isPowerPC32()) {
         // These architectures reorder the arguments so that a register is not skipped to align the
         // register number that `offset` is passed in.
 
@@ -8367,7 +8368,7 @@ pub const kernel_timespec = extern struct {
 };
 
 // https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
-pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
+pub const timespec = if (native_arch == .hexagon or native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };
