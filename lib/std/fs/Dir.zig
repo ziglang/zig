@@ -858,33 +858,6 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
         const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.openFileW(path_w.span(), flags);
     }
-    if (native_os == .wasi and !builtin.link_libc) {
-        var base: std.os.wasi.rights_t = .{};
-        // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or FD_WRITE
-        // is also set.
-        if (flags.isRead()) {
-            base.FD_READ = true;
-            base.FD_TELL = true;
-            base.FD_SEEK = true;
-            base.FD_FILESTAT_GET = true;
-            base.POLL_FD_READWRITE = true;
-        }
-        if (flags.isWrite()) {
-            base.FD_WRITE = true;
-            base.FD_TELL = true;
-            base.FD_SEEK = true;
-            base.FD_DATASYNC = true;
-            base.FD_FDSTAT_SET_FLAGS = true;
-            base.FD_SYNC = true;
-            base.FD_ALLOCATE = true;
-            base.FD_ADVISE = true;
-            base.FD_FILESTAT_SET_TIMES = true;
-            base.FD_FILESTAT_SET_SIZE = true;
-            base.POLL_FD_READWRITE = true;
-        }
-        const fd = try posix.openatWasi(self.fd, sub_path, .{}, .{}, .{}, base, .{});
-        return .{ .handle = fd };
-    }
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
     return .adaptFromNewApi(try Io.Dir.openFile(self.adaptToNewApi(), io, sub_path, flags));
