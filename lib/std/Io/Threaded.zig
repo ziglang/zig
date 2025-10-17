@@ -183,6 +183,11 @@ pub fn io(t: *Threaded) Io {
                 .wasi => fileStatWasi,
                 else => fileStatPosix,
             },
+            .dirAccess = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                .wasi => dirAccessWasi,
+                else => dirAccessPosix,
+            },
             .dirCreateFile = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
                 .wasi => @panic("TODO"),
@@ -992,7 +997,6 @@ fn dirStatPathWasi(
 ) Io.Dir.StatPathError!Io.File.Stat {
     if (builtin.link_libc) return dirStatPathPosix(userdata, dir, sub_path, options);
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const dir_fd = dir.handle;
     const wasi = std.os.wasi;
     const flags: wasi.lookupflags_t = .{
         .SYMLINK_FOLLOW = @intFromBool(options.follow_symlinks),
@@ -1000,16 +1004,16 @@ fn dirStatPathWasi(
     var stat: wasi.filestat_t = undefined;
     while (true) {
         try t.checkCancel();
-        switch (wasi.path_filestat_get(dir_fd, flags, sub_path.ptr, sub_path.len, &stat)) {
+        switch (wasi.path_filestat_get(dir.handle, flags, sub_path.ptr, sub_path.len, &stat)) {
             .SUCCESS => return statFromWasi(stat),
             .INTR => continue,
             .CANCELED => return error.Canceled,
 
-            .INVAL => |err| errnoBug(err),
-            .BADF => |err| errnoBug(err), // Always a race condition.
+            .INVAL => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // Always a race condition.
             .NOMEM => return error.SystemResources,
             .ACCES => return error.AccessDenied,
-            .FAULT => |err| errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
             .NAMETOOLONG => return error.NameTooLong,
             .NOENT => return error.FileNotFound,
             .NOTDIR => return error.FileNotFound,
@@ -1102,6 +1106,110 @@ const fstat_sym = if (posix.lfs64_abi) posix.system.fstat64 else posix.system.fs
 const fstatat_sym = if (posix.lfs64_abi) posix.system.fstatat64 else posix.system.fstatat;
 const lseek_sym = if (posix.lfs64_abi) posix.system.lseek64 else posix.system.lseek;
 const preadv_sym = if (posix.lfs64_abi) posix.system.preadv64 else posix.system.preadv;
+
+fn dirAccessPosix(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.AccessOptions,
+) Io.Dir.AccessError!void {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+
+    var path_buffer: [posix.PATH_MAX]u8 = undefined;
+    const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
+
+    const flags: u32 = @as(u32, if (!options.follow_symlinks) posix.AT.SYMLINK_NOFOLLOW else 0);
+
+    const mode: u32 =
+        @as(u32, if (options.read) posix.R_OK else 0) |
+        @as(u32, if (options.write) posix.W_OK else 0) |
+        @as(u32, if (options.execute) posix.X_OK else 0);
+
+    while (true) {
+        try t.checkCancel();
+        switch (posix.errno(posix.system.faccessat(dir.handle, sub_path_posix, mode, flags))) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .ACCES => return error.AccessDenied,
+            .PERM => return error.PermissionDenied,
+            .ROFS => return error.ReadOnlyFileSystem,
+            .LOOP => return error.SymLinkLoop,
+            .TXTBSY => return error.FileBusy,
+            .NOTDIR => return error.FileNotFound,
+            .NOENT => return error.FileNotFound,
+            .NAMETOOLONG => return error.NameTooLong,
+            .INVAL => |err| return errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
+            .IO => return error.InputOutput,
+            .NOMEM => return error.SystemResources,
+            .ILSEQ => return error.BadPathName, // TODO move to wasi
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn dirAccessWasi(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.File.OpenFlags,
+) Io.File.AccessError!void {
+    if (builtin.link_libc) return dirAccessPosix(userdata, dir, sub_path, options);
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const wasi = std.os.wasi;
+    const flags: wasi.lookupflags_t = .{
+        .SYMLINK_FOLLOW = @intFromBool(options.follow_symlinks),
+    };
+    const stat = while (true) {
+        var stat: wasi.filestat_t = undefined;
+        try t.checkCancel();
+        switch (wasi.path_filestat_get(dir.handle, flags, sub_path.ptr, sub_path.len, &stat)) {
+            .SUCCESS => break statFromWasi(stat),
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .INVAL => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // Always a race condition.
+            .NOMEM => return error.SystemResources,
+            .ACCES => return error.AccessDenied,
+            .FAULT => |err| return errnoBug(err),
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOTDIR => return error.FileNotFound,
+            .NOTCAPABLE => return error.AccessDenied,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    };
+
+    if (!options.mode.read and !options.mode.write and !options.mode.execute)
+        return;
+
+    var directory: wasi.fdstat_t = undefined;
+    if (wasi.fd_fdstat_get(dir.handle, &directory) != .SUCCESS)
+        return error.AccessDenied;
+
+    var rights: wasi.rights_t = .{};
+    if (options.mode.read) {
+        if (stat.filetype == .DIRECTORY) {
+            rights.FD_READDIR = true;
+        } else {
+            rights.FD_READ = true;
+        }
+    }
+    if (options.mode.write)
+        rights.FD_WRITE = true;
+
+    // No validation for execution.
+
+    // https://github.com/ziglang/zig/issues/18882
+    const rights_int: u64 = @bitCast(rights);
+    const inheriting_int: u64 = @bitCast(directory.fs_rights_inheriting);
+    if ((rights_int & inheriting_int) != rights_int)
+        return error.AccessDenied;
+}
 
 fn dirCreateFilePosix(
     userdata: ?*anyopaque,
