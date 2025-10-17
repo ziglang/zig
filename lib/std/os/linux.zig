@@ -6811,6 +6811,9 @@ pub const Rename = packed struct(u32) {
     _: u29 = 0,
 };
 
+pub const SetXattr = packed struct(u32) {
+    _: u32 = 0, // TODO: add flags
+};
 pub const statx_timestamp = extern struct {
     sec: i64,
     nsec: u32,

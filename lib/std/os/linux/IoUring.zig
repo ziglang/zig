@@ -1516,6 +1516,137 @@ pub fn link(
     return try self.linkat(user_data, linux.At.fdcwd, old_path, linux.At.fdcwd, new_path, flags);
 }
 
+/// Queues (but does not submit) an SQE to send a CQE to an io_uring file
+/// descriptor. The use case for this can be anything from simply waking up
+/// someone waiting on the targeted ring, or it can be used to pass messages
+/// between the two rings
+/// Returns a pointer to the SQE.
+pub fn msg_ring(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    len: u32,
+    data: u64,
+    flags: uflags.MsgRing,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_msg_ring(fd, len, data, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Queues (but does not submit) an SQE to send a CQE to an io_uring file
+/// descriptor. See `msg_ring`
+/// This has and additonal `cqe_flags` parameter that allows you to set the CQE
+/// flags field cqe.flags when sending a message
+/// Returns a pointer to the SQE.
+pub fn msg_ring_cqe_flags(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    len: u32,
+    data: u64,
+    msg_flags: uflags.MsgRing,
+    cqe_flags: Cqe.Flags,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_msg_ring_cqe_flags(
+        fd,
+        len,
+        data,
+        msg_flags,
+        cqe_flags,
+    );
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Queues (but does not submit) an SQE to to send a direct file descriptor to
+/// another ring.
+/// This has and additonal `cqe_flags` parameter that allows you to set the CQE
+/// flags field cqe.flags when sending a message
+/// Returns a pointer to the SQE.
+pub fn msg_ring_fd(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    source_fd: linux.fd_t,
+    target_fd: linux.fd_t,
+    data: u64,
+    flags: uflags.MsgRing,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_msg_ring_fd(
+        fd,
+        source_fd,
+        target_fd,
+        data,
+        flags,
+    );
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Queues (but does not submit) an SQE to send a direct file descriptor to
+/// another ring. See `msg_ring_fd()`
+/// `msg_ring_fd_alloc()` is similar to `msg_ring_fd()`, but doesn't specify a
+/// target_fd for the descriptor. Instead, this target_fd is allocated in the
+/// target ring and returned in the CQE res field.
+/// Returns a pointer to the SQE.
+pub fn msg_ring_fd_alloc(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    source_fd: linux.fd_t,
+    data: u64,
+    flags: uflags.MsgRing,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_msg_ring_fd_alloc(
+        fd,
+        source_fd,
+        data,
+        flags,
+    );
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Queues (but does not submit) an SQE to prepares a request to get an
+/// extended attribute value
+/// Returns a pointer to the SQE.
+pub fn getxattr(
+    self: *IoUring,
+    user_data: u64,
+    name: []const u8,
+    value: []const u8,
+    path: []const u8,
+    len: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_getxattr(name, value, path, len);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Queues (but does not submit) an SQE to prepares a request to set an
+/// extended attribute value
+/// Returns a pointer to the SQE.
+pub fn setxattr(
+    self: *IoUring,
+    user_data: u64,
+    name: []const u8,
+    value: []const u8,
+    path: []const u8,
+    flags: linux.SetXattr,
+    len: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_setxattr(name, value, path, flags, len);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
 /// Queues (but does not submit) an SQE to perform a `waitid(2)`.
 /// Returns a pointer to the SQE.
 pub fn waitid(
@@ -2816,6 +2947,116 @@ pub const Sqe = extern struct {
             @intFromPtr(new_path),
         );
         sqe.len = @bitCast(new_dir_fd);
+        sqe.rw_flags = @bitCast(flags);
+    }
+
+    pub fn prep_msg_ring(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        len: u32,
+        data: u64,
+        flags: uflags.MsgRing,
+    ) void {
+        sqe.prep_rw(
+            .msg_ring,
+            fd,
+            undefined,
+            len,
+            data,
+        );
+        sqe.rw_flags = @bitCast(flags);
+    }
+
+    pub fn prep_msg_ring_cqe_flags(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        len: u32,
+        data: u64,
+        msg_flags: uflags.MsgRing,
+        cqe_flags: Cqe.Flags,
+    ) void {
+        const enable_flags_pass = blk: {
+            var flags = msg_flags;
+            flags.flags_pass = true;
+            break :blk flags;
+        };
+        sqe.prep_msg_ring(fd, len, data, enable_flags_pass);
+        // sqe.file_index in liburing maps to splice_fd_in in Zig sqe
+        sqe.splice_fd_in = @intCast(@as(u32, @bitCast(cqe_flags)));
+    }
+
+    pub fn prep_msg_ring_fd(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        source_fd: linux.fd_t,
+        target_fd: linux.fd_t,
+        data: u64,
+        flags: uflags.MsgRing,
+    ) void {
+        sqe.prep_rw(
+            .msg_ring,
+            fd,
+            @ptrFromInt(@intFromEnum(MsgRingCmd.send_fd)),
+            0,
+            data,
+        );
+        sqe.addr3 = @intCast(source_fd);
+        sqe.rw_flags = @bitCast(flags);
+        sqe.set_target_fixed_file(@intCast(target_fd));
+    }
+
+    pub fn prep_msg_ring_fd_alloc(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        source_fd: linux.fd_t,
+        data: u64,
+        flags: uflags.MsgRing,
+    ) void {
+        sqe.prep_rw(
+            .msg_ring,
+            fd,
+            @ptrFromInt(@intFromEnum(MsgRingCmd.send_fd)),
+            0,
+            data,
+        );
+        sqe.addr3 = @intCast(source_fd);
+        sqe.rw_flags = @bitCast(flags);
+        sqe.set_target_fixed_file(constants.FILE_INDEX_ALLOC);
+    }
+
+    pub fn prep_getxattr(
+        sqe: *Sqe,
+        name: []const u8,
+        value: []const u8,
+        path: []const u8,
+        len: u32,
+    ) void {
+        sqe.prep_rw(
+            .getxattr,
+            0,
+            @intFromPtr(name.ptr),
+            len,
+            @intFromPtr(value.ptr),
+        );
+        sqe.addr3 = @intFromPtr(path.ptr);
+    }
+
+    pub fn prep_setxattr(
+        sqe: *Sqe,
+        name: []const u8,
+        value: []const u8,
+        path: []const u8,
+        flags: linux.SetXattr,
+        len: u32,
+    ) void {
+        sqe.prep_rw(
+            .setxattr,
+            0,
+            @intFromPtr(name.ptr),
+            len,
+            @intFromPtr(value.ptr),
+        );
+        sqe.addr3 = @intFromPtr(path.ptr);
         sqe.rw_flags = @bitCast(flags);
     }
 
