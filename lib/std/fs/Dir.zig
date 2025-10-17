@@ -1235,28 +1235,10 @@ pub fn setAsCwd(self: Dir) !void {
     try posix.fchdir(self.fd);
 }
 
-pub const OpenOptions = struct {
-    /// `true` means the opened directory can be used as the `Dir` parameter
-    /// for functions which operate based on an open directory handle. When `false`,
-    /// such operations are Illegal Behavior.
-    access_sub_paths: bool = true,
+/// Deprecated in favor of `Io.Dir.OpenOptions`.
+pub const OpenOptions = Io.Dir.OpenOptions;
 
-    /// `true` means the opened directory can be scanned for the files and sub-directories
-    /// of the result. It means the `iterate` function can be called.
-    iterate: bool = false,
-
-    /// `true` means it won't dereference the symlinks.
-    no_follow: bool = false,
-};
-
-/// Opens a directory at the given path. The directory is a system resource that remains
-/// open until `close` is called on the result.
-/// The directory cannot be iterated unless the `iterate` option is set to `true`.
-///
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-/// Asserts that the path parameter has no null bytes.
+/// Deprecated in favor of `Io.Dir.openDir`.
 pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir {
     switch (native_os) {
         .windows => {
@@ -1264,54 +1246,9 @@ pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir
             return self.openDirW(sub_path_w.span().ptr, args);
         },
         .wasi => if (!builtin.link_libc) {
-            var base: std.os.wasi.rights_t = .{
-                .FD_FILESTAT_GET = true,
-                .FD_FDSTAT_SET_FLAGS = true,
-                .FD_FILESTAT_SET_TIMES = true,
-            };
-            if (args.access_sub_paths) {
-                base.FD_READDIR = true;
-                base.PATH_CREATE_DIRECTORY = true;
-                base.PATH_CREATE_FILE = true;
-                base.PATH_LINK_SOURCE = true;
-                base.PATH_LINK_TARGET = true;
-                base.PATH_OPEN = true;
-                base.PATH_READLINK = true;
-                base.PATH_RENAME_SOURCE = true;
-                base.PATH_RENAME_TARGET = true;
-                base.PATH_FILESTAT_GET = true;
-                base.PATH_FILESTAT_SET_SIZE = true;
-                base.PATH_FILESTAT_SET_TIMES = true;
-                base.PATH_SYMLINK = true;
-                base.PATH_REMOVE_DIRECTORY = true;
-                base.PATH_UNLINK_FILE = true;
-            }
-
-            const result = posix.openatWasi(
-                self.fd,
-                sub_path,
-                .{ .SYMLINK_FOLLOW = !args.no_follow },
-                .{ .DIRECTORY = true },
-                .{},
-                base,
-                base,
-            );
-            const fd = result catch |err| switch (err) {
-                error.FileTooBig => unreachable, // can't happen for directories
-                error.IsDir => unreachable, // we're setting DIRECTORY
-                error.NoSpaceLeft => unreachable, // not setting CREAT
-                error.PathAlreadyExists => unreachable, // not setting CREAT
-                error.FileLocksNotSupported => unreachable, // locking folders is not supported
-                error.WouldBlock => unreachable, // can't happen for directories
-                error.FileBusy => unreachable, // can't happen for directories
-                error.SharingViolation => unreachable,
-                error.PipeBusy => unreachable,
-                error.ProcessNotFound => unreachable,
-                error.AntivirusInterference => unreachable,
-
-                else => |e| return e,
-            };
-            return .{ .fd = fd };
+            var threaded: Io.Threaded = .init_single_threaded;
+            const io = threaded.io();
+            return .adaptFromNewApi(try Io.Dir.openDir(.{ .handle = self.fd }, io, sub_path, args));
         },
         else => {},
     }
@@ -1358,12 +1295,12 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenErr
     var symlink_flags: posix.O = switch (native_os) {
         .wasi => .{
             .read = true,
-            .NOFOLLOW = args.no_follow,
+            .NOFOLLOW = !args.follow_symlinks,
             .DIRECTORY = true,
         },
         else => .{
             .ACCMODE = .RDONLY,
-            .NOFOLLOW = args.no_follow,
+            .NOFOLLOW = !args.follow_symlinks,
             .DIRECTORY = true,
             .CLOEXEC = true,
         },
@@ -1384,7 +1321,7 @@ pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenOptions) OpenEr
         w.SYNCHRONIZE | w.FILE_TRAVERSE;
     const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
     const dir = self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
-        .no_follow = args.no_follow,
+        .no_follow = !args.follow_symlinks,
         .create_disposition = w.FILE_OPEN,
     }) catch |err| switch (err) {
         error.ReadOnlyFileSystem => unreachable,
@@ -1923,7 +1860,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                 if (treat_as_dir) {
                     if (stack.unusedCapacitySlice().len >= 1) {
                         var iterable_dir = top.iter.dir.openDir(entry.name, .{
-                            .no_follow = true,
+                            .follow_symlinks = false,
                             .iterate = true,
                         }) catch |err| switch (err) {
                             error.NotDir => {
@@ -2019,7 +1956,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                 handle_entry: while (true) {
                     if (treat_as_dir) {
                         break :iterable_dir parent_dir.openDir(name, .{
-                            .no_follow = true,
+                            .follow_symlinks = false,
                             .iterate = true,
                         }) catch |err| switch (err) {
                             error.NotDir => {
@@ -2125,7 +2062,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                 handle_entry: while (true) {
                     if (treat_as_dir) {
                         const new_dir = dir.openDir(entry.name, .{
-                            .no_follow = true,
+                            .follow_symlinks = false,
                             .iterate = true,
                         }) catch |err| switch (err) {
                             error.NotDir => {
@@ -2224,7 +2161,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
         handle_entry: while (true) {
             if (treat_as_dir) {
                 break :iterable_dir self.openDir(sub_path, .{
-                    .no_follow = true,
+                    .follow_symlinks = false,
                     .iterate = true,
                 }) catch |err| switch (err) {
                     error.NotDir => {

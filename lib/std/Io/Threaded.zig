@@ -198,6 +198,11 @@ pub fn io(t: *Threaded) Io {
                 .wasi => dirOpenFileWasi,
                 else => dirOpenFilePosix,
             },
+            .dirOpenDir = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                .wasi => dirOpenDirWasi,
+                else => dirOpenDirPosix,
+            },
             .fileClose = fileClose,
             .fileWriteStreaming = fileWriteStreaming,
             .fileWritePositional = fileWritePositional,
@@ -1429,7 +1434,6 @@ fn dirCreateFileWasi(
             .CANCELED => return error.Canceled,
 
             .FAULT => |err| return errnoBug(err),
-            // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
             .INVAL => return error.BadPathName,
             .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .ACCES => return error.AccessDenied,
@@ -1650,6 +1654,87 @@ fn dirOpenFileWasi(
             .NOTCAPABLE => return error.AccessDenied,
             .NAMETOOLONG => return error.NameTooLong,
             .INVAL => return error.BadPathName,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn dirOpenDirPosix(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.OpenOptions,
+) Io.Dir.OpenError!Io.Dir {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+
+    _ = t;
+    _ = dir;
+    _ = sub_path;
+    _ = options;
+    @panic("TODO");
+}
+
+fn dirOpenDirWasi(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.OpenOptions,
+) Io.Dir.OpenError!Io.Dir {
+    if (builtin.link_libc) return dirOpenDirPosix(userdata, dir, sub_path, options);
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const wasi = std.os.wasi;
+
+    var base: std.os.wasi.rights_t = .{
+        .FD_FILESTAT_GET = true,
+        .FD_FDSTAT_SET_FLAGS = true,
+        .FD_FILESTAT_SET_TIMES = true,
+    };
+    if (options.access_sub_paths) {
+        base.FD_READDIR = true;
+        base.PATH_CREATE_DIRECTORY = true;
+        base.PATH_CREATE_FILE = true;
+        base.PATH_LINK_SOURCE = true;
+        base.PATH_LINK_TARGET = true;
+        base.PATH_OPEN = true;
+        base.PATH_READLINK = true;
+        base.PATH_RENAME_SOURCE = true;
+        base.PATH_RENAME_TARGET = true;
+        base.PATH_FILESTAT_GET = true;
+        base.PATH_FILESTAT_SET_SIZE = true;
+        base.PATH_FILESTAT_SET_TIMES = true;
+        base.PATH_SYMLINK = true;
+        base.PATH_REMOVE_DIRECTORY = true;
+        base.PATH_UNLINK_FILE = true;
+    }
+
+    const lookup_flags: wasi.lookupflags_t = .{ .SYMLINK_FOLLOW = options.follow_symlinks };
+    const oflags: wasi.oflags_t = .{ .DIRECTORY = true };
+    const fdflags: wasi.fdflags_t = .{};
+    var fd: posix.fd_t = undefined;
+
+    while (true) {
+        try t.checkCancel();
+        switch (wasi.path_open(dir.handle, lookup_flags, sub_path.ptr, sub_path.len, oflags, base, base, fdflags, &fd)) {
+            .SUCCESS => return .{ .handle = fd },
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => return error.BadPathName,
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .ACCES => return error.AccessDenied,
+            .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NODEV => return error.NoDevice,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.NotDir,
+            .PERM => return error.PermissionDenied,
+            .BUSY => return error.DeviceBusy,
+            .NOTCAPABLE => return error.AccessDenied,
             .ILSEQ => return error.BadPathName,
             else => |err| return posix.unexpectedErrno(err),
         }
