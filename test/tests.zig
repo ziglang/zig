@@ -176,6 +176,7 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1152,6 +1153,7 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
