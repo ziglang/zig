@@ -190,7 +190,7 @@ pub fn io(t: *Threaded) Io {
             },
             .dirCreateFile = switch (builtin.os.tag) {
                 .windows => @panic("TODO"),
-                .wasi => @panic("TODO"),
+                .wasi => dirCreateFileWasi,
                 else => dirCreateFilePosix,
             },
             .dirOpenFile = dirOpenFile,
@@ -1376,6 +1376,74 @@ fn dirCreateFilePosix(
     }
 
     return .{ .handle = fd };
+}
+
+fn dirCreateFileWasi(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    flags: Io.File.CreateFlags,
+) Io.File.OpenError!Io.File {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const wasi = std.os.wasi;
+    const lookup_flags: wasi.lookupflags_t = .{};
+    const oflags: wasi.oflags_t = .{
+        .CREAT = true,
+        .TRUNC = flags.truncate,
+        .EXCL = flags.exclusive,
+    };
+    const fdflags: wasi.fdflags_t = .{};
+    const base: wasi.rights_t = .{
+        .FD_READ = flags.read,
+        .FD_WRITE = true,
+        .FD_DATASYNC = true,
+        .FD_SEEK = true,
+        .FD_TELL = true,
+        .FD_FDSTAT_SET_FLAGS = true,
+        .FD_SYNC = true,
+        .FD_ALLOCATE = true,
+        .FD_ADVISE = true,
+        .FD_FILESTAT_SET_TIMES = true,
+        .FD_FILESTAT_SET_SIZE = true,
+        .FD_FILESTAT_GET = true,
+        // POLL_FD_READWRITE only grants extra rights if the corresponding FD_READ and/or
+        // FD_WRITE is also set.
+        .POLL_FD_READWRITE = true,
+    };
+    const inheriting: wasi.rights_t = .{};
+    var fd: posix.fd_t = undefined;
+    while (true) {
+        try t.checkCancel();
+        switch (wasi.path_open(dir.handle, lookup_flags, sub_path.ptr, sub_path.len, oflags, base, inheriting, fdflags, &fd)) {
+            .SUCCESS => return .{ .handle = fd },
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .FAULT => |err| return errnoBug(err),
+            // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
+            .INVAL => return error.BadPathName,
+            .BADF => |err| return errnoBug(err),
+            .ACCES => return error.AccessDenied,
+            .FBIG => return error.FileTooBig,
+            .OVERFLOW => return error.FileTooBig,
+            .ISDIR => return error.IsDir,
+            .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NODEV => return error.NoDevice,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOSPC => return error.NoSpaceLeft,
+            .NOTDIR => return error.NotDir,
+            .PERM => return error.PermissionDenied,
+            .EXIST => return error.PathAlreadyExists,
+            .BUSY => return error.DeviceBusy,
+            .NOTCAPABLE => return error.AccessDenied,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn dirOpenFile(
