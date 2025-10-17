@@ -19,7 +19,7 @@ inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(o
     const S = @TypeOf(other, odd);
     const toinv = @shrExact(other, @intCast(shift));
     const ctrl = @shrExact(odd, @intCast(shift)); // Invariant: |s|, |t|, |ctrl| < |MIN_OF(S)|
-    const hctrl = 1 + @shrExact(ctrl - 1, 1);
+    const half_ctrl = 1 + @shrExact(ctrl - 1, 1);
 
     var s: S = std.math.sign(toinv);
     var t: S = 0;
@@ -31,9 +31,11 @@ inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(o
         const xz = @ctz(x);
         x = @shrExact(x, @intCast(xz));
         for (0..xz) |_| {
-            const s_odd = s & 1 != 0;
-            s = @divFloor(s, 2);
-            if (s_odd) s += hctrl;
+            const half_s = @divFloor(s, 2);
+            if (s & 1 == 0)
+                s = half_s
+            else
+                s = half_s + half_ctrl;
         }
     }
 
@@ -55,9 +57,11 @@ inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(o
         }
         x = @shrExact(x, @intCast(xz));
         for (0..xz) |_| {
-            const s_odd = s & 1 != 0;
-            s = @divFloor(s, 2);
-            if (s_odd) s += hctrl;
+            const half_s = @divFloor(s, 2);
+            if (s & 1 == 0)
+                s = half_s
+            else
+                s = half_s + half_ctrl;
         }
     }
 
