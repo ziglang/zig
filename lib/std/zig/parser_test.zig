@@ -6414,10 +6414,10 @@ fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }
-fn testTransformImpl(allocator: mem.Allocator, fba: *std.heap.FixedBufferAllocator, source: [:0]const u8, expected_source: []const u8) !void {
+fn testTransformImpl(allocator: mem.Allocator, fba: *std.heap.FixedBufferAllocator, fba_initial_state: usize, source: [:0]const u8, expected_source: []const u8) !void {
     // reset the fixed buffer allocator each run so that it can be re-used for each
     // iteration of the failing index
-    fba.reset();
+    fba.restore(fba_initial_state);
     var anything_changed: bool = undefined;
     const result_source = try testParse(source, allocator, &anything_changed);
     try std.testing.expectEqualStrings(expected_source, result_source);
@@ -6431,7 +6431,8 @@ fn testTransformImpl(allocator: mem.Allocator, fba: *std.heap.FixedBufferAllocat
 }
 fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
     var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    return std.testing.checkAllAllocationFailures(fixed_allocator.allocator(), testTransformImpl, .{ &fixed_allocator, source, expected_source });
+    const fba_initial_state = fixed_allocator.savestate();
+    return std.testing.checkAllAllocationFailures(fixed_allocator.allocator(), testTransformImpl, .{ &fixed_allocator, fba_initial_state, source, expected_source });
 }
 fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
