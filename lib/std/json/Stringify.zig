@@ -493,6 +493,10 @@ pub fn write(self: *Stringify, v: anytype) Error!void {
                     return self.write(@as(Slice, v));
                 },
                 else => {
+                    if (std.meta.hasFn(ptr_info.child, "jsonStringify")) {
+                        return v.jsonStringify(self);
+                    }
+
                     return self.write(v.*);
                 },
             },
@@ -965,6 +969,43 @@ test "stringify struct with custom stringifier" {
             try jws.endArray();
         }
     }{ .foo = 42 }, .{});
+}
+
+test "stringify struct pointer with custom stringifier" {
+    const Impl = struct {
+        const default: @This() = .{
+            .interface = .{
+                .vtable = .{ .jsonStringify = &jsonStringifyInterface },
+            },
+            .foo = 42,
+        };
+
+        interface: Interface,
+        foo: u32,
+
+        const Interface = struct {
+            vtable: struct {
+                jsonStringify: *const fn (v: *const Interface, jws: *Stringify) Writer.Error!void,
+            },
+
+            pub fn jsonStringify(v: *const @This(), jws: *Stringify) !void {
+                return v.vtable.jsonStringify(v, jws);
+            }
+        };
+
+        pub fn jsonStringify(v: *const @This(), jws: *Stringify) !void {
+            return jws.write(struct { foo: u32 }{ .foo = v.foo });
+        }
+
+        fn jsonStringifyInterface(v: *const Interface, jws: *Stringify) Writer.Error!void {
+            const self: *const @This() = @fieldParentPtr("interface", v);
+            return jws.write(self);
+        }
+    };
+
+    // If the pointer to interface is dereferenced, @fieldParentPtr returns a
+    // bogus Impl with a garbage value for `foo`.
+    try testStringify("{\"foo\":42}", &Impl.default.interface, .{});
 }
 
 fn testStringify(expected: []const u8, v: anytype, options: Options) !void {
