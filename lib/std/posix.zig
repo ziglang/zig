@@ -4360,8 +4360,7 @@ pub const FStatAtError = FStatError || error{
     NameTooLong,
     FileNotFound,
     SymLinkLoop,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
+    BadPathName,
 };
 
 /// Similar to `fstat`, but returns stat of a resource pointed to by `pathname`
@@ -4900,7 +4899,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return faccessat(AT.FDCWD, path, mode, 0);
+        @compileError("wasi doesn't support absolute paths");
     }
     const path_c = try toPosixPath(path);
     return accessZ(&path_c, mode);
@@ -4931,121 +4930,6 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
         .NOMEM => return error.SystemResources,
         .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
-    }
-}
-
-/// Check user's permissions for a file, based on an open directory handle.
-///
-/// * On Windows, asserts `path` is valid [WTF-8](https://wtf-8.codeberg.page/).
-/// * On WASI, invalid UTF-8 passed to `path` causes `error.InvalidUtf8`.
-/// * On other platforms, `path` is an opaque sequence of bytes with no particular encoding.
-///
-/// On Windows, `mode` is ignored. This is a POSIX API that is only partially supported by
-/// Windows. See `fs` for the cross-platform file system API.
-pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
-    if (native_os == .windows) {
-        const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
-        return faccessatW(dirfd, path_w.span().ptr);
-    } else if (native_os == .wasi and !builtin.link_libc) {
-        const resolved: RelativePathWasi = .{ .dir_fd = dirfd, .relative_path = path };
-
-        const st = try std.os.fstatat_wasi(dirfd, path, .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-
-        if (mode != F_OK) {
-            var directory: wasi.fdstat_t = undefined;
-            if (wasi.fd_fdstat_get(resolved.dir_fd, &directory) != .SUCCESS) {
-                return error.AccessDenied;
-            }
-
-            var rights: wasi.rights_t = .{};
-            if (mode & R_OK != 0) {
-                if (st.filetype == .DIRECTORY) {
-                    rights.FD_READDIR = true;
-                } else {
-                    rights.FD_READ = true;
-                }
-            }
-            if (mode & W_OK != 0) {
-                rights.FD_WRITE = true;
-            }
-            // No validation for X_OK
-
-            // https://github.com/ziglang/zig/issues/18882
-            const rights_int: u64 = @bitCast(rights);
-            const inheriting_int: u64 = @bitCast(directory.fs_rights_inheriting);
-            if ((rights_int & inheriting_int) != rights_int) {
-                return error.AccessDenied;
-            }
-        }
-        return;
-    }
-    const path_c = try toPosixPath(path);
-    return faccessatZ(dirfd, &path_c, mode, flags);
-}
-
-/// Same as `faccessat` except the path parameter is null-terminated.
-pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) AccessError!void {
-    if (native_os == .windows) {
-        const path_w = try windows.cStrToPrefixedFileW(dirfd, path);
-        return faccessatW(dirfd, path_w.span().ptr);
-    } else if (native_os == .wasi and !builtin.link_libc) {
-        return faccessat(dirfd, mem.sliceTo(path, 0), mode, flags);
-    }
-    switch (errno(system.faccessat(dirfd, path, mode, flags))) {
-        .SUCCESS => return,
-        .ACCES => return error.AccessDenied,
-        .PERM => return error.PermissionDenied,
-        .ROFS => return error.ReadOnlyFileSystem,
-        .LOOP => return error.SymLinkLoop,
-        .TXTBSY => return error.FileBusy,
-        .NOTDIR => return error.FileNotFound,
-        .NOENT => return error.FileNotFound,
-        .NAMETOOLONG => return error.NameTooLong,
-        .INVAL => unreachable,
-        .FAULT => unreachable,
-        .IO => return error.InputOutput,
-        .NOMEM => return error.SystemResources,
-        .ILSEQ => return error.BadPathName,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-/// Same as `faccessat` except asserts the target is Windows and the path parameter
-/// is NtDll-prefixed, null-terminated, WTF-16 encoded.
-pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16) AccessError!void {
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        return;
-    }
-    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-        return;
-    }
-
-    const path_len_bytes = cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) orelse return error.NameTooLong;
-    var nt_name = windows.UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @constCast(sub_path_w),
-    };
-    var attr = windows.OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
-        .RootDirectory = if (fs.path.isAbsoluteWindowsW(sub_path_w)) null else dirfd,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var basic_info: windows.FILE_BASIC_INFORMATION = undefined;
-    switch (windows.ntdll.NtQueryAttributesFile(&attr, &basic_info)) {
-        .SUCCESS => return,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_NAME_INVALID => unreachable,
-        .INVALID_PARAMETER => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        else => |rc| return windows.unexpectedStatus(rc),
     }
 }
 

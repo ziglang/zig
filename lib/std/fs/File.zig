@@ -40,65 +40,12 @@ pub const default_mode = switch (builtin.os.tag) {
 
 /// Deprecated in favor of `Io.File.OpenError`.
 pub const OpenError = Io.File.OpenError || error{WouldBlock};
-
-pub const OpenMode = enum {
-    read_only,
-    write_only,
-    read_write,
-};
-
-pub const Lock = enum {
-    none,
-    shared,
-    exclusive,
-};
-
-pub const OpenFlags = struct {
-    mode: OpenMode = .read_only,
-
-    /// Open the file with an advisory lock to coordinate with other processes
-    /// accessing it at the same time. An exclusive lock will prevent other
-    /// processes from acquiring a lock. A shared lock will prevent other
-    /// processes from acquiring a exclusive lock, but does not prevent
-    /// other process from getting their own shared locks.
-    ///
-    /// The lock is advisory, except on Linux in very specific circumstances[1].
-    /// This means that a process that does not respect the locking API can still get access
-    /// to the file, despite the lock.
-    ///
-    /// On these operating systems, the lock is acquired atomically with
-    /// opening the file:
-    /// * Darwin
-    /// * DragonFlyBSD
-    /// * FreeBSD
-    /// * Haiku
-    /// * NetBSD
-    /// * OpenBSD
-    /// On these operating systems, the lock is acquired via a separate syscall
-    /// after opening the file:
-    /// * Linux
-    /// * Windows
-    ///
-    /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-    lock: Lock = .none,
-
-    /// Sets whether or not to wait until the file is locked to return. If set to true,
-    /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
-    /// is available to proceed.
-    lock_nonblocking: bool = false,
-
-    /// Set this to allow the opened file to automatically become the
-    /// controlling TTY for the current process.
-    allow_ctty: bool = false,
-
-    pub fn isRead(self: OpenFlags) bool {
-        return self.mode != .write_only;
-    }
-
-    pub fn isWrite(self: OpenFlags) bool {
-        return self.mode != .read_only;
-    }
-};
+/// Deprecated in favor of `Io.File.OpenMode`.
+pub const OpenMode = Io.File.OpenMode;
+/// Deprecated in favor of `Io.File.Lock`.
+pub const Lock = Io.File.Lock;
+/// Deprecated in favor of `Io.File.OpenFlags`.
+pub const OpenFlags = Io.File.OpenFlags;
 
 pub const CreateFlags = struct {
     /// Whether the file will be created with read access.

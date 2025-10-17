@@ -2353,47 +2353,14 @@ pub fn writeFile(self: Dir, options: WriteFileOptions) WriteFileError!void {
     try file.writeAll(options.data);
 }
 
-pub const AccessError = posix.AccessError;
+/// Deprecated in favor of `Io.Dir.AccessError`.
+pub const AccessError = Io.Dir.AccessError;
 
-/// Test accessing `sub_path`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-/// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
-/// For example, instead of testing if a file exists and then opening it, just
-/// open it and handle the error for file not found.
-pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
-    if (native_os == .windows) {
-        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
-        return self.accessW(sub_path_w.span().ptr, flags);
-    }
-    const path_c = try posix.toPosixPath(sub_path);
-    return self.accessZ(&path_c, flags);
-}
-
-/// Same as `access` except the path parameter is null-terminated.
-pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
-    if (native_os == .windows) {
-        const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
-        return self.accessW(sub_path_w.span().ptr, flags);
-    }
-    const os_mode = switch (flags.mode) {
-        .read_only => @as(u32, posix.F_OK),
-        .write_only => @as(u32, posix.W_OK),
-        .read_write => @as(u32, posix.R_OK | posix.W_OK),
-    };
-    const result = posix.faccessatZ(self.fd, sub_path, os_mode, 0);
-    return result;
-}
-
-/// Same as `access` except asserts the target OS is Windows and the path parameter is
-/// * WTF-16 LE encoded
-/// * null-terminated
-/// * relative or has the NT namespace prefix
-/// TODO currently this ignores `flags`.
-pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
-    _ = flags;
-    return posix.faccessatW(self.fd, sub_path_w);
+/// Deprecated in favor of `Io.Dir.access`.
+pub fn access(self: Dir, sub_path: []const u8, options: Io.Dir.AccessOptions) AccessError!void {
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return Io.Dir.access(self.adaptToNewApi(), io, sub_path, options);
 }
 
 pub const CopyFileOptions = struct {

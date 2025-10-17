@@ -1,14 +1,15 @@
 //! File System.
+const builtin = @import("builtin");
+const native_os = builtin.os.tag;
 
 const std = @import("std.zig");
-const builtin = @import("builtin");
+const Io = std.Io;
 const root = @import("root");
 const mem = std.mem;
 const base64 = std.base64;
 const crypto = std.crypto;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const native_os = builtin.os.tag;
 const posix = std.posix;
 const windows = std.os.windows;
 
@@ -274,7 +275,7 @@ pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) Fi
 /// On Windows, `absolute_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
-pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.AccessError!void {
+pub fn accessAbsolute(absolute_path: []const u8, flags: Io.Dir.AccessOptions) Dir.AccessError!void {
     assert(path.isAbsolute(absolute_path));
     try cwd().access(absolute_path, flags);
 }
