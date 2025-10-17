@@ -23,6 +23,37 @@ pub const PathNameError = error{
     BadPathName,
 };
 
+pub const AccessError = error{
+    AccessDenied,
+    PermissionDenied,
+    FileNotFound,
+    InputOutput,
+    SystemResources,
+    FileBusy,
+    SymLinkLoop,
+    ReadOnlyFileSystem,
+} || PathNameError || Io.Cancelable || Io.UnexpectedError;
+
+pub const AccessOptions = packed struct {
+    follow_symlinks: bool = true,
+    read: bool = false,
+    write: bool = false,
+    execute: bool = false,
+};
+
+/// Test accessing `sub_path`.
+///
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+///
+/// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this
+/// function. For example, instead of testing if a file exists and then opening
+/// it, just open it and handle the error for file not found.
+pub fn access(dir: Dir, io: Io, sub_path: []const u8, options: AccessOptions) AccessError!void {
+    return io.vtable.dirAccess(io.userdata, dir, sub_path, options);
+}
+
 pub const OpenError = error{
     FileNotFound,
     NotDir,
