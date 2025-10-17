@@ -18,7 +18,8 @@ pub fn ExtendedGreatestCommonDivisor(S: anytype) type {
 inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(other, odd) {
     const S = @TypeOf(other, odd);
     const toinv = @shrExact(other, @intCast(shift));
-    const ctrl = @shrExact(odd, @intCast(shift));
+    const ctrl = @shrExact(odd, @intCast(shift)); // Invariant: |s|, |t|, |ctrl| < |MIN_OF(S)|
+    const hctrl = 1 + @shrExact(ctrl - 1, 1);
 
     var s: S = std.math.sign(toinv);
     var t: S = 0;
@@ -29,8 +30,11 @@ inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(o
     {
         const xz = @ctz(x);
         x = @shrExact(x, @intCast(xz));
-        for (0..xz) |_|
-            s = @shrExact(if (s & 1 == 0) s else s + ctrl, 1);
+        for (0..xz) |_| {
+            const s_odd = s & 1 != 0;
+            s = @divFloor(s, 2);
+            if (s_odd) s += hctrl;
+        }
     }
 
     var y_minus_x = y -% x;
@@ -50,8 +54,11 @@ inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(o
             t = copy_s;
         }
         x = @shrExact(x, @intCast(xz));
-        for (0..xz) |_|
-            s = @shrExact(if (s & 1 == 0) s else s + ctrl, 1);
+        for (0..xz) |_| {
+            const s_odd = s & 1 != 0;
+            s = @divFloor(s, 2);
+            if (s_odd) s += hctrl;
+        }
     }
 
     y = @shlExact(y, @intCast(shift));
@@ -96,6 +103,15 @@ pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b))
 }
 
 test {
+    {
+        const a: i8 = 127;
+        const b: i8 = 126;
+        const r = egcd(a, b);
+        const g = r.gcd;
+        const s: i16 = r.bezout_coeff_1;
+        const t: i16 = r.bezout_coeff_2;
+        try std.testing.expect(s * a + t * b == g);
+    }
     {
         const a: i4 = -8;
         const b: i4 = 1;
