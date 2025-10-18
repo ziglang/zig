@@ -37,13 +37,13 @@ pub const ABI = struct {
 // The order of the elements in this array defines the linking order.
 pub const libs = [_]Lib{
     .{ .name = "m", .sover = 6 },
-    .{ .name = "pthread", .sover = 0, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "c", .sover = 6 },
+    .{ .name = "ld", .sover = 2 },
+    .{ .name = "resolv", .sover = 2 },
+    .{ .name = "pthread", .sover = 0, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "dl", .sover = 2, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "rt", .sover = 1, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
-    .{ .name = "ld", .sover = 2 },
     .{ .name = "util", .sover = 1, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
-    .{ .name = "resolv", .sover = 2 },
 };
 
 pub const LoadMetaDataError = error{
