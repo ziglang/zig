@@ -15,8 +15,29 @@ pub fn ExtendedGreatestCommonDivisor(S: anytype) type {
     };
 }
 
-inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(other, odd) {
-    const S = @TypeOf(other, odd);
+/// Returns the Extended Greatest Common Divisor (EGCD) of two signed integers (`a` and `b`) which are not both zero.
+pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b)) {
+    const S = switch (@TypeOf(a, b)) {
+        comptime_int => b: {
+            const n = @max(@abs(a), @abs(b));
+            break :b std.math.IntFittingRange(-n, n);
+        },
+        else => |T| T,
+    };
+    if (@typeInfo(S) != .int or @typeInfo(S).int.signedness != .signed) {
+        @compileError("`a` and `b` must be signed integers");
+    }
+
+    std.debug.assert(a != 0 or b != 0);
+
+    if (a == 0) return .{ .gcd = @abs(b), .bezout_coeff_1 = 0, .bezout_coeff_2 = std.math.sign(b) };
+    if (b == 0) return .{ .gcd = @abs(a), .bezout_coeff_1 = std.math.sign(a), .bezout_coeff_2 = 0 };
+
+    const other: S, const odd: S, const shift, const switch_coeff = b: {
+        const xz = @ctz(@as(S, a));
+        const yz = @ctz(@as(S, b));
+        break :b if (xz < yz) .{ b, a, xz, true } else .{ a, b, yz, false };
+    };
     const toinv = @shrExact(other, @intCast(shift));
     const ctrl = @shrExact(odd, @intCast(shift)); // Invariant: |s|, |t|, |ctrl| < |MIN_OF(S)|
     const half_ctrl = 1 + @shrExact(ctrl - 1, 1);
@@ -68,41 +89,12 @@ inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(o
     // Using integer widening is only a temporary solution.
     const W = std.meta.Int(.signed, @bitSizeOf(S) * 2);
     t = @intCast(@divExact(y - @as(W, s) * toinv, ctrl));
-    y = @shlExact(y, @intCast(shift));
-    return .{ @bitCast(y), s, t };
-}
-
-/// Returns the Extended Greatest Common Divisor (EGCD) of two signed integers (`a` and `b`) which are not both zero.
-pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b)) {
-    const S = switch (@TypeOf(a, b)) {
-        comptime_int => b: {
-            const n = @max(@abs(a), @abs(b));
-            break :b std.math.IntFittingRange(-n, n);
-        },
-        else => |T| T,
+    const final_s, const final_t = if (switch_coeff) .{ t, s } else .{ s, t };
+    return .{
+        .gcd = @shlExact(y, @intCast(shift)),
+        .bezout_coeff_1 = final_s,
+        .bezout_coeff_2 = final_t,
     };
-    if (@typeInfo(S) != .int or @typeInfo(S).int.signedness != .signed) {
-        @compileError("`a` and `b` must be signed integers");
-    }
-
-    std.debug.assert(a != 0 or b != 0);
-
-    if (a == 0) return .{ .gcd = @abs(b), .bezout_coeff_1 = 0, .bezout_coeff_2 = std.math.sign(b) };
-    if (b == 0) return .{ .gcd = @abs(a), .bezout_coeff_1 = std.math.sign(a), .bezout_coeff_2 = 0 };
-
-    const x: S = a;
-    const y: S = b;
-
-    const xz = @ctz(x);
-    const yz = @ctz(y);
-
-    if (xz < yz) {
-        const gcd, const t, const s = egcd_helper(y, x, xz);
-        return .{ .gcd = @intCast(gcd), .bezout_coeff_1 = s, .bezout_coeff_2 = t };
-    } else {
-        const gcd, const s, const t = egcd_helper(x, y, yz);
-        return .{ .gcd = @intCast(gcd), .bezout_coeff_1 = s, .bezout_coeff_2 = t };
-    }
 }
 
 test {
