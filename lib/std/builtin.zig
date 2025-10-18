@@ -39,17 +39,23 @@ pub const StackTrace = struct {
     instruction_addresses: []usize,
 
     pub fn format(st: *const StackTrace, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        // TODO: why on earth are we using stderr's ttyconfig?
-        // If we want colored output, we should just make a formatter out of `writeStackTrace`.
-        const tty_config = std.Io.tty.detectConfig(.stderr());
-        try writer.writeAll("\n");
-        try std.debug.writeStackTrace(st, writer, tty_config);
+        try writer.writeByte('\n');
+        try std.debug.writeStackTrace(st, writer, .no_color);
     }
+
+    pub fn fmtColor(st: *const StackTrace, tty_config: std.Io.tty.Config) ColorFormatter {
+        return .{ .st = st, .tty_config = tty_config };
+    }
+
+    pub const ColorFormatter = struct {
+        st: *const StackTrace,
+        tty_config: std.Io.tty.Config,
+
+        pub fn format(formatter: ColorFormatter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            try writer.writeByte('\n');
+            try std.debug.writeStackTrace(formatter.st, writer, formatter.tty_config);
+        }
+    };
 };
 
 /// This data structure is used by the Zig language code generation and
