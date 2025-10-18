@@ -277,6 +277,7 @@ pub const CallingConvention = union(enum(u8)) {
 
     /// The standard `arc` calling convention.
     arc_sysv: CommonOptions,
+    arc_interrupt: ArcInterruptOptions,
 
     // Calling conventions for the `avr` architecture.
     avr_gnu,
@@ -366,6 +367,22 @@ pub const CallingConvention = union(enum(u8)) {
         /// according to the calling convention.
         /// Equivalent to `__attribute__((regparm(x)))` in Clang and GCC.
         register_params: u2 = 0,
+    };
+
+    /// Options for the `arc_interrupt` calling convention.
+    pub const ArcInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        /// The kind of interrupt being received.
+        type: InterruptType,
+
+        pub const InterruptType = enum(u2) {
+            ilink1,
+            ilink2,
+            ilink,
+            firq,
+        };
     };
 
     /// Options for the `arm_interrupt` calling convention.
