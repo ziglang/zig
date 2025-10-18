@@ -288,7 +288,8 @@ pub fn unlockStderrWriter() void {
 }
 
 /// Print to stderr, silently returning on failure. Intended for use in "printf
-/// debugging". Use `std.log` functions for proper logging.
+/// debugging". Use `std.log` functions for proper logging. See `Writer.print`
+/// for format string documentation.
 ///
 /// Uses a 64-byte buffer for formatted printing which is flushed before this
 /// function returns.
