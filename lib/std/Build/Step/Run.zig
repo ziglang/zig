@@ -1768,18 +1768,26 @@ fn evalZigTest(
                     const stderr_contents = stderr.buffered();
                     stderr.toss(stderr_contents.len);
                     const msg = std.mem.trim(u8, stderr_contents, "\n");
-                    const label = if (tr_hdr.flags.fail)
-                        "failed"
-                    else if (tr_hdr.flags.leak)
-                        "leaked"
-                    else if (tr_hdr.flags.log_err_count > 0)
-                        "logged errors"
-                    else
-                        unreachable;
-                    if (msg.len > 0) {
-                        try run.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
-                    } else {
-                        try run.step.addError("'{s}' {s}", .{ name, label });
+                    if (tr_hdr.flags.fail) {
+                        const err_name = body[@sizeOf(TrHdr)..][0..tr_hdr.flags.err_name_len];
+                        if (msg.len > 0) {
+                            try run.step.addError("'{s}' failed with error {s}: {s}", .{name, err_name, msg});
+                        } else {
+                            try run.step.addError("'{s}' failed with error {s}", .{name, err_name});
+                        }
+                    }
+                    else {
+                        const label = if (tr_hdr.flags.leak)
+                            "leaked"
+                        else if (tr_hdr.flags.log_err_count > 0)
+                            "logged errors"
+                        else
+                            unreachable;
+                        if (msg.len > 0) {
+                            try run.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
+                        } else {
+                            try run.step.addError("'{s}' {s}", .{ name, label });
+                        }
                     }
                 }
 
