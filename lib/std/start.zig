@@ -343,27 +343,46 @@ fn _start() callconv(.naked) noreturn {
             \\ subu $sp, $sp, 16
             \\ jalr $t9
             ,
-            .mips64, .mips64el =>
-            \\ move $fp, $zero
-            // This is needed because early MIPS versions don't support misaligned loads. Without
-            // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
-            // cause the two doublewords to be aligned to 4 bytes instead of 8.
-            \\ .balign 8
-            \\ bal 1f
-            \\ .gpdword .
-            \\ .gpdword %[posixCallMainAndExit]
-            \\1:
-            // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
-            \\ ld $gp, 0($ra)
-            \\ dsubu $gp, $ra, $gp
-            \\ ld $t9, 8($ra)
-            \\ daddu $t9, $t9, $gp
-            \\ move $ra, $zero
-            \\ move $a0, $sp
-            \\ and $sp, -16
-            \\ dsubu $sp, $sp, 16
-            \\ jalr $t9
-            ,
+            .mips64, .mips64el => switch (builtin.abi) {
+                .gnuabin32, .muslabin32 =>
+                \\ move $fp, $zero
+                \\ bal 1f
+                \\ .gpword .
+                \\ .gpword %[posixCallMainAndExit]
+                \\1:
+                // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
+                \\ lw $gp, 0($ra)
+                \\ subu $gp, $ra, $gp
+                \\ lw $t9, 4($ra)
+                \\ addu $t9, $t9, $gp
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ and $sp, -8
+                \\ subu $sp, $sp, 16
+                \\ jalr $t9
+                ,
+                else =>
+                \\ move $fp, $zero
+                // This is needed because early MIPS versions don't support misaligned loads. Without
+                // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
+                // cause the two doublewords to be aligned to 4 bytes instead of 8.
+                \\ .balign 8
+                \\ bal 1f
+                \\ .gpdword .
+                \\ .gpdword %[posixCallMainAndExit]
+                \\1:
+                // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
+                \\ ld $gp, 0($ra)
+                \\ dsubu $gp, $ra, $gp
+                \\ ld $t9, 8($ra)
+                \\ daddu $t9, $t9, $gp
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ and $sp, -16
+                \\ dsubu $sp, $sp, 16
+                \\ jalr $t9
+                ,
+            },
             .powerpc, .powerpcle =>
             // Set up the initial stack frame, and clear the back chain pointer.
             // r1 = SP, r31 = FP
