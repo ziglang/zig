@@ -128,18 +128,31 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
                 : .{ .lr = true }),
-            .mips64, .mips64el => asm volatile (
-                \\ .weak _DYNAMIC
-                \\ .hidden _DYNAMIC
-                \\ .balign 8
-                \\ bal 1f
-                \\ .gpdword _DYNAMIC
-                \\1:
-                \\ ld %[ret], 0($ra)
-                \\ daddu %[ret], %[ret], $gp
-                : [ret] "=r" (-> [*]const elf.Dyn),
-                :
-                : .{ .lr = true }),
+            .mips64, .mips64el => switch (builtin.abi) {
+                .gnuabin32, .muslabin32 => asm volatile (
+                    \\ .weak _DYNAMIC
+                    \\ .hidden _DYNAMIC
+                    \\ bal 1f
+                    \\ .gpword _DYNAMIC
+                    \\1:
+                    \\ lw %[ret], 0($ra)
+                    \\ addu %[ret], %[ret], $gp
+                    : [ret] "=r" (-> [*]const elf.Dyn),
+                    :
+                    : .{ .lr = true }),
+                else => asm volatile (
+                    \\ .weak _DYNAMIC
+                    \\ .hidden _DYNAMIC
+                    \\ .balign 8
+                    \\ bal 1f
+                    \\ .gpdword _DYNAMIC
+                    \\1:
+                    \\ ld %[ret], 0($ra)
+                    \\ daddu %[ret], %[ret], $gp
+                    : [ret] "=r" (-> [*]const elf.Dyn),
+                    :
+                    : .{ .lr = true }),
+            },
             .powerpc, .powerpcle => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
