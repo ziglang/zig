@@ -1242,26 +1242,38 @@ const LinuxThreadImpl = struct {
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
                 // 7928eb0370d1133d0d8cd2f5ddfca19c309079d5.
                 .mips, .mipsel => asm volatile (
-                    \\  move $sp, $25
-                    \\  li $2, 4091 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 4001 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                    \\ move $sp, $t9
+                    \\ li $v0, 4091 # SYS_munmap
+                    \\ move $a0, %[ptr]
+                    \\ move $a1, %[len]
+                    \\ syscall
+                    \\ li $v0, 4001 # SYS_exit
+                    \\ li $a0, 0
+                    \\ syscall
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
-                .mips64, .mips64el => asm volatile (
-                    \\  li $2, 5011 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 5058 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                .mips64, .mips64el => asm volatile (switch (target.abi) {
+                        .gnuabin32, .muslabin32 =>
+                        \\ li $v0, 6011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 6058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                        else =>
+                        \\ li $v0, 5011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 5058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                    }
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
