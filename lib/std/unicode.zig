@@ -233,6 +233,153 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
 }
 
 fn utf8ValidateSliceImpl(input: []const u8, comptime surrogates: Surrogates) bool {
+    const DFA = struct {
+        const ByteClass = enum {
+            // base ASCII
+            ascii,
+            // continuation bytes
+            cont1,
+            cont2,
+            cont3,
+            // starting bytes of 2-byte codepoint
+            two1,
+            two2,
+            // starting bytes of 3-byte codepoint
+            three1,
+            three2,
+            three3,
+            // starting bytes of 4-byte codepoint
+            four1,
+            four2,
+            four3,
+            four4,
+        };
+
+        pub fn byte_class(byte: u8) ByteClass {
+            return switch (byte) {
+                0x00...0x7f => .ascii,
+                0x80...0x8f => .cont1,
+                0x90...0x9f => .cont2,
+                0xa0...0xbf => .cont3,
+                0xc0...0xc1 => .two1,
+                0xc2...0xdf => .two2,
+                0xe0...0xe0 => .three1,
+                0xe1...0xec => .three2,
+                0xed...0xed => .three3,
+                0xee...0xef => .three2,
+                0xf0...0xf0 => .four1,
+                0xf1...0xf3 => .four2,
+                0xf4...0xf4 => .four3,
+                0xf5...0xff => .four4,
+            };
+        }
+
+        const State = enum {
+            ok,
+            one,
+            two1,
+            two2,
+            three1,
+            three2,
+            fail,
+        };
+
+        fn offset_from_state(state: State) u5 {
+            return switch (state) {
+                .ok => 8,
+                .one => 13,
+                .two1 => 23,
+                .two2 => 18,
+                .three1 => 3,
+                .three2 => 28,
+                .fail => 0,
+            };
+        }
+
+        fn state_from_offset(offset: u5) State {
+            return switch (offset) {
+                8 => .ok,
+                13 => .one,
+                23 => .two1,
+                18 => .two2,
+                3 => .three1,
+                28 => .three2,
+                0 => .fail,
+                else => unreachable,
+            };
+        }
+
+        const start: State = .ok;
+        const accept: []State = .{.ok};
+        const fail: ?State = .fail;
+
+        fn step(byte: u8, state: State) State {
+            const class = byte_class(byte);
+            return switch (state) {
+                .ok => switch (class) {
+                    .ascii => .ok,
+                    .cont1 => .one,
+                    .cont2 => .one,
+                    .cont3 => .one,
+                    else => .fail,
+                },
+                .one => switch (class) {
+                    .two2 => .ok,
+                    .cont1 => .two1,
+                    .cont2 => .two1,
+                    .cont3 => .two2,
+                    else => .fail,
+                },
+                .two1 => switch (class) {
+                    .three2 => .ok,
+                    .three3 => .ok,
+                    .cont1 => .three1,
+                    .cont2 => .three2,
+                    .cont3 => .three2,
+                    else => .fail,
+                },
+                .two2 => switch (class) {
+                    .three1 => .ok,
+                    .three2 => .ok,
+                    .three3 => switch (surrogates) {
+                        .cannot_encode_surrogate_half => .fail,
+                        .can_encode_surrogate_half => .ok,
+                    },
+                    .cont1 => .three1,
+                    .cont2 => .three2,
+                    .cont3 => .three2,
+                    else => .fail,
+                },
+                .three1 => switch (class) {
+                    .four2 => .ok,
+                    .four3 => .ok,
+                    else => .fail,
+                },
+                .three2 => switch (class) {
+                    .four1 => .ok,
+                    .four2 => .ok,
+                    else => .fail,
+                },
+                .fail => .fail,
+            };
+        }
+
+        const shift_table = blk: {
+            @setEvalBranchQuota(30000);
+            var t: [256]u32 = @splat(0);
+            for (&t, 0..) |*r, c| {
+                for (std.enums.values(State)) |s| {
+                    r.* |= @truncate(@as(u32, offset_from_state(step(c, s))) << offset_from_state(s));
+                }
+                // Make sure the states didn't overlap and destroy themselves
+                for (std.enums.values(State)) |s| {
+                    std.debug.assert(@as(u5, @truncate(r.* >> offset_from_state(s))) == offset_from_state(step(c, s)));
+                }
+            }
+            break :blk t;
+        };
+    };
+
     var remaining = input;
 
     if (std.simd.suggestVectorLength(u8)) |chunk_len| {
@@ -250,101 +397,24 @@ fn utf8ValidateSliceImpl(input: []const u8, comptime surrogates: Surrogates) boo
         }
     }
 
-    // default lowest and highest continuation byte
-    const lo_cb = 0b10000000;
-    const hi_cb = 0b10111111;
-
-    const min_non_ascii_codepoint = 0x80;
-
-    // The first nibble is used to identify the continuation byte range to
-    // accept. The second nibble is the size.
-    const xx = 0xF1; // invalid: size 1
-    const as = 0xF0; // ASCII: size 1
-    const s1 = 0x02; // accept 0, size 2
-    const s2 = switch (surrogates) {
-        .cannot_encode_surrogate_half => 0x13, // accept 1, size 3
-        .can_encode_surrogate_half => 0x03, // accept 0, size 3
-    };
-    const s3 = 0x03; // accept 0, size 3
-    const s4 = switch (surrogates) {
-        .cannot_encode_surrogate_half => 0x23, // accept 2, size 3
-        .can_encode_surrogate_half => 0x03, // accept 0, size 3
-    };
-    const s5 = 0x34; // accept 3, size 4
-    const s6 = 0x04; // accept 0, size 4
-    const s7 = 0x44; // accept 4, size 4
-
-    // Information about the first byte in a UTF-8 sequence.
-    const first = comptime ([_]u8{as} ** 128) ++ ([_]u8{xx} ** 64) ++ [_]u8{
-        xx, xx, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
-        s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
-        s2, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s4, s3, s3,
-        s5, s6, s6, s6, s7, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx,
-    };
-
-    const n = remaining.len;
-    var i: usize = 0;
-    while (i < n) {
-        const first_byte = remaining[i];
-        if (first_byte < min_non_ascii_codepoint) {
-            i += 1;
-            continue;
+    var state: u32 = DFA.offset_from_state(DFA.State.ok);
+    // Manually unrolled to insert early return.
+    const UNROLL = 8;
+    while (remaining.len > UNROLL) {
+        for (0..UNROLL) |i| {
+            const byte = remaining[remaining.len - 1 - i];
+            state = DFA.shift_table[byte] >> @truncate(state);
         }
-
-        const info = first[first_byte];
-        if (info == xx) {
-            return false; // Illegal starter byte.
-        }
-
-        const size = info & 7;
-        if (i + size > n) {
-            return false; // Short or invalid.
-        }
-
-        // Figure out the acceptable low and high continuation bytes, starting
-        // with our defaults.
-        var accept_lo: u8 = lo_cb;
-        var accept_hi: u8 = hi_cb;
-
-        switch (info >> 4) {
-            0 => {},
-            1 => accept_lo = 0xA0,
-            2 => accept_hi = 0x9F,
-            3 => accept_lo = 0x90,
-            4 => accept_hi = 0x8F,
-            else => unreachable,
-        }
-
-        const c1 = remaining[i + 1];
-        if (c1 < accept_lo or accept_hi < c1) {
+        remaining = remaining[0 .. remaining.len - UNROLL];
+        if (@as(u5, @truncate(state)) == DFA.offset_from_state(DFA.State.fail)) {
             return false;
         }
-
-        switch (size) {
-            2 => i += 2,
-            3 => {
-                const c2 = remaining[i + 2];
-                if (c2 < lo_cb or hi_cb < c2) {
-                    return false;
-                }
-                i += 3;
-            },
-            4 => {
-                const c2 = remaining[i + 2];
-                if (c2 < lo_cb or hi_cb < c2) {
-                    return false;
-                }
-                const c3 = remaining[i + 3];
-                if (c3 < lo_cb or hi_cb < c3) {
-                    return false;
-                }
-                i += 4;
-            },
-            else => unreachable,
-        }
     }
-
-    return true;
+    for (0..remaining.len) |i| {
+        const byte = remaining[remaining.len - 1 - i];
+        state = DFA.shift_table[byte] >> @truncate(state);
+    }
+    return @as(u5, @truncate(state)) == DFA.offset_from_state(DFA.State.ok);
 }
 
 /// Utf8View iterates the code points of a utf-8 encoded string.
