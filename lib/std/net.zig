@@ -910,7 +910,7 @@ pub fn getAddressList(gpa: Allocator, name: []const u8, port: u16) GetAddressLis
     errdefer result.deinit();
 
     if (native_os == .windows) {
-        const name_c = try gpa.dupeZ(u8, name);
+        const name_c = try gpa.dupeSentinel(u8, name, 0);
         defer gpa.free(name_c);
 
         const port_c = try std.fmt.allocPrintSentinel(gpa, "{d}", .{port}, 0);
@@ -982,7 +982,7 @@ pub fn getAddressList(gpa: Allocator, name: []const u8, port: u16) GetAddressLis
     }
 
     if (builtin.link_libc) {
-        const name_c = try gpa.dupeZ(u8, name);
+        const name_c = try gpa.dupeSentinel(u8, name, 0);
         defer gpa.free(name_c);
 
         const port_c = try std.fmt.allocPrintSentinel(gpa, "{d}", .{port}, 0);
