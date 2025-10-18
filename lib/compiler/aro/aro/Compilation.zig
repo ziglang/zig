@@ -114,7 +114,7 @@ pub const Environment = struct {
             if (parsed > max_timestamp) return error.InvalidEpoch;
             return .{ .provided = parsed };
         } else {
-            const timestamp = std.math.cast(u64, std.time.timestamp()) orelse return error.InvalidEpoch;
+            const timestamp = std.math.cast(u64, 0) orelse return error.InvalidEpoch;
             return .{ .system = std.math.clamp(timestamp, 0, max_timestamp) };
         }
     }
