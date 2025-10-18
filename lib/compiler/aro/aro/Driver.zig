@@ -273,6 +273,7 @@ pub fn parseArgs(
     macro_buf: *std.ArrayList(u8),
     args: []const []const u8,
 ) (Compilation.Error || std.Io.Writer.Error)!bool {
+    const io = d.comp.io;
     var i: usize = 1;
     var comment_arg: []const u8 = "";
     var hosted: ?bool = null;
@@ -772,7 +773,7 @@ pub fn parseArgs(
                 opts.arch_os_abi, @errorName(e),
             }),
         };
-        d.comp.target = std.zig.system.resolveTargetQuery(query) catch |e| {
+        d.comp.target = std.zig.system.resolveTargetQuery(io, query) catch |e| {
             return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
         };
     }
@@ -916,8 +917,7 @@ pub fn errorDescription(e: anyerror) []const u8 {
         error.NotDir => "is not a directory",
         error.NotOpenForReading => "file is not open for reading",
         error.NotOpenForWriting => "file is not open for writing",
-        error.InvalidUtf8 => "path is not valid UTF-8",
-        error.InvalidWtf8 => "path is not valid WTF-8",
+        error.BadPathName => "bad path name",
         error.FileBusy => "file is busy",
         error.NameTooLong => "file name is too long",
         error.AccessDenied => "access denied",

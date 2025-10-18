@@ -16,11 +16,13 @@ writers: std.SinglyLinkedList,
 
 pub const growth_factor = 4;
 
-pub const Error = std.posix.MMapError ||
-    std.posix.MRemapError ||
-    std.fs.File.SetEndPosError ||
-    std.fs.File.CopyRangeError ||
-    error{NotFile};
+pub const Error = std.posix.MMapError || std.posix.MRemapError || std.fs.File.SetEndPosError || error{
+    NotFile,
+    SystemResources,
+    IsDir,
+    Unseekable,
+    NoSpaceLeft,
+};
 
 pub fn init(file: std.fs.File, gpa: std.mem.Allocator) !MappedFile {
     var mf: MappedFile = .{
@@ -402,7 +404,7 @@ pub const Node = extern struct {
 
                     const w: *Writer = @fieldParentPtr("interface", interface);
                     const copy_size: usize = @intCast(w.mf.copyFileRange(
-                        file_reader.file,
+                        .adaptFromNewApi(file_reader.file),
                         file_reader.pos,
                         w.ni.fileLocation(w.mf, true).offset + interface.end,
                         limit.minInt(interface.unusedCapacityLen()),

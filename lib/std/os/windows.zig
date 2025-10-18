@@ -146,7 +146,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.Thread.sleep(std.time.ns_per_ms);
+                kernel32.Sleep(1);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
@@ -604,7 +604,7 @@ pub const ReadFileError = error{
     BrokenPipe,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
-    OperationAborted,
+    Canceled,
     /// Unable to read file due to lock.
     LockViolation,
     /// Known to be possible when:
@@ -654,7 +654,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
 
 pub const WriteFileError = error{
     SystemResources,
-    OperationAborted,
+    Canceled,
     BrokenPipe,
     NotOpenForWriting,
     /// The process cannot access the file because another process has locked
@@ -694,7 +694,7 @@ pub fn WriteFile(
         switch (GetLastError()) {
             .INVALID_USER_BUFFER => return error.SystemResources,
             .NOT_ENOUGH_MEMORY => return error.SystemResources,
-            .OPERATION_ABORTED => return error.OperationAborted,
+            .OPERATION_ABORTED => return error.Canceled,
             .NOT_ENOUGH_QUOTA => return error.SystemResources,
             .IO_PENDING => unreachable,
             .NO_DATA => return error.BrokenPipe,
@@ -1653,7 +1653,7 @@ pub fn WSASocketW(
         const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
         if (rc == ws2_32.INVALID_SOCKET) {
             switch (ws2_32.WSAGetLastError()) {
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
                 .WSAEMFILE => return error.ProcessFdQuotaExceeded,
                 .WSAENOBUFS => return error.SystemResources,
                 .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
@@ -2425,7 +2425,7 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
     return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
 }
 
-pub const Wtf8ToPrefixedFileWError = error{InvalidWtf8} || Wtf16ToPrefixedFileWError;
+pub const Wtf8ToPrefixedFileWError = Wtf16ToPrefixedFileWError;
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated WTF-8 encoded path.
@@ -2438,7 +2438,9 @@ pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) Wtf8ToPrefixedFileWEr
 /// https://wtf-8.codeberg.page/
 pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) Wtf8ToPrefixedFileWError!PathSpace {
     var temp_path: PathSpace = undefined;
-    temp_path.len = try std.unicode.wtf8ToWtf16Le(&temp_path.data, path);
+    temp_path.len = std.unicode.wtf8ToWtf16Le(&temp_path.data, path) catch |err| switch (err) {
+        error.InvalidWtf8 => return error.BadPathName,
+    };
     temp_path.data[temp_path.len] = 0;
     return wToPrefixedFileW(dir, temp_path.span());
 }

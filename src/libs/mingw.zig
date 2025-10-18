@@ -235,6 +235,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     dev.check(.build_import_lib);
 
     const gpa = comp.gpa;
+    const io = comp.io;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -255,6 +256,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
+        .io = io,
         .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -302,7 +304,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         .output = .{ .to_list = .{ .arena = .init(gpa) } },
     };
     defer diagnostics.deinit();
-    var aro_comp = aro.Compilation.init(gpa, arena, &diagnostics, std.fs.cwd());
+    var aro_comp = aro.Compilation.init(gpa, arena, io, &diagnostics, std.fs.cwd());
     defer aro_comp.deinit();
 
     aro_comp.target = target.*;

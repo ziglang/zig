@@ -339,6 +339,7 @@ const Module = struct {
         var elf_file = load_result catch |err| switch (err) {
             error.OutOfMemory,
             error.Unexpected,
+            error.Canceled,
             => |e| return e,
 
             error.Overflow,
@@ -356,6 +357,7 @@ const Module = struct {
             error.LockedMemoryLimitExceeded,
             error.ProcessFdQuotaExceeded,
             error.SystemFdQuotaExceeded,
+            error.Streaming,
             => return error.ReadFailed,
         };
         errdefer elf_file.deinit(gpa);

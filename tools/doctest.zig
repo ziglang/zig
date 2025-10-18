@@ -1,5 +1,8 @@
 const builtin = @import("builtin");
+
 const std = @import("std");
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const fatal = std.process.fatal;
 const mem = std.mem;
 const fs = std.fs;
@@ -7,7 +10,6 @@ const process = std.process;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const getExternalExecutor = std.zig.system.getExternalExecutor;
-const Writer = std.Io.Writer;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -35,6 +37,12 @@ pub fn main() !void {
 
     var args_it = try process.argsWithAllocator(arena);
     if (!args_it.skip()) fatal("missing argv[0]", .{});
+
+    const gpa = arena;
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     var opt_input: ?[]const u8 = null;
     var opt_output: ?[]const u8 = null;
@@ -93,6 +101,7 @@ pub fn main() !void {
     try printSourceBlock(arena, out, source, fs.path.basename(input_path));
     try printOutput(
         arena,
+        io,
         out,
         code,
         tmp_dir_path,
@@ -109,6 +118,7 @@ pub fn main() !void {
 
 fn printOutput(
     arena: Allocator,
+    io: Io,
     out: *Writer,
     code: Code,
     /// Relative to this process' cwd.
@@ -123,11 +133,11 @@ fn printOutput(
     var env_map = try process.getEnvMap(arena);
     try env_map.put("CLICOLOR_FORCE", "1");
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try std.zig.system.resolveTargetQuery(io, .{});
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
     const print = std.debug.print;
 
-    var shell_buffer: std.Io.Writer.Allocating = .init(arena);
+    var shell_buffer: Writer.Allocating = .init(arena);
     defer shell_buffer.deinit();
     const shell_out = &shell_buffer.writer;
 
@@ -238,7 +248,7 @@ fn printOutput(
             const target_query = try std.Target.Query.parse(.{
                 .arch_os_abi = code.target_str orelse "native",
             });
-            const target = try std.zig.system.resolveTargetQuery(target_query);
+            const target = try std.zig.system.resolveTargetQuery(io, target_query);
 
             const path_to_exe = try std.fmt.allocPrint(arena, "./{s}{s}", .{
                 code_name, target.exeFileExt(),
@@ -316,9 +326,7 @@ fn printOutput(
                 const target_query = try std.Target.Query.parse(.{
                     .arch_os_abi = triple,
                 });
-                const target = try std.zig.system.resolveTargetQuery(
-                    target_query,
-                );
+                const target = try std.zig.system.resolveTargetQuery(io, target_query);
                 switch (getExternalExecutor(&host, &target, .{
                     .link_libc = code.link_libc,
                 })) {
@@ -1397,7 +1405,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1414,7 +1422,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1428,7 +1436,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1447,7 +1455,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1468,7 +1476,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1487,7 +1495,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1510,7 +1518,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1532,7 +1540,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1549,7 +1557,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1568,7 +1576,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);
@@ -1583,7 +1591,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
         try printShell(&buffer.writer, shell_out, false);

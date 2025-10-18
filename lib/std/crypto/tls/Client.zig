@@ -105,6 +105,14 @@ pub const Options = struct {
         /// Verify that the server certificate is authorized by a given ca bundle.
         bundle: Certificate.Bundle,
     },
+    write_buffer: []u8,
+    read_buffer: []u8,
+    /// Cryptographically secure random bytes. The pointer is not captured; data is only
+    /// read during `init`.
+    entropy: *const [176]u8,
+    /// Current time according to the wall clock / calendar, in seconds.
+    realtime_now_seconds: i64,
+
     /// If non-null, ssl secrets are logged to this stream. Creating such a log file allows
     /// other programs with access to that file to decrypt all traffic over this connection.
     ///
@@ -120,8 +128,6 @@ pub const Options = struct {
     /// application layer itself verifies that the amount of data received equals
     /// the amount of data expected, such as HTTP with the Content-Length header.
     allow_truncation_attacks: bool = false,
-    write_buffer: []u8,
-    read_buffer: []u8,
     /// Populated when `error.TlsAlert` is returned from `init`.
     alert: ?*tls.Alert = null,
 };
@@ -189,14 +195,12 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     };
     const host_len: u16 = @intCast(host.len);
 
-    var random_buffer: [176]u8 = undefined;
-    crypto.random.bytes(&random_buffer);
-    const client_hello_rand = random_buffer[0..32].*;
+    const client_hello_rand = options.entropy[0..32].*;
     var key_seq: u64 = 0;
     var server_hello_rand: [32]u8 = undefined;
-    const legacy_session_id = random_buffer[32..64].*;
+    const legacy_session_id = options.entropy[32..64].*;
 
-    var key_share = KeyShare.init(random_buffer[64..176].*) catch |err| switch (err) {
+    var key_share = KeyShare.init(options.entropy[64..176].*) catch |err| switch (err) {
         // Only possible to happen if the seed is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
@@ -321,7 +325,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var handshake_cipher: tls.HandshakeCipher = undefined;
     var main_cert_pub_key: CertificatePublicKey = undefined;
     var tls12_negotiated_group: ?tls.NamedGroup = null;
-    const now_sec = std.time.timestamp();
+    const now_sec = options.realtime_now_seconds;
 
     var cleartext_fragment_start: usize = 0;
     var cleartext_fragment_end: usize = 0;

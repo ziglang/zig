@@ -3029,18 +3029,22 @@ fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
 fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
     log.debug("parseObject {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
+    const io = wasm.base.comp.io;
     const gc_sections = wasm.base.gc_sections;
 
     defer obj.file.close();
 
+    var file_reader = obj.file.reader(io, &.{});
+
     try wasm.objects.ensureUnusedCapacity(gpa, 1);
-    const stat = try obj.file.stat();
-    const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
+    const size = std.math.cast(usize, try file_reader.getSize()) orelse return error.FileTooBig;
 
     const file_contents = try gpa.alloc(u8, size);
     defer gpa.free(file_contents);
 
-    const n = try obj.file.preadAll(file_contents, 0);
+    const n = file_reader.interface.readSliceShort(file_contents) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+    };
     if (n != file_contents.len) return error.UnexpectedEndOfFile;
 
     var ss: Object.ScratchSpace = .{};
@@ -3053,17 +3057,21 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
 fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
     log.debug("parseArchive {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
+    const io = wasm.base.comp.io;
     const gc_sections = wasm.base.gc_sections;
 
     defer obj.file.close();
 
-    const stat = try obj.file.stat();
-    const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
+    var file_reader = obj.file.reader(io, &.{});
+
+    const size = std.math.cast(usize, try file_reader.getSize()) orelse return error.FileTooBig;
 
     const file_contents = try gpa.alloc(u8, size);
     defer gpa.free(file_contents);
 
-    const n = try obj.file.preadAll(file_contents, 0);
+    const n = file_reader.interface.readSliceShort(file_contents) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+    };
     if (n != file_contents.len) return error.UnexpectedEndOfFile;
 
     var archive = try Archive.parse(gpa, file_contents);

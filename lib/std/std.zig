@@ -85,7 +85,6 @@ pub const macho = @import("macho.zig");
 pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
-pub const net = @import("net.zig");
 pub const os = @import("os.zig");
 pub const once = @import("once.zig").once;
 pub const pdb = @import("pdb.zig");
@@ -144,6 +143,9 @@ pub const Options = struct {
     crypto_always_getrandom: bool = false,
 
     crypto_fork_safety: bool = true,
+
+    keep_sigpoll: bool = false,
+    keep_sigio: bool = false,
 
     /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
     /// to `true` to prevent that.

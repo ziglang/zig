@@ -7,11 +7,15 @@ const is_waiting: usize = 1 << 0;
 const one_pending: usize = 1 << 1;
 
 state: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-event: std.Thread.ResetEvent = .{},
+event: std.Thread.ResetEvent = .unset,
 
 pub fn start(self: *WaitGroup) void {
-    const state = self.state.fetchAdd(one_pending, .monotonic);
-    assert((state / one_pending) < (std.math.maxInt(usize) / one_pending));
+    return startStateless(&self.state);
+}
+
+pub fn startStateless(state: *std.atomic.Value(usize)) void {
+    const prev_state = state.fetchAdd(one_pending, .monotonic);
+    assert((prev_state / one_pending) < (std.math.maxInt(usize) / one_pending));
 }
 
 pub fn startMany(self: *WaitGroup, n: usize) void {
@@ -28,13 +32,20 @@ pub fn finish(self: *WaitGroup) void {
     }
 }
 
-pub fn wait(self: *WaitGroup) void {
-    const state = self.state.fetchAdd(is_waiting, .acquire);
-    assert(state & is_waiting == 0);
+pub fn finishStateless(state: *std.atomic.Value(usize), event: *std.Thread.ResetEvent) void {
+    const prev_state = state.fetchSub(one_pending, .acq_rel);
+    assert((prev_state / one_pending) > 0);
+    if (prev_state == (one_pending | is_waiting)) event.set();
+}
 
-    if ((state / one_pending) > 0) {
-        self.event.wait();
-    }
+pub fn wait(wg: *WaitGroup) void {
+    return waitStateless(&wg.state, &wg.event);
+}
+
+pub fn waitStateless(state: *std.atomic.Value(usize), event: *std.Thread.ResetEvent) void {
+    const prev_state = state.fetchAdd(is_waiting, .acquire);
+    assert(prev_state & is_waiting == 0);
+    if ((prev_state / one_pending) > 0) event.wait();
 }
 
 pub fn reset(self: *WaitGroup) void {

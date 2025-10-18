@@ -1,10 +1,8 @@
 //! This file provides the system interface functions for Linux matching those
 //! that are provided by libc, whether or not libc is linked. The following
 //! abstractions are made:
-//! * Work around kernel bugs and limitations. For example, see sendmmsg.
 //! * Implement all the syscalls in the same way that libc functions will
 //!   provide `rename` when only the `renameat` syscall exists.
-//! * Does not support POSIX thread cancellation.
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -1831,7 +1829,7 @@ pub fn seteuid(euid: uid_t) usize {
     // id will not be changed. Since uid_t is unsigned, this wraps around to the
     // max value in C.
     comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
-    return setresuid(std.math.maxInt(uid_t), euid, std.math.maxInt(uid_t));
+    return setresuid(maxInt(uid_t), euid, maxInt(uid_t));
 }
 
 pub fn setegid(egid: gid_t) usize {
@@ -1842,7 +1840,7 @@ pub fn setegid(egid: gid_t) usize {
     // id will not be changed. Since gid_t is unsigned, this wraps around to the
     // max value in C.
     comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
-    return setresgid(std.math.maxInt(gid_t), egid, std.math.maxInt(gid_t));
+    return setresgid(maxInt(gid_t), egid, maxInt(gid_t));
 }
 
 pub fn getresuid(ruid: *uid_t, euid: *uid_t, suid: *uid_t) usize {
@@ -2076,44 +2074,7 @@ pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
     }
 }
 
-pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
-    if (@typeInfo(usize).int.bits > @typeInfo(@typeInfo(mmsghdr).@"struct".fields[1].type).int.bits) {
-        // workaround kernel brokenness:
-        // if adding up all iov_len overflows a i32 then split into multiple calls
-        // see https://www.openwall.com/lists/musl/2014/06/07/5
-        const kvlen = if (vlen > IOV_MAX) IOV_MAX else vlen; // matches kernel
-        var next_unsent: usize = 0;
-        for (msgvec[0..kvlen], 0..) |*msg, i| {
-            var size: i32 = 0;
-            const msg_iovlen = @as(usize, @intCast(msg.hdr.iovlen)); // kernel side this is treated as unsigned
-            for (msg.hdr.iov[0..msg_iovlen]) |iov| {
-                if (iov.len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.len)))[1] != 0) {
-                    // batch-send all messages up to the current message
-                    if (next_unsent < i) {
-                        const batch_size = i - next_unsent;
-                        const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-                        if (E.init(r) != .SUCCESS) return next_unsent;
-                        if (r < batch_size) return next_unsent + r;
-                    }
-                    // send current message as own packet
-                    const r = sendmsg(fd, &msg.hdr, flags);
-                    if (E.init(r) != .SUCCESS) return r;
-                    // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
-                    msg.len = @as(u32, @intCast(r));
-                    next_unsent = i + 1;
-                    break;
-                }
-                size += @intCast(iov.len);
-            }
-        }
-        if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
-            const batch_size = kvlen - next_unsent;
-            const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-            if (E.init(r) != .SUCCESS) return r;
-            return next_unsent + r;
-        }
-        return kvlen;
-    }
+pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr, vlen: u32, flags: u32) usize {
     return syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(msgvec), vlen, flags);
 }
 
@@ -5985,11 +5946,6 @@ pub const mmsghdr = extern struct {
     len: u32,
 };
 
-pub const mmsghdr_const = extern struct {
-    hdr: msghdr_const,
-    len: u32,
-};
-
 pub const epoll_data = extern union {
     ptr: usize,
     fd: i32,
@@ -7123,12 +7079,6 @@ pub const IPPROTO = struct {
     pub const MPLS = 137;
     pub const RAW = 255;
     pub const MAX = 256;
-};
-
-pub const RR = struct {
-    pub const A = 1;
-    pub const CNAME = 5;
-    pub const AAAA = 28;
 };
 
 pub const tcp_repair_opt = extern struct {
@@ -8685,7 +8635,7 @@ pub const PR = enum(i32) {
     pub const SET_MM_MAP = 14;
     pub const SET_MM_MAP_SIZE = 15;
 
-    pub const SET_PTRACER_ANY = std.math.maxInt(c_ulong);
+    pub const SET_PTRACER_ANY = maxInt(c_ulong);
 
     pub const FP_MODE_FR = 1 << 0;
     pub const FP_MODE_FRE = 1 << 1;
@@ -9867,8 +9817,10 @@ pub const msghdr = extern struct {
     name: ?*sockaddr,
     namelen: socklen_t,
     iov: [*]iovec,
+    /// The kernel and glibc use `usize` for this field; POSIX and musl use `c_int`.
     iovlen: usize,
     control: ?*anyopaque,
+    /// The kernel and glibc use `usize` for this field; POSIX and musl use `socklen_t`.
     controllen: usize,
     flags: u32,
 };
@@ -9885,6 +9837,7 @@ pub const msghdr_const = extern struct {
 
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=b320789d6883cc00ac78ce83bccbfe7ed58afcf0#n105
 pub const cmsghdr = extern struct {
+    /// The kernel and glibc use `usize` for this field; musl uses `socklen_t`.
     len: usize,
     level: i32,
     type: i32,

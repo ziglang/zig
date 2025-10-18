@@ -109,64 +109,6 @@ test "open smoke test" {
     }
 }
 
-test "openat smoke test" {
-    if (native_os == .windows) return error.SkipZigTest;
-
-    // TODO verify file attributes using `fstatat`
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    var fd: posix.fd_t = undefined;
-    const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
-
-    // Create some file using `openat`.
-    fd = try posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .CREAT = true,
-        .EXCL = true,
-    }), mode);
-    posix.close(fd);
-
-    // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    try expectError(error.PathAlreadyExists, posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .CREAT = true,
-        .EXCL = true,
-    }), mode));
-
-    // Try opening without `EXCL` flag.
-    fd = try posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .CREAT = true,
-    }), mode);
-    posix.close(fd);
-
-    // Try opening as a directory which should fail.
-    try expectError(error.NotDir, posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-        .DIRECTORY = true,
-    }), mode));
-
-    // Create some directory
-    try posix.mkdirat(tmp.dir.fd, "some_dir", mode);
-
-    // Open dir using `open`
-    fd = try posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDONLY,
-        .DIRECTORY = true,
-    }), mode);
-    posix.close(fd);
-
-    // Try opening as file which should fail (skip on wasi+libc due to
-    // https://github.com/bytecodealliance/wasmtime/issues/9054)
-    if (native_os != .wasi or !builtin.link_libc) {
-        try expectError(error.IsDir, posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
-            .ACCMODE = .RDWR,
-        }), mode));
-    }
-}
-
 test "readlink on Windows" {
     if (native_os != .windows) return error.SkipZigTest;
 
@@ -223,49 +165,6 @@ test "linkat with different directories" {
     {
         const estat = try posix.fstat(efd.handle);
         try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
-    }
-}
-
-test "fstatat" {
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
-    // enable when `fstat` and `fstatat` are implemented on Windows
-    if (native_os == .windows) return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    // create dummy file
-    const contents = "nonsense";
-    try tmp.dir.writeFile(.{ .sub_path = "file.txt", .data = contents });
-
-    // fetch file's info on the opened fd directly
-    const file = try tmp.dir.openFile("file.txt", .{});
-    const stat = try posix.fstat(file.handle);
-    defer file.close();
-
-    // now repeat but using `fstatat` instead
-    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", posix.AT.SYMLINK_NOFOLLOW);
-
-    try expectEqual(stat.dev, statat.dev);
-    try expectEqual(stat.ino, statat.ino);
-    try expectEqual(stat.nlink, statat.nlink);
-    try expectEqual(stat.mode, statat.mode);
-    try expectEqual(stat.uid, statat.uid);
-    try expectEqual(stat.gid, statat.gid);
-    try expectEqual(stat.rdev, statat.rdev);
-    try expectEqual(stat.size, statat.size);
-    try expectEqual(stat.blksize, statat.blksize);
-
-    // The stat.blocks/statat.blocks count is managed by the filesystem and may
-    // change if the file is stored in a journal or "inline".
-    // try expectEqual(stat.blocks, statat.blocks);
-
-    // s390x-linux does not have nanosecond precision for fstat(), but it does for
-    // fstatat(). As a result, comparing the timestamps isn't worth the effort
-    if (!(builtin.cpu.arch == .s390x and builtin.os.tag == .linux)) {
-        try expectEqual(stat.atime(), statat.atime());
-        try expectEqual(stat.mtime(), statat.mtime());
-        try expectEqual(stat.ctime(), statat.ctime());
     }
 }
 
@@ -628,10 +527,10 @@ test "shutdown socket" {
     }
     const sock = try posix.socket(posix.AF.INET, posix.SOCK.STREAM, 0);
     posix.shutdown(sock, .both) catch |err| switch (err) {
-        error.SocketNotConnected => {},
+        error.SocketUnconnected => {},
         else => |e| return e,
     };
-    std.net.Stream.close(.{ .handle = sock });
+    std.posix.close(sock);
 }
 
 test "sigrtmin/max" {
@@ -725,11 +624,8 @@ test "dup & dup2" {
         try dup2ed.writeAll("dup2");
     }
 
-    var file = try tmp.dir.openFile("os_dup_test", .{});
-    defer file.close();
-
-    var buf: [7]u8 = undefined;
-    try testing.expectEqualStrings("dupdup2", buf[0..try file.readAll(&buf)]);
+    var buffer: [8]u8 = undefined;
+    try testing.expectEqualStrings("dupdup2", try tmp.dir.readFile("os_dup_test", &buffer));
 }
 
 test "writev longer than IOV_MAX" {

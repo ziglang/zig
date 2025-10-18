@@ -392,7 +392,7 @@ var global_progress: Progress = .{
     .terminal = undefined,
     .terminal_mode = .off,
     .update_thread = null,
-    .redraw_event = .{},
+    .redraw_event = .unset,
     .refresh_rate_ns = undefined,
     .initial_delay_ns = undefined,
     .rows = 0,
@@ -523,9 +523,7 @@ pub fn setStatus(new_status: Status) void {
 
 /// Returns whether a resize is needed to learn the terminal size.
 fn wait(timeout_ns: u64) bool {
-    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_|
-        true
-    else |err| switch (err) {
+    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_| true else |err| switch (err) {
         error.Timeout => false,
     };
     global_progress.redraw_event.reset();
