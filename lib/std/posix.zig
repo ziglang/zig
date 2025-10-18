@@ -2918,7 +2918,7 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
         @compileError("WASI does not support os.chdir");
     } else if (native_os == .windows) {
         var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path, &wtf16_dir_path);
+        try windows.checkWtf8ToWtf16LeOverflow(dir_path, &wtf16_dir_path);
         const len = try std.unicode.wtf8ToWtf16Le(&wtf16_dir_path, dir_path);
         return chdirW(wtf16_dir_path[0..len]);
     } else {
@@ -2935,7 +2935,7 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (native_os == .windows) {
         const dir_path_span = mem.span(dir_path);
         var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path_span, &wtf16_dir_path);
+        try windows.checkWtf8ToWtf16LeOverflow(dir_path_span, &wtf16_dir_path);
         const len = try std.unicode.wtf8ToWtf16Le(&wtf16_dir_path, dir_path_span);
         return chdirW(wtf16_dir_path[0..len]);
     } else if (native_os == .wasi and !builtin.link_libc) {
