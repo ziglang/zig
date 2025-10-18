@@ -1516,6 +1516,25 @@ pub const SrcLoc = struct {
                 };
                 return tree.nodeToSpan(src_node);
             },
+            .asm_input => |input| {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const node = input.offset.toAbsolute(src_loc.base_node);
+                const full = tree.fullAsm(node).?;
+                const asm_input = full.inputs[input.input_index];
+                return tree.nodeToSpan(tree.nodeData(asm_input).node_and_token[0]);
+            },
+            .asm_output => |output| {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const node = output.offset.toAbsolute(src_loc.base_node);
+                const full = tree.fullAsm(node).?;
+                const asm_output = full.outputs[output.output_index];
+                const data = tree.nodeData(asm_output).opt_node_and_token;
+                return if (data[0].unwrap()) |output_node|
+                    tree.nodeToSpan(output_node)
+                else
+                    // token points to the ')'
+                    tree.tokenToSpan(data[1] - 1);
+            },
             .for_input => |for_input| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = for_input.for_node_offset.toAbsolute(src_loc.base_node);
@@ -2481,6 +2500,18 @@ pub const LazySrcLoc = struct {
         /// The source location points to the operand of a `return` statement, or
         /// the `return` itself if there is no explicit operand.
         node_offset_return_operand: Ast.Node.Offset,
+        /// The source location points to an assembly input
+        asm_input: struct {
+            /// Points to the assembly node
+            offset: Ast.Node.Offset,
+            input_index: u32,
+        },
+        /// The source location points to an assembly output
+        asm_output: struct {
+            /// Points to the assembly node
+            offset: Ast.Node.Offset,
+            output_index: u32,
+        },
         /// The source location points to a for loop input.
         for_input: struct {
             /// Points to the for loop AST node.
