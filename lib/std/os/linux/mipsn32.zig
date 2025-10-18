@@ -1,5 +1,3 @@
-// TODO: A lot of this file is very likely wrong.
-
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const SYS = std.os.linux.SYS;
@@ -9,7 +7,7 @@ pub fn syscall0(number: SYS) u32 {
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -21,7 +19,7 @@ pub fn syscall_pipe(fd: *[2]i32) u32 {
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 2f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\ b 2f
         \\1:
         \\ sw $v0, 0($a0)
@@ -38,7 +36,7 @@ pub fn syscall1(number: SYS, arg1: u32) u32 {
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -51,7 +49,7 @@ pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -65,7 +63,7 @@ pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -80,7 +78,7 @@ pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -96,7 +94,7 @@ pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -121,7 +119,7 @@ pub fn syscall6(
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -148,7 +146,7 @@ pub fn syscall7(
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
@@ -171,20 +169,20 @@ pub fn clone() callconv(.naked) u32 {
     asm volatile (
         \\ # Save function pointer and argument pointer on new thread stack
         \\ and $a1, $a1, -16
-        \\ dsubu $a1, $a1, 16
-        \\ sd $a0, 0($a1)
-        \\ sd $a3, 8($a1)
+        \\ subu $a1, $a1, 16
+        \\ sw $a0, 0($a1)
+        \\ sw $a3, 4($a1)
         \\
         \\ # Shuffle (fn,sp,fl,arg,ptid,tls,ctid) to (fl,sp,ptid,tls,ctid)
         \\ move $a0, $a2
         \\ move $a2, $a4
         \\ move $a3, $a5
         \\ move $a4, $a6
-        \\ li $v0, 5055 # SYS_clone
+        \\ li $v0, 6055 # SYS_clone
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 2f
-        \\ dsubu $v0, $zero, $v0
+        \\ subu $v0, $zero, $v0
         \\ b 2f
         \\1:
         \\ beq $v0, $zero, 3f
@@ -200,11 +198,11 @@ pub fn clone() callconv(.naked) u32 {
         \\ move $ra, $zero
         \\
         \\ ld $t9, 0($sp)
-        \\ ld $a0, 8($sp)
+        \\ ld $a0, 4($sp)
         \\ jalr $t9
         \\
         \\ move $a0, $v0
-        \\ li $v0, 5058 # SYS_exit
+        \\ li $v0, 6058 # SYS_exit
         \\ syscall
     );
 }
