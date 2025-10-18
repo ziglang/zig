@@ -598,6 +598,8 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
 
     // Zero-length allocation
     const empty = try allocator.alloc(u8, 0);
+    try testing.expect(empty.len == 0);
+    try testing.expect(empty.ptr == @as([*]u8, @ptrFromInt(std.math.maxInt(usize))));
     allocator.free(empty);
     // Allocation with zero-sized types
     const zero_bit_ptr = try allocator.create(u0);
