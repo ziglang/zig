@@ -132,34 +132,6 @@ pub fn syscall6(
         : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-pub fn syscall7(
-    number: SYS,
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    arg6: u64,
-    arg7: u64,
-) u64 {
-    return asm volatile (
-        \\ syscall
-        \\ beq $a3, $zero, 1f
-        \\ blez $v0, 1f
-        \\ dsubu $v0, $zero, $v0
-        \\1:
-        : [ret] "={$2}" (-> u64),
-        : [number] "{$2}" (@intFromEnum(number)),
-          [arg1] "{$4}" (arg1),
-          [arg2] "{$5}" (arg2),
-          [arg3] "{$6}" (arg3),
-          [arg4] "{$7}" (arg4),
-          [arg5] "{$8}" (arg5),
-          [arg6] "{$9}" (arg6),
-          [arg7] "{$10}" (arg7),
-        : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
-}
-
 pub fn clone() callconv(.naked) u64 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         a0,   a1,    a2,    a3,  a4,   a5,  a6
