@@ -562,15 +562,11 @@ test "sync" {
     if (native_os != .linux)
         return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    // Unfortunately, we cannot safely call `sync` or `syncfs`, because if file IO is happening
+    // than the system can commit the results to disk, such calls could block indefinitely.
 
-    const test_out_file = "os_tmp_test";
-    const file = try tmp.dir.createFile(test_out_file, .{});
-    defer file.close();
-
-    posix.sync();
-    try posix.syncfs(file.handle);
+    _ = &posix.sync;
+    _ = &posix.syncfs;
 }
 
 test "fsync" {

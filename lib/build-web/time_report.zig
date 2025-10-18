@@ -27,6 +27,13 @@ const js = struct {
         /// Whether the LLVM backend was used. If not, LLVM-specific statistics are hidden.
         use_llvm: bool,
     ) void;
+    extern "time_report" fn updateRunTest(
+        /// The index of the step.
+        step_idx: u32,
+        // The HTML which will populate the <tbody> of the test table.
+        table_html_ptr: [*]const u8,
+        table_html_len: usize,
+    ) void;
 };
 
 pub fn genericResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
@@ -235,5 +242,39 @@ pub fn compileResultMessage(msg_bytes: []u8) error{ OutOfMemory, WriteFailed }!v
         decl_table_html.written().ptr,
         decl_table_html.written().len,
         hdr.flags.use_llvm,
+    );
+}
+
+pub fn runTestResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
+    if (msg_bytes.len < @sizeOf(abi.RunTestResult)) @panic("malformed RunTestResult message");
+    const hdr: *const abi.RunTestResult = @ptrCast(msg_bytes[0..@sizeOf(abi.RunTestResult)]);
+    if (hdr.step_idx >= step_list.*.len) @panic("malformed RunTestResult message");
+    const trailing = msg_bytes[@sizeOf(abi.RunTestResult)..];
+
+    const durations: []align(1) const u64 = @ptrCast(trailing[0 .. hdr.tests_len * 8]);
+    var offset: usize = hdr.tests_len * 8;
+
+    var table_html: std.ArrayListUnmanaged(u8) = .empty;
+    defer table_html.deinit(gpa);
+
+    for (durations) |test_ns| {
+        const test_name_len = std.mem.indexOfScalar(u8, trailing[offset..], 0) orelse @panic("malformed RunTestResult message");
+        const test_name = trailing[offset..][0..test_name_len];
+        offset += test_name_len + 1;
+        try table_html.print(gpa, "<tr><th scope=\"row\"><code>{f}</code></th>", .{fmtEscapeHtml(test_name)});
+        if (test_ns == std.math.maxInt(u64)) {
+            try table_html.appendSlice(gpa, "<td class=\"empty-cell\"></td>"); // didn't run
+        } else {
+            try table_html.print(gpa, "<td>{D}</td>", .{test_ns});
+        }
+        try table_html.appendSlice(gpa, "</tr>\n");
+    }
+
+    if (offset != trailing.len) @panic("malformed RunTestResult message");
+
+    js.updateRunTest(
+        hdr.step_idx,
+        table_html.items.ptr,
+        table_html.items.len,
     );
 }
