@@ -919,6 +919,13 @@ pub const Inst = struct {
         /// Operand is unused and set to Ref.none
         work_group_id,
 
+        /// Implements @depositBits builtin.
+        /// Uses the `bin_op` field.
+        deposit_bits,
+        /// Implements @extractBits builtin.
+        /// Uses the `bin_op` field.
+        extract_bits,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1532,6 +1539,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .div_exact_optimized,
         .rem_optimized,
         .mod_optimized,
+        .deposit_bits,
+        .extract_bits,
         => return air.typeOf(datas[@intFromEnum(inst)].bin_op.lhs, ip),
 
         .sqrt,
@@ -2013,6 +2022,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .deposit_bits,
+        .extract_bits,
         => false,
 
         .is_non_null_ptr, .is_null_ptr, .is_non_err_ptr, .is_err_ptr => air.typeOf(data.un_op, ip).isVolatilePtrIp(ip),
