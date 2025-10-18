@@ -202,6 +202,7 @@ fn _start() callconv(.naked) noreturn {
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
+            .or1k => ".cfi_undefined r9",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
             .riscv32, .riscv32be, .riscv64, .riscv64be => if (builtin.zig_backend == .stage2_riscv64)
                 ""
@@ -304,6 +305,14 @@ fn _start() callconv(.naked) noreturn {
             \\ move $a0, $sp
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
+            ,
+            .or1k =>
+            // r1 = SP, r2 = FP, r9 = LR
+            \\ l.ori r2, r0, 0
+            \\ l.ori r9, r0, 0
+            \\ l.ori r3, r1, 0
+            \\ l.andi r1, r1, -4
+            \\ l.jal %[posixCallMainAndExit]
             ,
             .riscv32, .riscv32be, .riscv64, .riscv64be =>
             \\ li fp, 0
