@@ -94,22 +94,27 @@ pub const can_unwind: bool = s: {
     // Notably, we are yet to support unwinding on ARM. There, unwinding is not done through
     // `.eh_frame`, but instead with the `.ARM.exidx` section, which has a different format.
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
-        // Not supported yet: arm, m68k
+        // Not supported yet: arm
         .haiku => &.{
             .aarch64,
+            .m68k,
             .riscv64,
             .x86,
             .x86_64,
         },
-        // Not supported yet: arc, arm/armeb/thumb/thumbeb, csky, m68k, or1k, xtensa
+        // Not supported yet: arm/armeb/thumb/thumbeb, xtensa
         .linux => &.{
             .aarch64,
             .aarch64_be,
+            .arc,
+            .csky,
             .loongarch64,
+            .m68k,
             .mips,
             .mipsel,
             .mips64,
             .mips64el,
+            .or1k,
             .riscv32,
             .riscv64,
             .s390x,
@@ -131,10 +136,11 @@ pub const can_unwind: bool = s: {
             .riscv64,
             .x86_64,
         },
-        // Not supported yet: arm/armeb, m68k, mips64/mips64el
+        // Not supported yet: arm/armeb, mips64/mips64el
         .netbsd => &.{
             .aarch64,
             .aarch64_be,
+            .m68k,
             .mips,
             .mipsel,
             .x86,

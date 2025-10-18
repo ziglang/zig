@@ -5,13 +5,19 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
     root.debug.CpuContext
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
+    .arc => Arc,
     .arm, .armeb, .thumb, .thumbeb => Arm,
+    .csky => Csky,
     .hexagon => Hexagon,
+    .lanai => Lanai,
     .loongarch32, .loongarch64 => LoongArch,
+    .m68k => M68k,
     .mips, .mipsel, .mips64, .mips64el => Mips,
+    .or1k => Or1k,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
     .sparc, .sparc64 => Sparc,
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
+    .ve => Ve,
     .s390x => S390x,
     .x86 => X86,
     .x86_64 => X86_64,
@@ -30,7 +36,20 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
     const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
 
     // Deal with some special cases first.
-    if (native_arch.isMIPS32() and native_os == .linux) {
+    if (native_arch == .arc and native_os == .linux) {
+        var native: Native = .{
+            .r = [_]u32{ uc.mcontext.r31, uc.mcontext.r30, 0, uc.mcontext.r28 } ++
+                uc.mcontext.r27_26 ++
+                uc.mcontext.r25_13 ++
+                uc.mcontext.r12_0,
+            .pcl = uc.mcontext.pcl,
+        };
+
+        // I have no idea why the kernel is storing these registers in such a bizarre order...
+        std.mem.reverse(native.r[0..]);
+
+        return native;
+    } else if (native_arch.isMIPS32() and native_os == .linux) {
         // The O32 kABI uses 64-bit fields for some reason.
         return .{
             .r = s: {
@@ -72,8 +91,20 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             .sp = uc.mcontext.sp,
             .pc = uc.mcontext.pc,
         },
+        .csky => .{
+            .r = uc.mcontext.r0_13 ++
+                [_]u32{ uc.mcontext.r14, uc.mcontext.r15 } ++
+                uc.mcontext.r16_30 ++
+                [_]u32{uc.mcontext.r31},
+            .pc = uc.mcontext.pc,
+        },
         .hexagon, .loongarch32, .loongarch64, .mips, .mipsel, .mips64, .mips64el, .or1k => .{
             .r = uc.mcontext.r,
+            .pc = uc.mcontext.pc,
+        },
+        .m68k => .{
+            .d = uc.mcontext.d,
+            .a = uc.mcontext.a,
             .pc = uc.mcontext.pc,
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => .{
@@ -181,129 +212,124 @@ pub fn fromWindowsContext(ctx: *const std.os.windows.CONTEXT) Native {
     };
 }
 
-const X86 = struct {
-    /// The first 8 registers here intentionally match the order of registers in the x86 instruction
-    /// encoding. This order is inherited by the PUSHA instruction and the DWARF register mappings,
-    /// among other things.
-    pub const Gpr = enum {
-        // zig fmt: off
-        eax, ecx, edx, ebx,
-        esp, ebp, esi, edi,
-        eip,
-        // zig fmt: on
-    };
-    gprs: std.enums.EnumArray(Gpr, u32),
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Aarch64 = extern struct {
+    /// The numbered general-purpose registers X0 - X30.
+    x: [31]u64,
+    sp: u64,
+    pc: u64,
 
-    pub inline fn current() X86 {
-        var ctx: X86 = undefined;
+    pub inline fn current() Aarch64 {
+        var ctx: Aarch64 = undefined;
         asm volatile (
-            \\movl %%eax, 0x00(%%edi)
-            \\movl %%ecx, 0x04(%%edi)
-            \\movl %%edx, 0x08(%%edi)
-            \\movl %%ebx, 0x0c(%%edi)
-            \\movl %%esp, 0x10(%%edi)
-            \\movl %%ebp, 0x14(%%edi)
-            \\movl %%esi, 0x18(%%edi)
-            \\movl %%edi, 0x1c(%%edi)
-            \\call 1f
-            \\1:
-            \\popl 0x20(%%edi)
+            \\ stp x0,  x1,  [x0, #0x000]
+            \\ stp x2,  x3,  [x0, #0x010]
+            \\ stp x4,  x5,  [x0, #0x020]
+            \\ stp x6,  x7,  [x0, #0x030]
+            \\ stp x8,  x9,  [x0, #0x040]
+            \\ stp x10, x11, [x0, #0x050]
+            \\ stp x12, x13, [x0, #0x060]
+            \\ stp x14, x15, [x0, #0x070]
+            \\ stp x16, x17, [x0, #0x080]
+            \\ stp x18, x19, [x0, #0x090]
+            \\ stp x20, x21, [x0, #0x0a0]
+            \\ stp x22, x23, [x0, #0x0b0]
+            \\ stp x24, x25, [x0, #0x0c0]
+            \\ stp x26, x27, [x0, #0x0d0]
+            \\ stp x28, x29, [x0, #0x0e0]
+            \\ str x30, [x0, #0x0f0]
+            \\ mov x1, sp
+            \\ str x1, [x0, #0x0f8]
+            \\ adr x1, .
+            \\ str x1, [x0, #0x100]
             :
-            : [gprs] "{edi}" (&ctx.gprs.values),
-            : .{ .memory = true });
+            : [ctx] "{x0}" (&ctx),
+            : .{ .x1 = true, .memory = true });
         return ctx;
     }
 
-    pub fn dwarfRegisterBytes(ctx: *X86, register_num: u16) DwarfRegisterError![]u8 {
-        // System V Application Binary Interface Intel386 Architecture Processor Supplement Version 1.1
-        //   § 2.4.2 "DWARF Register Number Mapping"
+    pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
+        // DWARF for the Arm(r) 64-bit Architecture (AArch64) § 4.1 "DWARF register names"
         switch (register_num) {
-            // The order of `Gpr` intentionally matches DWARF's mappings.
-            //
-            // x86-macos sometimes uses different mappings (ebp and esp are reversed when the unwind
-            // information is from `__eh_frame`). This deviation is not considered here, because
-            // x86-macos is a deprecated target which is not supported by the Zig Standard Library.
-            0...8 => return @ptrCast(&ctx.gprs.values[register_num]),
+            0...30 => return @ptrCast(&ctx.x[register_num]),
+            31 => return @ptrCast(&ctx.sp),
+            32 => return @ptrCast(&ctx.pc),
 
-            9 => return error.UnsupportedRegister, // eflags
-            11...18 => return error.UnsupportedRegister, // st0 - st7
-            21...28 => return error.UnsupportedRegister, // xmm0 - xmm7
-            29...36 => return error.UnsupportedRegister, // mm0 - mm7
-            39 => return error.UnsupportedRegister, // mxcsr
-            40...45 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
-            48 => return error.UnsupportedRegister, // tr
-            49 => return error.UnsupportedRegister, // ldtr
-            93...100 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
+            33 => return error.UnsupportedRegister, // ELR_mode
+            34 => return error.UnsupportedRegister, // RA_SIGN_STATE
+            35 => return error.UnsupportedRegister, // TPIDRRO_ELO
+            36 => return error.UnsupportedRegister, // TPIDR_ELO
+            37 => return error.UnsupportedRegister, // TPIDR_EL1
+            38 => return error.UnsupportedRegister, // TPIDR_EL2
+            39 => return error.UnsupportedRegister, // TPIDR_EL3
+            40...45 => return error.UnsupportedRegister, // Reserved
+            46 => return error.UnsupportedRegister, // VG
+            47 => return error.UnsupportedRegister, // FFR
+            48...63 => return error.UnsupportedRegister, // P0 - P15
+            64...95 => return error.UnsupportedRegister, // V0 - V31
+            96...127 => return error.UnsupportedRegister, // Z0 - Z31
 
             else => return error.InvalidRegister,
         }
     }
 };
 
-const X86_64 = struct {
-    /// The order here intentionally matches the order of the DWARF register mappings. It's unclear
-    /// where those mappings actually originated from---the ordering of the first 4 registers seems
-    /// quite unusual---but it is currently convenient for us to match DWARF.
-    pub const Gpr = enum {
-        // zig fmt: off
-        rax, rdx, rcx, rbx,
-        rsi, rdi, rbp, rsp,
-        r8,  r9,  r10, r11,
-        r12, r13, r14, r15,
-        rip,
-        // zig fmt: on
-    };
-    gprs: std.enums.EnumArray(Gpr, u64),
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Arc = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    pcl: u32,
 
-    pub inline fn current() X86_64 {
-        var ctx: X86_64 = undefined;
+    pub inline fn current() Arc {
+        var ctx: Arc = undefined;
         asm volatile (
-            \\movq %%rax, 0x00(%%rdi)
-            \\movq %%rdx, 0x08(%%rdi)
-            \\movq %%rcx, 0x10(%%rdi)
-            \\movq %%rbx, 0x18(%%rdi)
-            \\movq %%rsi, 0x20(%%rdi)
-            \\movq %%rdi, 0x28(%%rdi)
-            \\movq %%rbp, 0x30(%%rdi)
-            \\movq %%rsp, 0x38(%%rdi)
-            \\movq %%r8,  0x40(%%rdi)
-            \\movq %%r9,  0x48(%%rdi)
-            \\movq %%r10, 0x50(%%rdi)
-            \\movq %%r11, 0x58(%%rdi)
-            \\movq %%r12, 0x60(%%rdi)
-            \\movq %%r13, 0x68(%%rdi)
-            \\movq %%r14, 0x70(%%rdi)
-            \\movq %%r15, 0x78(%%rdi)
-            \\leaq (%%rip), %%rax
-            \\movq %%rax, 0x80(%%rdi)
-            \\movq 0x00(%%rdi), %%rax
+            \\ st r0, [r8, 0]
+            \\ st r1, [r8, 4]
+            \\ st r2, [r8, 8]
+            \\ st r3, [r8, 12]
+            \\ st r4, [r8, 16]
+            \\ st r5, [r8, 20]
+            \\ st r6, [r8, 24]
+            \\ st r7, [r8, 28]
+            \\ st r8, [r8, 32]
+            \\ st r9, [r8, 36]
+            \\ st r10, [r8, 40]
+            \\ st r11, [r8, 44]
+            \\ st r12, [r8, 48]
+            \\ st r13, [r8, 52]
+            \\ st r14, [r8, 56]
+            \\ st r15, [r8, 60]
+            \\ st r16, [r8, 64]
+            \\ st r17, [r8, 68]
+            \\ st r18, [r8, 72]
+            \\ st r19, [r8, 76]
+            \\ st r20, [r8, 80]
+            \\ st r21, [r8, 84]
+            \\ st r22, [r8, 88]
+            \\ st r23, [r8, 92]
+            \\ st r24, [r8, 96]
+            \\ st r25, [r8, 100]
+            \\ st r26, [r8, 104]
+            \\ st r27, [r8, 108]
+            \\ st r28, [r8, 112]
+            \\ st r29, [r8, 116]
+            \\ st r30, [r8, 120]
+            \\ st r31, [r8, 124]
+            \\ st pcl, [r8, 128]
             :
-            : [gprs] "{rdi}" (&ctx.gprs.values),
+            : [ctx] "{r8}" (&ctx),
             : .{ .memory = true });
         return ctx;
     }
 
-    pub fn dwarfRegisterBytes(ctx: *X86_64, register_num: u16) DwarfRegisterError![]u8 {
-        // System V Application Binary Interface AMD64 Architecture Processor Supplement
-        //   § 3.6.2 "DWARF Register Number Mapping"
+    pub fn dwarfRegisterBytes(ctx: *Arc, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
-            // The order of `Gpr` intentionally matches DWARF's mappings.
-            0...16 => return @ptrCast(&ctx.gprs.values[register_num]),
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            160 => return @ptrCast(&ctx.pcl),
 
-            17...32 => return error.UnsupportedRegister, // xmm0 - xmm15
-            33...40 => return error.UnsupportedRegister, // st0 - st7
-            41...48 => return error.UnsupportedRegister, // mm0 - mm7
-            49 => return error.UnsupportedRegister, // rflags
-            50...55 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
-            58...59 => return error.UnsupportedRegister, // fs.base, gs.base
-            62 => return error.UnsupportedRegister, // tr
-            63 => return error.UnsupportedRegister, // ldtr
-            64 => return error.UnsupportedRegister, // mxcsr
-            65 => return error.UnsupportedRegister, // fcw
-            66 => return error.UnsupportedRegister, // fsw
-            67...82 => return error.UnsupportedRegister, // xmm16 - xmm31 (AVX-512)
-            118...125 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
-            130...145 => return error.UnsupportedRegister, // r16 - r31 (APX)
+            32...57 => return error.UnsupportedRegister, // Extension Core Registers
+            58...127 => return error.UnsupportedRegister, // Reserved
+            128...159 => return error.UnsupportedRegister, // f0 - f31
 
             else => return error.InvalidRegister,
         }
@@ -317,11 +343,11 @@ const Arm = struct {
     pub inline fn current() Arm {
         var ctx: Arm = undefined;
         asm volatile (
-            \\// For compatibility with Thumb, we can't write r13 (sp) or r15 (pc) with stm.
-            \\stm r0, {r0-r12}
-            \\str r13, [r0, #0x34]
-            \\str r14, [r0, #0x38]
-            \\str r15, [r0, #0x3c]
+            \\ // For compatibility with Thumb, we can't write r13 (sp) or r15 (pc) with stm.
+            \\ stm r0, {r0-r12}
+            \\ str r13, [r0, #0x34]
+            \\ str r14, [r0, #0x38]
+            \\ str r15, [r0, #0x3c]
             :
             : [r] "{r0}" (&ctx.r),
             : .{ .memory = true });
@@ -369,62 +395,30 @@ const Arm = struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-const Aarch64 = extern struct {
-    /// The numbered general-purpose registers X0 - X30.
-    x: [31]u64,
-    sp: u64,
-    pc: u64,
+const Csky = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    pc: u32,
 
-    pub inline fn current() Aarch64 {
-        var ctx: Aarch64 = undefined;
+    pub inline fn current() Csky {
+        var ctx: Csky = undefined;
         asm volatile (
-            \\stp x0,  x1,  [x0, #0x000]
-            \\stp x2,  x3,  [x0, #0x010]
-            \\stp x4,  x5,  [x0, #0x020]
-            \\stp x6,  x7,  [x0, #0x030]
-            \\stp x8,  x9,  [x0, #0x040]
-            \\stp x10, x11, [x0, #0x050]
-            \\stp x12, x13, [x0, #0x060]
-            \\stp x14, x15, [x0, #0x070]
-            \\stp x16, x17, [x0, #0x080]
-            \\stp x18, x19, [x0, #0x090]
-            \\stp x20, x21, [x0, #0x0a0]
-            \\stp x22, x23, [x0, #0x0b0]
-            \\stp x24, x25, [x0, #0x0c0]
-            \\stp x26, x27, [x0, #0x0d0]
-            \\stp x28, x29, [x0, #0x0e0]
-            \\str x30, [x0, #0x0f0]
-            \\mov x1, sp
-            \\str x1, [x0, #0x0f8]
-            \\adr x1, .
-            \\str x1, [x0, #0x100]
-            \\ldr x1, [x0, #0x008]
+            \\ stm r0-r31, (t0)
+            \\ grs t1, 1f
+            \\1:
+            \\ st32.w t1, (t0, 128)
             :
-            : [gprs] "{x0}" (&ctx),
-            : .{ .memory = true });
+            : [ctx] "{r12}" (&ctx),
+            : .{ .r13 = true, .memory = true });
         return ctx;
     }
 
-    pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
-        // DWARF for the Arm(r) 64-bit Architecture (AArch64) § 4.1 "DWARF register names"
+    pub fn dwarfRegisterBytes(ctx: *Csky, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
-            0...30 => return @ptrCast(&ctx.x[register_num]),
-            31 => return @ptrCast(&ctx.sp),
-            32 => return @ptrCast(&ctx.pc),
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.pc),
 
-            33 => return error.UnsupportedRegister, // ELR_mode
-            34 => return error.UnsupportedRegister, // RA_SIGN_STATE
-            35 => return error.UnsupportedRegister, // TPIDRRO_ELO
-            36 => return error.UnsupportedRegister, // TPIDR_ELO
-            37 => return error.UnsupportedRegister, // TPIDR_EL1
-            38 => return error.UnsupportedRegister, // TPIDR_EL2
-            39 => return error.UnsupportedRegister, // TPIDR_EL3
-            40...45 => return error.UnsupportedRegister, // Reserved
-            46 => return error.UnsupportedRegister, // VG
-            47 => return error.UnsupportedRegister, // FFR
-            48...63 => return error.UnsupportedRegister, // P0 - P15
-            64...95 => return error.UnsupportedRegister, // V0 - V31
-            96...127 => return error.UnsupportedRegister, // Z0 - Z31
+            32...63 => return error.UnsupportedRegister, // f0 - f31
 
             else => return error.InvalidRegister,
         }
@@ -474,10 +468,9 @@ const Hexagon = extern struct {
             \\ memw(r0 + #124) = r31
             \\ r1 = pc
             \\ memw(r0 + #128) = r1
-            \\ r1 = memw(r0 + #4)
             :
-            : [gprs] "{r0}" (&ctx),
-            : .{ .memory = true });
+            : [ctx] "{r0}" (&ctx),
+            : .{ .r1 = true, .memory = true });
         return ctx;
     }
 
@@ -493,6 +486,60 @@ const Hexagon = extern struct {
             77...259 => return error.UnsupportedRegister,
             // 999999...1000030 => return error.UnsupportedRegister,
             // 9999999...10000030 => return error.UnsupportedRegister,
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Lanai = extern struct {
+    r: [32]u32,
+
+    pub inline fn current() Lanai {
+        var ctx: Lanai = undefined;
+        asm volatile (
+            \\ st %%r0, 0[r9]
+            \\ st %%r1, 4[r9]
+            \\ st %%r2, 8[r9]
+            \\ st %%r3, 12[r9]
+            \\ st %%r4, 16[r9]
+            \\ st %%r5, 20[r9]
+            \\ st %%r6, 24[r9]
+            \\ st %%r7, 28[r9]
+            \\ st %%r8, 32[r9]
+            \\ st %%r9, 36[r9]
+            \\ st %%r10, 40[r9]
+            \\ st %%r11, 44[r9]
+            \\ st %%r12, 48[r9]
+            \\ st %%r13, 52[r9]
+            \\ st %%r14, 56[r9]
+            \\ st %%r15, 60[r9]
+            \\ st %%r16, 64[r9]
+            \\ st %%r17, 68[r9]
+            \\ st %%r18, 72[r9]
+            \\ st %%r19, 76[r9]
+            \\ st %%r20, 80[r9]
+            \\ st %%r21, 84[r9]
+            \\ st %%r22, 88[r9]
+            \\ st %%r23, 92[r9]
+            \\ st %%r24, 96[r9]
+            \\ st %%r25, 100[r9]
+            \\ st %%r26, 104[r9]
+            \\ st %%r27, 108[r9]
+            \\ st %%r28, 112[r9]
+            \\ st %%r29, 116[r9]
+            \\ st %%r30, 120[r9]
+            \\ st %%r31, 124[r9]
+            :
+            : [ctx] "{r9}" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Lanai, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.s[register_num]),
 
             else => return error.InvalidRegister,
         }
@@ -545,7 +592,6 @@ const LoongArch = extern struct {
                 \\ bl 1f
                 \\1:
                 \\ st.d $ra, $t0, 256
-                \\ ld.d $ra, $t0, 8
             else
                 \\ st.w $zero, $t0, 0
                 \\ st.w $ra, $t0, 4
@@ -582,10 +628,9 @@ const LoongArch = extern struct {
                 \\ bl 1f
                 \\1:
                 \\ st.w $ra, $t0, 128
-                \\ ld.w $ra, $t0, 4
             :
-            : [gprs] "{$r12}" (&ctx),
-            : .{ .memory = true });
+            : [ctx] "{$r12}" (&ctx),
+            : .{ .r1 = true, .memory = true });
         return ctx;
     }
 
@@ -595,6 +640,40 @@ const LoongArch = extern struct {
             64 => return @ptrCast(&ctx.pc),
 
             32...63 => return error.UnsupportedRegister, // f0 - f31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const M68k = extern struct {
+    /// The numbered data registers d0 - d7.
+    d: [8]u32,
+    /// The numbered address registers a0 - a7.
+    a: [8]u32,
+    pc: u32,
+
+    pub inline fn current() M68k {
+        var ctx: M68k = undefined;
+        asm volatile (
+            \\ movem.l %%d0 - %%a7, (%%a0)
+            \\ lea.l (%%pc), %%a1
+            \\ move.l %%a1, (%%a0, 64)
+            :
+            : [ctx] "{a0}" (&ctx),
+            : .{ .a1 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *M68k, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...7 => return @ptrCast(&ctx.d[register_num]),
+            8...15 => return @ptrCast(&ctx.a[register_num - 8]),
+            26 => return @ptrCast(&ctx.pc),
+
+            16...23 => return error.UnsupportedRegister, // fp0 - fp7
+            24...25 => return error.UnsupportedRegister, // Return columns in GCC...?
 
             else => return error.InvalidRegister,
         }
@@ -651,7 +730,6 @@ const Mips = extern struct {
                 \\ bal 1f
                 \\1:
                 \\ sd $ra, 256($t0)
-                \\ ld $ra, 248($t0)
                 \\ .set pop
             else
                 \\ .set push
@@ -693,11 +771,10 @@ const Mips = extern struct {
                 \\ bal 1f
                 \\1:
                 \\ sw $ra, 128($t4)
-                \\ lw $ra, 124($t4)
                 \\ .set pop
             :
-            : [gprs] "{$12}" (&ctx),
-            : .{ .memory = true });
+            : [ctx] "{$12}" (&ctx),
+            : .{ .r31 = true, .memory = true });
         return ctx;
     }
 
@@ -717,6 +794,66 @@ const Mips = extern struct {
             179 => return error.UnsupportedRegister, // lo2 (ac2)
             180 => return error.UnsupportedRegister, // hi3 (ac3)
             181 => return error.UnsupportedRegister, // lo3 (ac3)
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Or1k = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    pc: u32,
+
+    pub inline fn current() Or1k {
+        var ctx: Or1k = undefined;
+        asm volatile (
+            \\ l.sw 0(r15), r0
+            \\ l.sw 4(r15), r1
+            \\ l.sw 8(r15), r2
+            \\ l.sw 12(r15), r3
+            \\ l.sw 16(r15), r4
+            \\ l.sw 20(r15), r5
+            \\ l.sw 24(r15), r6
+            \\ l.sw 28(r15), r7
+            \\ l.sw 32(r15), r8
+            \\ l.sw 36(r15), r9
+            \\ l.sw 40(r15), r10
+            \\ l.sw 44(r15), r11
+            \\ l.sw 48(r15), r12
+            \\ l.sw 52(r15), r13
+            \\ l.sw 56(r15), r14
+            \\ l.sw 60(r15), r15
+            \\ l.sw 64(r15), r16
+            \\ l.sw 68(r15), r17
+            \\ l.sw 72(r15), r18
+            \\ l.sw 76(r15), r19
+            \\ l.sw 80(r15), r20
+            \\ l.sw 84(r15), r21
+            \\ l.sw 88(r15), r22
+            \\ l.sw 92(r15), r23
+            \\ l.sw 96(r15), r24
+            \\ l.sw 100(r15), r25
+            \\ l.sw 104(r15), r26
+            \\ l.sw 108(r15), r27
+            \\ l.sw 112(r15), r28
+            \\ l.sw 116(r15), r29
+            \\ l.sw 120(r15), r30
+            \\ l.sw 124(r15), r31
+            \\ l.jal 1f
+            \\1:
+            \\ l.sw 128(r15), r9
+            :
+            : [ctx] "{r15}" (&ctx),
+            : .{ .r9 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Or1k, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            35 => return @ptrCast(&ctx.pc),
 
             else => return error.InvalidRegister,
         }
@@ -773,7 +910,6 @@ const Powerpc = extern struct {
                 \\1:
                 \\ mflr 8
                 \\ std 8, 256(10)
-                \\ ld 8, 64(10)
             else
                 \\ stw 0, 0(10)
                 \\ stw 1, 4(10)
@@ -813,10 +949,9 @@ const Powerpc = extern struct {
                 \\1:
                 \\ mflr 8
                 \\ stw 8, 128(10)
-                \\ lwz 8, 32(10)
             :
-            : [gprs] "{r10}" (&ctx),
-            : .{ .lr = true, .memory = true });
+            : [ctx] "{r10}" (&ctx),
+            : .{ .r8 = true, .lr = true, .memory = true });
         return ctx;
     }
 
@@ -880,6 +1015,151 @@ const Powerpc = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Riscv = extern struct {
+    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
+    x: [32]Gpr,
+    pc: Gpr,
+
+    pub const Gpr = if (native_arch.isRiscv64()) u64 else u32;
+
+    pub inline fn current() Riscv {
+        var ctx: Riscv = undefined;
+        asm volatile (if (Gpr == u64)
+                \\ sd zero, 0(t0)
+                \\ sd ra, 8(t0)
+                \\ sd sp, 16(t0)
+                \\ sd gp, 24(t0)
+                \\ sd tp, 32(t0)
+                \\ sd t0, 40(t0)
+                \\ sd t1, 48(t0)
+                \\ sd t2, 56(t0)
+                \\ sd s0, 64(t0)
+                \\ sd s1, 72(t0)
+                \\ sd a0, 80(t0)
+                \\ sd a1, 88(t0)
+                \\ sd a2, 96(t0)
+                \\ sd a3, 104(t0)
+                \\ sd a4, 112(t0)
+                \\ sd a5, 120(t0)
+                \\ sd a6, 128(t0)
+                \\ sd a7, 136(t0)
+                \\ sd s2, 144(t0)
+                \\ sd s3, 152(t0)
+                \\ sd s4, 160(t0)
+                \\ sd s5, 168(t0)
+                \\ sd s6, 176(t0)
+                \\ sd s7, 184(t0)
+                \\ sd s8, 192(t0)
+                \\ sd s9, 200(t0)
+                \\ sd s10, 208(t0)
+                \\ sd s11, 216(t0)
+                \\ sd t3, 224(t0)
+                \\ sd t4, 232(t0)
+                \\ sd t5, 240(t0)
+                \\ sd t6, 248(t0)
+                \\ jal ra, 1f
+                \\1:
+                \\ sd ra, 256(t0)
+            else
+                \\ sw zero, 0(t0)
+                \\ sw ra, 4(t0)
+                \\ sw sp, 8(t0)
+                \\ sw gp, 12(t0)
+                \\ sw tp, 16(t0)
+                \\ sw t0, 20(t0)
+                \\ sw t1, 24(t0)
+                \\ sw t2, 28(t0)
+                \\ sw s0, 32(t0)
+                \\ sw s1, 36(t0)
+                \\ sw a0, 40(t0)
+                \\ sw a1, 44(t0)
+                \\ sw a2, 48(t0)
+                \\ sw a3, 52(t0)
+                \\ sw a4, 56(t0)
+                \\ sw a5, 60(t0)
+                \\ sw a6, 64(t0)
+                \\ sw a7, 68(t0)
+                \\ sw s2, 72(t0)
+                \\ sw s3, 76(t0)
+                \\ sw s4, 80(t0)
+                \\ sw s5, 84(t0)
+                \\ sw s6, 88(t0)
+                \\ sw s7, 92(t0)
+                \\ sw s8, 96(t0)
+                \\ sw s9, 100(t0)
+                \\ sw s10, 104(t0)
+                \\ sw s11, 108(t0)
+                \\ sw t3, 112(t0)
+                \\ sw t4, 116(t0)
+                \\ sw t5, 120(t0)
+                \\ sw t6, 124(t0)
+                \\ jal ra, 1f
+                \\1:
+                \\ sw ra, 128(t0)
+            :
+            : [ctx] "{t0}" (&ctx),
+            : .{ .x1 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Riscv, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.x[register_num]),
+            65 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
+            64 => return error.UnsupportedRegister, // Alternate Frame Return Column
+            96...127 => return error.UnsupportedRegister, // v0 - v31
+            3072...4095 => return error.UnsupportedRegister, // Custom extensions
+            4096...8191 => return error.UnsupportedRegister, // CSRs
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const S390x = extern struct {
+    /// The numbered general-purpose registers r0 - r15.
+    r: [16]u64,
+    /// The program counter.
+    psw: extern struct {
+        mask: u64,
+        addr: u64,
+    },
+
+    pub inline fn current() S390x {
+        var ctx: S390x = undefined;
+        asm volatile (
+            \\ stmg %%r0, %%r15, 0(%%r2)
+            \\ epsw %%r0, %%r1
+            \\ stm %%r0, %%r1, 128(%%r2)
+            \\ larl %%r0, .
+            \\ stg %%r0, 136(%%r2)
+            :
+            : [ctx] "{r2}" (&ctx),
+            : .{ .r0 = true, .r1 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *S390x, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...15 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.psw.mask),
+            65 => return @ptrCast(&ctx.psw.addr),
+
+            16...31 => return error.UnsupportedRegister, // f0 - f15
+            32...47 => return error.UnsupportedRegister, // cr0 - cr15
+            48...63 => return error.UnsupportedRegister, // a0 - a15
+            66...67 => return error.UnsupportedRegister, // z/OS stuff???
+            68...83 => return error.UnsupportedRegister, // v16 - v31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
 const Sparc = extern struct {
     g: [8]Gpr,
     o: [8]Gpr,
@@ -927,8 +1207,8 @@ const Sparc = extern struct {
                 \\ stx %i6, [%l0 + 240]
                 \\ stx %i7, [%l0 + 248]
                 \\ call 1f
-                \\  stx %o7, [%l0 + 256]
                 \\1:
+                \\ stx %o7, [%l0 + 256]
             else
                 \\ std %g0, [%l0 + 0]
                 \\ std %g2, [%l0 + 8]
@@ -947,10 +1227,10 @@ const Sparc = extern struct {
                 \\ std %i4, [%l0 + 112]
                 \\ std %i6, [%l0 + 120]
                 \\ call 1f
-                \\  st %o7, [%l0 + 128]
                 \\1:
+                \\ st %o7, [%l0 + 128]
             :
-            : [gprs] "{l0}" (&ctx),
+            : [ctx] "{l0}" (&ctx),
             : .{ .o7 = true, .memory = true });
         return ctx;
     }
@@ -978,148 +1258,221 @@ const Sparc = extern struct {
 };
 
 /// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-const Riscv = extern struct {
-    /// The numbered general-purpose registers r0 - r31. r0 must be zero.
-    x: [32]Gpr,
-    pc: Gpr,
+const Ve = extern struct {
+    s: [64]u64,
+    ic: u64,
 
-    pub const Gpr = if (native_arch.isRiscv64()) u64 else u32;
-
-    pub inline fn current() Riscv {
-        var ctx: Riscv = undefined;
-        asm volatile (if (Gpr == u64)
-                \\ sd zero, 0(t0)
-                \\ sd ra, 8(t0)
-                \\ sd sp, 16(t0)
-                \\ sd gp, 24(t0)
-                \\ sd tp, 32(t0)
-                \\ sd t0, 40(t0)
-                \\ sd t1, 48(t0)
-                \\ sd t2, 56(t0)
-                \\ sd s0, 64(t0)
-                \\ sd s1, 72(t0)
-                \\ sd a0, 80(t0)
-                \\ sd a1, 88(t0)
-                \\ sd a2, 96(t0)
-                \\ sd a3, 104(t0)
-                \\ sd a4, 112(t0)
-                \\ sd a5, 120(t0)
-                \\ sd a6, 128(t0)
-                \\ sd a7, 136(t0)
-                \\ sd s2, 144(t0)
-                \\ sd s3, 152(t0)
-                \\ sd s4, 160(t0)
-                \\ sd s5, 168(t0)
-                \\ sd s6, 176(t0)
-                \\ sd s7, 184(t0)
-                \\ sd s8, 192(t0)
-                \\ sd s9, 200(t0)
-                \\ sd s10, 208(t0)
-                \\ sd s11, 216(t0)
-                \\ sd t3, 224(t0)
-                \\ sd t4, 232(t0)
-                \\ sd t5, 240(t0)
-                \\ sd t6, 248(t0)
-                \\ jal ra, 1f
-                \\1:
-                \\ sd ra, 256(t0)
-                \\ ld ra, 8(t0)
-            else
-                \\ sw zero, 0(t0)
-                \\ sw ra, 4(t0)
-                \\ sw sp, 8(t0)
-                \\ sw gp, 12(t0)
-                \\ sw tp, 16(t0)
-                \\ sw t0, 20(t0)
-                \\ sw t1, 24(t0)
-                \\ sw t2, 28(t0)
-                \\ sw s0, 32(t0)
-                \\ sw s1, 36(t0)
-                \\ sw a0, 40(t0)
-                \\ sw a1, 44(t0)
-                \\ sw a2, 48(t0)
-                \\ sw a3, 52(t0)
-                \\ sw a4, 56(t0)
-                \\ sw a5, 60(t0)
-                \\ sw a6, 64(t0)
-                \\ sw a7, 68(t0)
-                \\ sw s2, 72(t0)
-                \\ sw s3, 76(t0)
-                \\ sw s4, 80(t0)
-                \\ sw s5, 84(t0)
-                \\ sw s6, 88(t0)
-                \\ sw s7, 92(t0)
-                \\ sw s8, 96(t0)
-                \\ sw s9, 100(t0)
-                \\ sw s10, 104(t0)
-                \\ sw s11, 108(t0)
-                \\ sw t3, 112(t0)
-                \\ sw t4, 116(t0)
-                \\ sw t5, 120(t0)
-                \\ sw t6, 124(t0)
-                \\ jal ra, 1f
-                \\1:
-                \\ sw ra, 128(t0)
-                \\ lw ra, 4(t0)
+    pub inline fn current() Ve {
+        var ctx: Ve = undefined;
+        asm volatile (
+            \\ st %%s0, 0(, %%s8)
+            \\ st %%s1, 8(, %%s8)
+            \\ st %%s2, 16(, %%s8)
+            \\ st %%s3, 24(, %%s8)
+            \\ st %%s4, 32(, %%s8)
+            \\ st %%s5, 40(, %%s8)
+            \\ st %%s6, 48(, %%s8)
+            \\ st %%s7, 56(, %%s8)
+            \\ st %%s8, 64(, %%s8)
+            \\ st %%s9, 72(, %%s8)
+            \\ st %%s10, 80(, %%s8)
+            \\ st %%s11, 88(, %%s8)
+            \\ st %%s12, 96(, %%s8)
+            \\ st %%s13, 104(, %%s8)
+            \\ st %%s14, 112(, %%s8)
+            \\ st %%s15, 120(, %%s8)
+            \\ st %%s16, 128(, %%s8)
+            \\ st %%s17, 136(, %%s8)
+            \\ st %%s18, 144(, %%s8)
+            \\ st %%s19, 152(, %%s8)
+            \\ st %%s20, 160(, %%s8)
+            \\ st %%s21, 168(, %%s8)
+            \\ st %%s22, 176(, %%s8)
+            \\ st %%s23, 184(, %%s8)
+            \\ st %%s24, 192(, %%s8)
+            \\ st %%s25, 200(, %%s8)
+            \\ st %%s26, 208(, %%s8)
+            \\ st %%s27, 216(, %%s8)
+            \\ st %%s28, 224(, %%s8)
+            \\ st %%s29, 232(, %%s8)
+            \\ st %%s30, 240(, %%s8)
+            \\ st %%s31, 248(, %%s8)
+            \\ st %%s32, 256(, %%s8)
+            \\ st %%s33, 264(, %%s8)
+            \\ st %%s34, 272(, %%s8)
+            \\ st %%s35, 280(, %%s8)
+            \\ st %%s36, 288(, %%s8)
+            \\ st %%s37, 296(, %%s8)
+            \\ st %%s38, 304(, %%s8)
+            \\ st %%s39, 312(, %%s8)
+            \\ st %%s40, 320(, %%s8)
+            \\ st %%s41, 328(, %%s8)
+            \\ st %%s42, 336(, %%s8)
+            \\ st %%s43, 344(, %%s8)
+            \\ st %%s44, 352(, %%s8)
+            \\ st %%s45, 360(, %%s8)
+            \\ st %%s46, 368(, %%s8)
+            \\ st %%s47, 376(, %%s8)
+            \\ st %%s48, 384(, %%s8)
+            \\ st %%s49, 392(, %%s8)
+            \\ st %%s50, 400(, %%s8)
+            \\ st %%s51, 408(, %%s8)
+            \\ st %%s52, 416(, %%s8)
+            \\ st %%s53, 424(, %%s8)
+            \\ st %%s54, 432(, %%s8)
+            \\ st %%s55, 440(, %%s8)
+            \\ st %%s56, 448(, %%s8)
+            \\ st %%s57, 456(, %%s8)
+            \\ st %%s58, 464(, %%s8)
+            \\ st %%s59, 472(, %%s8)
+            \\ st %%s60, 480(, %%s8)
+            \\ st %%s61, 488(, %%s8)
+            \\ st %%s62, 496(, %%s8)
+            \\ st %%s63, 504(, %%s8)
+            \\ br.l 1f
+            \\1:
+            \\ st %%lr, 512(, %%s8)
             :
-            : [gprs] "{t0}" (&ctx),
-            : .{ .memory = true });
+            : [ctx] "{s8}" (&ctx),
+            : .{ .s10 = true, .memory = true });
         return ctx;
     }
 
-    pub fn dwarfRegisterBytes(ctx: *Riscv, register_num: u16) DwarfRegisterError![]u8 {
+    pub fn dwarfRegisterBytes(ctx: *Ve, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
-            0...31 => return @ptrCast(&ctx.x[register_num]),
-            65 => return @ptrCast(&ctx.pc),
+            0...63 => return @ptrCast(&ctx.s[register_num]),
+            144 => return @ptrCast(&ctx.ic),
 
-            32...63 => return error.UnsupportedRegister, // f0 - f31
-            64 => return error.UnsupportedRegister, // Alternate Frame Return Column
-            96...127 => return error.UnsupportedRegister, // v0 - v31
-            3072...4095 => return error.UnsupportedRegister, // Custom extensions
-            4096...8191 => return error.UnsupportedRegister, // CSRs
+            64...127 => return error.UnsupportedRegister, // v0 - v63
+            128...143 => return error.UnsupportedRegister, // vm0 - vm15
 
             else => return error.InvalidRegister,
         }
     }
 };
 
-/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-const S390x = extern struct {
-    /// The numbered general-purpose registers r0 - r15.
-    r: [16]u64,
-    /// The program counter.
-    psw: extern struct {
-        mask: u64,
-        addr: u64,
-    },
+const X86 = struct {
+    /// The first 8 registers here intentionally match the order of registers in the x86 instruction
+    /// encoding. This order is inherited by the PUSHA instruction and the DWARF register mappings,
+    /// among other things.
+    pub const Gpr = enum {
+        // zig fmt: off
+        eax, ecx, edx, ebx,
+        esp, ebp, esi, edi,
+        eip,
+        // zig fmt: on
+    };
+    gprs: std.enums.EnumArray(Gpr, u32),
 
-    pub inline fn current() S390x {
-        var ctx: S390x = undefined;
+    pub inline fn current() X86 {
+        var ctx: X86 = undefined;
         asm volatile (
-            \\ stmg %%r0, %%r15, 0(%%r2)
-            \\ epsw %%r0, %%r1
-            \\ stm %%r0, %%r1, 128(%%r2)
-            \\ larl %%r0, .
-            \\ stg %%r0, 136(%%r2)
-            \\ lg %%r0, 0(%%r2)
-            \\ lg %%r1, 8(%%r2)
+            \\ movl %%eax, 0x00(%%edi)
+            \\ movl %%ecx, 0x04(%%edi)
+            \\ movl %%edx, 0x08(%%edi)
+            \\ movl %%ebx, 0x0c(%%edi)
+            \\ movl %%esp, 0x10(%%edi)
+            \\ movl %%ebp, 0x14(%%edi)
+            \\ movl %%esi, 0x18(%%edi)
+            \\ movl %%edi, 0x1c(%%edi)
+            \\ call 1f
+            \\1:
+            \\ popl 0x20(%%edi)
             :
-            : [gprs] "{r2}" (&ctx),
+            : [gprs] "{edi}" (&ctx.gprs.values),
             : .{ .memory = true });
         return ctx;
     }
 
-    pub fn dwarfRegisterBytes(ctx: *S390x, register_num: u16) DwarfRegisterError![]u8 {
+    pub fn dwarfRegisterBytes(ctx: *X86, register_num: u16) DwarfRegisterError![]u8 {
+        // System V Application Binary Interface Intel386 Architecture Processor Supplement Version 1.1
+        //   § 2.4.2 "DWARF Register Number Mapping"
         switch (register_num) {
-            0...15 => return @ptrCast(&ctx.r[register_num]),
-            64 => return @ptrCast(&ctx.psw.mask),
-            65 => return @ptrCast(&ctx.psw.addr),
+            // The order of `Gpr` intentionally matches DWARF's mappings.
+            //
+            // x86-macos sometimes uses different mappings (ebp and esp are reversed when the unwind
+            // information is from `__eh_frame`). This deviation is not considered here, because
+            // x86-macos is a deprecated target which is not supported by the Zig Standard Library.
+            0...8 => return @ptrCast(&ctx.gprs.values[register_num]),
 
-            16...31 => return error.UnsupportedRegister, // f0 - f15
-            32...47 => return error.UnsupportedRegister, // cr0 - cr15
-            48...63 => return error.UnsupportedRegister, // a0 - a15
-            66...67 => return error.UnsupportedRegister, // z/OS stuff???
-            68...83 => return error.UnsupportedRegister, // v16 - v31
+            9 => return error.UnsupportedRegister, // eflags
+            11...18 => return error.UnsupportedRegister, // st0 - st7
+            21...28 => return error.UnsupportedRegister, // xmm0 - xmm7
+            29...36 => return error.UnsupportedRegister, // mm0 - mm7
+            39 => return error.UnsupportedRegister, // mxcsr
+            40...45 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
+            48 => return error.UnsupportedRegister, // tr
+            49 => return error.UnsupportedRegister, // ldtr
+            93...100 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+const X86_64 = struct {
+    /// The order here intentionally matches the order of the DWARF register mappings. It's unclear
+    /// where those mappings actually originated from---the ordering of the first 4 registers seems
+    /// quite unusual---but it is currently convenient for us to match DWARF.
+    pub const Gpr = enum {
+        // zig fmt: off
+        rax, rdx, rcx, rbx,
+        rsi, rdi, rbp, rsp,
+        r8,  r9,  r10, r11,
+        r12, r13, r14, r15,
+        rip,
+        // zig fmt: on
+    };
+    gprs: std.enums.EnumArray(Gpr, u64),
+
+    pub inline fn current() X86_64 {
+        var ctx: X86_64 = undefined;
+        asm volatile (
+            \\ movq %%rax, 0x00(%%rdi)
+            \\ movq %%rdx, 0x08(%%rdi)
+            \\ movq %%rcx, 0x10(%%rdi)
+            \\ movq %%rbx, 0x18(%%rdi)
+            \\ movq %%rsi, 0x20(%%rdi)
+            \\ movq %%rdi, 0x28(%%rdi)
+            \\ movq %%rbp, 0x30(%%rdi)
+            \\ movq %%rsp, 0x38(%%rdi)
+            \\ movq %%r8,  0x40(%%rdi)
+            \\ movq %%r9,  0x48(%%rdi)
+            \\ movq %%r10, 0x50(%%rdi)
+            \\ movq %%r11, 0x58(%%rdi)
+            \\ movq %%r12, 0x60(%%rdi)
+            \\ movq %%r13, 0x68(%%rdi)
+            \\ movq %%r14, 0x70(%%rdi)
+            \\ movq %%r15, 0x78(%%rdi)
+            \\ leaq (%%rip), %%rax
+            \\ movq %%rax, 0x80(%%rdi)
+            :
+            : [gprs] "{rdi}" (&ctx.gprs.values),
+            : .{ .rax = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *X86_64, register_num: u16) DwarfRegisterError![]u8 {
+        // System V Application Binary Interface AMD64 Architecture Processor Supplement
+        //   § 3.6.2 "DWARF Register Number Mapping"
+        switch (register_num) {
+            // The order of `Gpr` intentionally matches DWARF's mappings.
+            0...16 => return @ptrCast(&ctx.gprs.values[register_num]),
+
+            17...32 => return error.UnsupportedRegister, // xmm0 - xmm15
+            33...40 => return error.UnsupportedRegister, // st0 - st7
+            41...48 => return error.UnsupportedRegister, // mm0 - mm7
+            49 => return error.UnsupportedRegister, // rflags
+            50...55 => return error.UnsupportedRegister, // es, cs, ss, ds, fs, gs
+            58...59 => return error.UnsupportedRegister, // fs.base, gs.base
+            62 => return error.UnsupportedRegister, // tr
+            63 => return error.UnsupportedRegister, // ldtr
+            64 => return error.UnsupportedRegister, // mxcsr
+            65 => return error.UnsupportedRegister, // fcw
+            66 => return error.UnsupportedRegister, // fsw
+            67...82 => return error.UnsupportedRegister, // xmm16 - xmm31 (AVX-512)
+            118...125 => return error.UnsupportedRegister, // k0 - k7 (AVX-512)
+            130...145 => return error.UnsupportedRegister, // r16 - r31 (APX)
 
             else => return error.InvalidRegister,
         }
@@ -1227,7 +1580,7 @@ const signal_ucontext_t = switch (native_os) {
                         _count: u32,
                     },
                     _status32: u32,
-                    pc: u32,
+                    pcl: u32,
                     r31: u32,
                     r27_26: [2]u32,
                     r12_0: [13]u32,
