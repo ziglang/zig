@@ -12950,6 +12950,11 @@ const PackedCallingConvention = packed struct(u18) {
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = pl.register_params,
                 },
+                std.builtin.CallingConvention.ArcInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.type),
+                },
                 std.builtin.CallingConvention.ArmInterruptOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
@@ -12983,6 +12988,10 @@ const PackedCallingConvention = packed struct(u18) {
                     std.builtin.CallingConvention.X86RegparmOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .register_params = @intCast(cc.extra),
+                    },
+                    std.builtin.CallingConvention.ArcInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .type = @enumFromInt(cc.extra),
                     },
                     std.builtin.CallingConvention.ArmInterruptOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),

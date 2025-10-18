@@ -1754,6 +1754,7 @@ pub const Cpu = struct {
                 => &.{ .wasm64, .wasm32 },
 
                 .arc_sysv,
+                .arc_interrupt,
                 => &.{.arc},
 
                 .avr_gnu,

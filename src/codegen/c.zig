@@ -8063,6 +8063,10 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .arm_aapcs => "pcs(\"aapcs\")",
         .arm_aapcs_vfp => "pcs(\"aapcs-vfp\")",
 
+        .arc_interrupt => |opts| switch (opts.type) {
+            inline else => |t| "interrupt(\"" ++ @tagName(t) ++ "\")",
+        },
+
         .arm_interrupt => |opts| switch (opts.type) {
             .generic => "interrupt",
             .irq => "interrupt(\"IRQ\")",
