@@ -110,7 +110,12 @@ pub const Tag = enum {
     This,
     trap,
     truncate,
-    Type,
+    Enum,
+    EnumLiteral,
+    Int,
+    Pointer,
+    Struct,
+    Union,
     type_info,
     type_name,
     TypeOf,
@@ -937,9 +942,44 @@ pub const list = list: {
             },
         },
         .{
-            "@Type",
+            "@Enum",
             .{
-                .tag = .Type,
+                .tag = .Enum,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@EnumLiteral",
+            .{
+                .tag = .EnumLiteral,
+                .param_count = 0,
+            },
+        },
+        .{
+            "@Int",
+            .{
+                .tag = .Int,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@Pointer",
+            .{
+                .tag = .Pointer,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@Struct",
+            .{
+                .tag = .Struct,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@Union",
+            .{
+                .tag = .Union,
                 .param_count = 1,
             },
         },

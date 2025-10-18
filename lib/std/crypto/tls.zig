@@ -606,7 +606,7 @@ pub fn array(
     const elem_size = @divExact(@bitSizeOf(Elem), 8);
     var arr: [len_size + elem_size * elems.len]u8 = undefined;
     std.mem.writeInt(Len, arr[0..len_size], @intCast(elem_size * elems.len), .big);
-    const ElemInt = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Elem) } });
+    const ElemInt = @Int(.unsigned, @bitSizeOf(Elem));
     for (0.., @as([elems.len]Elem, elems)) |index, elem| {
         std.mem.writeInt(
             ElemInt,

@@ -38,7 +38,7 @@ export fn i() void {
 }
 
 export fn j() void {
-    _ = @Type(.{ .@"struct" = .{
+    _ = @Struct(.{
         .layout = .auto,
         .fields = &.{.{
             .name = "test",
@@ -49,11 +49,11 @@ export fn j() void {
         }},
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 }
 
 export fn k() void {
-    _ = @Type(.{ .pointer = .{
+    _ = @Pointer(.{
         .size = .one,
         .is_const = false,
         .is_volatile = false,
@@ -62,7 +62,7 @@ export fn k() void {
         .child = u32,
         .is_allowzero = false,
         .sentinel_ptr = null,
-    } });
+    });
 }
 
 // error

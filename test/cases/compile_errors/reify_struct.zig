@@ -1,5 +1,5 @@
 comptime {
-    @Type(.{ .@"struct" = .{
+    @Struct(.{
         .layout = .auto,
         .fields = &.{.{
             .name = "foo",
@@ -10,10 +10,10 @@ comptime {
         }},
         .decls = &.{},
         .is_tuple = true,
-    } });
+    });
 }
 comptime {
-    @Type(.{ .@"struct" = .{
+    @Struct(.{
         .layout = .auto,
         .fields = &.{.{
             .name = "3",
@@ -24,10 +24,10 @@ comptime {
         }},
         .decls = &.{},
         .is_tuple = true,
-    } });
+    });
 }
 comptime {
-    @Type(.{ .@"struct" = .{
+    @Struct(.{
         .layout = .auto,
         .fields = &.{.{
             .name = "0",
@@ -38,10 +38,10 @@ comptime {
         }},
         .decls = &.{},
         .is_tuple = true,
-    } });
+    });
 }
 comptime {
-    @Type(.{ .@"struct" = .{
+    @Struct(.{
         .layout = .@"extern",
         .fields = &.{.{
             .name = "0",
@@ -52,10 +52,10 @@ comptime {
         }},
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 }
 comptime {
-    @Type(.{ .@"struct" = .{
+    @Struct(.{
         .layout = .@"packed",
         .fields = &.{.{
             .name = "0",
@@ -66,7 +66,7 @@ comptime {
         }},
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 }
 
 // error
