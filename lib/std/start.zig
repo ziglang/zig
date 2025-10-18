@@ -253,12 +253,11 @@ fn _start() callconv(.naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .arc =>
-            // The `arc` tag currently means ARC v1 and v2, which have an unusually low stack
-            // alignment requirement. ARC v3 increases it from 4 to 16, but we don't support v3 yet.
+            // ARC v1 and v2 had a very low stack alignment requirement of 4; v3 increased it to 16.
             \\ mov fp, 0
             \\ mov blink, 0
             \\ mov r0, sp
-            \\ and sp, sp, -4
+            \\ and sp, sp, -16
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
