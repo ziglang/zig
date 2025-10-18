@@ -786,3 +786,12 @@ test "comptime C pointer to optional pointer" {
     comptime assert(@TypeOf(inner_ptr) == [*c]const *u8);
     comptime assert(@intFromPtr(inner_ptr.*) == 0x1000);
 }
+
+test "dereference C pointer of array" {
+    var arr: [1]u8 = .{0};
+    const arr_c_ptr = @as([*c][1]u8, &arr);
+    const arr_ptr = &arr;
+    arr_c_ptr.*[0] = 1;
+    try expect(arr[0] == 1);
+    try expect(&arr_ptr.*[0] == &arr_c_ptr.*[0]);
+}
