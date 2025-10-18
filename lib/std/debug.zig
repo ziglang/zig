@@ -481,7 +481,7 @@ pub fn defaultPanic(
     if (use_trap_panic) @trap();
 
     switch (builtin.os.tag) {
-        .freestanding, .other => {
+        .freestanding, .other, .@"3ds", .vita => {
             @trap();
         },
         .uefi => {
