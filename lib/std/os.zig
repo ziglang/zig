@@ -137,8 +137,6 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
                 switch (err) {
                     error.NotLink => unreachable,
                     error.BadPathName => unreachable,
-                    error.InvalidUtf8 => unreachable, // WASI-only
-                    error.InvalidWtf8 => unreachable, // Windows-only
                     error.UnsupportedReparsePointType => unreachable, // Windows-only
                     error.NetworkNotFound => unreachable, // Windows-only
                     else => |e| return e,
@@ -153,7 +151,6 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,
                 error.NotLink => unreachable,
-                error.InvalidUtf8 => unreachable, // WASI-only
                 else => |e| return e,
             };
             return target;

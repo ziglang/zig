@@ -674,8 +674,6 @@ fn abiAndDynamicLinkerFromFile(
             var link_buf: [posix.PATH_MAX]u8 = undefined;
             const link_name = posix.readlink(dl_path, &link_buf) catch |err| switch (err) {
                 error.NameTooLong => unreachable,
-                error.InvalidUtf8 => unreachable, // WASI only
-                error.InvalidWtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable, // Windows only
                 error.UnsupportedReparsePointType => unreachable, // Windows only
                 error.NetworkNotFound => unreachable, // Windows only

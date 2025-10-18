@@ -1472,11 +1472,9 @@ pub const DeleteDirError = error{
     NotDir,
     SystemResources,
     ReadOnlyFileSystem,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
@@ -1577,9 +1575,7 @@ pub fn symLink(
         // when converting to an NT namespaced path. CreateSymbolicLink in
         // symLinkW will handle the necessary conversion.
         var target_path_w: windows.PathSpace = undefined;
-        if (try std.unicode.checkWtf8ToWtf16LeOverflow(target_path, &target_path_w.data)) {
-            return error.NameTooLong;
-        }
+        try std.unicode.checkWtf8ToWtf16LeOverflow(target_path, &target_path_w.data);
         target_path_w.len = try std.unicode.wtf8ToWtf16Le(&target_path_w.data, target_path);
         target_path_w.data[target_path_w.len] = 0;
         // However, we need to canonicalize any path separators to `\`, since if
@@ -1808,11 +1804,9 @@ pub const DeleteTreeError = error{
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
     NotDir,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
@@ -1913,8 +1907,6 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
 
                         error.AccessDenied,
                         error.PermissionDenied,
-                        error.InvalidUtf8,
-                        error.InvalidWtf8,
                         error.SymLinkLoop,
                         error.NameTooLong,
                         error.SystemResources,
@@ -1999,8 +1991,6 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
 
                             error.AccessDenied,
                             error.PermissionDenied,
-                            error.InvalidUtf8,
-                            error.InvalidWtf8,
                             error.SymLinkLoop,
                             error.NameTooLong,
                             error.SystemResources,
@@ -2112,8 +2102,6 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
 
                             error.AccessDenied,
                             error.PermissionDenied,
-                            error.InvalidUtf8,
-                            error.InvalidWtf8,
                             error.SymLinkLoop,
                             error.NameTooLong,
                             error.SystemResources,
@@ -2201,8 +2189,6 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
 
                     error.AccessDenied,
                     error.PermissionDenied,
-                    error.InvalidUtf8,
-                    error.InvalidWtf8,
                     error.SymLinkLoop,
                     error.NameTooLong,
                     error.SystemResources,

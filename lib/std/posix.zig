@@ -486,8 +486,8 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
     const stat = fstatatZ(pathfd, "", AT.EMPTY_PATH) catch |err| switch (err) {
         error.NameTooLong => unreachable,
         error.FileNotFound => unreachable,
-        error.InvalidUtf8 => unreachable,
         error.Streaming => unreachable,
+        error.BadPathName => return error.Unexpected,
         error.Canceled => return error.Canceled,
         else => |e| return e,
     };
@@ -1914,14 +1914,9 @@ pub const SymLinkError = error{
     ReadOnlyFileSystem,
     NotDir,
     NameTooLong,
-
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
-
     BadPathName,
 } || UnexpectedError;
 
@@ -2210,14 +2205,10 @@ pub const UnlinkError = error{
     SystemResources,
     ReadOnlyFileSystem,
 
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
-
-    /// On Windows, file paths cannot contain these characters:
+    /// Windows: file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
 
@@ -2396,11 +2387,9 @@ pub const RenameError = error{
     PathAlreadyExists,
     ReadOnlyFileSystem,
     RenameAcrossMountPoints,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
     BadPathName,
     NoDevice,
     SharingViolation,
@@ -2839,11 +2828,9 @@ pub const DeleteDirError = error{
     NotDir,
     DirNotEmpty,
     ReadOnlyFileSystem,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
@@ -2916,12 +2903,10 @@ pub const ChangeCurDirError = error{
     FileNotFound,
     SystemResources,
     NotDir,
-    BadPathName,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
+    BadPathName,
 } || UnexpectedError;
 
 /// Changes the current working directory of the calling process.
@@ -2933,9 +2918,7 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
         @compileError("WASI does not support os.chdir");
     } else if (native_os == .windows) {
         var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        if (try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path, &wtf16_dir_path)) {
-            return error.NameTooLong;
-        }
+        try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path, &wtf16_dir_path);
         const len = try std.unicode.wtf8ToWtf16Le(&wtf16_dir_path, dir_path);
         return chdirW(wtf16_dir_path[0..len]);
     } else {
@@ -2952,9 +2935,7 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (native_os == .windows) {
         const dir_path_span = mem.span(dir_path);
         var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        if (try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path_span, &wtf16_dir_path)) {
-            return error.NameTooLong;
-        }
+        try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path_span, &wtf16_dir_path);
         const len = try std.unicode.wtf8ToWtf16Le(&wtf16_dir_path, dir_path_span);
         return chdirW(wtf16_dir_path[0..len]);
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -3016,11 +2997,9 @@ pub const ReadLinkError = error{
     SystemResources,
     NotLink,
     NotDir,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
     BadPathName,
     /// Windows-only. This error may occur if the opened reparse point is
     /// of unsupported type.
@@ -4705,22 +4684,20 @@ pub const AccessError = error{
     NameTooLong,
     InputOutput,
     SystemResources,
-    BadPathName,
     FileBusy,
     SymLinkLoop,
     ReadOnlyFileSystem,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// WASI: file paths must be valid UTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
+    BadPathName,
     Canceled,
 } || UnexpectedError;
 
 /// check user's permissions for a file
 ///
 /// * On Windows, asserts `path` is valid [WTF-8](https://wtf-8.codeberg.page/).
-/// * On WASI, invalid UTF-8 passed to `path` causes `error.InvalidUtf8`.
+/// * On WASI, invalid UTF-8 passed to `path` causes `error.BadPathName`.
 /// * On other platforms, `path` is an opaque sequence of bytes with no particular encoding.
 ///
 /// On Windows, `mode` is ignored. This is a POSIX API that is only partially supported by
@@ -5154,16 +5131,15 @@ pub const RealPathError = error{
     SystemResources,
     NoSpaceLeft,
     FileSystem,
-    BadPathName,
     DeviceBusy,
     ProcessNotFound,
 
     SharingViolation,
     PipeBusy,
 
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// Windows: file paths provided by the user must be valid WTF-8.
     /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
+    BadPathName,
 
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,

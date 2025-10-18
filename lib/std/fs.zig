@@ -500,7 +500,6 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
 
         var real_path_buf: [max_path_bytes]u8 = undefined;
         const real_path = std.posix.realpathZ(&symlink_path_buf, &real_path_buf) catch |err| switch (err) {
-            error.InvalidWtf8 => unreachable, // Windows-only
             error.NetworkNotFound => unreachable, // Windows-only
             else => |e| return e,
         };
@@ -511,15 +510,11 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     }
     switch (native_os) {
         .linux, .serenity => return posix.readlinkZ("/proc/self/exe", out_buffer) catch |err| switch (err) {
-            error.InvalidUtf8 => unreachable, // WASI-only
-            error.InvalidWtf8 => unreachable, // Windows-only
             error.UnsupportedReparsePointType => unreachable, // Windows-only
             error.NetworkNotFound => unreachable, // Windows-only
             else => |e| return e,
         },
         .illumos => return posix.readlinkZ("/proc/self/path/a.out", out_buffer) catch |err| switch (err) {
-            error.InvalidUtf8 => unreachable, // WASI-only
-            error.InvalidWtf8 => unreachable, // Windows-only
             error.UnsupportedReparsePointType => unreachable, // Windows-only
             error.NetworkNotFound => unreachable, // Windows-only
             else => |e| return e,
@@ -548,7 +543,6 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 // argv[0] is a path (relative or absolute): use realpath(3) directly
                 var real_path_buf: [max_path_bytes]u8 = undefined;
                 const real_path = posix.realpathZ(std.os.argv[0], &real_path_buf) catch |err| switch (err) {
-                    error.InvalidWtf8 => unreachable, // Windows-only
                     error.NetworkNotFound => unreachable, // Windows-only
                     else => |e| return e,
                 };
@@ -591,10 +585,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // that the symlink points to, though, so we need to get the realpath.
             var pathname_w = try windows.wToPrefixedFileW(null, image_path_name);
 
-            const wide_slice = std.fs.cwd().realpathW2(pathname_w.span(), &pathname_w.data) catch |err| switch (err) {
-                error.InvalidWtf8 => unreachable,
-                else => |e| return e,
-            };
+            const wide_slice = try std.fs.cwd().realpathW2(pathname_w.span(), &pathname_w.data);
 
             const len = std.unicode.calcWtf8Len(wide_slice);
             if (len > out_buffer.len)
