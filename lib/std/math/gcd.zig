@@ -6,7 +6,7 @@ const std = @import("../std.zig");
 pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
     const N = switch (@TypeOf(a, b)) {
         // convert comptime_int to some sized int type for @ctz
-        comptime_int => std.math.IntFittingRange(0, @max(a, b)),
+        comptime_int => std.math.IntFittingRange(@min(a, b), @max(a, b)),
         else => |T| T,
     };
 
