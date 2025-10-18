@@ -9122,6 +9122,7 @@ fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
     return switch (cc) {
         .naked,
 
+        .arc_interrupt,
         .arm_interrupt,
         .avr_interrupt,
         .avr_signal,
@@ -9284,6 +9285,7 @@ fn funcCommon(
                     else => return sema.fail(block, param_src, "'{s}' calling convention supports up to 2 parameters, found {d}", .{ @tagName(cc), i + 1 }),
                 }
             },
+            .arc_interrupt,
             .arm_interrupt,
             .mips64_interrupt,
             .mips_interrupt,
@@ -9515,6 +9517,7 @@ fn finishFunc(
         .mips_interrupt,
         .riscv64_interrupt,
         .riscv32_interrupt,
+        .arc_interrupt,
         .avr_interrupt,
         .csky_interrupt,
         .m68k_interrupt,
@@ -30037,6 +30040,9 @@ fn callconvCoerceAllowed(
                 void, std.builtin.CallingConvention.CommonOptions => {},
                 std.builtin.CallingConvention.X86RegparmOptions => {
                     if (src_data.register_params != dest_data.register_params) return false;
+                },
+                std.builtin.CallingConvention.ArcInterruptOptions => {
+                    if (src_data.type != dest_data.type) return false;
                 },
                 std.builtin.CallingConvention.ArmInterruptOptions => {
                     if (src_data.type != dest_data.type) return false;
