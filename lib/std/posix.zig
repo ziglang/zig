@@ -2844,15 +2844,19 @@ pub fn renameatW(
     };
     defer windows.CloseHandle(src_fd);
 
-    var need_fallback = true;
     var rc: windows.NTSTATUS = undefined;
-    // FILE_RENAME_INFORMATION_EX and FILE_RENAME_POSIX_SEMANTICS require >= win10_rs1,
-    // but FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5. We check >= rs5 here
-    // so that we only use POSIX_SEMANTICS when we know IGNORE_READONLY_ATTRIBUTE will also be
-    // supported in order to avoid either (1) using a redundant call that we can know in advance will return
-    // STATUS_NOT_SUPPORTED or (2) only setting IGNORE_READONLY_ATTRIBUTE when >= rs5
-    // and therefore having different behavior when the Windows version is >= rs1 but < rs5.
-    if (builtin.target.os.isAtLeast(.windows, .win10_rs5) orelse false) {
+    // FileRenameInformationEx has varying levels of support:
+    // - FILE_RENAME_INFORMATION_EX requires >= win10_rs1
+    //   (INVALID_INFO_CLASS is returned if not supported)
+    // - Requires the NTFS filesystem
+    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
+    // - FILE_RENAME_POSIX_SEMANTICS requires >= win10_rs1
+    // - FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
+    //   (NOT_SUPPORTED is returned if a flag is unsupported)
+    //
+    // The strategy here is just to try using FileRenameInformationEx and fall back to
+    // FileRenameInformation if the return value lets us know that some aspect of it is not supported.
+    const need_fallback = need_fallback: {
         const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (max_path_bytes - 1);
         var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
         const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) - 1 + new_path_w.len * 2;
@@ -2879,12 +2883,17 @@ pub fn renameatW(
         );
         switch (rc) {
             .SUCCESS => return,
-            // INVALID_PARAMETER here means that the filesystem does not support FileRenameInformationEx
-            .INVALID_PARAMETER => {},
+            // The filesystem does not support FileDispositionInformationEx
+            .INVALID_PARAMETER,
+            // The operating system does not support FileDispositionInformationEx
+            .INVALID_INFO_CLASS,
+            // The operating system does not support one of the flags
+            .NOT_SUPPORTED,
+            => break :need_fallback true,
             // For all other statuses, fall down to the switch below to handle them.
-            else => need_fallback = false,
+            else => break :need_fallback false,
         }
-    }
+    };
 
     if (need_fallback) {
         const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (max_path_bytes - 1);
@@ -2903,14 +2912,13 @@ pub fn renameatW(
         };
         @memcpy((&rename_info.FileName).ptr, new_path_w);
 
-        rc =
-            windows.ntdll.NtSetInformationFile(
-                src_fd,
-                &io_status_block,
-                rename_info,
-                @intCast(struct_len), // already checked for error.NameTooLong
-                .FileRenameInformation,
-            );
+        rc = windows.ntdll.NtSetInformationFile(
+            src_fd,
+            &io_status_block,
+            rename_info,
+            @intCast(struct_len), // already checked for error.NameTooLong
+            .FileRenameInformation,
+        );
     }
 
     switch (rc) {

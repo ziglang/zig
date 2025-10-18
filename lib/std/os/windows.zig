@@ -1071,13 +1071,18 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
     defer CloseHandle(tmp_handle);
 
-    // FileDispositionInformationEx (and therefore FILE_DISPOSITION_POSIX_SEMANTICS and FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE)
-    // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
-    // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
-    // us INVALID_PARAMETER.
-    // The same reasoning for win10_rs5 as in os.renameatW() applies (FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5).
-    var need_fallback = true;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
+    // FileDispositionInformationEx has varying levels of support:
+    // - FILE_DISPOSITION_INFORMATION_EX requires >= win10_rs1
+    //   (INVALID_INFO_CLASS is returned if not supported)
+    // - Requires the NTFS filesystem
+    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
+    // - FILE_DISPOSITION_POSIX_SEMANTICS requires >= win10_rs1
+    // - FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
+    //   (NOT_SUPPORTED is returned if a flag is unsupported)
+    //
+    // The strategy here is just to try using FileDispositionInformationEx and fall back to
+    // FileDispositionInformation if the return value lets us know that some aspect of it is not supported.
+    const need_fallback = need_fallback: {
         // Deletion with posix semantics if the filesystem supports it.
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
@@ -1094,12 +1099,18 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         );
         switch (rc) {
             .SUCCESS => return,
-            // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER => {},
+            // The filesystem does not support FileDispositionInformationEx
+            .INVALID_PARAMETER,
+            // The operating system does not support FileDispositionInformationEx
+            .INVALID_INFO_CLASS,
+            // The operating system does not support one of the flags
+            .NOT_SUPPORTED,
+            => break :need_fallback true,
             // For all other statuses, fall down to the switch below to handle them.
-            else => need_fallback = false,
+            else => break :need_fallback false,
         }
-    }
+    };
+
     if (need_fallback) {
         // Deletion with file pending semantics, which requires waiting or moving
         // files to get them removed (from here).
@@ -3129,12 +3140,12 @@ pub const FILE_DISPOSITION_INFORMATION_EX = extern struct {
     Flags: ULONG,
 };
 
-const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
-const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
-const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
-const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
-const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
-const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
+pub const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
+pub const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
+pub const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
+pub const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
+pub const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
+pub const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
 // FILE_RENAME_INFORMATION.Flags
 pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
