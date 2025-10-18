@@ -517,6 +517,7 @@ pub const AbiAndDynamicLinkerFromFileError = error{
     NameTooLong,
     ProcessNotFound,
     StaticElfFile,
+    DeviceOrAddressNotFound,
 };
 
 pub fn abiAndDynamicLinkerFromFile(
@@ -925,6 +926,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.Unexpected,
         error.FileSystem,
         error.ProcessNotFound,
+        error.DeviceOrAddressNotFound,
         => |e| return e,
     };
 }
@@ -1181,6 +1183,7 @@ fn detectAbiAndDynamicLinker(
                 error.UnexpectedEndOfFile,
                 error.UnableToReadElfFile,
                 error.ProcessNotFound,
+                error.DeviceOrAddressNotFound,
                 => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
@@ -1237,6 +1240,7 @@ fn detectAbiAndDynamicLinker(
         error.UnexpectedEndOfFile,
         error.NameTooLong,
         error.StaticElfFile,
+        error.DeviceOrAddressNotFound,
         // Finally, we fall back on the standard path.
         => |e| {
             std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
@@ -1284,6 +1288,7 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
             error.AccessDenied => return error.Unexpected,
             error.ProcessNotFound => return error.ProcessNotFound,
             error.LockViolation => return error.UnableToReadElfFile,
+            error.DeviceOrAddressNotFound => return error.DeviceOrAddressNotFound,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
         i += len;
