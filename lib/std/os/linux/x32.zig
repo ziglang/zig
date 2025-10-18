@@ -1,5 +1,3 @@
-// TODO: A lot of this file is very likely wrong.
-
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const SYS = std.os.linux.SYS;
@@ -84,20 +82,20 @@ pub fn syscall6(
 
 pub fn clone() callconv(.naked) u32 {
     asm volatile (
-        \\      movl $56,%%eax // SYS_clone
-        \\      movq %%rdi,%%r11
-        \\      movq %%rdx,%%rdi
-        \\      movq %%r8,%%rdx
-        \\      movq %%r9,%%r8
-        \\      movq 8(%%rsp),%%r10
-        \\      movq %%r11,%%r9
-        \\      andq $-16,%%rsi
-        \\      subq $8,%%rsi
-        \\      movq %%rcx,(%%rsi)
+        \\      movl $0x40000038,%%eax // SYS_clone
+        \\      mov %%rdi,%%r11
+        \\      mov %%rdx,%%rdi
+        \\      mov %%r8,%%rdx
+        \\      mov %%r9,%%r8
+        \\      mov 8(%%rsp),%%r10
+        \\      mov %%r11,%%r9
+        \\      and $-16,%%rsi
+        \\      sub $8,%%rsi
+        \\      mov %%rcx,(%%rsi)
         \\      syscall
-        \\      testq %%rax,%%rax
+        \\      test %%eax,%%eax
         \\      jz 1f
-        \\      retq
+        \\      ret
         \\
         \\1:
     );
@@ -105,12 +103,12 @@ pub fn clone() callconv(.naked) u32 {
         \\      .cfi_undefined %%rip
     );
     asm volatile (
-        \\      xorl %%ebp,%%ebp
+        \\      xor %%ebp,%%ebp
         \\
-        \\      popq %%rdi
-        \\      callq *%%r9
-        \\      movl %%eax,%%edi
-        \\      movl $60,%%eax // SYS_exit
+        \\      pop %%rdi
+        \\      call *%%r9
+        \\      mov %%eax,%%edi
+        \\      movl $0x4000003c,%%eax // SYS_exit
         \\      syscall
         \\
     );
