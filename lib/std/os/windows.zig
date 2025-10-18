@@ -5736,3 +5736,12 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
     return ppeb.ImageBaseAddress;
 }
+
+pub fn checkWtf8ToWtf16LeOverflow(wtf8: []const u8, wtf16le: []const u16) error{ BadPathName, NameTooLong }!void {
+    // Each u8 in UTF-8/WTF-8 correlates to at most one u16 in UTF-16LE/WTF-16LE.
+    if (wtf16le.len >= wtf8.len) return;
+    const utf16_len = std.unicode.calcUtf16LeLenImpl(wtf8, .can_encode_surrogate_half) catch
+        return error.BadPathName;
+    if (utf16_len > wtf16le.len)
+        return error.NameTooLong;
+}
