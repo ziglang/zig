@@ -1,5 +1,3 @@
-// TODO: A lot of this file is very likely wrong.
-
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const SYS = std.os.linux.SYS;
@@ -7,10 +5,10 @@ const SYS = std.os.linux.SYS;
 pub fn syscall0(number: SYS) u32 {
     return asm volatile (
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ dsubu $2, $0, $2
-        \\ 1:
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 1f
+        \\ subu $v0, $zero, $v0
+        \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
         : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
@@ -18,17 +16,15 @@ pub fn syscall0(number: SYS) u32 {
 
 pub fn syscall_pipe(fd: *[2]i32) u32 {
     return asm volatile (
-        \\ .set noat
-        \\ .set noreorder
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ nop
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 2f
+        \\ subu $v0, $zero, $v0
         \\ b 2f
-        \\ subu $2, $0, $2
-        \\ 1:
-        \\ sw $2, 0($4)
-        \\ sw $3, 4($4)
-        \\ 2:
+        \\1:
+        \\ sw $v0, 0($a0)
+        \\ sw $v1, 4($a0)
+        \\2:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(SYS.pipe)),
           [fd] "{$4}" (fd),
@@ -38,11 +34,10 @@ pub fn syscall_pipe(fd: *[2]i32) u32 {
 pub fn syscall1(number: SYS, arg1: u32) u32 {
     return asm volatile (
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ nop
-        \\ dsubu $2, $0, $2
-        \\ 1:
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 1f
+        \\ subu $v0, $zero, $v0
+        \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
@@ -52,10 +47,10 @@ pub fn syscall1(number: SYS, arg1: u32) u32 {
 pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
     return asm volatile (
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ dsubu $2, $0, $2
-        \\ 1:
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 1f
+        \\ subu $v0, $zero, $v0
+        \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
@@ -66,10 +61,10 @@ pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
 pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
     return asm volatile (
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ dsubu $2, $0, $2
-        \\ 1:
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 1f
+        \\ subu $v0, $zero, $v0
+        \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
@@ -81,10 +76,10 @@ pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
 pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
     return asm volatile (
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ dsubu $2, $0, $2
-        \\ 1:
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 1f
+        \\ subu $v0, $zero, $v0
+        \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
@@ -97,10 +92,10 @@ pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
 pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u32) u32 {
     return asm volatile (
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ dsubu $2, $0, $2
-        \\ 1:
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 1f
+        \\ subu $v0, $zero, $v0
+        \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
@@ -122,10 +117,10 @@ pub fn syscall6(
 ) u32 {
     return asm volatile (
         \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ dsubu $2, $0, $2
-        \\ 1:
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 1f
+        \\ subu $v0, $zero, $v0
+        \\1:
         : [ret] "={$2}" (-> u32),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
@@ -134,66 +129,38 @@ pub fn syscall6(
           [arg4] "{$7}" (arg4),
           [arg5] "{$8}" (arg5),
           [arg6] "{$9}" (arg6),
-        : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
-}
-
-pub fn syscall7(
-    number: SYS,
-    arg1: u32,
-    arg2: u32,
-    arg3: u32,
-    arg4: u32,
-    arg5: u32,
-    arg6: u32,
-    arg7: u32,
-) u32 {
-    return asm volatile (
-        \\ syscall
-        \\ beq $7, $zero, 1f
-        \\ blez $2, 1f
-        \\ dsubu $2, $0, $2
-        \\ 1:
-        : [ret] "={$2}" (-> u32),
-        : [number] "{$2}" (@intFromEnum(number)),
-          [arg1] "{$4}" (arg1),
-          [arg2] "{$5}" (arg2),
-          [arg3] "{$6}" (arg3),
-          [arg4] "{$7}" (arg4),
-          [arg5] "{$8}" (arg5),
-          [arg6] "{$9}" (arg6),
-          [arg7] "{$10}" (arg7),
         : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn clone() callconv(.naked) u32 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
-    //         3,    4,     5,     6,   7,    8,   9
+    //         a0,   a1,    a2,    a3,  a4,   a5,  a6
     //
     // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
-    //         2          4,     5,     6,    7,   8
+    //         v0         a0,    a1,    a2,   a3,  a4
     asm volatile (
         \\ # Save function pointer and argument pointer on new thread stack
-        \\ and $5, $5, -16
-        \\ dsubu $5, $5, 16
-        \\ sd $4, 0($5)
-        \\ sd $7, 8($5)
+        \\ and $a1, $a1, -16
+        \\ subu $a1, $a1, 16
+        \\ sw $a0, 0($a1)
+        \\ sw $a3, 4($a1)
+        \\
         \\ # Shuffle (fn,sp,fl,arg,ptid,tls,ctid) to (fl,sp,ptid,tls,ctid)
-        \\ move $4, $6
-        \\ move $6, $8
-        \\ move $7, $9
-        \\ move $8, $10
-        \\ li $2, 5055 # SYS_clone
+        \\ move $a0, $a2
+        \\ move $a2, $a4
+        \\ move $a3, $a5
+        \\ move $a4, $a6
+        \\ li $v0, 6055 # SYS_clone
         \\ syscall
-        \\ beq $7, $0, 1f
-        \\ nop
-        \\ jr $ra
-        \\ dsubu $2, $0, $2
+        \\ beq $a3, $zero, 1f
+        \\ blez $v0, 2f
+        \\ subu $v0, $zero, $v0
+        \\ b 2f
         \\1:
-        \\ beq $2, $0, 1f
-        \\ nop
+        \\ beq $v0, $zero, 3f
+        \\2:
         \\ jr $ra
-        \\ nop
-        \\1:
+        \\3:
     );
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
         \\ .cfi_undefined $ra
@@ -202,12 +169,12 @@ pub fn clone() callconv(.naked) u32 {
         \\ move $fp, $zero
         \\ move $ra, $zero
         \\
-        \\ ld $25, 0($sp)
-        \\ ld $4, 8($sp)
-        \\ jalr $25
-        \\ nop
-        \\ move $4, $2
-        \\ li $2, 5058 # SYS_exit
+        \\ ld $t9, 0($sp)
+        \\ ld $a0, 4($sp)
+        \\ jalr $t9
+        \\
+        \\ move $a0, $v0
+        \\ li $v0, 6058 # SYS_exit
         \\ syscall
     );
 }
