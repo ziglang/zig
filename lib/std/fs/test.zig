@@ -2019,8 +2019,8 @@ test "delete a setAsCwd directory on Windows" {
 
 test "invalid UTF-8/WTF-8 paths" {
     const expected_err = switch (native_os) {
-        .wasi => error.InvalidUtf8,
-        .windows => error.InvalidWtf8,
+        .wasi => error.BadPathName,
+        .windows => error.BadPathName,
         else => return error.SkipZigTest,
     };
 
