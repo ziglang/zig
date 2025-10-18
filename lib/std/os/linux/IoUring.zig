@@ -1636,35 +1636,121 @@ pub fn msg_ring_fd_alloc(
 
 /// Queues (but does not submit) an SQE to prepares a request to get an
 /// extended attribute value
+/// The `from` parameter is used to decide the source to get the extended
+/// attributes from
 /// Returns a pointer to the SQE.
 pub fn getxattr(
     self: *IoUring,
     user_data: u64,
     name: []const u8,
     value: []const u8,
-    path: []const u8,
+    from: XattrSource,
     len: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_getxattr(name, value, path, len);
+    switch (from) {
+        .path => |path_| sqe.prep_getxattr(name, value, path_, len),
+        .fd => |fd_| sqe.prep_fgetxattr(name, value, fd_, len),
+    }
     sqe.user_data = user_data;
     return sqe;
 }
 
 /// Queues (but does not submit) an SQE to prepares a request to set an
 /// extended attribute value
+/// The `on` parameter is used to decide the source to set the extended
+/// attributes on
 /// Returns a pointer to the SQE.
 pub fn setxattr(
     self: *IoUring,
     user_data: u64,
     name: []const u8,
     value: []const u8,
-    path: []const u8,
+    on: XattrSource,
     flags: linux.SetXattr,
     len: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_setxattr(name, value, path, flags, len);
+    switch (on) {
+        .path => |path_| sqe.prep_setxattr(name, value, path_, flags, len),
+        .fd => |fd_| sqe.prep_fsetxattr(name, value, fd_, flags, len),
+    }
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Prepares a socket creation request.
+/// New socket fd will be returned in completion result.
+/// Available since 5.19
+pub fn socket(
+    self: *IoUring,
+    user_data: u64,
+    domain: linux.Af,
+    socket_type: linux.Sock,
+    protocol: linux.IpProto,
+    /// flags is unused
+    flags: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_socket(domain, socket_type, protocol, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Prepares a socket creation request for registered file at index `file_index`.
+/// Available since 5.19
+pub fn socket_direct(
+    self: *IoUring,
+    user_data: u64,
+    domain: linux.Af,
+    socket_type: linux.Sock,
+    protocol: linux.IpProto,
+    /// flags is unused
+    flags: u32,
+    file_index: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_socket_direct(domain, socket_type, protocol, flags, file_index);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Prepares a socket creation request for registered file, index chosen by
+/// kernel (file index alloc).
+/// File index will be returned in CQE res field.
+/// Available since 5.19
+pub fn socket_direct_alloc(
+    self: *IoUring,
+    user_data: u64,
+    domain: linux.Af,
+    socket_type: linux.Sock,
+    protocol: linux.IpProto,
+    /// flags unused
+    flags: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_socket_direct_alloc(domain, socket_type, protocol, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Prepares an cmd request for a socket.
+/// See: https://man7.org/linux/man-pages/man3/io_uring_prep_cmd.3.html
+/// Available since 6.7.
+pub fn cmd_sock(
+    self: *IoUring,
+    user_data: u64,
+    cmd_op: SocketOp,
+    fd: linux.fd_t,
+    level: linux.Sol,
+    optname: linux.So,
+    /// pointer to the option value
+    optval: u64,
+    /// size of the option value
+    optlen: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_cmd_sock(cmd_op, fd, level, optname, optval, optlen);
     sqe.user_data = user_data;
     return sqe;
 }
@@ -1678,7 +1764,8 @@ pub fn waitid(
     id: i32,
     infop: *linux.siginfo_t,
     options: linux.W,
-    flags: u32, // They are currently unused, and hence 0 should be passed
+    /// They are currently unused, and hence 0 should be passed
+    flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_waitid(id_type, id, infop, options, flags);
@@ -1978,78 +2065,6 @@ fn handle_registration_result(res: usize) !void {
         .NXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
         else => |errno| return posix.unexpectedErrno(errno),
     }
-}
-
-/// Prepares a socket creation request.
-/// New socket fd will be returned in completion result.
-/// Available since 5.19
-pub fn socket(
-    self: *IoUring,
-    user_data: u64,
-    domain: linux.Af,
-    socket_type: linux.Sock,
-    protocol: linux.IpProto,
-    flags: u32, // flags is unused
-) !*Sqe {
-    const sqe = try self.get_sqe();
-    sqe.prep_socket(domain, socket_type, protocol, flags);
-    sqe.user_data = user_data;
-    return sqe;
-}
-
-/// Prepares a socket creation request for registered file at index `file_index`.
-/// Available since 5.19
-pub fn socket_direct(
-    self: *IoUring,
-    user_data: u64,
-    domain: linux.Af,
-    socket_type: linux.Sock,
-    protocol: linux.IpProto,
-    /// flags is unused
-    flags: u32,
-    file_index: u32,
-) !*Sqe {
-    const sqe = try self.get_sqe();
-    sqe.prep_socket_direct(domain, socket_type, protocol, flags, file_index);
-    sqe.user_data = user_data;
-    return sqe;
-}
-
-/// Prepares a socket creation request for registered file, index chosen by
-/// kernel (file index alloc).
-/// File index will be returned in CQE res field.
-/// Available since 5.19
-pub fn socket_direct_alloc(
-    self: *IoUring,
-    user_data: u64,
-    domain: linux.Af,
-    socket_type: linux.Sock,
-    protocol: linux.IpProto,
-    flags: u32, // flags unused
-) !*Sqe {
-    const sqe = try self.get_sqe();
-    sqe.prep_socket_direct_alloc(domain, socket_type, protocol, flags);
-    sqe.user_data = user_data;
-    return sqe;
-}
-
-/// Prepares an cmd request for a socket.
-/// See: https://man7.org/linux/man-pages/man3/io_uring_prep_cmd.3.html
-/// Available since 6.7.
-pub fn cmd_sock(
-    self: *IoUring,
-    user_data: u64,
-    cmd_op: SocketOp,
-    fd: linux.fd_t,
-    level: linux.Sol,
-    optname: linux.So,
-    optval: u64, // pointer to the option value
-    optlen: u32, // size of the option value
-) !*Sqe {
-    const sqe = try self.get_sqe();
-    sqe.prep_cmd_sock(cmd_op, fd, level, optname, optval, optlen);
-    sqe.user_data = user_data;
-    return sqe;
 }
 
 /// Prepares set socket option for the optname argument, at the protocol
@@ -3063,6 +3078,22 @@ pub const Sqe = extern struct {
         sqe.addr3 = @intFromPtr(path.ptr);
     }
 
+    pub fn prep_fgetxattr(
+        sqe: *Sqe,
+        name: []const u8,
+        value: []const u8,
+        fd: linux.fd_t,
+        len: u32,
+    ) void {
+        sqe.prep_rw(
+            .fgetxattr,
+            fd,
+            @intFromPtr(name.ptr),
+            len,
+            @intFromPtr(value.ptr),
+        );
+    }
+
     pub fn prep_setxattr(
         sqe: *Sqe,
         name: []const u8,
@@ -3079,6 +3110,24 @@ pub const Sqe = extern struct {
             @intFromPtr(value.ptr),
         );
         sqe.addr3 = @intFromPtr(path.ptr);
+        sqe.rw_flags = @bitCast(flags);
+    }
+
+    pub fn prep_fsetxattr(
+        sqe: *Sqe,
+        name: []const u8,
+        value: []const u8,
+        fd: linux.fd_t,
+        flags: linux.SetXattr,
+        len: u32,
+    ) void {
+        sqe.prep_rw(
+            .fsetxattr,
+            fd,
+            @intFromPtr(name.ptr),
+            len,
+            @intFromPtr(value.ptr),
+        );
         sqe.rw_flags = @bitCast(flags);
     }
 
@@ -3125,7 +3174,8 @@ pub const Sqe = extern struct {
         domain: linux.Af,
         socket_type: linux.Sock,
         protocol: linux.IpProto,
-        flags: u32, // flags is unused
+        /// flags is unused
+        flags: u32,
     ) void {
         sqe.prep_rw(.socket, @intFromEnum(domain), 0, @intFromEnum(protocol), @as(u32, @bitCast(socket_type)));
         sqe.rw_flags = flags;
@@ -3136,7 +3186,8 @@ pub const Sqe = extern struct {
         domain: linux.Af,
         socket_type: linux.Sock,
         protocol: linux.IpProto,
-        flags: u32, // flags is unused
+        /// flags is unused
+        flags: u32,
         file_index: u32,
     ) void {
         prep_socket(sqe, domain, socket_type, protocol, flags);
@@ -3148,7 +3199,8 @@ pub const Sqe = extern struct {
         domain: linux.Af,
         socket_type: linux.Sock,
         protocol: linux.IpProto,
-        flags: u32, // flags is unused
+        /// flags is unused
+        flags: u32,
     ) void {
         prep_socket(sqe, domain, socket_type, protocol, flags);
         set_target_fixed_file(sqe, constants.FILE_INDEX_ALLOC);
@@ -3160,7 +3212,8 @@ pub const Sqe = extern struct {
         id: i32,
         infop: *linux.siginfo_t,
         options: linux.W,
-        flags: u32, // flags is unused
+        /// flags is unused
+        flags: u32,
     ) void {
         sqe.prep_rw(.waitid, id, 0, @intFromEnum(id_type), @intFromPtr(infop));
         sqe.rw_flags = flags;
@@ -3529,6 +3582,14 @@ pub const WriteBuffer = union(enum) {
     buffer: []const u8,
     /// io_uring will write data from iovecs into fd using pwritev.
     iovecs: []const posix.iovec_const,
+};
+
+/// Used to select how get/setxttr should be handled.
+pub const XattrSource = union(enum) {
+    /// Get/Set xattr associated with the given path in the filesystem
+    path: []const u8,
+    /// Get/Set xattr for the opened file referenced by this fd
+    fd: linux.fd_t,
 };
 
 /// Used to select how the recv call should be handled.
