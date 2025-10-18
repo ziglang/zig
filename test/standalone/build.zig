@@ -29,6 +29,10 @@ pub fn build(b: *std.Build) void {
     const tools_tests_step = b.step("standalone_test_cases.tools", "Test tools");
     step.dependOn(tools_tests_step);
     const tools_target = b.resolveTargetQuery(.{});
+    const spirv_spec = b.createModule(.{
+        .root_source_file = b.path("../../src/codegen/spirv/spec.zig"),
+        .target = tools_target,
+    });
     for ([_][]const u8{
         // Alphabetically sorted. No need to build `tools/spirv/grammar.zig`.
         "../../tools/dump-cov.zig",
@@ -60,6 +64,9 @@ pub fn build(b: *std.Build) void {
                 .target = tools_target,
             }),
         });
+        if (std.mem.endsWith(u8, tool_src_path, "update_cpu_features.zig")) {
+            tool.root_module.addImport("spirv_spec", spirv_spec);
+        }
         tools_tests_step.dependOn(&tool.step);
     }
     for ([_][]const u8{
