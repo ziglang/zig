@@ -2425,7 +2425,7 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
     return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
 }
 
-pub const Wtf8ToPrefixedFileWError = error{InvalidWtf8} || Wtf16ToPrefixedFileWError;
+pub const Wtf8ToPrefixedFileWError = Wtf16ToPrefixedFileWError;
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated WTF-8 encoded path.
@@ -2438,7 +2438,9 @@ pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) Wtf8ToPrefixedFileWEr
 /// https://wtf-8.codeberg.page/
 pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) Wtf8ToPrefixedFileWError!PathSpace {
     var temp_path: PathSpace = undefined;
-    temp_path.len = try std.unicode.wtf8ToWtf16Le(&temp_path.data, path);
+    temp_path.len = std.unicode.wtf8ToWtf16Le(&temp_path.data, path) catch |err| switch (err) {
+        error.InvalidWtf8 => return error.BadPathName,
+    };
     temp_path.data[temp_path.len] = 0;
     return wToPrefixedFileW(dir, temp_path.span());
 }

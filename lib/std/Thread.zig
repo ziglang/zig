@@ -171,6 +171,7 @@ pub const SetNameError = error{
     NameTooLong,
     Unsupported,
     Unexpected,
+    InvalidWtf8,
 } || posix.PrctlError || posix.WriteError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
 pub fn setName(self: Thread, name: []const u8) SetNameError!void {

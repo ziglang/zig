@@ -20,11 +20,11 @@ pub fn deinit(si: *SelfInfo, gpa: Allocator) void {
     module_name_arena.deinit();
 }
 
-pub fn getSymbol(si: *SelfInfo, gpa: Allocator, address: usize) Error!std.debug.Symbol {
+pub fn getSymbol(si: *SelfInfo, gpa: Allocator, io: Io, address: usize) Error!std.debug.Symbol {
     si.mutex.lock();
     defer si.mutex.unlock();
     const module = try si.findModule(gpa, address);
-    const di = try module.getDebugInfo(gpa);
+    const di = try module.getDebugInfo(gpa, io);
     return di.getSymbol(gpa, address - module.base_address);
 }
 pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]const u8 {
@@ -190,6 +190,7 @@ const Module = struct {
 
     const DebugInfo = struct {
         arena: std.heap.ArenaAllocator.State,
+        io: Io,
         coff_image_base: u64,
         mapped_file: ?MappedFile,
         dwarf: ?Dwarf,
@@ -209,9 +210,10 @@ const Module = struct {
         };
 
         fn deinit(di: *DebugInfo, gpa: Allocator) void {
+            const io = di.io;
             if (di.dwarf) |*dwarf| dwarf.deinit(gpa);
             if (di.pdb) |*pdb| {
-                pdb.file_reader.file.close();
+                pdb.file_reader.file.close(io);
                 pdb.deinit();
             }
             if (di.mapped_file) |*mf| mf.deinit();
@@ -277,11 +279,11 @@ const Module = struct {
         }
     };
 
-    fn getDebugInfo(module: *Module, gpa: Allocator) Error!*DebugInfo {
-        if (module.di == null) module.di = loadDebugInfo(module, gpa);
+    fn getDebugInfo(module: *Module, gpa: Allocator, io: Io) Error!*DebugInfo {
+        if (module.di == null) module.di = loadDebugInfo(module, gpa, io);
         return if (module.di.?) |*di| di else |err| err;
     }
-    fn loadDebugInfo(module: *const Module, gpa: Allocator) Error!DebugInfo {
+    fn loadDebugInfo(module: *const Module, gpa: Allocator, io: Io) Error!DebugInfo {
         const mapped_ptr: [*]const u8 = @ptrFromInt(module.base_address);
         const mapped = mapped_ptr[0..module.size];
         var coff_obj = coff.Coff.init(mapped, true) catch return error.InvalidDebugInfo;
@@ -306,6 +308,7 @@ const Module = struct {
             );
             if (len == 0) return error.MissingDebugInfo;
             const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+                error.Canceled => |e| return e,
                 error.Unexpected => |e| return e,
                 error.FileNotFound => return error.MissingDebugInfo,
 
@@ -314,8 +317,6 @@ const Module = struct {
                 error.NotDir,
                 error.SymLinkLoop,
                 error.NameTooLong,
-                error.InvalidUtf8,
-                error.InvalidWtf8,
                 error.BadPathName,
                 => return error.InvalidDebugInfo,
 
@@ -435,7 +436,7 @@ const Module = struct {
             errdefer pdb_file.close();
 
             const pdb_reader = try arena.create(Io.File.Reader);
-            pdb_reader.* = pdb_file.reader(try arena.alloc(u8, 4096));
+            pdb_reader.* = pdb_file.reader(io, try arena.alloc(u8, 4096));
 
             var pdb = Pdb.init(gpa, pdb_reader) catch |err| switch (err) {
                 error.OutOfMemory, error.ReadFailed, error.Unexpected => |e| return e,
