@@ -107,6 +107,15 @@ pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b))
 
 test {
     {
+        const a: i16 = -32768;
+        const b: i16 = -32768;
+        const r = egcd(a, b);
+        const g = r.gcd;
+        const s: i32 = r.bezout_coeff_1;
+        const t: i32 = r.bezout_coeff_2;
+        try std.testing.expect(s * a + t * b == g);
+    }
+    {
         const a: i32 = 128;
         const b: i32 = 112;
         const r = egcd(a, b);
