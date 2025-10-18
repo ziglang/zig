@@ -1191,12 +1191,22 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
-                .x86_64 => asm volatile (
-                    \\  movq $11, %%rax # SYS_munmap
-                    \\  syscall
-                    \\  movq $60, %%rax # SYS_exit
-                    \\  movq $1, %%rdi
-                    \\  syscall
+                .x86_64 => asm volatile (switch (target.abi) {
+                        .gnux32, .muslx32 =>
+                        \\  movl $0x4000000b, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $0x4000003c, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                        else =>
+                        \\  movl $11, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $60, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                    }
                     :
                     : [ptr] "{rdi}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{rsi}" (self.mapped.len),
