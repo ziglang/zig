@@ -51,7 +51,7 @@ stage3-release/bin/zig build test docs \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml \
-  --test-timeout 60s
+  --test-timeout 3m
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

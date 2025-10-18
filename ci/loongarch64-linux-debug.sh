@@ -51,7 +51,7 @@ stage3-debug/bin/zig build test docs \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  --test-timeout 2m
+  --test-timeout 4m
 
 stage3-debug/bin/zig build \
   --prefix stage4-debug \

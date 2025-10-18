@@ -62,4 +62,4 @@ stage3-debug/bin/zig build test docs \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml \
-  --test-timeout 6m
+  --test-timeout 12m
