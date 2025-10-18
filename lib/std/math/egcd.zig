@@ -65,11 +65,10 @@ inline fn egcd_helper(other: anytype, odd: anytype, shift: anytype) [3]@TypeOf(o
         }
     }
 
-    y = @shlExact(y, @intCast(shift));
-    s = @shlExact(s, @intCast(shift));
     // Using integer widening is only a temporary solution.
     const W = std.meta.Int(.signed, @bitSizeOf(S) * 2);
     t = @intCast(@divExact(y - @as(W, s) * toinv, ctrl));
+    y = @shlExact(y, @intCast(shift));
     return .{ @bitCast(y), s, t };
 }
 
@@ -107,6 +106,24 @@ pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b))
 }
 
 test {
+    {
+        const a: i32 = 128;
+        const b: i32 = 112;
+        const r = egcd(a, b);
+        const g = r.gcd;
+        const s: i64 = r.bezout_coeff_1;
+        const t: i64 = r.bezout_coeff_2;
+        try std.testing.expect(s * a + t * b == g);
+    }
+    {
+        const a: i32 = 4 * 89;
+        const b: i32 = 2 * 17;
+        const r = egcd(a, b);
+        const g = r.gcd;
+        const s: i64 = r.bezout_coeff_1;
+        const t: i64 = r.bezout_coeff_2;
+        try std.testing.expect(s * a + t * b == g);
+    }
     {
         const a: i8 = 127;
         const b: i8 = 126;
