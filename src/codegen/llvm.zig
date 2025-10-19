@@ -11919,6 +11919,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .x86_sysv,
         .x86_win,
         .x86_thiscall_mingw,
+        .x86_64_x32,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,

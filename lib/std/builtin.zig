@@ -204,6 +204,7 @@ pub const CallingConvention = union(enum(u8)) {
 
     // Calling conventions for the `x86_64` architecture.
     x86_64_sysv: CommonOptions,
+    x86_64_x32: CommonOptions,
     x86_64_win: CommonOptions,
     x86_64_regcall_v3_sysv: CommonOptions,
     x86_64_regcall_v4_win: CommonOptions,

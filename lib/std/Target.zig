@@ -1787,6 +1787,7 @@ pub const Cpu = struct {
                 => unreachable,
 
                 .x86_64_sysv,
+                .x86_64_x32,
                 .x86_64_win,
                 .x86_64_regcall_v3_sysv,
                 .x86_64_regcall_v4_win,
@@ -3632,7 +3633,10 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.os.tag) {
             .windows, .uefi => .{ .x86_64_win = .{} },
-            else => .{ .x86_64_sysv = .{} },
+            else => switch (target.abi) {
+                .gnuabin32, .muslabin32 => .{ .x86_64_x32 = .{} },
+                else => .{ .x86_64_sysv = .{} },
+            },
         },
         .x86 => switch (target.os.tag) {
             .windows, .uefi => .{ .x86_win = .{} },

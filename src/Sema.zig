@@ -9035,6 +9035,7 @@ pub fn handleExternLibName(
 /// functions or there are no more other calling conventions that support variadic functions.
 const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention.Tag{
     .x86_64_sysv,
+    .x86_64_x32,
     .x86_64_win,
     .x86_sysv,
     .x86_win,
