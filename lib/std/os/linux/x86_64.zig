@@ -132,14 +132,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const mode_t = u64;
 pub const time_t = i64;
-pub const nlink_t = u64;
-pub const blksize_t = i64;
-pub const blkcnt_t = i64;
-pub const off_t = i64;
-pub const ino_t = u64;
-pub const dev_t = u64;
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";

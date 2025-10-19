@@ -184,11 +184,4 @@ pub const VDSO = struct {
     pub const CGT_VER = "LINUX_2.6";
 };
 
-pub const blksize_t = u32;
-pub const nlink_t = u32;
 pub const time_t = i32;
-pub const mode_t = u32;
-pub const off_t = i64;
-pub const ino_t = u64;
-pub const dev_t = u64;
-pub const blkcnt_t = i64;
