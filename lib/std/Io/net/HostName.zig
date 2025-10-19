@@ -310,6 +310,8 @@ pub const ResolvConf = struct {
     search_buffer: [max_len]u8,
     search_len: usize,
 
+    /// According to resolv.conf(5) there is a maximum of 3 nameservers in this
+    /// file.
     pub const max_nameservers = 3;
 
     /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
@@ -394,9 +396,10 @@ pub const ResolvConf = struct {
     }
 
     fn addNumeric(rc: *ResolvConf, io: Io, name: []const u8, port: u16) !void {
-        assert(rc.nameservers_len < rc.nameservers_buffer.len);
-        rc.nameservers_buffer[rc.nameservers_len] = try .resolve(io, name, port);
-        rc.nameservers_len += 1;
+        if (rc.nameservers_len < rc.nameservers_buffer.len) {
+            rc.nameservers_buffer[rc.nameservers_len] = try .resolve(io, name, port);
+            rc.nameservers_len += 1;
+        }
     }
 
     pub fn nameservers(rc: *const ResolvConf) []const IpAddress {
