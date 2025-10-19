@@ -119,13 +119,6 @@ pub fn clone() callconv(.naked) u32 {
     );
 }
 
-pub const blksize_t = i32;
-pub const nlink_t = u32;
 pub const time_t = i64;
-pub const mode_t = u32;
-pub const off_t = i64;
-pub const ino_t = u64;
-pub const dev_t = u64;
-pub const blkcnt_t = i64;
 
 pub const VDSO = void;
