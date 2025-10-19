@@ -1033,9 +1033,8 @@ pub const Socket = struct {
     };
 
     /// Leaves `address` in a valid state.
-    pub fn close(s: *Socket, io: Io) void {
+    pub fn close(s: *const Socket, io: Io) void {
         io.vtable.netClose(io.userdata, s.handle);
-        s.handle = undefined;
     }
 
     pub const SendError = error{
@@ -1163,13 +1162,7 @@ pub const Stream = struct {
 
     const max_iovecs_len = 8;
 
-    pub fn close(s: *Stream, io: Io) void {
-        io.vtable.netClose(io.userdata, s.socket.handle);
-        s.* = undefined;
-    }
-
-    /// Same as `close` but doesn't try to set `Stream` to `undefined`.
-    pub fn closeConst(s: *const Stream, io: Io) void {
+    pub fn close(s: *const Stream, io: Io) void {
         io.vtable.netClose(io.userdata, s.socket.handle);
     }
 
