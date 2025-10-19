@@ -2962,18 +2962,6 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .wasi,
         .emscripten,
         => switch (target.cpu.arch) {
-            .msp430 => switch (c_type) {
-                .char => return 8,
-                .short, .ushort, .int, .uint => return 16,
-                .long, .ulong, .float => return 32,
-                .longlong, .ulonglong, .double, .longdouble => return 64,
-            },
-            .avr => switch (c_type) {
-                .char => return 8,
-                .short, .ushort, .int, .uint => return 16,
-                .long, .ulong, .float, .double, .longdouble => return 32,
-                .longlong, .ulonglong => return 64,
-            },
             .mips64, .mips64el => switch (c_type) {
                 .char => return 8,
                 .short, .ushort => return 16,
