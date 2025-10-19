@@ -531,7 +531,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*Build.
     const b = s.owner;
     const arena = b.allocator;
 
-    var timer = try std.time.Timer.start();
+    var stopwatch = try std.time.Stopwatch.start();
 
     try sendMessage(zp.child.stdin.?, .update);
     if (!watch) try sendMessage(zp.child.stdin.?, .exit);
@@ -634,7 +634,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*Build.
         }
     }
 
-    s.result_duration_ns = timer.read();
+    s.result_duration_ns = stopwatch.read();
 
     const stderr_contents = try zp.poller.toOwnedSlice(.stderr);
     if (stderr_contents.len > 0) {
