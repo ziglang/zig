@@ -119,7 +119,18 @@ pub const STDIN_FILENO = system.STDIN_FILENO;
 pub const STDOUT_FILENO = system.STDOUT_FILENO;
 pub const SYS = system.SYS;
 pub const Sigaction = system.Sigaction;
-pub const Stat = system.Stat;
+pub const Stat = switch (native_os) {
+    // Has no concept of `stat`.
+    .windows => void,
+    // The `stat` bits/wrappers are removed due to having to maintain the
+    // different varying `struct stat`s per target and libc, leading to runtime
+    // errors.
+    //
+    // Users targeting linux should add a comptime check and use `statx`,
+    // similar to how `std.fs.File.stat` does.
+    .linux => void,
+    else => system.Stat,
+};
 pub const T = system.T;
 pub const TCP = system.TCP;
 pub const VDSO = system.VDSO;
@@ -487,15 +498,21 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
     }
     defer close(pathfd);
 
-    const stat = fstatatZ(pathfd, "", AT.EMPTY_PATH) catch |err| switch (err) {
+    const path_mode = if (linux.wrapped.statx(
+        pathfd,
+        "",
+        AT.EMPTY_PATH,
+        .{ .TYPE = true },
+    )) |stx| blk: {
+        assert(stx.mask.TYPE);
+        break :blk stx.mode;
+    } else |err| switch (err) {
         error.NameTooLong => unreachable,
         error.FileNotFound => unreachable,
-        error.Streaming => unreachable,
-        error.BadPathName => return error.Unexpected,
-        error.Canceled => return error.Canceled,
         else => |e| return e,
     };
-    if ((stat.mode & S.IFMT) == S.IFLNK)
+    // Even though we only wanted TYPE, the kernel can still fill in the additional bits.
+    if ((path_mode & S.IFMT) == S.IFLNK)
         return error.OperationNotSupported;
 
     var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
@@ -3906,13 +3923,9 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
         return Stat.fromFilestat(try std.os.fstat_wasi(fd));
     }
-    if (native_os == .windows) {
-        @compileError("fstat is not yet implemented on Windows");
-    }
 
-    const fstat_sym = if (lfs64_abi) system.fstat64 else system.fstat;
     var stat = mem.zeroes(Stat);
-    switch (errno(fstat_sym(fd, &stat))) {
+    switch (errno(system.fstat(fd, &stat))) {
         .SUCCESS => return stat,
         .INVAL => unreachable,
         .BADF => unreachable, // Always a race condition.
@@ -3952,9 +3965,8 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
         @compileError("use std.Io instead");
     }
 
-    const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
     var stat = mem.zeroes(Stat);
-    switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
+    switch (errno(system.fstatat(dirfd, pathname, &stat, flags))) {
         .SUCCESS => return stat,
         .INVAL => unreachable,
         .BADF => unreachable, // Always a race condition.

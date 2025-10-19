@@ -54,6 +54,20 @@ pub fn init(file: std.Io.File, gpa: std.mem.Allocator) !MappedFile {
                 },
             };
         }
+        if (is_linux) {
+            const statx = try linux.wrapped.statx(
+                mf.file.handle,
+                "",
+                std.posix.AT.EMPTY_PATH,
+                .{ .TYPE = true, .SIZE = true, .BLOCKS = true },
+            );
+            assert(statx.mask.TYPE);
+            assert(statx.mask.SIZE);
+            assert(statx.mask.BLOCKS);
+
+            if (!std.posix.S.ISREG(statx.mode)) return error.PathAlreadyExists;
+            break :stat .{ statx.size, @max(std.heap.pageSize(), statx.blksize) };
+        }
         const stat = try std.posix.fstat(mf.file.handle);
         if (!std.posix.S.ISREG(stat.mode)) return error.PathAlreadyExists;
         break :stat .{ @bitCast(stat.size), @max(std.heap.pageSize(), stat.blksize) };

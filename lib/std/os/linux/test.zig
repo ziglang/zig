@@ -10,8 +10,6 @@ const expectEqual = std.testing.expectEqual;
 const fs = std.fs;
 
 test "fallocate" {
-    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23809
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -84,26 +82,22 @@ test "statx" {
     var file = try tmp.dir.createFile(tmp_file_name, .{});
     defer file.close();
 
-    var statx_buf: linux.Statx = undefined;
-    switch (linux.E.init(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+    var buf: linux.Statx = undefined;
+    switch (linux.E.init(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, .BASIC_STATS, &buf))) {
         .SUCCESS => {},
         else => unreachable,
     }
 
-    if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
-
-    var stat_buf: linux.Stat = undefined;
-    switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
-        .SUCCESS => {},
-        else => unreachable,
-    }
-
-    try expect(stat_buf.mode == statx_buf.mode);
-    try expect(@as(u32, @bitCast(stat_buf.uid)) == statx_buf.uid);
-    try expect(@as(u32, @bitCast(stat_buf.gid)) == statx_buf.gid);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.size))) == statx_buf.size);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.blksize))) == statx_buf.blksize);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.blocks))) == statx_buf.blocks);
+    const uid = linux.getuid();
+    const gid = linux.getgid();
+    if (buf.mask.MODE)
+        try expectEqual(@as(linux.mode_t, linux.S.IFREG), buf.mode & linux.S.IFMT);
+    if (buf.mask.UID)
+        try expectEqual(uid, buf.uid);
+    if (buf.mask.GID)
+        try expectEqual(gid, buf.gid);
+    if (buf.mask.SIZE)
+        try expectEqual(@as(u64, 0), buf.size);
 }
 
 test "user and group ids" {

@@ -236,38 +236,3 @@ pub const dev_t = u64;
 pub const nlink_t = u32;
 pub const blksize_t = i64;
 pub const blkcnt_t = i64;
-
-// The `stat64` definition used by the kernel.
-pub const Stat = extern struct {
-    dev: dev_t,
-    ino: ino_t,
-    nlink: nlink_t,
-    _pad: i32,
-
-    mode: mode_t,
-    uid: std.os.linux.uid_t,
-    gid: std.os.linux.gid_t,
-    __pad0: u32,
-
-    rdev: dev_t,
-    size: i64,
-    blksize: blksize_t,
-    blocks: blkcnt_t,
-
-    atim: std.os.linux.timespec,
-    mtim: std.os.linux.timespec,
-    ctim: std.os.linux.timespec,
-    __unused: [3]u64,
-
-    pub fn atime(self: @This()) std.os.linux.timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) std.os.linux.timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) std.os.linux.timespec {
-        return self.ctim;
-    }
-};
