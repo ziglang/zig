@@ -64,6 +64,7 @@ const Variant = enum {
 
 const current_variant: Variant = switch (native_arch) {
     .arc,
+    .arceb,
     .arm,
     .armeb,
     .aarch64,
@@ -243,7 +244,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr),
             );
         },
-        .arc => {
+        .arc, .arceb => {
             // We apparently need to both set r25 (TP) *and* inform the kernel...
             asm volatile (
                 \\ mov r25, %[addr]

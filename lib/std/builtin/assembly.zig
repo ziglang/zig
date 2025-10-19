@@ -779,7 +779,7 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         lr: bool = false,
         sr: bool = false,
     },
-    .xtensa => packed struct {
+    .xtensa, .xtensaeb => packed struct {
         /// Whether the inline assembly code may perform stores to memory
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,
@@ -1591,7 +1591,7 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         vr30: bool = false,
         vr31: bool = false,
     },
-    .arc => packed struct {
+    .arc, .arceb => packed struct {
         /// Whether the inline assembly code may perform stores to memory
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,

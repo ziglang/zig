@@ -106,9 +106,11 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .wasm64 => "wasm64",
         .ve => "ve",
 
+        .arceb,
         .kalimba,
         .or1k,
         .propeller,
+        .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
 
@@ -473,9 +475,11 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
+        .arceb,
         .kalimba,
         .or1k,
         .propeller,
+        .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
 }
@@ -13107,9 +13111,11 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM does does not have a backend for these.
+        .arceb,
         .kalimba,
         .or1k,
         .propeller,
+        .xtensaeb,
         => unreachable,
     }
 }

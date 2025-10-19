@@ -860,12 +860,14 @@ pub const Abi = enum {
 
                 // No musl support.
                 .arc,
+                .arceb,
                 => .gnu,
                 .csky,
                 => .gnueabi,
 
                 // No glibc or musl support.
                 .xtensa,
+                .xtensaeb,
                 => .none,
 
                 else => .musl,
@@ -1061,12 +1063,12 @@ pub const ObjectFormat = enum {
 
 pub fn toElfMachine(target: *const Target) std.elf.EM {
     return switch (target.cpu.arch) {
-        .amdgcn => .AMDGPU,
-        .arc => .ARC_COMPACT,
-        .arm, .armeb, .thumb, .thumbeb => .ARM,
         .aarch64, .aarch64_be => .AARCH64,
+        .amdgcn => .AMDGPU,
+        .arc, .arceb => .ARC_COMPACT,
+        .arm, .armeb, .thumb, .thumbeb => .ARM,
         .avr => .AVR,
-        .bpfel, .bpfeb => .BPF,
+        .bpfeb, .bpfel => .BPF,
         .csky => .CSKY,
         .hexagon => .QDSP6,
         .kalimba => .CSR_KALIMBA,
@@ -1087,7 +1089,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .x86 => .@"386",
         .x86_64 => .X86_64,
         .xcore => .XCORE,
-        .xtensa => .XTENSA,
+        .xtensa, .xtensaeb => .XTENSA,
 
         .nvptx,
         .nvptx64,
@@ -1118,6 +1120,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .aarch64_be,
         .amdgcn,
         .arc,
+        .arceb,
         .armeb,
         .avr,
         .bpfeb,
@@ -1149,6 +1152,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .wasm64,
         .xcore,
         .xtensa,
+        .xtensaeb,
         => .UNKNOWN,
     };
 }
@@ -1317,17 +1321,16 @@ pub const Cpu = struct {
     };
 
     pub const Arch = enum {
-        amdgcn,
-        arc,
-        arm,
-        armeb,
-        thumb,
-        thumbeb,
         aarch64,
         aarch64_be,
+        amdgcn,
+        arc,
+        arceb,
+        arm,
+        armeb,
         avr,
-        bpfel,
         bpfeb,
+        bpfel,
         csky,
         hexagon,
         kalimba,
@@ -1340,9 +1343,9 @@ pub const Cpu = struct {
         mips64,
         mips64el,
         msp430,
-        or1k,
         nvptx,
         nvptx64,
+        or1k,
         powerpc,
         powerpcle,
         powerpc64,
@@ -1357,6 +1360,8 @@ pub const Cpu = struct {
         sparc64,
         spirv32,
         spirv64,
+        thumb,
+        thumbeb,
         ve,
         wasm32,
         wasm64,
@@ -1364,6 +1369,7 @@ pub const Cpu = struct {
         x86_64,
         xcore,
         xtensa,
+        xtensaeb,
 
         // LLVM tags deliberately omitted:
         // - aarch64_32
@@ -1418,12 +1424,12 @@ pub const Cpu = struct {
 
         pub inline fn family(arch: Arch) Family {
             return switch (arch) {
-                .amdgcn => .amdgcn,
-                .arc => .arc,
-                .arm, .armeb, .thumb, .thumbeb => .arm,
                 .aarch64, .aarch64_be => .aarch64,
+                .amdgcn => .amdgcn,
+                .arc, .arceb => .arc,
+                .arm, .armeb, .thumb, .thumbeb => .arm,
                 .avr => .avr,
-                .bpfel, .bpfeb => .bpf,
+                .bpfeb, .bpfel => .bpf,
                 .csky => .csky,
                 .hexagon => .hexagon,
                 .kalimba => .kalimba,
@@ -1444,7 +1450,7 @@ pub const Cpu = struct {
                 .wasm32, .wasm64 => .wasm,
                 .x86, .x86_64 => .x86,
                 .xcore => .xcore,
-                .xtensa => .xtensa,
+                .xtensa, .xtensaeb => .xtensa,
             };
         }
 
@@ -1473,6 +1479,13 @@ pub const Cpu = struct {
         pub inline fn isAARCH64(arch: Arch) bool {
             return switch (arch) {
                 .aarch64, .aarch64_be => true,
+                else => false,
+            };
+        }
+
+        pub inline fn isArc(arch: Arch) bool {
+            return switch (arch) {
+                .arc, .arceb => true,
                 else => false,
             };
         }
@@ -1573,6 +1586,13 @@ pub const Cpu = struct {
             };
         }
 
+        pub inline fn isXtensa(arch: Arch) bool {
+            return switch (arch) {
+                .xtensa, .xtensaeb => true,
+                else => false,
+            };
+        }
+
         pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
             for (arch.allCpuModels()) |cpu| {
                 if (std.mem.eql(u8, cpu_name, cpu.name)) {
@@ -1584,43 +1604,39 @@ pub const Cpu = struct {
 
         pub fn endian(arch: Arch) std.builtin.Endian {
             return switch (arch) {
-                .avr,
-                .arm,
                 .aarch64,
-                .amdgcn,
+                .arm,
+                .arc,
+                .avr,
                 .bpfel,
                 .csky,
-                .xtensa,
                 .hexagon,
                 .kalimba,
+                .loongarch32,
+                .loongarch64,
                 .mipsel,
                 .mips64el,
                 .msp430,
-                .nvptx,
-                .nvptx64,
                 .powerpcle,
                 .powerpc64le,
+                .propeller,
                 .riscv32,
                 .riscv64,
-                .x86,
-                .x86_64,
-                .wasm32,
-                .wasm64,
-                .xcore,
                 .thumb,
                 .ve,
-                // GPU bitness is opaque. For now, assume little endian.
-                .spirv32,
-                .spirv64,
-                .loongarch32,
-                .loongarch64,
-                .arc,
-                .propeller,
+                .wasm32,
+                .wasm64,
+                .x86,
+                .x86_64,
+                .xcore,
+                .xtensa,
                 => .little,
 
-                .armeb,
                 .aarch64_be,
+                .arceb,
+                .armeb,
                 .bpfeb,
+                .lanai,
                 .m68k,
                 .mips,
                 .mips64,
@@ -1629,12 +1645,20 @@ pub const Cpu = struct {
                 .powerpc64,
                 .riscv32be,
                 .riscv64be,
+                .s390x,
                 .thumbeb,
                 .sparc,
                 .sparc64,
-                .lanai,
-                .s390x,
+                .xtensaeb,
                 => .big,
+
+                // GPU endianness is opaque. For now, assume little endian.
+                .amdgcn,
+                .nvptx,
+                .nvptx64,
+                .spirv32,
+                .spirv64,
+                => .little,
             };
         }
 
@@ -1770,7 +1794,7 @@ pub const Cpu = struct {
 
                 .arc_sysv,
                 .arc_interrupt,
-                => &.{.arc},
+                => &.{ .arc, .arceb },
 
                 .avr_gnu,
                 .avr_builtin,
@@ -1826,7 +1850,7 @@ pub const Cpu = struct {
 
                 .xtensa_call0,
                 .xtensa_windowed,
-                => &.{.xtensa},
+                => &.{ .xtensa, .xtensaeb },
 
                 .amdgcn_device,
                 .amdgcn_kernel,
@@ -2418,9 +2442,10 @@ pub const DynamicLinker = struct {
                 }
             else if (abi.isGnu())
                 switch (cpu.arch) {
-                    // TODO: `eb` architecture support.
                     // TODO: `700` ABI support.
-                    .arc => if (abi == .gnu) init("/lib/ld-linux-arc.so.2") else none,
+                    .arc,
+                    .arceb,
+                    => |arch| if (abi == .gnu) initFmt("/lib/ld-linux-{t}.so.2", .{arch}) else none,
 
                     .arm,
                     .armeb,
@@ -2450,7 +2475,10 @@ pub const DynamicLinker = struct {
                         else => return none,
                     }}),
 
-                    .m68k => if (abi == .gnu) init("/lib/ld.so.1") else none,
+                    .m68k,
+                    .xtensa,
+                    .xtensaeb,
+                    => if (abi == .gnu) init("/lib/ld.so.1") else none,
 
                     .mips,
                     .mipsel,
@@ -2480,6 +2508,7 @@ pub const DynamicLinker = struct {
                         => init("/lib/ld.so.1"),
                         else => none,
                     },
+
                     .powerpc64,
                     .powerpc64le,
                     => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
@@ -2511,8 +2540,6 @@ pub const DynamicLinker = struct {
                         .gnux32 => init("/libx32/ld-linux-x32.so.2"),
                         else => none,
                     },
-
-                    .xtensa => if (abi == .gnu) init("/lib/ld.so.1") else none,
 
                     else => none,
                 }
@@ -2680,52 +2707,54 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         => 16,
 
         .arc,
+        .arceb,
         .arm,
         .armeb,
         .csky,
         .hexagon,
+        .kalimba,
+        .lanai,
+        .loongarch32,
         .m68k,
         .mips,
         .mipsel,
+        .nvptx,
         .or1k,
         .powerpc,
         .powerpcle,
+        .propeller,
         .riscv32,
         .riscv32be,
-        .thumb,
-        .thumbeb,
-        .x86,
-        .xcore,
-        .nvptx,
-        .kalimba,
-        .lanai,
-        .wasm32,
         .sparc,
         .spirv32,
-        .loongarch32,
+        .thumb,
+        .thumbeb,
+        .wasm32,
+        .x86,
+        .xcore,
         .xtensa,
-        .propeller,
+        .xtensaeb,
         => 32,
 
         .aarch64,
         .aarch64_be,
+        .amdgcn,
+        .bpfeb,
+        .bpfel,
+        .loongarch64,
         .mips64,
         .mips64el,
+        .nvptx64,
         .powerpc64,
         .powerpc64le,
         .riscv64,
         .riscv64be,
-        .x86_64,
-        .nvptx64,
-        .wasm64,
-        .amdgcn,
-        .bpfel,
-        .bpfeb,
-        .sparc64,
         .s390x,
-        .ve,
+        .sparc64,
         .spirv64,
-        .loongarch64,
+        .ve,
+        .wasm64,
+        .x86_64,
         => 64,
     };
 }
@@ -2788,13 +2817,12 @@ pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
     if (target.os.tag.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
 
     return switch (target.cpu.arch) {
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
         .aarch64,
         .aarch64_be,
+        .arm,
+        .armeb,
         .arc,
+        .arceb,
         .csky,
         .hexagon,
         .msp430,
@@ -2807,8 +2835,11 @@ pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
         .riscv32be,
         .riscv64,
         .riscv64be,
+        .thumb,
+        .thumbeb,
         .xcore,
         .xtensa,
+        .xtensaeb,
         => .unsigned,
         else => .signed,
     };
@@ -3217,31 +3248,33 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             => 2,
 
             .arc,
+            .arceb,
             .csky,
+            .kalimba,
+            .or1k,
+            .propeller,
             .x86,
             .xcore,
-            .or1k,
-            .kalimba,
             .xtensa,
-            .propeller,
+            .xtensaeb,
             => 4,
 
+            .amdgcn,
             .arm,
             .armeb,
-            .thumb,
-            .thumbeb,
-            .amdgcn,
-            .bpfel,
             .bpfeb,
+            .bpfel,
             .hexagon,
+            .lanai,
             .m68k,
             .mips,
             .mipsel,
-            .sparc,
-            .lanai,
             .nvptx,
             .nvptx64,
             .s390x,
+            .sparc,
+            .thumb,
+            .thumbeb,
             => 8,
 
             .aarch64,
@@ -3261,10 +3294,10 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .sparc64,
             .spirv32,
             .spirv64,
-            .x86_64,
             .ve,
             .wasm32,
             .wasm64,
+            .x86_64,
             => 16,
 
             .avr,
@@ -3276,7 +3309,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
 pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
-        .arc => switch (c_type) {
+        .arc, .arceb => switch (c_type) {
             .longdouble => return 4,
             else => {},
         },
@@ -3315,31 +3348,33 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .msp430 => 2,
 
             .arc,
+            .arceb,
             .csky,
-            .xcore,
-            .or1k,
             .kalimba,
-            .xtensa,
+            .or1k,
             .propeller,
+            .xcore,
+            .xtensa,
+            .xtensaeb,
             => 4,
 
+            .amdgcn,
             .arm,
             .armeb,
-            .thumb,
-            .thumbeb,
-            .amdgcn,
-            .bpfel,
             .bpfeb,
+            .bpfel,
             .hexagon,
-            .x86,
+            .lanai,
             .m68k,
             .mips,
             .mipsel,
-            .sparc,
-            .lanai,
             .nvptx,
             .nvptx64,
             .s390x,
+            .sparc,
+            .thumb,
+            .thumbeb,
+            .x86,
             => 8,
 
             .aarch64,
@@ -3359,10 +3394,10 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .sparc64,
             .spirv32,
             .spirv64,
-            .x86_64,
             .ve,
             .wasm32,
             .wasm64,
+            .x86_64,
             => 16,
 
             .avr,
@@ -3378,6 +3413,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .msp430 => 2,
 
         .arc,
+        .arceb,
         .csky,
         .kalimba,
         .or1k,
@@ -3403,6 +3439,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .thumbeb,
         .x86,
         .xtensa,
+        .xtensaeb,
         => 8,
 
         .aarch64,
@@ -3440,9 +3477,9 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             .windows, .uefi => .{ .x86_win = .{} },
             else => .{ .x86_sysv = .{} },
         },
-        .aarch64, .aarch64_be => if (target.os.tag.isDarwin()) cc: {
-            break :cc .{ .aarch64_aapcs_darwin = .{} };
-        } else switch (target.os.tag) {
+        .aarch64, .aarch64_be => if (target.os.tag.isDarwin())
+            .{ .aarch64_aapcs_darwin = .{} }
+        else switch (target.os.tag) {
             .windows => .{ .aarch64_aapcs_win = .{} },
             else => .{ .aarch64_aapcs = .{} },
         },
@@ -3469,7 +3506,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             else => .{ .powerpc_sysv = .{} },
         },
         .wasm32, .wasm64 => .{ .wasm_mvp = .{} },
-        .arc => .{ .arc_sysv = .{} },
+        .arc, .arceb => .{ .arc_sysv = .{} },
         .avr => .avr_gnu,
         .bpfel, .bpfeb => .{ .bpf_std = .{} },
         .csky => .{ .csky_sysv = .{} },
@@ -3488,7 +3525,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .s390x => .{ .s390x_sysv = .{} },
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
-        .xtensa => .{ .xtensa_call0 = .{} },
+        .xtensa, .xtensaeb => .{ .xtensa_call0 = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv32, .spirv64 => .spirv_device,

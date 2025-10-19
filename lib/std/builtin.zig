@@ -275,7 +275,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
     wasm_mvp: CommonOptions,
 
-    /// The standard `arc` calling convention.
+    /// The standard `arc`/`arceb` calling convention.
     arc_sysv: CommonOptions,
     arc_interrupt: ArcInterruptOptions,
 
@@ -331,7 +331,7 @@ pub const CallingConvention = union(enum(u8)) {
     xcore_xs1: CommonOptions,
     xcore_xs2: CommonOptions,
 
-    // Calling conventions for the `xtensa` architecture.
+    // Calling conventions for the `xtensa`/`xtensaeb` architecture.
     xtensa_call0: CommonOptions,
     xtensa_windowed: CommonOptions,
 
@@ -920,6 +920,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .x86,
     => *u8,
     .arc,
+    .arceb,
     .avr,
     .bpfel,
     .bpfeb,
@@ -966,7 +967,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         },
         else => VaListX86_64,
     },
-    .xtensa => VaListXtensa,
+    .xtensa, .xtensaeb => VaListXtensa,
     else => @compileError("VaList not supported for this target yet"),
 };
 

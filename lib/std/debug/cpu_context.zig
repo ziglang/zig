@@ -5,7 +5,7 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
     root.debug.CpuContext
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
-    .arc => Arc,
+    .arc, .arceb => Arc,
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .csky => Csky,
     .hexagon => Hexagon,
@@ -36,7 +36,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
     const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
 
     // Deal with some special cases first.
-    if (native_arch == .arc and native_os == .linux) {
+    if (native_arch.isArc() and native_os == .linux) {
         var native: Native = .{
             .r = [_]u32{ uc.mcontext.r31, uc.mcontext.r30, 0, uc.mcontext.r28 } ++
                 uc.mcontext.r27_26 ++
@@ -1553,6 +1553,7 @@ const signal_ucontext_t = switch (native_os) {
         },
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/include/uapi/asm-generic/ucontext.h
         .arc,
+        .arceb,
         .csky,
         .hexagon,
         .m68k,
@@ -1565,13 +1566,14 @@ const signal_ucontext_t = switch (native_os) {
         .x86,
         .x86_64,
         .xtensa,
+        .xtensaeb,
         => extern struct {
             _flags: usize,
             _link: ?*signal_ucontext_t,
             _stack: std.os.linux.stack_t,
             mcontext: switch (native_arch) {
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arc/include/uapi/asm/sigcontext.h
-                .arc => extern struct {
+                .arc, .arceb => extern struct {
                     _pad1: u32,
                     _bta: u32,
                     _lp: extern struct {
@@ -1691,7 +1693,7 @@ const signal_ucontext_t = switch (native_os) {
                     rip: u64,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/xtensa/include/uapi/asm/sigcontext.h
-                .xtensa => extern struct {
+                .xtensa, .xtensaeb => extern struct {
                     pc: u32,
                     _ps: u32,
                     _l: extern struct {

@@ -216,9 +216,11 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         => false,
 
         // No LLVM backend exists.
+        .arceb,
         .kalimba,
         .or1k,
         .propeller,
+        .xtensaeb,
         => false,
     };
 }
@@ -711,6 +713,7 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         .xcore,
         => .@"2",
         .arc,
+        .arceb,
         .arm,
         .armeb,
         .aarch64,
@@ -728,6 +731,7 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         .sparc,
         .sparc64,
         .xtensa,
+        .xtensaeb,
         => .@"4",
         .bpfel,
         .bpfeb,

@@ -119,6 +119,7 @@ pub fn getExternalExecutor(
             .thumb,
             .thumbeb,
             .xtensa,
+            .xtensaeb,
             => |t| switch (candidate.os.tag) {
                 .linux,
                 => .{ .qemu = switch (t) {

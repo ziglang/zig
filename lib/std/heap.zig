@@ -824,7 +824,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     .emscripten => 64 << 10,
     .linux => switch (builtin.cpu.arch) {
         // Linux/arch/*/Kconfig
-        .arc => 4 << 10,
+        .arc, .arceb => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 4 << 10,
         .csky => 4 << 10,
@@ -839,7 +839,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
+        .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
     .freestanding, .other => switch (builtin.cpu.arch) {
@@ -972,7 +972,7 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     .emscripten => 64 << 10,
     .linux => switch (builtin.cpu.arch) {
         // Linux/arch/*/Kconfig
-        .arc => 16 << 10,
+        .arc, .arceb => 16 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 64 << 10,
         .csky => 4 << 10,
@@ -987,7 +987,7 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
+        .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
     .freestanding => switch (builtin.cpu.arch) {

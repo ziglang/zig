@@ -419,6 +419,7 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         .aarch64,
         .aarch64_be,
         .arc,
+        .arceb,
         .powerpc64,
         .powerpc64le,
         => 128,

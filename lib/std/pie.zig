@@ -22,7 +22,7 @@ const R_SPARC_RELATIVE = 22;
 const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86 => R_386_RELATIVE,
     .x86_64 => R_AMD64_RELATIVE,
-    .arc => R_ARC_RELATIVE,
+    .arc, .arceb => R_ARC_RELATIVE,
     .arm, .armeb, .thumb, .thumbeb => R_ARM_RELATIVE,
     .aarch64, .aarch64_be => R_AARCH64_RELATIVE,
     .csky => R_CSKY_RELATIVE,
@@ -58,7 +58,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ lea _DYNAMIC(%%rip), %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
-            .arc => asm volatile (
+            .arc, .arceb => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ add %[ret], pcl, _DYNAMIC@pcl

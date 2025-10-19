@@ -1550,7 +1550,7 @@ const CAbiTarget = struct {
 };
 
 const c_abi_targets = blk: {
-    @setEvalBranchQuota(20000);
+    @setEvalBranchQuota(30000);
     break :blk [_]CAbiTarget{
         // Native Targets
 
