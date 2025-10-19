@@ -474,7 +474,7 @@ const Module = struct {
             break :pdb pdb;
         };
         errdefer if (opt_pdb) |*pdb| {
-            pdb.file_reader.file.close();
+            pdb.file_reader.file.close(io);
             pdb.deinit();
         };
 
@@ -484,6 +484,7 @@ const Module = struct {
 
         return .{
             .arena = arena_instance.state,
+            .io = io,
             .coff_image_base = coff_image_base,
             .mapped_file = mapped_file,
             .dwarf = opt_dwarf,

@@ -31,7 +31,7 @@ const max_iovecs_len = 8;
 const splat_buffer_size = 64;
 
 comptime {
-    assert(max_iovecs_len <= posix.IOV_MAX);
+    if (@TypeOf(posix.IOV_MAX) != void) assert(max_iovecs_len <= posix.IOV_MAX);
 }
 
 const Closure = struct {
@@ -91,9 +91,7 @@ pub fn init(
 
 /// Statically initialize such that any call to the following functions will
 /// fail with `error.OutOfMemory`:
-/// * `Io.VTable.async`
 /// * `Io.VTable.concurrent`
-/// * `Io.VTable.groupAsync`
 /// When initialized this way, `deinit` is safe, but unnecessary to call.
 pub const init_single_threaded: Threaded = .{
     .allocator = .failing,

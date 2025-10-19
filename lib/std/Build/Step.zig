@@ -332,7 +332,7 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 pub fn dump(step: *Step, w: *Io.Writer, tty_config: Io.tty.Config) void {
     if (step.debug_stack_trace.instruction_addresses.len > 0) {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(&step.debug_stack_trace, w, tty_config) catch {};
+        std.debug.writeStackTrace(step.debug_stack_trace, w, tty_config) catch {};
     } else {
         const field = "debug_stack_frames_count";
         comptime assert(@hasField(Build, field));

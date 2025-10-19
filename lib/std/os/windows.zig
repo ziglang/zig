@@ -5,12 +5,14 @@
 //!   slices as well as APIs which accept null-terminated WTF16LE byte buffers.
 
 const builtin = @import("builtin");
+const native_arch = builtin.cpu.arch;
+
 const std = @import("../std.zig");
+const Io = std.Io;
 const mem = std.mem;
 const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
-const native_arch = builtin.cpu.arch;
 const UnexpectedError = std.posix.UnexpectedError;
 
 test {
@@ -2219,25 +2221,25 @@ pub fn peb() *PEB {
 /// Universal Time (UTC).
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
-pub fn fromSysTime(hns: i64) i128 {
+pub fn fromSysTime(hns: i64) Io.Timestamp {
     const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
-    return adjusted_epoch * 100;
+    return .fromNanoseconds(@intCast(adjusted_epoch * 100));
 }
 
-pub fn toSysTime(ns: i128) i64 {
-    const hns = @divFloor(ns, 100);
+pub fn toSysTime(ns: Io.Timestamp) i64 {
+    const hns = @divFloor(ns.nanoseconds, 100);
     return @as(i64, @intCast(hns)) - std.time.epoch.windows * (std.time.ns_per_s / 100);
 }
 
-pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
+pub fn fileTimeToNanoSeconds(ft: FILETIME) Io.Timestamp {
     const hns = (@as(i64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
     return fromSysTime(hns);
 }
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
-pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
+pub fn nanoSecondsToFileTime(ns: Io.Timestamp) FILETIME {
     const adjusted: u64 = @bitCast(toSysTime(ns));
-    return FILETIME{
+    return .{
         .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
         .dwLowDateTime = @as(u32, @truncate(adjusted)),
     };
@@ -5737,11 +5739,15 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     return ppeb.ImageBaseAddress;
 }
 
-pub fn checkWtf8ToWtf16LeOverflow(wtf8: []const u8, wtf16le: []const u16) error{ BadPathName, NameTooLong }!void {
+pub fn wtf8ToWtf16Le(wtf16le: []u16, wtf8: []const u8) error{ BadPathName, NameTooLong }!usize {
     // Each u8 in UTF-8/WTF-8 correlates to at most one u16 in UTF-16LE/WTF-16LE.
-    if (wtf16le.len >= wtf8.len) return;
-    const utf16_len = std.unicode.calcUtf16LeLenImpl(wtf8, .can_encode_surrogate_half) catch
-        return error.BadPathName;
-    if (utf16_len > wtf16le.len)
-        return error.NameTooLong;
+    if (wtf16le.len < wtf8.len) {
+        const utf16_len = std.unicode.calcUtf16LeLenImpl(wtf8, .can_encode_surrogate_half) catch
+            return error.BadPathName;
+        if (utf16_len > wtf16le.len)
+            return error.NameTooLong;
+    }
+    return std.unicode.wtf8ToWtf16Le(wtf16le, wtf8) catch |err| switch (err) {
+        error.InvalidWtf8 => return error.BadPathName,
+    };
 }

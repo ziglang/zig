@@ -221,7 +221,7 @@ pub fn connect(
     defer {
         connect_many.cancel(io);
         if (!saw_end) while (true) switch (connect_many_queue.getOneUncancelable(io)) {
-            .connection => |loser| if (loser) |s| s.closeConst(io) else |_| continue,
+            .connection => |loser| if (loser) |s| s.close(io) else |_| continue,
             .end => break,
         };
     }

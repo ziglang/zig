@@ -30,7 +30,8 @@ pub fn deinit(si: *SelfInfo, gpa: Allocator) void {
     si.ofiles.deinit(gpa);
 }
 
-pub fn getSymbol(si: *SelfInfo, gpa: Allocator, address: usize) Error!std.debug.Symbol {
+pub fn getSymbol(si: *SelfInfo, gpa: Allocator, io: Io, address: usize) Error!std.debug.Symbol {
+    _ = io;
     const module = try si.findModule(gpa, address);
     defer si.mutex.unlock();
 
@@ -970,6 +971,7 @@ fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
 }
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
 const Error = std.debug.SelfInfoError;
