@@ -3314,6 +3314,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
         @as(u16, switch (target.cpu.arch) {
             .msp430 => 2,
 
+            .arc,
             .csky,
             .xcore,
             .or1k,
@@ -3322,7 +3323,6 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .propeller,
             => 4,
 
-            .arc,
             .arm,
             .armeb,
             .thumb,
