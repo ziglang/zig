@@ -336,6 +336,10 @@ pub const Retry = struct {
     ///
     /// 0 means it should never retry.
     max_retries: u16 = 3,
+    /// Normally, the retry delay is calculated with jitter, but some instances
+    /// may require an override. When this value is used, it is set back to
+    /// `null`.
+    retry_delay_override_ms: ?u32 = null,
     /// Hard cap of how many milliseconds to wait between retries.
     const MAX_RETRY_SLEEP_MS = 10 * 1000;
     /// Minimum time a jittered retry delay could be
@@ -344,6 +348,10 @@ pub const Retry = struct {
     const MAX_RETRY_JITTER_MS = 1500;
 
     fn calcRetryDelayMs(r: *Retry) i64 {
+        if (r.retry_delay_override_ms) |delay| {
+            r.retry_delay_override_ms = null;
+            return delay;
+        }
         if (r.cur_retries == 0) {
             return std.crypto.random.intRangeAtMost(i64, MIN_RETRY_JITTER_MS, MAX_RETRY_JITTER_MS);
         }
@@ -1138,12 +1146,109 @@ fn initHttpResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer:
     const status = response.head.status;
 
     if (@intFromEnum(status) >= 500 or status == .too_many_requests or status == .not_found) {
+        var iter = response.head.iterateHeaders();
+        if (parseRetryAfter(f.io, &iter) catch null) |delay_sec| {
+            // Set max by dividing and multiplying again, because Retry-After
+            // header value needs to be u32, and could be obsurdly large, and
+            // we do not want to multiply that large number by 1000 in case of
+            // overflow. So we cap it first, then convert to milliseconds.
+            f.retry.retry_delay_override_ms = @min(delay_sec, Retry.MAX_RETRY_SLEEP_MS / 1000) * @as(u32, 1000);
+        }
         return BadHttpStatus.MaybeSpurious;
     } else if (status != .ok) {
         return BadHttpStatus.NonSpurious;
     }
 
     resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+}
+
+/// Iterate through response headers to find Retry-After header, and parse the
+/// value to return a value that represents how many seconds from now to wait
+/// until a retry may be attempted.
+///
+/// If the header does not exist, `null` is returned. If the header value is
+/// invalid, an error is returned to indicate that parsing failed.
+///
+/// Note that the implementation of this method in Cargo only respects this
+/// header for 503 and 429 status codes, but the specification on MDN does not
+/// restrict this header's usage to only those two status codes, so we won't
+/// either.
+///
+/// For more information, see the MDN documentation:
+/// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After
+fn parseRetryAfter(io: Io, header_iter: *std.http.HeaderIterator) !?u32 {
+    const retry_after: []const u8 = while (header_iter.next()) |header| {
+        if (ascii.eqlIgnoreCase(header.name, "retry-after")) {
+            break header.value;
+        }
+    } else {
+        return null;
+    };
+
+    // Option 1: The value is a positive integer indicating number of seconds
+    // to wait before retrying.
+    if (std.fmt.parseInt(u32, retry_after, 10) catch null) |value| {
+        return value;
+    }
+
+    // Option 2: The value is a timestamp that we need to parse, then use with
+    // current time to calculate how many seconds to wait before retrying.
+    //
+    // Parsing based on this specification:
+    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Date
+    const RETRY_AFTER_LEN: usize = 29;
+    if (retry_after.len != RETRY_AFTER_LEN) {
+        return error.InvalidHeaderValueLength;
+    }
+
+    // Much more memory compact than an array of string slices, because
+    // pointers are large. Also 12 strings means 11 more `\0` bytes than we
+    // actually need.
+    const months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+
+    const epoch = std.time.epoch;
+
+    // Example date with periodic indices for easy visualization:
+    // Tue, 29 Oct 2024 16:56:32 GMT
+    // ^         ^         ^
+    // 0         10        20
+    const year = try std.fmt.parseInt(epoch.Year, retry_after[12..16], 10);
+    const month: epoch.Month = for (0..12) |i| {
+        const month = months[i * 3 .. (i * 3) + 3];
+        if (std.mem.eql(u8, month, retry_after[8..11])) {
+            break @enumFromInt(i + 1);
+        }
+    } else {
+        return error.CannotFindMonth;
+    };
+    const day = try std.fmt.parseInt(epoch.Day, retry_after[5..7], 10);
+    const hour = try std.fmt.parseInt(epoch.Hour, retry_after[17..19], 10);
+    const minute = try std.fmt.parseInt(epoch.Minute, retry_after[20..22], 10);
+    const second = try std.fmt.parseInt(epoch.Second, retry_after[23..25], 10);
+
+    const datetime = epoch.Datetime{
+        .year = year,
+        .month = month,
+        .day = day,
+        .hour = hour,
+        .minute = minute,
+        .second = second,
+    };
+    const timestamp_retry_after: Io.Timestamp = try datetime.asTimestamp();
+    const timestamp_cur = try Io.Clock.Timestamp.now(io, .real);
+
+    // If Retry-After is before or equal to now, disregard it and calc delay as usual
+    if (timestamp_retry_after.nanoseconds <= timestamp_cur.raw.nanoseconds) {
+        return null;
+    }
+
+    // i96_max / 1_000_000 needs 76 bits if unsigned
+    const diff: u76 = @intCast(@divTrunc(timestamp_retry_after.nanoseconds - timestamp_cur.raw.nanoseconds, std.time.ns_per_s));
+
+    // If we get a number too large to fit into u32, it's way too big anyway, we can cap at u32's max
+    const capped: u32 = @min(diff, std.math.maxInt(u32));
+
+    return capped;
 }
 
 fn initGitResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) !void {
