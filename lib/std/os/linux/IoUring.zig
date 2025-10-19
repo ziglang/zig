@@ -295,7 +295,7 @@ pub fn cq_ready(self: *IoUring) u32 {
 
 /// Copies as many CQEs as are ready, and that can fit into the destination
 /// `cqes` slice. If none are available, enters into the kernel to wait for at
-/// most `wait_nr` CQEs.
+/// least `wait_nr` CQEs.
 /// Returns the number of CQEs copied, advancing the CQ ring.
 /// Provides all the wait/peek methods found in liburing, but with batching and
 /// a single method.
@@ -1773,6 +1773,54 @@ pub fn waitid(
     return sqe;
 }
 
+/// Available since kernel 6.7
+pub fn futex_wake(
+    self: *IoUring,
+    user_data: u64,
+    futex: *u32,
+    max_wake_count: u64,
+    mask: linux.Futex2.Bitset,
+    futex_flags: linux.Futex2.Wake,
+    flags: u32, // They are currently unused, and hence 0 should be passed
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_futex_wake(futex, max_wake_count, mask, futex_flags, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+/// Available since kernel 6.7
+pub fn futex_wait(
+    self: *IoUring,
+    user_data: u64,
+    futex: *u32,
+    max_wake_count: u64,
+    mask: linux.Futex2.Bitset,
+    futex_flags: linux.Futex2.Wait,
+    /// They are currently unused, and hence 0 should be passed
+    flags: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_futex_wait(futex, max_wake_count, mask, futex_flags, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+// TODO: ensure flags and Wait in futexv are correct
+/// Available since kernel 6.7
+pub fn futex_waitv(
+    self: *IoUring,
+    user_data: u64,
+    futexv: []linux.Futex2.WaitOne,
+    /// They are currently unused, and hence 0 should be passed
+    flags: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_futex_waitv(futexv, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
 pub fn register_buffers_sparse(self: *IoUring, nr: u32) !void {
     assert(self.fd >= 0);
 
@@ -3218,6 +3266,61 @@ pub const Sqe = extern struct {
         sqe.prep_rw(.waitid, id, 0, @intFromEnum(id_type), @intFromPtr(infop));
         sqe.rw_flags = flags;
         sqe.splice_fd_in = @bitCast(options);
+    }
+
+    pub fn prep_futex_wake(
+        sqe: *Sqe,
+        futex: *u32,
+        max_wake_count: u64,
+        mask: linux.Futex2.Bitset,
+        futex_flags: linux.Futex2.Wake,
+        flags: u32, // They are currently unused, and hence 0 should be passed
+    ) void {
+        sqe.prep_rw(
+            .futex_wake,
+            @intCast(@as(u32, @bitCast(futex_flags))),
+            @intFromPtr(futex),
+            0,
+            max_wake_count,
+        );
+        sqe.rw_flags = flags;
+        sqe.addr3 = @intFromEnum(mask);
+    }
+
+    pub fn prep_futex_wait(
+        sqe: *Sqe,
+        futex: *u32,
+        max_wake_count: u64,
+        mask: linux.Futex2.Bitset,
+        futex_flags: linux.Futex2.Wait,
+        /// They are currently unused, and hence 0 should be passed
+        flags: u32,
+    ) void {
+        sqe.prep_rw(
+            .futex_wait,
+            @intCast(@as(u32, @bitCast(futex_flags))),
+            @intFromPtr(futex),
+            0,
+            max_wake_count,
+        );
+        sqe.rw_flags = flags;
+        sqe.addr3 = @intFromEnum(mask);
+    }
+
+    pub fn prep_futex_waitv(
+        sqe: *Sqe,
+        futexv: []linux.Futex2.WaitOne,
+        /// They are currently unused, and hence 0 should be passed
+        flags: u32,
+    ) void {
+        sqe.prep_rw(
+            .futex_waitv,
+            0,
+            @intFromPtr(futexv.ptr),
+            futexv.len,
+            0,
+        );
+        sqe.rw_flags = flags;
     }
 
     // TODO: maybe remove unused flag fields?
