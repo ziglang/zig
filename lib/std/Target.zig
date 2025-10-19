@@ -72,6 +72,7 @@ pub const Os = struct {
 
         // LLVM tags deliberately omitted:
         // - bridgeos
+        // - cheriotrtos
         // - darwin
         // - kfreebsd
         // - nacl
@@ -800,14 +801,22 @@ pub const Abi = enum {
     // - coreclr
     // - domain
     // - geometry
+    // - gnueabit64
+    // - gnueabihft64
     // - gnuf64
+    // - gnut64
     // - hull
     // - intersection
     // - library
+    // - llvm
     // - mesh
     // - miss
+    // - mlibc
+    // - mtia
+    // - pauthtest
     // - pixel
     // - raygeneration
+    // - rootsignature
     // - vertex
 
     pub fn default(arch: Cpu.Arch, os_tag: Os.Tag) Abi {
@@ -1353,8 +1362,6 @@ pub const Cpu = struct {
         // - amdil
         // - amdil64
         // - dxil
-        // - le32
-        // - le64
         // - r600
         // - hsail
         // - hsail64
