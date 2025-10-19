@@ -2525,6 +2525,10 @@ pub fn unshare(flags: usize) usize {
     return syscall1(.unshare, flags);
 }
 
+pub fn setns(fd: fd_t, flags: u32) usize {
+    return syscall2(.setns, fd, flags);
+}
+
 pub fn capget(hdrp: *cap_user_header_t, datap: *cap_user_data_t) usize {
     return syscall2(.capget, @intFromPtr(hdrp), @intFromPtr(datap));
 }
