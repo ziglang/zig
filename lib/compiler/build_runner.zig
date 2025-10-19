@@ -769,12 +769,18 @@ fn runStepNames(
             if (step.state == .skipped_oom) continue;
 
             thread_pool.spawnWg(&wait_group, workerMakeOneStep, .{
-                &wait_group, b, step, step_prog, run,
+                &wait_group, b, step, step_prog, run, false,
             });
         }
     }
 
-    assert(run.memory_blocked_steps.items.len == 0);
+    // assert(run.memory_blocked_steps.items.len == 0);
+    if (run.memory_blocked_steps.items.len != 0) {
+        std.debug.panic("build terminated with {d} memory blocked steps; first is '{s}'", .{
+            run.memory_blocked_steps.items.len,
+            run.memory_blocked_steps.items[0].name,
+        });
+    }
 
     var test_pass_count: usize = 0;
     var test_skip_count: usize = 0;
@@ -1320,6 +1326,7 @@ fn workerMakeOneStep(
     s: *Step,
     prog_node: std.Progress.Node,
     run: *Run,
+    was_memory_blocked: bool,
 ) void {
     const thread_pool = &run.thread_pool;
 
@@ -1330,11 +1337,13 @@ fn workerMakeOneStep(
         switch (@atomicLoad(Step.State, &dep.state, .seq_cst)) {
             .success, .skipped => continue,
             .failure, .dependency_failure, .skipped_oom => {
+                if (was_memory_blocked) unreachable; // all our dependencies were okay earlier; that shouldn't change!
                 @atomicStore(Step.State, &s.state, .dependency_failure, .seq_cst);
                 if (run.web_server) |*ws| ws.updateStepStatus(s, .failure);
                 return;
             },
             .precheck_done, .running => {
+                if (was_memory_blocked) unreachable; // all our dependencies were okay earlier; that shouldn't change!
                 // dependency is not finished yet.
                 return;
             },
@@ -1415,7 +1424,7 @@ fn workerMakeOneStep(
         // Successful completion of a step, so we queue up its dependants as well.
         for (s.dependants.items) |dep| {
             thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                wg, b, dep, prog_node, run,
+                wg, b, dep, prog_node, run, false,
             });
         }
     }
@@ -1440,7 +1449,7 @@ fn workerMakeOneStep(
                 remaining -= dep.max_rss;
 
                 thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                    wg, b, dep, prog_node, run,
+                    wg, b, dep, prog_node, run, true,
                 });
             } else {
                 run.memory_blocked_steps.items[i] = dep;
