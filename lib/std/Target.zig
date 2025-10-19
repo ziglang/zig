@@ -825,13 +825,13 @@ pub const Abi = enum {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
                 .armeb,
-                .thumb,
-                .thumbeb,
                 .csky,
                 .mips,
                 .mipsel,
                 .powerpc,
                 .powerpcle,
+                .thumb,
+                .thumbeb,
                 => .eabi,
                 else => .none,
             },
@@ -846,20 +846,28 @@ pub const Abi = enum {
             .linux => switch (arch) {
                 .arm,
                 .armeb,
-                .thumb,
-                .thumbeb,
                 .powerpc,
                 .powerpcle,
+                .thumb,
+                .thumbeb,
                 => .musleabihf,
-                // Soft float tends to be more common for CSKY and MIPS.
-                .csky,
-                => .gnueabi, // No musl support.
                 .mips,
                 .mipsel,
                 => .musleabi,
                 .mips64,
                 .mips64el,
                 => .muslabi64,
+
+                // No musl support.
+                .arc,
+                => .gnu,
+                .csky,
+                => .gnueabi,
+
+                // No glibc or musl support.
+                .xtensa,
+                => .none,
+
                 else => .musl,
             },
             .rtems => switch (arch) {
