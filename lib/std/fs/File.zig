@@ -552,37 +552,29 @@ pub fn stat(self: File) StatError!Stat {
             .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
         };
     }
-
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const st = try std.os.fstat_wasi(self.handle);
         return Stat.fromWasi(st);
     }
-
-    if (builtin.os.tag == .linux) {
-        var stx = std.mem.zeroes(linux.Statx);
-
-        const rc = linux.statx(
-            self.handle,
-            "",
-            linux.AT.EMPTY_PATH,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
-            &stx,
-        );
-
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
-            .ACCES => unreachable,
-            .BADF => unreachable,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .LOOP => unreachable,
-            .NAMETOOLONG => unreachable,
-            .NOENT => unreachable,
-            .NOMEM => error.SystemResources,
-            .NOTDIR => unreachable,
-            else => |err| posix.unexpectedErrno(err),
-        };
-    }
+    if (builtin.os.tag == .linux) return if (linux.wrapped.statx(
+        self.handle,
+        "",
+        linux.AT.EMPTY_PATH,
+        .{ .TYPE = true, .MODE = true, .ATIME = true, .MTIME = true, .CTIME = true },
+    )) |stx| blk: {
+        assert(stx.mask.TYPE);
+        assert(stx.mask.MODE);
+        assert(stx.mask.ATIME);
+        assert(stx.mask.MTIME);
+        assert(stx.mask.CTIME);
+        break :blk Stat.fromLinux(stx);
+    } else |err| switch (err) {
+        error.AccessDenied => unreachable,
+        error.SymLinkLoop => unreachable,
+        error.FileNotFound => unreachable,
+        error.NameTooLong => unreachable,
+        else => |e| e,
+    };
 
     const st = try posix.fstat(self.handle);
     return Stat.fromPosix(st);
@@ -1166,7 +1158,7 @@ pub const Reader = struct {
                     return err;
                 }
             }
-            if (posix.Stat == void) {
+            if (posix.Stat == void and native_os != .linux) {
                 r.size_err = error.Streaming;
                 return error.Streaming;
             }
