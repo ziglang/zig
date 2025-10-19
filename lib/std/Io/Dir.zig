@@ -93,6 +93,10 @@ pub fn openDir(dir: Dir, io: Io, sub_path: []const u8, options: OpenOptions) Ope
     return io.vtable.dirOpenDir(io.userdata, dir, sub_path, options);
 }
 
+pub fn close(dir: Dir, io: Io) void {
+    return io.vtable.dirClose(io.userdata, dir);
+}
+
 pub fn openFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     return io.vtable.dirOpenFile(io.userdata, dir, sub_path, flags);
 }

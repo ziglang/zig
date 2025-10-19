@@ -203,6 +203,7 @@ pub fn io(t: *Threaded) Io {
                 .wasi => dirOpenDirWasi,
                 else => dirOpenDirPosix,
             },
+            .dirClose = dirClose,
             .fileClose = fileClose,
             .fileWriteStreaming = fileWriteStreaming,
             .fileWritePositional = fileWritePositional,
@@ -1683,6 +1684,12 @@ fn dirOpenDirPosix(
     _ = sub_path;
     _ = options;
     @panic("TODO");
+}
+
+fn dirClose(userdata: ?*anyopaque, dir: Io.Dir) void {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    posix.close(dir.handle);
 }
 
 fn dirOpenDirWasi(
