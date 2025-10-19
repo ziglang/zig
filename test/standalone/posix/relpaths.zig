@@ -48,18 +48,27 @@ fn test_symlink(a: std.mem.Allocator, tmp: std.testing.TmpDir) !void {
     try std.testing.expectEqualStrings(target_name, given);
 }
 
+fn getLinkInfo(fd: std.posix.fd_t) !struct { std.posix.ino_t, std.posix.nlink_t } {
+    if (builtin.target.os.tag == .linux) {
+        const stx = try std.os.linux.wrapped.statx(
+            fd,
+            "",
+            std.posix.AT.EMPTY_PATH,
+            .{ .INO = true, .NLINK = true },
+        );
+        std.debug.assert(stx.mask.INO);
+        std.debug.assert(stx.mask.NLINK);
+        return .{ stx.ino, stx.nlink };
+    }
+
+    const st = try std.posix.fstat(fd);
+    return .{ st.ino, st.nlink };
+}
+
 fn test_link(tmp: std.testing.TmpDir) !void {
     switch (builtin.target.os.tag) {
         .linux, .illumos => {},
         else => return,
-    }
-
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.target.os.tag == .linux and !builtin.link_libc) {
-        return; // No `fstat()`.
-    }
-
-    if (builtin.cpu.arch.isMIPS64()) {
-        return; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
     }
 
     const target_name = "link-target";
@@ -78,17 +87,16 @@ fn test_link(tmp: std.testing.TmpDir) !void {
     defer nfd.close();
 
     {
-        const estat = try std.posix.fstat(efd.handle);
-        const nstat = try std.posix.fstat(nfd.handle);
-        try std.testing.expectEqual(estat.ino, nstat.ino);
-        try std.testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
+        const eino, _ = try getLinkInfo(efd.handle);
+        const nino, const nlink = try getLinkInfo(nfd.handle);
+        try std.testing.expectEqual(eino, nino);
+        try std.testing.expectEqual(@as(std.posix.nlink_t, 2), nlink);
     }
 
     // Test 2: Remove the link and see the stats update
     try std.posix.unlink(link_name);
-
     {
-        const estat = try std.posix.fstat(efd.handle);
-        try std.testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
+        _, const elink = try getLinkInfo(efd.handle);
+        try std.testing.expectEqual(@as(std.posix.nlink_t, 1), elink);
     }
 }

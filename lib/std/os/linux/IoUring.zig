@@ -958,7 +958,7 @@ pub fn statx(
     fd: linux.fd_t,
     path: [:0]const u8,
     flags: u32,
-    mask: u32,
+    mask: linux.STATX,
     buf: *linux.Statx,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -2691,7 +2691,7 @@ test "statx" {
         tmp.dir.fd,
         path,
         0,
-        linux.STATX_SIZE,
+        .{ .SIZE = true },
         &buf,
     );
     try testing.expectEqual(linux.IORING_OP.STATX, sqe.opcode);
@@ -2718,7 +2718,7 @@ test "statx" {
         .flags = 0,
     }, cqe);
 
-    try testing.expect(buf.mask & linux.STATX_SIZE == linux.STATX_SIZE);
+    try testing.expect(buf.mask.SIZE);
     try testing.expectEqual(@as(u64, 6), buf.size);
 }
 

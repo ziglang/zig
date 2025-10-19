@@ -155,36 +155,3 @@ pub const ARCH = struct {
     pub const GET_FS = 0x1003;
     pub const GET_GS = 0x1004;
 };
-
-// The `stat` definition used by the Linux kernel.
-pub const Stat = extern struct {
-    dev: dev_t,
-    ino: ino_t,
-    nlink: nlink_t,
-
-    mode: mode_t,
-    uid: std.os.linux.uid_t,
-    gid: std.os.linux.gid_t,
-    __pad0: u32,
-    rdev: dev_t,
-    size: off_t,
-    blksize: blksize_t,
-    blocks: i64,
-
-    atim: std.os.linux.timespec,
-    mtim: std.os.linux.timespec,
-    ctim: std.os.linux.timespec,
-    __unused: [3]i32,
-
-    pub fn atime(self: @This()) std.os.linux.timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) std.os.linux.timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) std.os.linux.timespec {
-        return self.ctim;
-    }
-};

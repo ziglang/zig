@@ -1519,12 +1519,17 @@ fn dirStatPathLinux(
             dir.handle,
             sub_path_posix,
             flags,
-            linux.STATX_INO | linux.STATX_SIZE | linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            .{ .TYPE = true, .MODE = true, .ATIME = true, .MTIME = true, .CTIME = true },
             &statx,
         );
         switch (linux.errno(rc)) {
             .SUCCESS => {
                 current_thread.endSyscall();
+                assert(statx.mask.TYPE);
+                assert(statx.mask.MODE);
+                assert(statx.mask.ATIME);
+                assert(statx.mask.MTIME);
+                assert(statx.mask.CTIME);
                 return statFromLinux(&statx);
             },
             .INTR => {
@@ -1711,12 +1716,17 @@ fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
             file.handle,
             "",
             linux.AT.EMPTY_PATH,
-            linux.STATX_INO | linux.STATX_SIZE | linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            .{ .TYPE = true, .MODE = true, .ATIME = true, .MTIME = true, .CTIME = true },
             &statx,
         );
         switch (linux.errno(rc)) {
             .SUCCESS => {
                 current_thread.endSyscall();
+                assert(statx.mask.TYPE);
+                assert(statx.mask.MODE);
+                assert(statx.mask.ATIME);
+                assert(statx.mask.MTIME);
+                assert(statx.mask.CTIME);
                 return statFromLinux(&statx);
             },
             .INTR => {

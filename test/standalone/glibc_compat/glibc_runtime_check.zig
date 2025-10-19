@@ -23,16 +23,19 @@ const c_string = @cImport(
 // Version of glibc this test is being built to run against
 const glibc_ver = builtin.os.versionRange().gnuLibCVersion().?;
 
+extern "c" fn fstatat(dirfd: i32, path: [*:0]const u8, buf: [*]const u8, flag: u32) c_int;
+extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: [*]const u8) c_int;
+
 // PR #17034 - fstat moved between libc_nonshared and libc
 fn checkStat() !void {
     const cwdFd = std.fs.cwd().fd;
 
-    var stat = std.mem.zeroes(std.c.Stat);
-    var result = std.c.fstatat(cwdFd, "a_file_that_definitely_does_not_exist", &stat, 0);
+    var buf: [256]u8 = @splat(0);
+    var result = fstatat(cwdFd, "a_file_that_definitely_does_not_exist", &buf, 0);
     assert(result == -1);
     assert(std.posix.errno(result) == .NOENT);
 
-    result = std.c.stat("a_file_that_definitely_does_not_exist", &stat);
+    result = stat("a_file_that_definitely_does_not_exist", &buf);
     assert(result == -1);
     assert(std.posix.errno(result) == .NOENT);
 }
