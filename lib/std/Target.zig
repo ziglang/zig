@@ -2358,6 +2358,7 @@ pub const DynamicLinker = struct {
 
                     .aarch64,
                     .aarch64_be,
+                    .hexagon,
                     .m68k,
                     .powerpc64,
                     .powerpc64le,
