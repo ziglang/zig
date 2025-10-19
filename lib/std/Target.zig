@@ -3467,7 +3467,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             .hard => .{ .arm_aapcs_vfp = .{} },
         },
         .mips64, .mips64el => switch (target.abi) {
-            .gnuabin32 => .{ .mips64_n32 = .{} },
+            .gnuabin32, .muslabin32 => .{ .mips64_n32 = .{} },
             else => .{ .mips64_n64 = .{} },
         },
         .mips, .mipsel => .{ .mips_o32 = .{} },
