@@ -1,4 +1,7 @@
 const std = @import("std.zig");
+const Io = std.Io;
+const Writer = std.Io.Writer;
+const tty = std.Io.tty;
 const math = std.math;
 const mem = std.mem;
 const posix = std.posix;
@@ -7,12 +10,11 @@ const testing = std.testing;
 const Allocator = mem.Allocator;
 const File = std.fs.File;
 const windows = std.os.windows;
-const Writer = std.Io.Writer;
-const tty = std.Io.tty;
 
 const builtin = @import("builtin");
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
+const StackTrace = std.builtin.StackTrace;
 
 const root = @import("root");
 
@@ -545,13 +547,13 @@ pub fn defaultPanic(
                     stderr.print("panic: ", .{}) catch break :trace;
                 } else {
                     const current_thread_id = std.Thread.getCurrentId();
-                    stderr.print("thread {} panic: ", .{current_thread_id}) catch break :trace;
+                    stderr.print("thread {d} panic: ", .{current_thread_id}) catch break :trace;
                 }
                 stderr.print("{s}\n", .{msg}) catch break :trace;
 
                 if (@errorReturnTrace()) |t| if (t.index > 0) {
                     stderr.writeAll("error return context:\n") catch break :trace;
-                    writeStackTrace(t, stderr, tty_config) catch break :trace;
+                    writeStackTrace(t.*, stderr, tty_config) catch break :trace;
                     stderr.writeAll("\nstack trace:\n") catch break :trace;
                 };
                 writeCurrentStackTrace(.{
@@ -607,8 +609,8 @@ pub const StackUnwindOptions = struct {
 /// the given buffer, so `addr_buf` must have a lifetime at least equal to the `StackTrace`.
 ///
 /// See `writeCurrentStackTrace` to immediately print the trace instead of capturing it.
-pub noinline fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) std.builtin.StackTrace {
-    const empty_trace: std.builtin.StackTrace = .{ .index = 0, .instruction_addresses = &.{} };
+pub noinline fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) StackTrace {
+    const empty_trace: StackTrace = .{ .index = 0, .instruction_addresses = &.{} };
     if (!std.options.allow_stack_tracing) return empty_trace;
     var it = StackIterator.init(options.context) catch return empty_trace;
     defer it.deinit();
@@ -646,6 +648,9 @@ pub noinline fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: 
 ///
 /// See `captureCurrentStackTrace` to capture the trace addresses into a buffer instead of printing.
 pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+
     if (!std.options.allow_stack_tracing) {
         tty_config.setColor(writer, .dim) catch {};
         try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
@@ -730,7 +735,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Wri
             }
             // `ret_addr` is the return address, which is *after* the function call.
             // Subtract 1 to get an address *in* the function call for a better source location.
-            try printSourceAtAddress(di_gpa, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
+            try printSourceAtAddress(di_gpa, io, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
             printed_any_frame = true;
         },
     };
@@ -754,14 +759,29 @@ pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
     };
 }
 
+pub const FormatStackTrace = struct {
+    stack_trace: StackTrace,
+    tty_config: tty.Config,
+
+    pub fn format(context: @This(), writer: *Io.Writer) Io.Writer.Error!void {
+        try writer.writeAll("\n");
+        try writeStackTrace(context.stack_trace, writer, context.tty_config);
+    }
+};
+
 /// Write a previously captured stack trace to `writer`, annotated with source locations.
-pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+pub fn writeStackTrace(st: StackTrace, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
     if (!std.options.allow_stack_tracing) {
         tty_config.setColor(writer, .dim) catch {};
         try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
         tty_config.setColor(writer, .reset) catch {};
         return;
     }
+    // We use an independent Io implementation here in case there was a problem
+    // with the application's Io implementation itself.
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+
     // Fetch `st.index` straight away. Aside from avoiding redundant loads, this prevents issues if
     // `st` is `@errorReturnTrace()` and errors are encountered while writing the stack trace.
     const n_frames = st.index;
@@ -779,7 +799,7 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
     for (st.instruction_addresses[0..captured_frames]) |ret_addr| {
         // `ret_addr` is the return address, which is *after* the function call.
         // Subtract 1 to get an address *in* the function call for a better source location.
-        try printSourceAtAddress(di_gpa, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
+        try printSourceAtAddress(di_gpa, io, di, writer, ret_addr -| StackIterator.ra_call_offset, tty_config);
     }
     if (n_frames > captured_frames) {
         tty_config.setColor(writer, .bold) catch {};
@@ -788,7 +808,7 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace, writer: *Writer, tty_c
     }
 }
 /// A thin wrapper around `writeStackTrace` which writes to stderr and ignores write errors.
-pub fn dumpStackTrace(st: *const std.builtin.StackTrace) void {
+pub fn dumpStackTrace(st: StackTrace) void {
     const tty_config = tty.detectConfig(.stderr());
     const stderr = lockStderrWriter(&.{});
     defer unlockStderrWriter();
@@ -1075,8 +1095,8 @@ pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
     return ptr;
 }
 
-fn printSourceAtAddress(gpa: Allocator, debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) Writer.Error!void {
-    const symbol: Symbol = debug_info.getSymbol(gpa, address) catch |err| switch (err) {
+fn printSourceAtAddress(gpa: Allocator, io: Io, debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) Writer.Error!void {
+    const symbol: Symbol = debug_info.getSymbol(gpa, io, address) catch |err| switch (err) {
         error.MissingDebugInfo,
         error.UnsupportedDebugInfo,
         error.InvalidDebugInfo,
@@ -1581,11 +1601,14 @@ test "manage resources correctly" {
         }
     };
     const gpa = std.testing.allocator;
-    var discarding: std.Io.Writer.Discarding = .init(&.{});
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    var discarding: Io.Writer.Discarding = .init(&.{});
     var di: SelfInfo = .init;
     defer di.deinit(gpa);
     try printSourceAtAddress(
         gpa,
+        io,
         &di,
         &discarding.writer,
         S.showMyTrace(),
@@ -1659,11 +1682,11 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                 stderr.print("{s}:\n", .{t.notes[i]}) catch return;
                 var frames_array_mutable = frames_array;
                 const frames = mem.sliceTo(frames_array_mutable[0..], 0);
-                const stack_trace: std.builtin.StackTrace = .{
+                const stack_trace: StackTrace = .{
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(&stack_trace, stderr, tty_config) catch return;
+                writeStackTrace(stack_trace, stderr, tty_config) catch return;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{

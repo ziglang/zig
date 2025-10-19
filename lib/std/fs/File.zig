@@ -564,8 +564,8 @@ pub fn updateTimes(
     mtime: Io.Timestamp,
 ) UpdateTimesError!void {
     if (builtin.os.tag == .windows) {
-        const atime_ft = windows.nanoSecondsToFileTime(atime.nanoseconds);
-        const mtime_ft = windows.nanoSecondsToFileTime(mtime.nanoseconds);
+        const atime_ft = windows.nanoSecondsToFileTime(atime);
+        const mtime_ft = windows.nanoSecondsToFileTime(mtime);
         return windows.SetFileTime(self.handle, null, &atime_ft, &mtime_ft);
     }
     const times = [2]posix.timespec{

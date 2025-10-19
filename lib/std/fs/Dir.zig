@@ -1062,7 +1062,7 @@ pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenOptio
                 w.SYNCHRONIZE | w.FILE_TRAVERSE |
                 (if (open_dir_options.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
 
-            return self.makeOpenPathAccessMaskW(sub_path, base_flags, open_dir_options.no_follow);
+            return self.makeOpenPathAccessMaskW(sub_path, base_flags, !open_dir_options.follow_symlinks);
         },
         else => {
             return self.openDir(sub_path, open_dir_options) catch |err| switch (err) {
@@ -1575,8 +1575,7 @@ pub fn symLink(
         // when converting to an NT namespaced path. CreateSymbolicLink in
         // symLinkW will handle the necessary conversion.
         var target_path_w: windows.PathSpace = undefined;
-        try windows.checkWtf8ToWtf16LeOverflow(target_path, &target_path_w.data);
-        target_path_w.len = try std.unicode.wtf8ToWtf16Le(&target_path_w.data, target_path);
+        target_path_w.len = try windows.wtf8ToWtf16Le(&target_path_w.data, target_path);
         target_path_w.data[target_path_w.len] = 0;
         // However, we need to canonicalize any path separators to `\`, since if
         // the target path is relative, then it must use `\` as the path separator.

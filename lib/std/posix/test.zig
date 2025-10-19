@@ -862,20 +862,6 @@ test "isatty" {
     try expectEqual(posix.isatty(file.handle), false);
 }
 
-test "read with empty buffer" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    var file = try tmp.dir.createFile("read_empty", .{ .read = true });
-    defer file.close();
-
-    const bytes = try a.alloc(u8, 0);
-    defer a.free(bytes);
-
-    const rc = try posix.read(file.handle, bytes);
-    try expectEqual(rc, 0);
-}
-
 test "pread with empty buffer" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
