@@ -79,6 +79,7 @@ const current_variant: Variant = switch (native_arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .or1k,
     .powerpc,
     .powerpcle,
     .powerpc64,
@@ -284,6 +285,13 @@ pub fn setThreadPointer(addr: usize) void {
         .csky, .mips, .mipsel, .mips64, .mips64el => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
+        },
+        .or1k => {
+            asm volatile (
+                \\ l.ori r10, %[addr], 0
+                :
+                : [addr] "r" (addr),
+            );
         },
         .powerpc, .powerpcle => {
             asm volatile (

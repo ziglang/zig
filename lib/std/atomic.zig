@@ -445,7 +445,9 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         => 32,
 
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/m68k/include/asm/cache.h#L10
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/openrisc/include/asm/cache.h#L24
         .m68k,
+        .or1k,
         => 16,
 
         // - https://www.ti.com/lit/pdf/slaa498
