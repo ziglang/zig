@@ -968,6 +968,10 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(.umount2, @intFromPtr(special), flags);
 }
 
+pub fn pivot_root(new_root: [*:0]const u8, put_old: [*:0]const u8) usize {
+    return syscall2(.pivot_root, @intFromPtr(new_root), @intFromPtr(put_old));
+}
+
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
         return syscall6(
