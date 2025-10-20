@@ -846,58 +846,11 @@ pub fn close(self: *Dir) void {
     self.* = undefined;
 }
 
-/// Opens a file for reading or writing, without attempting to create a new file.
-/// To create a new file, see `createFile`.
-/// Call `File.close` to release the resource.
-/// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// Deprecated in favor of `Io.Dir.openFile`.
 pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
-    if (native_os == .windows) {
-        const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
-        return self.openFileW(path_w.span(), flags);
-    }
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
     return .adaptFromNewApi(try Io.Dir.openFile(self.adaptToNewApi(), io, sub_path, flags));
-}
-
-/// Same as `openFile` but Windows-only and the path parameter is
-/// [WTF-16](https://wtf-8.codeberg.page/#potentially-ill-formed-utf-16) encoded.
-pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
-    const w = windows;
-    const file: File = .{
-        .handle = try w.OpenFile(sub_path_w, .{
-            .dir = self.fd,
-            .access_mask = w.SYNCHRONIZE |
-                (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
-                (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
-            .creation = w.FILE_OPEN,
-        }),
-    };
-    errdefer file.close();
-    var io: w.IO_STATUS_BLOCK = undefined;
-    const range_off: w.LARGE_INTEGER = 0;
-    const range_len: w.LARGE_INTEGER = 1;
-    const exclusive = switch (flags.lock) {
-        .none => return file,
-        .shared => false,
-        .exclusive => true,
-    };
-    try w.LockFile(
-        file.handle,
-        null,
-        null,
-        null,
-        &io,
-        &range_off,
-        &range_len,
-        null,
-        @intFromBool(flags.lock_nonblocking),
-        @intFromBool(exclusive),
-    );
-    return file;
 }
 
 /// Deprecated in favor of `Io.Dir.createFile`.

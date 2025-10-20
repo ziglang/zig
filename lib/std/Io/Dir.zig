@@ -97,6 +97,15 @@ pub fn close(dir: Dir, io: Io) void {
     return io.vtable.dirClose(io.userdata, dir);
 }
 
+/// Opens a file for reading or writing, without attempting to create a new file.
+///
+/// To create a new file, see `createFile`.
+///
+/// Allocates a resource to be released with `File.close`.
+///
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn openFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     return io.vtable.dirOpenFile(io.userdata, dir, sub_path, flags);
 }

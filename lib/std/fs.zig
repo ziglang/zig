@@ -138,12 +138,6 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 
 test makeDirAbsoluteZ {}
 
-/// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 LE-encoded string.
-pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
-    assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return posix.mkdirW(mem.span(absolute_path_w), Dir.default_mode);
-}
-
 /// Same as `Dir.deleteDir` except the path is absolute.
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
@@ -157,12 +151,6 @@ pub fn deleteDirAbsolute(dir_path: []const u8) !void {
 pub fn deleteDirAbsoluteZ(dir_path: [*:0]const u8) !void {
     assert(path.isAbsoluteZ(dir_path));
     return posix.rmdirZ(dir_path);
-}
-
-/// Same as `deleteDirAbsolute` except the path parameter is WTF-16 and target OS is assumed Windows.
-pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
-    assert(path.isAbsoluteWindowsW(dir_path));
-    return posix.rmdirW(mem.span(dir_path));
 }
 
 /// Same as `Dir.rename` except the paths are absolute.
@@ -182,13 +170,6 @@ pub fn renameAbsoluteZ(old_path: [*:0]const u8, new_path: [*:0]const u8) !void {
     return posix.renameZ(old_path, new_path);
 }
 
-/// Same as `renameAbsolute` except the path parameters are WTF-16 and target OS is assumed Windows.
-pub fn renameAbsoluteW(old_path: [*:0]const u16, new_path: [*:0]const u16) !void {
-    assert(path.isAbsoluteWindowsW(old_path));
-    assert(path.isAbsoluteWindowsW(new_path));
-    return posix.renameW(old_path, new_path);
-}
-
 /// Same as `Dir.rename`, except `new_sub_path` is relative to `new_dir`
 pub fn rename(old_dir: Dir, old_sub_path: []const u8, new_dir: Dir, new_sub_path: []const u8) !void {
     return posix.renameat(old_dir.fd, old_sub_path, new_dir.fd, new_sub_path);
@@ -197,12 +178,6 @@ pub fn rename(old_dir: Dir, old_sub_path: []const u8, new_dir: Dir, new_sub_path
 /// Same as `rename` except the parameters are null-terminated.
 pub fn renameZ(old_dir: Dir, old_sub_path_z: [*:0]const u8, new_dir: Dir, new_sub_path_z: [*:0]const u8) !void {
     return posix.renameatZ(old_dir.fd, old_sub_path_z, new_dir.fd, new_sub_path_z);
-}
-
-/// Same as `rename` except the parameters are WTF16LE, NT prefixed.
-/// This function is Windows-only.
-pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_path_w: []const u16) !void {
-    return posix.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w, windows.TRUE);
 }
 
 /// Returns a handle to the current working directory. It is not opened with iteration capability.
@@ -241,12 +216,6 @@ pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenOptions) 
     assert(path.isAbsoluteZ(absolute_path_c));
     return cwd().openDirZ(absolute_path_c, flags);
 }
-/// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenOptions) File.OpenError!Dir {
-    assert(path.isAbsoluteWindowsW(absolute_path_c));
-    return cwd().openDirW(absolute_path_c, flags);
-}
-
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
 /// Call `File.close` to release the resource.
 /// Asserts that the path is absolute. See `Dir.openFile` for a function that
@@ -261,12 +230,6 @@ pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.O
     return cwd().openFile(absolute_path, flags);
 }
 
-/// Same as `openFileAbsolute` but the path parameter is WTF-16-encoded.
-pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
-    assert(path.isAbsoluteWindowsWtf16(absolute_path_w));
-    return cwd().openFileW(absolute_path_w, flags);
-}
-
 /// Test accessing `path`.
 /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
 /// For example, instead of testing if a file exists and then opening it, just
@@ -279,12 +242,6 @@ pub fn accessAbsolute(absolute_path: []const u8, flags: Io.Dir.AccessOptions) Di
     assert(path.isAbsolute(absolute_path));
     try cwd().access(absolute_path, flags);
 }
-/// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
-pub fn accessAbsoluteW(absolute_path: [*:0]const u16, flags: File.OpenFlags) Dir.AccessError!void {
-    assert(path.isAbsoluteWindowsW(absolute_path));
-    try cwd().accessW(absolute_path, flags);
-}
-
 /// Creates, opens, or overwrites a file with write access, based on an absolute path.
 /// Call `File.close` to release the resource.
 /// Asserts that the path is absolute. See `Dir.createFile` for a function that
@@ -309,12 +266,6 @@ pub fn createFileAbsolute(absolute_path: []const u8, flags: File.CreateFlags) Fi
 pub fn deleteFileAbsolute(absolute_path: []const u8) Dir.DeleteFileError!void {
     assert(path.isAbsolute(absolute_path));
     return cwd().deleteFile(absolute_path);
-}
-
-/// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
-pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!void {
-    assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().deleteFileW(mem.span(absolute_path_w));
 }
 
 /// Removes a symlink, file, or directory.
@@ -346,13 +297,6 @@ pub fn deleteTreeAbsolute(absolute_path: []const u8) !void {
 pub fn readLinkAbsolute(pathname: []const u8, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsolute(pathname));
     return posix.readlink(pathname, buffer);
-}
-
-/// Windows-only. Same as `readlinkW`, except the path parameter is null-terminated, WTF16
-/// encoded.
-pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[max_path_bytes]u8) ![]u8 {
-    assert(path.isAbsoluteWindowsW(pathname_w));
-    return posix.readlinkW(mem.span(pathname_w), buffer);
 }
 
 /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
