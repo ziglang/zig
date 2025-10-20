@@ -900,62 +900,12 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
     return file;
 }
 
-/// Creates, opens, or overwrites a file with write access.
-/// Call `File.close` on the result when done.
-/// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// Deprecated in favor of `Io.Dir.createFile`.
 pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-    if (native_os == .windows) {
-        const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
-        return self.createFileW(path_w.span(), flags);
-    }
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
     const new_file = try Io.Dir.createFile(self.adaptToNewApi(), io, sub_path, flags);
     return .adaptFromNewApi(new_file);
-}
-
-/// Same as `createFile` but Windows-only and the path parameter is
-/// [WTF-16](https://wtf-8.codeberg.page/#potentially-ill-formed-utf-16) encoded.
-pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) File.OpenError!File {
-    const w = windows;
-    const read_flag = if (flags.read) @as(u32, w.GENERIC_READ) else 0;
-    const file: File = .{
-        .handle = try w.OpenFile(sub_path_w, .{
-            .dir = self.fd,
-            .access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE | read_flag,
-            .creation = if (flags.exclusive)
-                @as(u32, w.FILE_CREATE)
-            else if (flags.truncate)
-                @as(u32, w.FILE_OVERWRITE_IF)
-            else
-                @as(u32, w.FILE_OPEN_IF),
-        }),
-    };
-    errdefer file.close();
-    var io: w.IO_STATUS_BLOCK = undefined;
-    const range_off: w.LARGE_INTEGER = 0;
-    const range_len: w.LARGE_INTEGER = 1;
-    const exclusive = switch (flags.lock) {
-        .none => return file,
-        .shared => false,
-        .exclusive => true,
-    };
-    try w.LockFile(
-        file.handle,
-        null,
-        null,
-        null,
-        &io,
-        &range_off,
-        &range_len,
-        null,
-        @intFromBool(flags.lock_nonblocking),
-        @intFromBool(exclusive),
-    );
-    return file;
 }
 
 /// Deprecated in favor of `Io.Dir.MakeError`.

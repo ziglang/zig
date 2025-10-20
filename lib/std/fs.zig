@@ -299,12 +299,6 @@ pub fn createFileAbsolute(absolute_path: []const u8, flags: File.CreateFlags) Fi
     return cwd().createFile(absolute_path, flags);
 }
 
-/// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
-pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
-    assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().createFileW(mem.span(absolute_path_w), flags);
-}
-
 /// Delete a file name and possibly the file it refers to, based on an absolute path.
 /// Asserts that the path is absolute. See `Dir.deleteFile` for a function that
 /// operates on both absolute and relative paths.
