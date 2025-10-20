@@ -168,6 +168,15 @@ pub fn io(t: *Threaded) Io {
                 .wasi => dirMakeWasi,
                 else => dirMakePosix,
             },
+            .dirMakePath = switch (builtin.os.tag) {
+                .windows => dirMakePathWindows,
+                else => dirMakePathPosix,
+            },
+            .dirMakeOpenPath = switch (builtin.os.tag) {
+                .windows => dirMakeOpenPathWindows,
+                .wasi => dirMakeOpenPathWasi,
+                else => dirMakeOpenPathPosix,
+            },
             .dirStat = dirStat,
             .dirStatPath = switch (builtin.os.tag) {
                 .linux => dirStatPathLinux,
@@ -197,7 +206,7 @@ pub fn io(t: *Threaded) Io {
                 else => dirOpenFilePosix,
             },
             .dirOpenDir = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => dirOpenDirWindows,
                 .wasi => dirOpenDirWasi,
                 else => dirOpenDirPosix,
             },
@@ -989,6 +998,153 @@ fn dirMakeWindows(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode
         else => |e| return e,
     };
     windows.CloseHandle(sub_dir_handle);
+}
+
+fn dirMakePathPosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = dir;
+    _ = sub_path;
+    _ = mode;
+    @panic("TODO");
+}
+
+fn dirMakePathWindows(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = dir;
+    _ = sub_path;
+    _ = mode;
+    @panic("TODO");
+}
+
+fn dirMakeOpenPathPosix(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.OpenOptions,
+) Io.Dir.MakeOpenPathError!Io.Dir {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = t.io();
+    return dir.openDir(t_io, sub_path, options) catch |err| switch (err) {
+        error.FileNotFound => {
+            try dir.makePath(t_io, sub_path);
+            return dir.openDir(t_io, sub_path, options);
+        },
+        else => |e| return e,
+    };
+}
+
+fn dirMakeOpenPathWindows(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.OpenOptions,
+) Io.Dir.MakeOpenPathError!Io.Dir {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const w = windows;
+    const access_mask = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+        w.SYNCHRONIZE | w.FILE_TRAVERSE |
+        (if (options.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
+
+    var it = try std.fs.path.componentIterator(sub_path);
+    // If there are no components in the path, then create a dummy component with the full path.
+    var component: std.fs.path.NativeComponentIterator.Component = it.last() orelse .{
+        .name = "",
+        .path = sub_path,
+    };
+
+    while (true) {
+        try t.checkCancel();
+
+        const sub_path_w_array = try w.sliceToPrefixedFileW(dir.handle, component.path);
+        const sub_path_w = sub_path_w_array.span();
+        const is_last = it.peekNext() == null;
+        const create_disposition: u32 = if (is_last) w.FILE_OPEN_IF else w.FILE_CREATE;
+
+        var result: Io.Dir = .{ .handle = undefined };
+
+        const path_len_bytes: u16 = @intCast(sub_path_w.len * 2);
+        var nt_name: w.UNICODE_STRING = .{
+            .Length = path_len_bytes,
+            .MaximumLength = path_len_bytes,
+            .Buffer = @constCast(sub_path_w.ptr),
+        };
+        var attr: w.OBJECT_ATTRIBUTES = .{
+            .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else dir.handle,
+            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+            .ObjectName = &nt_name,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+        const open_reparse_point: w.DWORD = if (!options.follow_symlinks) w.FILE_OPEN_REPARSE_POINT else 0x0;
+        var io_status_block: w.IO_STATUS_BLOCK = undefined;
+        const rc = w.ntdll.NtCreateFile(
+            &result.handle,
+            access_mask,
+            &attr,
+            &io_status_block,
+            null,
+            w.FILE_ATTRIBUTE_NORMAL,
+            w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
+            create_disposition,
+            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
+            null,
+            0,
+        );
+
+        switch (rc) {
+            .SUCCESS => {
+                component = it.next() orelse return result;
+                w.CloseHandle(result.handle);
+                continue;
+            },
+            .OBJECT_NAME_INVALID => return error.BadPathName,
+            .OBJECT_NAME_COLLISION => {
+                assert(!is_last);
+                // stat the file and return an error if it's not a directory
+                // this is important because otherwise a dangling symlink
+                // could cause an infinite loop
+                check_dir: {
+                    // workaround for windows, see https://github.com/ziglang/zig/issues/16738
+                    const fstat = dir.statPath(t.io(), component.path, .{
+                        .follow_symlinks = options.follow_symlinks,
+                    }) catch |stat_err| switch (stat_err) {
+                        error.IsDir => break :check_dir,
+                        else => |e| return e,
+                    };
+                    if (fstat.kind != .directory) return error.NotDir;
+                }
+
+                component = it.next().?;
+                continue;
+            },
+
+            .OBJECT_NAME_NOT_FOUND,
+            .OBJECT_PATH_NOT_FOUND,
+            => {
+                component = it.previous() orelse return error.FileNotFound;
+                continue;
+            },
+
+            .NOT_A_DIRECTORY => return error.NotDir,
+            // This can happen if the directory has 'List folder contents' permission set to 'Deny'
+            // and the directory is trying to be opened for iteration.
+            .ACCESS_DENIED => return error.AccessDenied,
+            .INVALID_PARAMETER => |err| return w.statusBug(err),
+            else => return w.unexpectedStatus(rc),
+        }
+    }
+}
+
+fn dirMakeOpenPathWasi(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeOpenPathError!Io.Dir {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = dir;
+    _ = sub_path;
+    _ = mode;
+    @panic("TODO");
 }
 
 fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
@@ -1859,6 +2015,75 @@ fn dirOpenDirPosix(
     @panic("TODO");
 }
 
+fn dirOpenDirWindows(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.OpenOptions,
+) Io.Dir.OpenError!Io.Dir {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    try t.checkCancel();
+
+    const w = windows;
+    const sub_path_w_array = try w.sliceToPrefixedFileW(dir.handle, sub_path);
+    const sub_path_w = sub_path_w_array.span();
+
+    // TODO remove some of these flags if options.access_sub_paths is false
+    const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+        w.SYNCHRONIZE | w.FILE_TRAVERSE;
+    const access_mask: u32 = if (options.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
+
+    const path_len_bytes: u16 = @intCast(sub_path_w.len * 2);
+    var nt_name: w.UNICODE_STRING = .{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @constCast(sub_path_w.ptr),
+    };
+    var attr: w.OBJECT_ATTRIBUTES = .{
+        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else dir.handle,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    const open_reparse_point: w.DWORD = if (!options.follow_symlinks) w.FILE_OPEN_REPARSE_POINT else 0x0;
+    var io_status_block: w.IO_STATUS_BLOCK = undefined;
+    var result: Io.Dir = .{ .handle = undefined };
+    const rc = w.ntdll.NtCreateFile(
+        &result.handle,
+        access_mask,
+        &attr,
+        &io_status_block,
+        null,
+        w.FILE_ATTRIBUTE_NORMAL,
+        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
+        w.FILE_OPEN,
+        w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
+        null,
+        0,
+    );
+
+    switch (rc) {
+        .SUCCESS => return result,
+        .OBJECT_NAME_INVALID => return error.BadPathName,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_NAME_COLLISION => |err| return w.statusBug(err),
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NOT_A_DIRECTORY => return error.NotDir,
+        // This can happen if the directory has 'List folder contents' permission set to 'Deny'
+        // and the directory is trying to be opened for iteration.
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_PARAMETER => |err| return w.statusBug(err),
+        else => return w.unexpectedStatus(rc),
+    }
+}
+
+const MakeOpenDirAccessMaskWOptions = struct {
+    no_follow: bool,
+    create_disposition: u32,
+};
+
 fn dirClose(userdata: ?*anyopaque, dir: Io.Dir) void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
@@ -2304,17 +2529,17 @@ fn nowWindows(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestam
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
     switch (clock) {
-        .realtime => {
+        .real => {
             // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds
             // and uses the NTFS/Windows epoch, which is 1601-01-01.
             return .{ .nanoseconds = @as(i96, windows.ntdll.RtlGetSystemTimePrecise()) * 100 };
         },
-        .monotonic, .uptime => {
+        .awake, .boot => {
             // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
-            return .{ .timestamp = windows.QueryPerformanceCounter() };
+            return .{ .nanoseconds = windows.QueryPerformanceCounter() };
         },
-        .process_cputime_id,
-        .thread_cputime_id,
+        .cpu_process,
+        .cpu_thread,
         => return error.UnsupportedClock,
     }
 }
@@ -2360,9 +2585,9 @@ fn sleepWindows(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     try t.checkCancel();
     const ms = ms: {
-        const duration_and_clock = (try timeout.toDurationFromNow(t.io())) orelse
+        const d = (try timeout.toDurationFromNow(t.io())) orelse
             break :ms std.math.maxInt(windows.DWORD);
-        break :ms std.math.lossyCast(windows.DWORD, duration_and_clock.duration.toMilliseconds());
+        break :ms std.math.lossyCast(windows.DWORD, d.raw.toMilliseconds());
     };
     windows.kernel32.Sleep(ms);
 }

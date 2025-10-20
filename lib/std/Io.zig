@@ -660,7 +660,9 @@ pub const VTable = struct {
     conditionWaitUncancelable: *const fn (?*anyopaque, cond: *Condition, mutex: *Mutex) void,
     conditionWake: *const fn (?*anyopaque, cond: *Condition, wake: Condition.Wake) void,
 
-    dirMake: *const fn (?*anyopaque, Dir, sub_path: []const u8, mode: Dir.Mode) Dir.MakeError!void,
+    dirMake: *const fn (?*anyopaque, Dir, sub_path: []const u8, Dir.Mode) Dir.MakeError!void,
+    dirMakePath: *const fn (?*anyopaque, Dir, sub_path: []const u8, Dir.Mode) Dir.MakeError!void,
+    dirMakeOpenPath: *const fn (?*anyopaque, Dir, sub_path: []const u8, Dir.OpenOptions) Dir.MakeOpenPathError!Dir,
     dirStat: *const fn (?*anyopaque, Dir) Dir.StatError!Dir.Stat,
     dirStatPath: *const fn (?*anyopaque, Dir, sub_path: []const u8, Dir.StatPathOptions) Dir.StatPathError!File.Stat,
     dirAccess: *const fn (?*anyopaque, Dir, sub_path: []const u8, Dir.AccessOptions) Dir.AccessError!void,

@@ -348,6 +348,20 @@ pub fn makePathStatus(dir: Dir, io: Io, sub_path: []const u8) MakePathError!Make
     }
 }
 
+pub const MakeOpenPathError = MakeError || OpenError || StatPathError;
+
+/// Performs the equivalent of `makePath` followed by `openDir`, atomically if possible.
+///
+/// When this operation is canceled, it may leave the file system in a
+/// partially modified state.
+///
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+pub fn makeOpenPath(dir: Dir, io: Io, sub_path: []const u8, options: OpenOptions) MakeOpenPathError!Dir {
+    return io.vtable.dirMakeOpenPath(io.userdata, dir, sub_path, options);
+}
+
 pub const Stat = File.Stat;
 pub const StatError = File.StatError;
 
