@@ -263,7 +263,7 @@ pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.O
 
 /// Same as `openFileAbsolute` but the path parameter is WTF-16-encoded.
 pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
-    assert(path.isAbsoluteWindowsWTF16(absolute_path_w));
+    assert(path.isAbsoluteWindowsWtf16(absolute_path_w));
     return cwd().openFileW(absolute_path_w, flags);
 }
 
