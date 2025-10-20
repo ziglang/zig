@@ -2691,8 +2691,7 @@ pub fn renameatW(
 /// On other platforms, `sub_dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
-        const sub_dir_path_w = try windows.sliceToPrefixedFileW(dir_fd, sub_dir_path);
-        return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
+        @compileError("use std.Io instead");
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("use std.Io instead");
     } else {
@@ -2704,10 +2703,9 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirErro
 /// Same as `mkdirat` except the parameters are null-terminated.
 pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
-        const sub_dir_path_w = try windows.cStrToPrefixedFileW(dir_fd, sub_dir_path);
-        return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
+        @compileError("use std.Io instead");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return mkdirat(dir_fd, mem.sliceTo(sub_dir_path, 0), mode);
+        @compileError("use std.Io instead");
     }
     switch (errno(system.mkdirat(dir_fd, sub_dir_path, mode))) {
         .SUCCESS => return,
@@ -2730,25 +2728,6 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: mode_t) MakeDir
         .ILSEQ => return error.BadPathName,
         else => |err| return unexpectedErrno(err),
     }
-}
-
-/// Windows-only. Same as `mkdirat` except the parameter WTF16 LE encoded.
-pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: mode_t) MakeDirError!void {
-    _ = mode;
-    const sub_dir_handle = windows.OpenFile(sub_path_w, .{
-        .dir = dir_fd,
-        .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
-        .creation = windows.FILE_CREATE,
-        .filter = .dir_only,
-    }) catch |err| switch (err) {
-        error.IsDir => return error.Unexpected,
-        error.PipeBusy => return error.Unexpected,
-        error.NoDevice => return error.Unexpected,
-        error.WouldBlock => return error.Unexpected,
-        error.AntivirusInterference => return error.Unexpected,
-        else => |e| return e,
-    };
-    windows.CloseHandle(sub_dir_handle);
 }
 
 pub const MakeDirError = std.Io.Dir.MakeError;
