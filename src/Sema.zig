@@ -9156,7 +9156,7 @@ fn checkMergeAllowed(sema: *Sema, block: *Block, src: LazySrcLoc, peer_ty: Type)
     }
 
     const as = peer_ty.ptrAddressSpace(zcu);
-    if (!target_util.arePointersLogical(target, as)) {
+    if (!target_util.shouldBlockPointerOps(target, as)) {
         return;
     }
 
@@ -22669,7 +22669,7 @@ fn ptrCastFull(
 
     try sema.validateRuntimeValue(block, operand_src, operand);
 
-    const can_cast_to_int = !target_util.arePointersLogical(zcu.getTarget(), operand_ty.ptrAddressSpace(zcu));
+    const can_cast_to_int = !target_util.shouldBlockPointerOps(zcu.getTarget(), operand_ty.ptrAddressSpace(zcu));
     const need_null_check = can_cast_to_int and block.wantSafety() and operand_ty.ptrAllowsZero(zcu) and !dest_ty.ptrAllowsZero(zcu);
     const need_align_check = can_cast_to_int and block.wantSafety() and dest_align.compare(.gt, src_align);
 
@@ -23247,7 +23247,7 @@ fn checkLogicalPtrOperation(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
     if (zcu.intern_pool.indexToKey(ty.toIntern()) == .ptr_type) {
         const target = zcu.getTarget();
         const as = ty.ptrAddressSpace(zcu);
-        if (target_util.arePointersLogical(target, as)) {
+        if (target_util.shouldBlockPointerOps(target, as)) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(src, "illegal operation on logical pointer of type '{f}'", .{ty.fmt(pt)});
                 errdefer msg.destroy(sema.gpa);
@@ -28100,7 +28100,7 @@ fn validateRuntimeElemAccess(
     if (zcu.intern_pool.indexToKey(parent_ty.toIntern()) == .ptr_type) {
         const target = zcu.getTarget();
         const as = parent_ty.ptrAddressSpace(zcu);
-        if (target_util.arePointersLogical(target, as)) {
+        if (target_util.shouldBlockPointerOps(target, as)) {
             return sema.fail(block, elem_index_src, "cannot access element of logical pointer '{f}'", .{parent_ty.fmt(pt)});
         }
     }
