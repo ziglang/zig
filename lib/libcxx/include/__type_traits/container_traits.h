@@ -36,6 +36,9 @@ struct __container_traits {
   // `insert(...)` or `emplace(...)` has strong exception guarantee, that is, if the function
   // exits via an exception, the original container is unaffected
   static _LIBCPP_CONSTEXPR const bool __emplacement_has_strong_exception_safety_guarantee = false;
+
+  // A trait that tells whether a container supports `reserve(n)` member function.
+  static _LIBCPP_CONSTEXPR const bool __reservable = false;
 };
 
 _LIBCPP_END_NAMESPACE_STD

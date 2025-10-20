@@ -8,7 +8,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:15: error: negation of type 'anyerror!u32'

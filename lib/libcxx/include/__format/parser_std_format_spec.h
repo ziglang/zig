@@ -335,7 +335,7 @@ static_assert(is_trivially_copyable_v<__parsed_specifications<wchar_t>>);
 /// set to zero. That way they can be repurposed if a future revision of the
 /// Standards adds new fields to std-format-spec.
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS __parser {
+class __parser {
 public:
   // Parses the format specification.
   //

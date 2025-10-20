@@ -11,6 +11,7 @@
 #define _LIBCPP___FLAT_MAP_UTILS_H
 
 #include <__config>
+#include <__iterator/product_iterator.h>
 #include <__type_traits/container_traits.h>
 #include <__utility/exception_guard.h>
 #include <__utility/forward.h>
@@ -35,7 +36,7 @@ struct __flat_map_utils {
   // roll back the changes it made to the map. If it cannot roll back the changes, it will
   // clear the map.
   template <class _Map, class _IterK, class _IterM, class _KeyArg, class... _MArgs>
-  _LIBCPP_HIDE_FROM_ABI static typename _Map::iterator __emplace_exact_pos(
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 static typename _Map::iterator __emplace_exact_pos(
       _Map& __map, _IterK&& __it_key, _IterM&& __it_mapped, _KeyArg&& __key, _MArgs&&... __mapped_args) {
     auto __on_key_failed = std::__make_exception_guard([&]() noexcept {
       using _KeyContainer = typename _Map::key_container_type;
@@ -79,10 +80,8 @@ struct __flat_map_utils {
     return typename _Map::iterator(std::move(__key_it), std::move(__mapped_it));
   }
 
-  // TODO: We could optimize this, see
-  // https://github.com/llvm/llvm-project/issues/108624
   template <class _Map, class _InputIterator, class _Sentinel>
-  _LIBCPP_HIDE_FROM_ABI static typename _Map::size_type
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 static typename _Map::size_type
   __append(_Map& __map, _InputIterator __first, _Sentinel __last) {
     typename _Map::size_type __num_appended = 0;
     for (; __first != __last; ++__first) {
@@ -92,6 +91,25 @@ struct __flat_map_utils {
       ++__num_appended;
     }
     return __num_appended;
+  }
+
+  template <class _Map, class _InputIterator>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 static typename _Map::size_type
+  __append(_Map& __map, _InputIterator __first, _InputIterator __last)
+    requires __is_product_iterator_of_size<_InputIterator, 2>::value
+  {
+    auto __s1 = __map.__containers_.keys.size();
+    __map.__containers_.keys.insert(
+        __map.__containers_.keys.end(),
+        __product_iterator_traits<_InputIterator>::template __get_iterator_element<0>(__first),
+        __product_iterator_traits<_InputIterator>::template __get_iterator_element<0>(__last));
+
+    __map.__containers_.values.insert(
+        __map.__containers_.values.end(),
+        __product_iterator_traits<_InputIterator>::template __get_iterator_element<1>(__first),
+        __product_iterator_traits<_InputIterator>::template __get_iterator_element<1>(__last));
+
+    return __map.__containers_.keys.size() - __s1;
   }
 };
 _LIBCPP_END_NAMESPACE_STD

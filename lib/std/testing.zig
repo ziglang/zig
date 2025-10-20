@@ -135,15 +135,9 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         .array => |array| try expectEqualSlices(array.child, &expected, &actual),
 
         .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!std.meta.eql(expected[i], actual[i])) {
-                    print("index {d} incorrect. expected {any}, found {any}\n", .{
-                        i, expected[i], actual[i],
-                    });
-                    return error.TestExpectedEqual;
-                }
-            }
+            const expect_array: [info.len]info.child = expected;
+            const actual_array: [info.len]info.child = actual;
+            try expectEqualSlices(info.child, &expect_array, &actual_array);
         },
 
         .@"struct" => |structType| {
@@ -358,7 +352,7 @@ test expectApproxEqRel {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
+/// The colorized output is optional and controlled by the return of `std.Io.tty.detectConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     const diff_index: usize = diff_index: {
@@ -381,7 +375,7 @@ fn failEqualSlices(
     expected: []const T,
     actual: []const T,
     diff_index: usize,
-    w: *std.io.Writer,
+    w: *std.Io.Writer,
 ) !void {
     try w.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
@@ -401,7 +395,7 @@ fn failEqualSlices(
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.io.tty.detectConfig(.stderr());
+    const ttyconf = std.Io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -467,11 +461,11 @@ fn SliceDiffer(comptime T: type) type {
         start_index: usize,
         expected: []const T,
         actual: []const T,
-        ttyconf: std.io.tty.Config,
+        ttyconf: std.Io.tty.Config,
 
         const Self = @This();
 
-        pub fn write(self: Self, writer: *std.io.Writer) !void {
+        pub fn write(self: Self, writer: *std.Io.Writer) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
@@ -490,9 +484,9 @@ fn SliceDiffer(comptime T: type) type {
 const BytesDiffer = struct {
     expected: []const u8,
     actual: []const u8,
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
 
-    pub fn write(self: BytesDiffer, writer: *std.io.Writer) !void {
+    pub fn write(self: BytesDiffer, writer: *std.Io.Writer) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -538,7 +532,7 @@ const BytesDiffer = struct {
         }
     }
 
-    fn writeDiff(self: BytesDiffer, writer: *std.io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(writer, .red);
         try writer.print(fmt, args);
         if (diff) try self.ttyconf.setColor(writer, .reset);
@@ -828,8 +822,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
                 print("Vector len not the same, expected {d}, found {d}\n", .{ info.len, @typeInfo(@TypeOf(actual)).vector.len });
                 return error.TestExpectedEqual;
             }
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
+            inline for (0..info.len) |i| {
                 expectEqualDeep(expected[i], actual[i]) catch |e| {
                     print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
@@ -1247,5 +1240,65 @@ pub const Reader = struct {
             r.next_offset = 0;
         }
         return n;
+    }
+};
+
+/// A `std.Io.Reader` that gets its data from another `std.Io.Reader`, and always
+/// writes to its own buffer (and returns 0) during `stream` and `readVec`.
+pub const ReaderIndirect = struct {
+    in: *std.Io.Reader,
+    interface: std.Io.Reader,
+
+    pub fn init(in: *std.Io.Reader, buffer: []u8) ReaderIndirect {
+        return .{
+            .in = in,
+            .interface = .{
+                .vtable = &.{
+                    .stream = stream,
+                    .readVec = readVec,
+                },
+                .buffer = buffer,
+                .seek = 0,
+                .end = 0,
+            },
+        };
+    }
+
+    fn readVec(r: *std.Io.Reader, _: [][]u8) std.Io.Reader.Error!usize {
+        try streamInner(r);
+        return 0;
+    }
+
+    fn stream(r: *std.Io.Reader, _: *std.Io.Writer, _: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        try streamInner(r);
+        return 0;
+    }
+
+    fn streamInner(r: *std.Io.Reader) std.Io.Reader.Error!void {
+        const r_indirect: *ReaderIndirect = @alignCast(@fieldParentPtr("interface", r));
+
+        // If there's no room remaining in the buffer at all, make room.
+        if (r.buffer.len == r.end) {
+            try r.rebase(r.buffer.len);
+        }
+
+        var writer: std.Io.Writer = .{
+            .buffer = r.buffer,
+            .end = r.end,
+            .vtable = &.{
+                .drain = std.Io.Writer.unreachableDrain,
+                .rebase = std.Io.Writer.unreachableRebase,
+            },
+        };
+        defer r.end = writer.end;
+
+        r_indirect.in.streamExact(&writer, r.buffer.len - r.end) catch |err| switch (err) {
+            // Only forward EndOfStream if no new bytes were written to the buffer
+            error.EndOfStream => |e| if (r.end == writer.end) {
+                return e;
+            },
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
     }
 };

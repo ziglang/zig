@@ -24,7 +24,7 @@
 // Must go after undef _FILE_OFFSET_BITS.
 #include "sanitizer_platform.h"
 
-#if SANITIZER_LINUX || SANITIZER_APPLE
+#if SANITIZER_LINUX || SANITIZER_APPLE || SANITIZER_HAIKU
 // Must go after undef _FILE_OFFSET_BITS.
 #include "sanitizer_glibc_version.h"
 
@@ -52,7 +52,7 @@
 #include <time.h>
 #include <wchar.h>
 #include <regex.h>
-#if !SANITIZER_APPLE
+#if !SANITIZER_APPLE && !SANITIZER_HAIKU
 #include <utmp.h>
 #endif
 
@@ -61,7 +61,9 @@
 #endif
 
 #if !SANITIZER_ANDROID
+#if !SANITIZER_HAIKU
 #include <sys/mount.h>
+#endif
 #include <sys/timeb.h>
 #include <utmpx.h>
 #endif
@@ -111,8 +113,10 @@ typedef struct user_fpregs elf_fpregset_t;
 
 #if !SANITIZER_ANDROID
 #include <ifaddrs.h>
+#if !SANITIZER_HAIKU
 #include <sys/ucontext.h>
 #include <wordexp.h>
+#endif
 #endif
 
 #if SANITIZER_LINUX
@@ -163,7 +167,7 @@ typedef struct user_fpregs elf_fpregset_t;
 #include <sys/vfs.h>
 #include <sys/epoll.h>
 #include <linux/capability.h>
-#else
+#elif !SANITIZER_HAIKU
 #include <fstab.h>
 #endif // SANITIZER_LINUX
 
@@ -171,6 +175,11 @@ typedef struct user_fpregs elf_fpregset_t;
 #include <net/ethernet.h>
 #include <sys/filio.h>
 #include <sys/sockio.h>
+#endif
+
+#if SANITIZER_HAIKU
+#include <sys/sockio.h>
+#include <sys/ioctl.h>
 #endif
 
 // Include these after system headers to avoid name clashes and ambiguities.
@@ -217,7 +226,7 @@ namespace __sanitizer {
   unsigned struct_fstab_sz = sizeof(struct fstab);
 #endif  // SANITIZER_GLIBC || SANITIZER_FREEBSD || SANITIZER_NETBSD ||
         // SANITIZER_APPLE
-#if !SANITIZER_ANDROID
+#if !SANITIZER_ANDROID && !SANITIZER_HAIKU
   unsigned struct_statfs_sz = sizeof(struct statfs);
   unsigned struct_sockaddr_sz = sizeof(struct sockaddr);
 
@@ -324,7 +333,7 @@ namespace __sanitizer {
   int shmctl_shm_stat = (int)SHM_STAT;
 #endif
 
-#if !SANITIZER_APPLE && !SANITIZER_FREEBSD
+#if !SANITIZER_APPLE && !SANITIZER_FREEBSD && !SANITIZER_HAIKU
   unsigned struct_utmp_sz = sizeof(struct utmp);
 #endif
 #if !SANITIZER_ANDROID
@@ -356,9 +365,9 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
   int glob_altdirfunc = GLOB_ALTDIRFUNC;
 #endif
 
-#  if !SANITIZER_ANDROID
+#  if !SANITIZER_ANDROID && !SANITIZER_HAIKU
   const int wordexp_wrde_dooffs = WRDE_DOOFFS;
-#  endif  // !SANITIZER_ANDROID
+#  endif  // !SANITIZER_ANDROID && !SANITIZER_HAIKU
 
 #  if SANITIZER_LINUX && !SANITIZER_ANDROID &&                               \
       (defined(__i386) || defined(__x86_64) || defined(__mips64) ||          \
@@ -537,7 +546,7 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
   unsigned struct_sock_fprog_sz = sizeof(struct sock_fprog);
 #  endif  // SANITIZER_GLIBC
 
-#  if !SANITIZER_ANDROID && !SANITIZER_APPLE
+#  if !SANITIZER_ANDROID && !SANITIZER_APPLE && !SANITIZER_HAIKU
   unsigned struct_sioc_sg_req_sz = sizeof(struct sioc_sg_req);
   unsigned struct_sioc_vif_req_sz = sizeof(struct sioc_vif_req);
 #endif
@@ -548,12 +557,14 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
 
   const unsigned IOCTL_NOT_PRESENT = 0;
 
+  unsigned IOCTL_FIONBIO = FIONBIO;
+#if !SANITIZER_HAIKU
   unsigned IOCTL_FIOASYNC = FIOASYNC;
   unsigned IOCTL_FIOCLEX = FIOCLEX;
   unsigned IOCTL_FIOGETOWN = FIOGETOWN;
-  unsigned IOCTL_FIONBIO = FIONBIO;
   unsigned IOCTL_FIONCLEX = FIONCLEX;
   unsigned IOCTL_FIOSETOWN = FIOSETOWN;
+#endif
   unsigned IOCTL_SIOCADDMULTI = SIOCADDMULTI;
   unsigned IOCTL_SIOCATMARK = SIOCATMARK;
   unsigned IOCTL_SIOCDELMULTI = SIOCDELMULTI;
@@ -574,23 +585,27 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
   unsigned IOCTL_SIOCSIFMTU = SIOCSIFMTU;
   unsigned IOCTL_SIOCSIFNETMASK = SIOCSIFNETMASK;
   unsigned IOCTL_SIOCSPGRP = SIOCSPGRP;
+
+#if !SANITIZER_HAIKU
   unsigned IOCTL_TIOCCONS = TIOCCONS;
-  unsigned IOCTL_TIOCEXCL = TIOCEXCL;
   unsigned IOCTL_TIOCGETD = TIOCGETD;
+  unsigned IOCTL_TIOCNOTTY = TIOCNOTTY;
+  unsigned IOCTL_TIOCPKT = TIOCPKT;
+  unsigned IOCTL_TIOCSETD = TIOCSETD;
+  unsigned IOCTL_TIOCSTI = TIOCSTI;
+#endif
+
+  unsigned IOCTL_TIOCEXCL = TIOCEXCL;
   unsigned IOCTL_TIOCGPGRP = TIOCGPGRP;
   unsigned IOCTL_TIOCGWINSZ = TIOCGWINSZ;
   unsigned IOCTL_TIOCMBIC = TIOCMBIC;
   unsigned IOCTL_TIOCMBIS = TIOCMBIS;
   unsigned IOCTL_TIOCMGET = TIOCMGET;
   unsigned IOCTL_TIOCMSET = TIOCMSET;
-  unsigned IOCTL_TIOCNOTTY = TIOCNOTTY;
   unsigned IOCTL_TIOCNXCL = TIOCNXCL;
   unsigned IOCTL_TIOCOUTQ = TIOCOUTQ;
-  unsigned IOCTL_TIOCPKT = TIOCPKT;
   unsigned IOCTL_TIOCSCTTY = TIOCSCTTY;
-  unsigned IOCTL_TIOCSETD = TIOCSETD;
   unsigned IOCTL_TIOCSPGRP = TIOCSPGRP;
-  unsigned IOCTL_TIOCSTI = TIOCSTI;
   unsigned IOCTL_TIOCSWINSZ = TIOCSWINSZ;
 #if SANITIZER_LINUX && !SANITIZER_ANDROID
   unsigned IOCTL_SIOCGETSGCNT = SIOCGETSGCNT;
@@ -1100,7 +1115,7 @@ COMPILER_CHECK(sizeof(__sanitizer_dirent) <= sizeof(dirent));
 CHECK_SIZE_AND_OFFSET(dirent, d_ino);
 #if SANITIZER_APPLE
 CHECK_SIZE_AND_OFFSET(dirent, d_seekoff);
-#elif SANITIZER_FREEBSD
+#elif SANITIZER_FREEBSD || SANITIZER_HAIKU
 // There is no 'd_off' field on FreeBSD.
 #else
 CHECK_SIZE_AND_OFFSET(dirent, d_off);
@@ -1116,7 +1131,9 @@ CHECK_SIZE_AND_OFFSET(dirent64, d_reclen);
 
 CHECK_TYPE_SIZE(ifconf);
 CHECK_SIZE_AND_OFFSET(ifconf, ifc_len);
+#if !SANITIZER_HAIKU
 CHECK_SIZE_AND_OFFSET(ifconf, ifc_ifcu);
+#endif
 
 CHECK_TYPE_SIZE(pollfd);
 CHECK_SIZE_AND_OFFSET(pollfd, fd);
@@ -1171,7 +1188,7 @@ CHECK_TYPE_SIZE(__kernel_loff_t);
 CHECK_TYPE_SIZE(__kernel_fd_set);
 #endif
 
-#if !SANITIZER_ANDROID
+#if !SANITIZER_ANDROID && !SANITIZER_HAIKU
 CHECK_TYPE_SIZE(wordexp_t);
 CHECK_SIZE_AND_OFFSET(wordexp_t, we_wordc);
 CHECK_SIZE_AND_OFFSET(wordexp_t, we_wordv);
@@ -1201,7 +1218,9 @@ CHECK_SIZE_AND_OFFSET(mntent, mnt_freq);
 CHECK_SIZE_AND_OFFSET(mntent, mnt_passno);
 #endif
 
+#if !SANITIZER_HAIKU
 CHECK_TYPE_SIZE(ether_addr);
+#endif
 
 #if SANITIZER_GLIBC || SANITIZER_FREEBSD
 CHECK_TYPE_SIZE(ipc_perm);
@@ -1239,7 +1258,7 @@ CHECK_TYPE_SIZE(clock_t);
 CHECK_TYPE_SIZE(clockid_t);
 #endif
 
-#if !SANITIZER_ANDROID
+#if !SANITIZER_ANDROID && !SANITIZER_HAIKU
 CHECK_TYPE_SIZE(ifaddrs);
 CHECK_SIZE_AND_OFFSET(ifaddrs, ifa_next);
 CHECK_SIZE_AND_OFFSET(ifaddrs, ifa_name);

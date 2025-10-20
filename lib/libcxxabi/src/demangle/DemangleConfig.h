@@ -19,6 +19,14 @@
 #include "../abort_message.h"
 #endif
 
+#ifndef _LIBCPP_LOG_HARDENING_FAILURE
+// Libc++abi does not have any functionality to log and continue, so we drop
+// error messages when we build the demangler with `observe` assertion semantic.
+// Once the layering with libc++ is improved, this could use the libc++
+// functionality to log hardening failures.
+#define _LIBCPP_LOG_HARDENING_FAILURE(message) ((void)0)
+#endif
+
 #include <version>
 
 #ifdef _MSC_VER

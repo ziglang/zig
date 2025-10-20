@@ -17,8 +17,6 @@ export fn f5() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: expected optional type, found 'bool'
 // :7:9: error: expected optional type, found 'usize'

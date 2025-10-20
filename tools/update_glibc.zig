@@ -116,9 +116,9 @@ pub fn main() !void {
         const max_file_size = 10 * 1024 * 1024;
 
         const generic_glibc_contents = generic_glibc_dir.readFileAlloc(
-            arena,
             entry.path,
-            max_file_size,
+            arena,
+            .limited(max_file_size),
         ) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => |e| fatal("unable to load '{s}/include/{s}': {s}", .{
@@ -126,9 +126,9 @@ pub fn main() !void {
             }),
         };
         const glibc_include_contents = include_dir.readFileAlloc(
-            arena,
             entry.path,
-            max_file_size,
+            arena,
+            .limited(max_file_size),
         ) catch |err| {
             fatal("unable to load '{s}/include/{s}': {s}", .{
                 dest_dir_path, entry.path, @errorName(err),

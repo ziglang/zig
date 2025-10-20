@@ -200,7 +200,7 @@ pub const JobQueue = struct {
 
             const hash_slice = hash.toSlice();
 
-            try buf.writer().print(
+            try buf.print(
                 \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
@@ -226,13 +226,13 @@ pub const JobQueue = struct {
                 }
             }
 
-            try buf.writer().print(
+            try buf.print(
                 \\        pub const build_root = "{f}";
                 \\
             , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
 
             if (fetch.has_build_zig) {
-                try buf.writer().print(
+                try buf.print(
                     \\        pub const build_zig = @import("{f}");
                     \\
                 , .{std.zig.fmtString(hash_slice)});
@@ -245,7 +245,7 @@ pub const JobQueue = struct {
                 );
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
-                    try buf.writer().print(
+                    try buf.print(
                         "            .{{ \"{f}\", \"{f}\" }},\n",
                         .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
                     );
@@ -277,7 +277,7 @@ pub const JobQueue = struct {
 
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
-            try buf.writer().print(
+            try buf.print(
                 "    .{{ \"{f}\", \"{f}\" }},\n",
                 .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );
@@ -655,10 +655,9 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const manifest_bytes = pkg_root.root_dir.handle.readFileAllocOptions(
-        arena,
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
-        Manifest.max_bytes,
-        null,
+        arena,
+        .limited(Manifest.max_bytes),
         .@"1",
         0,
     ) catch |err| switch (err) {
@@ -735,28 +734,34 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         //     calling run(); no need to add it again.
         //
         // If we add a dep as lazy and then later try to add the same dep as eager,
-        // eagerness takes precedence and the existing entry is updated.
+        // eagerness takes precedence and the existing entry is updated and re-scheduled
+        // for fetching.
 
         for (dep_names, deps) |dep_name, dep| {
+            var promoted_existing_to_eager = false;
             const new_fetch = &new_fetches[new_fetch_index];
             const location: Location = switch (dep.location) {
-                .url => |url| .{ .remote = .{
-                    .url = url,
-                    .hash = h: {
-                        const h = dep.hash orelse break :h null;
-                        const pkg_hash: Package.Hash = .fromSlice(h);
-                        if (h.len == 0) break :h pkg_hash;
-                        const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
-                        if (gop.found_existing) {
-                            if (!dep.lazy) {
-                                gop.value_ptr.*.lazy_status = .eager;
+                .url => |url| .{
+                    .remote = .{
+                        .url = url,
+                        .hash = h: {
+                            const h = dep.hash orelse break :h null;
+                            const pkg_hash: Package.Hash = .fromSlice(h);
+                            if (h.len == 0) break :h pkg_hash;
+                            const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
+                            if (gop.found_existing) {
+                                if (!dep.lazy and gop.value_ptr.*.lazy_status != .eager) {
+                                    gop.value_ptr.*.lazy_status = .eager;
+                                    promoted_existing_to_eager = true;
+                                } else {
+                                    continue;
+                                }
                             }
-                            continue;
-                        }
-                        gop.value_ptr.* = new_fetch;
-                        break :h pkg_hash;
+                            gop.value_ptr.* = new_fetch;
+                            break :h pkg_hash;
+                        },
                     },
-                } },
+                },
                 .path => |rel_path| l: {
                     // This might produce an invalid path, which is checked for
                     // at the beginning of run().
@@ -764,10 +769,12 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     const pkg_hash = relativePathDigest(new_root, cache_root);
                     const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
                     if (gop.found_existing) {
-                        if (!dep.lazy) {
+                        if (!dep.lazy and gop.value_ptr.*.lazy_status != .eager) {
                             gop.value_ptr.*.lazy_status = .eager;
+                            promoted_existing_to_eager = true;
+                        } else {
+                            continue;
                         }
-                        continue;
                     }
                     gop.value_ptr.* = new_fetch;
                     break :l .{ .relative_path = new_root };
@@ -775,7 +782,9 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             };
             prog_names[new_fetch_index] = dep_name;
             new_fetch_index += 1;
-            f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
+            if (!promoted_existing_to_eager) {
+                f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
+            }
             new_fetch.* = .{
                 .arena = std.heap.ArenaAllocator.init(gpa),
                 .location = location,
@@ -1227,12 +1236,10 @@ fn unpackResource(
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
-            var dcp = std.compress.xz.decompress(gpa, resource.reader().adaptToOldInterface()) catch |err|
+            var decompress = std.compress.xz.Decompress.init(resource.reader(), gpa, &.{}) catch |err|
                 return f.fail(f.location_tok, try eb.printString("unable to decompress tarball: {t}", .{err}));
-            defer dcp.deinit();
-            var adapter_buffer: [1024]u8 = undefined;
-            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
-            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+            defer decompress.deinit();
+            return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
         .@"tar.zst" => {
             const window_len = std.compress.zstd.default_window_len;
@@ -2045,7 +2052,7 @@ const UnpackResult = struct {
         // output errors to string
         var errors = try fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(gpa);
-        var aw: std.io.Writer.Allocating = .init(gpa);
+        var aw: std.Io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(
@@ -2354,7 +2361,7 @@ const TestFetchBuilder = struct {
         if (notes_len > 0) {
             try std.testing.expectEqual(notes_len, em.notes_len);
         }
-        var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(msg, aw.written());

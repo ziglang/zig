@@ -18,8 +18,6 @@ pub export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:5: error: error union payload is ignored
 // :3:5: note: payload value can be explicitly ignored with '|_|'

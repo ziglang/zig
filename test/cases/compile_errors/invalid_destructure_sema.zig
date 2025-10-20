@@ -14,8 +14,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:24: error: type 'comptime_int' cannot be destructured
 // :2:22: note: result destructured here

@@ -10,7 +10,7 @@ pub const ParseLineCommandsResult = struct {
 
 const CurrentMapping = struct {
     line_num: usize = 1,
-    filename: std.ArrayListUnmanaged(u8) = .empty,
+    filename: std.ArrayList(u8) = .empty,
     pending: bool = true,
     ignore_contents: bool = false,
 };
@@ -574,8 +574,8 @@ fn parseFilename(allocator: Allocator, str: []const u8) error{ OutOfMemory, Inva
         escape_u,
     };
 
-    var filename = try std.array_list.Managed(u8).initCapacity(allocator, str.len);
-    errdefer filename.deinit();
+    var filename = try std.ArrayList(u8).initCapacity(allocator, str.len);
+    errdefer filename.deinit(allocator);
     var state: State = .string;
     var index: usize = 0;
     var escape_len: usize = undefined;
@@ -693,7 +693,7 @@ fn parseFilename(allocator: Allocator, str: []const u8) error{ OutOfMemory, Inva
         }
     }
 
-    return filename.toOwnedSlice();
+    return filename.toOwnedSlice(allocator);
 }
 
 fn testParseFilename(expected: []const u8, input: []const u8) !void {
@@ -927,7 +927,7 @@ test "SourceMappings collapse" {
 
 /// Same thing as StringTable in Zig's src/Wasm.zig
 pub const StringTable = struct {
-    data: std.ArrayListUnmanaged(u8) = .empty,
+    data: std.ArrayList(u8) = .empty,
     map: std.HashMapUnmanaged(u32, void, std.hash_map.StringIndexContext, std.hash_map.default_max_load_percentage) = .empty,
 
     pub fn deinit(self: *StringTable, allocator: Allocator) void {

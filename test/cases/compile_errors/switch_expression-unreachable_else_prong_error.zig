@@ -25,8 +25,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:14: error: unreachable else prong; all cases already handled
 // :17:14: error: unreachable else prong; all cases already handled

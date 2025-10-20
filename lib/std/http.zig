@@ -864,7 +864,7 @@ pub const BodyWriter = struct {
         const bw = w.http_protocol_output;
         switch (w.state.chunk_len) {
             0 => {},
-            1 => try bw.writeByte('\n'),
+            1 => unreachable, // Wrote more data than specified in chunk header.
             2 => try bw.writeAll("\r\n"),
             else => unreachable, // An earlier write call indicated more data would follow.
         }
@@ -963,17 +963,15 @@ pub const BodyWriter = struct {
             return error.Unimplemented;
         };
         const out = bw.http_protocol_output;
-        switch (bw.state.chunk_len) {
+        l: switch (bw.state.chunk_len) {
             0 => {
                 const header_buf = try out.writableArray(chunk_header_template.len);
                 @memcpy(header_buf, chunk_header_template);
                 writeHex(header_buf[0..chunk_len_digits], data_len);
-                const n = try out.sendFileHeader(w.buffered(), file_reader, limit);
-                bw.state.chunk_len = data_len + 2 - n;
-                const ret = w.consume(n);
-                return ret;
+                bw.state.chunk_len = data_len + 2;
+                continue :l bw.state.chunk_len;
             },
-            1 => unreachable,
+            1 => unreachable, // Wrote more data than specified in chunk header.
             2 => {
                 try out.writeAll("\r\n");
                 bw.state.chunk_len = 0;
@@ -1003,11 +1001,10 @@ pub const BodyWriter = struct {
                 const header_buf = try out.writableArray(chunk_header_template.len);
                 @memcpy(header_buf, chunk_header_template);
                 writeHex(header_buf[0..chunk_len_digits], data_len);
-                const n = try out.writeSplatHeader(w.buffered(), data, splat);
-                bw.state.chunk_len = data_len + 2 - n;
-                return w.consume(n);
+                bw.state.chunk_len = data_len + 2;
+                continue :l bw.state.chunk_len;
             },
-            1 => unreachable,
+            1 => unreachable, // Wrote more data than specified in chunk header.
             2 => {
                 try out.writeAll("\r\n");
                 bw.state.chunk_len = 0;

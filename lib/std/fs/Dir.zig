@@ -663,35 +663,17 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
     }
 }
 
-pub const Walker = struct {
-    stack: std.ArrayListUnmanaged(StackItem),
+pub const SelectiveWalker = struct {
+    stack: std.ArrayListUnmanaged(Walker.StackItem),
     name_buffer: std.ArrayListUnmanaged(u8),
     allocator: Allocator,
-
-    pub const Entry = struct {
-        /// The containing directory. This can be used to operate directly on `basename`
-        /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
-        /// The directory remains open until `next` or `deinit` is called.
-        dir: Dir,
-        basename: [:0]const u8,
-        path: [:0]const u8,
-        kind: Dir.Entry.Kind,
-    };
-
-    const StackItem = struct {
-        iter: Dir.Iterator,
-        dirname_len: usize,
-    };
 
     /// After each call to this function, and on deinit(), the memory returned
     /// from this function becomes invalid. A copy must be made in order to keep
     /// a reference to the path.
-    pub fn next(self: *Walker) !?Walker.Entry {
-        const gpa = self.allocator;
-        while (self.stack.items.len != 0) {
-            // `top` and `containing` become invalid after appending to `self.stack`
-            var top = &self.stack.items[self.stack.items.len - 1];
-            var containing = top;
+    pub fn next(self: *SelectiveWalker) !?Walker.Entry {
+        while (self.stack.items.len > 0) {
+            const top = &self.stack.items[self.stack.items.len - 1];
             var dirname_len = top.dirname_len;
             if (top.iter.next() catch |err| {
                 // If we get an error, then we want the user to be able to continue
@@ -703,36 +685,22 @@ pub const Walker = struct {
                     item.iter.dir.close();
                 }
                 return err;
-            }) |base| {
+            }) |entry| {
                 self.name_buffer.shrinkRetainingCapacity(dirname_len);
                 if (self.name_buffer.items.len != 0) {
-                    try self.name_buffer.append(gpa, fs.path.sep);
+                    try self.name_buffer.append(self.allocator, fs.path.sep);
                     dirname_len += 1;
                 }
-                try self.name_buffer.ensureUnusedCapacity(gpa, base.name.len + 1);
-                self.name_buffer.appendSliceAssumeCapacity(base.name);
+                try self.name_buffer.ensureUnusedCapacity(self.allocator, entry.name.len + 1);
+                self.name_buffer.appendSliceAssumeCapacity(entry.name);
                 self.name_buffer.appendAssumeCapacity(0);
-                if (base.kind == .directory) {
-                    var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
-                        error.NameTooLong => unreachable, // no path sep in base.name
-                        else => |e| return e,
-                    };
-                    {
-                        errdefer new_dir.close();
-                        try self.stack.append(gpa, .{
-                            .iter = new_dir.iterateAssumeFirstIteration(),
-                            .dirname_len = self.name_buffer.items.len - 1,
-                        });
-                        top = &self.stack.items[self.stack.items.len - 1];
-                        containing = &self.stack.items[self.stack.items.len - 2];
-                    }
-                }
-                return .{
-                    .dir = containing.iter.dir,
+                const walker_entry: Walker.Entry = .{
+                    .dir = top.iter.dir,
                     .basename = self.name_buffer.items[dirname_len .. self.name_buffer.items.len - 1 :0],
                     .path = self.name_buffer.items[0 .. self.name_buffer.items.len - 1 :0],
-                    .kind = base.kind,
+                    .kind = entry.kind,
                 };
+                return walker_entry;
             } else {
                 var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
@@ -743,16 +711,116 @@ pub const Walker = struct {
         return null;
     }
 
-    pub fn deinit(self: *Walker) void {
-        const gpa = self.allocator;
-        // Close any remaining directories except the initial one (which is always at index 0)
-        if (self.stack.items.len > 1) {
-            for (self.stack.items[1..]) |*item| {
-                item.iter.dir.close();
-            }
+    /// Traverses into the directory, continuing walking one level down.
+    pub fn enter(self: *SelectiveWalker, entry: Walker.Entry) !void {
+        if (entry.kind != .directory) {
+            @branchHint(.cold);
+            return;
         }
-        self.stack.deinit(gpa);
-        self.name_buffer.deinit(gpa);
+
+        var new_dir = entry.dir.openDir(entry.basename, .{ .iterate = true }) catch |err| {
+            switch (err) {
+                error.NameTooLong => unreachable,
+                else => |e| return e,
+            }
+        };
+        errdefer new_dir.close();
+
+        try self.stack.append(self.allocator, .{
+            .iter = new_dir.iterateAssumeFirstIteration(),
+            .dirname_len = self.name_buffer.items.len - 1,
+        });
+    }
+
+    pub fn deinit(self: *SelectiveWalker) void {
+        self.name_buffer.deinit(self.allocator);
+        self.stack.deinit(self.allocator);
+    }
+
+    /// Leaves the current directory, continuing walking one level up.
+    /// If the current entry is a directory entry, then the "current directory"
+    /// will pertain to that entry if `enter` is called before `leave`.
+    pub fn leave(self: *SelectiveWalker) void {
+        var item = self.stack.pop().?;
+        if (self.stack.items.len != 0) {
+            @branchHint(.likely);
+            item.iter.dir.close();
+        }
+    }
+};
+
+/// Recursively iterates over a directory, but requires the user to
+/// opt-in to recursing into each directory entry.
+///
+/// `self` must have been opened with `OpenOptions{.iterate = true}`.
+///
+/// `Walker.deinit` releases allocated memory and directory handles.
+///
+/// The order of returned file system entries is undefined.
+///
+/// `self` will not be closed after walking it.
+///
+/// See also `walk`.
+pub fn walkSelectively(self: Dir, allocator: Allocator) !SelectiveWalker {
+    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .empty;
+
+    try stack.append(allocator, .{
+        .iter = self.iterate(),
+        .dirname_len = 0,
+    });
+
+    return .{
+        .stack = stack,
+        .name_buffer = .{},
+        .allocator = allocator,
+    };
+}
+
+pub const Walker = struct {
+    inner: SelectiveWalker,
+
+    pub const Entry = struct {
+        /// The containing directory. This can be used to operate directly on `basename`
+        /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
+        /// The directory remains open until `next` or `deinit` is called.
+        dir: Dir,
+        basename: [:0]const u8,
+        path: [:0]const u8,
+        kind: Dir.Entry.Kind,
+
+        /// Returns the depth of the entry relative to the initial directory.
+        /// Returns 1 for a direct child of the initial directory, 2 for an entry
+        /// within a direct child of the initial directory, etc.
+        pub fn depth(self: Walker.Entry) usize {
+            return mem.countScalar(u8, self.path, fs.path.sep) + 1;
+        }
+    };
+
+    const StackItem = struct {
+        iter: Dir.Iterator,
+        dirname_len: usize,
+    };
+
+    /// After each call to this function, and on deinit(), the memory returned
+    /// from this function becomes invalid. A copy must be made in order to keep
+    /// a reference to the path.
+    pub fn next(self: *Walker) !?Walker.Entry {
+        const entry = try self.inner.next();
+        if (entry != null and entry.?.kind == .directory) {
+            try self.inner.enter(entry.?);
+        }
+        return entry;
+    }
+
+    pub fn deinit(self: *Walker) void {
+        self.inner.deinit();
+    }
+
+    /// Leaves the current directory, continuing walking one level up.
+    /// If the current entry is a directory entry, then the "current directory"
+    /// is the directory pertaining to the current entry.
+    pub fn leave(self: *Walker) void {
+        self.inner.leave();
     }
 };
 
@@ -765,18 +833,11 @@ pub const Walker = struct {
 /// The order of returned file system entries is undefined.
 ///
 /// `self` will not be closed after walking it.
+///
+/// See also `walkSelectively`.
 pub fn walk(self: Dir, allocator: Allocator) Allocator.Error!Walker {
-    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .empty;
-
-    try stack.append(allocator, .{
-        .iter = self.iterate(),
-        .dirname_len = 0,
-    });
-
     return .{
-        .stack = stack,
-        .name_buffer = .{},
-        .allocator = allocator,
+        .inner = try walkSelectively(self, allocator),
     };
 }
 
@@ -794,7 +855,7 @@ pub const OpenError = error{
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
     BadPathName,
     DeviceBusy,
@@ -812,7 +873,7 @@ pub fn close(self: *Dir) void {
 /// To create a new file, see `createFile`.
 /// Call `File.close` to release the resource.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
@@ -938,7 +999,7 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
 }
 
 /// Same as `openFile` but Windows-only and the path parameter is
-/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+/// [WTF-16](https://wtf-8.codeberg.page/#potentially-ill-formed-utf-16) encoded.
 pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
     const w = windows;
     const file: File = .{
@@ -977,7 +1038,7 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
 /// Creates, opens, or overwrites a file with write access.
 /// Call `File.close` on the result when done.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
@@ -1089,7 +1150,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
 }
 
 /// Same as `createFile` but Windows-only and the path parameter is
-/// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+/// [WTF-16](https://wtf-8.codeberg.page/#potentially-ill-formed-utf-16) encoded.
 pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) File.OpenError!File {
     const w = windows;
     const read_flag = if (flags.read) @as(u32, w.GENERIC_READ) else 0;
@@ -1134,7 +1195,7 @@ pub const MakeError = posix.MakeDirError;
 /// Creates a single directory with a relative or absolute path.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsolute`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn makeDir(self: Dir, sub_path: []const u8) MakeError!void {
@@ -1160,7 +1221,7 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 /// Returns success if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Fails on an empty path with `error.BadPathName` as that is not a path that can be created.
@@ -1214,7 +1275,7 @@ pub fn makePathStatus(self: Dir, sub_path: []const u8) (MakeError || StatFileErr
 /// Opens the dir if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
-/// `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) (MakeError || OpenError || StatFileError)!Dir {
     const w = windows;
     var it = try fs.path.componentIterator(sub_path);
@@ -1265,7 +1326,7 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
 /// This function performs `makePath`, followed by `openDir`.
 /// If supported by the OS, this operation is atomic. It is not atomic on
 /// all operating systems.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenOptions) (MakeError || OpenError || StatFileError)!Dir {
@@ -1296,9 +1357,9 @@ pub const RealPathError = posix.RealPathError;
 /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
 /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
 /// argument.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// This function is not universally supported by all platforms.
 /// Currently supported hosts are: Linux, macOS, and Windows.
@@ -1308,8 +1369,16 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
         @compileError("realpath is not available on WASI");
     }
     if (native_os == .windows) {
-        const pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
-        return self.realpathW(pathname_w.span(), out_buffer);
+        var pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
+
+        const wide_slice = try self.realpathW2(pathname_w.span(), &pathname_w.data);
+
+        const len = std.unicode.calcWtf8Len(wide_slice);
+        if (len > out_buffer.len)
+            return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+        return out_buffer[0..end_index];
     }
     const pathname_c = try posix.toPosixPath(pathname);
     return self.realpathZ(&pathname_c, out_buffer);
@@ -1319,8 +1388,16 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
 /// See also `Dir.realpath`, `realpathZ`.
 pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathError![]u8 {
     if (native_os == .windows) {
-        const pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
-        return self.realpathW(pathname_w.span(), out_buffer);
+        var pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
+
+        const wide_slice = try self.realpathW2(pathname_w.span(), &pathname_w.data);
+
+        const len = std.unicode.calcWtf8Len(wide_slice);
+        if (len > out_buffer.len)
+            return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+        return out_buffer[0..end_index];
     }
 
     var flags: posix.O = .{};
@@ -1349,10 +1426,31 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
     return result;
 }
 
+/// Deprecated: use `realpathW2`.
+///
 /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 LE encoded.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// See also `Dir.realpath`, `realpathW`.
 pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
+    var wide_buf: [std.os.windows.PATH_MAX_WIDE]u16 = undefined;
+    const wide_slice = try self.realpathW2(pathname, &wide_buf);
+
+    const len = std.unicode.calcWtf8Len(wide_slice);
+    if (len > out_buffer.len) return error.NameTooLong;
+
+    const end_index = std.unicode.wtf16LeToWtf8(&out_buffer, wide_slice);
+    return out_buffer[0..end_index];
+}
+
+/// Windows-only. Same as `Dir.realpath` except
+/// * `pathname` and the result are WTF-16 LE encoded
+/// * `pathname` is relative or has the NT namespace prefix. See `windows.wToPrefixedFileW` for details.
+///
+/// Additionally, `pathname` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+///
+/// See also `Dir.realpath`, `realpathW`.
+pub fn realpathW2(self: Dir, pathname: []const u16, out_buffer: []u16) RealPathError![]u16 {
     const w = windows;
 
     const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
@@ -1373,13 +1471,7 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
     };
     defer w.CloseHandle(h_file);
 
-    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
-    const len = std.unicode.calcWtf8Len(wide_slice);
-    if (len > out_buffer.len)
-        return error.NameTooLong;
-    const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
-    return out_buffer[0..end_index];
+    return w.GetFinalPathNameByHandle(h_file, .{}, out_buffer);
 }
 
 pub const RealPathAllocError = RealPathError || Allocator.Error;
@@ -1437,7 +1529,7 @@ pub const OpenOptions = struct {
 /// open until `close` is called on the result.
 /// The directory cannot be iterated unless the `iterate` option is set to `true`.
 ///
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
@@ -1652,7 +1744,7 @@ fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u3
 pub const DeleteFileError = posix.UnlinkError;
 
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
@@ -1713,7 +1805,7 @@ pub const DeleteDirError = error{
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
@@ -1724,7 +1816,7 @@ pub const DeleteDirError = error{
 
 /// Returns `error.DirNotEmpty` if the directory is not empty.
 /// To delete a directory recursively, see `deleteTree`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
@@ -1766,7 +1858,7 @@ pub const RenameError = posix.RenameError;
 /// If new_sub_path already exists, it will be replaced.
 /// Renaming a file over an existing directory or a directory
 /// over an existing file will fail with `error.IsDir` or `error.NotDir`
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn rename(self: Dir, old_sub_path: []const u8, new_sub_path: []const u8) RenameError!void {
@@ -1797,7 +1889,7 @@ pub const SymLinkFlags = struct {
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
 /// If `sym_link_path` exists, it will not be overwritten.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn symLink(
@@ -1880,7 +1972,7 @@ pub fn symLinkW(
 /// Same as `symLink`, except tries to create the symbolic link until it
 /// succeeds or encounters an error other than `error.PathAlreadyExists`.
 ///
-/// * On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// * On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// * On WASI, both paths should be encoded as valid UTF-8.
 /// * On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn atomicSymLink(
@@ -1926,7 +2018,7 @@ pub const ReadLinkError = posix.ReadLinkError;
 /// Read value of a symbolic link.
 /// The return value is a slice of `buffer`, from index `0`.
 /// Asserts that the path parameter has no null bytes.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u8 {
@@ -1966,7 +2058,7 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
 /// the situation is ambiguous. It could either mean that the entire file was read, and
 /// it exactly fits the buffer, or it could mean the buffer was not big enough for the
 /// entire file.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `file_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
@@ -1977,41 +2069,59 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     return buffer[0..end_index];
 }
 
-/// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
-pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
+pub const ReadFileAllocError = File.OpenError || File.ReadError || Allocator.Error || error{
+    /// File size reached or exceeded the provided limit.
+    StreamTooLong,
+};
+
+/// Reads all the bytes from the named file. On success, caller owns returned
+/// buffer.
+///
+/// If the file size is already known, a better alternative is to initialize a
+/// `File.Reader`.
+///
+/// If the file size cannot be obtained, an error is returned. If
+/// this is a realistic possibility, a better alternative is to initialize a
+/// `File.Reader` which handles this seamlessly.
+pub fn readFileAlloc(
+    dir: Dir,
+    /// On Windows, should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
+    /// On WASI, should be encoded as valid UTF-8.
+    /// On other platforms, an opaque sequence of bytes with no particular encoding.
+    sub_path: []const u8,
+    /// Used to allocate the result.
+    gpa: Allocator,
+    /// If reached or exceeded, `error.StreamTooLong` is returned instead.
+    limit: std.Io.Limit,
+) ReadFileAllocError![]u8 {
+    return readFileAllocOptions(dir, sub_path, gpa, limit, .of(u8), null);
 }
 
-/// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-/// If `size_hint` is specified the initial buffer size is calculated using
-/// that value, otherwise the effective file size is used instead.
-/// Allows specifying alignment and a sentinel value.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
+/// Reads all the bytes from the named file. On success, caller owns returned
+/// buffer.
+///
+/// If the file size is already known, a better alternative is to initialize a
+/// `File.Reader`.
 pub fn readFileAllocOptions(
-    self: Dir,
-    allocator: mem.Allocator,
-    file_path: []const u8,
-    max_bytes: usize,
-    size_hint: ?usize,
+    dir: Dir,
+    /// On Windows, should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
+    /// On WASI, should be encoded as valid UTF-8.
+    /// On other platforms, an opaque sequence of bytes with no particular encoding.
+    sub_path: []const u8,
+    /// Used to allocate the result.
+    gpa: Allocator,
+    /// If reached or exceeded, `error.StreamTooLong` is returned instead.
+    limit: std.Io.Limit,
     comptime alignment: std.mem.Alignment,
-    comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
-    var file = try self.openFile(file_path, .{});
+    comptime sentinel: ?u8,
+) ReadFileAllocError!(if (sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
+    var file = try dir.openFile(sub_path, .{});
     defer file.close();
-
-    // If the file size doesn't fit a usize it'll be certainly greater than
-    // `max_bytes`
-    const stat_size = size_hint orelse std.math.cast(usize, try file.getEndPos()) orelse
-        return error.FileTooBig;
-
-    return file.readToEndAllocOptions(allocator, max_bytes, stat_size, alignment, optional_sentinel);
+    var file_reader = file.reader(&.{});
+    return file_reader.interface.allocRemainingAlignedSentinel(gpa, limit, alignment, sentinel) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        error.OutOfMemory, error.StreamTooLong => |e| return e,
+    };
 }
 
 pub const DeleteTreeError = error{
@@ -2038,7 +2148,7 @@ pub const DeleteTreeError = error{
     InvalidUtf8,
 
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 
     /// On Windows, file paths cannot contain these characters:
@@ -2053,7 +2163,7 @@ pub const DeleteTreeError = error{
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 /// This operation is not atomic on most file systems.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
@@ -2260,7 +2370,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
 
 /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
 /// This is slower than `deleteTree` but uses less stack space.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
@@ -2458,7 +2568,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
 pub const WriteFileError = File.WriteError || File.OpenError;
 
 pub const WriteFileOptions = struct {
-    /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
     /// On WASI, `sub_path` should be encoded as valid UTF-8.
     /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
     sub_path: []const u8,
@@ -2476,7 +2586,7 @@ pub fn writeFile(self: Dir, options: WriteFileOptions) WriteFileError!void {
 pub const AccessError = posix.AccessError;
 
 /// Test accessing `sub_path`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
@@ -2531,7 +2641,7 @@ pub const PrevStatus = enum {
 /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
 /// Returns the previous status of the file before updating.
 /// If any of the directories do not exist for dest_path, they are created.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, both paths should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn updateFile(
@@ -2583,8 +2693,9 @@ pub fn updateFile(
         error.ReadFailed => return src_reader.err.?,
         error.WriteFailed => return atomic_file.file_writer.err.?,
     };
+    try atomic_file.flush();
     try atomic_file.file_writer.file.updateTimes(src_stat.atime, src_stat.mtime);
-    try atomic_file.finish();
+    try atomic_file.renameIntoPlace();
     return .stale;
 }
 
@@ -2602,7 +2713,7 @@ pub const CopyFileError = File.OpenError || File.StatError ||
 /// dest_path.
 ///
 /// On Windows, both paths should be encoded as
-/// [WTF-8](https://simonsapin.github.io/wtf-8/). On WASI, both paths should be
+/// [WTF-8](https://wtf-8.codeberg.page/). On WASI, both paths should be
 /// encoded as valid UTF-8. On other platforms, both paths are an opaque
 /// sequence of bytes with no particular encoding.
 pub fn copyFile(
@@ -2647,7 +2758,7 @@ pub const AtomicFileOptions = struct {
 /// Always call `AtomicFile.deinit` to clean up, regardless of whether
 /// `AtomicFile.finish` succeeded. `dest_path` must remain valid until
 /// `AtomicFile.deinit` is called.
-/// On Windows, `dest_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `dest_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `dest_path` should be encoded as valid UTF-8.
 /// On other platforms, `dest_path` is an opaque sequence of bytes with no particular encoding.
 pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
@@ -2681,7 +2792,7 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// Symlinks are followed.
 ///
 /// `sub_path` may be absolute, in which case `self` is ignored.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {

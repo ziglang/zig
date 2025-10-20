@@ -18,8 +18,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:11: error: unexpected period after exponent
 // :5:11: error: unexpected period after exponent

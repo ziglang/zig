@@ -5,6 +5,8 @@ const Ast = std.zig.Ast;
 const Walk = @import("Walk");
 const markdown = @import("markdown.zig");
 const Decl = Walk.Decl;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
 
 const fileSourceHtml = @import("html_render.zig").fileSourceHtml;
 const appendEscaped = @import("html_render.zig").appendEscaped;
@@ -66,8 +68,8 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
     };
 }
 
-var query_string: std.ArrayListUnmanaged(u8) = .empty;
-var query_results: std.ArrayListUnmanaged(Decl.Index) = .empty;
+var query_string: ArrayList(u8) = .empty;
+var query_results: ArrayList(Decl.Index) = .empty;
 
 /// Resizes the query string to be the correct length; returns the pointer to
 /// the query string.
@@ -99,11 +101,11 @@ fn query_exec_fallible(query: []const u8, ignore_case: bool) !void {
         segments: u16,
     };
     const g = struct {
-        var full_path_search_text: std.ArrayListUnmanaged(u8) = .empty;
-        var full_path_search_text_lower: std.ArrayListUnmanaged(u8) = .empty;
-        var doc_search_text: std.ArrayListUnmanaged(u8) = .empty;
+        var full_path_search_text: ArrayList(u8) = .empty;
+        var full_path_search_text_lower: ArrayList(u8) = .empty;
+        var doc_search_text: ArrayList(u8) = .empty;
         /// Each element matches a corresponding query_results element.
-        var scores: std.ArrayListUnmanaged(Score) = .empty;
+        var scores: ArrayList(Score) = .empty;
     };
 
     // First element stores the size of the list.
@@ -234,7 +236,7 @@ const ErrorIdentifier = packed struct(u64) {
         return ast.tokenTag(token_index - 1) == .doc_comment;
     }
 
-    fn html(ei: ErrorIdentifier, base_decl: Decl.Index, out: *std.ArrayListUnmanaged(u8)) Oom!void {
+    fn html(ei: ErrorIdentifier, base_decl: Decl.Index, out: *ArrayList(u8)) Oom!void {
         const decl_index = ei.decl_index;
         const ast = decl_index.get().file.get_ast();
         const name = ast.tokenSlice(ei.token_index);
@@ -260,7 +262,7 @@ const ErrorIdentifier = packed struct(u64) {
     }
 };
 
-var string_result: std.ArrayListUnmanaged(u8) = .empty;
+var string_result: ArrayList(u8) = .empty;
 var error_set_result: std.StringArrayHashMapUnmanaged(ErrorIdentifier) = .empty;
 
 export fn decl_error_set(decl_index: Decl.Index) Slice(ErrorIdentifier) {
@@ -411,7 +413,7 @@ fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
 
 fn ast_decl_fields_fallible(ast: *Ast, ast_index: Ast.Node.Index) ![]Ast.Node.Index {
     const g = struct {
-        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
+        var result: ArrayList(Ast.Node.Index) = .empty;
     };
     g.result.clearRetainingCapacity();
     var buf: [2]Ast.Node.Index = undefined;
@@ -429,7 +431,7 @@ fn ast_decl_fields_fallible(ast: *Ast, ast_index: Ast.Node.Index) ![]Ast.Node.In
 
 fn decl_params_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
     const g = struct {
-        var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
+        var result: ArrayList(Ast.Node.Index) = .empty;
     };
     g.result.clearRetainingCapacity();
     const decl = decl_index.get();
@@ -460,7 +462,7 @@ export fn decl_param_html(decl_index: Decl.Index, param_node: Ast.Node.Index) St
 }
 
 fn decl_field_html_fallible(
-    out: *std.ArrayListUnmanaged(u8),
+    out: *ArrayList(u8),
     decl_index: Decl.Index,
     field_node: Ast.Node.Index,
 ) !void {
@@ -480,7 +482,7 @@ fn decl_field_html_fallible(
 }
 
 fn decl_param_html_fallible(
-    out: *std.ArrayListUnmanaged(u8),
+    out: *ArrayList(u8),
     decl_index: Decl.Index,
     param_node: Ast.Node.Index,
 ) !void {
@@ -649,7 +651,7 @@ export fn decl_docs_html(decl_index: Decl.Index, short: bool) String {
 }
 
 fn collect_docs(
-    list: *std.ArrayListUnmanaged(u8),
+    list: *ArrayList(u8),
     ast: *const Ast,
     first_doc_comment: Ast.TokenIndex,
 ) Oom!void {
@@ -667,7 +669,7 @@ fn collect_docs(
 }
 
 fn render_docs(
-    out: *std.ArrayListUnmanaged(u8),
+    out: *ArrayList(u8),
     decl_index: Decl.Index,
     first_doc_comment: Ast.TokenIndex,
     short: bool,
@@ -691,11 +693,10 @@ fn render_docs(
     defer parsed_doc.deinit(gpa);
 
     const g = struct {
-        var link_buffer: std.ArrayListUnmanaged(u8) = .empty;
+        var link_buffer: ArrayList(u8) = .empty;
     };
 
-    const Writer = std.ArrayListUnmanaged(u8).Writer;
-    const Renderer = markdown.Renderer(Writer, Decl.Index);
+    const Renderer = markdown.Renderer(Decl.Index);
     const renderer: Renderer = .{
         .context = decl_index,
         .renderFn = struct {
@@ -703,8 +704,8 @@ fn render_docs(
                 r: Renderer,
                 doc: markdown.Document,
                 node: markdown.Document.Node.Index,
-                writer: Writer,
-            ) !void {
+                writer: *Writer,
+            ) Writer.Error!void {
                 const data = doc.nodes.items(.data)[@intFromEnum(node)];
                 switch (doc.nodes.items(.tag)[@intFromEnum(node)]) {
                     .code_span => {
@@ -712,7 +713,7 @@ fn render_docs(
                         const content = doc.string(data.text.content);
                         if (resolve_decl_path(r.context, content)) |resolved_decl_index| {
                             g.link_buffer.clearRetainingCapacity();
-                            try resolveDeclLink(resolved_decl_index, &g.link_buffer);
+                            resolveDeclLink(resolved_decl_index, &g.link_buffer) catch return error.WriteFailed;
 
                             try writer.writeAll("<a href=\"#");
                             _ = missing_feature_url_escape;
@@ -730,7 +731,12 @@ fn render_docs(
             }
         }.render,
     };
-    try renderer.render(parsed_doc, out.writer(gpa));
+
+    var allocating = Writer.Allocating.fromArrayList(gpa, out);
+    defer out.* = allocating.toArrayList();
+    renderer.render(parsed_doc, &allocating.writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
 }
 
 fn resolve_decl_path(decl_index: Decl.Index, path: []const u8) ?Decl.Index {
@@ -827,7 +833,7 @@ export fn find_module_root(pkg: Walk.ModuleIndex) Decl.Index {
 }
 
 /// Set by `set_input_string`.
-var input_string: std.ArrayListUnmanaged(u8) = .empty;
+var input_string: ArrayList(u8) = .empty;
 
 export fn set_input_string(len: usize) [*]u8 {
     input_string.resize(gpa, len) catch @panic("OOM");
@@ -849,7 +855,7 @@ export fn find_decl() Decl.Index {
     if (result != .none) return result;
 
     const g = struct {
-        var match_fqn: std.ArrayListUnmanaged(u8) = .empty;
+        var match_fqn: ArrayList(u8) = .empty;
     };
     for (Walk.decls.items, 0..) |*decl, decl_index| {
         g.match_fqn.clearRetainingCapacity();
@@ -905,7 +911,7 @@ export fn type_fn_members(parent: Decl.Index, include_private: bool) Slice(Decl.
 
 export fn namespace_members(parent: Decl.Index, include_private: bool) Slice(Decl.Index) {
     const g = struct {
-        var members: std.ArrayListUnmanaged(Decl.Index) = .empty;
+        var members: ArrayList(Decl.Index) = .empty;
     };
 
     g.members.clearRetainingCapacity();

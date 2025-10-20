@@ -72,7 +72,15 @@
 #include <_types.h>
 #include <sys/unistd.h>
 #include <Availability.h>
+#define _LIBC_COUNT__PATH_MAX	_LIBC_UNSAFE_INDEXABLE
+#if (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
+#if defined(__LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES) && __has_ptrcheck
+/* required for bounds annotations, but pollutes namespace */
 #include <sys/syslimits.h>
+#undef _LIBC_COUNT__PATH_MAX
+#define _LIBC_COUNT__PATH_MAX	_LIBC_COUNT_OR_NULL(PATH_MAX)
+#endif /* defined(__LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES) && __has_ptrcheck */
+#endif /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 #include <sys/_types/_gid_t.h>
 #include <sys/_types/_intptr_t.h>
 #include <sys/_types/_off_t.h>
@@ -517,8 +525,6 @@ extern int optind, opterr, optopt;
 __END_DECLS
 #endif /* __DARWIN_C_LEVEL >= 199209L */
 
-
-
 /* Additional functionality provided by:
  * POSIX.1c-1995,
  * POSIX.1i-1995,
@@ -526,7 +532,6 @@ __END_DECLS
  */
 
 #if __DARWIN_C_LEVEL >= 199506L
-#include <_ctermid.h>
                                /* These F_* are really XSI or Issue 6 */
 #define F_ULOCK         0      /* unlock locked section */
 #define	F_LOCK          1      /* lock a section for exclusive use */
@@ -536,6 +541,11 @@ __END_DECLS
  __BEGIN_DECLS
 
 /* Begin XSI */
+/* Removed in Issue 7 */
+#if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L
+#include <_ctermid.h>
+#endif
+
 /* Removed in Issue 6 */
 #if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200112L
 #if !defined(_POSIX_C_SOURCE)
@@ -565,7 +575,7 @@ char *_LIBC_CSTR	getpass(const char *) __POSIX_C_DEPRECATED(199506L);
 
 /* Removed in Issue 7 */
 #if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L
-char *_LIBC_CSTR	getwd(char *_LIBC_COUNT_OR_NULL(PATH_MAX)) __POSIX_C_DEPRECATED(200112L); /* obsoleted by getcwd() */
+char *_LIBC_CSTR	getwd(char *_LIBC_COUNT__PATH_MAX) __POSIX_C_DEPRECATED(200112L); /* obsoleted by getcwd() */
 #endif
 
 int	 lchown(const char *, uid_t, gid_t) __DARWIN_ALIAS(lchown);

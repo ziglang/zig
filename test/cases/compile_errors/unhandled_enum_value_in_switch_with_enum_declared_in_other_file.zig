@@ -6,8 +6,6 @@ pub export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:5: error: switch must handle all possibilities
 // :?:?: note: unhandled enumeration value: 'gt'

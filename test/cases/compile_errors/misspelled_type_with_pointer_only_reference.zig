@@ -29,7 +29,5 @@ fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:16: error: use of undeclared identifier 'JsonList'

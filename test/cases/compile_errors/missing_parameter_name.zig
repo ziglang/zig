@@ -9,8 +9,6 @@ fn f1(x) u64 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:7: error: missing parameter name
 // :4:7: error: missing parameter name

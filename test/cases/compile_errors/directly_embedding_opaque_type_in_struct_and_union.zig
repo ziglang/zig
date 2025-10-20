@@ -25,8 +25,6 @@ export fn d() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs
 // :1:11: note: opaque declared here

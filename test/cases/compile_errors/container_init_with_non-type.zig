@@ -6,7 +6,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:11: error: expected type 'type', found 'i32'

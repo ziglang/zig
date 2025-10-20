@@ -31,11 +31,12 @@ Symbolizer *Symbolizer::GetOrInit() {
 
 const char *ExtractToken(const char *str, const char *delims, char **result) {
   uptr prefix_len = internal_strcspn(str, delims);
-  *result = (char*)InternalAlloc(prefix_len + 1);
+  *result = (char *)InternalAlloc(prefix_len + 1);
   internal_memcpy(*result, str, prefix_len);
   (*result)[prefix_len] = '\0';
   const char *prefix_end = str + prefix_len;
-  if (*prefix_end != '\0') prefix_end++;
+  if (*prefix_end != '\0')
+    prefix_end++;
   return prefix_end;
 }
 
@@ -78,7 +79,8 @@ const char *ExtractTokenUpToDelimiter(const char *str, const char *delimiter,
   internal_memcpy(*result, str, prefix_len);
   (*result)[prefix_len] = '\0';
   const char *prefix_end = str + prefix_len;
-  if (*prefix_end != '\0') prefix_end += internal_strlen(delimiter);
+  if (*prefix_end != '\0')
+    prefix_end += internal_strlen(delimiter);
   return prefix_end;
 }
 
@@ -215,18 +217,20 @@ const LoadedModule *Symbolizer::FindModuleForAddress(uptr address) {
     modules_were_reloaded = true;
   }
   const LoadedModule *module = SearchForModule(modules_, address);
-  if (module) return module;
+  if (module)
+    return module;
 
   // dlopen/dlclose interceptors invalidate the module list, but when
   // interception is disabled, we need to retry if the lookup fails in
   // case the module list changed.
-#if !SANITIZER_INTERCEPT_DLOPEN_DLCLOSE
+#  if !SANITIZER_INTERCEPT_DLOPEN_DLCLOSE
   if (!modules_were_reloaded) {
     RefreshModules();
     module = SearchForModule(modules_, address);
-    if (module) return module;
+    if (module)
+      return module;
   }
-#endif
+#  endif
 
   if (fallback_modules_.size()) {
     module = SearchForModule(fallback_modules_, address);
@@ -260,31 +264,31 @@ class LLVMSymbolizerProcess final : public SymbolizerProcess {
   // script/asan_symbolize.py and sanitizer_common.h.
   void GetArgV(const char *path_to_binary,
                const char *(&argv)[kArgVMax]) const override {
-#if defined(__x86_64h__)
-    const char* const kSymbolizerArch = "--default-arch=x86_64h";
-#elif defined(__x86_64__)
-    const char* const kSymbolizerArch = "--default-arch=x86_64";
-#elif defined(__i386__)
-    const char* const kSymbolizerArch = "--default-arch=i386";
-#elif SANITIZER_LOONGARCH64
+#  if defined(__x86_64h__)
+    const char *const kSymbolizerArch = "--default-arch=x86_64h";
+#  elif defined(__x86_64__)
+    const char *const kSymbolizerArch = "--default-arch=x86_64";
+#  elif defined(__i386__)
+    const char *const kSymbolizerArch = "--default-arch=i386";
+#  elif SANITIZER_LOONGARCH64
     const char *const kSymbolizerArch = "--default-arch=loongarch64";
-#elif SANITIZER_RISCV64
+#  elif SANITIZER_RISCV64
     const char *const kSymbolizerArch = "--default-arch=riscv64";
-#elif defined(__aarch64__)
-    const char* const kSymbolizerArch = "--default-arch=arm64";
-#elif defined(__arm__)
-    const char* const kSymbolizerArch = "--default-arch=arm";
-#elif defined(__powerpc64__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-    const char* const kSymbolizerArch = "--default-arch=powerpc64";
-#elif defined(__powerpc64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    const char* const kSymbolizerArch = "--default-arch=powerpc64le";
-#elif defined(__s390x__)
-    const char* const kSymbolizerArch = "--default-arch=s390x";
-#elif defined(__s390__)
-    const char* const kSymbolizerArch = "--default-arch=s390";
-#else
-    const char* const kSymbolizerArch = "--default-arch=unknown";
-#endif
+#  elif defined(__aarch64__)
+    const char *const kSymbolizerArch = "--default-arch=arm64";
+#  elif defined(__arm__)
+    const char *const kSymbolizerArch = "--default-arch=arm";
+#  elif defined(__powerpc64__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    const char *const kSymbolizerArch = "--default-arch=powerpc64";
+#  elif defined(__powerpc64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    const char *const kSymbolizerArch = "--default-arch=powerpc64le";
+#  elif defined(__s390x__)
+    const char *const kSymbolizerArch = "--default-arch=s390x";
+#  elif defined(__s390__)
+    const char *const kSymbolizerArch = "--default-arch=s390";
+#  else
+    const char *const kSymbolizerArch = "--default-arch=unknown";
+#  endif
 
     const char *const demangle_flag =
         common_flags()->demangle ? "--demangle" : "--no-demangle";
@@ -315,7 +319,8 @@ static const char *ParseFileLineInfo(AddressInfo *info, const char *str) {
     char *back = file_line_info + size - 1;
     for (int i = 0; i < 2; ++i) {
       while (back > file_line_info && IsDigit(*back)) --back;
-      if (*back != ':' || !IsDigit(back[1])) break;
+      if (*back != ':' || !IsDigit(back[1]))
+        break;
       info->column = info->line;
       info->line = internal_atoll(back + 1);
       // Truncate the string at the colon to keep only filename.
@@ -436,7 +441,7 @@ bool LLVMSymbolizer::SymbolizeData(uptr addr, DataInfo *info) {
   if (!buf)
     return false;
   ParseSymbolizeDataOutput(buf, info);
-  info->start += (addr - info->module_offset); // Add the base address.
+  info->start += (addr - info->module_offset);  // Add the base address.
   return true;
 }
 
@@ -459,10 +464,9 @@ const char *LLVMSymbolizer::FormatAndSendCommand(const char *command_prefix,
     size_needed = internal_snprintf(buffer_, kBufferSize, "%s \"%s\" 0x%zx\n",
                                     command_prefix, module_name, module_offset);
   else
-    size_needed = internal_snprintf(buffer_, kBufferSize,
-                                    "%s \"%s:%s\" 0x%zx\n", command_prefix,
-                                    module_name, ModuleArchToString(arch),
-                                    module_offset);
+    size_needed = internal_snprintf(
+        buffer_, kBufferSize, "%s \"%s:%s\" 0x%zx\n", command_prefix,
+        module_name, ModuleArchToString(arch), module_offset);
 
   if (size_needed >= static_cast<int>(kBufferSize)) {
     Report("WARNING: Command buffer too small");
@@ -484,9 +488,9 @@ SymbolizerProcess::SymbolizerProcess(const char *path, bool use_posix_spawn)
   CHECK_NE(path_[0], '\0');
 }
 
-static bool IsSameModule(const char* path) {
-  if (const char* ProcessName = GetProcessName()) {
-    if (const char* SymbolizerName = StripModuleName(path)) {
+static bool IsSameModule(const char *path) {
+  if (const char *ProcessName = GetProcessName()) {
+    if (const char *SymbolizerName = StripModuleName(path)) {
       return !internal_strcmp(ProcessName, SymbolizerName);
     }
   }
@@ -516,9 +520,9 @@ const char *SymbolizerProcess::SendCommand(const char *command) {
 
 const char *SymbolizerProcess::SendCommandImpl(const char *command) {
   if (input_fd_ == kInvalidFd || output_fd_ == kInvalidFd)
-      return nullptr;
+    return nullptr;
   if (!WriteToSymbolizer(command, internal_strlen(command)))
-      return nullptr;
+    return nullptr;
   if (!ReadFromSymbolizer())
     return nullptr;
   return buffer_.data();

@@ -804,7 +804,7 @@ fn testDecode(bytes: []const u8) !u21 {
 /// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
 /// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
 /// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
-fn formatUtf8(utf8: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatUtf8(utf8: []const u8, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var buf: [300]u8 = undefined; // just an arbitrary size
     var u8len: usize = 0;
 
@@ -893,7 +893,7 @@ fn formatUtf8(utf8: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void
 /// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
 /// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
 /// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
-pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter([]const u8, formatUtf8) {
+pub fn fmtUtf8(utf8: []const u8) std.fmt.Alt([]const u8, formatUtf8) {
     return .{ .data = utf8 };
 }
 
@@ -1464,7 +1464,7 @@ test calcWtf16LeLen {
 
 /// Print the given `utf16le` string, encoded as UTF-8 bytes.
 /// Unpaired surrogates are replaced by the replacement character (U+FFFD).
-fn formatUtf16Le(utf16le: []const u16, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatUtf16Le(utf16le: []const u16, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var buf: [300]u8 = undefined; // just an arbitrary size
     var it = Utf16LeIterator.init(utf16le);
     var u8len: usize = 0;
@@ -1483,7 +1483,7 @@ fn formatUtf16Le(utf16le: []const u16, writer: *std.io.Writer) std.io.Writer.Err
 /// Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
 /// which will be converted to UTF-8 during formatting.
 /// Unpaired surrogates are replaced by the replacement character (U+FFFD).
-pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter([]const u16, formatUtf16Le) {
+pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Alt([]const u16, formatUtf16Le) {
     return .{ .data = utf16le };
 }
 

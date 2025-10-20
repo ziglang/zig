@@ -1,10 +1,10 @@
 const Decompress = @This();
 const std = @import("std");
 const assert = std.debug.assert;
-const Reader = std.io.Reader;
-const Limit = std.io.Limit;
+const Reader = std.Io.Reader;
+const Limit = std.Io.Limit;
 const zstd = @import("../zstd.zig");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 input: *Reader,
 reader: Reader,
@@ -92,6 +92,7 @@ const indirect_vtable: Reader.VTable = .{
 ///
 /// Otherwise, `buffer` has those requirements.
 pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
+    if (buffer.len != 0) assert(buffer.len >= options.window_len + zstd.block_size_max);
     return .{
         .input = input,
         .state = .new_frame,

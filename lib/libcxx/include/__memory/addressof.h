@@ -23,7 +23,7 @@ inline _LIBCPP_CONSTEXPR_SINCE_CXX17 _LIBCPP_NO_CFI _LIBCPP_HIDE_FROM_ABI _Tp* a
   return __builtin_addressof(__x);
 }
 
-#if _LIBCPP_HAS_OBJC_ARC
+#if __has_feature(objc_arc)
 // Objective-C++ Automatic Reference Counting uses qualified pointers
 // that require special addressof() signatures.
 template <class _Tp>
@@ -31,7 +31,7 @@ inline _LIBCPP_HIDE_FROM_ABI __strong _Tp* addressof(__strong _Tp& __x) _NOEXCEP
   return &__x;
 }
 
-#  if _LIBCPP_HAS_OBJC_ARC_WEAK
+#  if __has_feature(objc_arc_weak)
 template <class _Tp>
 inline _LIBCPP_HIDE_FROM_ABI __weak _Tp* addressof(__weak _Tp& __x) _NOEXCEPT {
   return &__x;

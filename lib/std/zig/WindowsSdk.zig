@@ -766,7 +766,7 @@ const MsvcLibDir = struct {
             writer.writeByte(std.fs.path.sep) catch unreachable;
             writer.writeAll("state.json") catch unreachable;
 
-            const json_contents = instances_dir.readFileAlloc(allocator, writer.buffered(), std.math.maxInt(usize)) catch continue;
+            const json_contents = instances_dir.readFileAlloc(writer.buffered(), allocator, .limited(std.math.maxInt(usize))) catch continue;
             defer allocator.free(json_contents);
 
             var parsed = std.json.parseFromSlice(std.json.Value, allocator, json_contents, .{}) catch continue;

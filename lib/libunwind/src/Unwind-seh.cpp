@@ -51,6 +51,32 @@ static DISPATCHER_CONTEXT *__unw_seh_get_disp_ctx(unw_cursor_t *cursor);
 static void __unw_seh_set_disp_ctx(unw_cursor_t *cursor,
                                    DISPATCHER_CONTEXT *disp);
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-anonymous-struct"
+// Local redefinition of this type; mingw-w64 headers lack the
+// DISPATCHER_CONTEXT_NONVOLREG_ARM64 type as of May 2025, so locally redefine
+// it and use that definition, to avoid needing to test/guess whether the real
+// type is available of not.
+union LOCAL_DISPATCHER_CONTEXT_NONVOLREG_ARM64 {
+  BYTE Buffer[11 * sizeof(DWORD64) + 8 * sizeof(double)];
+
+  struct {
+    DWORD64 GpNvRegs[11];
+    double FpNvRegs[8];
+  };
+};
+
+// Custom data type definition; this type is not defined in WinSDK.
+union LOCAL_DISPATCHER_CONTEXT_NONVOLREG_ARM {
+  BYTE Buffer[8 * sizeof(DWORD) + 8 * sizeof(double)];
+
+  struct {
+    DWORD GpNvRegs[8];
+    double FpNvRegs[8];
+  };
+};
+#pragma clang diagnostic pop
+
 /// Common implementation of SEH-style handler functions used by Itanium-
 /// style frames.  Depending on how and why it was called, it may do one of:
 ///  a) Delegate to the given Itanium-style personality function; or
@@ -148,7 +174,8 @@ _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
     }
     // FIXME: Indicate target frame in foreign case!
     // phase 2: the clean up phase
-    RtlUnwindEx(frame, (PVOID)disp->ControlPc, ms_exc, exc, ms_ctx, disp->HistoryTable);
+    RtlUnwindEx(frame, (PVOID)disp->ControlPc, ms_exc, exc, disp->ContextRecord,
+                disp->HistoryTable);
     _LIBUNWIND_ABORT("RtlUnwindEx() failed");
   case _URC_INSTALL_CONTEXT: {
     // If we were called by __libunwind_seh_personality(), indicate that
@@ -212,6 +239,21 @@ __libunwind_seh_personality(int version, _Unwind_Action state,
   ms_exc.ExceptionInformation[2] = state;
   DISPATCHER_CONTEXT *disp_ctx =
       __unw_seh_get_disp_ctx((unw_cursor_t *)context);
+#if defined(__aarch64__)
+  LOCAL_DISPATCHER_CONTEXT_NONVOLREG_ARM64 nonvol;
+  memcpy(&nonvol.GpNvRegs, &disp_ctx->ContextRecord->X19,
+         sizeof(nonvol.GpNvRegs));
+  for (int i = 0; i < 8; i++)
+    nonvol.FpNvRegs[i] = disp_ctx->ContextRecord->V[i + 8].D[0];
+  disp_ctx->NonVolatileRegisters = nonvol.Buffer;
+#elif defined(__arm__)
+  LOCAL_DISPATCHER_CONTEXT_NONVOLREG_ARM nonvol;
+  memcpy(&nonvol.GpNvRegs, &disp_ctx->ContextRecord->R4,
+         sizeof(nonvol.GpNvRegs));
+  memcpy(&nonvol.FpNvRegs, &disp_ctx->ContextRecord->D[8],
+         sizeof(nonvol.FpNvRegs));
+  disp_ctx->NonVolatileRegisters = nonvol.Buffer;
+#endif
   _LIBUNWIND_TRACE_UNWINDING("__libunwind_seh_personality() calling "
                              "LanguageHandler %p(%p, %p, %p, %p)",
                              (void *)disp_ctx->LanguageHandler, (void *)&ms_exc,

@@ -19,7 +19,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS complex;
+class complex;
 
 #if _LIBCPP_STD_VER >= 26
 

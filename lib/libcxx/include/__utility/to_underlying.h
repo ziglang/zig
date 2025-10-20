@@ -21,8 +21,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr typename underlying_type<_Tp>::type __to_underlying(_Tp __val) noexcept {
-  return static_cast<typename underlying_type<_Tp>::type>(__val);
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI constexpr __underlying_type_t<_Tp> __to_underlying(_Tp __val) noexcept {
+  return static_cast<__underlying_type_t<_Tp>>(__val);
 }
 #endif // !_LIBCPP_CXX03_LANG
 

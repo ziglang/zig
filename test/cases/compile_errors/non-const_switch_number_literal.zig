@@ -11,8 +11,6 @@ fn bar() i32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: value with comptime-only type 'comptime_int' depends on runtime control flow
 // :2:26: note: runtime control flow here

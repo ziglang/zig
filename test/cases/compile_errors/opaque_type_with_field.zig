@@ -5,7 +5,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:25: error: opaque types cannot have fields

@@ -344,6 +344,7 @@ XPC_ASSUME_NONNULL_END
 #include <xpc/debug.h>
 #if __BLOCKS__
 #include <xpc/activity.h>
+#include <xpc/peer_requirement.h>
 #include <xpc/connection.h>
 #include <xpc/rich_error.h>
 #include <xpc/session.h>
@@ -2771,7 +2772,7 @@ API_UNAVAILABLE(ios)
 XPC_EXPORT XPC_NONNULL1 XPC_NONNULL3
 void
 xpc_set_event_stream_handler(const char *stream,
-	dispatch_queue_t _Nullable targetq, xpc_handler_t handler);
+	dispatch_queue_t _Nullable targetq, XPC_SWIFT_SENDABLE xpc_handler_t handler);
 #endif // __BLOCKS__ 
 
 __END_DECLS

@@ -747,6 +747,9 @@ pub const Ip6Address = extern struct {
                 try w.writeAll(":");
             }
         }
+        if (self.sa.scope_id != 0) {
+            try w.print("%{}", .{self.sa.scope_id});
+        }
         try w.print("]:{}", .{port});
     }
 
@@ -1393,7 +1396,7 @@ fn parseHosts(
     br: *Io.Reader,
 ) error{ OutOfMemory, ReadFailed }!void {
     while (true) {
-        const line = br.takeDelimiterExclusive('\n') catch |err| switch (err) {
+        const line = br.takeDelimiter('\n') catch |err| switch (err) {
             error.StreamTooLong => {
                 // Skip lines that are too long.
                 _ = br.discardDelimiterInclusive('\n') catch |e| switch (e) {
@@ -1403,7 +1406,8 @@ fn parseHosts(
                 continue;
             },
             error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => break,
+        } orelse {
+            break; // end of stream
         };
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
@@ -1992,8 +1996,7 @@ pub const Stream = struct {
                 };
                 if (n == 0) return error.EndOfStream;
                 if (n > data_size) {
-                    io_r.seek = 0;
-                    io_r.end = n - data_size;
+                    io_r.end += n - data_size;
                     return data_size;
                 }
                 return n;

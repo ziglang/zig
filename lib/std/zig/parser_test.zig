@@ -1,7 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
-const io = std.io;
 const maxInt = std.math.maxInt;
 
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
@@ -6451,4 +6450,20 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     for (expected_errors, 0..) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
+}
+
+test "fuzz ast parse" {
+    try std.testing.fuzz({}, fuzzTestOneParse, .{});
+}
+
+fn fuzzTestOneParse(_: void, input: []const u8) !void {
+    // The first byte holds if zig / zon
+    if (input.len == 0) return;
+    const mode: std.zig.Ast.Mode = if (input[0] & 1 == 0) .zig else .zon;
+    const bytes = input[1..];
+
+    var fba: std.heap.FixedBufferAllocator = .init(&fixed_buffer_mem);
+    const allocator = fba.allocator();
+    const source = allocator.dupeZ(u8, bytes) catch return;
+    _ = std.zig.Ast.parse(allocator, source, mode) catch return;
 }

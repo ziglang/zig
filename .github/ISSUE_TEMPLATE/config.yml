@@ -5,6 +5,9 @@ contact_links:
   - name: Question
     about: Please use one of the community spaces for questions or general discussions.
     url: https://github.com/ziglang/zig/wiki/Community
+  - name: C Translation
+    about: "Issues related to `zig translate-c` and `@cImport` are tracked separately."
+    url: https://github.com/ziglang/translate-c/
   - name: Copilot and Other LLMs
     about: Please do not use GitHub Copilot or any other LLM to write an issue.
     url: https://github.com/ziglang/zig/wiki/Writing-Issues-with-Copilot-and-Other-LLMs

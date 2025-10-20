@@ -11,8 +11,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:14: error: expected type 'f32', found 'f64'
 // :9:19: error: expected type 'f32', found 'f64'

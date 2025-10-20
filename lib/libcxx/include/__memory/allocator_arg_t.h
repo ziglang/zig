@@ -23,7 +23,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-struct _LIBCPP_TEMPLATE_VIS allocator_arg_t {
+struct allocator_arg_t {
   explicit allocator_arg_t() = default;
 };
 

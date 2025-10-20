@@ -245,9 +245,7 @@ pub fn deinit(self: *CodeSignature, allocator: Allocator) void {
 }
 
 pub fn addEntitlements(self: *CodeSignature, allocator: Allocator, path: []const u8) !void {
-    const file = try fs.cwd().openFile(path, .{});
-    defer file.close();
-    const inner = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
+    const inner = try fs.cwd().readFileAlloc(path, allocator, .limited(std.math.maxInt(u32)));
     self.entitlements = .{ .inner = inner };
 }
 
@@ -263,7 +261,7 @@ pub fn writeAdhocSignature(
     self: *CodeSignature,
     macho_file: *MachO,
     opts: WriteOpts,
-    writer: anytype,
+    writer: *std.Io.Writer,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -304,10 +302,10 @@ pub fn writeAdhocSignature(
     var hash: [hash_size]u8 = undefined;
 
     if (self.requirements) |*req| {
-        var buf = std.array_list.Managed(u8).init(allocator);
-        defer buf.deinit();
-        try req.write(buf.writer());
-        Sha256.hash(buf.items, &hash, .{});
+        var a: std.Io.Writer.Allocating = .init(allocator);
+        defer a.deinit();
+        try req.write(&a.writer);
+        Sha256.hash(a.written(), &hash, .{});
         self.code_directory.addSpecialHash(req.slotType(), hash);
 
         try blobs.append(.{ .requirements = req });
@@ -316,10 +314,10 @@ pub fn writeAdhocSignature(
     }
 
     if (self.entitlements) |*ents| {
-        var buf = std.array_list.Managed(u8).init(allocator);
-        defer buf.deinit();
-        try ents.write(buf.writer());
-        Sha256.hash(buf.items, &hash, .{});
+        var a: std.Io.Writer.Allocating = .init(allocator);
+        defer a.deinit();
+        try ents.write(&a.writer);
+        Sha256.hash(a.written(), &hash, .{});
         self.code_directory.addSpecialHash(ents.slotType(), hash);
 
         try blobs.append(.{ .entitlements = ents });

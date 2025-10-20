@@ -27,6 +27,13 @@ const js = struct {
         /// Whether the LLVM backend was used. If not, LLVM-specific statistics are hidden.
         use_llvm: bool,
     ) void;
+    extern "time_report" fn updateRunTest(
+        /// The index of the step.
+        step_idx: u32,
+        // The HTML which will populate the <tbody> of the test table.
+        table_html_ptr: [*]const u8,
+        table_html_len: usize,
+    ) void;
 };
 
 pub fn genericResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
@@ -44,7 +51,7 @@ pub fn genericResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     js.updateGeneric(msg.step_idx, inner_html.ptr, inner_html.len);
 }
 
-pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
+pub fn compileResultMessage(msg_bytes: []u8) error{ OutOfMemory, WriteFailed }!void {
     const max_table_rows = 500;
 
     if (msg_bytes.len < @sizeOf(abi.CompileResult)) @panic("malformed CompileResult message");
@@ -166,10 +173,11 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     });
     defer gpa.free(inner_html);
 
-    var file_table_html: std.ArrayListUnmanaged(u8) = .empty;
-    defer file_table_html.deinit(gpa);
+    var file_table_html: std.Io.Writer.Allocating = .init(gpa);
+    defer file_table_html.deinit();
+
     for (slowest_files[0..@min(max_table_rows, slowest_files.len)]) |file| {
-        try file_table_html.writer(gpa).print(
+        try file_table_html.writer.print(
             \\<tr>
             \\  <th scope="row"><code>{f}</code></th>
             \\  <td>{D}</td>
@@ -187,17 +195,17 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
         });
     }
     if (slowest_files.len > max_table_rows) {
-        try file_table_html.writer(gpa).print(
+        try file_table_html.writer.print(
             \\<tr><td colspan="4">{d} more rows omitted</td></tr>
             \\
         , .{slowest_files.len - max_table_rows});
     }
 
-    var decl_table_html: std.ArrayListUnmanaged(u8) = .empty;
-    defer decl_table_html.deinit(gpa);
+    var decl_table_html: std.Io.Writer.Allocating = .init(gpa);
+    defer decl_table_html.deinit();
 
     for (slowest_decls[0..@min(max_table_rows, slowest_decls.len)]) |decl| {
-        try decl_table_html.writer(gpa).print(
+        try decl_table_html.writer.print(
             \\<tr>
             \\  <th scope="row"><code>{f}</code></th>
             \\  <th scope="row"><code>{f}</code></th>
@@ -219,7 +227,7 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
         });
     }
     if (slowest_decls.len > max_table_rows) {
-        try decl_table_html.writer(gpa).print(
+        try decl_table_html.writer.print(
             \\<tr><td colspan="6">{d} more rows omitted</td></tr>
             \\
         , .{slowest_decls.len - max_table_rows});
@@ -229,10 +237,44 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
         hdr.step_idx,
         inner_html.ptr,
         inner_html.len,
-        file_table_html.items.ptr,
-        file_table_html.items.len,
-        decl_table_html.items.ptr,
-        decl_table_html.items.len,
+        file_table_html.written().ptr,
+        file_table_html.written().len,
+        decl_table_html.written().ptr,
+        decl_table_html.written().len,
         hdr.flags.use_llvm,
+    );
+}
+
+pub fn runTestResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
+    if (msg_bytes.len < @sizeOf(abi.RunTestResult)) @panic("malformed RunTestResult message");
+    const hdr: *const abi.RunTestResult = @ptrCast(msg_bytes[0..@sizeOf(abi.RunTestResult)]);
+    if (hdr.step_idx >= step_list.*.len) @panic("malformed RunTestResult message");
+    const trailing = msg_bytes[@sizeOf(abi.RunTestResult)..];
+
+    const durations: []align(1) const u64 = @ptrCast(trailing[0 .. hdr.tests_len * 8]);
+    var offset: usize = hdr.tests_len * 8;
+
+    var table_html: std.ArrayListUnmanaged(u8) = .empty;
+    defer table_html.deinit(gpa);
+
+    for (durations) |test_ns| {
+        const test_name_len = std.mem.indexOfScalar(u8, trailing[offset..], 0) orelse @panic("malformed RunTestResult message");
+        const test_name = trailing[offset..][0..test_name_len];
+        offset += test_name_len + 1;
+        try table_html.print(gpa, "<tr><th scope=\"row\"><code>{f}</code></th>", .{fmtEscapeHtml(test_name)});
+        if (test_ns == std.math.maxInt(u64)) {
+            try table_html.appendSlice(gpa, "<td class=\"empty-cell\"></td>"); // didn't run
+        } else {
+            try table_html.print(gpa, "<td>{D}</td>", .{test_ns});
+        }
+        try table_html.appendSlice(gpa, "</tr>\n");
+    }
+
+    if (offset != trailing.len) @panic("malformed RunTestResult message");
+
+    js.updateRunTest(
+        hdr.step_idx,
+        table_html.items.ptr,
+        table_html.items.len,
     );
 }

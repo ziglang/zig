@@ -22,6 +22,7 @@ pub const Os = struct {
         contiki,
         fuchsia,
         hermit,
+        managarm,
 
         aix,
         haiku,
@@ -50,9 +51,12 @@ pub const Os = struct {
         windows,
         uefi,
 
+        @"3ds",
+
         ps3,
         ps4,
         ps5,
+        vita,
 
         emscripten,
         wasi,
@@ -155,6 +159,8 @@ pub const Os = struct {
                 .freestanding,
                 .other,
 
+                .managarm,
+
                 .haiku,
                 .plan9,
                 .serenity,
@@ -193,6 +199,10 @@ pub const Os = struct {
                 .solaris,
 
                 .uefi,
+
+                .@"3ds",
+
+                .vita,
 
                 .wasi,
 
@@ -301,7 +311,7 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(wv: WindowsVersion, w: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(wv: WindowsVersion, w: *std.Io.Writer) std.Io.Writer.Error!void {
             if (std.enums.tagName(WindowsVersion, wv)) |name| {
                 var vecs: [2][]const u8 = .{ ".", name };
                 return w.writeVecAll(&vecs);
@@ -380,6 +390,8 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
+
+                .managarm,
 
                 .haiku,
                 .plan9,
@@ -601,6 +613,26 @@ pub const Os = struct {
                     .semver = .{
                         .min = .{ .major = 2, .minor = 0, .patch = 0 },
                         .max = .{ .major = 2, .minor = 11, .patch = 0 },
+                    },
+                },
+
+                .@"3ds" => .{
+                    .semver = .{
+                        // These signify release versions (https://www.3dbrew.org/wiki/NCCH/Extended_Header#ARM11_Kernel_Capabilities)
+                        // which are different from user-facing system versions (https://www.3dbrew.org/wiki/Home_Menu#System_Versions_List).
+                        //
+                        // Multiple system versions could refer to the same release version.
+                        // The comment indicates the system version that release version was introduced (for minimum) and the latest (for maximum).
+                        .min = .{ .major = 2, .minor = 27, .patch = 0 }, // 1.0.0-0
+                        .max = .{ .major = 2, .minor = 58, .patch = 0 }, // 11.17.0-50
+                    },
+                },
+
+                .vita => .{
+                    .semver = .{
+                        // 1.3 is the first public release
+                        .min = .{ .major = 1, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 60, .patch = 0 },
                     },
                 },
 
@@ -861,11 +893,14 @@ pub const Abi = enum {
             .tvos, .visionos, .watchos => if (arch == .x86_64) .simulator else .none,
             .windows => .gnu,
             .uefi => .msvc,
+            .@"3ds" => .eabihf,
+            .vita => .eabihf,
             .wasi, .emscripten => .musl,
 
             .contiki,
             .fuchsia,
             .hermit,
+            .managarm,
             .plan9,
             .serenity,
             .zos,
@@ -1027,7 +1062,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .powerpc, .powerpcle => .PPC,
         .powerpc64, .powerpc64le => .PPC64,
         .propeller => .PROPELLER,
-        .riscv32, .riscv64 => .RISCV,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => .RISCV,
         .s390x => .S390,
         .sparc => if (target.cpu.has(.sparc, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
@@ -1047,7 +1082,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
     };
 }
 
-pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
+pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
     return switch (target.cpu.arch) {
         .arm => .ARM,
         .thumb => .ARMNT,
@@ -1057,7 +1092,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
         .riscv32 => .RISCV32,
         .riscv64 => .RISCV64,
         .x86 => .I386,
-        .x86_64 => .X64,
+        .x86_64 => .AMD64,
 
         .amdgcn,
         .arc,
@@ -1084,6 +1119,8 @@ pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
+        .riscv32be,
+        .riscv64be,
         .s390x,
         .sparc,
         .sparc64,
@@ -1144,13 +1181,13 @@ pub const Cpu = struct {
         pub const Set = struct {
             ints: [usize_count]usize,
 
-            pub const needed_bit_count = 288;
+            pub const needed_bit_count = 317;
             pub const byte_count = (needed_bit_count + 7) / 8;
             pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
             pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
             pub const ShiftInt = std.math.Log2Int(usize);
 
-            pub const empty = Set{ .ints = [1]usize{0} ** usize_count };
+            pub const empty: Set = .{ .ints = @splat(0) };
 
             pub fn isEmpty(set: Set) bool {
                 return for (set.ints) |x| {
@@ -1295,7 +1332,9 @@ pub const Cpu = struct {
         powerpc64le,
         propeller,
         riscv32,
+        riscv32be,
         riscv64,
+        riscv64be,
         s390x,
         sparc,
         sparc64,
@@ -1325,6 +1364,7 @@ pub const Cpu = struct {
         // - sparcel
         // - spir
         // - spir64
+        // - spirv
         // - tce
         // - tcele
 
@@ -1381,7 +1421,7 @@ pub const Cpu = struct {
                 .nvptx, .nvptx64 => .nvptx,
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => .powerpc,
                 .propeller => .propeller,
-                .riscv32, .riscv64 => .riscv,
+                .riscv32, .riscv32be, .riscv64, .riscv64be => .riscv,
                 .s390x => .s390x,
                 .sparc, .sparc64 => .sparc,
                 .spirv32, .spirv64 => .spirv,
@@ -1437,8 +1477,19 @@ pub const Cpu = struct {
         }
 
         pub inline fn isRISCV(arch: Arch) bool {
+            return arch.isRiscv32() or arch.isRiscv64();
+        }
+
+        pub inline fn isRiscv32(arch: Arch) bool {
             return switch (arch) {
-                .riscv32, .riscv64 => true,
+                .riscv32, .riscv32be => true,
+                else => false,
+            };
+        }
+
+        pub inline fn isRiscv64(arch: Arch) bool {
+            return switch (arch) {
+                .riscv64, .riscv64be => true,
                 else => false,
             };
         }
@@ -1561,6 +1612,8 @@ pub const Cpu = struct {
                 .or1k,
                 .powerpc,
                 .powerpc64,
+                .riscv32be,
+                .riscv64be,
                 .thumbeb,
                 .sparc,
                 .sparc64,
@@ -1673,12 +1726,12 @@ pub const Cpu = struct {
                 .riscv64_lp64,
                 .riscv64_lp64_v,
                 .riscv64_interrupt,
-                => &.{.riscv64},
+                => &.{ .riscv64, .riscv64be },
 
                 .riscv32_ilp32,
                 .riscv32_ilp32_v,
                 .riscv32_interrupt,
-                => &.{.riscv32},
+                => &.{ .riscv32, .riscv32be },
 
                 .sparc64_sysv,
                 => &.{.sparc64},
@@ -1701,6 +1754,7 @@ pub const Cpu = struct {
                 => &.{ .wasm64, .wasm32 },
 
                 .arc_sysv,
+                .arc_interrupt,
                 => &.{.arc},
 
                 .avr_gnu,
@@ -1807,8 +1861,8 @@ pub const Cpu = struct {
                 .powerpc, .powerpcle => &powerpc.cpu.ppc,
                 .powerpc64, .powerpc64le => &powerpc.cpu.ppc64,
                 .propeller => &propeller.cpu.p1,
-                .riscv32 => &riscv.cpu.generic_rv32,
-                .riscv64 => &riscv.cpu.generic_rv64,
+                .riscv32, .riscv32be => &riscv.cpu.generic_rv32,
+                .riscv64, .riscv64be => &riscv.cpu.generic_rv64,
                 .sparc64 => &sparc.cpu.v9, // SPARC can only be 64-bit from v9 and up.
                 .wasm32, .wasm64 => &wasm.cpu.mvp,
                 .x86 => &x86.cpu.i386,
@@ -1828,7 +1882,16 @@ pub const Cpu = struct {
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
                 .amdgcn => &amdgcn.cpu.gfx906,
-                .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                .arm => switch (os.tag) {
+                    .@"3ds" => &arm.cpu.mpcore,
+                    .vita => &arm.cpu.cortex_a9,
+                    else => &arm.cpu.baseline,
+                },
+                .thumb => switch (os.tag) {
+                    .vita => &arm.cpu.cortex_a9,
+                    else => &arm.cpu.baseline,
+                },
+                .armeb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
                     .driverkit, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
@@ -1841,17 +1904,25 @@ pub const Cpu = struct {
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
-                .loongarch64 => &loongarch.cpu.loongarch64,
+                .loongarch64 => &loongarch.cpu.la64v1_0,
                 .m68k => &m68k.cpu.M68000,
                 .mips, .mipsel => &mips.cpu.mips32r2,
                 .mips64, .mips64el => &mips.cpu.mips64r2,
                 .msp430 => &msp430.cpu.msp430,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
                 .powerpc64le => &powerpc.cpu.ppc64le,
-                .riscv32 => &riscv.cpu.baseline_rv32,
-                .riscv64 => &riscv.cpu.baseline_rv64,
-                .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
+                .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
+                .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
+                // gcc/clang do not have a generic s390x model.
+                .s390x => switch (os.tag) {
+                    .zos => &s390x.cpu.arch10,
+                    else => &s390x.cpu.arch8,
+                },
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
+                .sparc64 => switch (os.tag) {
+                    .solaris => &sparc.cpu.ultrasparc3,
+                    else => generic(arch),
+                },
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
                     .driverkit => &x86.cpu.nehalem,
@@ -1872,35 +1943,6 @@ pub const Cpu = struct {
     /// of features that is expected to be supported on most available hardware.
     pub fn baseline(arch: Arch, os: Os) Cpu {
         return Model.baseline(arch, os).toCpu(arch);
-    }
-
-    /// Returns whether this architecture supports `address_space`. If `context` is `null`, this
-    /// function simply answers the general question of whether the architecture has any concept
-    /// of `address_space`; if non-`null`, the function additionally checks whether
-    /// `address_space` is valid in that context.
-    pub fn supportsAddressSpace(
-        cpu: Cpu,
-        address_space: std.builtin.AddressSpace,
-        context: ?std.builtin.AddressSpace.Context,
-    ) bool {
-        const arch = cpu.arch;
-
-        const is_nvptx = arch.isNvptx();
-        const is_spirv = arch.isSpirV();
-        const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
-
-        return switch (address_space) {
-            .generic => true,
-            .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
-            .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
-            .cog, .hub => arch == .propeller,
-            .lut => arch == .propeller and cpu.has(.propeller, .p2),
-
-            .global, .local, .shared => is_gpu,
-            .constant => is_gpu and (context == null or context == .constant),
-            .param => is_nvptx,
-            .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
-        };
     }
 
     /// Returns true if `feature` is enabled.
@@ -2034,6 +2076,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .netbsd,
         .freestanding,
         .fuchsia,
+        .managarm,
         .ps3,
         .zos,
         .rtems,
@@ -2042,6 +2085,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .amdhsa,
         .ps4,
         .ps5,
+        .vita,
         .mesa3d,
         .contiki,
         .amdpal,
@@ -2055,7 +2099,37 @@ pub fn requiresLibC(target: *const Target) bool {
         .vulkan,
         .plan9,
         .other,
+        .@"3ds",
         => false,
+    };
+}
+
+/// Returns whether this target supports `address_space`. If `context` is `null`, this
+/// function simply answers the general question of whether the target has any concept
+/// of `address_space`; if non-`null`, the function additionally checks whether
+/// `address_space` is valid in that context.
+pub fn supportsAddressSpace(
+    target: Target,
+    address_space: std.builtin.AddressSpace,
+    context: ?std.builtin.AddressSpace.Context,
+) bool {
+    const arch = target.cpu.arch;
+
+    const is_nvptx = arch.isNvptx();
+    const is_spirv = arch.isSpirV();
+    const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
+
+    return switch (address_space) {
+        .generic => true,
+        .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
+        .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
+        .cog, .hub => arch == .propeller,
+        .lut => arch == .propeller and std.Target.propeller.featureSetHas(target.cpu.features, .p2),
+
+        .global, .local, .shared => is_gpu,
+        .constant => is_gpu and (context == null or context == .constant),
+        .param => is_nvptx,
+        .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
     };
 }
 
@@ -2144,6 +2218,7 @@ pub const DynamicLinker = struct {
 
             .contiki,
             .hermit,
+            .managarm, // Needs to be double-checked.
 
             .aix,
             .plan9,
@@ -2152,6 +2227,8 @@ pub const DynamicLinker = struct {
 
             .uefi,
             .windows,
+
+            .@"3ds",
 
             .emscripten,
             .wasi,
@@ -2168,6 +2245,7 @@ pub const DynamicLinker = struct {
             .ps3,
             .ps4,
             .ps5,
+            .vita,
             => .none,
         };
     }
@@ -2386,9 +2464,9 @@ pub const DynamicLinker = struct {
                         => init("/lib/ld.so.1"),
                         else => none,
                     },
-                    // TODO: ELFv2 ABI (`/lib64/ld64.so.2`) opt-in support.
-                    .powerpc64 => if (abi == .gnu) init("/lib64/ld64.so.1") else none,
-                    .powerpc64le => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
+                    .powerpc64,
+                    .powerpc64le,
+                    => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
 
                     .riscv32,
                     .riscv64,
@@ -2537,6 +2615,10 @@ pub const DynamicLinker = struct {
             .uefi,
             .windows,
 
+            .@"3ds",
+
+            .vita,
+
             .emscripten,
             .wasi,
 
@@ -2552,6 +2634,8 @@ pub const DynamicLinker = struct {
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
+            .managarm,
+
             .ps3,
             .ps4,
             .ps5,
@@ -2591,6 +2675,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .powerpc,
         .powerpcle,
         .riscv32,
+        .riscv32be,
         .thumb,
         .thumbeb,
         .x86,
@@ -2613,6 +2698,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .powerpc64,
         .powerpc64le,
         .riscv64,
+        .riscv64be,
         .x86_64,
         .nvptx64,
         .wasm64,
@@ -2667,7 +2753,9 @@ pub fn stackAlignment(target: *const Target) u16 {
         .powerpc64le,
         => if (target.os.tag == .linux or target.os.tag == .aix) return 16,
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         => if (!target.cpu.has(.riscv, .e)) return 16,
         .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
         .x86_64 => return 16,
@@ -2700,7 +2788,9 @@ pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
         .powerpc64le,
         .s390x,
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         .xcore,
         .xtensa,
         => .unsigned,
@@ -2814,7 +2904,9 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                     },
 
                     .riscv32,
+                    .riscv32be,
                     .riscv64,
+                    .riscv64be,
                     .aarch64,
                     .aarch64_be,
                     .s390x,
@@ -2933,7 +3025,9 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                     },
 
                     .riscv32,
+                    .riscv32be,
                     .riscv64,
+                    .riscv64be,
                     .aarch64,
                     .aarch64_be,
                     .s390x,
@@ -3044,6 +3138,13 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .longdouble => return 128,
         },
 
+        .@"3ds" => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint, .float, .long, .ulong => return 32,
+            .longlong, .ulonglong, .double, .longdouble => return 64,
+        },
+
         .ps4, .ps5 => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
@@ -3052,9 +3153,17 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .longlong, .ulonglong, .double => return 64,
             .longdouble => return 80,
         },
+        .vita => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint, .float => return 32,
+            .long, .ulong => return 64,
+            .longlong, .ulonglong, .double, .longdouble => return 64,
+        },
 
         .ps3,
         .contiki,
+        .managarm,
         .opengl,
         => @panic("specify the C integer and float type sizes for this OS"),
     }
@@ -3073,6 +3182,10 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
                 },
                 else => {},
             },
+            else => {},
+        },
+        .m68k => switch (c_type) {
+            .int, .uint, .long, .ulong => return 2,
             else => {},
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
@@ -3138,7 +3251,9 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .powerpc64,
             .powerpc64le,
             .riscv32,
+            .riscv32be,
             .riscv64,
+            .riscv64be,
             .sparc64,
             .spirv32,
             .spirv64,
@@ -3174,6 +3289,10 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
                 .longdouble => return 4,
                 else => {},
             },
+        },
+        .m68k => switch (c_type) {
+            .int, .uint, .long, .ulong => return 2,
+            else => {},
         },
         .wasm32, .wasm64 => switch (target.os.tag) {
             .emscripten => switch (c_type) {
@@ -3230,7 +3349,9 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .powerpc64,
             .powerpc64le,
             .riscv32,
+            .riscv32be,
             .riscv64,
+            .riscv64be,
             .sparc64,
             .spirv32,
             .spirv64,
@@ -3269,6 +3390,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .powerpc,
         .powerpcle,
         .riscv32,
+        .riscv32be,
         .s390x,
         => 8,
 
@@ -3284,6 +3406,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .powerpc64,
         .powerpc64le,
         .riscv64,
+        .riscv64be,
         .sparc,
         .sparc64,
         .wasm32,
@@ -3333,8 +3456,8 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             else => .{ .mips64_n64 = .{} },
         },
         .mips, .mipsel => .{ .mips_o32 = .{} },
-        .riscv64 => .{ .riscv64_lp64 = .{} },
-        .riscv32 => .{ .riscv32_ilp32 = .{} },
+        .riscv64, .riscv64be => .{ .riscv64_lp64 = .{} },
+        .riscv32, .riscv32be => .{ .riscv32_ilp32 = .{} },
         .sparc64 => .{ .sparc64_sysv = .{} },
         .sparc => .{ .sparc_sysv = .{} },
         .powerpc64 => if (target.abi.isMusl())

@@ -7,7 +7,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:18: error: expected integer tag type, found 'f32'

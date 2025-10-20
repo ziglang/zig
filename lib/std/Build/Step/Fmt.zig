@@ -67,7 +67,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         argv.appendAssumeCapacity(b.pathFromRoot(p));
     }
 
-    const run_result = try step.captureChildProcess(prog_node, argv.items);
+    const run_result = try step.captureChildProcess(options.gpa, prog_node, argv.items);
     if (fmt.check) switch (run_result.term) {
         .Exited => |code| if (code != 0 and run_result.stdout.len != 0) {
             var it = std.mem.tokenizeScalar(u8, run_result.stdout, '\n');
@@ -77,5 +77,5 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         },
         else => {},
     };
-    try step.handleChildProcessTerm(run_result.term, null, argv.items);
+    try step.handleChildProcessTerm(run_result.term);
 }

@@ -3,7 +3,7 @@ thread_pool: *std.Thread.Pool,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
 listen_address: std.net.Address,
-ttyconf: std.io.tty.Config,
+ttyconf: std.Io.tty.Config,
 root_prog_node: std.Progress.Node,
 watch: bool,
 
@@ -53,7 +53,7 @@ pub const Options = struct {
     thread_pool: *std.Thread.Pool,
     graph: *const std.Build.Graph,
     all_steps: []const *Build.Step,
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
     root_prog_node: std.Progress.Node,
     watch: bool,
     listen_address: std.net.Address,
@@ -219,12 +219,20 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
             // Affects or affected by issues #5185, #22523, and #22464.
             std.process.fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
         }
+
         assert(ws.fuzz == null);
 
         ws.build_status.store(.fuzz_init, .monotonic);
         ws.notifyUpdate();
 
-        ws.fuzz = Fuzz.init(ws) catch |err| std.process.fatal("failed to start fuzzer: {s}", .{@errorName(err)});
+        ws.fuzz = Fuzz.init(
+            ws.gpa,
+            ws.thread_pool,
+            ws.all_steps,
+            ws.root_prog_node,
+            ws.ttyconf,
+            .{ .forever = .{ .ws = ws } },
+        ) catch |err| std.process.fatal("failed to start fuzzer: {s}", .{@errorName(err)});
         ws.fuzz.?.start();
     }
 
@@ -323,7 +331,7 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
                 // Temporarily unlock, then re-lock after the message is sent.
                 ws.time_report_mutex.unlock();
                 defer ws.time_report_mutex.lock();
-                try sock.writeMessage(msg, .binary);
+                try sock.writeMessage(owned_msg, .binary);
             }
         }
 
@@ -446,7 +454,7 @@ pub fn serveFile(
     // The desired API is actually sendfile, which will require enhancing http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
-    const file_contents = path.root_dir.handle.readFileAlloc(gpa, path.sub_path, 10 * 1024 * 1024) catch |err| {
+    const file_contents = path.root_dir.handle.readFileAlloc(path.sub_path, gpa, .limited(10 * 1024 * 1024)) catch |err| {
         log.err("failed to read '{f}': {s}", .{ path, @errorName(err) });
         return error.AlreadyReported;
     };
@@ -557,7 +565,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     child.stderr_behavior = .Pipe;
     try child.spawn();
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -587,19 +595,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
                 }
             },
             .error_bundle => {
-                const EbHdr = std.zig.Server.Message.ErrorBundle;
-                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                const extra_bytes =
-                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                const string_bytes =
-                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                const unaligned_extra: []align(1) const u32 = @ptrCast(extra_bytes);
-                const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                @memcpy(extra_array, unaligned_extra);
-                result_error_bundle = .{
-                    .string_bytes = try arena.dupe(u8, string_bytes),
-                    .extra = extra_array,
-                };
+                result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
             },
             .emit_digest => {
                 const EmitDigest = std.zig.Server.Message.EmitDigest;
@@ -745,6 +741,64 @@ pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, ns_total: u64)
         .step_idx = step_idx,
         .ns_total = ns_total,
     };
+    {
+        ws.time_report_mutex.lock();
+        defer ws.time_report_mutex.unlock();
+        assert(ws.time_report_msgs[step_idx].len == 0);
+        ws.time_report_msgs[step_idx] = buf;
+        ws.time_report_update_times[step_idx] = ws.now();
+    }
+    ws.notifyUpdate();
+}
+
+pub fn updateTimeReportRunTest(
+    ws: *WebServer,
+    run: *Build.Step.Run,
+    tests: *const Build.Step.Run.CachedTestMetadata,
+    ns_per_test: []const u64,
+) void {
+    const gpa = ws.gpa;
+
+    const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
+        if (s == &run.step) break @intCast(i);
+    } else unreachable;
+
+    assert(tests.names.len == ns_per_test.len);
+    const tests_len: u32 = @intCast(tests.names.len);
+
+    const new_len: u64 = len: {
+        var names_len: u64 = 0;
+        for (0..tests_len) |i| {
+            names_len += tests.testName(@intCast(i)).len + 1;
+        }
+        break :len @sizeOf(abi.time_report.RunTestResult) + names_len + 8 * tests_len;
+    };
+    const old_buf = old: {
+        ws.time_report_mutex.lock();
+        defer ws.time_report_mutex.unlock();
+        const old = ws.time_report_msgs[step_idx];
+        ws.time_report_msgs[step_idx] = &.{};
+        break :old old;
+    };
+    const buf = gpa.realloc(old_buf, new_len) catch @panic("out of memory");
+
+    const out_header: *align(1) abi.time_report.RunTestResult = @ptrCast(buf[0..@sizeOf(abi.time_report.RunTestResult)]);
+    out_header.* = .{
+        .step_idx = step_idx,
+        .tests_len = tests_len,
+    };
+    var offset: usize = @sizeOf(abi.time_report.RunTestResult);
+    const ns_per_test_out: []align(1) u64 = @ptrCast(buf[offset..][0 .. tests_len * 8]);
+    @memcpy(ns_per_test_out, ns_per_test);
+    offset += tests_len * 8;
+    for (0..tests_len) |i| {
+        const name = tests.testName(@intCast(i));
+        @memcpy(buf[offset..][0..name.len], name);
+        buf[offset..][name.len] = 0;
+        offset += name.len + 1;
+    }
+    assert(offset == buf.len);
+
     {
         ws.time_report_mutex.lock();
         defer ws.time_report_mutex.unlock();

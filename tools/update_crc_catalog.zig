@@ -88,10 +88,9 @@ pub fn main() anyerror!void {
         \\
     );
 
-    var stream = std.io.fixedBufferStream(catalog_txt);
-    const reader = stream.reader();
+    var reader: std.Io.Reader = .fixed(catalog_txt);
 
-    while (try reader.readUntilDelimiterOrEofAlloc(arena, '\n', std.math.maxInt(usize))) |line| {
+    while (try reader.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#')
             continue;
 
@@ -195,7 +194,7 @@ fn printUsageAndExit(arg0: []const u8) noreturn {
     std.process.exit(1);
 }
 
-fn printUsage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     return w.print(
         \\Usage: {s} /path/git/zig
         \\

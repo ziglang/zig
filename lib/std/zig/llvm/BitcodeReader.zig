@@ -154,7 +154,11 @@ pub fn next(bc: *BitcodeReader) !?Item {
             Abbrev.Builtin.enter_subblock.toRecordId() => {
                 const block_id: u32 = @intCast(record.operands[0]);
                 switch (block_id) {
-                    Block.block_info => try bc.parseBlockInfoBlock(),
+                    Block.block_info => {
+                        try bc.startBlock(Block.block_info, @intCast(record.operands[1]));
+                        try bc.parseBlockInfoBlock();
+                        try bc.endBlock();
+                    },
                     Block.first_reserved...Block.last_standard => return error.UnsupportedBlockId,
                     else => {
                         try bc.startBlock(block_id, @intCast(record.operands[1]));

@@ -33,8 +33,6 @@ export fn entry8() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: variable of type '*const comptime_int' must be const or comptime
 // :6:9: error: variable of type '@TypeOf(undefined)' must be const or comptime
