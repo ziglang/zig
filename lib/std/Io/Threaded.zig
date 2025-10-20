@@ -164,7 +164,7 @@ pub fn io(t: *Threaded) Io {
             .conditionWake = conditionWake,
 
             .dirMake = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => dirMakeWindows,
                 .wasi => dirMakeWasi,
                 else => dirMakePosix,
             },
@@ -966,6 +966,28 @@ fn dirMakeWasi(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: I
             else => |err| return posix.unexpectedErrno(err),
         }
     }
+}
+
+fn dirMakeWindows(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    try t.checkCancel();
+
+    const sub_path_w = try windows.sliceToPrefixedFileW(dir.handle, sub_path);
+    _ = mode;
+    const sub_dir_handle = windows.OpenFile(sub_path_w.span(), .{
+        .dir = dir.handle,
+        .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
+        .creation = windows.FILE_CREATE,
+        .filter = .dir_only,
+    }) catch |err| switch (err) {
+        error.IsDir => return error.Unexpected,
+        error.PipeBusy => return error.Unexpected,
+        error.NoDevice => return error.Unexpected,
+        error.WouldBlock => return error.Unexpected,
+        error.AntivirusInterference => return error.Unexpected,
+        else => |e| return e,
+    };
+    windows.CloseHandle(sub_dir_handle);
 }
 
 fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
@@ -3164,7 +3186,7 @@ fn netInterfaceNameResolve(
 
     if (native_os == .windows) {
         try t.checkCancel();
-        const index = std.os.windows.ws2_32.if_nametoindex(&name.bytes);
+        const index = windows.ws2_32.if_nametoindex(&name.bytes);
         if (index == 0) return error.InterfaceNotFound;
         return .{ .index = index };
     }
