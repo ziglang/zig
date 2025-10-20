@@ -8092,6 +8092,13 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
 
         .avr_signal => "signal",
 
+        .microblaze_interrupt => |opts| switch (opts.type) {
+            .user => "save_volatiles",
+            .regular => "interrupt_handler",
+            .fast => "fast_interrupt",
+            .breakpoint => "break_handler",
+        },
+
         .mips_interrupt,
         .mips64_interrupt,
         => |opts| switch (opts.mode) {

@@ -9135,6 +9135,7 @@ fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
         .avr_signal,
         .csky_interrupt,
         .m68k_interrupt,
+        .microblaze_interrupt,
         .mips_interrupt,
         .mips64_interrupt,
         .msp430_interrupt,
@@ -9295,6 +9296,7 @@ fn funcCommon(
             },
             .arc_interrupt,
             .arm_interrupt,
+            .microblaze_interrupt,
             .mips64_interrupt,
             .mips_interrupt,
             .riscv64_interrupt,
@@ -9530,6 +9532,7 @@ fn finishFunc(
         .avr_interrupt,
         .csky_interrupt,
         .m68k_interrupt,
+        .microblaze_interrupt,
         .msp430_interrupt,
         .avr_signal,
         => if (return_type.zigTypeTag(zcu) != .void and return_type.zigTypeTag(zcu) != .noreturn) {
@@ -30055,6 +30058,9 @@ fn callconvCoerceAllowed(
                     if (src_data.type != dest_data.type) return false;
                 },
                 std.builtin.CallingConvention.ArmInterruptOptions => {
+                    if (src_data.type != dest_data.type) return false;
+                },
+                std.builtin.CallingConvention.MicroblazeInterruptOptions => {
                     if (src_data.type != dest_data.type) return false;
                 },
                 std.builtin.CallingConvention.MipsInterruptOptions => {

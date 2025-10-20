@@ -323,6 +323,7 @@ pub const CallingConvention = union(enum(u8)) {
 
     /// The standard `microblaze`/`microblazeel` calling convention.
     microblaze_std: CommonOptions,
+    microblaze_interrupt: MicroblazeInterruptOptions,
 
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
@@ -418,6 +419,25 @@ pub const CallingConvention = union(enum(u8)) {
             swi,
             abort,
             undef,
+        };
+    };
+
+    /// Options for the `microblaze_interrupt` calling convention.
+    pub const MicroblazeInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        type: InterruptType = .regular,
+
+        pub const InterruptType = enum(u2) {
+            /// User exception; return with `rtsd`.
+            user,
+            /// Regular interrupt; return with `rtid`.
+            regular,
+            /// Fast interrupt; return with `rtid`.
+            fast,
+            /// Software breakpoint; return with `rtbd`.
+            breakpoint,
         };
     };
 

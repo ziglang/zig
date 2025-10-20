@@ -4438,6 +4438,9 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .arm_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
+                .microblaze_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
                 .mips_interrupt,
                 .mips64_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,

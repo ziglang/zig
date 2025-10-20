@@ -12960,6 +12960,11 @@ const PackedCallingConvention = packed struct(u18) {
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = @intFromEnum(pl.type),
                 },
+                std.builtin.CallingConvention.MicroblazeInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.type),
+                },
                 std.builtin.CallingConvention.MipsInterruptOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
@@ -12994,6 +12999,10 @@ const PackedCallingConvention = packed struct(u18) {
                         .type = @enumFromInt(cc.extra),
                     },
                     std.builtin.CallingConvention.ArmInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .type = @enumFromInt(cc.extra),
+                    },
+                    std.builtin.CallingConvention.MicroblazeInterruptOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .type = @enumFromInt(cc.extra),
                     },
