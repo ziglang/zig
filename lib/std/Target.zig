@@ -1923,6 +1923,7 @@ pub const Cpu = struct {
 
                 .sh_gnu,
                 .sh_renesas,
+                .sh_interrupt,
                 => &.{ .sh, .sheb },
 
                 .ve_sysv,

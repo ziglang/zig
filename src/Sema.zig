@@ -9141,6 +9141,7 @@ fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
         .msp430_interrupt,
         .riscv32_interrupt,
         .riscv64_interrupt,
+        .sh_interrupt,
         .x86_interrupt,
         .x86_64_interrupt,
 
@@ -9301,6 +9302,7 @@ fn funcCommon(
             .mips_interrupt,
             .riscv64_interrupt,
             .riscv32_interrupt,
+            .sh_interrupt,
             .avr_interrupt,
             .csky_interrupt,
             .m68k_interrupt,
@@ -9528,6 +9530,7 @@ fn finishFunc(
         .mips_interrupt,
         .riscv64_interrupt,
         .riscv32_interrupt,
+        .sh_interrupt,
         .arc_interrupt,
         .avr_interrupt,
         .csky_interrupt,
@@ -30068,6 +30071,9 @@ fn callconvCoerceAllowed(
                 },
                 std.builtin.CallingConvention.RiscvInterruptOptions => {
                     if (src_data.mode != dest_data.mode) return false;
+                },
+                std.builtin.CallingConvention.ShInterruptOptions => {
+                    if (src_data.save != dest_data.save) return false;
                 },
                 else => comptime unreachable,
             }

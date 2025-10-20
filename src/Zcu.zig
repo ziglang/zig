@@ -4449,6 +4449,9 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .riscv64_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
+                .sh_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
                 .x86_sysv,
                 .x86_win,
                 .x86_stdcall,

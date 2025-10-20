@@ -8114,6 +8114,12 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         },
 
         .sh_renesas => "renesas",
+        .sh_interrupt => |opts| switch (opts.save) {
+            .fpscr => "trapa_handler", // Implies `interrupt_handler`.
+            .high => "interrupt_handler, nosave_low_regs",
+            .full => "interrupt_handler",
+            .bank => "interrupt_handler, resbank",
+        },
 
         .m68k_rtd => "m68k_rtd",
 

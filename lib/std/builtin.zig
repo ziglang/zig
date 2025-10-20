@@ -342,6 +342,7 @@ pub const CallingConvention = union(enum(u8)) {
     // Calling conventions for the `sh`/`sheb` architecture.
     sh_gnu: CommonOptions,
     sh_renesas: CommonOptions,
+    sh_interrupt: ShInterruptOptions,
 
     /// The standard `ve` calling convention.
     ve_sysv: CommonOptions,
@@ -473,6 +474,25 @@ pub const CallingConvention = union(enum(u8)) {
         pub const PrivilegeMode = enum(u2) {
             supervisor,
             machine,
+        };
+    };
+
+    /// Options for the `sh_interrupt` calling convention.
+    pub const ShInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        save: SaveBehavior = .full,
+
+        pub const SaveBehavior = enum(u3) {
+            /// Save only fpscr (if applicable).
+            fpscr,
+            /// Save only high-numbered registers, i.e. r0 through r7 are *not* saved.
+            high,
+            /// Save all registers normally.
+            full,
+            /// Save all registers using the CPU's fast register bank.
+            bank,
         };
     };
 
