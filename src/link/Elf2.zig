@@ -546,7 +546,7 @@ fn initHeaders(
         break :phndx phnum;
     } else undefined;
 
-    const expected_nodes_len = 15;
+    const expected_nodes_len = 5 + phnum * 2;
     try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     try elf.phdrs.resize(gpa, phnum);
     elf.nodes.appendAssumeCapacity(.file);
@@ -808,25 +808,6 @@ fn initHeaders(
     Symbol.Index.shstrtab.node(elf).slice(&elf.mf)[0] = 0;
     Symbol.Index.strtab.node(elf).slice(&elf.mf)[0] = 0;
 
-    if (maybe_interp) |interp| {
-        try elf.nodes.ensureUnusedCapacity(gpa, 1);
-        const interp_ni = try elf.mf.addLastChildNode(gpa, Node.Known.rodata, .{
-            .size = interp.len + 1,
-            .moved = true,
-            .resized = true,
-        });
-        elf.nodes.appendAssumeCapacity(.{ .segment = interp_phndx });
-        elf.phdrs.items[interp_phndx] = interp_ni;
-
-        const sec_interp_si = try elf.addSection(interp_ni, .{
-            .name = ".interp",
-            .size = @intCast(interp.len + 1),
-            .flags = .{ .ALLOC = true },
-        });
-        const sec_interp = sec_interp_si.node(elf).slice(&elf.mf);
-        @memcpy(sec_interp[0..interp.len], interp);
-        sec_interp[interp.len] = 0;
-    }
     assert(try elf.addSection(Node.Known.rodata, .{
         .name = ".rodata",
         .flags = .{ .ALLOC = true },
@@ -856,6 +837,25 @@ fn initHeaders(
             .flags = .{ .WRITE = true, .ALLOC = true, .TLS = true },
             .addralign = elf.mf.flags.block_size,
         }) == .tdata);
+    }
+    if (maybe_interp) |interp| {
+        try elf.nodes.ensureUnusedCapacity(gpa, 1);
+        const interp_ni = try elf.mf.addLastChildNode(gpa, Node.Known.rodata, .{
+            .size = interp.len + 1,
+            .moved = true,
+            .resized = true,
+        });
+        elf.nodes.appendAssumeCapacity(.{ .segment = interp_phndx });
+        elf.phdrs.items[interp_phndx] = interp_ni;
+
+        const sec_interp_si = try elf.addSection(interp_ni, .{
+            .name = ".interp",
+            .size = @intCast(interp.len + 1),
+            .flags = .{ .ALLOC = true },
+        });
+        const sec_interp = sec_interp_si.node(elf).slice(&elf.mf);
+        @memcpy(sec_interp[0..interp.len], interp);
+        sec_interp[interp.len] = 0;
     }
     assert(elf.nodes.len == expected_nodes_len);
 }
@@ -1070,6 +1070,32 @@ fn navType(
                 .OBJECT,
             .func => .FUNC,
         },
+    };
+}
+fn navSection(
+    elf: *Elf,
+    ip: *const InternPool,
+    nav_fr: @FieldType(@FieldType(InternPool.Nav, "status"), "fully_resolved"),
+) Symbol.Index {
+    if (nav_fr.@"linksection".toSlice(ip)) |@"linksection"| {
+        if (std.mem.eql(u8, @"linksection", ".rodata") or
+            std.mem.startsWith(u8, @"linksection", ".rodata.")) return .rodata;
+        if (std.mem.eql(u8, @"linksection", ".text") or
+            std.mem.startsWith(u8, @"linksection", ".text.")) return .text;
+        if (std.mem.eql(u8, @"linksection", ".data") or
+            std.mem.startsWith(u8, @"linksection", ".data.")) return .data;
+        if (std.mem.eql(u8, @"linksection", ".tdata") or
+            std.mem.startsWith(u8, @"linksection", ".tdata.")) return .tdata;
+    }
+    return switch (navType(
+        ip,
+        .{ .fully_resolved = nav_fr },
+        elf.base.comp.config.any_non_single_threaded,
+    )) {
+        else => unreachable,
+        .FUNC => .text,
+        .OBJECT => .data,
+        .TLS => .tdata,
     };
 }
 fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavMapIndex {
@@ -1312,18 +1338,16 @@ pub fn updateNav(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) 
     };
 }
 fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
-    const comp = elf.base.comp;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
     const nav = ip.getNav(nav_index);
     const nav_val = nav.status.fully_resolved.val;
-    const nav_init, const is_threadlocal = switch (ip.indexToKey(nav_val)) {
-        else => .{ nav_val, false },
-        .variable => |variable| .{ variable.init, variable.is_threadlocal },
-        .@"extern" => return,
-        .func => .{ .none, false },
+    const nav_init = switch (ip.indexToKey(nav_val)) {
+        else => nav_val,
+        .variable => |variable| variable.init,
+        .@"extern", .func => .none,
     };
     if (nav_init == .none or !Type.fromInterned(ip.typeOf(nav_init)).hasRuntimeBits(zcu)) return;
 
@@ -1334,8 +1358,7 @@ fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index)
         switch (sym.ni) {
             .none => {
                 try elf.nodes.ensureUnusedCapacity(gpa, 1);
-                const sec_si: Symbol.Index =
-                    if (is_threadlocal and comp.config.any_non_single_threaded) .tdata else .data;
+                const sec_si = elf.navSection(ip, nav.status.fully_resolved);
                 const ni = try elf.mf.addLastChildNode(gpa, sec_si.node(elf), .{
                     .alignment = pt.navAlignment(nav_index).toStdMem(),
                     .moved = true,
@@ -1452,9 +1475,10 @@ fn updateFuncInner(
         switch (sym.ni) {
             .none => {
                 try elf.nodes.ensureUnusedCapacity(gpa, 1);
+                const sec_si = elf.navSection(ip, nav.status.fully_resolved);
                 const mod = zcu.navFileScope(func.owner_nav).mod.?;
                 const target = &mod.resolved_target.result;
-                const ni = try elf.mf.addLastChildNode(gpa, Symbol.Index.text.node(elf), .{
+                const ni = try elf.mf.addLastChildNode(gpa, sec_si.node(elf), .{
                     .alignment = switch (nav.status.fully_resolved.alignment) {
                         .none => switch (mod.optimize_mode) {
                             .Debug,
@@ -1471,7 +1495,7 @@ fn updateFuncInner(
                 sym.ni = ni;
                 switch (elf.symPtr(si)) {
                     inline else => |sym_ptr, class| sym_ptr.shndx =
-                        @field(elf.symPtr(.text), @tagName(class)).shndx,
+                        @field(elf.symPtr(sec_si), @tagName(class)).shndx,
                 }
             },
             else => si.deleteLocationRelocs(elf),

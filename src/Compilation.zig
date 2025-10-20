@@ -1985,7 +1985,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                 switch (target_util.zigBackend(target, use_llvm)) {
                     else => {},
                     .stage2_aarch64, .stage2_x86_64 => if (target.ofmt == .coff) {
-                        break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+                        break :s if (is_exe_or_dyn_lib and build_options.have_llvm) .dyn_lib else .zcu;
                     },
                 }
                 if (options.config.use_new_linker) break :s .zcu;
@@ -5640,6 +5640,7 @@ pub fn obtainWin32ResourceCacheManifest(comp: *const Compilation) Cache.Manifest
 }
 
 pub const CImportResult = struct {
+    // Only valid if `errors` is not empty
     digest: [Cache.bin_digest_len]u8,
     cache_hit: bool,
     errors: std.zig.ErrorBundle,
@@ -5648,6 +5649,146 @@ pub const CImportResult = struct {
         result.errors.deinit(gpa);
     }
 };
+
+pub fn translateC(
+    comp: *Compilation,
+    arena: Allocator,
+    man: *Cache.Manifest,
+    ext: FileExt,
+    source: union(enum) {
+        path: []const u8,
+        c_src: []const u8,
+    },
+    translated_basename: []const u8,
+    owner_mod: *Package.Module,
+    prog_node: std.Progress.Node,
+) !CImportResult {
+    dev.check(.translate_c_command);
+
+    const tmp_basename = std.fmt.hex(std.crypto.random.int(u64));
+    const tmp_sub_path = "tmp" ++ fs.path.sep_str ++ tmp_basename;
+    const cache_dir = comp.dirs.local_cache.handle;
+    var cache_tmp_dir = try cache_dir.makeOpenPath(tmp_sub_path, .{});
+    defer cache_tmp_dir.close();
+
+    const translated_path = try comp.dirs.local_cache.join(arena, &.{ tmp_sub_path, translated_basename });
+    const source_path = switch (source) {
+        .c_src => |c_src| path: {
+            const cimport_basename = "cimport.h";
+            const out_h_sub_path = tmp_sub_path ++ fs.path.sep_str ++ cimport_basename;
+            const out_h_path = try comp.dirs.local_cache.join(arena, &.{out_h_sub_path});
+            if (comp.verbose_cimport) log.info("writing C import source to {s}", .{out_h_path});
+            try cache_dir.writeFile(.{ .sub_path = out_h_sub_path, .data = c_src });
+            break :path out_h_path;
+        },
+        .path => |p| p,
+    };
+
+    const out_dep_path: ?[]const u8 = blk: {
+        if (comp.disable_c_depfile) break :blk null;
+        const c_src_basename = fs.path.basename(source_path);
+        const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
+        const out_dep_path = try comp.dirs.local_cache.join(arena, &.{ tmp_sub_path, dep_basename });
+        break :blk out_dep_path;
+    };
+
+    var argv = std.array_list.Managed([]const u8).init(arena);
+    {
+        const target = &owner_mod.resolved_target.result;
+        try argv.appendSlice(&.{ "--zig-integration", "-x", "c" });
+
+        const resource_path = try comp.dirs.zig_lib.join(arena, &.{ "compiler", "aro", "include" });
+        try argv.appendSlice(&.{ "-isystem", resource_path });
+        try comp.addCommonCCArgs(arena, &argv, ext, out_dep_path, owner_mod, .aro);
+        try argv.appendSlice(&[_][]const u8{ "-target", try target.zigTriple(arena) });
+
+        const mcpu = mcpu: {
+            var buf: std.ArrayListUnmanaged(u8) = .empty;
+            defer buf.deinit(comp.gpa);
+
+            try buf.print(comp.gpa, "-mcpu={s}", .{target.cpu.model.name});
+
+            // TODO better serialization https://github.com/ziglang/zig/issues/4584
+            const all_features_list = target.cpu.arch.allFeaturesList();
+            try argv.ensureUnusedCapacity(all_features_list.len * 4);
+            for (all_features_list, 0..) |feature, index_usize| {
+                const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
+                const is_enabled = target.cpu.features.isEnabled(index);
+
+                const plus_or_minus = "-+"[@intFromBool(is_enabled)];
+                try buf.print(comp.gpa, "{c}{s}", .{ plus_or_minus, feature.name });
+            }
+            break :mcpu try buf.toOwnedSlice(arena);
+        };
+        try argv.append(mcpu);
+
+        try argv.appendSlice(comp.global_cc_argv);
+        try argv.appendSlice(owner_mod.cc_argv);
+        try argv.appendSlice(&.{ source_path, "-o", translated_path });
+        if (comp.verbose_cimport) dump_argv(argv.items);
+    }
+
+    var stdout: []u8 = undefined;
+    try @import("main.zig").translateC(comp.gpa, arena, argv.items, prog_node, &stdout);
+
+    if (out_dep_path) |dep_file_path| add_deps: {
+        if (comp.verbose_cimport) log.info("processing dep file at {s}", .{dep_file_path});
+
+        const dep_basename = fs.path.basename(dep_file_path);
+        // Add the files depended on to the cache system, if a dep file was emitted
+        man.addDepFilePost(cache_tmp_dir, dep_basename) catch |err| switch (err) {
+            error.FileNotFound => break :add_deps,
+            else => |e| return e,
+        };
+
+        switch (comp.cache_use) {
+            .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
+                whole.cache_manifest_mutex.lock();
+                defer whole.cache_manifest_mutex.unlock();
+                try whole_cache_manifest.addDepFilePost(cache_tmp_dir, dep_basename);
+            },
+            .incremental, .none => {},
+        }
+
+        // Just to save disk space, we delete the file because it is never needed again.
+        cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+            log.warn("failed to delete '{s}': {t}", .{ dep_file_path, err });
+        };
+    }
+
+    if (stdout.len > 0) {
+        var reader: std.Io.Reader = .fixed(stdout);
+        const MessageHeader = std.zig.Server.Message.Header;
+        const header = reader.takeStruct(MessageHeader, .little) catch |err|
+            fatal("unable to read translate-c MessageHeader: {s}", .{@errorName(err)});
+        const body = reader.take(header.bytes_len) catch |err|
+            fatal("unable to read {}-byte translate-c message body: {s}", .{ header.bytes_len, @errorName(err) });
+        switch (header.tag) {
+            .error_bundle => {
+                const error_bundle = try std.zig.Server.allocErrorBundle(comp.gpa, body);
+                return .{
+                    .digest = undefined,
+                    .cache_hit = false,
+                    .errors = error_bundle,
+                };
+            },
+            else => fatal("unexpected message type received from translate-c: {s}", .{@tagName(header.tag)}),
+        }
+    }
+
+    const bin_digest = man.finalBin();
+    const hex_digest = Cache.binToHex(bin_digest);
+    const o_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
+
+    if (comp.verbose_cimport) log.info("renaming {s} to {s}", .{ tmp_sub_path, o_sub_path });
+    try renameTmpIntoCache(comp.dirs.local_cache, tmp_sub_path, o_sub_path);
+
+    return .{
+        .digest = bin_digest,
+        .cache_hit = false,
+        .errors = ErrorBundle.empty,
+    };
+}
 
 /// Caller owns returned memory.
 pub fn cImport(
@@ -5658,67 +5799,35 @@ pub fn cImport(
 ) !CImportResult {
     dev.check(.translate_c_command);
 
-    const cimport_basename = "cimport.h";
     const translated_basename = "cimport.zig";
 
     var man = comp.obtainCObjectCacheManifest(owner_mod);
     defer man.deinit();
 
-    man.hash.add(@as(u16, 0x7dd9)); // Random number to distinguish translate-c from compiling C objects
+    man.hash.add(@as(u16, 0x7dd9)); // Random number to distinguish c-import from compiling C objects
     man.hash.addBytes(c_src);
 
-    const digest, const is_hit = if (try man.hit()) .{ man.finalBin(), true } else digest: {
+    const result: CImportResult = if (try man.hit()) .{
+        .digest = man.finalBin(),
+        .cache_hit = true,
+        .errors = ErrorBundle.empty,
+    } else result: {
         var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const tmp_basename = std.fmt.hex(std.crypto.random.int(u64));
-        const tmp_sub_path = "tmp" ++ fs.path.sep_str ++ tmp_basename;
-        const cache_dir = comp.dirs.local_cache.handle;
-        const out_h_sub_path = tmp_sub_path ++ fs.path.sep_str ++ cimport_basename;
-
-        try cache_dir.makePath(tmp_sub_path);
-
-        const out_h_path = try comp.dirs.local_cache.join(arena, &.{out_h_sub_path});
-        const translated_path = try comp.dirs.local_cache.join(arena, &.{ tmp_sub_path, translated_basename });
-        const out_dep_path = try std.fmt.allocPrint(arena, "{s}.d", .{out_h_path});
-
-        if (comp.verbose_cimport) log.info("writing C import source to {s}", .{out_h_path});
-        try cache_dir.writeFile(.{ .sub_path = out_h_sub_path, .data = c_src });
-
-        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
-        defer argv.deinit();
-        try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path, owner_mod);
-        try argv.appendSlice(&.{ out_h_path, "-o", translated_path });
-
-        if (comp.verbose_cc) dump_argv(argv.items);
-        var stdout: []u8 = undefined;
-        try @import("main.zig").translateC(comp.gpa, arena, argv.items, prog_node, &stdout);
-        if (comp.verbose_cimport and stdout.len != 0) log.info("unexpected stdout: {s}", .{stdout});
-
-        const dep_sub_path = out_h_sub_path ++ ".d";
-        if (comp.verbose_cimport) log.info("processing dep file at {s}", .{dep_sub_path});
-        try man.addDepFilePost(cache_dir, dep_sub_path);
-        switch (comp.cache_use) {
-            .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
-                whole.cache_manifest_mutex.lock();
-                defer whole.cache_manifest_mutex.unlock();
-                try whole_cache_manifest.addDepFilePost(cache_dir, dep_sub_path);
-            },
-            .incremental, .none => {},
-        }
-
-        const bin_digest = man.finalBin();
-        const hex_digest = Cache.binToHex(bin_digest);
-        const o_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
-
-        if (comp.verbose_cimport) log.info("renaming {s} to {s}", .{ tmp_sub_path, o_sub_path });
-        try renameTmpIntoCache(comp.dirs.local_cache, tmp_sub_path, o_sub_path);
-
-        break :digest .{ bin_digest, false };
+        break :result try comp.translateC(
+            arena,
+            &man,
+            .c,
+            .{ .c_src = c_src },
+            translated_basename,
+            owner_mod,
+            prog_node,
+        );
     };
 
-    if (man.have_exclusive_lock) {
+    if (result.errors.errorMessageCount() == 0 and man.have_exclusive_lock) {
         // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
         // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
         // the contents were the same, we hit the cache but the manifest is dirty and we need to update
@@ -5728,11 +5837,7 @@ pub fn cImport(
         };
     }
 
-    return .{
-        .digest = digest,
-        .cache_hit = is_hit,
-        .errors = std.zig.ErrorBundle.empty,
-    };
+    return result;
 }
 
 fn workerUpdateCObject(
@@ -6622,19 +6727,7 @@ fn spawnZigRc(
             // We expect exactly one ErrorBundle, and if any error_bundle header is
             // sent then it's a fatal error.
             .error_bundle => {
-                const EbHdr = std.zig.Server.Message.ErrorBundle;
-                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                const extra_bytes =
-                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                const string_bytes =
-                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                const extra_array = try comp.gpa.alloc(u32, unaligned_extra.len);
-                @memcpy(extra_array, unaligned_extra);
-                const error_bundle = std.zig.ErrorBundle{
-                    .string_bytes = try comp.gpa.dupe(u8, string_bytes),
-                    .extra = extra_array,
-                };
+                const error_bundle = try std.zig.Server.allocErrorBundle(comp.gpa, body);
                 return comp.failWin32ResourceWithOwnedBundle(win32_resource, error_bundle);
             },
             else => {}, // ignore other messages
@@ -6670,49 +6763,6 @@ pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error
     } else {
         return std.fmt.allocPrint(ally, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
     }
-}
-
-pub fn addTranslateCCArgs(
-    comp: *Compilation,
-    arena: Allocator,
-    argv: *std.array_list.Managed([]const u8),
-    ext: FileExt,
-    out_dep_path: ?[]const u8,
-    owner_mod: *Package.Module,
-) !void {
-    const target = &owner_mod.resolved_target.result;
-
-    try argv.appendSlice(&.{ "-x", "c" });
-
-    const resource_path = try comp.dirs.zig_lib.join(arena, &.{"compiler/aro/include"});
-    try argv.appendSlice(&.{ "-isystem", resource_path });
-
-    try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, owner_mod, .aro);
-
-    try argv.appendSlice(&[_][]const u8{ "-target", try target.zigTriple(arena) });
-
-    const mcpu = mcpu: {
-        var buf: std.ArrayListUnmanaged(u8) = .empty;
-        defer buf.deinit(comp.gpa);
-
-        try buf.print(comp.gpa, "-mcpu={s}", .{target.cpu.model.name});
-
-        // TODO better serialization https://github.com/ziglang/zig/issues/4584
-        const all_features_list = target.cpu.arch.allFeaturesList();
-        try argv.ensureUnusedCapacity(all_features_list.len * 4);
-        for (all_features_list, 0..) |feature, index_usize| {
-            const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-            const is_enabled = target.cpu.features.isEnabled(index);
-
-            const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-            try buf.print(comp.gpa, "{c}{s}", .{ plus_or_minus, feature.name });
-        }
-        break :mcpu try buf.toOwnedSlice(arena);
-    };
-    try argv.append(mcpu);
-
-    try argv.appendSlice(comp.global_cc_argv);
-    try argv.appendSlice(owner_mod.cc_argv);
 }
 
 /// Add common C compiler args between translate-c and C object compilation.

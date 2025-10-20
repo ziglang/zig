@@ -259,20 +259,7 @@ const Eval = struct {
 
             switch (header.tag) {
                 .error_bundle => {
-                    const EbHdr = std.zig.Server.Message.ErrorBundle;
-                    const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                    const extra_bytes =
-                        body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                    const string_bytes =
-                        body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                    // TODO: use @ptrCast when the compiler supports it
-                    const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                    const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                    @memcpy(extra_array, unaligned_extra);
-                    const result_error_bundle: std.zig.ErrorBundle = .{
-                        .string_bytes = try arena.dupe(u8, string_bytes),
-                        .extra = extra_array,
-                    };
+                    const result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
                     if (stderr.bufferedLen() > 0) {
                         const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {

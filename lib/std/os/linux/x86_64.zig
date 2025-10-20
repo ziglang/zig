@@ -1,48 +1,34 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
-const linux = std.os.linux;
-const SYS = linux.SYS;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
+const SYS = std.os.linux.SYS;
 
-const pid_t = linux.pid_t;
-const uid_t = linux.uid_t;
-const gid_t = linux.gid_t;
-const clock_t = linux.clock_t;
-const stack_t = linux.stack_t;
-const sigset_t = linux.sigset_t;
-const sockaddr = linux.sockaddr;
-const socklen_t = linux.socklen_t;
-const timespec = linux.timespec;
-
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -50,9 +36,9 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -61,9 +47,9 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -75,15 +61,15 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+) u64 {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize),
+        : [ret] "={rax}" (-> u64),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
@@ -94,7 +80,7 @@ pub fn syscall6(
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u64 {
     asm volatile (
         \\      movl $56,%%eax // SYS_clone
         \\      movq %%rdi,%%r11
@@ -131,7 +117,7 @@ pub fn clone() callconv(.naked) usize {
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.naked) noreturn {
-    switch (@import("builtin").zig_backend) {
+    switch (builtin.zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ syscall
@@ -146,34 +132,14 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const mode_t = usize;
-pub const time_t = isize;
-pub const nlink_t = usize;
-pub const blksize_t = isize;
-pub const blkcnt_t = isize;
-
-pub const F = struct {
-    pub const DUPFD = 0;
-    pub const GETFD = 1;
-    pub const SETFD = 2;
-    pub const GETFL = 3;
-    pub const SETFL = 4;
-    pub const GETLK = 5;
-    pub const SETLK = 6;
-    pub const SETLKW = 7;
-    pub const SETOWN = 8;
-    pub const GETOWN = 9;
-    pub const SETSIG = 10;
-    pub const GETSIG = 11;
-
-    pub const SETOWN_EX = 15;
-    pub const GETOWN_EX = 16;
-    pub const GETOWNER_UIDS = 17;
-
-    pub const RDLCK = 0;
-    pub const WRLCK = 1;
-    pub const UNLCK = 2;
-};
+pub const mode_t = u64;
+pub const time_t = i64;
+pub const nlink_t = u64;
+pub const blksize_t = i64;
+pub const blkcnt_t = i64;
+pub const off_t = i64;
+pub const ino_t = u64;
+pub const dev_t = u64;
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
@@ -190,59 +156,35 @@ pub const ARCH = struct {
     pub const GET_GS = 0x1004;
 };
 
-pub const Flock = extern struct {
-    type: i16,
-    whence: i16,
-    start: off_t,
-    len: off_t,
-    pid: pid_t,
-};
-
-pub const off_t = i64;
-pub const ino_t = u64;
-pub const dev_t = u64;
-
 // The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {
     dev: dev_t,
     ino: ino_t,
-    nlink: usize,
+    nlink: u64,
 
     mode: u32,
-    uid: uid_t,
-    gid: gid_t,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
     __pad0: u32,
     rdev: dev_t,
     size: off_t,
-    blksize: isize,
+    blksize: i64,
     blocks: i64,
 
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-    __unused: [3]isize,
+    atim: std.os.linux.timespec,
+    mtim: std.os.linux.timespec,
+    ctim: std.os.linux.timespec,
+    __unused: [3]i64,
 
-    pub fn atime(self: @This()) timespec {
+    pub fn atime(self: @This()) std.os.linux.timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: @This()) timespec {
+    pub fn mtime(self: @This()) std.os.linux.timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: @This()) timespec {
+    pub fn ctime(self: @This()) std.os.linux.timespec {
         return self.ctim;
     }
 };
-
-pub const timeval = extern struct {
-    sec: isize,
-    usec: isize,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
-
-pub const Elf_Symndx = u32;

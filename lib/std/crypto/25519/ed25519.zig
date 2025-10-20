@@ -587,8 +587,7 @@ test "signature" {
 }
 
 test "batch verification" {
-    var i: usize = 0;
-    while (i < 100) : (i += 1) {
+    for (0..16) |_| {
         const key_pair = Ed25519.KeyPair.generate();
         var msg1: [32]u8 = undefined;
         var msg2: [32]u8 = undefined;

@@ -421,10 +421,10 @@ pub fn DebugAllocator(comptime config: Config) type {
             return usedBitsCount(slot_count) * @sizeOf(usize);
         }
 
-        fn detectLeaksInBucket(bucket: *BucketHeader, size_class_index: usize, used_bits_count: usize) bool {
+        fn detectLeaksInBucket(bucket: *BucketHeader, size_class_index: usize, used_bits_count: usize) usize {
             const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             const slot_count = slot_counts[size_class_index];
-            var leaks = false;
+            var leaks: usize = 0;
             for (0..used_bits_count) |used_bits_byte| {
                 const used_int = bucket.usedBits(used_bits_byte).*;
                 if (used_int != 0) {
@@ -437,7 +437,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                             const page_addr = @intFromPtr(bucket) & ~(page_size - 1);
                             const addr = page_addr + slot_index * size_class;
                             log.err("memory address 0x{x} leaked: {f}", .{ addr, stack_trace });
-                            leaks = true;
+                            leaks += 1;
                         }
                     }
                 }
@@ -445,16 +445,16 @@ pub fn DebugAllocator(comptime config: Config) type {
             return leaks;
         }
 
-        /// Emits log messages for leaks and then returns whether there were any leaks.
-        pub fn detectLeaks(self: *Self) bool {
-            var leaks = false;
+        /// Emits log messages for leaks and then returns the number of detected leaks (0 if no leaks were detected).
+        pub fn detectLeaks(self: *Self) usize {
+            var leaks: usize = 0;
 
             for (self.buckets, 0..) |init_optional_bucket, size_class_index| {
                 var optional_bucket = init_optional_bucket;
                 const slot_count = slot_counts[size_class_index];
                 const used_bits_count = usedBitsCount(slot_count);
                 while (optional_bucket) |bucket| {
-                    leaks = detectLeaksInBucket(bucket, size_class_index, used_bits_count) or leaks;
+                    leaks += detectLeaksInBucket(bucket, size_class_index, used_bits_count);
                     optional_bucket = bucket.prev;
                 }
             }
@@ -466,7 +466,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                 log.err("memory address 0x{x} leaked: {f}", .{
                     @intFromPtr(large_alloc.bytes.ptr), stack_trace,
                 });
-                leaks = true;
+                leaks += 1;
             }
             return leaks;
         }
@@ -498,11 +498,17 @@ pub fn DebugAllocator(comptime config: Config) type {
 
         /// Returns `std.heap.Check.leak` if there were leaks; `std.heap.Check.ok` otherwise.
         pub fn deinit(self: *Self) std.heap.Check {
-            const leaks = if (config.safety) self.detectLeaks() else false;
+            const leaks: usize = if (config.safety) self.detectLeaks() else 0;
+            self.deinitWithoutLeakChecks();
+            return if (leaks == 0) .ok else .leak;
+        }
+
+        /// Like `deinit`, but does not check for memory leaks. This is useful if leaks have already
+        /// been detected manually with `detectLeaks` to avoid reporting them for a second time.
+        pub fn deinitWithoutLeakChecks(self: *Self) void {
             if (config.retain_metadata) self.freeRetainedMetadata();
             self.large_allocations.deinit(self.backing_allocator);
             self.* = undefined;
-            return if (leaks) .leak else .ok;
         }
 
         fn collectStackTrace(first_trace_addr: usize, addr_buf: *[stack_n]usize) void {

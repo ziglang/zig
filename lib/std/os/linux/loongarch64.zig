@@ -1,48 +1,38 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const linux = std.os.linux;
-const SYS = linux.SYS;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const uid_t = linux.uid_t;
-const gid_t = linux.gid_t;
-const stack_t = linux.stack_t;
-const sigset_t = linux.sigset_t;
-const sockaddr = linux.sockaddr;
-const socklen_t = linux.socklen_t;
-const timespec = linux.timespec;
+const SYS = std.os.linux.SYS;
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u64 {
     return asm volatile (
         \\ syscall 0
-        : [ret] "={$r4}" (-> usize),
+        : [ret] "={$r4}" (-> u64),
         : [number] "{$r11}" (@intFromEnum(number)),
         : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u64) u64 {
     return asm volatile (
         \\ syscall 0
-        : [ret] "={$r4}" (-> usize),
+        : [ret] "={$r4}" (-> u64),
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
         : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
     return asm volatile (
         \\ syscall 0
-        : [ret] "={$r4}" (-> usize),
+        : [ret] "={$r4}" (-> u64),
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
           [arg2] "{$r5}" (arg2),
         : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
     return asm volatile (
         \\ syscall 0
-        : [ret] "={$r4}" (-> usize),
+        : [ret] "={$r4}" (-> u64),
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
           [arg2] "{$r5}" (arg2),
@@ -50,10 +40,10 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
     return asm volatile (
         \\ syscall 0
-        : [ret] "={$r4}" (-> usize),
+        : [ret] "={$r4}" (-> u64),
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
           [arg2] "{$r5}" (arg2),
@@ -62,10 +52,10 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
     return asm volatile (
         \\ syscall 0
-        : [ret] "={$r4}" (-> usize),
+        : [ret] "={$r4}" (-> u64),
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
           [arg2] "{$r5}" (arg2),
@@ -77,16 +67,16 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+) u64 {
     return asm volatile (
         \\ syscall 0
-        : [ret] "={$r4}" (-> usize),
+        : [ret] "={$r4}" (-> u64),
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
           [arg2] "{$r5}" (arg2),
@@ -97,7 +87,7 @@ pub fn syscall6(
         : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u64 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //           a0,    a1,    a2,  a3,   a4,  a5,   a6
     // sys_clone(flags, stack, ptid, ctid, tls)
@@ -150,64 +140,33 @@ pub const Stat = extern struct {
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
-    uid: uid_t,
-    gid: gid_t,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
     rdev: dev_t,
     _pad1: u64,
     size: off_t,
     blksize: blksize_t,
     _pad2: i32,
     blocks: blkcnt_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: std.os.linux.timespec,
+    mtim: std.os.linux.timespec,
+    ctim: std.os.linux.timespec,
     _pad3: [2]u32,
 
-    pub fn atime(self: @This()) timespec {
+    pub fn atime(self: @This()) std.os.linux.timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: @This()) timespec {
+    pub fn mtime(self: @This()) std.os.linux.timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: @This()) timespec {
+    pub fn ctime(self: @This()) std.os.linux.timespec {
         return self.ctim;
     }
-};
-
-pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: i64,
-};
-
-pub const F = struct {
-    pub const DUPFD = 0;
-    pub const GETFD = 1;
-    pub const SETFD = 2;
-    pub const GETFL = 3;
-    pub const SETFL = 4;
-    pub const GETLK = 5;
-    pub const SETLK = 6;
-    pub const SETLKW = 7;
-    pub const SETOWN = 8;
-    pub const GETOWN = 9;
-    pub const SETSIG = 10;
-    pub const GETSIG = 11;
-
-    pub const RDLCK = 0;
-    pub const WRLCK = 1;
-    pub const UNLCK = 2;
-
-    pub const SETOWN_EX = 15;
-    pub const GETOWN_EX = 16;
-
-    pub const GETOWNER_UIDS = 17;
 };
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_5.10";
 };
-
-pub const Elf_Symndx = u32;

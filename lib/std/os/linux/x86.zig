@@ -1,46 +1,34 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const maxInt = std.math.maxInt;
-const linux = std.os.linux;
-const SYS = linux.SYS;
-const socklen_t = linux.socklen_t;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const uid_t = linux.uid_t;
-const gid_t = linux.gid_t;
-const pid_t = linux.pid_t;
-const stack_t = linux.stack_t;
-const sigset_t = linux.sigset_t;
-const sockaddr = linux.sockaddr;
-const timespec = linux.timespec;
+const SYS = std.os.linux.SYS;
 
-pub fn syscall0(number: SYS) usize {
+pub fn syscall0(number: SYS) u32 {
     return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(number)),
         : .{ .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: usize) usize {
+pub fn syscall1(number: SYS, arg1: u32) u32 {
     return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
         : .{ .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
+pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
     return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
         : .{ .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
+pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
     return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
@@ -48,9 +36,9 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         : .{ .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
+pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
     return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
@@ -59,9 +47,9 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         : .{ .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u32) u32 {
     return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
@@ -73,20 +61,20 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
 
 pub fn syscall6(
     number: SYS,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    arg6: usize,
-) usize {
+    arg1: u32,
+    arg2: u32,
+    arg3: u32,
+    arg4: u32,
+    arg5: u32,
+    arg6: u32,
+) u32 {
     // arg6 can't be passed to asm in a register because ebp might be reserved as the frame pointer
     // and there are no more GPRs available; so we'll need a memory operand for it. Adding that
     // memory operand means that on PIC we might need a reference to the GOT, which in turn needs
     // *its* own GPR, so we need to pass another arg in memory too! This is surprisingly hard to get
     // right, because we can't touch esp or ebp until we're done with the memory input (as that
     // input could be relative to esp or ebp).
-    const args56: [2]usize = .{ arg5, arg6 };
+    const args56: [2]u32 = .{ arg5, arg6 };
     return asm volatile (
         \\ push %[args56]
         \\ push %%ebp
@@ -99,7 +87,7 @@ pub fn syscall6(
         \\ int  $0x80
         \\ pop  %%ebp
         \\ pop  %%edi
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
@@ -109,16 +97,16 @@ pub fn syscall6(
         : .{ .memory = true });
 }
 
-pub fn socketcall(call: usize, args: [*]const usize) usize {
+pub fn socketcall(call: u32, args: [*]const u32) u32 {
     return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> usize),
+        : [ret] "={eax}" (-> u32),
         : [number] "{eax}" (@intFromEnum(SYS.socketcall)),
           [arg1] "{ebx}" (call),
           [arg2] "{ecx}" (@intFromPtr(args)),
         : .{ .memory = true });
 }
 
-pub fn clone() callconv(.naked) usize {
+pub fn clone() callconv(.naked) u32 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         +8,   +12,   +16,   +20, +24,  +28, +32
     //
@@ -169,23 +157,23 @@ pub fn clone() callconv(.naked) usize {
 }
 
 pub fn restore() callconv(.naked) noreturn {
-    switch (@import("builtin").zig_backend) {
+    switch (builtin.zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
             :
             : [number] "i" (@intFromEnum(SYS.sigreturn)),
-            : .{ .memory = true }),
+        ),
         else => asm volatile (
             \\ int $0x80
             :
             : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),
-            : .{ .memory = true }),
+        ),
     }
 }
 
 pub fn restore_rt() callconv(.naked) noreturn {
-    switch (@import("builtin").zig_backend) {
+    switch (builtin.zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
@@ -200,46 +188,14 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const F = struct {
-    pub const DUPFD = 0;
-    pub const GETFD = 1;
-    pub const SETFD = 2;
-    pub const GETFL = 3;
-    pub const SETFL = 4;
-    pub const SETOWN = 8;
-    pub const GETOWN = 9;
-    pub const SETSIG = 10;
-    pub const GETSIG = 11;
-    pub const GETLK = 12;
-    pub const SETLK = 13;
-    pub const SETLKW = 14;
-    pub const SETOWN_EX = 15;
-    pub const GETOWN_EX = 16;
-    pub const GETOWNER_UIDS = 17;
-
-    pub const RDLCK = 0;
-    pub const WRLCK = 1;
-    pub const UNLCK = 2;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";
 };
 
-pub const ARCH = struct {};
-
-pub const Flock = extern struct {
-    type: i16,
-    whence: i16,
-    start: off_t,
-    len: off_t,
-    pid: pid_t,
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
-pub const time_t = isize;
+pub const time_t = i32;
 pub const mode_t = u32;
 pub const off_t = i64;
 pub const ino_t = u64;
@@ -253,42 +209,30 @@ pub const Stat = extern struct {
     __ino_truncated: u32,
     mode: mode_t,
     nlink: nlink_t,
-    uid: uid_t,
-    gid: gid_t,
+    uid: std.os.linux.uid_t,
+    gid: std.os.linux.gid_t,
     rdev: dev_t,
     __rdev_padding: u32,
     size: off_t,
     blksize: blksize_t,
     blocks: blkcnt_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: std.os.linux.timespec,
+    mtim: std.os.linux.timespec,
+    ctim: std.os.linux.timespec,
     ino: ino_t,
 
-    pub fn atime(self: @This()) timespec {
+    pub fn atime(self: @This()) std.os.linux.timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: @This()) timespec {
+    pub fn mtime(self: @This()) std.os.linux.timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: @This()) timespec {
+    pub fn ctime(self: @This()) std.os.linux.timespec {
         return self.ctim;
     }
 };
-
-pub const timeval = extern struct {
-    sec: i32,
-    usec: i32,
-};
-
-pub const timezone = extern struct {
-    minuteswest: i32,
-    dsttime: i32,
-};
-
-pub const Elf_Symndx = u32;
 
 pub const user_desc = extern struct {
     entry_number: u32,

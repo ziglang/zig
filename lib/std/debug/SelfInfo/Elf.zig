@@ -94,28 +94,27 @@ pub const can_unwind: bool = s: {
     // Notably, we are yet to support unwinding on ARM. There, unwinding is not done through
     // `.eh_frame`, but instead with the `.ARM.exidx` section, which has a different format.
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
-        // Not supported yet: arm, m68k, sparc64
+        // Not supported yet: arm
         .haiku => &.{
             .aarch64,
-            .powerpc,
+            .m68k,
             .riscv64,
             .x86,
             .x86_64,
         },
-        // Not supported yet: arc, arm/armeb/thumb/thumbeb, csky, m68k, or1k, sparc/sparc64, xtensa
+        // Not supported yet: arm/armeb/thumb/thumbeb, xtensa
         .linux => &.{
             .aarch64,
             .aarch64_be,
-            .hexagon,
+            .arc,
+            .csky,
             .loongarch64,
+            .m68k,
             .mips,
             .mipsel,
             .mips64,
             .mips64el,
-            .powerpc,
-            .powerpcle,
-            .powerpc64,
-            .powerpc64le,
+            .or1k,
             .riscv32,
             .riscv64,
             .s390x,
@@ -134,28 +133,24 @@ pub const can_unwind: bool = s: {
         // Not supported yet: arm
         .freebsd => &.{
             .aarch64,
-            .powerpc64,
-            .powerpc64le,
             .riscv64,
             .x86_64,
         },
-        // Not supported yet: arm/armeb, m68k, mips64/mips64el, sparc/sparc64
+        // Not supported yet: arm/armeb, mips64/mips64el
         .netbsd => &.{
             .aarch64,
             .aarch64_be,
+            .m68k,
             .mips,
             .mipsel,
-            .powerpc,
             .x86,
             .x86_64,
         },
-        // Not supported yet: arm, sparc64
+        // Not supported yet: arm
         .openbsd => &.{
             .aarch64,
             .mips64,
             .mips64el,
-            .powerpc,
-            .powerpc64,
             .riscv64,
             .x86,
             .x86_64,
@@ -165,7 +160,6 @@ pub const can_unwind: bool = s: {
             .x86,
             .x86_64,
         },
-        // Not supported yet: sparc64
         .solaris => &.{
             .x86_64,
         },

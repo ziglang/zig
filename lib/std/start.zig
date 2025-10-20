@@ -91,8 +91,9 @@ comptime {
                 // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                 // case it's not required to provide an entrypoint such as main.
                 if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
-            } else if (native_os != .other and native_os != .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name });
+            } else switch (native_os) {
+                .other, .freestanding, .@"3ds", .vita => {},
+                else => if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name }),
             }
         }
     }
@@ -202,6 +203,7 @@ fn _start() callconv(.naked) noreturn {
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
+            .or1k => ".cfi_undefined r9",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
             .riscv32, .riscv32be, .riscv64, .riscv64be => if (builtin.zig_backend == .stage2_riscv64)
                 ""
@@ -252,12 +254,11 @@ fn _start() callconv(.naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .arc =>
-            // The `arc` tag currently means ARC v1 and v2, which have an unusually low stack
-            // alignment requirement. ARC v3 increases it from 4 to 16, but we don't support v3 yet.
+            // ARC v1 and v2 had a very low stack alignment requirement of 4; v3 increased it to 16.
             \\ mov fp, 0
             \\ mov blink, 0
             \\ mov r0, sp
-            \\ and sp, sp, -4
+            \\ and sp, sp, -16
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
@@ -305,6 +306,14 @@ fn _start() callconv(.naked) noreturn {
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
+            .or1k =>
+            // r1 = SP, r2 = FP, r9 = LR
+            \\ l.ori r2, r0, 0
+            \\ l.ori r9, r0, 0
+            \\ l.ori r3, r1, 0
+            \\ l.andi r1, r1, -4
+            \\ l.jal %[posixCallMainAndExit]
+            ,
             .riscv32, .riscv32be, .riscv64, .riscv64be =>
             \\ li fp, 0
             \\ li ra, 0
@@ -325,43 +334,64 @@ fn _start() callconv(.naked) noreturn {
             \\ jsr (%%pc, %%a0)
             ,
             .mips, .mipsel =>
-            \\ move $fp, $0
+            \\ move $fp, $zero
             \\ bal 1f
             \\ .gpword .
             \\ .gpword %[posixCallMainAndExit]
-            \\ 1:
+            \\1:
             // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
             \\ lw $gp, 0($ra)
+            \\ nop
             \\ subu $gp, $ra, $gp
-            \\ lw $25, 4($ra)
-            \\ addu $25, $25, $gp
-            \\ move $ra, $0
+            \\ lw $t9, 4($ra)
+            \\ nop
+            \\ addu $t9, $t9, $gp
+            \\ move $ra, $zero
             \\ move $a0, $sp
             \\ and $sp, -8
             \\ subu $sp, $sp, 16
-            \\ jalr $25
+            \\ jalr $t9
             ,
-            .mips64, .mips64el =>
-            \\ move $fp, $0
-            // This is needed because early MIPS versions don't support misaligned loads. Without
-            // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
-            // cause the two doublewords to be aligned to 4 bytes instead of 8.
-            \\ .balign 8
-            \\ bal 1f
-            \\ .gpdword .
-            \\ .gpdword %[posixCallMainAndExit]
-            \\ 1:
-            // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
-            \\ ld $gp, 0($ra)
-            \\ dsubu $gp, $ra, $gp
-            \\ ld $25, 8($ra)
-            \\ daddu $25, $25, $gp
-            \\ move $ra, $0
-            \\ move $a0, $sp
-            \\ and $sp, -16
-            \\ dsubu $sp, $sp, 16
-            \\ jalr $25
-            ,
+            .mips64, .mips64el => switch (builtin.abi) {
+                .gnuabin32, .muslabin32 =>
+                \\ move $fp, $zero
+                \\ bal 1f
+                \\ .gpword .
+                \\ .gpword %[posixCallMainAndExit]
+                \\1:
+                // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
+                \\ lw $gp, 0($ra)
+                \\ subu $gp, $ra, $gp
+                \\ lw $t9, 4($ra)
+                \\ addu $t9, $t9, $gp
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ and $sp, -8
+                \\ subu $sp, $sp, 16
+                \\ jalr $t9
+                ,
+                else =>
+                \\ move $fp, $zero
+                // This is needed because early MIPS versions don't support misaligned loads. Without
+                // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
+                // cause the two doublewords to be aligned to 4 bytes instead of 8.
+                \\ .balign 8
+                \\ bal 1f
+                \\ .gpdword .
+                \\ .gpdword %[posixCallMainAndExit]
+                \\1:
+                // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
+                \\ ld $gp, 0($ra)
+                \\ dsubu $gp, $ra, $gp
+                \\ ld $t9, 8($ra)
+                \\ daddu $t9, $t9, $gp
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ and $sp, -16
+                \\ dsubu $sp, $sp, 16
+                \\ jalr $t9
+                ,
+            },
             .powerpc, .powerpcle =>
             // Set up the initial stack frame, and clear the back chain pointer.
             // r1 = SP, r31 = FP

@@ -249,55 +249,6 @@ pub const OptionalHeader = extern struct {
 
 pub const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
 
-pub const DirectoryEntry = enum(u16) {
-    /// Export Directory
-    EXPORT = 0,
-
-    /// Import Directory
-    IMPORT = 1,
-
-    /// Resource Directory
-    RESOURCE = 2,
-
-    /// Exception Directory
-    EXCEPTION = 3,
-
-    /// Security Directory
-    SECURITY = 4,
-
-    /// Base Relocation Table
-    BASERELOC = 5,
-
-    /// Debug Directory
-    DEBUG = 6,
-
-    /// Architecture Specific Data
-    ARCHITECTURE = 7,
-
-    /// RVA of GP
-    GLOBALPTR = 8,
-
-    /// TLS Directory
-    TLS = 9,
-
-    /// Load Configuration Directory
-    LOAD_CONFIG = 10,
-
-    /// Bound Import Directory in headers
-    BOUND_IMPORT = 11,
-
-    /// Import Address Table
-    IAT = 12,
-
-    /// Delay Load Import Descriptors
-    DELAY_IMPORT = 13,
-
-    /// COM Runtime descriptor
-    COM_DESCRIPTOR = 14,
-
-    _,
-};
-
 pub const ImageDataDirectory = extern struct {
     virtual_address: u32,
     size: u32,
@@ -1054,9 +1005,9 @@ pub const Coff = struct {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
-        if (@intFromEnum(DirectoryEntry.DEBUG) >= data_dirs.len) return null;
+        if (@intFromEnum(IMAGE.DIRECTORY_ENTRY.DEBUG) >= data_dirs.len) return null;
 
-        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
+        const debug_dir = data_dirs[@intFromEnum(IMAGE.DIRECTORY_ENTRY.DEBUG)];
         var reader: std.Io.Reader = .fixed(self.data);
 
         if (self.is_loaded) {
@@ -1400,6 +1351,44 @@ pub const Relocation = extern struct {
 };
 
 pub const IMAGE = struct {
+    pub const DIRECTORY_ENTRY = enum(u32) {
+        /// Export Directory
+        EXPORT = 0,
+        /// Import Directory
+        IMPORT = 1,
+        /// Resource Directory
+        RESOURCE = 2,
+        /// Exception Directory
+        EXCEPTION = 3,
+        /// Security Directory
+        SECURITY = 4,
+        /// Base Relocation Table
+        BASERELOC = 5,
+        /// Debug Directory
+        DEBUG = 6,
+        /// Architecture Specific Data
+        ARCHITECTURE = 7,
+        /// RVA of GP
+        GLOBALPTR = 8,
+        /// TLS Directory
+        TLS = 9,
+        /// Load Configuration Directory
+        LOAD_CONFIG = 10,
+        /// Bound Import Directory in headers
+        BOUND_IMPORT = 11,
+        /// Import Address Table
+        IAT = 12,
+        /// Delay Load Import Descriptors
+        DELAY_IMPORT = 13,
+        /// COM Runtime descriptor
+        COM_DESCRIPTOR = 14,
+        /// must be zero
+        RESERVED = 15,
+        _,
+
+        pub const len = @typeInfo(IMAGE.DIRECTORY_ENTRY).@"enum".fields.len;
+    };
+
     pub const FILE = struct {
         /// Machine Types
         /// The Machine field has one of the following values, which specify the CPU type.
