@@ -314,6 +314,12 @@ test "getuid" {
     _ = posix.geteuid();
 }
 
+test "getgid" {
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+    _ = posix.getgid();
+    _ = posix.getegid();
+}
+
 test "sigaltstack" {
     if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
