@@ -272,7 +272,7 @@ analysis_roots_len: usize = 0,
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
 /// Allocated into `gpa`.
-resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
+resolved_references: ?std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
 /// If `true`, then semantic analysis must not occur on this update due to AstGen errors.
 /// Essentially the entire pipeline after AstGen, including Sema, codegen, and link, is skipped.
@@ -3985,45 +3985,42 @@ pub const ResolvedReference = struct {
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
 /// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
 /// This hashmap is cached, so repeated calls to this function are cheap.
-pub fn resolveReferences(zcu: *Zcu) !*const std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+pub fn resolveReferences(zcu: *Zcu) !*const std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     if (zcu.resolved_references == null) {
         zcu.resolved_references = try zcu.resolveReferencesInner();
     }
     return &zcu.resolved_references.?;
 }
-fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
 
-    var result: std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
-    errdefer result.deinit(gpa);
-
-    var checked_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
-    var type_queue: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
-    var unit_queue: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
+    var units: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
+    var types: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
     defer {
-        checked_types.deinit(gpa);
-        type_queue.deinit(gpa);
-        unit_queue.deinit(gpa);
+        units.deinit(gpa);
+        types.deinit(gpa);
     }
 
-    // This is not a sufficient size, but a lower bound.
-    try result.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
+    // This is not a sufficient size, but an approximate lower bound.
+    try units.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
 
-    try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots_len);
+    try types.ensureTotalCapacity(gpa, zcu.analysis_roots_len);
     for (zcu.analysisRoots()) |mod| {
         const file = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const root_ty = zcu.fileRootType(file);
         if (root_ty == .none) continue;
-        type_queue.putAssumeCapacityNoClobber(root_ty, null);
+        types.putAssumeCapacityNoClobber(root_ty, null);
     }
 
+    var unit_idx: usize = 0;
+    var type_idx: usize = 0;
     while (true) {
-        if (type_queue.pop()) |kv| {
-            const ty = kv.key;
-            const referencer = kv.value;
-            try checked_types.putNoClobber(gpa, ty, {});
+        if (type_idx < types.count()) {
+            const ty = types.keys()[type_idx];
+            const referencer = types.values()[type_idx];
+            type_idx += 1;
 
             log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
 
@@ -4037,8 +4034,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             if (has_resolution) {
                 // this should only be referenced by the type
                 const unit: AnalUnit = .wrap(.{ .type = ty });
-                assert(!result.contains(unit));
-                try unit_queue.putNoClobber(gpa, unit, referencer);
+                try units.putNoClobber(gpa, unit, referencer);
             }
 
             // If this is a union with a generated tag, its tag type is automatically referenced.
@@ -4047,9 +4043,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const tag_ty = union_obj.enum_tag_ty;
                 if (tag_ty != .none) {
                     if (ip.indexToKey(tag_ty).enum_type == .generated_tag) {
-                        if (!checked_types.contains(tag_ty)) {
-                            try type_queue.put(gpa, tag_ty, referencer);
-                        }
+                        const gop = try types.getOrPut(gpa, tag_ty);
+                        if (!gop.found_existing) gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4060,12 +4055,13 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             for (zcu.namespacePtr(ns).comptime_decls.items) |cu| {
                 // `comptime` decls are always analyzed.
                 const unit: AnalUnit = .wrap(.{ .@"comptime" = cu });
-                if (!result.contains(unit)) {
+                const gop = try units.getOrPut(gpa, unit);
+                if (!gop.found_existing) {
                     log.debug("type '{f}': ref comptime %{}", .{
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
                     });
-                    try unit_queue.put(gpa, unit, referencer);
+                    gop.value_ptr.* = referencer;
                 }
             }
             for (zcu.namespacePtr(ns).test_decls.items) |nav_id| {
@@ -4092,14 +4088,20 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     },
                 };
                 if (want_analysis) {
-                    log.debug("type '{f}': ref test %{}", .{
-                        Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                        @intFromEnum(inst_info.inst),
-                    });
-                    try unit_queue.put(gpa, .wrap(.{ .nav_val = nav_id }), referencer);
+                    {
+                        const gop = try units.getOrPut(gpa, .wrap(.{ .nav_val = nav_id }));
+                        if (!gop.found_existing) {
+                            log.debug("type '{f}': ref test %{}", .{
+                                Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                                @intFromEnum(inst_info.inst),
+                            });
+                            gop.value_ptr.* = referencer;
+                        }
+                    }
                     // Non-fatal AstGen errors could mean this test decl failed
                     if (nav.status == .fully_resolved) {
-                        try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
+                        const gop = try units.getOrPut(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }));
+                        if (!gop.found_existing) gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4110,12 +4112,13 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                    if (!result.contains(unit)) {
+                    const gop = try units.getOrPut(gpa, unit);
+                    if (!gop.found_existing) {
                         log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
-                        try unit_queue.put(gpa, unit, referencer);
+                        gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4126,20 +4129,21 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                    if (!result.contains(unit)) {
+                    const gop = try units.getOrPut(gpa, unit);
+                    if (!gop.found_existing) {
                         log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
-                        try unit_queue.put(gpa, unit, referencer);
+                        gop.value_ptr.* = referencer;
                     }
                 }
             }
             continue;
         }
-        if (unit_queue.pop()) |kv| {
-            const unit = kv.key;
-            try result.putNoClobber(gpa, unit, kv.value);
+        if (unit_idx < units.count()) {
+            const unit = units.keys()[unit_idx];
+            unit_idx += 1;
 
             // `nav_val` and `nav_ty` reference each other *implicitly* to save memory.
             queue_paired: {
@@ -4148,8 +4152,9 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     .nav_ty => |n| .{ .nav_val = n },
                     .@"comptime", .type, .func, .memoized_state => break :queue_paired,
                 });
-                if (result.contains(other)) break :queue_paired;
-                try unit_queue.put(gpa, other, kv.value); // same reference location
+                const gop = try units.getOrPut(gpa, other);
+                if (gop.found_existing) break :queue_paired;
+                gop.value_ptr.* = units.values()[unit_idx]; // same reference location
             }
 
             log.debug("handle unit '{f}'", .{zcu.fmtAnalUnit(unit)});
@@ -4159,16 +4164,17 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 var ref_idx = first_ref_idx;
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_references.items[ref_idx];
-                    if (!result.contains(ref.referenced)) {
+                    const gop = try units.getOrPut(gpa, ref.referenced);
+                    if (!gop.found_existing) {
                         log.debug("unit '{f}': ref unit '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             zcu.fmtAnalUnit(ref.referenced),
                         });
-                        try unit_queue.put(gpa, ref.referenced, .{
+                        gop.value_ptr.* = .{
                             .referencer = unit,
                             .src = ref.src,
                             .inline_frame = ref.inline_frame,
-                        });
+                        };
                     }
                     ref_idx = ref.next;
                 }
@@ -4178,16 +4184,17 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 var ref_idx = first_ref_idx;
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_type_references.items[ref_idx];
-                    if (!checked_types.contains(ref.referenced)) {
+                    const gop = try types.getOrPut(gpa, ref.referenced);
+                    if (!gop.found_existing) {
                         log.debug("unit '{f}': ref type '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             Type.fromInterned(ref.referenced).containerTypeName(ip).fmt(ip),
                         });
-                        try type_queue.put(gpa, ref.referenced, .{
+                        gop.value_ptr.* = .{
                             .referencer = unit,
                             .src = ref.src,
                             .inline_frame = .none,
-                        });
+                        };
                     }
                     ref_idx = ref.next;
                 }
@@ -4197,7 +4204,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
         break;
     }
 
-    return result;
+    return units.move();
 }
 
 pub fn analysisRoots(zcu: *Zcu) []*Package.Module {
