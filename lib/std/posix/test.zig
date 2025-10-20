@@ -520,25 +520,6 @@ test "getrlimit and setrlimit" {
     }
 }
 
-test "shutdown socket" {
-    if (native_os == .wasi)
-        return error.SkipZigTest;
-    if (native_os == .windows) {
-        _ = try std.os.windows.WSAStartup(2, 2);
-    }
-    defer {
-        if (native_os == .windows) {
-            std.os.windows.WSACleanup() catch unreachable;
-        }
-    }
-    const sock = try posix.socket(posix.AF.INET, posix.SOCK.STREAM, 0);
-    posix.shutdown(sock, .both) catch |err| switch (err) {
-        error.SocketUnconnected => {},
-        else => |e| return e,
-    };
-    std.posix.close(sock);
-}
-
 test "sigrtmin/max" {
     if (native_os == .wasi or native_os == .windows or native_os == .macos) {
         return error.SkipZigTest;
