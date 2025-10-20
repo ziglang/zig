@@ -3925,6 +3925,7 @@ fn updateLazyType(
                     .avr_interrupt,
                     .csky_interrupt,
                     .m68k_interrupt,
+                    .msp430_interrupt,
                     => .normal,
 
                     else => .nocall,

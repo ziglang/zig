@@ -9137,6 +9137,7 @@ fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
         .m68k_interrupt,
         .mips_interrupt,
         .mips64_interrupt,
+        .msp430_interrupt,
         .riscv32_interrupt,
         .riscv64_interrupt,
         .x86_interrupt,
@@ -9301,6 +9302,7 @@ fn funcCommon(
             .avr_interrupt,
             .csky_interrupt,
             .m68k_interrupt,
+            .msp430_interrupt,
             .avr_signal,
             => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc)}),
             else => {},
@@ -9528,6 +9530,7 @@ fn finishFunc(
         .avr_interrupt,
         .csky_interrupt,
         .m68k_interrupt,
+        .msp430_interrupt,
         .avr_signal,
         => if (return_type.zigTypeTag(zcu) != .void and return_type.zigTypeTag(zcu) != .noreturn) {
             return sema.fail(block, ret_ty_src, "function with calling convention '{s}' must return 'void' or 'noreturn'", .{@tagName(cc_resolved)});

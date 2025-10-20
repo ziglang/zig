@@ -1907,6 +1907,7 @@ pub const Cpu = struct {
                 => &.{ .microblaze, .microblazeel },
 
                 .msp430_eabi,
+                .msp430_interrupt,
                 => &.{.msp430},
 
                 .or1k_sysv,

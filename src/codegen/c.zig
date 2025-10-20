@@ -8113,6 +8113,7 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .avr_interrupt,
         .csky_interrupt,
         .m68k_interrupt,
+        .msp430_interrupt,
         .x86_interrupt,
         .x86_64_interrupt,
         => "interrupt",

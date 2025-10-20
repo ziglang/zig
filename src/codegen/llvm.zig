@@ -11900,6 +11900,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .avr_interrupt => .avr_intrcc,
         .m68k_rtd => .m68k_rtdcc,
         .m68k_interrupt => .m68k_intrcc,
+        .msp430_interrupt => .msp430_intrcc,
         .amdgcn_kernel => .amdgpu_kernel,
         .amdgcn_cs => .amdgpu_cs,
         .nvptx_device => .ptx_device,
