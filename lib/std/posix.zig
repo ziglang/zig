@@ -666,18 +666,22 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     return getRandomBytesDevURandom(buffer);
 }
 
-fn getRandomBytesDevURandom(buf: []u8) !void {
+fn getRandomBytesDevURandom(buf: []u8) GetRandomError!void {
     const fd = try openZ("/dev/urandom", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     defer close(fd);
 
-    const st = try fstat(fd);
+    const st = fstat(fd) catch |err| switch (err) {
+        error.Streaming => return error.NoDevice,
+        else => |e| return e,
+    };
     if (!S.ISCHR(st.mode)) {
         return error.NoDevice;
     }
 
-    const file: fs.File = .{ .handle = fd };
-    var file_reader = file.readerStreaming(&.{});
-    file_reader.interface.readSliceAll(buf) catch return error.Unexpected;
+    var i: usize = 0;
+    while (i < buf.len) {
+        i += read(fd, buf[i..]) catch return error.Unexpected;
+    }
 }
 
 /// Causes abnormal process termination.
