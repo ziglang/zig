@@ -974,11 +974,15 @@ const StackIterator = union(enum) {
                 const ra_ptr: *const usize = @ptrFromInt(ra_addr);
                 const bp = applyOffset(bp_ptr.*, stack_bias) orelse return .end;
 
-                // The stack grows downards, so `bp > fp` should always hold. If it doesn't, this
-                // frame is invalid, so we'll treat it as though it we reached end of stack. The
+                // If the stack grows downwards, `bp > fp` should always hold; conversely, if it
+                // grows upwards, `bp < fp` should always hold. If that is not the case, this
+                // frame is invalid, so we'll treat it as though we reached end of stack. The
                 // exception is address 0, which is a graceful end-of-stack signal, in which case
                 // *this* return address is valid and the *next* iteration will be the last.
-                if (bp != 0 and bp <= fp) return .end;
+                if (bp != 0 and switch (comptime builtin.target.stackGrowth()) {
+                    .down => bp <= fp,
+                    .up => bp >= fp,
+                }) return .end;
 
                 it.fp = bp;
                 const ra = stripInstructionPtrAuthCode(ra_ptr.*);
