@@ -2930,6 +2930,24 @@ pub fn stackAlignment(target: *const Target) u16 {
     return @divExact(target.ptrBitWidth(), 8);
 }
 
+pub const StackGrowth = enum {
+    down,
+    up,
+};
+
+pub fn stackGrowth(target: *const Target) StackGrowth {
+    // Strictly speaking, most architectures don't inherently define the stack growth direction; you
+    // could quite easily argue that it is in fact a property of the ABI. However, that's just not
+    // really how it plays out in the real world. And besides, we have no mechanism for indicating
+    // a different stack growth ABI, nor a compelling use case for creating such a mechanism.
+    return switch (target.cpu.arch) {
+        .hppa,
+        .hppa64,
+        => .up,
+        else => .down,
+    };
+}
+
 /// Default signedness of `char` for the native C compiler for this target
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
