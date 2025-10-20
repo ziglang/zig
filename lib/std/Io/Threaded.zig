@@ -171,7 +171,7 @@ pub fn io(t: *Threaded) Io {
             .dirStat = dirStat,
             .dirStatPath = switch (builtin.os.tag) {
                 .linux => dirStatPathLinux,
-                .windows => @panic("TODO"),
+                .windows => dirStatPathWindows,
                 .wasi => dirStatPathWasi,
                 else => dirStatPathPosix,
             },
@@ -1077,6 +1077,21 @@ fn dirStatPathPosix(
             else => |err| return posix.unexpectedErrno(err),
         }
     }
+}
+
+fn dirStatPathWindows(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.StatPathOptions,
+) Io.Dir.StatPathError!Io.File.Stat {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = t.io();
+    var file = try dir.openFile(t_io, sub_path, .{
+        .follow_symlinks = options.follow_symlinks,
+    });
+    defer file.close(t_io);
+    return file.stat(t_io);
 }
 
 fn dirStatPathWasi(

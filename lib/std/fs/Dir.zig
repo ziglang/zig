@@ -2332,11 +2332,6 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 
 /// Deprecated in favor of `Io.Dir.statPath`.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
-    if (native_os == .windows) {
-        var file = try self.openFile(sub_path, .{});
-        defer file.close();
-        return file.stat();
-    }
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
     return Io.Dir.statPath(.{ .handle = self.fd }, io, sub_path, .{});
