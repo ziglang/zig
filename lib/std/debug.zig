@@ -872,13 +872,18 @@ const StackIterator = union(enum) {
     };
 
     const fp_usability: FpUsability = switch (builtin.target.cpu.arch) {
+        .alpha,
         .avr,
         .csky,
+        .microblaze,
+        .microblazeel,
         .mips,
         .mipsel,
         .mips64,
         .mips64el,
         .msp430,
+        .sh,
+        .sheb,
         .xcore,
         => .useless,
         .hexagon,
