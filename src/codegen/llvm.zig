@@ -110,6 +110,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .arceb,
         .hppa,
         .hppa64,
+        .ez80,
         .kalimba,
         .microblaze,
         .microblazeel,
@@ -245,6 +246,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .opengl,
         .plan9,
         .contiki,
+        .tios,
         .other,
         => "unknown",
     };
@@ -486,6 +488,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .arceb,
         .hppa,
         .hppa64,
+        .ez80,
         .kalimba,
         .microblaze,
         .microblazeel,
@@ -3094,9 +3097,13 @@ pub const Object = struct {
             .i8_type,
             .u16_type,
             .i16_type,
+            .u24_type,
+            .i24_type,
             .u29_type,
             .u32_type,
             .i32_type,
+            .u48_type,
+            .i48_type,
             .u64_type,
             .i64_type,
             .u80_type,
@@ -11976,6 +11983,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
+        .ez80_ti,
+        .ez80_tiflags,
         => null,
     };
 }
@@ -13149,6 +13158,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .sh,
         .sheb,
         .xtensaeb,
+        .ez80,
         => unreachable,
     }
 }
