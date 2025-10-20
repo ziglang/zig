@@ -1069,96 +1069,9 @@ pub const OpenOptions = Io.Dir.OpenOptions;
 
 /// Deprecated in favor of `Io.Dir.openDir`.
 pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir {
-    switch (native_os) {
-        .windows => {
-            var threaded: Io.Threaded = .init_single_threaded;
-            const io = threaded.io();
-            return .adaptFromNewApi(try Io.Dir.openDir(.{ .handle = self.fd }, io, sub_path, args));
-        },
-        .wasi => if (!builtin.link_libc) {
-            var threaded: Io.Threaded = .init_single_threaded;
-            const io = threaded.io();
-            return .adaptFromNewApi(try Io.Dir.openDir(.{ .handle = self.fd }, io, sub_path, args));
-        },
-        else => {},
-    }
-    const sub_path_c = try posix.toPosixPath(sub_path);
-    return self.openDirZ(&sub_path_c, args);
-}
-
-/// Same as `openDir` except the parameter is null-terminated.
-pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenError!Dir {
-    switch (native_os) {
-        .windows => {
-            @compileError("use std.Io instead");
-        },
-        // Use the libc API when libc is linked because it implements things
-        // such as opening absolute directory paths.
-        .wasi => if (!builtin.link_libc) {
-            return openDir(self, mem.sliceTo(sub_path_c, 0), args);
-        },
-        .haiku => {
-            const rc = posix.system._kern_open_dir(self.fd, sub_path_c);
-            if (rc >= 0) return .{ .fd = rc };
-            switch (@as(posix.E, @enumFromInt(rc))) {
-                .FAULT => unreachable,
-                .INVAL => unreachable,
-                .BADF => unreachable,
-                .ACCES => return error.AccessDenied,
-                .LOOP => return error.SymLinkLoop,
-                .MFILE => return error.ProcessFdQuotaExceeded,
-                .NAMETOOLONG => return error.NameTooLong,
-                .NFILE => return error.SystemFdQuotaExceeded,
-                .NODEV => return error.NoDevice,
-                .NOENT => return error.FileNotFound,
-                .NOMEM => return error.SystemResources,
-                .NOTDIR => return error.NotDir,
-                .PERM => return error.PermissionDenied,
-                .BUSY => return error.DeviceBusy,
-                else => |err| return posix.unexpectedErrno(err),
-            }
-        },
-        else => {},
-    }
-
-    var symlink_flags: posix.O = switch (native_os) {
-        .wasi => .{
-            .read = true,
-            .NOFOLLOW = !args.follow_symlinks,
-            .DIRECTORY = true,
-        },
-        else => .{
-            .ACCMODE = .RDONLY,
-            .NOFOLLOW = !args.follow_symlinks,
-            .DIRECTORY = true,
-            .CLOEXEC = true,
-        },
-    };
-
-    if (@hasField(posix.O, "PATH") and !args.iterate)
-        symlink_flags.PATH = true;
-
-    return self.openDirFlagsZ(sub_path_c, symlink_flags);
-}
-
-/// Asserts `flags` has `DIRECTORY` set.
-fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError!Dir {
-    assert(flags.DIRECTORY);
-    const fd = posix.openatZ(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
-        error.FileTooBig => unreachable, // can't happen for directories
-        error.IsDir => unreachable, // we're setting DIRECTORY
-        error.NoSpaceLeft => unreachable, // not setting CREAT
-        error.PathAlreadyExists => unreachable, // not setting CREAT
-        error.FileLocksNotSupported => unreachable, // locking folders is not supported
-        error.WouldBlock => unreachable, // can't happen for directories
-        error.FileBusy => unreachable, // can't happen for directories
-        error.SharingViolation => unreachable, // can't happen for directories
-        error.PipeBusy => unreachable, // can't happen for directories
-        error.AntivirusInterference => unreachable, // can't happen for directories
-        error.ProcessNotFound => unreachable, // can't happen for directories
-        else => |e| return e,
-    };
-    return Dir{ .fd = fd };
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return .adaptFromNewApi(try Io.Dir.openDir(.{ .handle = self.fd }, io, sub_path, args));
 }
 
 pub const DeleteFileError = posix.UnlinkError;
