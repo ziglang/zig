@@ -209,6 +209,7 @@ pub fn io(t: *Threaded) Io {
             .fileReadPositional = fileReadPositional,
             .fileSeekBy = fileSeekBy,
             .fileSeekTo = fileSeekTo,
+            .openSelfExe = openSelfExe,
 
             .now = switch (builtin.os.tag) {
                 .windows => nowWindows,
@@ -2239,6 +2240,26 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
             else => |err| return posix.unexpectedErrno(err),
         }
     }
+}
+
+fn openSelfExe(userdata: ?*anyopaque, flags: Io.File.OpenFlags) Io.File.OpenSelfExeError!Io.File {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    if (native_os == .linux or native_os == .serenity) {
+        return dirOpenFilePosix(t, .{ .handle = posix.AT.FDCWD }, "/proc/self/exe", flags);
+    }
+    if (is_windows) {
+        // If ImagePathName is a symlink, then it will contain the path of the symlink,
+        // not the path that the symlink points to. However, because we are opening
+        // the file, we can let the openFileW call follow the symlink for us.
+        const image_path_unicode_string = &windows.peb().ProcessParameters.ImagePathName;
+        const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
+        const prefixed_path_w_array = try windows.wToPrefixedFileW(null, image_path_name);
+        const prefixed_path_w = prefixed_path_w_array.span();
+        const cwd_handle = std.os.windows.peb().ProcessParameters.CurrentDirectory.Handle;
+
+        return dirOpenFileWindows(t, .{ .handle = cwd_handle }, prefixed_path_w, flags);
+    }
+    @panic("TODO");
 }
 
 fn fileWritePositional(

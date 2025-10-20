@@ -207,6 +207,12 @@ pub fn close(file: File, io: Io) void {
     return io.vtable.fileClose(io.userdata, file);
 }
 
+pub const OpenSelfExeError = OpenError || std.fs.SelfExePathError || std.posix.FlockError;
+
+pub fn openSelfExe(io: Io, flags: OpenFlags) OpenSelfExeError!File {
+    return io.vtable.openSelfExe(io.userdata, flags);
+}
+
 pub const ReadStreamingError = error{
     InputOutput,
     SystemResources,
