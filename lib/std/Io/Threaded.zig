@@ -208,6 +208,7 @@ pub fn io(t: *Threaded) Io {
             .dirOpenDir = switch (builtin.os.tag) {
                 .windows => dirOpenDirWindows,
                 .wasi => dirOpenDirWasi,
+                .haiku => dirOpenDirHaiku,
                 else => dirOpenDirPosix,
             },
             .dirClose = dirClose,
@@ -1784,22 +1785,20 @@ fn dirOpenFilePosix(
     if (@hasField(posix.O, "NOCTTY")) os_flags.NOCTTY = !flags.allow_ctty;
 
     // Use the O locking flags if the os supports them to acquire the lock
-    // atomically.
-    if (have_flock_open_flags) {
-        // Note that the NONBLOCK flag is removed after the openat() call
-        // is successful.
-        switch (flags.lock) {
-            .none => {},
-            .shared => {
-                os_flags.SHLOCK = true;
-                os_flags.NONBLOCK = flags.lock_nonblocking;
-            },
-            .exclusive => {
-                os_flags.EXLOCK = true;
-                os_flags.NONBLOCK = flags.lock_nonblocking;
-            },
-        }
-    }
+    // atomically. Note that the NONBLOCK flag is removed after the openat()
+    // call is successful.
+    if (have_flock_open_flags) switch (flags.lock) {
+        .none => {},
+        .shared => {
+            os_flags.SHLOCK = true;
+            os_flags.NONBLOCK = flags.lock_nonblocking;
+        },
+        .exclusive => {
+            os_flags.EXLOCK = true;
+            os_flags.NONBLOCK = flags.lock_nonblocking;
+        },
+    };
+
     const fd: posix.fd_t = while (true) {
         try t.checkCancel();
         const rc = openat_sym(dir.handle, sub_path_posix, os_flags, @as(posix.mode_t, 0));
@@ -2008,11 +2007,92 @@ fn dirOpenDirPosix(
 ) Io.Dir.OpenError!Io.Dir {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
 
-    _ = t;
-    _ = dir;
-    _ = sub_path;
+    var path_buffer: [posix.PATH_MAX]u8 = undefined;
+    const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
+
+    var flags: posix.O = switch (native_os) {
+        .wasi => .{
+            .read = true,
+            .NOFOLLOW = !options.follow_symlinks,
+            .DIRECTORY = true,
+        },
+        else => .{
+            .ACCMODE = .RDONLY,
+            .NOFOLLOW = !options.follow_symlinks,
+            .DIRECTORY = true,
+            .CLOEXEC = true,
+        },
+    };
+
+    if (@hasField(posix.O, "PATH") and !options.iterate)
+        flags.PATH = true;
+
+    while (true) {
+        try t.checkCancel();
+        const rc = openat_sym(dir.handle, sub_path_posix, flags, @as(usize, 0));
+        switch (posix.errno(rc)) {
+            .SUCCESS => return .{ .handle = @intCast(rc) },
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => return error.BadPathName,
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .ACCES => return error.AccessDenied,
+            .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NODEV => return error.NoDevice,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.NotDir,
+            .PERM => return error.PermissionDenied,
+            .BUSY => return error.DeviceBusy,
+            .NXIO => return error.NoDevice,
+            .ILSEQ => return error.BadPathName,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn dirOpenDirHaiku(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.OpenOptions,
+) Io.Dir.OpenError!Io.Dir {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+
+    var path_buffer: [posix.PATH_MAX]u8 = undefined;
+    const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
+
     _ = options;
-    @panic("TODO");
+
+    while (true) {
+        try t.checkCancel();
+        const rc = posix.system._kern_open_dir(dir.handle, sub_path_posix);
+        if (rc >= 0) return .{ .handle = rc };
+        switch (@as(posix.E, @enumFromInt(rc))) {
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => |err| return errnoBug(err),
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .ACCES => return error.AccessDenied,
+            .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NODEV => return error.NoDevice,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.NotDir,
+            .PERM => return error.PermissionDenied,
+            .BUSY => return error.DeviceBusy,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn dirOpenDirWindows(
