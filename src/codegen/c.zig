@@ -8106,6 +8106,8 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
             inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
         },
 
+        .sh_renesas => "renesas",
+
         .m68k_rtd => "m68k_rtd",
 
         .avr_interrupt,

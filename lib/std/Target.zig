@@ -733,6 +733,7 @@ pub const Os = struct {
 };
 
 pub const aarch64 = @import("Target/aarch64.zig");
+pub const alpha = @import("Target/generic.zig");
 pub const amdgcn = @import("Target/amdgcn.zig");
 pub const arc = @import("Target/arc.zig");
 pub const arm = @import("Target/arm.zig");
@@ -740,10 +741,12 @@ pub const avr = @import("Target/avr.zig");
 pub const bpf = @import("Target/bpf.zig");
 pub const csky = @import("Target/csky.zig");
 pub const hexagon = @import("Target/hexagon.zig");
+pub const hppa = @import("Target/generic.zig");
 pub const kalimba = @import("Target/generic.zig");
 pub const lanai = @import("Target/lanai.zig");
 pub const loongarch = @import("Target/loongarch.zig");
 pub const m68k = @import("Target/m68k.zig");
+pub const microblaze = @import("Target/generic.zig");
 pub const mips = @import("Target/mips.zig");
 pub const msp430 = @import("Target/msp430.zig");
 pub const nvptx = @import("Target/nvptx.zig");
@@ -752,6 +755,7 @@ pub const powerpc = @import("Target/powerpc.zig");
 pub const propeller = @import("Target/propeller.zig");
 pub const riscv = @import("Target/riscv.zig");
 pub const s390x = @import("Target/s390x.zig");
+pub const sh = @import("Target/generic.zig");
 pub const sparc = @import("Target/sparc.zig");
 pub const spirv = @import("Target/spirv.zig");
 pub const ve = @import("Target/ve.zig");
@@ -826,10 +830,13 @@ pub const Abi = enum {
                 .arm,
                 .armeb,
                 .csky,
+                .hppa,
                 .mips,
                 .mipsel,
                 .powerpc,
                 .powerpcle,
+                .sh,
+                .sheb,
                 .thumb,
                 .thumbeb,
                 => .eabi,
@@ -864,6 +871,10 @@ pub const Abi = enum {
                 => .gnu,
                 .csky,
                 => .gnueabi,
+                .hppa,
+                .sh,
+                .sheb,
+                => .gnueabihf,
 
                 // No glibc or musl support.
                 .xtensa,
@@ -1064,6 +1075,7 @@ pub const ObjectFormat = enum {
 pub fn toElfMachine(target: *const Target) std.elf.EM {
     return switch (target.cpu.arch) {
         .aarch64, .aarch64_be => .AARCH64,
+        .alpha => .ALPHA,
         .amdgcn => .AMDGPU,
         .arc, .arceb => .ARC_COMPACT,
         .arm, .armeb, .thumb, .thumbeb => .ARM,
@@ -1071,10 +1083,12 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .bpfeb, .bpfel => .BPF,
         .csky => .CSKY,
         .hexagon => .QDSP6,
+        .hppa, .hppa64 => .PARISC,
         .kalimba => .CSR_KALIMBA,
         .lanai => .LANAI,
         .loongarch32, .loongarch64 => .LOONGARCH,
         .m68k => .@"68K",
+        .microblaze, .microblazeel => .MICROBLAZE,
         .mips, .mips64, .mipsel, .mips64el => .MIPS,
         .msp430 => .MSP430,
         .or1k => .OR1K,
@@ -1083,6 +1097,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .propeller => .PROPELLER,
         .riscv32, .riscv32be, .riscv64, .riscv64be => .RISCV,
         .s390x => .S390,
+        .sh, .sheb => .SH,
         .sparc => if (target.cpu.has(.sparc, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .ve => .VE,
@@ -1103,6 +1118,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
 
 pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
     return switch (target.cpu.arch) {
+        .alpha => .ALPHA64,
         .arm => .ARM,
         .thumb => .ARMNT,
         .aarch64 => .ARM64,
@@ -1114,6 +1130,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .powerpcle => .POWERPC,
         .riscv32 => .RISCV32,
         .riscv64 => .RISCV64,
+        .sh => .SH3,
         .x86 => .I386,
         .x86_64 => .AMD64,
 
@@ -1127,9 +1144,13 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .bpfel,
         .csky,
         .hexagon,
+        .hppa,
+        .hppa64,
         .kalimba,
         .lanai,
         .m68k,
+        .microblaze,
+        .microblazeel,
         .mips64,
         .msp430,
         .nvptx,
@@ -1142,6 +1163,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .riscv32be,
         .riscv64be,
         .s390x,
+        .sheb,
         .sparc,
         .sparc64,
         .spirv32,
@@ -1323,6 +1345,7 @@ pub const Cpu = struct {
     pub const Arch = enum {
         aarch64,
         aarch64_be,
+        alpha,
         amdgcn,
         arc,
         arceb,
@@ -1333,11 +1356,15 @@ pub const Cpu = struct {
         bpfel,
         csky,
         hexagon,
+        hppa,
+        hppa64,
         kalimba,
         lanai,
         loongarch32,
         loongarch64,
         m68k,
+        microblaze,
+        microblazeel,
         mips,
         mipsel,
         mips64,
@@ -1356,6 +1383,8 @@ pub const Cpu = struct {
         riscv64,
         riscv64be,
         s390x,
+        sh,
+        sheb,
         sparc,
         sparc64,
         spirv32,
@@ -1393,18 +1422,21 @@ pub const Cpu = struct {
         /// For a given family tag, it is guaranteed that an `std.Target.<tag>` namespace exists
         /// containing CPU model and feature data.
         pub const Family = enum {
+            aarch64,
+            alpha,
             amdgcn,
             arc,
             arm,
-            aarch64,
             avr,
             bpf,
             csky,
             hexagon,
+            hppa,
             kalimba,
             lanai,
             loongarch,
             m68k,
+            microblaze,
             mips,
             msp430,
             nvptx,
@@ -1413,6 +1445,7 @@ pub const Cpu = struct {
             propeller,
             riscv,
             s390x,
+            sh,
             sparc,
             spirv,
             ve,
@@ -1425,6 +1458,7 @@ pub const Cpu = struct {
         pub inline fn family(arch: Arch) Family {
             return switch (arch) {
                 .aarch64, .aarch64_be => .aarch64,
+                .alpha => .alpha,
                 .amdgcn => .amdgcn,
                 .arc, .arceb => .arc,
                 .arm, .armeb, .thumb, .thumbeb => .arm,
@@ -1432,10 +1466,12 @@ pub const Cpu = struct {
                 .bpfeb, .bpfel => .bpf,
                 .csky => .csky,
                 .hexagon => .hexagon,
+                .hppa, .hppa64 => .hppa,
                 .kalimba => .kalimba,
                 .lanai => .lanai,
                 .loongarch32, .loongarch64 => .loongarch,
                 .m68k => .m68k,
+                .microblaze, .microblazeel => .microblaze,
                 .mips, .mipsel, .mips64, .mips64el => .mips,
                 .msp430 => .msp430,
                 .or1k => .or1k,
@@ -1444,6 +1480,7 @@ pub const Cpu = struct {
                 .propeller => .propeller,
                 .riscv32, .riscv32be, .riscv64, .riscv64be => .riscv,
                 .s390x => .s390x,
+                .sh, .sheb => .sh,
                 .sparc, .sparc64 => .sparc,
                 .spirv32, .spirv64 => .spirv,
                 .ve => .ve,
@@ -1490,6 +1527,13 @@ pub const Cpu = struct {
             };
         }
 
+        pub inline fn isHppa(arch: Arch) bool {
+            return switch (arch) {
+                .hppa, .hppa64 => true,
+                else => false,
+            };
+        }
+
         pub inline fn isWasm(arch: Arch) bool {
             return switch (arch) {
                 .wasm32, .wasm64 => true,
@@ -1518,6 +1562,13 @@ pub const Cpu = struct {
         pub inline fn isRiscv64(arch: Arch) bool {
             return switch (arch) {
                 .riscv64, .riscv64be => true,
+                else => false,
+            };
+        }
+
+        pub inline fn isMicroblaze(arch: Arch) bool {
+            return switch (arch) {
+                .microblaze, .microblazeel => true,
                 else => false,
             };
         }
@@ -1572,6 +1623,13 @@ pub const Cpu = struct {
             };
         }
 
+        pub inline fn isSh(arch: Arch) bool {
+            return switch (arch) {
+                .sh, .sheb => true,
+                else => false,
+            };
+        }
+
         pub inline fn isBpf(arch: Arch) bool {
             return switch (arch) {
                 .bpfel, .bpfeb => true,
@@ -1605,6 +1663,7 @@ pub const Cpu = struct {
         pub fn endian(arch: Arch) std.builtin.Endian {
             return switch (arch) {
                 .aarch64,
+                .alpha,
                 .arm,
                 .arc,
                 .avr,
@@ -1614,6 +1673,7 @@ pub const Cpu = struct {
                 .kalimba,
                 .loongarch32,
                 .loongarch64,
+                .microblazeel,
                 .mipsel,
                 .mips64el,
                 .msp430,
@@ -1622,6 +1682,7 @@ pub const Cpu = struct {
                 .propeller,
                 .riscv32,
                 .riscv64,
+                .sh,
                 .thumb,
                 .ve,
                 .wasm32,
@@ -1636,8 +1697,11 @@ pub const Cpu = struct {
                 .arceb,
                 .armeb,
                 .bpfeb,
+                .hppa,
+                .hppa64,
                 .lanai,
                 .m68k,
+                .microblaze,
                 .mips,
                 .mips64,
                 .or1k,
@@ -1646,6 +1710,7 @@ pub const Cpu = struct {
                 .riscv32be,
                 .riscv64be,
                 .s390x,
+                .sheb,
                 .thumbeb,
                 .sparc,
                 .sparc64,
@@ -1748,6 +1813,9 @@ pub const Cpu = struct {
                 .aarch64_vfabi_sve,
                 => &.{ .aarch64, .aarch64_be },
 
+                .alpha_osf,
+                => &.{.alpha},
+
                 .arm_aapcs,
                 .arm_aapcs_vfp,
                 .arm_interrupt,
@@ -1813,6 +1881,12 @@ pub const Cpu = struct {
                 .hexagon_sysv_hvx,
                 => &.{.hexagon},
 
+                .hppa_elf,
+                => &.{.hppa},
+
+                .hppa64_elf,
+                => &.{.hppa64},
+
                 .lanai_sysv,
                 => &.{.lanai},
 
@@ -1828,6 +1902,9 @@ pub const Cpu = struct {
                 .m68k_interrupt,
                 => &.{.m68k},
 
+                .microblaze_std,
+                => &.{ .microblaze, .microblazeel },
+
                 .msp430_eabi,
                 => &.{.msp430},
 
@@ -1840,6 +1917,10 @@ pub const Cpu = struct {
                 .s390x_sysv,
                 .s390x_sysv_vx,
                 => &.{.s390x},
+
+                .sh_gnu,
+                .sh_renesas,
+                => &.{ .sh, .sheb },
 
                 .ve_sysv,
                 => &.{.ve},
@@ -2384,6 +2465,8 @@ pub const DynamicLinker = struct {
                     .aarch64_be,
                     .hexagon,
                     .m68k,
+                    .microblaze,
+                    .microblazeel,
                     .powerpc64,
                     .powerpc64le,
                     .s390x,
@@ -2419,6 +2502,17 @@ pub const DynamicLinker = struct {
                         else => return none,
                     }}),
 
+                    .sh,
+                    .sheb,
+                    => |arch| initFmt("/lib/ld-musl-{t}{s}.so.1", .{
+                        arch,
+                        switch (abi) {
+                            .musleabi => "-nofpu",
+                            .musleabihf => "",
+                            else => return none,
+                        },
+                    }),
+
                     .riscv32,
                     .riscv64,
                     => |arch| if (abi == .musl) initFmt("/lib/ld-musl-{s}{s}.so.1", .{
@@ -2432,6 +2526,7 @@ pub const DynamicLinker = struct {
                     }) else none,
 
                     .x86 => if (abi == .musl) init("/lib/ld-musl-i386.so.1") else none,
+
                     .x86_64 => initFmt("/lib/ld-musl-{s}.so.1", .{switch (abi) {
                         .musl => "x86_64",
                         .muslx32 => "x32",
@@ -2475,7 +2570,10 @@ pub const DynamicLinker = struct {
                         else => return none,
                     }}),
 
+                    .hppa,
                     .m68k,
+                    .microblaze,
+                    .microblazeel,
                     .xtensa,
                     .xtensaeb,
                     => if (abi == .gnu) init("/lib/ld.so.1") else none,
@@ -2531,10 +2629,22 @@ pub const DynamicLinker = struct {
 
                     .s390x => if (abi == .gnu) init("/lib/ld64.so.1") else none,
 
-                    .sparc => if (abi == .gnu) init("/lib/ld-linux.so.2") else none,
+                    .sh,
+                    .sheb,
+                    => switch (abi) {
+                        .gnueabi,
+                        .gnueabihf,
+                        => init("/lib/ld-linux.so.2"),
+                        else => none,
+                    },
+
+                    .alpha,
+                    .sparc,
+                    .x86,
+                    => if (abi == .gnu) init("/lib/ld-linux.so.2") else none,
+
                     .sparc64 => if (abi == .gnu) init("/lib64/ld-linux.so.2") else none,
 
-                    .x86 => if (abi == .gnu) init("/lib/ld-linux.so.2") else none,
                     .x86_64 => switch (abi) {
                         .gnu => init("/lib64/ld-linux-x86-64.so.2"),
                         .gnux32 => init("/libx32/ld-linux-x32.so.2"),
@@ -2712,10 +2822,13 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .armeb,
         .csky,
         .hexagon,
+        .hppa,
         .kalimba,
         .lanai,
         .loongarch32,
         .m68k,
+        .microblaze,
+        .microblazeel,
         .mips,
         .mipsel,
         .nvptx,
@@ -2725,6 +2838,8 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .propeller,
         .riscv32,
         .riscv32be,
+        .sh,
+        .sheb,
         .sparc,
         .spirv32,
         .thumb,
@@ -2738,9 +2853,11 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
 
         .aarch64,
         .aarch64_be,
+        .alpha,
         .amdgcn,
         .bpfeb,
         .bpfel,
+        .hppa64,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -2772,17 +2889,20 @@ pub fn stackAlignment(target: *const Target) u16 {
         => return 4,
         .arm,
         .armeb,
-        .thumb,
-        .thumbeb,
+        .hppa,
         .lanai,
         .mips,
         .mipsel,
         .sparc,
+        .thumb,
+        .thumbeb,
         => return 8,
         .aarch64,
         .aarch64_be,
+        .alpha,
         .bpfeb,
         .bpfel,
+        .hppa64,
         .loongarch32,
         .loongarch64,
         .mips64,
@@ -2950,6 +3070,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                         else => return 128,
                     },
 
+                    .alpha,
                     .riscv32,
                     .riscv32be,
                     .riscv64,
@@ -3059,6 +3180,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                         },
                     },
 
+                    .alpha,
                     .riscv32,
                     .riscv32be,
                     .riscv64,
@@ -3251,8 +3373,12 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .arceb,
             .csky,
             .kalimba,
+            .microblaze,
+            .microblazeel,
             .or1k,
             .propeller,
+            .sh,
+            .sheb,
             .x86,
             .xcore,
             .xtensa,
@@ -3265,6 +3391,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .bpfeb,
             .bpfel,
             .hexagon,
+            .hppa,
             .lanai,
             .m68k,
             .mips,
@@ -3279,6 +3406,8 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .alpha,
+            .hppa64,
             .loongarch32,
             .loongarch64,
             .mips64,
@@ -3351,8 +3480,12 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .arceb,
             .csky,
             .kalimba,
+            .microblaze,
+            .microblazeel,
             .or1k,
             .propeller,
+            .sh,
+            .sheb,
             .xcore,
             .xtensa,
             .xtensaeb,
@@ -3364,6 +3497,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .bpfeb,
             .bpfel,
             .hexagon,
+            .hppa,
             .lanai,
             .m68k,
             .mips,
@@ -3379,6 +3513,8 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .alpha,
+            .hppa64,
             .loongarch32,
             .loongarch64,
             .mips64,
@@ -3416,14 +3552,19 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .arceb,
         .csky,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
         .xcore,
         => 4,
 
         .arm,
         .armeb,
         .hexagon,
+        .hppa,
         .lanai,
         .loongarch32,
         .m68k,
@@ -3444,9 +3585,11 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
 
         .aarch64,
         .aarch64_be,
+        .alpha,
         .amdgcn,
         .bpfel,
         .bpfeb,
+        .hppa64,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -3483,6 +3626,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             .windows => .{ .aarch64_aapcs_win = .{} },
             else => .{ .aarch64_aapcs = .{} },
         },
+        .alpha => .{ .alpha_osf = .{} },
         .arm, .armeb, .thumb, .thumbeb => switch (target.abi.float()) {
             .soft => .{ .arm_aapcs = .{} },
             .hard => .{ .arm_aapcs_vfp = .{} },
@@ -3511,6 +3655,8 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .bpfel, .bpfeb => .{ .bpf_std = .{} },
         .csky => .{ .csky_sysv = .{} },
         .hexagon => .{ .hexagon_sysv = .{} },
+        .hppa => .{ .hppa_elf = .{} },
+        .hppa64 => .{ .hppa64_elf = .{} },
         .kalimba => null,
         .lanai => .{ .lanai_sysv = .{} },
         .loongarch64 => .{ .loongarch64_lp64 = .{} },
@@ -3519,10 +3665,12 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             .{ .m68k_gnu = .{} }
         else
             .{ .m68k_sysv = .{} },
+        .microblaze, .microblazeel => .{ .microblaze_std = .{} },
         .msp430 => .{ .msp430_eabi = .{} },
         .or1k => .{ .or1k_sysv = .{} },
         .propeller => .{ .propeller_sysv = .{} },
         .s390x => .{ .s390x_sysv = .{} },
+        .sh, .sheb => .{ .sh_gnu = .{} },
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
         .xtensa, .xtensaeb => .{ .xtensa_windowed = .{} },

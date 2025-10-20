@@ -3905,6 +3905,8 @@ fn updateLazyType(
 
                     .m68k_rtd => .LLVM_M68kRTD,
 
+                    .sh_renesas => .GNU_renesas_sh,
+
                     .amdgcn_kernel => .LLVM_OpenCLKernel,
                     .nvptx_kernel,
                     .spirv_kernel,

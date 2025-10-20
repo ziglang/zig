@@ -229,6 +229,9 @@ pub const CallingConvention = union(enum(u8)) {
     aarch64_vfabi: CommonOptions,
     aarch64_vfabi_sve: CommonOptions,
 
+    /// The standard `alpha` calling convention.
+    alpha_osf: CommonOptions,
+
     // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
     /// ARM Architecture Procedure Call Standard
     arm_aapcs: CommonOptions,
@@ -296,6 +299,12 @@ pub const CallingConvention = union(enum(u8)) {
     hexagon_sysv: CommonOptions,
     hexagon_sysv_hvx: CommonOptions,
 
+    /// The standard `hppa` calling convention.
+    hppa_elf: CommonOptions,
+
+    /// The standard `hppa64` calling convention.
+    hppa64_elf: CommonOptions,
+
     /// The standard `lanai` calling convention.
     lanai_sysv: CommonOptions,
 
@@ -311,6 +320,9 @@ pub const CallingConvention = union(enum(u8)) {
     m68k_rtd: CommonOptions,
     m68k_interrupt: CommonOptions,
 
+    /// The standard `microblaze`/`microblazeel` calling convention.
+    microblaze_std: CommonOptions,
+
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
@@ -323,6 +335,10 @@ pub const CallingConvention = union(enum(u8)) {
     // Calling conventions for the `s390x` architecture.
     s390x_sysv: CommonOptions,
     s390x_sysv_vx: CommonOptions,
+
+    // Calling conventions for the `sh`/`sheb` architecture.
+    sh_gnu: CommonOptions,
+    sh_renesas: CommonOptions,
 
     /// The standard `ve` calling convention.
     ve_sysv: CommonOptions,
@@ -860,6 +876,13 @@ pub const VaListAarch64 = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListAlpha = extern struct {
+    __base: *anyopaque,
+    __offset: c_int,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaListArm = extern struct {
     __ap: *anyopaque,
 };
@@ -889,6 +912,16 @@ pub const VaListS390x = extern struct {
     __current_saved_reg_area_pointer: *anyopaque,
     __saved_reg_area_end_pointer: *anyopaque,
     __overflow_area_pointer: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListSh = extern struct {
+    __va_next_o: *anyopaque,
+    __va_next_o_limit: *anyopaque,
+    __va_next_fp: *anyopaque,
+    __va_next_fp_limit: *anyopaque,
+    __va_next_stack: *anyopaque,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -925,10 +958,14 @@ pub const VaList = switch (builtin.cpu.arch) {
     .bpfel,
     .bpfeb,
     .csky,
+    .hppa,
+    .hppa64,
     .lanai,
     .loongarch32,
     .loongarch64,
     .m68k,
+    .microblaze,
+    .microblazeel,
     .mips,
     .mipsel,
     .mips64,
@@ -953,6 +990,7 @@ pub const VaList = switch (builtin.cpu.arch) {
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
     },
+    .alpha => VaListAlpha,
     .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
@@ -960,6 +998,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         else => VaListPowerPc,
     },
     .s390x => VaListS390x,
+    .sh, .sheb => VaListSh, // This is wrong for `sh_renesas`: https://github.com/ziglang/zig/issues/24692#issuecomment-3150779829
     .x86_64 => switch (builtin.os.tag) {
         .uefi, .windows => switch (builtin.zig_backend) {
             else => *u8,
