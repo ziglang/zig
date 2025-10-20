@@ -36517,7 +36517,7 @@ fn resolveAddressSpace(
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-    ctx: std.builtin.AddressSpace.Context,
+    ctx: std.Target.AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const air_ref = try sema.resolveInst(zir_ref);
     return sema.analyzeAsAddressSpace(block, src, air_ref, ctx);
@@ -36528,7 +36528,7 @@ pub fn analyzeAsAddressSpace(
     block: *Block,
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
-    ctx: std.builtin.AddressSpace.Context,
+    ctx: std.Target.AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const pt = sema.pt;
     const addrspace_ty = try sema.getBuiltinType(src, .AddressSpace);
@@ -37653,7 +37653,7 @@ pub fn resolveNavPtrModifiers(
     };
 
     const @"addrspace": std.builtin.AddressSpace = as: {
-        const addrspace_ctx: std.builtin.AddressSpace.Context = switch (zir_decl.kind) {
+        const addrspace_ctx: std.Target.AddressSpaceContext = switch (zir_decl.kind) {
             .@"var" => .variable,
             else => switch (nav_ty.zigTypeTag(zcu)) {
                 .@"fn" => .function,

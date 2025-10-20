@@ -2228,6 +2228,21 @@ pub fn requiresLibC(target: *const Target) bool {
     };
 }
 
+/// The places where a user can specify an address space attribute
+pub const AddressSpaceContext = enum {
+    /// A function is specified to be placed in a certain address space.
+    function,
+    /// A (global) variable is specified to be placed in a certain address space. In contrast to
+    /// `.constant`, these values (and thus the address space they will be placed in) are required
+    /// to be mutable.
+    variable,
+    /// A (global) constant value is specified to be placed in a certain address space. In contrast
+    /// to `.variable`, values placed in this address space are not required to be mutable.
+    constant,
+    /// A pointer is ascripted to point into a certain address space.
+    pointer,
+};
+
 /// Returns whether this target supports `address_space`. If `context` is `null`, this
 /// function simply answers the general question of whether the target has any concept
 /// of `address_space`; if non-`null`, the function additionally checks whether
@@ -2235,7 +2250,7 @@ pub fn requiresLibC(target: *const Target) bool {
 pub fn supportsAddressSpace(
     target: Target,
     address_space: std.builtin.AddressSpace,
-    context: ?std.builtin.AddressSpace.Context,
+    context: ?AddressSpaceContext,
 ) bool {
     const arch = target.cpu.arch;
 
