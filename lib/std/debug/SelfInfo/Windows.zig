@@ -297,17 +297,7 @@ const Module = struct {
         // a binary is produced with -gdwarf, since the section names are longer than 8 bytes.
         const mapped_file: ?DebugInfo.MappedFile = mapped: {
             if (!coff_obj.strtabRequired()) break :mapped null;
-            var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
-            name_buffer[0..4].* = .{ '\\', '?', '?', '\\' }; // openFileAbsoluteW requires the prefix to be present
-            const process_handle = windows.GetCurrentProcess();
-            const len = windows.kernel32.GetModuleFileNameExW(
-                process_handle,
-                module.handle,
-                name_buffer[4..],
-                windows.PATH_MAX_WIDE,
-            );
-            if (len == 0) return error.MissingDebugInfo;
-            const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+            const coff_file = Io.File.openSelfExe(io, .{}) catch |err| switch (err) {
                 error.Canceled => |e| return e,
                 error.Unexpected => |e| return e,
                 error.FileNotFound => return error.MissingDebugInfo,
@@ -337,9 +327,15 @@ const Module = struct {
                 error.SystemFdQuotaExceeded,
                 error.FileLocksNotSupported,
                 error.FileBusy,
+                error.InputOutput,
+                error.NotSupported,
+                error.FileSystem,
+                error.NotLink,
+                error.UnrecognizedVolume,
+                error.UnknownName,
                 => return error.ReadFailed,
             };
-            errdefer coff_file.close();
+            errdefer coff_file.close(io);
             var section_handle: windows.HANDLE = undefined;
             const create_section_rc = windows.ntdll.NtCreateSection(
                 &section_handle,
@@ -356,6 +352,7 @@ const Module = struct {
             errdefer windows.CloseHandle(section_handle);
             var coff_len: usize = 0;
             var section_view_ptr: ?[*]const u8 = null;
+            const process_handle = windows.GetCurrentProcess();
             const map_section_rc = windows.ntdll.NtMapViewOfSection(
                 section_handle,
                 process_handle,
@@ -373,7 +370,7 @@ const Module = struct {
             const section_view = section_view_ptr.?[0..coff_len];
             coff_obj = coff.Coff.init(section_view, false) catch return error.InvalidDebugInfo;
             break :mapped .{
-                .file = coff_file,
+                .file = .adaptFromNewApi(coff_file),
                 .section_handle = section_handle,
                 .section_view = section_view,
             };

@@ -1,5 +1,8 @@
 const Dir = @This();
 
+const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
 const std = @import("../std.zig");
 const Io = std.Io;
 const File = Io.File;
@@ -9,8 +12,20 @@ handle: Handle,
 pub const Mode = Io.File.Mode;
 pub const default_mode: Mode = 0o755;
 
+/// Returns a handle to the current working directory.
+///
+/// It is not opened with iteration capability. Iterating over the result is
+/// illegal behavior.
+///
+/// Closing the returned `Dir` is checked illegal behavior.
+///
+/// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
-    return .{ .handle = std.fs.cwd().fd };
+    return switch (native_os) {
+        .windows => .{ .handle = std.os.windows.peb().ProcessParameters.CurrentDirectory.Handle },
+        .wasi => .{ .handle = std.options.wasiCwd() },
+        else => .{ .handle = std.posix.AT.FDCWD },
+    };
 }
 
 pub const Handle = std.posix.fd_t;

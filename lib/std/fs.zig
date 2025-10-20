@@ -180,9 +180,7 @@ pub fn renameZ(old_dir: Dir, old_sub_path_z: [*:0]const u8, new_dir: Dir, new_su
     return posix.renameatZ(old_dir.fd, old_sub_path_z, new_dir.fd, new_sub_path_z);
 }
 
-/// Returns a handle to the current working directory. It is not opened with iteration capability.
-/// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
-/// On POSIX targets, this function is comptime-callable.
+/// Deprecated in favor of `Io.Dir.cwd`.
 pub fn cwd() Dir {
     if (native_os == .windows) {
         return .{ .fd = windows.peb().ProcessParameters.CurrentDirectory.Handle };
@@ -336,20 +334,14 @@ pub fn symLinkAbsoluteW(
     return windows.CreateSymbolicLink(null, mem.span(sym_link_path_w), mem.span(target_path_w), flags.is_directory);
 }
 
-pub const OpenSelfExeError = posix.OpenError || SelfExePathError || posix.FlockError;
+pub const OpenSelfExeError = Io.File.OpenSelfExeError;
 
+/// Deprecated in favor of `Io.File.openSelfExe`.
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
-    if (native_os == .linux or native_os == .serenity) {
-        return openFileAbsolute("/proc/self/exe", flags);
-    }
-    if (native_os == .windows) {
-        // If ImagePathName is a symlink, then it will contain the path of the symlink,
-        // not the path that the symlink points to. However, because we are opening
-        // the file, we can let the openFileW call follow the symlink for us.
-        const image_path_unicode_string = &windows.peb().ProcessParameters.ImagePathName;
-        const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
-        const prefixed_path_w = try windows.wToPrefixedFileW(null, image_path_name);
-        return cwd().openFileW(prefixed_path_w.span(), flags);
+    if (native_os == .linux or native_os == .serenity or native_os == .windows) {
+        var threaded: Io.Threaded = .init_single_threaded;
+        const io = threaded.io();
+        return .adaptFromNewApi(try Io.File.openSelfExe(io, flags));
     }
     // Use of max_path_bytes here is valid as the resulting path is immediately
     // opened with no modification.
