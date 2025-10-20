@@ -3290,33 +3290,6 @@ pub const SocketError = error{
 } || UnexpectedError;
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
-    if (native_os == .windows) {
-        // These flags are not actually part of the Windows API, instead they are converted here for compatibility
-        const filtered_sock_type = socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC);
-        var flags: u32 = windows.ws2_32.WSA_FLAG_OVERLAPPED;
-        if ((socket_type & SOCK.CLOEXEC) != 0) flags |= windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT;
-
-        const rc = try windows.WSASocketW(
-            @bitCast(domain),
-            @bitCast(filtered_sock_type),
-            @bitCast(protocol),
-            null,
-            0,
-            flags,
-        );
-        errdefer windows.closesocket(rc) catch unreachable;
-        if ((socket_type & SOCK.NONBLOCK) != 0) {
-            var mode: c_ulong = 1; // nonblocking
-            if (windows.ws2_32.SOCKET_ERROR == windows.ws2_32.ioctlsocket(rc, windows.ws2_32.FIONBIO, &mode)) {
-                switch (windows.ws2_32.WSAGetLastError()) {
-                    // have not identified any error codes that should be handled yet
-                    else => unreachable,
-                }
-            }
-        }
-        return rc;
-    }
-
     const have_sock_flags = !builtin.target.os.tag.isDarwin() and native_os != .haiku;
     const filtered_sock_type = if (!have_sock_flags)
         socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC)
@@ -3411,14 +3384,14 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
             .both => windows.ws2_32.SD_BOTH,
         });
         if (0 != result) switch (windows.ws2_32.WSAGetLastError()) {
-            .WSAECONNABORTED => return error.ConnectionAborted,
-            .WSAECONNRESET => return error.ConnectionResetByPeer,
-            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
-            .WSAEINVAL => unreachable,
-            .WSAENETDOWN => return error.NetworkDown,
-            .WSAENOTCONN => return error.SocketUnconnected,
-            .WSAENOTSOCK => unreachable,
-            .WSANOTINITIALISED => unreachable,
+            .ECONNABORTED => return error.ConnectionAborted,
+            .ECONNRESET => return error.ConnectionResetByPeer,
+            .EINPROGRESS => return error.BlockingOperationInProgress,
+            .EINVAL => unreachable,
+            .ENETDOWN => return error.NetworkDown,
+            .ENOTCONN => return error.SocketUnconnected,
+            .ENOTSOCK => unreachable,
+            .NOTINITIALISED => unreachable,
             else => |err| return windows.unexpectedWSAError(err),
         };
     } else {
@@ -3440,70 +3413,17 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
 }
 
 pub const BindError = error{
-    /// The address is protected, and the user is not the superuser.
-    /// For UNIX domain sockets: Search permission is denied on  a  component
-    /// of  the  path  prefix.
-    AccessDenied,
-
-    /// The given address is already in use, or in the case of Internet domain sockets,
-    /// The  port number was specified as zero in the socket
-    /// address structure, but, upon attempting to bind to  an  ephemeral  port,  it  was
-    /// determined  that  all  port  numbers in the ephemeral port range are currently in
-    /// use.  See the discussion of /proc/sys/net/ipv4/ip_local_port_range ip(7).
-    AddressInUse,
-
-    /// A nonexistent interface was requested or the requested address was not local.
-    AddressNotAvailable,
-
-    /// The address is not valid for the address family of socket.
-    AddressFamilyUnsupported,
-
-    /// Too many symbolic links were encountered in resolving addr.
     SymLinkLoop,
-
-    /// addr is too long.
     NameTooLong,
-
-    /// A component in the directory prefix of the socket pathname does not exist.
     FileNotFound,
-
-    /// Insufficient kernel memory was available.
-    SystemResources,
-
-    /// A component of the path prefix is not a directory.
     NotDir,
-
-    /// The socket inode would reside on a read-only filesystem.
     ReadOnlyFileSystem,
+    AccessDenied,
+} || std.Io.net.IpAddress.BindError;
 
-    /// The network subsystem has failed.
-    NetworkDown,
-
-    FileDescriptorNotASocket,
-
-    AlreadyBound,
-} || UnexpectedError;
-
-/// addr is `*const T` where T is one of the sockaddr
 pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!void {
     if (native_os == .windows) {
-        const rc = windows.bind(sock, addr, len);
-        if (rc == windows.ws2_32.SOCKET_ERROR) {
-            switch (windows.ws2_32.WSAGetLastError()) {
-                .WSANOTINITIALISED => unreachable, // not initialized WSA
-                .WSAEACCES => return error.AccessDenied,
-                .WSAEADDRINUSE => return error.AddressInUse,
-                .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
-                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEFAULT => unreachable, // invalid pointers
-                .WSAEINVAL => return error.AlreadyBound,
-                .WSAENOBUFS => return error.SystemResources,
-                .WSAENETDOWN => return error.NetworkDown,
-                else => |err| return windows.unexpectedWSAError(err),
-            }
-            unreachable;
-        }
-        return;
+        @compileError("use std.Io instead");
     } else {
         const rc = system.bind(sock, addr, len);
         switch (errno(rc)) {
@@ -3514,7 +3434,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
             .INVAL => unreachable, // invalid parameters
             .NOTSOCK => unreachable, // invalid `sockfd`
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
-            .ADDRNOTAVAIL => return error.AddressNotAvailable,
+            .ADDRNOTAVAIL => return error.AddressUnavailable,
             .FAULT => unreachable, // invalid `addr` pointer
             .LOOP => return error.SymLinkLoop,
             .NAMETOOLONG => return error.NameTooLong,
@@ -3529,51 +3449,13 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
 }
 
 pub const ListenError = error{
-    /// Another socket is already listening on the same port.
-    /// For Internet domain sockets, the  socket referred to by sockfd had not previously
-    /// been bound to an address and, upon attempting to bind it to an ephemeral port, it
-    /// was determined that all port numbers in the ephemeral port range are currently in
-    /// use.  See the discussion of /proc/sys/net/ipv4/ip_local_port_range in ip(7).
-    AddressInUse,
-
-    /// The file descriptor sockfd does not refer to a socket.
     FileDescriptorNotASocket,
-
-    /// The socket is not of a type that supports the listen() operation.
     OperationNotSupported,
-
-    /// The network subsystem has failed.
-    NetworkDown,
-
-    /// Ran out of system resources
-    /// On Windows it can either run out of socket descriptors or buffer space
-    SystemResources,
-
-    /// Already connected
-    AlreadyConnected,
-
-    /// Socket has not been bound yet
-    SocketNotBound,
-} || UnexpectedError;
+} || std.Io.net.IpAddress.ListenError || std.Io.net.UnixAddress.ListenError;
 
 pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
     if (native_os == .windows) {
-        const rc = windows.listen(sock, backlog);
-        if (rc == windows.ws2_32.SOCKET_ERROR) {
-            switch (windows.ws2_32.WSAGetLastError()) {
-                .WSANOTINITIALISED => unreachable, // not initialized WSA
-                .WSAENETDOWN => return error.NetworkDown,
-                .WSAEADDRINUSE => return error.AddressInUse,
-                .WSAEISCONN => return error.AlreadyConnected,
-                .WSAEINVAL => return error.SocketNotBound,
-                .WSAEMFILE, .WSAENOBUFS => return error.SystemResources,
-                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEOPNOTSUPP => return error.OperationNotSupported,
-                .WSAEINPROGRESS => unreachable,
-                else => |err| return windows.unexpectedWSAError(err),
-            }
-        }
-        return;
+        @compileError("use std.Io instead");
     } else {
         const rc = system.listen(sock, backlog);
         switch (errno(rc)) {
@@ -3630,16 +3512,16 @@ pub fn accept(
         if (native_os == .windows) {
             if (rc == windows.ws2_32.INVALID_SOCKET) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSANOTINITIALISED => unreachable, // not initialized WSA
-                    .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEFAULT => unreachable,
-                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    .WSAEINVAL => return error.SocketNotListening,
-                    .WSAEMFILE => return error.ProcessFdQuotaExceeded,
-                    .WSAENETDOWN => return error.NetworkDown,
-                    .WSAENOBUFS => return error.FileDescriptorNotASocket,
-                    .WSAEOPNOTSUPP => return error.OperationNotSupported,
-                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .NOTINITIALISED => unreachable, // not initialized WSA
+                    .ECONNRESET => return error.ConnectionResetByPeer,
+                    .EFAULT => unreachable,
+                    .ENOTSOCK => return error.FileDescriptorNotASocket,
+                    .EINVAL => return error.SocketNotListening,
+                    .EMFILE => return error.ProcessFdQuotaExceeded,
+                    .ENETDOWN => return error.NetworkDown,
+                    .ENOBUFS => return error.FileDescriptorNotASocket,
+                    .EOPNOTSUPP => return error.OperationNotSupported,
+                    .EWOULDBLOCK => return error.WouldBlock,
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -3706,9 +3588,9 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             var mode: c_ulong = 1;
             if (windows.ws2_32.ioctlsocket(sock, windows.ws2_32.FIONBIO, &mode) == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSANOTINITIALISED => unreachable,
-                    .WSAENETDOWN => return error.NetworkDown,
-                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    .NOTINITIALISED => unreachable,
+                    .ENETDOWN => return error.NetworkDown,
+                    .ENOTSOCK => return error.FileDescriptorNotASocket,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
@@ -3861,11 +3743,11 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
         const rc = windows.getsockname(sock, addr, addrlen);
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
-                .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkDown,
-                .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
-                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEINVAL => return error.SocketNotBound,
+                .NOTINITIALISED => unreachable,
+                .ENETDOWN => return error.NetworkDown,
+                .EFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
+                .ENOTSOCK => return error.FileDescriptorNotASocket,
+                .EINVAL => return error.SocketNotBound,
                 else => |err| return windows.unexpectedWSAError(err),
             }
         }
@@ -3890,11 +3772,11 @@ pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
         const rc = windows.getpeername(sock, addr, addrlen);
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
-                .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkDown,
-                .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
-                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEINVAL => return error.SocketNotBound,
+                .NOTINITIALISED => unreachable,
+                .ENETDOWN => return error.NetworkDown,
+                .EFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
+                .ENOTSOCK => return error.FileDescriptorNotASocket,
+                .EINVAL => return error.SocketNotBound,
                 else => |err| return windows.unexpectedWSAError(err),
             }
         }
@@ -3932,7 +3814,7 @@ pub const ConnectError = error{
     /// address and, upon attempting to bind it to an ephemeral port, it was determined that all port numbers
     /// in    the    ephemeral    port    range    are   currently   in   use.    See   the   discussion   of
     /// /proc/sys/net/ipv4/ip_local_port_range in ip(7).
-    AddressNotAvailable,
+    AddressUnavailable,
 
     /// The passed address didn't have the correct address family in its sa_family field.
     AddressFamilyUnsupported,
@@ -3975,22 +3857,22 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
         const rc = windows.ws2_32.connect(sock, sock_addr, @intCast(len));
         if (rc == 0) return;
         switch (windows.ws2_32.WSAGetLastError()) {
-            .WSAEADDRINUSE => return error.AddressInUse,
-            .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
-            .WSAECONNREFUSED => return error.ConnectionRefused,
-            .WSAECONNRESET => return error.ConnectionResetByPeer,
-            .WSAETIMEDOUT => return error.Timeout,
-            .WSAEHOSTUNREACH, // TODO: should we return NetworkUnreachable in this case as well?
-            .WSAENETUNREACH,
+            .EADDRINUSE => return error.AddressInUse,
+            .EADDRNOTAVAIL => return error.AddressUnavailable,
+            .ECONNREFUSED => return error.ConnectionRefused,
+            .ECONNRESET => return error.ConnectionResetByPeer,
+            .ETIMEDOUT => return error.Timeout,
+            .EHOSTUNREACH, // TODO: should we return NetworkUnreachable in this case as well?
+            .ENETUNREACH,
             => return error.NetworkUnreachable,
-            .WSAEFAULT => unreachable,
-            .WSAEINVAL => unreachable,
-            .WSAEISCONN => return error.AlreadyConnected,
-            .WSAENOTSOCK => unreachable,
-            .WSAEWOULDBLOCK => return error.WouldBlock,
-            .WSAEACCES => unreachable,
-            .WSAENOBUFS => return error.SystemResources,
-            .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .EFAULT => unreachable,
+            .EINVAL => unreachable,
+            .EISCONN => return error.AlreadyConnected,
+            .ENOTSOCK => unreachable,
+            .EWOULDBLOCK => return error.WouldBlock,
+            .EACCES => unreachable,
+            .ENOBUFS => return error.SystemResources,
+            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
             else => |err| return windows.unexpectedWSAError(err),
         }
         return;
@@ -4002,7 +3884,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
             .ADDRINUSE => return error.AddressInUse,
-            .ADDRNOTAVAIL => return error.AddressNotAvailable,
+            .ADDRNOTAVAIL => return error.AddressUnavailable,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN, .INPROGRESS => return error.WouldBlock,
             .ALREADY => return error.ConnectionPending,
@@ -4064,7 +3946,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
             .ADDRINUSE => return error.AddressInUse,
-            .ADDRNOTAVAIL => return error.AddressNotAvailable,
+            .ADDRNOTAVAIL => return error.AddressUnavailable,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN => return error.SystemResources,
             .ALREADY => return error.ConnectionPending,
@@ -5686,7 +5568,7 @@ pub const SendMsgError = SendError || error{
 
     /// The socket is not connected (connection-oriented sockets only).
     SocketUnconnected,
-    AddressNotAvailable,
+    AddressUnavailable,
 };
 
 pub fn sendmsg(
@@ -5701,25 +5583,25 @@ pub fn sendmsg(
         if (native_os == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSAEACCES => return error.AccessDenied,
-                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
-                    .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEMSGSIZE => return error.MessageOversize,
-                    .WSAENOBUFS => return error.SystemResources,
-                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
-                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
-                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
-                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                    // TODO: WSAEINPROGRESS, WSAEINTR
-                    .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkDown,
-                    .WSAENETRESET => return error.ConnectionResetByPeer,
-                    .WSAENETUNREACH => return error.NetworkUnreachable,
-                    .WSAENOTCONN => return error.SocketUnconnected,
-                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
-                    .WSAEWOULDBLOCK => return error.WouldBlock,
-                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    .EACCES => return error.AccessDenied,
+                    .EADDRNOTAVAIL => return error.AddressUnavailable,
+                    .ECONNRESET => return error.ConnectionResetByPeer,
+                    .EMSGSIZE => return error.MessageOversize,
+                    .ENOBUFS => return error.SystemResources,
+                    .ENOTSOCK => return error.FileDescriptorNotASocket,
+                    .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
+                    .EDESTADDRREQ => unreachable, // A destination address is required.
+                    .EFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                    .EHOSTUNREACH => return error.NetworkUnreachable,
+                    // TODO: EINPROGRESS, EINTR
+                    .EINVAL => unreachable,
+                    .ENETDOWN => return error.NetworkDown,
+                    .ENETRESET => return error.ConnectionResetByPeer,
+                    .ENETUNREACH => return error.NetworkUnreachable,
+                    .ENOTCONN => return error.SocketUnconnected,
+                    .ESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                    .EWOULDBLOCK => return error.WouldBlock,
+                    .NOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -5804,25 +5686,25 @@ pub fn sendto(
     if (native_os == .windows) {
         switch (windows.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
             windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
-                .WSAEACCES => return error.AccessDenied,
-                .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
-                .WSAECONNRESET => return error.ConnectionResetByPeer,
-                .WSAEMSGSIZE => return error.MessageOversize,
-                .WSAENOBUFS => return error.SystemResources,
-                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEAFNOSUPPORT => return error.AddressFamilyUnsupported,
-                .WSAEDESTADDRREQ => unreachable, // A destination address is required.
-                .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
-                .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                // TODO: WSAEINPROGRESS, WSAEINTR
-                .WSAEINVAL => unreachable,
-                .WSAENETDOWN => return error.NetworkDown,
-                .WSAENETRESET => return error.ConnectionResetByPeer,
-                .WSAENETUNREACH => return error.NetworkUnreachable,
-                .WSAENOTCONN => return error.SocketUnconnected,
-                .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
-                .WSAEWOULDBLOCK => return error.WouldBlock,
-                .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                .EACCES => return error.AccessDenied,
+                .EADDRNOTAVAIL => return error.AddressUnavailable,
+                .ECONNRESET => return error.ConnectionResetByPeer,
+                .EMSGSIZE => return error.MessageOversize,
+                .ENOBUFS => return error.SystemResources,
+                .ENOTSOCK => return error.FileDescriptorNotASocket,
+                .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
+                .EDESTADDRREQ => unreachable, // A destination address is required.
+                .EFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                .EHOSTUNREACH => return error.NetworkUnreachable,
+                // TODO: EINPROGRESS, EINTR
+                .EINVAL => unreachable,
+                .ENETDOWN => return error.NetworkDown,
+                .ENETRESET => return error.ConnectionResetByPeer,
+                .ENETUNREACH => return error.NetworkUnreachable,
+                .ENOTCONN => return error.SocketUnconnected,
+                .ESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                .EWOULDBLOCK => return error.WouldBlock,
+                .NOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
                 else => |err| return windows.unexpectedWSAError(err),
             },
             else => |rc| return @intCast(rc),
@@ -5896,7 +5778,7 @@ pub fn send(
         error.FileNotFound => unreachable,
         error.NotDir => unreachable,
         error.NetworkUnreachable => unreachable,
-        error.AddressNotAvailable => unreachable,
+        error.AddressUnavailable => unreachable,
         error.SocketUnconnected => unreachable,
         error.UnreachableAddress => unreachable,
         else => |e| return e,
@@ -6007,9 +5889,9 @@ pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     if (native_os == .windows) {
         switch (windows.poll(fds.ptr, @intCast(fds.len), timeout)) {
             windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
-                .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkDown,
-                .WSAENOBUFS => return error.SystemResources,
+                .NOTINITIALISED => unreachable,
+                .ENETDOWN => return error.NetworkDown,
+                .ENOBUFS => return error.SystemResources,
                 // TODO: handle more errors
                 else => |err| return windows.unexpectedWSAError(err),
             },
@@ -6107,14 +5989,14 @@ pub fn recvfrom(
         if (native_os == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSANOTINITIALISED => unreachable,
-                    .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEINVAL => return error.SocketNotBound,
-                    .WSAEMSGSIZE => return error.MessageOversize,
-                    .WSAENETDOWN => return error.NetworkDown,
-                    .WSAENOTCONN => return error.SocketUnconnected,
-                    .WSAEWOULDBLOCK => return error.WouldBlock,
-                    .WSAETIMEDOUT => return error.Timeout,
+                    .NOTINITIALISED => unreachable,
+                    .ECONNRESET => return error.ConnectionResetByPeer,
+                    .EINVAL => return error.SocketNotBound,
+                    .EMSGSIZE => return error.MessageOversize,
+                    .ENETDOWN => return error.NetworkDown,
+                    .ENOTCONN => return error.SocketUnconnected,
+                    .EWOULDBLOCK => return error.WouldBlock,
+                    .ETIMEDOUT => return error.Timeout,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
@@ -6220,11 +6102,11 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
         const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), opt.ptr, @intCast(opt.len));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
-                .WSANOTINITIALISED => unreachable,
-                .WSAENETDOWN => return error.NetworkDown,
-                .WSAEFAULT => unreachable,
-                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEINVAL => return error.SocketNotBound,
+                .NOTINITIALISED => unreachable,
+                .ENETDOWN => return error.NetworkDown,
+                .EFAULT => unreachable,
+                .ENOTSOCK => return error.FileDescriptorNotASocket,
+                .EINVAL => return error.SocketNotBound,
                 else => |err| return windows.unexpectedWSAError(err),
             }
         }
