@@ -192,7 +192,7 @@ pub fn io(t: *Threaded) Io {
                 else => dirCreateFilePosix,
             },
             .dirOpenFile = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => dirOpenFileWindows,
                 .wasi => dirOpenFileWasi,
                 else => dirOpenFilePosix,
             },
@@ -1729,6 +1729,50 @@ fn dirOpenFilePosix(
     }
 
     return .{ .handle = fd };
+}
+
+fn dirOpenFileWindows(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    flags: Io.File.OpenFlags,
+) Io.File.OpenError!Io.File {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    try t.checkCancel();
+
+    const w = windows;
+    const sub_path_w_array = try w.sliceToPrefixedFileW(dir.handle, sub_path);
+    const sub_path_w = sub_path_w_array.span();
+
+    const handle = try w.OpenFile(sub_path_w, .{
+        .dir = dir.handle,
+        .access_mask = w.SYNCHRONIZE |
+            (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
+            (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
+        .creation = w.FILE_OPEN,
+    });
+    errdefer w.CloseHandle(handle);
+    var io_status_block: w.IO_STATUS_BLOCK = undefined;
+    const range_off: w.LARGE_INTEGER = 0;
+    const range_len: w.LARGE_INTEGER = 1;
+    const exclusive = switch (flags.lock) {
+        .none => return .{ .handle = handle },
+        .shared => false,
+        .exclusive => true,
+    };
+    try w.LockFile(
+        handle,
+        null,
+        null,
+        null,
+        &io_status_block,
+        &range_off,
+        &range_len,
+        null,
+        @intFromBool(flags.lock_nonblocking),
+        @intFromBool(exclusive),
+    );
+    return .{ .handle = handle };
 }
 
 fn dirOpenFileWasi(
