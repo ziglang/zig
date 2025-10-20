@@ -2069,6 +2069,7 @@ test "tarball with duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2079,7 +2080,7 @@ test "tarball with duplicate paths" {
 
     // Run tarball fetch, expect to fail
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try std.testing.expectError(error.FetchFailed, fetch.run());
 
@@ -2101,6 +2102,7 @@ test "tarball with excluded duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2111,7 +2113,7 @@ test "tarball with excluded duplicate paths" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try fetch.run();
 
@@ -2145,6 +2147,8 @@ test "tarball without root folder" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2155,7 +2159,7 @@ test "tarball without root folder" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try fetch.run();
 
@@ -2176,6 +2180,8 @@ test "tarball without root folder" {
 test "set executable bit based on file content" {
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2194,7 +2200,7 @@ test "set executable bit based on file content" {
     // -rwxrwxr-x       17  executables/script
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
 
     try fetch.run();
@@ -2244,13 +2250,14 @@ const TestFetchBuilder = struct {
     fn build(
         self: *TestFetchBuilder,
         allocator: std.mem.Allocator,
+        io: Io,
         cache_parent_dir: std.fs.Dir,
         path_or_url: []const u8,
     ) !*Fetch {
         const cache_dir = try cache_parent_dir.makeOpenPath("zig-global-cache", .{});
 
         try self.thread_pool.init(.{ .allocator = allocator });
-        self.http_client = .{ .allocator = allocator };
+        self.http_client = .{ .allocator = allocator, .io = io };
         self.global_cache_directory = .{ .handle = cache_dir, .path = null };
 
         self.job_queue = .{
@@ -2266,6 +2273,7 @@ const TestFetchBuilder = struct {
 
         self.fetch = .{
             .arena = std.heap.ArenaAllocator.init(allocator),
+            .io = io,
             .location = .{ .path_or_url = path_or_url },
             .location_tok = 0,
             .hash_tok = .none,
