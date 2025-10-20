@@ -2617,7 +2617,7 @@ pub fn renameatW(
         if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
         rename_info.* = .{
             .Flags = flags,
-            .RootDirectory = if (fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+            .RootDirectory = if (fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
             .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
             .FileName = undefined,
         };
@@ -2654,7 +2654,7 @@ pub fn renameatW(
 
         rename_info.* = .{
             .Flags = ReplaceIfExists,
-            .RootDirectory = if (fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+            .RootDirectory = if (fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
             .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
             .FileName = undefined,
         };

@@ -182,7 +182,7 @@ pub fn io(t: *Threaded) Io {
                 else => fileStatPosix,
             },
             .dirAccess = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => dirAccessWindows,
                 .wasi => dirAccessWasi,
                 else => dirAccessPosix,
             },
@@ -1315,6 +1315,51 @@ fn dirAccessWasi(
         return error.AccessDenied;
 }
 
+fn dirAccessWindows(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    options: Io.Dir.AccessOptions,
+) Io.Dir.AccessError!void {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    try t.checkCancel();
+
+    _ = options; // TODO
+
+    const sub_path_w_array = try windows.sliceToPrefixedFileW(dir.handle, sub_path);
+    const sub_path_w = sub_path_w_array.span();
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) return;
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) return;
+
+    const path_len_bytes = std.math.cast(u16, std.mem.sliceTo(sub_path_w, 0).len * 2) orelse
+        return error.NameTooLong;
+    var nt_name: windows.UNICODE_STRING = .{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @constCast(sub_path_w.ptr),
+    };
+    var attr = windows.OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else dir.handle,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var basic_info: windows.FILE_BASIC_INFORMATION = undefined;
+    switch (windows.ntdll.NtQueryAttributesFile(&attr, &basic_info)) {
+        .SUCCESS => return,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_NAME_INVALID => |err| return windows.statusBug(err),
+        .INVALID_PARAMETER => |err| return windows.statusBug(err),
+        .ACCESS_DENIED => return error.AccessDenied,
+        .OBJECT_PATH_SYNTAX_BAD => |err| return windows.statusBug(err),
+        else => |rc| return windows.unexpectedStatus(rc),
+    }
+}
+
 fn dirCreateFilePosix(
     userdata: ?*anyopaque,
     dir: Io.Dir,
@@ -1818,7 +1863,7 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
                 var n: DWORD = undefined;
                 if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, null) == 0) {
                     switch (windows.GetLastError()) {
-                        .IO_PENDING => unreachable,
+                        .IO_PENDING => |err| return windows.statusBug(err),
                         .OPERATION_ABORTED => continue,
                         .BROKEN_PIPE => return 0,
                         .HANDLE_EOF => return 0,
@@ -1935,7 +1980,7 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
                 } else null;
                 if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, overlapped) == 0) {
                     switch (windows.GetLastError()) {
-                        .IO_PENDING => unreachable,
+                        .IO_PENDING => |err| return windows.statusBug(err),
                         .OPERATION_ABORTED => continue,
                         .BROKEN_PIPE => return 0,
                         .HANDLE_EOF => return 0,
