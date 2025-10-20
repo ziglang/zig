@@ -498,6 +498,10 @@ pub fn intAlignment(target: *const std.Target, bits: u16) u16 {
             33...64 => 8,
             else => 16,
         },
+        .ez80 => switch (bits) {
+            0 => 0,
+            else => 1,
+        },
         else => return @min(
             std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
             target.cMaxIntAlignment(),

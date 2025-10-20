@@ -68,6 +68,8 @@ pub const Os = struct {
         opengl,
         vulkan,
 
+        tios,
+
         // LLVM tags deliberately omitted:
         // - bridgeos
         // - cheriotrtos
@@ -205,6 +207,8 @@ pub const Os = struct {
                 .opencl,
                 .opengl,
                 .vulkan,
+
+                .tios,
                 => .semver,
 
                 .hurd => .hurd,
@@ -659,6 +663,12 @@ pub const Os = struct {
                         .max = .{ .major = 4, .minor = 6, .patch = 0 },
                     },
                 },
+                .tios => .{
+                    .semver = .{
+                        .min = .{ .major = 5, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 5, .minor = 8, .patch = 4 },
+                    },
+                },
                 .vulkan => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 2, .patch = 0 },
@@ -723,6 +733,7 @@ pub const arm = @import("Target/arm.zig");
 pub const avr = @import("Target/avr.zig");
 pub const bpf = @import("Target/bpf.zig");
 pub const csky = @import("Target/csky.zig");
+pub const ez80 = @import("Target/generic.zig");
 pub const hexagon = @import("Target/hexagon.zig");
 pub const hppa = @import("Target/generic.zig");
 pub const kalimba = @import("Target/generic.zig");
@@ -932,6 +943,7 @@ pub const Abi = enum {
             .opencl,
             .opengl,
             .vulkan,
+            .tios,
             => .none,
         };
     }
@@ -1088,6 +1100,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .xcore => .XCORE,
         .xtensa, .xtensaeb => .XTENSA,
 
+        .ez80,
         .nvptx,
         .nvptx64,
         .spirv32,
@@ -1125,6 +1138,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .bpfeb,
         .bpfel,
         .csky,
+        .ez80,
         .hexagon,
         .hppa,
         .hppa64,
@@ -1338,6 +1352,7 @@ pub const Cpu = struct {
         bpfeb,
         bpfel,
         csky,
+        ez80,
         hexagon,
         hppa,
         hppa64,
@@ -1437,6 +1452,7 @@ pub const Cpu = struct {
             x86,
             xcore,
             xtensa,
+            z80,
         };
 
         pub inline fn family(arch: Arch) Family {
@@ -1449,6 +1465,7 @@ pub const Cpu = struct {
                 .avr => .avr,
                 .bpfeb, .bpfel => .bpf,
                 .csky => .csky,
+                .ez80 => .z80,
                 .hexagon => .hexagon,
                 .hppa, .hppa64 => .hppa,
                 .kalimba => .kalimba,
@@ -1676,6 +1693,7 @@ pub const Cpu = struct {
                 .x86_64,
                 .xcore,
                 .xtensa,
+                .ez80,
                 => .little,
 
                 .aarch64_be,
@@ -1715,6 +1733,7 @@ pub const Cpu = struct {
         /// All CPU features Zig is aware of, sorted lexicographically by name.
         pub fn allFeaturesList(arch: Arch) []const Cpu.Feature {
             return switch (arch.family()) {
+                .z80 => &Target.ez80.all_features,
                 inline else => |f| &@field(Target, @tagName(f)).all_features,
             };
         }
@@ -1722,6 +1741,7 @@ pub const Cpu = struct {
         /// All processors Zig is aware of, sorted lexicographically by name.
         pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
             return switch (arch.family()) {
+                .z80 => comptime allCpusFromDecls(Target.ez80.cpu),
                 inline else => |f| comptime allCpusFromDecls(@field(Target, @tagName(f)).cpu),
             };
         }
@@ -1942,6 +1962,10 @@ pub const Cpu = struct {
                 .spirv_fragment,
                 .spirv_vertex,
                 => &.{ .spirv32, .spirv64 },
+
+                .ez80_ti,
+                .ez80_tiflags,
+                => &.{.ez80},
             };
         }
     };
@@ -1968,6 +1992,7 @@ pub const Cpu = struct {
             return switch (arch) {
                 .amdgcn => &amdgcn.cpu.gfx600,
                 .avr => &avr.cpu.avr1,
+                .ez80 => &ez80.cpu.generic,
                 .loongarch32 => &loongarch.cpu.generic_la32,
                 .loongarch64 => &loongarch.cpu.generic_la64,
                 .mips, .mipsel => &mips.cpu.mips32,
@@ -2211,6 +2236,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .plan9,
         .other,
         .@"3ds",
+        .tios,
         => false,
     };
 }
@@ -2373,6 +2399,8 @@ pub const DynamicLinker = struct {
             .ps4,
             .ps5,
             .vita,
+
+            .tios,
             => .none,
         };
     }
@@ -2782,6 +2810,8 @@ pub const DynamicLinker = struct {
             .opencl,
             .opengl,
             .vulkan,
+
+            .tios,
             => none,
 
             // TODO go over each item in this list and either move it to the above list, or
@@ -2815,6 +2845,9 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .msp430,
         .x86_16,
         => 16,
+
+        .ez80,
+        => 24,
 
         .arc,
         .arceb,
@@ -2883,6 +2916,8 @@ pub fn ptrBitWidth(target: *const Target) u16 {
 pub fn stackAlignment(target: *const Target) u16 {
     // Overrides for when the stack alignment is not equal to the pointer width.
     switch (target.cpu.arch) {
+        .ez80,
+        => return 1,
         .m68k,
         => return 2,
         .amdgcn,
@@ -2962,6 +2997,7 @@ pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
         .arc,
         .arceb,
         .csky,
+        .ez80,
         .hexagon,
         .msp430,
         .powerpc,
@@ -3333,6 +3369,13 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .long, .ulong => return 64,
             .longlong, .ulonglong, .double, .longdouble => return 64,
         },
+        .tios => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint => return 24,
+            .long, .ulong, .float, .double => return 32,
+            .longlong, .ulonglong, .longdouble => return 64,
+        },
 
         .ps3,
         .contiki,
@@ -3345,7 +3388,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
 pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
-        .avr => return 1,
+        .avr, .ez80 => return 1,
         .x86 => switch (target.os.tag) {
             .windows, .uefi => switch (c_type) {
                 .longlong, .ulonglong, .double => return 8,
@@ -3382,6 +3425,8 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
     return @min(
         std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
+            .ez80 => 1,
+
             .msp430,
             .x86_16,
             => 2,
@@ -3459,7 +3504,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .longdouble => return 4,
             else => {},
         },
-        .avr => return 1,
+        .avr, .ez80 => return 1,
         .x86 => switch (target.os.tag) {
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
@@ -3491,6 +3536,8 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
     return @min(
         std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
+            .ez80 => 1,
+
             .x86_16, .msp430 => 2,
 
             .arc,
@@ -3561,7 +3608,9 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
 
 pub fn cMaxIntAlignment(target: *const Target) u16 {
     return switch (target.cpu.arch) {
-        .avr => 1,
+        .avr,
+        .ez80,
+        => 1,
 
         .msp430, .x86_16 => 2,
 
@@ -3698,6 +3747,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv32, .spirv64 => .spirv_device,
+        .ez80 => .ez80_ti,
     };
 }
 

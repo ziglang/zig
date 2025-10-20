@@ -209,6 +209,7 @@ pub const ParseOptions = struct {
 };
 
 pub fn parse(args: ParseOptions) !Query {
+    @setEvalBranchQuota(20000);
     var dummy_diags: ParseOptions.Diagnostics = undefined;
     const diags = args.diagnostics orelse &dummy_diags;
 

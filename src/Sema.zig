@@ -26281,6 +26281,7 @@ fn validateExternType(
         },
         .int => switch (ty.intInfo(zcu).bits) {
             0, 8, 16, 32, 64, 128 => return true,
+            24, 48 => return sema.pt.zcu.getTarget().cpu.arch == .ez80,
             else => return false,
         },
         .@"fn" => {
@@ -36069,9 +36070,13 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .i8_type,
         .u16_type,
         .i16_type,
+        .u24_type,
+        .i24_type,
         .u29_type,
         .u32_type,
         .i32_type,
+        .u48_type,
+        .i48_type,
         .u64_type,
         .i64_type,
         .u80_type,
