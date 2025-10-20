@@ -898,85 +898,11 @@ pub fn makePathStatus(self: Dir, sub_path: []const u8) MakePathError!MakePathSta
     return Io.Dir.makePathStatus(.{ .handle = self.fd }, io, sub_path);
 }
 
-/// Windows only. Calls makeOpenDirAccessMaskW iteratively to make an entire path
-/// (i.e. creating any parent directories that do not exist).
-/// Opens the dir if the path already exists and is a directory.
-/// This function is not atomic, and if it returns an error, the file system may
-/// have been modified regardless.
-/// `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) (MakeError || OpenError || StatFileError)!Dir {
-    const w = windows;
-    var it = try fs.path.componentIterator(sub_path);
-    // If there are no components in the path, then create a dummy component with the full path.
-    var component = it.last() orelse fs.path.NativeComponentIterator.Component{
-        .name = "",
-        .path = sub_path,
-    };
-
-    while (true) {
-        const sub_path_w = try w.sliceToPrefixedFileW(self.fd, component.path);
-        const is_last = it.peekNext() == null;
-        var result = self.makeOpenDirAccessMaskW(sub_path_w.span().ptr, access_mask, .{
-            .no_follow = no_follow,
-            .create_disposition = if (is_last) w.FILE_OPEN_IF else w.FILE_CREATE,
-        }) catch |err| switch (err) {
-            error.FileNotFound => |e| {
-                component = it.previous() orelse return e;
-                continue;
-            },
-            error.PathAlreadyExists => result: {
-                assert(!is_last);
-                // stat the file and return an error if it's not a directory
-                // this is important because otherwise a dangling symlink
-                // could cause an infinite loop
-                check_dir: {
-                    // workaround for windows, see https://github.com/ziglang/zig/issues/16738
-                    const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
-                        error.IsDir => break :check_dir,
-                        else => |e| return e,
-                    };
-                    if (fstat.kind != .directory) return error.NotDir;
-                }
-                break :result null;
-            },
-            else => |e| return e,
-        };
-
-        component = it.next() orelse return result.?;
-
-        // Don't leak the intermediate file handles
-        if (result) |*dir| {
-            dir.close();
-        }
-    }
-}
-
-/// This function performs `makePath`, followed by `openDir`.
-/// If supported by the OS, this operation is atomic. It is not atomic on
-/// all operating systems.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenOptions) (MakeError || OpenError || StatFileError)!Dir {
-    return switch (native_os) {
-        .windows => {
-            const w = windows;
-            const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-                w.SYNCHRONIZE | w.FILE_TRAVERSE |
-                (if (open_dir_options.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
-
-            return self.makeOpenPathAccessMaskW(sub_path, base_flags, !open_dir_options.follow_symlinks);
-        },
-        else => {
-            return self.openDir(sub_path, open_dir_options) catch |err| switch (err) {
-                error.FileNotFound => {
-                    try self.makePath(sub_path);
-                    return self.openDir(sub_path, open_dir_options);
-                },
-                else => |e| return e,
-            };
-        },
-    };
+/// Deprecated in favor of `Io.Dir.makeOpenPath`.
+pub fn makeOpenPath(dir: Dir, sub_path: []const u8, options: OpenOptions) Io.Dir.MakeOpenPathError!Dir {
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    return .adaptFromNewApi(try Io.Dir.makeOpenPath(dir.adaptToNewApi(), io, sub_path, options));
 }
 
 pub const RealPathError = posix.RealPathError || error{Canceled};
@@ -1145,8 +1071,9 @@ pub const OpenOptions = Io.Dir.OpenOptions;
 pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir {
     switch (native_os) {
         .windows => {
-            const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            var threaded: Io.Threaded = .init_single_threaded;
+            const io = threaded.io();
+            return .adaptFromNewApi(try Io.Dir.openDir(.{ .handle = self.fd }, io, sub_path, args));
         },
         .wasi => if (!builtin.link_libc) {
             var threaded: Io.Threaded = .init_single_threaded;
@@ -1163,8 +1090,7 @@ pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir
 pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenError!Dir {
     switch (native_os) {
         .windows => {
-            const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            @compileError("use std.Io instead");
         },
         // Use the libc API when libc is linked because it implements things
         // such as opening absolute directory paths.
@@ -1215,28 +1141,6 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenErr
     return self.openDirFlagsZ(sub_path_c, symlink_flags);
 }
 
-/// Same as `openDir` except the path parameter is WTF-16 LE encoded, NT-prefixed.
-/// This function asserts the target OS is Windows.
-pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenOptions) OpenError!Dir {
-    const w = windows;
-    // TODO remove some of these flags if args.access_sub_paths is false
-    const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-        w.SYNCHRONIZE | w.FILE_TRAVERSE;
-    const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-    const dir = self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
-        .no_follow = !args.follow_symlinks,
-        .create_disposition = w.FILE_OPEN,
-    }) catch |err| switch (err) {
-        error.ReadOnlyFileSystem => unreachable,
-        error.DiskQuota => unreachable,
-        error.NoSpaceLeft => unreachable,
-        error.PathAlreadyExists => unreachable,
-        error.LinkQuotaExceeded => unreachable,
-        else => |e| return e,
-    };
-    return dir;
-}
-
 /// Asserts `flags` has `DIRECTORY` set.
 fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError!Dir {
     assert(flags.DIRECTORY);
@@ -1255,63 +1159,6 @@ fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError
         else => |e| return e,
     };
     return Dir{ .fd = fd };
-}
-
-const MakeOpenDirAccessMaskWOptions = struct {
-    no_follow: bool,
-    create_disposition: u32,
-};
-
-fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, flags: MakeOpenDirAccessMaskWOptions) (MakeError || OpenError)!Dir {
-    const w = windows;
-
-    var result = Dir{
-        .fd = undefined,
-    };
-
-    const path_len_bytes = @as(u16, @intCast(mem.sliceTo(sub_path_w, 0).len * 2));
-    var nt_name = w.UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @constCast(sub_path_w),
-    };
-    var attr = w.OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-        .RootDirectory = if (fs.path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    const open_reparse_point: w.DWORD = if (flags.no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
-    var io: w.IO_STATUS_BLOCK = undefined;
-    const rc = w.ntdll.NtCreateFile(
-        &result.fd,
-        access_mask,
-        &attr,
-        &io,
-        null,
-        w.FILE_ATTRIBUTE_NORMAL,
-        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
-        flags.create_disposition,
-        w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
-        null,
-        0,
-    );
-
-    switch (rc) {
-        .SUCCESS => return result,
-        .OBJECT_NAME_INVALID => return error.BadPathName,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        // This can happen if the directory has 'List folder contents' permission set to 'Deny'
-        // and the directory is trying to be opened for iteration.
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_PARAMETER => unreachable,
-        else => return w.unexpectedStatus(rc),
-    }
 }
 
 pub const DeleteFileError = posix.UnlinkError;
