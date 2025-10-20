@@ -4684,9 +4684,7 @@ pub const AccessError = error{
 /// Windows. See `fs` for the cross-platform file system API.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (native_os == .windows) {
-        const path_w = try windows.sliceToPrefixedFileW(null, path);
-        _ = try windows.GetFileAttributesW(path_w.span().ptr);
-        return;
+        @compileError("use std.Io instead");
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("wasi doesn't support absolute paths");
     }
@@ -4697,9 +4695,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
 /// Same as `access` except `path` is null-terminated.
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (native_os == .windows) {
-        const path_w = try windows.cStrToPrefixedFileW(null, path);
-        _ = try windows.GetFileAttributesW(path_w.span().ptr);
-        return;
+        @compileError("use std.Io instead");
     } else if (native_os == .wasi and !builtin.link_libc) {
         return access(mem.sliceTo(path, 0), mode);
     }

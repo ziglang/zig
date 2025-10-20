@@ -101,6 +101,13 @@ pub fn openFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.OpenFlags) F
     return io.vtable.dirOpenFile(io.userdata, dir, sub_path, flags);
 }
 
+/// Creates, opens, or overwrites a file with write access.
+///
+/// Allocates a resource to be dellocated with `File.close`.
+///
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn createFile(dir: Dir, io: Io, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
     return io.vtable.dirCreateFile(io.userdata, dir, sub_path, flags);
 }
