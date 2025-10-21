@@ -3525,7 +3525,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .s390x => .{ .s390x_sysv = .{} },
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
-        .xtensa, .xtensaeb => .{ .xtensa_call0 = .{} },
+        .xtensa, .xtensaeb => .{ .xtensa_windowed = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv32, .spirv64 => .spirv_device,
