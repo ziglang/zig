@@ -71,6 +71,7 @@ const current_variant: Variant = switch (native_arch) {
     .arm,
     .armeb,
     .csky,
+    .hppa,
     .microblaze,
     .microblazeel,
     .sh,
@@ -144,6 +145,7 @@ const AbiTcb = switch (current_variant) {
         .alpha,
         .arm,
         .armeb,
+        .hppa,
         .microblaze,
         .microblazeel,
         .sh,
@@ -284,6 +286,13 @@ pub fn setThreadPointer(addr: usize) void {
                 :
                 : [addr] "r" (addr),
             );
+        },
+        .hppa => {
+            asm volatile (
+                \\ ble 0xe0(%%sr2, %%r0)
+                :
+                : [addr] "={r26}" (addr),
+                : .{ .r29 = true });
         },
         .loongarch32, .loongarch64 => {
             asm volatile (
