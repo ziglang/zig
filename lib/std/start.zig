@@ -708,7 +708,7 @@ pub inline fn callMain() u8 {
                 switch (native_os) {
                     .freestanding, .other => {},
                     else => if (@errorReturnTrace()) |trace| {
-                        std.debug.dumpStackTrace(trace.*);
+                        std.debug.dumpStackTrace(trace);
                     },
                 }
                 return 1;

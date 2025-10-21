@@ -553,7 +553,7 @@ pub fn defaultPanic(
 
                 if (@errorReturnTrace()) |t| if (t.index > 0) {
                     stderr.writeAll("error return context:\n") catch break :trace;
-                    writeStackTrace(t.*, stderr, tty_config) catch break :trace;
+                    writeStackTrace(t, stderr, tty_config) catch break :trace;
                     stderr.writeAll("\nstack trace:\n") catch break :trace;
                 };
                 writeCurrentStackTrace(.{
@@ -765,12 +765,12 @@ pub const FormatStackTrace = struct {
 
     pub fn format(context: @This(), writer: *Io.Writer) Io.Writer.Error!void {
         try writer.writeAll("\n");
-        try writeStackTrace(context.stack_trace, writer, context.tty_config);
+        try writeStackTrace(&context.stack_trace, writer, context.tty_config);
     }
 };
 
 /// Write a previously captured stack trace to `writer`, annotated with source locations.
-pub fn writeStackTrace(st: StackTrace, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
+pub fn writeStackTrace(st: *const StackTrace, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
     if (!std.options.allow_stack_tracing) {
         tty_config.setColor(writer, .dim) catch {};
         try writer.print("Cannot print stack trace: stack tracing is disabled\n", .{});
@@ -808,7 +808,7 @@ pub fn writeStackTrace(st: StackTrace, writer: *Writer, tty_config: tty.Config) 
     }
 }
 /// A thin wrapper around `writeStackTrace` which writes to stderr and ignores write errors.
-pub fn dumpStackTrace(st: StackTrace) void {
+pub fn dumpStackTrace(st: *const StackTrace) void {
     const tty_config = tty.detectConfig(.stderr());
     const stderr = lockStderrWriter(&.{});
     defer unlockStderrWriter();
@@ -1686,7 +1686,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, stderr, tty_config) catch return;
+                writeStackTrace(&stack_trace, stderr, tty_config) catch return;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{
