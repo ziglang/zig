@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const elf = std.elf;
 const assert = std.debug.assert;
 
+const R_ALPHA_RELATIVE = 27;
 const R_AMD64_RELATIVE = 8;
 const R_386_RELATIVE = 8;
 const R_ARC_RELATIVE = 56;
@@ -25,6 +26,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .arc, .arceb => R_ARC_RELATIVE,
     .arm, .armeb, .thumb, .thumbeb => R_ARM_RELATIVE,
     .aarch64, .aarch64_be => R_AARCH64_RELATIVE,
+    .alpha => R_ALPHA_RELATIVE,
     .csky => R_CSKY_RELATIVE,
     .hexagon => R_HEXAGON_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
@@ -83,6 +85,15 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add %[ret], %[ret], #:lo12:_DYNAMIC
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
+            // The compiler is not required to load the GP register, so do it ourselves.
+            .alpha => asm volatile (
+                \\ br $29, 1f
+                \\1:
+                \\ ldgp $29, 0($29)
+                \\ ldq %[ret], -0x8000($29)
+                : [ret] "=r" (-> [*]const elf.Dyn),
+                :
+                : .{ .r26 = true }),
             // The CSKY ABI requires the gb register to point to the GOT. Additionally, the first
             // entry in the GOT is defined to hold the address of _DYNAMIC.
             .csky => asm volatile (
