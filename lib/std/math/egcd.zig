@@ -24,9 +24,9 @@ pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b))
         },
         else => |T| T,
     };
-    if (@typeInfo(S) != .int or @typeInfo(S).int.signedness != .signed) {
+
+    if (@typeInfo(S) != .int or @typeInfo(S).int.signedness != .signed)
         @compileError("`a` and `b` must be signed integers");
-    }
 
     std.debug.assert(a != 0 or b != 0);
 
@@ -169,7 +169,6 @@ test {
         const b: i4 = 5;
         const r = egcd(a, b);
         const g = r.gcd;
-        // Avoid overflow in assert.
         const s: i8 = r.bezout_coeff_1;
         const t: i8 = r.bezout_coeff_2;
         try std.testing.expect(s * a + t * b == g);
