@@ -4880,10 +4880,7 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
             .FAULT => unreachable, // ptr was invalid
             else => unreachable,
         };
-        return;
-    }
-
-    if (native_os.isDarwin()) {
+    } else if (native_os.isDarwin()) {
         const c = std.c;
         const flags: c.UL = .{
             .op = .COMPARE_AND_WAIT,
@@ -4907,10 +4904,7 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
             .TIMEDOUT => unreachable,
             else => unreachable,
         };
-        return;
-    }
-
-    if (builtin.cpu.arch.isWasm()) {
+    } else if (builtin.cpu.arch.isWasm()) {
         comptime assert(builtin.cpu.has(.wasm, .atomics));
         try t.checkCancel();
         const timeout: i64 = -1;
@@ -4933,10 +4927,16 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
             2 => assert(!is_debug), // timeout
             else => assert(!is_debug),
         }
-        return;
+    } else if (is_windows) {
+        try t.checkCancel();
+        switch (windows.ntdll.RtlWaitOnAddress(ptr, &expect, @sizeOf(@TypeOf(expect)), null)) {
+            .SUCCESS => {},
+            .CANCELLED => return error.Canceled,
+            else => recoverableOsBugDetected(),
+        }
+    } else {
+        @compileError("TODO");
     }
-
-    @compileError("TODO");
 }
 
 pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) void {
@@ -4954,10 +4954,7 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
             .FAULT => unreachable, // ptr was invalid
             else => unreachable,
         };
-        return;
-    }
-
-    if (native_os.isDarwin()) {
+    } else if (native_os.isDarwin()) {
         const c = std.c;
         const flags: c.UL = .{
             .op = .COMPARE_AND_WAIT,
@@ -4980,10 +4977,7 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
             .TIMEDOUT => unreachable,
             else => unreachable,
         };
-        return;
-    }
-
-    if (builtin.cpu.arch.isWasm()) {
+    } else if (builtin.cpu.arch.isWasm()) {
         comptime assert(builtin.cpu.has(.wasm, .atomics));
         const timeout: i64 = -1;
         const signed_expect: i32 = @bitCast(expect);
@@ -5005,10 +4999,14 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
             2 => assert(!is_debug), // timeout
             else => assert(!is_debug),
         }
-        return;
+    } else if (is_windows) {
+        switch (windows.ntdll.RtlWaitOnAddress(ptr, &expect, @sizeOf(@TypeOf(expect)), null)) {
+            .SUCCESS, .CANCELLED => {},
+            else => recoverableOsBugDetected(),
+        }
+    } else {
+        @compileError("TODO");
     }
-
-    @compileError("TODO");
 }
 
 pub fn futexWaitDurationUncancelable(ptr: *const std.atomic.Value(u32), expect: u32, timeout: Io.Duration) void {
@@ -5028,9 +5026,9 @@ pub fn futexWaitDurationUncancelable(ptr: *const std.atomic.Value(u32), expect: 
             else => unreachable,
         };
         return;
+    } else {
+        @compileError("TODO");
     }
-
-    @compileError("TODO");
 }
 
 pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
@@ -5049,10 +5047,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
             .FAULT => {}, // pointer became invalid while doing the wake
             else => unreachable,
         };
-        return;
-    }
-
-    if (native_os.isDarwin()) {
+    } else if (native_os.isDarwin()) {
         const c = std.c;
         const flags: c.UL = .{
             .op = .COMPARE_AND_WAIT,
@@ -5071,9 +5066,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
                 else => assert(!is_debug),
             }
         }
-    }
-
-    if (builtin.cpu.arch.isWasm()) {
+    } else if (builtin.cpu.arch.isWasm()) {
         comptime assert(builtin.cpu.has(.wasm, .atomics));
         assert(max_waiters != 0);
         const woken_count = asm volatile (
@@ -5086,10 +5079,15 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
               [waiters] "r" (max_waiters),
         );
         _ = woken_count; // can be 0 when linker flag 'shared-memory' is not enabled
-        return;
+    } else if (is_windows) {
+        assert(max_waiters != 0);
+        switch (max_waiters) {
+            1 => windows.ntdll.RtlWakeAddressSingle(ptr),
+            else => windows.ntdll.RtlWakeAddressAll(ptr),
+        }
+    } else {
+        @compileError("TODO");
     }
-
-    @compileError("TODO");
 }
 
 /// A thread-safe logical boolean value which can be `set` and `unset`.
