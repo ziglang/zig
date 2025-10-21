@@ -3757,86 +3757,11 @@ pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
     }
 }
 
-pub const ConnectError = error{
-    /// For UNIX domain sockets, which are identified by pathname: Write permission is denied on  the  socket
-    /// file,  or  search  permission  is  denied  for  one of the directories in the path prefix.
-    /// or
-    /// The user tried to connect to a broadcast address without having the socket broadcast flag enabled  or
-    /// the connection request failed because of a local firewall rule.
-    AccessDenied,
+pub const ConnectError = std.Io.net.IpAddress.ConnectError || std.Io.net.UnixAddress.ConnectError;
 
-    /// See AccessDenied
-    PermissionDenied,
-
-    /// Local address is already in use.
-    AddressInUse,
-
-    /// (Internet  domain  sockets)  The  socket  referred  to  by sockfd had not previously been bound to an
-    /// address and, upon attempting to bind it to an ephemeral port, it was determined that all port numbers
-    /// in    the    ephemeral    port    range    are   currently   in   use.    See   the   discussion   of
-    /// /proc/sys/net/ipv4/ip_local_port_range in ip(7).
-    AddressUnavailable,
-
-    /// The passed address didn't have the correct address family in its sa_family field.
-    AddressFamilyUnsupported,
-
-    /// Insufficient entries in the routing cache.
-    SystemResources,
-
-    /// A connect() on a stream socket found no one listening on the remote address.
-    ConnectionRefused,
-
-    /// Network is unreachable.
-    NetworkUnreachable,
-
-    /// Timeout  while  attempting  connection.   The server may be too busy to accept new connections.  Note
-    /// that for IP sockets the timeout may be very long when syncookies are enabled on the server.
-    Timeout,
-
-    /// This error occurs when no global event loop is configured,
-    /// and connecting to the socket would block.
-    WouldBlock,
-
-    /// The given path for the unix socket does not exist.
-    FileNotFound,
-
-    /// Connection was reset by peer before connect could complete.
-    ConnectionResetByPeer,
-
-    /// Socket is non-blocking and already has a pending connection in progress.
-    ConnectionPending,
-
-    /// Socket was already connected
-    AlreadyConnected,
-} || UnexpectedError;
-
-/// Initiate a connection on a socket.
-/// If `sockfd` is opened in non blocking mode, the function will
-/// return error.WouldBlock when EAGAIN or EINPROGRESS is received.
 pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
     if (native_os == .windows) {
-        const rc = windows.ws2_32.connect(sock, sock_addr, @intCast(len));
-        if (rc == 0) return;
-        switch (windows.ws2_32.WSAGetLastError()) {
-            .EADDRINUSE => return error.AddressInUse,
-            .EADDRNOTAVAIL => return error.AddressUnavailable,
-            .ECONNREFUSED => return error.ConnectionRefused,
-            .ECONNRESET => return error.ConnectionResetByPeer,
-            .ETIMEDOUT => return error.Timeout,
-            .EHOSTUNREACH, // TODO: should we return NetworkUnreachable in this case as well?
-            .ENETUNREACH,
-            => return error.NetworkUnreachable,
-            .EFAULT => unreachable,
-            .EINVAL => unreachable,
-            .EISCONN => return error.AlreadyConnected,
-            .ENOTSOCK => unreachable,
-            .EWOULDBLOCK => return error.WouldBlock,
-            .EACCES => unreachable,
-            .ENOBUFS => return error.SystemResources,
-            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
-            else => |err| return windows.unexpectedWSAError(err),
-        }
-        return;
+        @compileError("use std.Io instead");
     }
 
     while (true) {

@@ -252,7 +252,7 @@ pub fn io(t: *Threaded) Io {
                 else => netBindIpPosix,
             },
             .netConnectIp = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => netConnectIpWindows,
                 else => netConnectIpPosix,
             },
             .netConnectUnix = netConnectUnix,
@@ -2810,28 +2810,10 @@ fn netListenIpWindows(
     if (!have_networking) return error.NetworkDown;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(&address);
-    const mode = posixSocketMode(options.mode);
-    const protocol = posixProtocol(options.protocol);
-
-    const socket_handle = while (true) {
-        try t.checkCancel();
-        const flags: u32 = ws2_32.WSA_FLAG_OVERLAPPED | ws2_32.WSA_FLAG_NO_HANDLE_INHERIT;
-        const rc = ws2_32.WSASocketW(family, @bitCast(mode), @bitCast(protocol), null, 0, flags);
-        if (rc != ws2_32.INVALID_SOCKET) break rc;
-        switch (ws2_32.WSAGetLastError()) {
-            .EINTR => continue,
-            .ECANCELLED, .E_CANCELLED => return error.Canceled,
-            .NOTINITIALISED => {
-                try initializeWsa(t);
-                continue;
-            },
-            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
-            .EMFILE => return error.ProcessFdQuotaExceeded,
-            .ENOBUFS => return error.SystemResources,
-            .EPROTONOSUPPORT => return error.ProtocolUnsupportedByAddressFamily,
-            else => |err| return windows.unexpectedWSAError(err),
-        }
-    };
+    const socket_handle = try openSocketWsa(t, family, .{
+        .mode = options.mode,
+        .protocol = options.protocol,
+    });
     errdefer closeSocketWindows(socket_handle);
 
     if (options.reuse_address)
@@ -2885,24 +2867,7 @@ fn netListenIpWindows(
         }
     }
 
-    while (true) {
-        try t.checkCancel();
-        const rc = ws2_32.getsockname(socket_handle, &storage.any, &addr_len);
-        if (rc != ws2_32.SOCKET_ERROR) break;
-        switch (ws2_32.WSAGetLastError()) {
-            .EINTR => continue,
-            .ECANCELLED, .E_CANCELLED => return error.Canceled,
-            .NOTINITIALISED => {
-                try initializeWsa(t);
-                continue;
-            },
-            .ENETDOWN => return error.NetworkDown,
-            .EFAULT => |err| return wsaErrorBug(err),
-            .ENOTSOCK => |err| return wsaErrorBug(err),
-            .EINVAL => |err| return wsaErrorBug(err),
-            else => |err| return windows.unexpectedWSAError(err),
-        }
-    }
+    try wsaGetSockName(t, socket_handle, &storage.any, &addr_len);
 
     return .{
         .socket = .{
@@ -3076,6 +3041,27 @@ fn posixGetSockName(t: *Threaded, socket_fd: posix.fd_t, addr: *posix.sockaddr, 
     }
 }
 
+fn wsaGetSockName(t: *Threaded, handle: ws2_32.SOCKET, addr: *ws2_32.sockaddr, addr_len: *i32) !void {
+    while (true) {
+        try t.checkCancel();
+        const rc = ws2_32.getsockname(handle, addr, addr_len);
+        if (rc != ws2_32.SOCKET_ERROR) break;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .ENETDOWN => return error.NetworkDown,
+            .EFAULT => |err| return wsaErrorBug(err),
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+}
+
 fn setSocketOption(t: *Threaded, fd: posix.fd_t, level: i32, opt_name: u32, option: u32) !void {
     const o: []const u8 = @ptrCast(&option);
     while (true) {
@@ -3139,6 +3125,61 @@ fn netConnectIpPosix(
     } };
 }
 
+fn netConnectIpWindows(
+    userdata: ?*anyopaque,
+    address: *const IpAddress,
+    options: IpAddress.ConnectOptions,
+) IpAddress.ConnectError!net.Stream {
+    if (!have_networking) return error.NetworkDown;
+    if (options.timeout != .none) @panic("TODO");
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const family = posixAddressFamily(address);
+    const socket_handle = try openSocketWsa(t, family, .{
+        .mode = options.mode,
+        .protocol = options.protocol,
+    });
+    errdefer closeSocketWindows(socket_handle);
+
+    var storage: WsaAddress = undefined;
+    var addr_len = addressToWsa(address, &storage);
+
+    while (true) {
+        const rc = ws2_32.connect(socket_handle, &storage.any, addr_len);
+        if (rc != ws2_32.SOCKET_ERROR) break;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+
+            .EADDRNOTAVAIL => return error.AddressUnavailable,
+            .ECONNREFUSED => return error.ConnectionRefused,
+            .ECONNRESET => return error.ConnectionResetByPeer,
+            .ETIMEDOUT => return error.Timeout,
+            .EHOSTUNREACH => return error.HostUnreachable,
+            .ENETUNREACH => return error.NetworkUnreachable,
+            .EFAULT => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            .EISCONN => |err| return wsaErrorBug(err),
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EWOULDBLOCK => return error.WouldBlock,
+            .EACCES => return error.AccessDenied,
+            .ENOBUFS => return error.SystemResources,
+            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
+    try wsaGetSockName(t, socket_handle, &storage.any, &addr_len);
+
+    return .{ .socket = .{
+        .handle = socket_handle,
+        .address = addressFromWsa(&storage),
+    } };
+}
+
 fn netConnectUnix(
     userdata: ?*anyopaque,
     address: *const net.UnixAddress,
@@ -3184,28 +3225,12 @@ fn netBindIpWindows(
     if (!have_networking) return error.NetworkDown;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(address);
-    const mode = posixSocketMode(options.mode);
-    const protocol = posixProtocol(options.protocol);
-    const socket_handle = while (true) {
-        try t.checkCancel();
-        const flags: u32 = ws2_32.WSA_FLAG_OVERLAPPED | ws2_32.WSA_FLAG_NO_HANDLE_INHERIT;
-        const rc = ws2_32.WSASocketW(family, @bitCast(mode), @bitCast(protocol), null, 0, flags);
-        if (rc != ws2_32.INVALID_SOCKET) break rc;
-        switch (ws2_32.WSAGetLastError()) {
-            .EINTR => continue,
-            .ECANCELLED, .E_CANCELLED => return error.Canceled,
-            .NOTINITIALISED => {
-                try initializeWsa(t);
-                continue;
-            },
-            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
-            .EMFILE => return error.ProcessFdQuotaExceeded,
-            .ENOBUFS => return error.SystemResources,
-            .EPROTONOSUPPORT => return error.ProtocolUnsupportedByAddressFamily,
-            else => |err| return windows.unexpectedWSAError(err),
-        }
-    };
+    const socket_handle = try openSocketWsa(t, family, .{
+        .mode = options.mode,
+        .protocol = options.protocol,
+    });
     errdefer closeSocketWindows(socket_handle);
+
     var storage: WsaAddress = undefined;
     var addr_len = addressToWsa(address, &storage);
 
@@ -3231,24 +3256,7 @@ fn netBindIpWindows(
         }
     }
 
-    while (true) {
-        try t.checkCancel();
-        const rc = ws2_32.getsockname(socket_handle, &storage.any, &addr_len);
-        if (rc != ws2_32.SOCKET_ERROR) break;
-        switch (ws2_32.WSAGetLastError()) {
-            .EINTR => continue,
-            .ECANCELLED, .E_CANCELLED => return error.Canceled,
-            .NOTINITIALISED => {
-                try initializeWsa(t);
-                continue;
-            },
-            .ENETDOWN => return error.NetworkDown,
-            .EFAULT => |err| return wsaErrorBug(err),
-            .ENOTSOCK => |err| return wsaErrorBug(err),
-            .EINVAL => |err| return wsaErrorBug(err),
-            else => |err| return windows.unexpectedWSAError(err),
-        }
-    }
+    try wsaGetSockName(t, socket_handle, &storage.any, &addr_len);
 
     return .{
         .handle = socket_handle,
@@ -3317,6 +3325,30 @@ fn openSocketPosix(
     return socket_fd;
 }
 
+fn openSocketWsa(t: *Threaded, family: posix.sa_family_t, options: IpAddress.BindOptions) !ws2_32.SOCKET {
+    const mode = posixSocketMode(options.mode);
+    const protocol = posixProtocol(options.protocol);
+    const flags: u32 = ws2_32.WSA_FLAG_OVERLAPPED | ws2_32.WSA_FLAG_NO_HANDLE_INHERIT;
+    while (true) {
+        try t.checkCancel();
+        const rc = ws2_32.WSASocketW(family, @bitCast(mode), @bitCast(protocol), null, 0, flags);
+        if (rc != ws2_32.INVALID_SOCKET) return rc;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .EMFILE => return error.ProcessFdQuotaExceeded,
+            .ENOBUFS => return error.SystemResources,
+            .EPROTONOSUPPORT => return error.ProtocolUnsupportedByAddressFamily,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+}
+
 fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: net.Socket.Handle) net.Server.AcceptError!net.Stream {
     if (!have_networking) return error.NetworkDown;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -3376,11 +3408,11 @@ fn netAcceptWindows(userdata: ?*anyopaque, listen_handle: net.Socket.Handle) net
     while (true) {
         try t.checkCancel();
         const rc = ws2_32.accept(listen_handle, &storage.any, &addr_len);
-        if (rc != windows.ws2_32.INVALID_SOCKET) return .{ .socket = .{
+        if (rc != ws2_32.INVALID_SOCKET) return .{ .socket = .{
             .handle = rc,
             .address = addressFromWsa(&storage),
         } };
-        switch (windows.ws2_32.WSAGetLastError()) {
+        switch (ws2_32.WSAGetLastError()) {
             .EINTR => continue,
             .ECANCELLED, .E_CANCELLED => return error.Canceled,
             .NOTINITIALISED => {
