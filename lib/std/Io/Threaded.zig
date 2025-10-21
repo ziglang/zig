@@ -220,8 +220,14 @@ pub fn io(t: *Threaded) Io {
             .fileClose = fileClose,
             .fileWriteStreaming = fileWriteStreaming,
             .fileWritePositional = fileWritePositional,
-            .fileReadStreaming = fileReadStreaming,
-            .fileReadPositional = fileReadPositional,
+            .fileReadStreaming = switch (builtin.os.tag) {
+                .windows => fileReadStreamingWindows,
+                else => fileReadStreamingPosix,
+            },
+            .fileReadPositional = switch (builtin.os.tag) {
+                .windows => fileReadPositionalWindows,
+                else => fileReadPositionalPosix,
+            },
             .fileSeekBy = fileSeekBy,
             .fileSeekTo = fileSeekTo,
             .openSelfExe = openSelfExe,
@@ -258,15 +264,21 @@ pub fn io(t: *Threaded) Io {
             .netConnectUnix = netConnectUnix,
             .netClose = netClose,
             .netRead = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => netReadWindows,
                 else => netReadPosix,
             },
             .netWrite = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => netWriteWindows,
                 else => netWritePosix,
             },
-            .netSend = netSend,
-            .netReceive = netReceive,
+            .netSend = switch (builtin.os.tag) {
+                .windows => netSendWindows,
+                else => netSendPosix,
+            },
+            .netReceive = switch (builtin.os.tag) {
+                .windows => netReceiveWindows,
+                else => netReceivePosix,
+            },
             .netInterfaceNameResolve = netInterfaceNameResolve,
             .netInterfaceName = netInterfaceName,
             .netLookup = netLookup,
@@ -282,6 +294,10 @@ const have_flock = @TypeOf(posix.system.flock) != void;
 const have_sendmmsg = builtin.os.tag == .linux;
 const have_futex = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => builtin.cpu.has(.wasm, .atomics),
+    else => true,
+};
+const have_preadv = switch (native_os) {
+    .windows, .haiku, .serenity => false, // 💩💩💩
     else => true,
 };
 
@@ -1899,12 +1915,19 @@ fn dirOpenFileWindows(
     flags: Io.File.OpenFlags,
 ) Io.File.OpenError!Io.File {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    try t.checkCancel();
-
-    const w = windows;
-    const sub_path_w_array = try w.sliceToPrefixedFileW(dir.handle, sub_path);
+    const sub_path_w_array = try windows.sliceToPrefixedFileW(dir.handle, sub_path);
     const sub_path_w = sub_path_w_array.span();
+    return dirOpenFileWindowsInner(t, dir, sub_path_w, flags);
+}
 
+fn dirOpenFileWindowsInner(
+    t: *Threaded,
+    dir: Io.Dir,
+    sub_path_w: [:0]const u16,
+    flags: Io.File.OpenFlags,
+) Io.File.OpenError!Io.File {
+    try t.checkCancel();
+    const w = windows;
     const handle = try w.OpenFile(sub_path_w, .{
         .dir = dir.handle,
         .access_mask = w.SYNCHRONIZE |
@@ -2247,46 +2270,8 @@ fn fileClose(userdata: ?*anyopaque, file: Io.File) void {
     posix.close(file.handle);
 }
 
-fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
+fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-
-    if (is_windows) {
-        const DWORD = windows.DWORD;
-        var index: usize = 0;
-        var truncate: usize = 0;
-        var total: usize = 0;
-        while (index < data.len) {
-            try t.checkCancel();
-            {
-                const untruncated = data[index];
-                data[index] = untruncated[truncate..];
-                defer data[index] = untruncated;
-                const buffer = data[index..];
-                const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
-                var n: DWORD = undefined;
-                if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, null) == 0) {
-                    switch (windows.GetLastError()) {
-                        .IO_PENDING => |err| return windows.statusBug(err),
-                        .OPERATION_ABORTED => continue,
-                        .BROKEN_PIPE => return 0,
-                        .HANDLE_EOF => return 0,
-                        .NETNAME_DELETED => return error.ConnectionResetByPeer,
-                        .LOCK_VIOLATION => return error.LockViolation,
-                        .ACCESS_DENIED => return error.AccessDenied,
-                        .INVALID_HANDLE => return error.NotOpenForReading,
-                        else => |err| return windows.unexpectedError(err),
-                    }
-                }
-                total += n;
-                truncate += n;
-            }
-            while (index < data.len and truncate >= data[index].len) {
-                truncate -= data[index].len;
-                index += 1;
-            }
-        }
-        return total;
-    }
 
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
     var i: usize = 0;
@@ -2348,70 +2333,37 @@ fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File
     }
 }
 
-fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
+fn fileReadStreamingWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    try t.checkCancel();
+
+    const DWORD = windows.DWORD;
+    var index: usize = 0;
+    while (data[index].len == 0) index += 1;
+
+    const buffer = data[index];
+    const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
+    var n: DWORD = undefined;
+    if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, null) == 0) {
+        switch (windows.GetLastError()) {
+            .IO_PENDING => |err| return windows.errorBug(err),
+            .OPERATION_ABORTED => return error.Canceled,
+            .BROKEN_PIPE => return 0,
+            .HANDLE_EOF => return 0,
+            .NETNAME_DELETED => return error.ConnectionResetByPeer,
+            .LOCK_VIOLATION => return error.LockViolation,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .INVALID_HANDLE => return error.NotOpenForReading,
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+    return n;
+}
+
+fn fileReadPositionalPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
 
-    if (is_windows) {
-        const DWORD = windows.DWORD;
-        const OVERLAPPED = windows.OVERLAPPED;
-        var index: usize = 0;
-        var truncate: usize = 0;
-        var total: usize = 0;
-        while (true) {
-            try t.checkCancel();
-            {
-                const untruncated = data[index];
-                data[index] = untruncated[truncate..];
-                defer data[index] = untruncated;
-                const buffer = data[index..];
-                const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
-                var n: DWORD = undefined;
-                var overlapped_data: OVERLAPPED = undefined;
-                const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
-                    overlapped_data = .{
-                        .Internal = 0,
-                        .InternalHigh = 0,
-                        .DUMMYUNIONNAME = .{
-                            .DUMMYSTRUCTNAME = .{
-                                .Offset = @as(u32, @truncate(off)),
-                                .OffsetHigh = @as(u32, @truncate(off >> 32)),
-                            },
-                        },
-                        .hEvent = null,
-                    };
-                    break :blk &overlapped_data;
-                } else null;
-                if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, overlapped) == 0) {
-                    switch (windows.GetLastError()) {
-                        .IO_PENDING => |err| return windows.statusBug(err),
-                        .OPERATION_ABORTED => continue,
-                        .BROKEN_PIPE => return 0,
-                        .HANDLE_EOF => return 0,
-                        .NETNAME_DELETED => return error.ConnectionResetByPeer,
-                        .LOCK_VIOLATION => return error.LockViolation,
-                        .ACCESS_DENIED => return error.AccessDenied,
-                        .INVALID_HANDLE => return error.NotOpenForReading,
-                        else => |err| return windows.unexpectedError(err),
-                    }
-                }
-                total += n;
-                truncate += n;
-            }
-            while (index < data.len and truncate >= data[index].len) {
-                truncate -= data[index].len;
-                index += 1;
-            }
-        }
-        return total;
-    }
-
-    const have_pread_but_not_preadv = switch (native_os) {
-        .windows, .haiku, .serenity => true,
-        else => false,
-    };
-    if (have_pread_but_not_preadv) {
-        @compileError("TODO");
-    }
+    if (!have_preadv) @compileError("TODO");
 
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
     var i: usize = 0;
@@ -2478,6 +2430,48 @@ fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset
             else => |err| return posix.unexpectedErrno(err),
         }
     }
+}
+
+fn fileReadPositionalWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    try t.checkCancel();
+
+    const DWORD = windows.DWORD;
+    const OVERLAPPED = windows.OVERLAPPED;
+
+    var index: usize = 0;
+    while (data[index].len == 0) index += 1;
+
+    const buffer = data[index];
+    const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
+    var n: DWORD = undefined;
+    var overlapped: OVERLAPPED = .{
+        .Internal = 0,
+        .InternalHigh = 0,
+        .DUMMYUNIONNAME = .{
+            .DUMMYSTRUCTNAME = .{
+                .Offset = @as(u32, @truncate(offset)),
+                .OffsetHigh = @as(u32, @truncate(offset >> 32)),
+            },
+        },
+        .hEvent = null,
+    };
+
+    if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, &overlapped) == 0) {
+        switch (windows.GetLastError()) {
+            .IO_PENDING => |err| return windows.errorBug(err),
+            .OPERATION_ABORTED => return error.Canceled,
+            .BROKEN_PIPE => return 0,
+            .HANDLE_EOF => return 0,
+            .NETNAME_DELETED => return error.ConnectionResetByPeer,
+            .LOCK_VIOLATION => return error.LockViolation,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .INVALID_HANDLE => return error.NotOpenForReading,
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+
+    return n;
 }
 
 fn fileSeekBy(userdata: ?*anyopaque, file: Io.File, offset: i64) Io.File.SeekError!void {
@@ -2563,11 +2557,9 @@ fn openSelfExe(userdata: ?*anyopaque, flags: Io.File.OpenFlags) Io.File.OpenSelf
         // the file, we can let the openFileW call follow the symlink for us.
         const image_path_unicode_string = &windows.peb().ProcessParameters.ImagePathName;
         const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
-        const prefixed_path_w_array = try windows.wToPrefixedFileW(null, image_path_name);
-        const prefixed_path_w = prefixed_path_w_array.span();
         const cwd_handle = std.os.windows.peb().ProcessParameters.CurrentDirectory.Handle;
 
-        return dirOpenFileWindows(t, .{ .handle = cwd_handle }, prefixed_path_w, flags);
+        return dirOpenFileWindowsInner(t, .{ .handle = cwd_handle }, image_path_name, flags);
     }
     @panic("TODO");
 }
@@ -3493,7 +3485,16 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
     }
 }
 
-fn netSend(
+fn netReadWindows(userdata: ?*anyopaque, handle: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
+    if (!have_networking) return .{ error.NetworkDown, 0 };
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = handle;
+    _ = data;
+    @panic("TODO");
+}
+
+fn netSendPosix(
     userdata: ?*anyopaque,
     handle: net.Socket.Handle,
     messages: []net.OutgoingMessage,
@@ -3504,9 +3505,9 @@ fn netSend(
 
     const posix_flags: u32 =
         @as(u32, if (@hasDecl(posix.MSG, "CONFIRM") and flags.confirm) posix.MSG.CONFIRM else 0) |
-        @as(u32, if (flags.dont_route) posix.MSG.DONTROUTE else 0) |
-        @as(u32, if (flags.eor) posix.MSG.EOR else 0) |
-        @as(u32, if (flags.oob) posix.MSG.OOB else 0) |
+        @as(u32, if (@hasDecl(posix.MSG, "DONTROUTE") and flags.dont_route) posix.MSG.DONTROUTE else 0) |
+        @as(u32, if (@hasDecl(posix.MSG, "EOR") and flags.eor) posix.MSG.EOR else 0) |
+        @as(u32, if (@hasDecl(posix.MSG, "OOB") and flags.oob) posix.MSG.OOB else 0) |
         @as(u32, if (@hasDecl(posix.MSG, "FASTOPEN") and flags.fastopen) posix.MSG.FASTOPEN else 0) |
         posix.MSG.NOSIGNAL;
 
@@ -3520,6 +3521,21 @@ fn netSend(
         i += 1;
     }
     return .{ null, i };
+}
+
+fn netSendWindows(
+    userdata: ?*anyopaque,
+    handle: net.Socket.Handle,
+    messages: []net.OutgoingMessage,
+    flags: net.SendFlags,
+) struct { ?net.Socket.SendError, usize } {
+    if (!have_networking) return .{ error.NetworkDown, 0 };
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = handle;
+    _ = messages;
+    _ = flags;
+    @panic("TODO");
 }
 
 fn netSendOne(
@@ -3676,7 +3692,7 @@ fn netSendMany(
     }
 }
 
-fn netReceive(
+fn netReceivePosix(
     userdata: ?*anyopaque,
     handle: net.Socket.Handle,
     message_buffer: []net.IncomingMessage,
@@ -3805,6 +3821,25 @@ fn netReceive(
     }
 }
 
+fn netReceiveWindows(
+    userdata: ?*anyopaque,
+    handle: net.Socket.Handle,
+    message_buffer: []net.IncomingMessage,
+    data_buffer: []u8,
+    flags: net.ReceiveFlags,
+    timeout: Io.Timeout,
+) struct { ?net.Socket.ReceiveTimeoutError, usize } {
+    if (!have_networking) return .{ error.NetworkDown, 0 };
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = handle;
+    _ = message_buffer;
+    _ = data_buffer;
+    _ = flags;
+    _ = timeout;
+    @panic("TODO");
+}
+
 fn netWritePosix(
     userdata: ?*anyopaque,
     fd: net.Socket.Handle,
@@ -3887,6 +3922,22 @@ fn netWritePosix(
     }
 }
 
+fn netWriteWindows(
+    userdata: ?*anyopaque,
+    handle: net.Socket.Handle,
+    header: []const u8,
+    data: []const []const u8,
+    splat: usize,
+) net.Stream.Writer.Error!usize {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = handle;
+    _ = header;
+    _ = data;
+    _ = splat;
+    @panic("TODO");
+}
+
 fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
     // OS checks ptr addr before length so zero length vectors must be omitted.
     if (bytes.len == 0) return;
@@ -3899,7 +3950,7 @@ fn netClose(userdata: ?*anyopaque, handle: net.Socket.Handle) void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
     switch (native_os) {
-        .windows => closeSocketWindows(handle) catch recoverableOsBugDetected(),
+        .windows => closeSocketWindows(handle),
         else => posix.close(handle),
     }
 }
@@ -4559,7 +4610,7 @@ fn lookupDns(
                     message_i += 1;
                 }
             }
-            _ = netSend(t, socket.handle, message_buffer[0..message_i], .{});
+            _ = netSendPosix(t, socket.handle, message_buffer[0..message_i], .{});
         }
 
         const timeout: Io.Timeout = .{ .deadline = .{
@@ -4607,7 +4658,7 @@ fn lookupDns(
                             .data_ptr = query.ptr,
                             .data_len = query.len,
                         };
-                        _ = netSend(t, socket.handle, (&retry_message)[0..1], .{});
+                        _ = netSendPosix(t, socket.handle, (&retry_message)[0..1], .{});
                         continue;
                     },
                     else => continue,
@@ -5157,9 +5208,9 @@ fn closeSocketWindows(s: ws2_32.SOCKET) void {
     if (builtin.mode == .Debug) switch (rc) {
         0 => {},
         ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
-            else => unreachable,
+            else => recoverableOsBugDetected(),
         },
-        else => unreachable,
+        else => recoverableOsBugDetected(),
     };
 }
 

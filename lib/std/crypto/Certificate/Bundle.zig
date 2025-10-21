@@ -144,9 +144,11 @@ fn rescanWithPath(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp, cert_f
 
 const RescanWindowsError = Allocator.Error || ParseCertError || std.posix.UnexpectedError || error{FileNotFound};
 
-fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
+fn rescanWindows(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp) RescanWindowsError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
+
+    _ = io;
 
     const w = std.os.windows;
     const GetLastError = w.GetLastError;
@@ -157,7 +159,7 @@ fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     };
     defer _ = w.crypt32.CertCloseStore(store, 0);
 
-    const now_sec = std.time.timestamp();
+    const now_sec = now.toSeconds();
 
     var ctx = w.crypt32.CertEnumCertificatesInStore(store, null);
     while (ctx) |context| : (ctx = w.crypt32.CertEnumCertificatesInStore(store, ctx)) {
