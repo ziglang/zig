@@ -211,7 +211,6 @@ pub fn io(t: *Threaded) Io {
                 else => dirOpenFilePosix,
             },
             .dirOpenDir = switch (builtin.os.tag) {
-                .windows => dirOpenDirWindows,
                 .wasi => dirOpenDirWasi,
                 .haiku => dirOpenDirHaiku,
                 else => dirOpenDirPosix,
@@ -2035,6 +2034,11 @@ fn dirOpenDirPosix(
 ) Io.Dir.OpenError!Io.Dir {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
 
+    if (is_windows) {
+        const sub_path_w = try windows.sliceToPrefixedFileW(dir.handle, sub_path);
+        return dirOpenDirWindows(t, dir, sub_path_w.span(), options);
+    }
+
     var path_buffer: [posix.PATH_MAX]u8 = undefined;
     const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
 
@@ -2123,19 +2127,13 @@ fn dirOpenDirHaiku(
     }
 }
 
-fn dirOpenDirWindows(
-    userdata: ?*anyopaque,
+pub fn dirOpenDirWindows(
+    t: *Io.Threaded,
     dir: Io.Dir,
-    sub_path: []const u8,
+    sub_path_w: [:0]const u16,
     options: Io.Dir.OpenOptions,
 ) Io.Dir.OpenError!Io.Dir {
-    const t: *Threaded = @ptrCast(@alignCast(userdata));
-    try t.checkCancel();
-
     const w = windows;
-    const sub_path_w_array = try w.sliceToPrefixedFileW(dir.handle, sub_path);
-    const sub_path_w = sub_path_w_array.span();
-
     // TODO remove some of these flags if options.access_sub_paths is false
     const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
         w.SYNCHRONIZE | w.FILE_TRAVERSE;
@@ -2158,6 +2156,7 @@ fn dirOpenDirWindows(
     const open_reparse_point: w.DWORD = if (!options.follow_symlinks) w.FILE_OPEN_REPARSE_POINT else 0x0;
     var io_status_block: w.IO_STATUS_BLOCK = undefined;
     var result: Io.Dir = .{ .handle = undefined };
+    try t.checkCancel();
     const rc = w.ntdll.NtCreateFile(
         &result.handle,
         access_mask,

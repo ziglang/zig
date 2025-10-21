@@ -1084,16 +1084,24 @@ fn windowsCreateProcessPathExt(
     // or a version with a supported PATHEXT appended. We then try calling CreateProcessW
     // with the found versions in the appropriate order.
 
+    // In the future, child process execution needs to move to Io implementation.
+    // Under those conditions, here we will have access to lower level directory
+    // opening function knowing which implementation we are in. Here, we imitate
+    // that scenario.
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+
     var dir = dir: {
         // needs to be null-terminated
         try dir_buf.append(allocator, 0);
         defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
         const prefixed_path = try windows.wToPrefixedFileW(null, dir_path_z);
-        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{ .iterate = true }) catch
-            return error.FileNotFound;
+        break :dir threaded.dirOpenDirWindows(.cwd(), prefixed_path.span(), .{
+            .iterate = true,
+        }) catch return error.FileNotFound;
     };
-    defer dir.close();
+    defer dir.close(io);
 
     // Add wildcard and null-terminator
     try app_buf.append(allocator, '*');
@@ -1127,7 +1135,7 @@ fn windowsCreateProcessPathExt(
             .Buffer = @constCast(app_name_wildcard.ptr),
         };
         const rc = windows.ntdll.NtQueryDirectoryFile(
-            dir.fd,
+            dir.handle,
             null,
             null,
             null,
