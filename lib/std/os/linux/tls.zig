@@ -46,7 +46,7 @@ const Variant = enum {
     /// -------------------------------------^-------------
     ///                                      `-- The TP register points here.
     ///
-    /// The offset (which can be zero) is applied to the TP only; there is never physical gap
+    /// The offset (which can be zero) is applied to the TP only; there is never a physical gap
     /// between the ABI TCB and the TLS blocks. This implies that we only need to align the TP.
     ///
     /// The first (and only) word in the ABI TCB points to the DTV.
@@ -71,6 +71,8 @@ const current_variant: Variant = switch (native_arch) {
     .arm,
     .armeb,
     .csky,
+    .microblaze,
+    .microblazeel,
     .thumb,
     .thumbeb,
     => .I_original,
@@ -135,19 +137,19 @@ const current_dtv_offset = switch (native_arch) {
 /// Per-thread storage for the ELF TLS ABI.
 const AbiTcb = switch (current_variant) {
     .I_original, .I_modified => switch (native_arch) {
-        // ARM EABI mandates enough space for two pointers: the first one points to the DTV as
-        // usual, while the second one is unspecified.
         .aarch64,
         .aarch64_be,
         .alpha,
         .arm,
         .armeb,
+        .microblaze,
+        .microblazeel,
         .thumb,
         .thumbeb,
         => extern struct {
             /// This is offset by `current_dtv_offset`.
             dtv: usize,
-            reserved: ?*anyopaque,
+            _reserved: ?*anyopaque,
         },
         else => extern struct {
             /// This is offset by `current_dtv_offset`.
@@ -296,6 +298,13 @@ pub fn setThreadPointer(addr: usize) void {
         .csky, .mips, .mipsel, .mips64, .mips64el => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
+        },
+        .microblaze, .microblazeel => {
+            asm volatile (
+                \\ ori r21, %[addr], 0
+                :
+                : [addr] "r" (addr),
+            );
         },
         .or1k => {
             asm volatile (
