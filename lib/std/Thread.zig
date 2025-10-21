@@ -1235,6 +1235,18 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
+                .alpha => asm volatile (
+                    \\ ldi $0, 73 # SYS_munmap
+                    \\ mov %[ptr], $16
+                    \\ mov %[len], $17
+                    \\ callsys
+                    \\ ldi $0, 1 # SYS_exit
+                    \\ ldi $16, 0
+                    \\ callsys
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
                     \\  r0 = %[ptr]
