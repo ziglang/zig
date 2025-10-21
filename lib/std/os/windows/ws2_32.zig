@@ -702,28 +702,32 @@ pub const FIONBIO = -2147195266;
 pub const ADDRINFOEX_VERSION_2 = 2;
 pub const ADDRINFOEX_VERSION_3 = 3;
 pub const ADDRINFOEX_VERSION_4 = 4;
-pub const NS_ALL = 0;
-pub const NS_SAP = 1;
-pub const NS_NDS = 2;
-pub const NS_PEER_BROWSE = 3;
-pub const NS_SLP = 5;
-pub const NS_DHCP = 6;
-pub const NS_TCPIP_LOCAL = 10;
-pub const NS_TCPIP_HOSTS = 11;
-pub const NS_DNS = 12;
-pub const NS_NETBT = 13;
-pub const NS_WINS = 14;
-pub const NS_NLA = 15;
-pub const NS_NBP = 20;
-pub const NS_MS = 30;
-pub const NS_STDA = 31;
-pub const NS_NTDS = 32;
-pub const NS_EMAIL = 37;
-pub const NS_X500 = 40;
-pub const NS_NIS = 41;
-pub const NS_NISPLUS = 42;
-pub const NS_WRQ = 50;
-pub const NS_NETDES = 60;
+
+pub const NS = enum(u32) {
+    ALL = 0,
+    SAP = 1,
+    NDS = 2,
+    PEER_BROWSE = 3,
+    SLP = 5,
+    DHCP = 6,
+    TCPIP_LOCAL = 10,
+    TCPIP_HOSTS = 11,
+    DNS = 12,
+    NETBT = 13,
+    WINS = 14,
+    NLA = 15,
+    NBP = 20,
+    MS = 30,
+    STDA = 31,
+    NTDS = 32,
+    EMAIL = 37,
+    X500 = 40,
+    NIS = 41,
+    NISPLUS = 42,
+    WRQ = 50,
+    NETDES = 60,
+};
+
 pub const NI_NOFQDN = 1;
 pub const NI_NUMERICHOST = 2;
 pub const NI_NAMEREQD = 4;
@@ -1086,12 +1090,12 @@ pub const ADDRINFOEXW = extern struct {
     socktype: i32,
     protocol: i32,
     addrlen: usize,
-    canonname: [*:0]u16,
-    addr: *sockaddr,
-    blob: *anyopaque,
+    canonname: ?[*:0]u16,
+    addr: ?*sockaddr,
+    blob: ?*anyopaque,
     bloblen: usize,
-    provider: *GUID,
-    next: *ADDRINFOEXW,
+    provider: ?*GUID,
+    next: ?*ADDRINFOEXW,
 };
 
 pub const sockaddr = extern struct {
@@ -2101,7 +2105,7 @@ pub extern "mswsock" fn EnumProtocolsW(
 ) callconv(.winapi) i32;
 
 pub extern "mswsock" fn GetAddressByNameW(
-    dwNameSpace: u32,
+    dwNameSpace: NS,
     lpServiceType: *GUID,
     lpServiceName: ?[*:0]u16,
     lpiProtocols: ?*i32,
@@ -2127,7 +2131,7 @@ pub extern "mswsock" fn GetNameByTypeW(
 pub extern "ws2_32" fn GetAddrInfoExW(
     pName: ?[*:0]const u16,
     pServiceName: ?[*:0]const u16,
-    dwNameSpace: DWORD,
+    dwNameSpace: NS,
     lpNspId: ?*GUID,
     hints: ?*const ADDRINFOEXW,
     ppResult: **ADDRINFOEXW,

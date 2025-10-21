@@ -4058,8 +4058,81 @@ fn netLookupFallible(
     assert(name.len <= HostName.max_len);
 
     if (is_windows) {
-        // TODO use GetAddrInfoExW / GetAddrInfoExCancel
-        @compileError("TODO");
+        var name_buffer: [HostName.max_len + 1]u16 = undefined;
+        const name_len = std.unicode.wtf8ToWtf16Le(&name_buffer, host_name.bytes) catch
+            unreachable; // HostName is prevalidated.
+        name_buffer[name_len] = 0;
+        const name_w = name_buffer[0..name_len :0];
+
+        var port_buffer: [8]u8 = undefined;
+        var port_buffer_wide: [8]u16 = undefined;
+        const port = std.fmt.bufPrint(&port_buffer, "{d}", .{options.port}) catch
+            unreachable; // `port_buffer` is big enough for decimal u16.
+        for (port, port_buffer[0..port.len]) |byte, *wide| wide.* = byte;
+        port_buffer_wide[port.len] = 0;
+        const port_w = port_buffer_wide[0..port.len :0];
+
+        const hints: ws2_32.ADDRINFOEXW = .{
+            .flags = .{ .NUMERICSERV = true },
+            .family = posix.AF.UNSPEC,
+            .socktype = posix.SOCK.STREAM,
+            .protocol = posix.IPPROTO.TCP,
+            .canonname = null,
+            .addr = null,
+            .addrlen = 0,
+            .blob = null,
+            .bloblen = 0,
+            .provider = null,
+            .next = null,
+        };
+        var res: *ws2_32.ADDRINFOEXW = undefined;
+        const timeout: ?*ws2_32.timeval = null;
+        while (true) {
+            try t.checkCancel(); // TODO make requestCancel call GetAddrInfoExCancel
+            // TODO make this append to the queue eagerly rather than blocking until
+            // the whole thing finishes
+            const rc: ws2_32.WinsockError = @enumFromInt(ws2_32.GetAddrInfoExW(name_w, port_w, .DNS, null, &hints, &res, timeout, null, null));
+            switch (rc) {
+                @as(ws2_32.WinsockError, @enumFromInt(0)) => break,
+                .EINTR => continue,
+                .ECANCELLED, .E_CANCELLED => return error.Canceled,
+                .NOTINITIALISED => {
+                    try initializeWsa(t);
+                    continue;
+                },
+                .TRY_AGAIN => return error.NameServerFailure,
+                .EINVAL => |err| return wsaErrorBug(err),
+                .NO_RECOVERY => return error.NameServerFailure,
+                .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
+                .NOT_ENOUGH_MEMORY => return error.SystemResources,
+                .HOST_NOT_FOUND => return error.UnknownHostName,
+                .TYPE_NOT_FOUND => return error.ProtocolUnsupportedByAddressFamily,
+                .ESOCKTNOSUPPORT => return error.ProtocolUnsupportedBySystem,
+                else => |err| return windows.unexpectedWSAError(err),
+            }
+        }
+        defer ws2_32.FreeAddrInfoExW(res);
+
+        var it: ?*ws2_32.ADDRINFOEXW = res;
+        var canon_name: ?[*:0]const u16 = null;
+        while (it) |info| : (it = info.next) {
+            const addr = info.addr orelse continue;
+            const storage: WsaAddress = .{ .any = addr.* };
+            try resolved.putOne(t_io, .{ .address = addressFromWsa(&storage) });
+
+            if (info.canonname) |n| {
+                if (canon_name == null) {
+                    canon_name = n;
+                }
+            }
+        }
+        if (canon_name) |n| {
+            const len = std.unicode.wtf16LeToWtf8(options.canonical_name_buffer, std.mem.sliceTo(n, 0));
+            try resolved.putOne(t_io, .{ .canonical_name = .{
+                .bytes = options.canonical_name_buffer[0..len],
+            } });
+        }
+        return;
     }
 
     // On Linux, glibc provides getaddrinfo_a which is capable of supporting our semantics.
