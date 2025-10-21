@@ -248,7 +248,7 @@ pub fn io(t: *Threaded) Io {
                 else => netAcceptPosix,
             },
             .netBindIp = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => netBindIpWindows,
                 else => netBindIpPosix,
             },
             .netConnectIp = switch (builtin.os.tag) {
@@ -2828,7 +2828,7 @@ fn netListenIpWindows(
             .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
             .EMFILE => return error.ProcessFdQuotaExceeded,
             .ENOBUFS => return error.SystemResources,
-            .EPROTONOSUPPORT => return error.ProtocolUnsupportedBySystem,
+            .EPROTONOSUPPORT => return error.ProtocolUnsupportedByAddressFamily,
             else => |err| return windows.unexpectedWSAError(err),
         }
     };
@@ -3173,6 +3173,86 @@ fn netBindIpPosix(
     return .{
         .handle = socket_fd,
         .address = addressFromPosix(&storage),
+    };
+}
+
+fn netBindIpWindows(
+    userdata: ?*anyopaque,
+    address: *const IpAddress,
+    options: IpAddress.BindOptions,
+) IpAddress.BindError!net.Socket {
+    if (!have_networking) return error.NetworkDown;
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const family = posixAddressFamily(address);
+    const mode = posixSocketMode(options.mode);
+    const protocol = posixProtocol(options.protocol);
+    const socket_handle = while (true) {
+        try t.checkCancel();
+        const flags: u32 = ws2_32.WSA_FLAG_OVERLAPPED | ws2_32.WSA_FLAG_NO_HANDLE_INHERIT;
+        const rc = ws2_32.WSASocketW(family, @bitCast(mode), @bitCast(protocol), null, 0, flags);
+        if (rc != ws2_32.INVALID_SOCKET) break rc;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .EMFILE => return error.ProcessFdQuotaExceeded,
+            .ENOBUFS => return error.SystemResources,
+            .EPROTONOSUPPORT => return error.ProtocolUnsupportedByAddressFamily,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    };
+    errdefer closeSocketWindows(socket_handle);
+    var storage: WsaAddress = undefined;
+    var addr_len = addressToWsa(address, &storage);
+
+    while (true) {
+        try t.checkCancel();
+        const rc = ws2_32.bind(socket_handle, &storage.any, addr_len);
+        if (rc != ws2_32.SOCKET_ERROR) break;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .EADDRINUSE => return error.AddressInUse,
+            .EADDRNOTAVAIL => return error.AddressUnavailable,
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EFAULT => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            .ENOBUFS => return error.SystemResources,
+            .ENETDOWN => return error.NetworkDown,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
+    while (true) {
+        try t.checkCancel();
+        const rc = ws2_32.getsockname(socket_handle, &storage.any, &addr_len);
+        if (rc != ws2_32.SOCKET_ERROR) break;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .ENETDOWN => return error.NetworkDown,
+            .EFAULT => |err| return wsaErrorBug(err),
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
+    return .{
+        .handle = socket_handle,
+        .address = addressFromWsa(&storage),
     };
 }
 
