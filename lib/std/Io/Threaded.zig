@@ -244,7 +244,7 @@ pub fn io(t: *Threaded) Io {
             },
             .netListenUnix = netListenUnix,
             .netAccept = switch (builtin.os.tag) {
-                .windows => @panic("TODO"),
+                .windows => netAcceptWindows,
                 else => netAcceptPosix,
             },
             .netBindIp = switch (builtin.os.tag) {
@@ -3286,6 +3286,38 @@ fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: net.Socket.Handle) net.Serve
         .handle = fd,
         .address = addressFromPosix(&storage),
     } };
+}
+
+fn netAcceptWindows(userdata: ?*anyopaque, listen_handle: net.Socket.Handle) net.Server.AcceptError!net.Stream {
+    if (!have_networking) return error.NetworkDown;
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    var storage: WsaAddress = undefined;
+    var addr_len: i32 = @sizeOf(WsaAddress);
+    while (true) {
+        try t.checkCancel();
+        const rc = ws2_32.accept(listen_handle, &storage.any, &addr_len);
+        if (rc != windows.ws2_32.INVALID_SOCKET) return .{ .socket = .{
+            .handle = rc,
+            .address = addressFromWsa(&storage),
+        } };
+        switch (windows.ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .ECONNRESET => return error.ConnectionAborted,
+            .EFAULT => |err| return wsaErrorBug(err),
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            .EMFILE => return error.ProcessFdQuotaExceeded,
+            .ENETDOWN => return error.NetworkDown,
+            .ENOBUFS => return error.SystemResources,
+            .EOPNOTSUPP => |err| return wsaErrorBug(err),
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
 }
 
 fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
