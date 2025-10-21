@@ -1283,6 +1283,18 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
+                .microblaze, .microblazeel => asm volatile (
+                    \\ ori r12, r0, 91 # SYS_munmap
+                    \\ ori r5, %[ptr], 0
+                    \\ ori r6, %[len], 0
+                    \\ brki r14, 0x8
+                    \\ ori r12, r0, 1 # SYS_exit
+                    \\ or r5, r0, r0
+                    \\ brki r14, 0x8
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 // We set `sp` to the address of the current function as a workaround for a Linux
                 // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
