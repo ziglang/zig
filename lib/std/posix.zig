@@ -3471,31 +3471,10 @@ pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
 
 pub const AcceptError = std.Io.net.Server.AcceptError;
 
-/// Accept a connection on a socket.
-/// If `sockfd` is opened in non blocking mode, the function will
-/// return error.WouldBlock when EAGAIN is received.
 pub fn accept(
-    /// This argument is a socket that has been created with `socket`, bound to a local address
-    /// with `bind`, and is listening for connections after a `listen`.
     sock: socket_t,
-    /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
-    /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
-    /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
-    /// respective  protocol  man  pages).
     addr: ?*sockaddr,
-    /// This argument is a value-result argument: the caller must initialize it to contain  the
-    /// size (in bytes) of the structure pointed to by addr; on return it will contain the actual size
-    /// of the peer address.
-    ///
-    /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
-    /// will return a value greater than was supplied to the call.
     addr_size: ?*socklen_t,
-    /// The following values can be bitwise ORed in flags to obtain different behavior:
-    /// * `SOCK.NONBLOCK` - Set the `NONBLOCK` file status flag on the open file description (see `open`)
-    ///   referred  to by the new file descriptor.  Using this flag saves extra calls to `fcntl` to achieve
-    ///   the same result.
-    /// * `SOCK.CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
-    ///   description  of the `CLOEXEC` flag in `open` for reasons why this may be useful.
     flags: u32,
 ) AcceptError!socket_t {
     const have_accept4 = !(builtin.target.os.tag.isDarwin() or native_os == .windows or native_os == .haiku);
@@ -3504,29 +3483,11 @@ pub fn accept(
     const accepted_sock: socket_t = while (true) {
         const rc = if (have_accept4)
             system.accept4(sock, addr, addr_size, flags)
-        else if (native_os == .windows)
-            windows.accept(sock, addr, addr_size)
         else
             system.accept(sock, addr, addr_size);
 
         if (native_os == .windows) {
-            if (rc == windows.ws2_32.INVALID_SOCKET) {
-                switch (windows.ws2_32.WSAGetLastError()) {
-                    .NOTINITIALISED => unreachable, // not initialized WSA
-                    .ECONNRESET => return error.ConnectionResetByPeer,
-                    .EFAULT => unreachable,
-                    .ENOTSOCK => return error.FileDescriptorNotASocket,
-                    .EINVAL => return error.SocketNotListening,
-                    .EMFILE => return error.ProcessFdQuotaExceeded,
-                    .ENETDOWN => return error.NetworkDown,
-                    .ENOBUFS => return error.FileDescriptorNotASocket,
-                    .EOPNOTSUPP => return error.OperationNotSupported,
-                    .EWOULDBLOCK => return error.WouldBlock,
-                    else => |err| return windows.unexpectedWSAError(err),
-                }
-            } else {
-                break rc;
-            }
+            @compileError("use std.Io instead");
         } else {
             switch (errno(rc)) {
                 .SUCCESS => break @intCast(rc),
