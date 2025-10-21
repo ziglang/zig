@@ -116,12 +116,12 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         .source =
         \\pub fn main() void {
         \\    var stack_trace_buf: [8]usize = undefined;
-        \\    dumpIt(captureIt(&stack_trace_buf));
+        \\    dumpIt(&captureIt(&stack_trace_buf));
         \\}
         \\fn captureIt(buf: []usize) std.builtin.StackTrace {
         \\    return captureItInner(buf);
         \\}
-        \\fn dumpIt(st: std.builtin.StackTrace) void {
+        \\fn dumpIt(st: *const std.builtin.StackTrace) void {
         \\    std.debug.dumpStackTrace(st);
         \\}
         \\fn captureItInner(buf: []usize) std.builtin.StackTrace {
@@ -140,8 +140,8 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         \\    return captureItInner(buf);
         \\                         ^
         \\source.zig:3:22: [address] in main
-        \\    dumpIt(captureIt(&stack_trace_buf));
-        \\                    ^
+        \\    dumpIt(&captureIt(&stack_trace_buf));
+        \\                     ^
         \\
         ,
         .expect_strip =
@@ -157,12 +157,12 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         .source =
         \\pub fn main() void {
         \\    var stack_trace_buf: [8]usize = undefined;
-        \\    dumpIt(captureIt(&stack_trace_buf));
+        \\    dumpIt(&captureIt(&stack_trace_buf));
         \\}
         \\fn captureIt(buf: []usize) std.builtin.StackTrace {
         \\    return captureItInner(buf);
         \\}
-        \\fn dumpIt(st: std.builtin.StackTrace) void {
+        \\fn dumpIt(st: *const std.builtin.StackTrace) void {
         \\    std.debug.dumpStackTrace(st);
         \\}
         \\fn captureItInner(buf: []usize) std.builtin.StackTrace {
@@ -186,12 +186,12 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         \\    t.join();
         \\}
         \\fn threadMain(stack_trace_buf: []usize) void {
-        \\    dumpIt(captureIt(stack_trace_buf));
+        \\    dumpIt(&captureIt(stack_trace_buf));
         \\}
         \\fn captureIt(buf: []usize) std.builtin.StackTrace {
         \\    return captureItInner(buf);
         \\}
-        \\fn dumpIt(st: std.builtin.StackTrace) void {
+        \\fn dumpIt(st: *const std.builtin.StackTrace) void {
         \\    std.debug.dumpStackTrace(st);
         \\}
         \\fn captureItInner(buf: []usize) std.builtin.StackTrace {
@@ -210,8 +210,8 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         \\    return captureItInner(buf);
         \\                         ^
         \\source.zig:7:22: [address] in threadMain
-        \\    dumpIt(captureIt(stack_trace_buf));
-        \\                    ^
+        \\    dumpIt(&captureIt(stack_trace_buf));
+        \\                     ^
         \\
         ,
         .expect_strip =

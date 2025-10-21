@@ -148,7 +148,7 @@ fn mainServer() !void {
                     error.SkipZigTest => .skip,
                     else => s: {
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
                         break :s .fail;
                     },
@@ -269,7 +269,7 @@ fn mainTerminal() void {
                     std.debug.print("FAIL ({t})\n", .{err});
                 }
                 if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
+                    std.debug.dumpStackTrace(trace);
                 }
                 test_node.end();
             },
