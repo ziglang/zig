@@ -1615,7 +1615,7 @@ const LinuxThreadImpl = struct {
             if (tid == 0) break;
 
             switch (linux.E.init(linux.futex_4arg(
-                &self.thread.child_tid.raw,
+                @ptrCast(&self.thread.child_tid.raw),
                 .{ .cmd = .WAIT, .private = false },
                 @bitCast(tid),
                 null,
