@@ -1,5 +1,7 @@
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
+
 const res = @import("res.zig");
 const NameOrOrdinal = res.NameOrOrdinal;
 const MemoryFlags = res.MemoryFlags;
@@ -169,8 +171,7 @@ pub fn parseNameOrOrdinal(allocator: Allocator, reader: *std.Io.Reader) !NameOrO
 
 pub const CoffOptions = struct {
     target: std.coff.IMAGE.FILE.MACHINE = .AMD64,
-    /// If true, zeroes will be written to all timestamp fields
-    reproducible: bool = true,
+    timestamp: i64 = 0,
     /// If true, the MEM_WRITE flag will not be set in the .rsrc section header
     read_only: bool = false,
     /// If non-null, a symbol with this name and storage class EXTERNAL will be added to the symbol table.
@@ -188,7 +189,13 @@ pub const Diagnostics = union {
     overflow_resource: usize,
 };
 
-pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []const Resource, options: CoffOptions, diagnostics: ?*Diagnostics) !void {
+pub fn writeCoff(
+    allocator: Allocator,
+    writer: *std.Io.Writer,
+    resources: []const Resource,
+    options: CoffOptions,
+    diagnostics: ?*Diagnostics,
+) !void {
     var resource_tree = ResourceTree.init(allocator, options);
     defer resource_tree.deinit();
 
@@ -215,7 +222,7 @@ pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []cons
     const pointer_to_rsrc02_data = pointer_to_relocations + relocations_len;
     const pointer_to_symbol_table = pointer_to_rsrc02_data + lengths.rsrc02;
 
-    const timestamp: i64 = if (options.reproducible) 0 else std.time.timestamp();
+    const timestamp: i64 = options.timestamp;
     const size_of_optional_header = 0;
     const machine_type: std.coff.IMAGE.FILE.MACHINE = options.target;
     const flags = std.coff.Header.Flags{
