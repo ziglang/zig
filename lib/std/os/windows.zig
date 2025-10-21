@@ -2735,6 +2735,13 @@ pub fn statusBug(status: NTSTATUS) UnexpectedError {
     }
 }
 
+pub fn errorBug(err: Win32Error) UnexpectedError {
+    switch (builtin.mode) {
+        .Debug => std.debug.panic("programmer bug caused syscall status: {t}", .{err}),
+        else => return error.Unexpected,
+    }
+}
+
 pub const Win32Error = @import("windows/win32error.zig").Win32Error;
 pub const NTSTATUS = @import("windows/ntstatus.zig").NTSTATUS;
 pub const LANG = @import("windows/lang.zig");

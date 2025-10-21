@@ -186,15 +186,6 @@ test "listen on a port, send bytes, receive bytes" {
 
     const io = testing.io;
 
-    if (builtin.os.tag == .windows) {
-        _ = try std.os.windows.WSAStartup(2, 2);
-    }
-    defer {
-        if (builtin.os.tag == .windows) {
-            std.os.windows.WSACleanup() catch unreachable;
-        }
-    }
-
     // Try only the IPv4 variant as some CI builders have no IPv6 localhost
     // configured.
     const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
@@ -281,15 +272,6 @@ test "listen on a unix socket, send bytes, receive bytes" {
     if (!net.has_unix_sockets) return error.SkipZigTest;
 
     const io = testing.io;
-
-    if (builtin.os.tag == .windows) {
-        _ = try std.os.windows.WSAStartup(2, 2);
-    }
-    defer {
-        if (builtin.os.tag == .windows) {
-            std.os.windows.WSACleanup() catch unreachable;
-        }
-    }
 
     const socket_path = try generateFileName("socket.unix");
     defer testing.allocator.free(socket_path);
