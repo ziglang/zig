@@ -687,7 +687,14 @@ pub const futex_param4 = extern union {
 ///
 /// The futex_op parameter is a sub-command and flags.  The sub-command
 /// defines which of the subsequent paramters are relevant.
-pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
+pub fn futex(
+    uaddr: *const u32,
+    futex_op: FUTEX_OP,
+    val: u32,
+    val2timeout: futex_param4,
+    uaddr2: ?*const anyopaque,
+    val3: u32,
+) usize {
     return syscall6(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -701,7 +708,7 @@ pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout:
 
 /// Three-argument variation of the v1 futex call.  Only suitable for a
 /// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
-pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
+pub fn futex_3arg(uaddr: *const u32, futex_op: FUTEX_OP, val: u32) usize {
     return syscall3(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -712,7 +719,7 @@ pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
 
 /// Four-argument variation on the v1 futex call.  Only suitable for
 /// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
-pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
+pub fn futex_4arg(uaddr: *const u32, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
     return syscall4(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -751,7 +758,7 @@ pub fn futex2_waitv(
     assert(futexes.len <= Futex2.waitone_max);
     return syscall5(
         .futex_waitv,
-        @intFromPtr(futexes),
+        @intFromPtr(futexes.ptr),
         @intCast(futexes.len),
         @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
@@ -766,7 +773,7 @@ pub fn futex2_waitv(
 /// Requires at least kernel v6.7.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
-    uaddr: *const anyopaque,
+    uaddr: *const u32,
     /// Value of `uaddr`.
     val: usize,
     /// Bitmask to match against incoming wakeup masks.  Must not be zero.
@@ -781,7 +788,7 @@ pub fn futex2_wait(
         .futex_wait,
         @intFromPtr(uaddr),
         val,
-        @intFromEnum(mask),
+        @intCast(mask.toInt()),
         @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
         @intFromEnum(clockid),
@@ -795,7 +802,7 @@ pub fn futex2_wait(
 /// Requires at least kernel v6.7.
 pub fn futex2_wake(
     /// Futex to wake
-    uaddr: *const anyopaque,
+    uaddr: *const u32,
     /// Bitmask to match against waiters.
     mask: Futex2.Bitset,
     /// Maximum number of waiters on the futex to wake.
@@ -805,7 +812,7 @@ pub fn futex2_wake(
     return syscall4(
         .futex_wake,
         @intFromPtr(uaddr),
-        @intFromEnum(mask),
+        @intCast(mask.toInt()),
         @intCast(nr_wake),
         @as(u32, @bitCast(flags)),
     );
@@ -2240,16 +2247,27 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     }
 }
 
-// TODO: flags is At Flags
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
+pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: At) usize {
     if (native_arch == .riscv32 or native_arch.isLoongArch()) {
         // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No fstatat syscall on this architecture.");
     } else if (@hasField(SYS, "fstatat64")) {
-        return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
+        return syscall4(
+            .fstatat64,
+            @as(usize, @bitCast(@as(isize, dirfd))),
+            @intFromPtr(path),
+            @intFromPtr(stat_buf),
+            @intCast(@as(u32, @bitCast(flags))),
+        );
     } else {
-        return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
+        return syscall4(
+            .fstatat,
+            @as(usize, @bitCast(@as(isize, dirfd))),
+            @intFromPtr(path),
+            @intFromPtr(stat_buf),
+            @bitCast(flags),
+        );
     }
 }
 
@@ -2419,8 +2437,14 @@ pub fn epoll_create1(flags: usize) usize {
     return syscall1(.epoll_create1, flags);
 }
 
-pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: ?*epoll_event) usize {
-    return syscall4(.epoll_ctl, @as(usize, @bitCast(@as(isize, epoll_fd))), @as(usize, @intCast(op)), @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(ev));
+pub fn epoll_ctl(epoll_fd: i32, op: EpollOp, fd: i32, ev: ?*epoll_event) usize {
+    return syscall4(
+        .epoll_ctl,
+        @as(usize, @bitCast(@as(isize, epoll_fd))),
+        @as(usize, @intFromEnum(op)),
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(ev),
+    );
 }
 
 pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32) usize {
@@ -3687,14 +3711,67 @@ pub const Futex2 = struct {
         __reserved: u32 = 0,
     };
 
-    pub const Bitset = enum(u64) {
-        /// matches FUTEX_WAIT_BITSET
-        wait = 9,
-        /// matches FUTEX_WAKE_BITSET
-        wake = 10,
-        /// bitset with all bits set for the FUTEX_xxx_BITSET OPs to request a
-        /// match of any bit.
-        match_any = 0xffffffff,
+    /// `Bitset` for `futex2_wait`, `futex2_wake`, `IoUring.futex_wait` and
+    /// `IoUring.futex_wake` operations
+    /// At least one bit must be set before performing supported operations
+    /// The bitset is stored in the kernel-internal state of a waiter. During a
+    /// wake operation, the same mask previously set during the wait call can
+    /// be used to select which waiters to woke up
+    /// See https://man7.org/linux/man-pages/man2/futex_wake_bitset.2const.html
+    /// `IoUring` supports a u64 `Bitset` while the raw syscalls uses only u32
+    /// bits of `Bitset`
+    pub const Bitset = packed struct(u64) {
+        waiter1: bool = false,
+        waiter2: bool = false,
+        waiter3: bool = false,
+        waiter4: bool = false,
+        waiter5: bool = false,
+        waiter6: bool = false,
+        waiter7: bool = false,
+        waiter8: bool = false,
+        waiter9: bool = false,
+        waiter10: bool = false,
+        waiter11: bool = false,
+        waiter12: bool = false,
+        waiter13: bool = false,
+        waiter14: bool = false,
+        waiter15: bool = false,
+        waiter16: bool = false,
+        waiter17: bool = false,
+        waiter18: bool = false,
+        waiter19: bool = false,
+        waiter20: bool = false,
+        waiter21: bool = false,
+        waiter22: bool = false,
+        waiter23: bool = false,
+        waiter24: bool = false,
+        waiter25: bool = false,
+        waiter26: bool = false,
+        waiter27: bool = false,
+        waiter28: bool = false,
+        waiter29: bool = false,
+        waiter30: bool = false,
+        waiter31: bool = false,
+        waiter32: bool = false,
+        io_uring_extra: u32 = 0,
+
+        /// `Bitset` with all bits set for the FUTEX_xxx_BITSET OPs to request a
+        /// match of any bit. matches FUTEX_BITSET_MATCH_ANY
+        pub const match_any: Bitset = @bitCast(@as(u64, 0x00000000ffffffff));
+        /// Bitset must not be empty, this is only useful in test
+        pub const empty: Bitset = .{};
+
+        /// Create from raw u64 value
+        pub fn fromInt(value: u64) Bitset {
+            const bitset: Bitset = @bitCast(value);
+            assert(bitset != empty);
+            return bitset;
+        }
+
+        /// Convert to raw u64 for syscall
+        pub fn toInt(self: Bitset) u64 {
+            return @bitCast(self);
+        }
     };
 };
 
