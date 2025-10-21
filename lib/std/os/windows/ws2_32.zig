@@ -1080,31 +1080,18 @@ pub const WSANETWORKEVENTS = extern struct {
     iErrorCode: [10]i32,
 };
 
-pub const addrinfo = addrinfoa;
-
-pub const addrinfoa = extern struct {
+pub const ADDRINFOEXW = extern struct {
     flags: AI,
     family: i32,
     socktype: i32,
     protocol: i32,
     addrlen: usize,
-    canonname: ?[*:0]u8,
-    addr: ?*sockaddr,
-    next: ?*addrinfo,
-};
-
-pub const addrinfoexA = extern struct {
-    flags: AI,
-    family: i32,
-    socktype: i32,
-    protocol: i32,
-    addrlen: usize,
-    canonname: [*:0]u8,
+    canonname: [*:0]u16,
     addr: *sockaddr,
     blob: *anyopaque,
     bloblen: usize,
     provider: *GUID,
-    next: *addrinfoexA,
+    next: *ADDRINFOEXW,
 };
 
 pub const sockaddr = extern struct {
@@ -1851,18 +1838,6 @@ pub extern "ws2_32" fn WSAConnectByNameW(
     Reserved: *OVERLAPPED,
 ) callconv(.winapi) BOOL;
 
-pub extern "ws2_32" fn WSAConnectByNameA(
-    s: SOCKET,
-    nodename: [*:0]const u8,
-    servicename: [*:0]const u8,
-    LocalAddressLength: ?*u32,
-    LocalAddress: ?*sockaddr,
-    RemoteAddressLength: ?*u32,
-    RemoteAddress: ?*sockaddr,
-    timeout: ?*const timeval,
-    Reserved: *OVERLAPPED,
-) callconv(.winapi) BOOL;
-
 pub extern "ws2_32" fn WSAConnectByList(
     s: SOCKET,
     SocketAddress: *SOCKET_ADDRESS_LIST,
@@ -1876,12 +1851,6 @@ pub extern "ws2_32" fn WSAConnectByList(
 
 pub extern "ws2_32" fn WSACreateEvent() callconv(.winapi) HANDLE;
 
-pub extern "ws2_32" fn WSADuplicateSocketA(
-    s: SOCKET,
-    dwProcessId: u32,
-    lpProtocolInfo: *WSAPROTOCOL_INFOA,
-) callconv(.winapi) i32;
-
 pub extern "ws2_32" fn WSADuplicateSocketW(
     s: SOCKET,
     dwProcessId: u32,
@@ -1892,12 +1861,6 @@ pub extern "ws2_32" fn WSAEnumNetworkEvents(
     s: SOCKET,
     hEventObject: HANDLE,
     lpNetworkEvents: *WSANETWORKEVENTS,
-) callconv(.winapi) i32;
-
-pub extern "ws2_32" fn WSAEnumProtocolsA(
-    lpiProtocols: ?*i32,
-    lpProtocolBuffer: ?*WSAPROTOCOL_INFOA,
-    lpdwBufferLength: *u32,
 ) callconv(.winapi) i32;
 
 pub extern "ws2_32" fn WSAEnumProtocolsW(
@@ -2042,15 +2005,6 @@ pub extern "ws2_32" fn WSASetEvent(
     hEvent: HANDLE,
 ) callconv(.winapi) BOOL;
 
-pub extern "ws2_32" fn WSASocketA(
-    af: i32,
-    @"type": i32,
-    protocol: i32,
-    lpProtocolInfo: ?*WSAPROTOCOL_INFOA,
-    g: u32,
-    dwFlags: u32,
-) callconv(.winapi) SOCKET;
-
 pub extern "ws2_32" fn WSASocketW(
     af: i32,
     @"type": i32,
@@ -2068,28 +2022,12 @@ pub extern "ws2_32" fn WSAWaitForMultipleEvents(
     fAlertable: BOOL,
 ) callconv(.winapi) u32;
 
-pub extern "ws2_32" fn WSAAddressToStringA(
-    lpsaAddress: *sockaddr,
-    dwAddressLength: u32,
-    lpProtocolInfo: ?*WSAPROTOCOL_INFOA,
-    lpszAddressString: [*]u8,
-    lpdwAddressStringLength: *u32,
-) callconv(.winapi) i32;
-
 pub extern "ws2_32" fn WSAAddressToStringW(
     lpsaAddress: *sockaddr,
     dwAddressLength: u32,
     lpProtocolInfo: ?*WSAPROTOCOL_INFOW,
     lpszAddressString: [*]u16,
     lpdwAddressStringLength: *u32,
-) callconv(.winapi) i32;
-
-pub extern "ws2_32" fn WSAStringToAddressA(
-    AddressString: [*:0]const u8,
-    AddressFamily: i32,
-    lpProtocolInfo: ?*WSAPROTOCOL_INFOA,
-    lpAddress: *sockaddr,
-    lpAddressLength: *i32,
 ) callconv(.winapi) i32;
 
 pub extern "ws2_32" fn WSAStringToAddressW(
@@ -2156,28 +2094,10 @@ pub extern "ws2_32" fn WSAProviderCompleteAsyncCall(
     iRetCode: i32,
 ) callconv(.winapi) i32;
 
-pub extern "mswsock" fn EnumProtocolsA(
-    lpiProtocols: ?*i32,
-    lpProtocolBuffer: *anyopaque,
-    lpdwBufferLength: *u32,
-) callconv(.winapi) i32;
-
 pub extern "mswsock" fn EnumProtocolsW(
     lpiProtocols: ?*i32,
     lpProtocolBuffer: *anyopaque,
     lpdwBufferLength: *u32,
-) callconv(.winapi) i32;
-
-pub extern "mswsock" fn GetAddressByNameA(
-    dwNameSpace: u32,
-    lpServiceType: *GUID,
-    lpServiceName: ?[*:0]u8,
-    lpiProtocols: ?*i32,
-    dwResolution: u32,
-    lpServiceAsyncInfo: ?*SERVICE_ASYNC_INFO,
-    lpCsaddrBuffer: *anyopaque,
-    lpAliasBuffer: ?[*:0]const u8,
-    lpdwAliasBufferLength: *u32,
 ) callconv(.winapi) i32;
 
 pub extern "mswsock" fn GetAddressByNameW(
@@ -2193,20 +2113,9 @@ pub extern "mswsock" fn GetAddressByNameW(
     lpdwAliasBufferLength: *u32,
 ) callconv(.winapi) i32;
 
-pub extern "mswsock" fn GetTypeByNameA(
-    lpServiceName: [*:0]u8,
-    lpServiceType: *GUID,
-) callconv(.winapi) i32;
-
 pub extern "mswsock" fn GetTypeByNameW(
     lpServiceName: [*:0]u16,
     lpServiceType: *GUID,
-) callconv(.winapi) i32;
-
-pub extern "mswsock" fn GetNameByTypeA(
-    lpServiceType: *GUID,
-    lpServiceName: [*:0]u8,
-    dwNameLength: u32,
 ) callconv(.winapi) i32;
 
 pub extern "mswsock" fn GetNameByTypeW(
@@ -2215,20 +2124,13 @@ pub extern "mswsock" fn GetNameByTypeW(
     dwNameLength: u32,
 ) callconv(.winapi) i32;
 
-pub extern "ws2_32" fn getaddrinfo(
-    pNodeName: ?[*:0]const u8,
-    pServiceName: ?[*:0]const u8,
-    pHints: ?*const addrinfoa,
-    ppResult: *?*addrinfoa,
-) callconv(.winapi) i32;
-
-pub extern "ws2_32" fn GetAddrInfoExA(
-    pName: ?[*:0]const u8,
-    pServiceName: ?[*:0]const u8,
-    dwNameSapce: u32,
+pub extern "ws2_32" fn GetAddrInfoExW(
+    pName: ?[*:0]const u16,
+    pServiceName: ?[*:0]const u16,
+    dwNameSpace: DWORD,
     lpNspId: ?*GUID,
-    hints: ?*const addrinfoexA,
-    ppResult: **addrinfoexA,
+    hints: ?*const ADDRINFOEXW,
+    ppResult: **ADDRINFOEXW,
     timeout: ?*timeval,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPLOOKUPSERVICE_COMPLETION_ROUTINE,
@@ -2242,12 +2144,8 @@ pub extern "ws2_32" fn GetAddrInfoExOverlappedResult(
     lpOverlapped: *OVERLAPPED,
 ) callconv(.winapi) i32;
 
-pub extern "ws2_32" fn freeaddrinfo(
-    pAddrInfo: ?*addrinfoa,
-) callconv(.winapi) void;
-
-pub extern "ws2_32" fn FreeAddrInfoEx(
-    pAddrInfoEx: ?*addrinfoexA,
+pub extern "ws2_32" fn FreeAddrInfoExW(
+    pAddrInfoEx: ?*ADDRINFOEXW,
 ) callconv(.winapi) void;
 
 pub extern "ws2_32" fn getnameinfo(
