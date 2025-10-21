@@ -73,6 +73,8 @@ const current_variant: Variant = switch (native_arch) {
     .csky,
     .microblaze,
     .microblazeel,
+    .sh,
+    .sheb,
     .thumb,
     .thumbeb,
     => .I_original,
@@ -144,6 +146,8 @@ const AbiTcb = switch (current_variant) {
         .armeb,
         .microblaze,
         .microblazeel,
+        .sh,
+        .sheb,
         .thumb,
         .thumbeb,
         => extern struct {
@@ -336,6 +340,13 @@ pub fn setThreadPointer(addr: usize) void {
                 :
                 : [addr] "r" (addr),
                 : .{ .r0 = true });
+        },
+        .sh, .sheb => {
+            asm volatile (
+                \\ ldc gbr, %[addr]
+                :
+                : [addr] "r" (addr),
+            );
         },
         .sparc, .sparc64 => {
             asm volatile (
