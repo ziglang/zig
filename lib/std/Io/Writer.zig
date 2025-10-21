@@ -1201,10 +1201,6 @@ pub fn printValue(
     }
 
     const is_any = comptime std.mem.eql(u8, fmt, ANY);
-    if (!is_any and std.meta.hasMethod(T, "format") and fmt.len == 0) {
-        // after 0.15.0 is tagged, delete this compile error and its condition
-        @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
-    }
 
     switch (@typeInfo(T)) {
         .float, .comptime_float => {
