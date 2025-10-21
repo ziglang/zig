@@ -85,8 +85,12 @@ pub fn main() anyerror!void {
         } else try argv.append(arg);
     }
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     const sysroot_path = sysroot orelse blk: {
-        const target = try std.zig.system.resolveTargetQuery(.{});
+        const target = try std.zig.system.resolveTargetQuery(io, .{});
         break :blk std.zig.system.darwin.getSdk(allocator, &target) orelse
             fatal("no SDK found; you can provide one explicitly with '--sysroot' flag", .{});
     };
