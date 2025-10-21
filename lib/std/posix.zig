@@ -3769,7 +3769,6 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .SUCCESS => return,
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
-            .ADDRINUSE => return error.AddressInUse,
             .ADDRNOTAVAIL => return error.AddressUnavailable,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN, .INPROGRESS => return error.WouldBlock,
@@ -3779,7 +3778,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .CONNRESET => return error.ConnectionResetByPeer,
             .FAULT => unreachable, // The socket structure address is outside the user's address space.
             .INTR => continue,
-            .ISCONN => return error.AlreadyConnected, // The socket is already connected.
+            .ISCONN => @panic("AlreadyConnected"), // The socket is already connected.
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
