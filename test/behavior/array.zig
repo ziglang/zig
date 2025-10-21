@@ -540,7 +540,6 @@ test "sentinel element count towards the ABI size calculation" {
 }
 
 test "zero-sized array with recursive type definition" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -1089,12 +1088,61 @@ test "pass pointer to empty array initializer to anytype parameter" {
 }
 
 test "initialize pointer to anyopaque with reference to empty array initializer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const ptr: *const anyopaque = &.{};
     // The above acts like an untyped initializer, since the `.{}` has no result type.
     // So, `ptr` points in memory to an empty tuple (`@TypeOf(.{})`).
-    const casted: *const @TypeOf(.{}) = @alignCast(@ptrCast(ptr));
+    const casted: *const @TypeOf(.{}) = @ptrCast(@alignCast(ptr));
     const loaded = casted.*;
     // `val` should be a `@TypeOf(.{})`, as expected.
     // We can't check the value, but it's zero-bit, so the type matching is good enough.
     comptime assert(@TypeOf(loaded) == @TypeOf(.{}));
+}
+
+test "sentinel of runtime-known array initialization is populated" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    var rt: u32 = undefined;
+    rt = 42;
+
+    const arr: [1:123]u32 = .{rt};
+    const elems: [*]const u32 = &arr;
+
+    try expect(elems[0] == 42);
+    try expect(elems[1] == 123);
+}
+
+test "splat with an error union or optional result type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTest(T: type) !?T {
+            return @splat(1);
+        }
+    };
+
+    _ = try S.doTest(@Vector(4, u32));
+    _ = try S.doTest([4]u32);
+}
+
+test "resist alias of explicit copy of array passed as arg" {
+    const S = struct {
+        const Thing = [1]u32;
+
+        fn destroy_and_replace(box_b: *Thing, a: Thing, box_a: *Thing) void {
+            box_a.* = undefined;
+            box_b.* = a;
+        }
+    };
+
+    var buf_a: S.Thing = .{1234};
+    var buf_b: S.Thing = .{5678};
+    const box_a = &buf_a;
+    const box_b = &buf_b;
+
+    const a = box_a.*; // explicit copy
+    S.destroy_and_replace(box_b, a, box_a);
+
+    try expect(buf_b[0] == 1234);
 }

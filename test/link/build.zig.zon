@@ -15,9 +15,6 @@
         .static_libs_from_object_files = .{
             .path = "static_libs_from_object_files",
         },
-        .glibc_compat = .{
-            .path = "glibc_compat",
-        },
         // WASM Cases
         .wasm_archive = .{
             .path = "wasm/archive",

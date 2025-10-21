@@ -37,7 +37,7 @@ pub fn main() !void {
         \\
     );
 
-    var footer = std.ArrayList(u8).init(arena);
+    var footer = std.array_list.Managed(u8).init(arena);
     try footer.appendSlice("\ncomptime {\n");
 
     for ([_]N{ .one, .two, .four, .eight, .sixteen }) |n| {
@@ -49,7 +49,7 @@ pub fn main() !void {
                     @tagName(op), n.toBytes(), @tagName(order),
                 });
                 try writeFunction(arena, w, name, op, n, order);
-                try footer.writer().print("    @export(&{s}, .{{ .name = \"{s}\", .linkage = common.linkage, .visibility = common.visibility }});\n", .{
+                try footer.print("    @export(&{s}, .{{ .name = \"{s}\", .linkage = common.linkage, .visibility = common.visibility }});\n", .{
                     name, name,
                 });
             }

@@ -32,8 +32,6 @@ export fn entry3() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:17: error: expected 8 vector elements; found 1
 // :8:17: error: expected 8 vector elements; found 0

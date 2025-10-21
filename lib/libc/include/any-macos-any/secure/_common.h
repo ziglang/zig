@@ -39,5 +39,7 @@
 
 #define __darwin_obsz0(object) __builtin_object_size (object, 0)
 #define __darwin_obsz(object) __builtin_object_size (object, _USE_FORTIFY_LEVEL > 1 ? 1 : 0)
+#define __darwin_pass_obsz0 __attribute__((__pass_object_size__(0)))
+#define __darwin_pass_obsz __attribute__((__pass_object_size__(_USE_FORTIFY_LEVEL > 1 ? 1 : 0)))
 
 #endif

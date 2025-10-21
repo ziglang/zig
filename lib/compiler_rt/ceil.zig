@@ -3,6 +3,7 @@
 //!
 //! https://git.musl-libc.org/cgit/musl/tree/src/math/ceilf.c
 //! https://git.musl-libc.org/cgit/musl/tree/src/math/ceil.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/ceill.c
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -27,8 +28,23 @@ comptime {
 }
 
 pub fn __ceilh(x: f16) callconv(.c) f16 {
-    // TODO: more efficient implementation
-    return @floatCast(ceilf(x));
+    var u: u16 = @bitCast(x);
+    const e = @as(i16, @intCast((u >> 10) & 31)) - 15;
+    var m: u16 = undefined;
+
+    if (e >= 10) return x;
+
+    if (e >= 0) {
+        m = @as(u16, 0x03FF) >> @intCast(e);
+        if (u & m == 0) return x;
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
+        if (u >> 15 == 0) u += m;
+        u &= ~m;
+        return @bitCast(u);
+    } else {
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
+        return if (u >> 15 != 0) -0.0 else if (u << 1 != 0) 1.0 else x;
+    }
 }
 
 pub fn ceilf(x: f32) callconv(.c) f32 {
@@ -36,31 +52,18 @@ pub fn ceilf(x: f32) callconv(.c) f32 {
     const e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     var m: u32 = undefined;
 
-    // TODO: Shouldn't need this explicit check.
-    if (x == 0.0) {
-        return x;
-    }
+    if (e >= 23) return x;
 
-    if (e >= 23) {
-        return x;
-    } else if (e >= 0) {
+    if (e >= 0) {
         m = @as(u32, 0x007FFFFF) >> @intCast(e);
-        if (u & m == 0) {
-            return x;
-        }
+        if (u & m == 0) return x;
         if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
-        if (u >> 31 == 0) {
-            u += m;
-        }
+        if (u >> 31 == 0) u += m;
         u &= ~m;
         return @bitCast(u);
     } else {
         if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
-        if (u >> 31 != 0) {
-            return -0.0;
-        } else {
-            return 1.0;
-        }
+        return if (u >> 31 != 0) -0.0 else if (u << 1 != 0) 1.0 else x;
     }
 }
 
@@ -96,8 +99,32 @@ pub fn ceil(x: f64) callconv(.c) f64 {
 }
 
 pub fn __ceilx(x: f80) callconv(.c) f80 {
-    // TODO: more efficient implementation
-    return @floatCast(ceilq(x));
+    const f80_toint = 1.0 / math.floatEps(f80);
+
+    const u: u80 = @bitCast(x);
+    const e = (u >> 64) & 0x7FFF;
+    var y: f80 = undefined;
+
+    if (e >= 0x3FFF + 64 or x == 0) return x;
+
+    if (u >> 79 != 0) {
+        y = x - f80_toint + f80_toint - x;
+    } else {
+        y = x + f80_toint - f80_toint - x;
+    }
+
+    if (e <= 0x3FFF - 1) {
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(y);
+        if (u >> 79 != 0) {
+            return -0.0;
+        } else {
+            return 1.0;
+        }
+    } else if (y < 0) {
+        return x + y + 1;
+    } else {
+        return x + y;
+    }
 }
 
 pub fn ceilq(x: f128) callconv(.c) f128 {
@@ -140,6 +167,12 @@ pub fn ceill(x: c_longdouble) callconv(.c) c_longdouble {
     }
 }
 
+test "ceil16" {
+    try expect(__ceilh(1.3) == 2.0);
+    try expect(__ceilh(-1.3) == -1.0);
+    try expect(__ceilh(0.2) == 1.0);
+}
+
 test "ceil32" {
     try expect(ceilf(1.3) == 2.0);
     try expect(ceilf(-1.3) == -1.0);
@@ -152,10 +185,24 @@ test "ceil64" {
     try expect(ceil(0.2) == 1.0);
 }
 
+test "ceil80" {
+    try expect(__ceilx(1.3) == 2.0);
+    try expect(__ceilx(-1.3) == -1.0);
+    try expect(__ceilx(0.2) == 1.0);
+}
+
 test "ceil128" {
     try expect(ceilq(1.3) == 2.0);
     try expect(ceilq(-1.3) == -1.0);
     try expect(ceilq(0.2) == 1.0);
+}
+
+test "ceil16.special" {
+    try expect(__ceilh(0.0) == 0.0);
+    try expect(__ceilh(-0.0) == -0.0);
+    try expect(math.isPositiveInf(__ceilh(math.inf(f16))));
+    try expect(math.isNegativeInf(__ceilh(-math.inf(f16))));
+    try expect(math.isNan(__ceilh(math.nan(f16))));
 }
 
 test "ceil32.special" {
@@ -172,6 +219,14 @@ test "ceil64.special" {
     try expect(math.isPositiveInf(ceil(math.inf(f64))));
     try expect(math.isNegativeInf(ceil(-math.inf(f64))));
     try expect(math.isNan(ceil(math.nan(f64))));
+}
+
+test "ceil80.special" {
+    try expect(__ceilx(0.0) == 0.0);
+    try expect(__ceilx(-0.0) == -0.0);
+    try expect(math.isPositiveInf(__ceilx(math.inf(f80))));
+    try expect(math.isNegativeInf(__ceilx(-math.inf(f80))));
+    try expect(math.isNan(__ceilx(math.nan(f80))));
 }
 
 test "ceil128.special" {

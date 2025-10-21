@@ -9,25 +9,30 @@ const trace = @import("../tracy.zig").trace;
 const Module = @import("../Package/Module.zig");
 
 const libcxxabi_files = [_][]const u8{
-    "src/abort_message.cpp",
     "src/cxa_aux_runtime.cpp",
     "src/cxa_default_handlers.cpp",
     "src/cxa_demangle.cpp",
-    "src/cxa_exception.cpp",
     "src/cxa_exception_storage.cpp",
     "src/cxa_guard.cpp",
     "src/cxa_handlers.cpp",
-    "src/cxa_noexception.cpp",
-    "src/cxa_personality.cpp",
-    "src/cxa_thread_atexit.cpp",
     "src/cxa_vector.cpp",
     "src/cxa_virtual.cpp",
-    "src/fallback_malloc.cpp",
-    "src/private_typeinfo.cpp",
+
     "src/stdlib_exception.cpp",
-    "src/stdlib_new_delete.cpp",
     "src/stdlib_stdexcept.cpp",
     "src/stdlib_typeinfo.cpp",
+    "src/stdlib_new_delete.cpp",
+
+    "src/abort_message.cpp",
+    "src/fallback_malloc.cpp",
+    "src/private_typeinfo.cpp",
+
+    "src/cxa_exception.cpp",
+    "src/cxa_personality.cpp",
+
+    "src/cxa_noexception.cpp",
+
+    "src/cxa_thread_atexit.cpp",
 };
 
 const libcxx_base_files = [_][]const u8{
@@ -102,7 +107,7 @@ const libcxx_thread_files = [_][]const u8{
 
 pub const BuildError = error{
     OutOfMemory,
-    SubCompilationFailed,
+    AlreadyReported,
     ZigCompilerNotBuiltWithLLVMExtensions,
 };
 
@@ -144,12 +149,12 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxx,
             "unable to build libc++: resolving configuration failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const root_mod = Module.create(arena, .{
@@ -177,12 +182,12 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .cc_argv = &.{},
         .parent = null,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxx,
             "unable to build libc++: creating module failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const libcxx_files = if (comp.config.any_non_single_threaded)
@@ -190,7 +195,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     else
         &libcxx_base_files;
 
-    var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
+    var c_source_files = try std.array_list.Managed(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
         // These don't compile on WASI due to e.g. `fchmod` usage.
@@ -201,7 +206,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
 
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try addCxxArgs(comp, arena, &cflags);
 
@@ -233,7 +238,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         // These depend on only the zig lib directory file path, which is
         // purposefully either in the cache or not in the cache. The decision
         // should not be overridden here.
-        var cache_exempt_flags = std.ArrayList([]const u8).init(arena);
+        var cache_exempt_flags = std.array_list.Managed([]const u8).init(arena);
 
         try cache_exempt_flags.append("-I");
         try cache_exempt_flags.append(cxx_include_path);
@@ -255,7 +260,10 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         });
     }
 
-    const sub_compilation = Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .libcxx;
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
@@ -276,24 +284,19 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
     }) catch |err| {
-        comp.setMiscFailure(
-            .libcxx,
-            "unable to build libc++: create compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+        switch (err) {
+            else => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++: create compilation failed: {t}", .{err}),
+            error.CreateFail => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++: create compilation failed: {f}", .{sub_create_diag}),
+        }
+        return error.AlreadyReported;
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libcxx, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return error.SubCompilationFailed,
+    comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
+        error.AlreadyReported => return error.AlreadyReported,
         else => |e| {
-            comp.setMiscFailure(
-                .libcxx,
-                "unable to build libc++: compilation failed: {s}",
-                .{@errorName(e)},
-            );
-            return error.SubCompilationFailed;
+            comp.lockAndSetMiscFailure(misc_task, "unable to build libc++: compilation failed: {t}", .{e});
+            return error.AlreadyReported;
         },
     };
 
@@ -345,12 +348,12 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxxabi,
             "unable to build libc++abi: resolving configuration failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const root_mod = Module.create(arena, .{
@@ -379,28 +382,31 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .cc_argv = &.{},
         .parent = null,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxxabi,
             "unable to build libc++abi: creating module failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
-    var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
+    var c_source_files = try std.array_list.Managed(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
-        if (!comp.config.any_non_single_threaded and std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
+        if (!comp.config.any_non_single_threaded and std.mem.eql(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
             continue;
         if (target.os.tag == .wasi and
             (std.mem.eql(u8, cxxabi_src, "src/cxa_exception.cpp") or std.mem.eql(u8, cxxabi_src, "src/cxa_personality.cpp")))
             continue;
+        if (target.os.tag != .wasi and std.mem.eql(u8, cxxabi_src, "src/cxa_noexception.cpp"))
+            continue;
 
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try addCxxArgs(comp, arena, &cflags);
 
         try cflags.append("-DNDEBUG");
+        try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
@@ -427,7 +433,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         // These depend on only the zig lib directory file path, which is
         // purposefully either in the cache or not in the cache. The decision
         // should not be overridden here.
-        var cache_exempt_flags = std.ArrayList([]const u8).init(arena);
+        var cache_exempt_flags = std.array_list.Managed([]const u8).init(arena);
 
         try cache_exempt_flags.append("-I");
         try cache_exempt_flags.append(cxxabi_include_path);
@@ -446,7 +452,10 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         });
     }
 
-    const sub_compilation = Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .libcxxabi;
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
@@ -467,24 +476,23 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
     }) catch |err| {
-        comp.setMiscFailure(
-            .libcxxabi,
-            "unable to build libc++abi: create compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+        switch (err) {
+            else => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++abi: create compilation failed: {t}", .{err}),
+            error.CreateFail => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++abi: create compilation failed: {f}", .{sub_create_diag}),
+        }
+        return error.AlreadyReported;
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return error.SubCompilationFailed,
+    comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
+        error.AlreadyReported => return error.AlreadyReported,
         else => |e| {
-            comp.setMiscFailure(
+            comp.lockAndSetMiscFailure(
                 .libcxxabi,
                 "unable to build libc++abi: compilation failed: {s}",
                 .{@errorName(e)},
             );
-            return error.SubCompilationFailed;
+            return error.AlreadyReported;
         },
     };
 
@@ -497,7 +505,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 pub fn addCxxArgs(
     comp: *const Compilation,
     arena: std.mem.Allocator,
-    cflags: *std.ArrayList([]const u8),
+    cflags: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
     const optimize_mode = comp.compilerRtOptMode();
@@ -509,19 +517,19 @@ pub fn addCxxArgs(
     try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
         abi_version,
     }));
-    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}THREADS", .{
-        if (!comp.config.any_non_single_threaded) "NO_" else "",
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_THREADS={d}", .{
+        @as(u1, if (comp.config.any_non_single_threaded) 1 else 0),
     }));
     try cflags.append("-D_LIBCPP_HAS_MONOTONIC_CLOCK");
     try cflags.append("-D_LIBCPP_HAS_TERMINAL");
-    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}MUSL_LIBC", .{
-        if (!target.abi.isMusl()) "NO_" else "",
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_MUSL_LIBC={d}", .{
+        @as(u1, if (target.abi.isMusl()) 1 else 0),
     }));
     try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
     try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-    try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
-    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}FILESYSTEM", .{
-        if (target.os.tag == .wasi) "NO_" else "",
+    try cflags.append("-D_LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS=0");
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_FILESYSTEM={d}", .{
+        @as(u1, if (target.os.tag == .wasi) 0 else 1),
     }));
     try cflags.append("-D_LIBCPP_HAS_RANDOM_DEVICE");
     try cflags.append("-D_LIBCPP_HAS_LOCALIZATION");
@@ -545,8 +553,7 @@ pub fn addCxxArgs(
     if (target.isGnuLibC()) {
         // glibc 2.16 introduced aligned_alloc
         if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
-            try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+            try cflags.append("-D_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION=0");
         }
     }
-    try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
 }

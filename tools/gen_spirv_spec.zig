@@ -12,6 +12,7 @@ const ExtendedStructSet = std.StringHashMap(void);
 
 const Extension = struct {
     name: []const u8,
+    opcode_name: []const u8,
     spec: ExtensionRegistry,
 };
 
@@ -44,23 +45,11 @@ const OperandKindMap = std.ArrayHashMap(StringPair, OperandKind, StringPairConte
 
 /// Khronos made it so that these names are not defined explicitly, so
 /// we need to hardcode it (like they did).
-/// See https://github.com/KhronosGroup/SPIRV-Registry/
-const set_names = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "opencl.std.100", "OpenCL.std" },
-    .{ "glsl.std.450", "GLSL.std.450" },
-    .{ "opencl.debuginfo.100", "OpenCL.DebugInfo.100" },
-    .{ "spv-amd-shader-ballot", "SPV_AMD_shader_ballot" },
-    .{ "nonsemantic.shader.debuginfo.100", "NonSemantic.Shader.DebugInfo.100" },
-    .{ "nonsemantic.vkspreflection", "NonSemantic.VkspReflection" },
-    .{ "nonsemantic.clspvreflection", "NonSemantic.ClspvReflection.6" }, // This version needs to be handled manually
-    .{ "spv-amd-gcn-shader", "SPV_AMD_gcn_shader" },
-    .{ "spv-amd-shader-trinary-minmax", "SPV_AMD_shader_trinary_minmax" },
-    .{ "debuginfo", "DebugInfo" },
-    .{ "nonsemantic.debugprintf", "NonSemantic.DebugPrintf" },
-    .{ "spv-amd-shader-explicit-vertex-parameter", "SPV_AMD_shader_explicit_vertex_parameter" },
-    .{ "nonsemantic.debugbreak", "NonSemantic.DebugBreak" },
-    .{ "tosa.001000.1", "SPV_EXT_INST_TYPE_TOSA_001000_1" },
-    .{ "zig", "zig" },
+/// See https://github.com/KhronosGroup/SPIRV-Registry
+const set_names = std.StaticStringMap(struct { []const u8, []const u8 }).initComptime(.{
+    .{ "opencl.std.100", .{ "OpenCL.std", "OpenClOpcode" } },
+    .{ "glsl.std.450", .{ "GLSL.std.450", "GlslOpcode" } },
+    .{ "zig", .{ "zig", "Zig" } },
 });
 
 var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
@@ -78,9 +67,9 @@ pub fn main() !void {
     const dir = try std.fs.cwd().openDir(json_path, .{ .iterate = true });
 
     const core_spec = try readRegistry(CoreRegistry, dir, "spirv.core.grammar.json");
-    std.sort.block(Instruction, core_spec.instructions, CmpInst{}, CmpInst.lt);
+    std.mem.sortUnstable(Instruction, core_spec.instructions, CmpInst{}, CmpInst.lt);
 
-    var exts = std.ArrayList(Extension).init(allocator);
+    var exts = std.array_list.Managed(Extension).init(allocator);
 
     var it = dir.iterate();
     while (try it.next()) |entry| {
@@ -93,13 +82,11 @@ pub fn main() !void {
 
     try readExtRegistry(&exts, std.fs.cwd(), args[2]);
 
-    const output_buf = try allocator.alloc(u8, 1024 * 1024);
-    var fbs = std.io.fixedBufferStream(output_buf);
-    var adapter = fbs.writer().adaptToNewApi();
-    const w = &adapter.new_interface;
-    try render(w, core_spec, exts.items);
-    var output: [:0]u8 = @ptrCast(fbs.getWritten());
-    output[output.len] = 0;
+    var allocating: std.Io.Writer.Allocating = .init(allocator);
+    defer allocating.deinit();
+    try render(&allocating.writer, core_spec, exts.items);
+    try allocating.writer.writeByte(0);
+    const output = allocating.written()[0 .. allocating.written().len - 1 :0];
 
     var tree = try std.zig.Ast.parse(allocator, output, .zig);
     var color: std.zig.Color = .on;
@@ -124,7 +111,7 @@ pub fn main() !void {
     _ = try std.fs.File.stdout().write(formatted_output);
 }
 
-fn readExtRegistry(exts: *std.ArrayList(Extension), dir: std.fs.Dir, sub_path: []const u8) !void {
+fn readExtRegistry(exts: *std.array_list.Managed(Extension), dir: std.fs.Dir, sub_path: []const u8) !void {
     const filename = std.fs.path.basename(sub_path);
     if (!std.mem.startsWith(u8, filename, "extinst.")) {
         return;
@@ -134,14 +121,24 @@ fn readExtRegistry(exts: *std.ArrayList(Extension), dir: std.fs.Dir, sub_path: [
     const name = filename["extinst.".len .. filename.len - ".grammar.json".len];
     const spec = try readRegistry(ExtensionRegistry, dir, sub_path);
 
+    const set_name = set_names.get(name) orelse {
+        std.log.info("ignored instruction set '{s}'", .{name});
+        return;
+    };
+
     std.sort.block(Instruction, spec.instructions, CmpInst{}, CmpInst.lt);
 
-    try exts.append(.{ .name = set_names.get(name).?, .spec = spec });
+    try exts.append(.{
+        .name = set_name.@"0",
+        .opcode_name = set_name.@"1",
+        .spec = spec,
+    });
 }
 
 fn readRegistry(comptime RegistryType: type, dir: std.fs.Dir, path: []const u8) !RegistryType {
-    const spec = try dir.readFileAlloc(allocator, path, std.math.maxInt(usize));
+    const spec = try dir.readFileAlloc(path, allocator, .unlimited);
     // Required for json parsing.
+    // TODO: ALI
     @setEvalBranchQuota(10000);
 
     var scanner = std.json.Scanner.initCompleteInput(allocator, spec);
@@ -191,7 +188,11 @@ fn tagPriorityScore(tag: []const u8) usize {
     }
 }
 
-fn render(writer: *std.io.Writer, registry: CoreRegistry, extensions: []const Extension) !void {
+fn render(
+    writer: *std.Io.Writer,
+    registry: CoreRegistry,
+    extensions: []const Extension,
+) !void {
     try writer.writeAll(
         \\//! This file is auto-generated by tools/gen_spirv_spec.zig.
         \\
@@ -213,11 +214,21 @@ fn render(writer: *std.io.Writer, registry: CoreRegistry, extensions: []const Ex
         \\    none,
         \\    _,
         \\
-        \\    pub fn format(self: Id, writer: *std.io.Writer) std.io.Writer.Error!void {
+        \\    pub fn format(self: Id, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\        switch (self) {
         \\            .none => try writer.writeAll("(none)"),
         \\            else => try writer.print("%{d}", .{@intFromEnum(self)}),
         \\        }
+        \\    }
+        \\};
+        \\
+        \\pub const IdRange = struct {
+        \\    base: u32,
+        \\    len: u32,
+        \\
+        \\    pub fn at(range: IdRange, i: usize) Id {
+        \\        std.debug.assert(i < range.len);
+        \\        return @enumFromInt(range.base + i);
         \\    }
         \\};
         \\
@@ -283,8 +294,6 @@ fn render(writer: *std.io.Writer, registry: CoreRegistry, extensions: []const Ex
     );
 
     // Merge the operand kinds from all extensions together.
-    // var all_operand_kinds = std.ArrayList(OperandKind).init(a);
-    // try all_operand_kinds.appendSlice(registry.operand_kinds);
     var all_operand_kinds = OperandKindMap.init(allocator);
     for (registry.operand_kinds) |kind| {
         try all_operand_kinds.putNoClobber(.{ "core", kind.kind }, kind);
@@ -307,13 +316,18 @@ fn render(writer: *std.io.Writer, registry: CoreRegistry, extensions: []const Ex
     // Note: extensions don't seem to have class.
     try renderClass(writer, registry.instructions);
     try renderOperandKind(writer, all_operand_kinds.values());
-    try renderOpcodes(writer, registry.instructions, extended_structs);
+
+    try renderOpcodes(writer, "Opcode", true, registry.instructions, extended_structs);
+    for (extensions) |ext| {
+        try renderOpcodes(writer, ext.opcode_name, false, ext.spec.instructions, extended_structs);
+    }
+
     try renderOperandKinds(writer, all_operand_kinds.values(), extended_structs);
     try renderInstructionSet(writer, registry, extensions, all_operand_kinds);
 }
 
 fn renderInstructionSet(
-    writer: anytype,
+    writer: *std.Io.Writer,
     core: CoreRegistry,
     extensions: []const Extension,
     all_operand_kinds: OperandKindMap,
@@ -324,7 +338,7 @@ fn renderInstructionSet(
     );
 
     for (extensions) |ext| {
-        try writer.print("{f},\n", .{formatId(ext.name)});
+        try writer.print("{f},\n", .{std.zig.fmtId(ext.name)});
     }
 
     try writer.writeAll(
@@ -348,7 +362,7 @@ fn renderInstructionSet(
 }
 
 fn renderInstructionsCase(
-    writer: anytype,
+    writer: *std.Io.Writer,
     set_name: []const u8,
     instructions: []const Instruction,
     all_operand_kinds: OperandKindMap,
@@ -357,7 +371,7 @@ fn renderInstructionsCase(
     // but there aren't so many total aliases and that would add more overhead in total. We will
     // just filter those out when needed.
 
-    try writer.print(".{f} => &.{{\n", .{formatId(set_name)});
+    try writer.print(".{f} => &.{{\n", .{std.zig.fmtId(set_name)});
 
     for (instructions) |inst| {
         try writer.print(
@@ -395,7 +409,7 @@ fn renderInstructionsCase(
     );
 }
 
-fn renderClass(writer: anytype, instructions: []const Instruction) !void {
+fn renderClass(writer: *std.Io.Writer, instructions: []const Instruction) !void {
     var class_map = std.StringArrayHashMap(void).init(allocator);
 
     for (instructions) |inst| {
@@ -413,10 +427,9 @@ fn renderClass(writer: anytype, instructions: []const Instruction) !void {
 const Formatter = struct {
     data: []const u8,
 
-    fn format(f: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn format(f: Formatter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         var id_buf: [128]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&id_buf);
-        const fw = fbs.writer();
+        var fw: std.Io.Writer = .fixed(&id_buf);
         for (f.data, 0..) |c, i| {
             switch (c) {
                 '-', '_', '.', '~', ' ' => fw.writeByte('_') catch return error.WriteFailed,
@@ -436,7 +449,7 @@ const Formatter = struct {
         }
 
         // make sure that this won't clobber with zig keywords
-        try writer.print("{f}", .{std.zig.fmtId(fbs.getWritten())});
+        try writer.print("{f}", .{std.zig.fmtId(fw.buffered())});
     }
 };
 
@@ -444,7 +457,7 @@ fn formatId(identifier: []const u8) std.fmt.Alt(Formatter, Formatter.format) {
     return .{ .data = .{ .data = identifier } };
 }
 
-fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
+fn renderOperandKind(writer: *std.Io.Writer, operands: []const OperandKind) !void {
     try writer.writeAll(
         \\pub const OperandKind = enum {
         \\    opcode,
@@ -500,7 +513,7 @@ fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
     try writer.writeAll("};\n}\n};\n");
 }
 
-fn renderEnumerant(writer: anytype, enumerant: Enumerant) !void {
+fn renderEnumerant(writer: *std.Io.Writer, enumerant: Enumerant) !void {
     try writer.print(".{{.name = \"{s}\", .value = ", .{enumerant.enumerant});
     switch (enumerant.value) {
         .bitflag => |flag| try writer.writeAll(flag),
@@ -517,18 +530,22 @@ fn renderEnumerant(writer: anytype, enumerant: Enumerant) !void {
 }
 
 fn renderOpcodes(
-    writer: anytype,
+    writer: *std.Io.Writer,
+    opcode_type_name: []const u8,
+    want_operands: bool,
     instructions: []const Instruction,
     extended_structs: ExtendedStructSet,
 ) !void {
     var inst_map = std.AutoArrayHashMap(u32, usize).init(allocator);
     try inst_map.ensureTotalCapacity(instructions.len);
 
-    var aliases = std.ArrayList(struct { inst: usize, alias: usize }).init(allocator);
+    var aliases = std.array_list.Managed(struct { inst: usize, alias: usize }).init(allocator);
     try aliases.ensureTotalCapacity(instructions.len);
 
     for (instructions, 0..) |inst, i| {
-        if (std.mem.eql(u8, inst.class.?, "@exclude")) continue;
+        if (inst.class) |class| {
+            if (std.mem.eql(u8, class, "@exclude")) continue;
+        }
 
         const result = inst_map.getOrPutAssumeCapacity(inst.opcode);
         if (!result.found_existing) {
@@ -552,58 +569,67 @@ fn renderOpcodes(
 
     const instructions_indices = inst_map.values();
 
-    try writer.writeAll("pub const Opcode = enum(u16) {\n");
+    try writer.print("\npub const {f} = enum(u16) {{\n", .{std.zig.fmtId(opcode_type_name)});
     for (instructions_indices) |i| {
         const inst = instructions[i];
         try writer.print("{f} = {},\n", .{ std.zig.fmtId(inst.opname), inst.opcode });
     }
 
-    try writer.writeAll(
-        \\
-    );
+    try writer.writeAll("\n");
 
     for (aliases.items) |alias| {
-        try writer.print("pub const {f} = Opcode.{f};\n", .{
+        try writer.print("pub const {f} = {f}.{f};\n", .{
             formatId(instructions[alias.inst].opname),
+            std.zig.fmtId(opcode_type_name),
             formatId(instructions[alias.alias].opname),
         });
     }
 
-    try writer.writeAll(
-        \\
-        \\pub fn Operands(comptime self: Opcode) type {
-        \\    return switch (self) {
-        \\
-    );
+    if (want_operands) {
+        try writer.print(
+            \\
+            \\pub fn Operands(comptime self: {f}) type {{
+            \\    return switch (self) {{
+            \\
+        , .{std.zig.fmtId(opcode_type_name)});
 
-    for (instructions_indices) |i| {
-        const inst = instructions[i];
-        try renderOperand(writer, .instruction, inst.opname, inst.operands, extended_structs, false);
+        for (instructions_indices) |i| {
+            const inst = instructions[i];
+            try renderOperand(writer, .instruction, inst.opname, inst.operands, extended_structs, false);
+        }
+
+        try writer.writeAll(
+            \\    };
+            \\}
+            \\
+        );
+
+        try writer.print(
+            \\pub fn class(self: {f}) Class {{
+            \\    return switch (self) {{
+            \\
+        , .{std.zig.fmtId(opcode_type_name)});
+
+        for (instructions_indices) |i| {
+            const inst = instructions[i];
+            try writer.print(".{f} => .{f},\n", .{ std.zig.fmtId(inst.opname), formatId(inst.class.?) });
+        }
+
+        try writer.writeAll(
+            \\   };
+            \\}
+            \\
+        );
     }
 
     try writer.writeAll(
-        \\    };
-        \\}
-        \\pub fn class(self: Opcode) Class {
-        \\    return switch (self) {
-        \\
-    );
-
-    for (instructions_indices) |i| {
-        const inst = instructions[i];
-        try writer.print(".{f} => .{f},\n", .{ std.zig.fmtId(inst.opname), formatId(inst.class.?) });
-    }
-
-    try writer.writeAll(
-        \\   };
-        \\}
         \\};
         \\
     );
 }
 
 fn renderOperandKinds(
-    writer: anytype,
+    writer: *std.Io.Writer,
     kinds: []const OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
@@ -617,7 +643,7 @@ fn renderOperandKinds(
 }
 
 fn renderValueEnum(
-    writer: anytype,
+    writer: *std.Io.Writer,
     enumeration: OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
@@ -626,7 +652,7 @@ fn renderValueEnum(
     var enum_map = std.AutoArrayHashMap(u32, usize).init(allocator);
     try enum_map.ensureTotalCapacity(enumerants.len);
 
-    var aliases = std.ArrayList(struct { enumerant: usize, alias: usize }).init(allocator);
+    var aliases = std.array_list.Managed(struct { enumerant: usize, alias: usize }).init(allocator);
     try aliases.ensureTotalCapacity(enumerants.len);
 
     for (enumerants, 0..) |enumerant, i| {
@@ -695,7 +721,7 @@ fn renderValueEnum(
 }
 
 fn renderBitEnum(
-    writer: anytype,
+    writer: *std.Io.Writer,
     enumeration: OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
@@ -704,7 +730,7 @@ fn renderBitEnum(
     var flags_by_bitpos = [_]?usize{null} ** 32;
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
 
-    var aliases = std.ArrayList(struct { flag: usize, alias: u5 }).init(allocator);
+    var aliases = std.array_list.Managed(struct { flag: usize, alias: u5 }).init(allocator);
     try aliases.ensureTotalCapacity(enumerants.len);
 
     for (enumerants, 0..) |enumerant, i| {
@@ -778,7 +804,7 @@ fn renderBitEnum(
 }
 
 fn renderOperand(
-    writer: anytype,
+    writer: *std.Io.Writer,
     kind: enum {
         @"union",
         instruction,
@@ -862,7 +888,7 @@ fn renderOperand(
     try writer.writeAll(",\n");
 }
 
-fn renderFieldName(writer: anytype, operands: []const Operand, field_index: usize) !void {
+fn renderFieldName(writer: *std.Io.Writer, operands: []const Operand, field_index: usize) !void {
     const operand = operands[field_index];
 
     derive_from_kind: {

@@ -33,81 +33,93 @@
 #include <AvailabilityVersions.h>
 
 #ifndef __MAC_OS_X_VERSION_MIN_REQUIRED
-    #if defined(__has_builtin) && __has_builtin(__is_target_os)
-        #if __is_target_os(macos)
-            #define __MAC_OS_X_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
-            #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_15_5
-        #endif
-    #elif  __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ 
-        #define __MAC_OS_X_VERSION_MIN_REQUIRED __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__
-        #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_15_5
-    #endif /*  __has_builtin(__is_target_os) && __is_target_os(macos) */
+    #if defined(__has_builtin)
+        #if __has_builtin(__is_target_os)
+            #if __is_target_os(macos)
+                #define __MAC_OS_X_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
+                #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_26_0
+            #endif
+        #elif  __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ 
+            #define __MAC_OS_X_VERSION_MIN_REQUIRED __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__
+            #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_26_0
+        #endif /* __has_builtin(__is_target_os) */
+    #endif /* defined(__has_builtin) */
 #endif /* __MAC_OS_X_VERSION_MIN_REQUIRED */
 
 #ifndef __IPHONE_OS_VERSION_MIN_REQUIRED
-    #if defined(__has_builtin) && __has_builtin(__is_target_os)
-        #if __is_target_os(ios)
-            #define __IPHONE_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
-            #define __IPHONE_OS_VERSION_MAX_ALLOWED __IPHONE_18_5
-        #endif
-    #elif  __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ 
-        #define __IPHONE_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__
-        #define __IPHONE_OS_VERSION_MAX_ALLOWED __IPHONE_18_5
-    #endif /*  __has_builtin(__is_target_os) && __is_target_os(ios) */
+    #if defined(__has_builtin)
+        #if __has_builtin(__is_target_os)
+            #if __is_target_os(ios)
+                #define __IPHONE_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
+                #define __IPHONE_OS_VERSION_MAX_ALLOWED __IPHONE_26_0
+            #endif
+        #elif  __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ 
+            #define __IPHONE_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__
+            #define __IPHONE_OS_VERSION_MAX_ALLOWED __IPHONE_26_0
+        #endif /* __has_builtin(__is_target_os) */
+    #endif /* defined(__has_builtin) */
 #endif /* __IPHONE_OS_VERSION_MIN_REQUIRED */
 
 #ifndef __WATCH_OS_VERSION_MIN_REQUIRED
-    #if defined(__has_builtin) && __has_builtin(__is_target_os)
-        #if __is_target_os(watchos)
-            #define __WATCH_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
-            #define __WATCH_OS_VERSION_MAX_ALLOWED __WATCHOS_11_5
+    #if defined(__has_builtin)
+        #if __has_builtin(__is_target_os)
+            #if __is_target_os(watchos)
+                #define __WATCH_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
+                #define __WATCH_OS_VERSION_MAX_ALLOWED __WATCHOS_26_0
+                /* for compatibility with existing code.  New code should use platform specific checks */
+                #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_9_0
+            #endif
+        #elif  __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ 
+            #define __WATCH_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__
+            #define __WATCH_OS_VERSION_MAX_ALLOWED __WATCHOS_26_0
             /* for compatibility with existing code.  New code should use platform specific checks */
             #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_9_0
-        #endif
-    #elif  __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ 
-        #define __WATCH_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__
-        #define __WATCH_OS_VERSION_MAX_ALLOWED __WATCHOS_11_5
-        /* for compatibility with existing code.  New code should use platform specific checks */
-        #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_9_0
-    #endif /*  __has_builtin(__is_target_os) && __is_target_os(watchos) */
+        #endif /* __has_builtin(__is_target_os) */
+    #endif /* defined(__has_builtin) */
 #endif /* __WATCH_OS_VERSION_MIN_REQUIRED */
 
 #ifndef __TV_OS_VERSION_MIN_REQUIRED
-    #if defined(__has_builtin) && __has_builtin(__is_target_os)
-        #if __is_target_os(tvos)
-            #define __TV_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
-            #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_18_5
+    #if defined(__has_builtin)
+        #if __has_builtin(__is_target_os)
+            #if __is_target_os(tvos)
+                #define __TV_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
+                #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_26_0
+                /* for compatibility with existing code.  New code should use platform specific checks */
+                #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_9_0
+            #endif
+        #elif  __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ 
+            #define __TV_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__
+            #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_26_0
             /* for compatibility with existing code.  New code should use platform specific checks */
             #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_9_0
-        #endif
-    #elif  __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ 
-        #define __TV_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__
-        #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_18_5
-        /* for compatibility with existing code.  New code should use platform specific checks */
-        #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_9_0
-    #endif /*  __has_builtin(__is_target_os) && __is_target_os(tvos) */
+        #endif /* __has_builtin(__is_target_os) */
+    #endif /* defined(__has_builtin) */
 #endif /* __TV_OS_VERSION_MIN_REQUIRED */
 
 
 
 #ifndef __DRIVERKIT_VERSION_MIN_REQUIRED
-    #if defined(__has_builtin) && __has_builtin(__is_target_os)
-        #if __is_target_os(driverkit)
-            #define __DRIVERKIT_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
-            #define __DRIVERKIT_VERSION_MAX_ALLOWED __DRIVERKIT_24_5
-        #endif
-    #endif /*  __has_builtin(__is_target_os) && __is_target_os(driverkit) */
+    #if defined(__has_builtin)
+        #if __has_builtin(__is_target_os)
+            #if __is_target_os(driverkit)
+                #define __DRIVERKIT_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
+                #define __DRIVERKIT_VERSION_MAX_ALLOWED __DRIVERKIT_25_0
+            #endif
+        #endif /* __has_builtin(__is_target_os) */
+    #endif /* defined(__has_builtin) */
 #endif /* __DRIVERKIT_VERSION_MIN_REQUIRED */
 
 #ifndef __VISION_OS_VERSION_MIN_REQUIRED
-    #if defined(__has_builtin) && __has_builtin(__is_target_os)
-        #if __is_target_os(visionos)
-            #define __VISION_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
-            #define __VISION_OS_VERSION_MAX_ALLOWED __VISIONOS_2_5
-            /* for compatibility with existing code.  New code should use platform specific checks */
-            #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_17_1
-        #endif
-    #endif /*  __has_builtin(__is_target_os) && __is_target_os(visionos) */
+    #if defined(__has_builtin)
+        #if __has_builtin(__is_target_os)
+            #if __is_target_os(visionos)
+                #define __VISION_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__
+                #define __VISION_OS_VERSION_MAX_ALLOWED __VISIONOS_26_0
+                /* for compatibility with existing code.  New code should use platform specific checks */
+                #define __IPHONE_OS_VERSION_MIN_REQUIRED __IPHONE_17_1
+            #endif
+        #endif /* __has_builtin(__is_target_os) */
+    #endif /* defined(__has_builtin) */
 #endif /* __VISION_OS_VERSION_MIN_REQUIRED */
 
 

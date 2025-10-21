@@ -4,7 +4,6 @@ const mem = std.mem;
 const fs = std.fs;
 const assert = std.debug.assert;
 const panic = std.debug.panic;
-const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = mem.Allocator;
@@ -60,7 +59,7 @@ filters: []const []const u8,
 test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: ArrayList(HeaderInstallation),
+installed_headers: std.array_list.Managed(HeaderInstallation),
 
 /// This step is used to create an include tree that dependent modules can add to their include
 /// search paths. Installed headers are copied to this step.
@@ -193,6 +192,7 @@ want_lto: ?bool = null,
 
 use_llvm: ?bool,
 use_lld: ?bool,
+use_new_linker: ?bool,
 
 /// Corresponds to the `-fallow-so-scripts` / `-fno-allow-so-scripts` CLI
 /// flags, overriding the global user setting provided to the `zig build`
@@ -421,7 +421,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = ArrayList(HeaderInstallation).init(owner.allocator),
+        .installed_headers = std.array_list.Managed(HeaderInstallation).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
@@ -442,6 +442,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .use_new_linker = null,
 
         .zig_process = null,
     };
@@ -766,9 +767,9 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
         else => return err,
     };
 
-    var zig_cflags = ArrayList([]const u8).init(b.allocator);
+    var zig_cflags = std.array_list.Managed([]const u8).init(b.allocator);
     defer zig_cflags.deinit();
-    var zig_libs = ArrayList([]const u8).init(b.allocator);
+    var zig_libs = std.array_list.Managed([]const u8).init(b.allocator);
     defer zig_libs.deinit();
 
     var arg_it = mem.tokenizeAny(u8, stdout, " \r\n\t");
@@ -1076,7 +1077,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const b = step.owner;
     const arena = b.allocator;
 
-    var zig_args = ArrayList([]const u8).init(arena);
+    var zig_args = std.array_list.Managed([]const u8).init(arena);
     defer zig_args.deinit();
 
     try zig_args.append(b.graph.zig_exe);
@@ -1097,6 +1098,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
+    try addFlag(&zig_args, "new-linker", compile.use_new_linker);
 
     if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
@@ -1491,6 +1493,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.verbose_link or compile.verbose_link) try zig_args.append("--verbose-link");
     if (b.verbose_cc or compile.verbose_cc) try zig_args.append("--verbose-cc");
     if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");
+    if (b.graph.time_report) try zig_args.append("--time-report");
 
     if (compile.generated_asm != null) try zig_args.append("-femit-asm");
     if (compile.generated_bin == null) try zig_args.append("-fno-emit-bin");
@@ -1797,7 +1800,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try b.cache_root.handle.makePath("args");
 
         const args_to_escape = zig_args.items[2..];
-        var escaped_args = try ArrayList([]const u8).initCapacity(arena, args_to_escape.len);
+        var escaped_args = try std.array_list.Managed([]const u8).initCapacity(arena, args_to_escape.len);
         arg_blk: for (args_to_escape) |arg| {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
@@ -1827,7 +1830,26 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
-        try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
+        if (b.cache_root.handle.access(args_file, .{})) |_| {
+            // The args file is already present from a previous run.
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                try b.cache_root.handle.makePath("tmp");
+                const rand_int = std.crypto.random.int(u64);
+                const tmp_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
+                try b.cache_root.handle.writeFile(.{ .sub_path = tmp_path, .data = args });
+                defer b.cache_root.handle.deleteFile(tmp_path) catch {
+                    // It's fine if the temporary file can't be cleaned up.
+                };
+                b.cache_root.handle.rename(tmp_path, args_file) catch |rename_err| switch (rename_err) {
+                    error.PathAlreadyExists => {
+                        // The args file was created by another concurrent build process.
+                    },
+                    else => |other_err| return other_err,
+                };
+            },
+            else => |other_err| return other_err,
+        }
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",
@@ -1850,7 +1872,9 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const maybe_output_dir = step.evalZigProcess(
         zig_args,
         options.progress_node,
-        (b.graph.incremental == true) and options.watch,
+        (b.graph.incremental == true) and (options.watch or options.web_server != null),
+        options.web_server,
+        options.gpa,
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
@@ -1905,9 +1929,7 @@ fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifa
     return out_dir.joinString(arena, name) catch @panic("OOM");
 }
 
-pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
-    const gpa = c.step.owner.allocator;
-
+pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progress.Node) !Path {
     c.step.result_error_msgs.clearRetainingCapacity();
     c.step.result_stderr = "";
 
@@ -1915,7 +1937,7 @@ pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
     c.step.result_error_bundle = std.zig.ErrorBundle.empty;
 
     const zig_args = try getZigArgs(c, true);
-    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false);
+    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
     return maybe_output_bin_path.?;
 }
 
@@ -1947,7 +1969,7 @@ pub fn doAtomicSymLinks(
 fn execPkgConfigList(b: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
     const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
     const stdout = try b.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
-    var list = ArrayList(PkgConfigPkg).init(b.allocator);
+    var list = std.array_list.Managed(PkgConfigPkg).init(b.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
@@ -1984,7 +2006,7 @@ fn getPkgConfigList(b: *std.Build) ![]const PkgConfigPkg {
     }
 }
 
-fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
+fn addFlag(args: *std.array_list.Managed([]const u8), comptime name: []const u8, opt: ?bool) !void {
     const cond = opt orelse return;
     try args.ensureUnusedCapacity(1);
     if (cond) {
@@ -2002,7 +2024,7 @@ fn checkCompileErrors(compile: *Compile) !void {
     const arena = compile.step.owner.allocator;
 
     const actual_errors = ae: {
-        var aw: std.io.Writer.Allocating = .init(arena);
+        var aw: std.Io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
             .ttyconf = .no_color,

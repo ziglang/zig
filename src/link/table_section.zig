@@ -39,7 +39,7 @@ pub fn TableSection(comptime Entry: type) type {
             return self.entries.items.len;
         }
 
-        pub fn format(self: Self, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try writer.writeAll("TableSection:\n");
             for (self.entries.items, 0..) |entry, i| {
                 try writer.print("  {d} => {}\n", .{ i, entry });

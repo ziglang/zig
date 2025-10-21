@@ -46,7 +46,7 @@ using __make_indices_imp _LIBCPP_NODEBUG =
 #if _LIBCPP_STD_VER >= 14
 
 template <class _Tp, _Tp... _Ip>
-struct _LIBCPP_TEMPLATE_VIS integer_sequence {
+struct integer_sequence {
   typedef _Tp value_type;
   static_assert(is_integral<_Tp>::value, "std::integer_sequence can only be instantiated with an integral type");
   static _LIBCPP_HIDE_FROM_ABI constexpr size_t size() noexcept { return sizeof...(_Ip); }

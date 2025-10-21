@@ -107,6 +107,7 @@ size_t wcsrtombs(char* restrict dst, const wchar_t** restrict src, size_t len,
 #else
 #  include <__config>
 #  include <__cstddef/size_t.h>
+#  include <__memory/addressof.h>
 #  include <__type_traits/copy_cv.h>
 #  include <__type_traits/is_constant_evaluated.h>
 #  include <__type_traits/is_equality_comparable.h>
@@ -237,7 +238,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp* __constexpr_wmemchr(_Tp
 #  if __has_builtin(__builtin_wmemchr)
   if (!__libcpp_is_constant_evaluated()) {
     wchar_t __value_buffer = 0;
-    __builtin_memcpy(&__value_buffer, &__value, sizeof(wchar_t));
+    __builtin_memcpy(&__value_buffer, std::addressof(__value), sizeof(wchar_t));
     return reinterpret_cast<_Tp*>(
         __builtin_wmemchr(reinterpret_cast<__copy_cv_t<_Tp, wchar_t>*>(__str), __value_buffer, __count));
   }

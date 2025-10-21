@@ -1,5 +1,4 @@
-const adler = @import("hash/adler.zig");
-pub const Adler32 = adler.Adler32;
+pub const Adler32 = @import("hash/Adler32.zig");
 
 const auto_hash = @import("hash/auto_hash.zig");
 pub const autoHash = auto_hash.autoHash;
@@ -116,7 +115,7 @@ test int {
 }
 
 test {
-    _ = adler;
+    _ = Adler32;
     _ = auto_hash;
     _ = crc;
     _ = fnv;

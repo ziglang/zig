@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
-const io = std.io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Cache = std.Build.Cache;
@@ -93,9 +92,12 @@ pub fn main() !void {
 fn accept(context: *Context, connection: std.net.Server.Connection) void {
     defer connection.stream.close();
 
-    var read_buffer: [8000]u8 = undefined;
-    var server = std.http.Server.init(connection, &read_buffer);
-    while (server.state == .ready) {
+    var recv_buffer: [4000]u8 = undefined;
+    var send_buffer: [4000]u8 = undefined;
+    var conn_reader = connection.stream.reader(&recv_buffer);
+    var conn_writer = connection.stream.writer(&send_buffer);
+    var server = std.http.Server.init(conn_reader.interface(), &conn_writer.interface);
+    while (server.reader.state == .ready) {
         var request = server.receiveHead() catch |err| switch (err) {
             error.HttpConnectionClosing => return,
             else => {
@@ -103,9 +105,19 @@ fn accept(context: *Context, connection: std.net.Server.Connection) void {
                 return;
             },
         };
-        serveRequest(&request, context) catch |err| {
-            std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
-            return;
+        serveRequest(&request, context) catch |err| switch (err) {
+            error.WriteFailed => {
+                if (conn_writer.err) |e| {
+                    std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(e) });
+                } else {
+                    std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
+                }
+                return;
+            },
+            else => {
+                std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
+                return;
+            },
         };
     }
 }
@@ -161,7 +173,7 @@ fn serveDocsFile(
     // The desired API is actually sendfile, which will require enhancing std.http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
-    const file_contents = try context.lib_dir.readFileAlloc(gpa, name, 10 * 1024 * 1024);
+    const file_contents = try context.lib_dir.readFileAlloc(name, gpa, .limited(10 * 1024 * 1024));
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{
@@ -175,8 +187,7 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     const gpa = context.gpa;
 
     var send_buffer: [0x4000]u8 = undefined;
-    var response = request.respondStreaming(.{
-        .send_buffer = &send_buffer,
+    var response = try request.respondStreaming(&send_buffer, .{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "application/x-tar" },
@@ -191,11 +202,7 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
 
-    var adapter_buffer: [500]u8 = undefined;
-    var response_writer = response.writer().adaptToNewApi();
-    response_writer.new_interface.buffer = &adapter_buffer;
-
-    var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer.new_interface };
+    var archiver: std.tar.Writer = .{ .underlying_writer = &response.writer };
     archiver.prefix = "std";
 
     while (try walker.next()) |entry| {
@@ -229,7 +236,6 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
 
     // intentionally omitting the pointless trailer
     //try archiver.finish();
-    try response_writer.new_interface.flush();
     try response.end();
 }
 
@@ -257,7 +263,7 @@ fn serveWasm(
     });
     // std.http.Server does not have a sendfile API yet.
     const bin_path = try wasm_base_path.join(arena, bin_name);
-    const file_contents = try bin_path.root_dir.handle.readFileAlloc(gpa, bin_path.sub_path, 10 * 1024 * 1024);
+    const file_contents = try bin_path.root_dir.handle.readFileAlloc(bin_path.sub_path, gpa, .limited(10 * 1024 * 1024));
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{
@@ -311,7 +317,7 @@ fn buildWasmBinary(
     child.stderr_behavior = .Pipe;
     try child.spawn();
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -339,20 +345,7 @@ fn buildWasmBinary(
                 }
             },
             .error_bundle => {
-                const EbHdr = std.zig.Server.Message.ErrorBundle;
-                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                const extra_bytes =
-                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                const string_bytes =
-                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                // TODO: use @ptrCast when the compiler supports it
-                const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                @memcpy(extra_array, unaligned_extra);
-                result_error_bundle = .{
-                    .string_bytes = try arena.dupe(u8, string_bytes),
-                    .extra = extra_array,
-                };
+                result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
             },
             .emit_digest => {
                 const EmitDigest = std.zig.Server.Message.EmitDigest;

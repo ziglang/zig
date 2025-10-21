@@ -18,5 +18,5 @@ fn sub(a: @Vector(4, u32), b: @Vector(4, u32)) @Vector(4, u32) {
     return a - b;
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

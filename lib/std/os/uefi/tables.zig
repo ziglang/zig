@@ -90,7 +90,7 @@ pub const MemoryType = enum(u32) {
         return @truncate(as_int - vendor_start);
     }
 
-    pub fn format(self: MemoryType, w: *std.io.Writer) std.io.WriteError!void {
+    pub fn format(self: MemoryType, w: *std.Io.Writer) std.Io.Writer.Error!void {
         if (self.toOem()) |oemval|
             try w.print("OEM({X})", .{oemval})
         else if (self.toVendor()) |vendorval|
@@ -154,7 +154,7 @@ pub const MemoryMapSlice = struct {
 
     pub fn getUnchecked(self: MemoryMapSlice, index: usize) *MemoryDescriptor {
         const offset: usize = index * self.info.descriptor_size;
-        return @alignCast(@ptrCast(self.ptr[offset..]));
+        return @ptrCast(@alignCast(self.ptr[offset..]));
     }
 };
 

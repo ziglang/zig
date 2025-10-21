@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
 const Allocator = mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const dev = @import("../dev.zig");
 const link = @import("../link.zig");
@@ -345,15 +345,15 @@ fn isReservedIdent(ident: []const u8) bool {
     } else return reserved_idents.has(ident);
 }
 
-fn formatIdentSolo(ident: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIdentSolo(ident: []const u8, w: *Writer) Writer.Error!void {
     return formatIdentOptions(ident, w, true);
 }
 
-fn formatIdentUnsolo(ident: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIdentUnsolo(ident: []const u8, w: *Writer) Writer.Error!void {
     return formatIdentOptions(ident, w, false);
 }
 
-fn formatIdentOptions(ident: []const u8, w: *std.io.Writer, solo: bool) std.io.Writer.Error!void {
+fn formatIdentOptions(ident: []const u8, w: *Writer, solo: bool) Writer.Error!void {
     if (solo and isReservedIdent(ident)) {
         try w.writeAll("zig_e_");
     }
@@ -371,11 +371,11 @@ fn formatIdentOptions(ident: []const u8, w: *std.io.Writer, solo: bool) std.io.W
     }
 }
 
-pub fn fmtIdentSolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentSolo) {
+pub fn fmtIdentSolo(ident: []const u8) std.fmt.Alt([]const u8, formatIdentSolo) {
     return .{ .data = ident };
 }
 
-pub fn fmtIdentUnsolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentUnsolo) {
+pub fn fmtIdentUnsolo(ident: []const u8) std.fmt.Alt([]const u8, formatIdentUnsolo) {
     return .{ .data = ident };
 }
 
@@ -384,7 +384,7 @@ const CTypePoolStringFormatData = struct {
     ctype_pool: *const CType.Pool,
     solo: bool,
 };
-fn formatCTypePoolString(data: CTypePoolStringFormatData, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatCTypePoolString(data: CTypePoolStringFormatData, w: *Writer) Writer.Error!void {
     if (data.ctype_pool_string.toSlice(data.ctype_pool)) |slice|
         try formatIdentOptions(slice, w, data.solo)
     else
@@ -394,7 +394,7 @@ pub fn fmtCTypePoolString(
     ctype_pool_string: CType.Pool.String,
     ctype_pool: *const CType.Pool,
     solo: bool,
-) std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString) {
+) std.fmt.Alt(CTypePoolStringFormatData, formatCTypePoolString) {
     return .{ .data = .{
         .ctype_pool_string = ctype_pool_string,
         .ctype_pool = ctype_pool,
@@ -610,11 +610,11 @@ pub const Function = struct {
         return f.object.dg.renderIntCast(w, dest_ty, .{ .c_value = .{ .f = f, .value = src, .v = v } }, src_ty, location);
     }
 
-    fn fmtIntLiteralDec(f: *Function, val: Value) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    fn fmtIntLiteralDec(f: *Function, val: Value) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return f.object.dg.fmtIntLiteralDec(val, .Other);
     }
 
-    fn fmtIntLiteralHex(f: *Function, val: Value) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    fn fmtIntLiteralHex(f: *Function, val: Value) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return f.object.dg.fmtIntLiteralHex(val, .Other);
     }
 
@@ -711,8 +711,8 @@ pub const Function = struct {
 /// It is not available when generating .h file.
 pub const Object = struct {
     dg: DeclGen,
-    code_header: std.io.Writer.Allocating,
-    code: std.io.Writer.Allocating,
+    code_header: Writer.Allocating,
+    code: Writer.Allocating,
     indent_counter: usize,
 
     const indent_width = 1;
@@ -728,7 +728,7 @@ pub const Object = struct {
     }
     fn outdent(o: *Object) !void {
         o.indent_counter -= indent_width;
-        const written = o.code.getWritten();
+        const written = o.code.written();
         switch (written[written.len - 1]) {
             indent_char => o.code.shrinkRetainingCapacity(written.len - indent_width),
             '\n' => try o.code.writer.splatByteAll(indent_char, o.indent_counter),
@@ -748,7 +748,7 @@ pub const DeclGen = struct {
     pass: Pass,
     is_naked_fn: bool,
     expected_block: ?u32,
-    fwd_decl: std.io.Writer.Allocating,
+    fwd_decl: Writer.Allocating,
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
     scratch: std.ArrayListUnmanaged(u32),
@@ -1012,7 +1012,7 @@ pub const DeclGen = struct {
         };
 
         const ty = val.typeOf(zcu);
-        if (val.isUndefDeep(zcu)) return dg.renderUndefValue(w, ty, location);
+        if (val.isUndef(zcu)) return dg.renderUndefValue(w, ty, location);
         const ctype = try dg.ctypeFromType(ty, location.toCTypeKind());
         switch (ip.indexToKey(val.toIntern())) {
             // types, not values
@@ -1316,12 +1316,12 @@ pub const DeclGen = struct {
                         try w.writeByte('{');
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
-                            if (index != 0) try w.writeByte(',');
+                            if (index > 0) try w.writeByte(',');
                             const elem_val = try val.elemValue(pt, index);
                             try dg.renderValue(w, elem_val, initializer_type);
                         }
                         if (ai.sentinel) |s| {
-                            if (index != 0) try w.writeByte(',');
+                            if (index > 0) try w.writeByte(',');
                             try dg.renderValue(w, s, initializer_type);
                         }
                         try w.writeByte('}');
@@ -1854,12 +1854,14 @@ pub const DeclGen = struct {
                 .array_type, .vector_type => {
                     const ai = ty.arrayInfo(zcu);
                     if (ai.elem_type.eql(.u8, zcu)) {
-                        const c_len = ty.arrayLenIncludingSentinel(zcu);
-                        var literal: StringLiteral = .init(w, @intCast(c_len));
+                        var literal: StringLiteral = .init(w, @intCast(ty.arrayLenIncludingSentinel(zcu)));
                         try literal.start();
                         var index: u64 = 0;
-                        while (index < c_len) : (index += 1)
-                            try literal.writeChar(0xaa);
+                        while (index < ai.len) : (index += 1) try literal.writeChar(0xaa);
+                        if (ai.sentinel) |s| {
+                            const s_u8: u8 = @intCast(s.toUnsignedInt(zcu));
+                            if (s_u8 != 0) try literal.writeChar(s_u8);
+                        }
                         return literal.end();
                     } else {
                         if (!location.isInitializer()) {
@@ -1869,11 +1871,14 @@ pub const DeclGen = struct {
                         }
 
                         try w.writeByte('{');
-                        const c_len = ty.arrayLenIncludingSentinel(zcu);
                         var index: u64 = 0;
-                        while (index < c_len) : (index += 1) {
+                        while (index < ai.len) : (index += 1) {
                             if (index > 0) try w.writeAll(", ");
                             try dg.renderUndefValue(w, ty.childType(zcu), initializer_type);
+                        }
+                        if (ai.sentinel) |s| {
+                            if (index > 0) try w.writeAll(", ");
+                            try dg.renderValue(w, s, location);
                         }
                         return w.writeByte('}');
                     }
@@ -1914,7 +1919,7 @@ pub const DeclGen = struct {
         kind: CType.Kind,
         name: union(enum) {
             nav: InternPool.Nav.Index,
-            fmt_ctype_pool_string: std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString),
+            fmt_ctype_pool_string: std.fmt.Alt(CTypePoolStringFormatData, formatCTypePoolString),
             @"export": struct {
                 main_name: InternPool.NullTerminatedString,
                 extern_name: InternPool.NullTerminatedString,
@@ -2217,6 +2222,7 @@ pub const DeclGen = struct {
         });
         try dg.writeName(w, name);
         try renderTypeSuffix(dg.pass, &dg.ctype_pool, zcu, w, ctype, .suffix, .{});
+        if (ctype.isNonString(&dg.ctype_pool)) try w.writeAll(" zig_nonstring");
     }
 
     fn writeName(dg: *DeclGen, w: *Writer, c_value: CValue) !void {
@@ -2433,7 +2439,7 @@ pub const DeclGen = struct {
         loc: ValueRenderLocation,
         base: u8,
         case: std.fmt.Case,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         const zcu = dg.pt.zcu;
         const kind = loc.toCTypeKind();
         const ty = val.typeOf(zcu);
@@ -2455,7 +2461,7 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         val: Value,
         loc: ValueRenderLocation,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return fmtIntLiteral(dg, val, loc, 10, .lower);
     }
 
@@ -2463,7 +2469,7 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         val: Value,
         loc: ValueRenderLocation,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return fmtIntLiteral(dg, val, loc, 16, .lower);
     }
 };
@@ -2713,6 +2719,7 @@ fn renderFields(
         );
         try w.print("{f}{f}", .{ trailing, fmtCTypePoolString(field_info.name, ctype_pool, true) });
         try renderTypeSuffix(.flush, ctype_pool, zcu, w, field_info.ctype, .suffix, .{});
+        if (field_info.ctype.isNonString(ctype_pool)) try w.writeAll(" zig_nonstring");
         try w.writeAll(";\n");
     }
     try w.splatByteAll(' ', indent);
@@ -4209,7 +4216,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.typeOf(bin_op.rhs);
 
-    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |v| v.isUndefDeep(zcu) else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |v| v.isUndef(zcu) else false;
 
     const w = &f.object.code.writer;
     if (val_is_undef) {
@@ -4935,7 +4942,7 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const tag = f.air.instructions.items(.tag)[@intFromEnum(inst)];
     const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-    const operand_is_undef = if (try f.air.value(pl_op.operand, pt)) |v| v.isUndefDeep(zcu) else false;
+    const operand_is_undef = if (try f.air.value(pl_op.operand, pt)) |v| v.isUndef(zcu) else false;
     if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
 
     try reap(f, inst, &.{pl_op.operand});
@@ -5763,6 +5770,20 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 .bool_true => {
                     const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
                     assert(name.len != 0);
+
+                    const target = &f.object.dg.mod.resolved_target.result;
+                    if (target.cpu.arch.isMIPS() and name[0] == 'r') {
+                        // GCC uses "$N" for register names instead of "rN" used by Zig.
+                        var c_name_buf: [4]u8 = undefined;
+                        const c_name = (&c_name_buf)[0..name.len];
+                        @memcpy(c_name, name);
+                        c_name_buf[0] = '$';
+
+                        try w.print(" {f}", .{fmtStringLiteral(c_name, null)});
+                        (try w.writableArray(1))[0] = ',';
+                        continue;
+                    }
+
                     try w.print(" {f}", .{fmtStringLiteral(name, null)});
                     (try w.writableArray(1))[0] = ',';
                 },
@@ -7110,7 +7131,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const value = try f.resolveInst(bin_op.rhs);
     const elem_ty = f.typeOf(bin_op.rhs);
     const elem_abi_size = elem_ty.abiSize(zcu);
-    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(zcu) else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |val| val.isUndef(zcu) else false;
     const w = &f.object.code.writer;
 
     if (val_is_undef) {
@@ -8056,6 +8077,10 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .arm_aapcs => "pcs(\"aapcs\")",
         .arm_aapcs_vfp => "pcs(\"aapcs-vfp\")",
 
+        .arc_interrupt => |opts| switch (opts.type) {
+            inline else => |t| "interrupt(\"" ++ @tagName(t) ++ "\")",
+        },
+
         .arm_interrupt => |opts| switch (opts.type) {
             .generic => "interrupt",
             .irq => "interrupt(\"IRQ\")",
@@ -8280,7 +8305,7 @@ const FormatStringContext = struct {
     sentinel: ?u8,
 };
 
-fn formatStringLiteral(data: FormatStringContext, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatStringLiteral(data: FormatStringContext, w: *Writer) Writer.Error!void {
     var literal: StringLiteral = .init(w, data.str.len + @intFromBool(data.sentinel != null));
     try literal.start();
     for (data.str) |c| try literal.writeChar(c);
@@ -8288,7 +8313,7 @@ fn formatStringLiteral(data: FormatStringContext, w: *std.io.Writer) std.io.Writ
     try literal.end();
 }
 
-fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(FormatStringContext, formatStringLiteral) {
+fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Alt(FormatStringContext, formatStringLiteral) {
     return .{ .data = .{ .str = str, .sentinel = sentinel } };
 }
 
@@ -8307,7 +8332,7 @@ const FormatIntLiteralContext = struct {
     base: u8,
     case: std.fmt.Case,
 };
-fn formatIntLiteral(data: FormatIntLiteralContext, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIntLiteral(data: FormatIntLiteralContext, w: *Writer) Writer.Error!void {
     const pt = data.dg.pt;
     const zcu = pt.zcu;
     const target = &data.dg.mod.resolved_target.result;
@@ -8331,7 +8356,7 @@ fn formatIntLiteral(data: FormatIntLiteralContext, w: *std.io.Writer) std.io.Wri
     defer allocator.free(undef_limbs);
 
     var int_buf: Value.BigIntSpace = undefined;
-    const int = if (data.val.isUndefDeep(zcu)) blk: {
+    const int = if (data.val.isUndef(zcu)) blk: {
         undef_limbs = allocator.alloc(BigIntLimb, BigInt.calcTwosCompLimbCount(data.int_info.bits)) catch return error.WriteFailed;
         @memset(undef_limbs, undefPattern(BigIntLimb));
 

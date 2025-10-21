@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___UTILITY_SCOPE_GUARD_H
 #define _LIBCPP___UTILITY_SCOPE_GUARD_H
 
-#include <__assert>
 #include <__config>
 #include <__utility/move.h>
 

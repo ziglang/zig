@@ -941,10 +941,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                                             .lhs = Air.internedToRef(try pt.intern(.{ .ptr = .{
                                                 .ty = (try pt.manyConstPtrType(mask_elem_ty)).toIntern(),
                                                 .base_addr = .{ .uav = .{
-                                                    .val = try pt.intern(.{ .aggregate = .{
-                                                        .ty = mask_ty.toIntern(),
-                                                        .storage = .{ .elems = mask_elems },
-                                                    } }),
+                                                    .val = (try pt.aggregateValue(mask_ty, mask_elems)).toIntern(),
                                                     .orig_ty = (try pt.singleConstPtrType(mask_ty)).toIntern(),
                                                 } },
                                                 .byte_offset = 0,
@@ -1023,10 +1020,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                                                                     break :operand_b Air.internedToRef(try pt.intern(.{ .ptr = .{
                                                                         .ty = (try pt.manyConstPtrType(elem_ty)).toIntern(),
                                                                         .base_addr = .{ .uav = .{
-                                                                            .val = try pt.intern(.{ .aggregate = .{
-                                                                                .ty = ct_elems_ty.toIntern(),
-                                                                                .storage = .{ .elems = ct_elems.keys() },
-                                                                            } }),
+                                                                            .val = (try pt.aggregateValue(ct_elems_ty, ct_elems.keys())).toIntern(),
                                                                             .orig_ty = (try pt.singleConstPtrType(ct_elems_ty)).toIntern(),
                                                                         } },
                                                                         .byte_offset = 0,
@@ -2550,10 +2544,7 @@ fn floatFromBigIntVal(
         else => unreachable,
     };
     if (is_vector) {
-        return .fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_ty.toIntern(),
-            .storage = .{ .repeated_elem = scalar_val.toIntern() },
-        } }));
+        return pt.aggregateSplatValue(float_ty, scalar_val);
     } else {
         return scalar_val;
     }
@@ -2691,12 +2682,10 @@ const Block = struct {
             },
             .@"packed" => switch (agg_ty.zigTypeTag(zcu)) {
                 else => unreachable,
-                .@"struct" => switch (agg_ty.packedStructFieldPtrInfo(agg_ptr_ty, @intCast(field_index), pt)) {
-                    .bit_ptr => |packed_offset| {
-                        field_ptr_info.packed_offset = packed_offset;
-                        break :field_ptr_align agg_ptr_align;
-                    },
-                    .byte_ptr => |ptr_info| ptr_info.alignment,
+                .@"struct" => {
+                    const packed_offset = agg_ty.packedStructFieldPtrInfo(agg_ptr_ty, @intCast(field_index), pt);
+                    field_ptr_info.packed_offset = packed_offset;
+                    break :field_ptr_align agg_ptr_align;
                 },
                 .@"union" => {
                     field_ptr_info.packed_offset = .{

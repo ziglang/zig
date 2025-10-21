@@ -10,12 +10,12 @@ resolved_target: ?std.Build.ResolvedTarget = null,
 optimize: ?std.builtin.OptimizeMode = null,
 dwarf_format: ?std.dwarf.Format,
 
-c_macros: std.ArrayListUnmanaged([]const u8),
-include_dirs: std.ArrayListUnmanaged(IncludeDir),
-lib_paths: std.ArrayListUnmanaged(LazyPath),
-rpaths: std.ArrayListUnmanaged(RPath),
+c_macros: ArrayList([]const u8),
+include_dirs: ArrayList(IncludeDir),
+lib_paths: ArrayList(LazyPath),
+rpaths: ArrayList(RPath),
 frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
-link_objects: std.ArrayListUnmanaged(LinkObject),
+link_objects: ArrayList(LinkObject),
 
 strip: ?bool,
 unwind_tables: ?std.builtin.UnwindTables,
@@ -170,7 +170,7 @@ pub const IncludeDir = union(enum) {
     pub fn appendZigProcessFlags(
         include_dir: IncludeDir,
         b: *std.Build,
-        zig_args: *std.ArrayList([]const u8),
+        zig_args: *std.array_list.Managed([]const u8),
         asking_step: ?*Step,
     ) !void {
         const flag: []const u8, const lazy_path: LazyPath = switch (include_dir) {
@@ -537,7 +537,7 @@ pub fn addCMacro(m: *Module, name: []const u8, value: []const u8) void {
 
 pub fn appendZigProcessFlags(
     m: *Module,
-    zig_args: *std.ArrayList([]const u8),
+    zig_args: *std.array_list.Managed([]const u8),
     asking_step: ?*Step,
 ) !void {
     const b = m.owner;
@@ -634,7 +634,7 @@ pub fn appendZigProcessFlags(
 }
 
 fn addFlag(
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
     opt: ?bool,
     then_name: []const u8,
     else_name: []const u8,
@@ -706,3 +706,4 @@ const std = @import("std");
 const assert = std.debug.assert;
 const LazyPath = std.Build.LazyPath;
 const Step = std.Build.Step;
+const ArrayList = std.ArrayList;

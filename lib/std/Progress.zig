@@ -9,7 +9,7 @@ const Progress = @This();
 const posix = std.posix;
 const is_big_endian = builtin.cpu.arch.endian() == .big;
 const is_windows = builtin.os.tag == .windows;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 /// `null` if the current node (and its children) should
 /// not print on update()
@@ -1006,7 +1006,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
                         continue;
                     }
                     const src = pipe_buf[m.remaining_read_trash_bytes..n];
-                    std.mem.copyForwards(u8, &pipe_buf, src);
+                    @memmove(pipe_buf[0..src.len], src);
                     m.remaining_read_trash_bytes = 0;
                     bytes_read = src.len;
                     continue;
@@ -1248,7 +1248,9 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
                         i += progress_pulsing.len;
                     } else {
                         const percent = completed_items * 100 / estimated_total;
-                        i += (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent}) catch &.{}).len;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
                     }
                 },
                 .success => {
@@ -1265,7 +1267,9 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
                         i += progress_pulsing_error.len;
                     } else {
                         const percent = completed_items * 100 / estimated_total;
-                        i += (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent}) catch &.{}).len;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
                     }
                 },
             }
@@ -1364,12 +1368,18 @@ fn computeNode(
     if (!is_empty_root) {
         if (name.len != 0 or estimated_total > 0) {
             if (estimated_total > 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total }) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total })) |b| {
+                    i += b.len;
+                } else |_| {}
             } else if (completed_items != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
             if (name.len != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "{s}", .{name}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "{s}", .{name})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
         }
 
@@ -1548,6 +1558,7 @@ const have_sigwinch = switch (builtin.os.tag) {
     .visionos,
     .dragonfly,
     .freebsd,
+    .serenity,
     => true,
 
     else => false,

@@ -15,7 +15,6 @@ export fn entry3() void {
 }
 
 // error
-// backend=stage2
 // target=x86_64-linux-none
 //
 // :1:28: error: calling convention 'x86_stdcall' only available on architectures 'x86'

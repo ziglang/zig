@@ -5,7 +5,5 @@ export fn a() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // 3:23: error: expected type '[3]i32', found '[3]u16'

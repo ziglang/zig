@@ -7,7 +7,6 @@ const File = @This();
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
-const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const linux = std.os.linux;
@@ -61,7 +60,7 @@ pub const OpenError = error{
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
     /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
@@ -805,42 +804,6 @@ pub fn updateTimes(
     try posix.futimens(self.handle, &times);
 }
 
-/// Deprecated in favor of `Reader`.
-pub fn readToEndAlloc(self: File, allocator: Allocator, max_bytes: usize) ![]u8 {
-    return self.readToEndAllocOptions(allocator, max_bytes, null, .of(u8), null);
-}
-
-/// Deprecated in favor of `Reader`.
-pub fn readToEndAllocOptions(
-    self: File,
-    allocator: Allocator,
-    max_bytes: usize,
-    size_hint: ?usize,
-    comptime alignment: Alignment,
-    comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
-    // If no size hint is provided fall back to the size=0 code path
-    const size = size_hint orelse 0;
-
-    // The file size returned by stat is used as hint to set the buffer
-    // size. If the reported size is zero, as it happens on Linux for files
-    // in /proc, a small buffer is allocated instead.
-    const initial_cap = @min((if (size > 0) size else 1024), max_bytes) + @intFromBool(optional_sentinel != null);
-    var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
-    defer array_list.deinit();
-
-    self.deprecatedReader().readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
-        error.StreamTooLong => return error.FileTooBig,
-        else => |e| return e,
-    };
-
-    if (optional_sentinel) |sentinel| {
-        return try array_list.toOwnedSliceSentinel(sentinel);
-    } else {
-        return try array_list.toOwnedSlice();
-    }
-}
-
 pub const ReadError = posix.ReadError;
 pub const PReadError = posix.PReadError;
 
@@ -1089,38 +1052,6 @@ pub fn copyRangeAll(in: File, in_offset: u64, out: File, out_offset: u64, len: u
     return total_bytes_copied;
 }
 
-/// Deprecated in favor of `Reader`.
-pub const DeprecatedReader = io.GenericReader(File, ReadError, read);
-
-/// Deprecated in favor of `Reader`.
-pub fn deprecatedReader(file: File) DeprecatedReader {
-    return .{ .context = file };
-}
-
-/// Deprecated in favor of `Writer`.
-pub const DeprecatedWriter = io.GenericWriter(File, WriteError, write);
-
-/// Deprecated in favor of `Writer`.
-pub fn deprecatedWriter(file: File) DeprecatedWriter {
-    return .{ .context = file };
-}
-
-/// Deprecated in favor of `Reader` and `Writer`.
-pub const SeekableStream = io.SeekableStream(
-    File,
-    SeekError,
-    GetSeekPosError,
-    seekTo,
-    seekBy,
-    getPos,
-    getEndPos,
-);
-
-/// Deprecated in favor of `Reader` and `Writer`.
-pub fn seekableStream(file: File) SeekableStream {
-    return .{ .context = file };
-}
-
 /// Memoizes key information about a file handle such as:
 /// * The size from calling stat, or the error that occurred therein.
 /// * The current seek position.
@@ -1129,7 +1060,7 @@ pub fn seekableStream(file: File) SeekableStream {
 /// * Whether reading should be done via fd-to-fd syscalls (e.g. `sendfile`)
 ///   versus plain variants (e.g. `read`).
 ///
-/// Fulfills the `std.io.Reader` interface.
+/// Fulfills the `std.Io.Reader` interface.
 pub const Reader = struct {
     file: File,
     err: ?ReadError = null,
@@ -1138,9 +1069,14 @@ pub const Reader = struct {
     /// position, use `logicalPos`.
     pos: u64 = 0,
     size: ?u64 = null,
-    size_err: ?GetEndPosError = null,
+    size_err: ?SizeError = null,
     seek_err: ?Reader.SeekError = null,
-    interface: std.io.Reader,
+    interface: std.Io.Reader,
+
+    pub const SizeError = std.os.windows.GetFileSizeError || StatError || error{
+        /// Occurs if, for example, the file handle is a network socket and therefore does not have a size.
+        Streaming,
+    };
 
     pub const SeekError = File.SeekError || error{
         /// Seeking fell back to reading, and reached the end before the requested seek position.
@@ -1177,11 +1113,12 @@ pub const Reader = struct {
         }
     };
 
-    pub fn initInterface(buffer: []u8) std.io.Reader {
+    pub fn initInterface(buffer: []u8) std.Io.Reader {
         return .{
             .vtable = &.{
                 .stream = Reader.stream,
                 .discard = Reader.discard,
+                .readVec = Reader.readVec,
             },
             .buffer = buffer,
             .seek = 0,
@@ -1204,20 +1141,44 @@ pub const Reader = struct {
         };
     }
 
-    pub fn initMode(file: File, buffer: []u8, init_mode: Reader.Mode) Reader {
+    /// Positional is more threadsafe, since the global seek position is not
+    /// affected, but when such syscalls are not available, preemptively
+    /// initializing in streaming mode skips a failed syscall.
+    pub fn initStreaming(file: File, buffer: []u8) Reader {
         return .{
             .file = file,
-            .interface = initInterface(buffer),
-            .mode = init_mode,
+            .interface = Reader.initInterface(buffer),
+            .mode = .streaming,
+            .seek_err = error.Unseekable,
+            .size_err = error.Streaming,
         };
     }
 
-    pub fn getSize(r: *Reader) GetEndPosError!u64 {
+    pub fn getSize(r: *Reader) SizeError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
-            if (r.file.getEndPos()) |size| {
-                r.size = size;
-                return size;
+            if (is_windows) {
+                if (windows.GetFileSizeEx(r.file.handle)) |size| {
+                    r.size = size;
+                    return size;
+                } else |err| {
+                    r.size_err = err;
+                    return err;
+                }
+            }
+            if (posix.Stat == void) {
+                r.size_err = error.Streaming;
+                return error.Streaming;
+            }
+            if (stat(r.file)) |st| {
+                if (st.kind == .file) {
+                    r.size = st.size;
+                    return st.size;
+                } else {
+                    r.mode = r.mode.toStreaming();
+                    r.size_err = error.Streaming;
+                    return error.Streaming;
+                }
             } else |err| {
                 r.size_err = err;
                 return err;
@@ -1228,12 +1189,16 @@ pub const Reader = struct {
     pub fn seekBy(r: *Reader, offset: i64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
             },
             .streaming, .streaming_reading => {
+                if (posix.SEEK == void) {
+                    r.seek_err = error.Unseekable;
+                    return error.Unseekable;
+                }
                 const seek_err = r.seek_err orelse e: {
                     if (posix.lseek_CUR(r.file.handle, offset)) |_| {
-                        setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                        setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
                         return;
                     } else |err| {
                         r.seek_err = err;
@@ -1242,12 +1207,10 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(&r.interface, .limited64(remaining)) catch |err| {
+                    remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
-                    r.pos += n;
-                    remaining -= n;
                 }
                 r.interface.seek = 0;
                 r.interface.end = 0;
@@ -1259,16 +1222,17 @@ pub const Reader = struct {
     pub fn seekTo(r: *Reader, offset: u64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, offset);
+                setLogicalPos(r, offset);
             },
             .streaming, .streaming_reading => {
-                if (offset >= r.pos) return Reader.seekBy(r, @intCast(offset - r.pos));
+                const logical_pos = logicalPos(r);
+                if (offset >= logical_pos) return Reader.seekBy(r, @intCast(offset - logical_pos));
                 if (r.seek_err) |err| return err;
                 posix.lseek_SET(r.file.handle, offset) catch |err| {
                     r.seek_err = err;
                     return err;
                 };
-                setPosAdjustingBuffer(r, offset);
+                setLogicalPos(r, offset);
             },
             .failure => return r.seek_err.?,
         }
@@ -1278,7 +1242,7 @@ pub const Reader = struct {
         return r.pos - r.interface.bufferedLen();
     }
 
-    fn setPosAdjustingBuffer(r: *Reader, offset: u64) void {
+    fn setLogicalPos(r: *Reader, offset: u64) void {
         const logical_pos = logicalPos(r);
         if (offset < logical_pos or offset >= r.pos) {
             r.interface.seek = 0;
@@ -1294,7 +1258,7 @@ pub const Reader = struct {
     /// vectors through the underlying read calls as possible.
     const max_buffers_len = 16;
 
-    fn stream(io_reader: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+    fn stream(io_reader: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         switch (r.mode) {
             .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
@@ -1305,82 +1269,128 @@ pub const Reader = struct {
                 else => |e| return e,
             },
             .positional_reading => {
-                if (is_windows) {
-                    // Unfortunately, `ReadFileScatter` cannot be used since it
-                    // requires page alignment.
-                    const dest = limit.slice(try w.writableSliceGreedy(1));
-                    const n = try readPositional(r, dest);
-                    w.advance(n);
-                    return n;
-                }
-                var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-                const dest = try w.writableVectorPosix(&iovecs_buffer, limit);
-                assert(dest[0].len > 0);
-                const n = posix.preadv(r.file.handle, dest, r.pos) catch |err| switch (err) {
-                    error.Unseekable => {
-                        r.mode = r.mode.toStreaming();
-                        const pos = r.pos;
-                        if (pos != 0) {
-                            r.pos = 0;
-                            r.seekBy(@intCast(pos)) catch {
-                                r.mode = .failure;
-                                return error.ReadFailed;
-                            };
-                        }
-                        return 0;
-                    },
-                    else => |e| {
-                        r.err = e;
-                        return error.ReadFailed;
-                    },
-                };
-                if (n == 0) {
-                    r.size = r.pos;
-                    return error.EndOfStream;
-                }
-                r.pos += n;
-                return w.advanceVector(n);
+                const dest = limit.slice(try w.writableSliceGreedy(1));
+                var data: [1][]u8 = .{dest};
+                const n = try readVecPositional(r, &data);
+                w.advance(n);
+                return n;
             },
             .streaming_reading => {
-                if (is_windows) {
-                    // Unfortunately, `ReadFileScatter` cannot be used since it
-                    // requires page alignment.
-                    const dest = limit.slice(try w.writableSliceGreedy(1));
-                    const n = try readStreaming(r, dest);
-                    w.advance(n);
-                    return n;
-                }
-                var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-                const dest = try w.writableVectorPosix(&iovecs_buffer, limit);
-                assert(dest[0].len > 0);
-                const n = posix.readv(r.file.handle, dest) catch |err| {
-                    r.err = err;
-                    return error.ReadFailed;
-                };
-                if (n == 0) {
-                    r.size = r.pos;
-                    return error.EndOfStream;
-                }
-                r.pos += n;
-                return w.advanceVector(n);
+                const dest = limit.slice(try w.writableSliceGreedy(1));
+                var data: [1][]u8 = .{dest};
+                const n = try readVecStreaming(r, &data);
+                w.advance(n);
+                return n;
             },
             .failure => return error.ReadFailed,
         }
     }
 
-    fn discard(io_reader: *std.io.Reader, limit: std.io.Limit) std.io.Reader.Error!usize {
+    fn readVec(io_reader: *std.Io.Reader, data: [][]u8) std.Io.Reader.Error!usize {
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
+        switch (r.mode) {
+            .positional, .positional_reading => return readVecPositional(r, data),
+            .streaming, .streaming_reading => return readVecStreaming(r, data),
+            .failure => return error.ReadFailed,
+        }
+    }
+
+    fn readVecPositional(r: *Reader, data: [][]u8) std.Io.Reader.Error!usize {
+        const io_reader = &r.interface;
+        if (is_windows) {
+            // Unfortunately, `ReadFileScatter` cannot be used since it
+            // requires page alignment.
+            if (io_reader.seek == io_reader.end) {
+                io_reader.seek = 0;
+                io_reader.end = 0;
+            }
+            const first = data[0];
+            if (first.len >= io_reader.buffer.len - io_reader.end) {
+                return readPositional(r, first);
+            } else {
+                io_reader.end += try readPositional(r, io_reader.buffer[io_reader.end..]);
+                return 0;
+            }
+        }
+        var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
+        const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
+        const dest = iovecs_buffer[0..dest_n];
+        assert(dest[0].len > 0);
+        const n = posix.preadv(r.file.handle, dest, r.pos) catch |err| switch (err) {
+            error.Unseekable => {
+                r.mode = r.mode.toStreaming();
+                const pos = r.pos;
+                if (pos != 0) {
+                    r.pos = 0;
+                    r.seekBy(@intCast(pos)) catch {
+                        r.mode = .failure;
+                        return error.ReadFailed;
+                    };
+                }
+                return 0;
+            },
+            else => |e| {
+                r.err = e;
+                return error.ReadFailed;
+            },
+        };
+        if (n == 0) {
+            r.size = r.pos;
+            return error.EndOfStream;
+        }
+        r.pos += n;
+        if (n > data_size) {
+            io_reader.end += n - data_size;
+            return data_size;
+        }
+        return n;
+    }
+
+    fn readVecStreaming(r: *Reader, data: [][]u8) std.Io.Reader.Error!usize {
+        const io_reader = &r.interface;
+        if (is_windows) {
+            // Unfortunately, `ReadFileScatter` cannot be used since it
+            // requires page alignment.
+            if (io_reader.seek == io_reader.end) {
+                io_reader.seek = 0;
+                io_reader.end = 0;
+            }
+            const first = data[0];
+            if (first.len >= io_reader.buffer.len - io_reader.end) {
+                return readStreaming(r, first);
+            } else {
+                io_reader.end += try readStreaming(r, io_reader.buffer[io_reader.end..]);
+                return 0;
+            }
+        }
+        var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
+        const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
+        const dest = iovecs_buffer[0..dest_n];
+        assert(dest[0].len > 0);
+        const n = posix.readv(r.file.handle, dest) catch |err| {
+            r.err = err;
+            return error.ReadFailed;
+        };
+        if (n == 0) {
+            r.size = r.pos;
+            return error.EndOfStream;
+        }
+        r.pos += n;
+        if (n > data_size) {
+            io_reader.end += n - data_size;
+            return data_size;
+        }
+        return n;
+    }
+
+    fn discard(io_reader: *std.Io.Reader, limit: std.Io.Limit) std.Io.Reader.Error!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         const file = r.file;
         const pos = r.pos;
         switch (r.mode) {
             .positional, .positional_reading => {
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                        r.mode = r.mode.toStreaming();
-                    }
+                const size = r.getSize() catch {
+                    r.mode = r.mode.toStreaming();
                     return 0;
                 };
                 const delta = @min(@intFromEnum(limit), size - pos);
@@ -1395,9 +1405,8 @@ pub const Reader = struct {
                 fallback: {
                     if (r.size_err == null and r.seek_err == null) break :fallback;
                     var trash_buffer: [128]u8 = undefined;
-                    const trash = &trash_buffer;
                     if (is_windows) {
-                        const n = windows.ReadFile(file.handle, trash, null) catch |err| {
+                        const n = windows.ReadFile(file.handle, limit.slice(&trash_buffer), null) catch |err| {
                             r.err = err;
                             return error.ReadFailed;
                         };
@@ -1412,7 +1421,7 @@ pub const Reader = struct {
                     var iovecs_i: usize = 0;
                     var remaining = @intFromEnum(limit);
                     while (remaining > 0 and iovecs_i < iovecs.len) {
-                        iovecs[iovecs_i] = .{ .base = trash, .len = @min(trash.len, remaining) };
+                        iovecs[iovecs_i] = .{ .base = &trash_buffer, .len = @min(trash_buffer.len, remaining) };
                         remaining -= iovecs[iovecs_i].len;
                         iovecs_i += 1;
                     }
@@ -1427,14 +1436,7 @@ pub const Reader = struct {
                     r.pos = pos + n;
                     return n;
                 }
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                    }
-                    return 0;
-                };
+                const size = r.getSize() catch return 0;
                 const n = @min(size - pos, maxInt(i64), @intFromEnum(limit));
                 file.seekBy(n) catch |err| {
                     r.seek_err = err;
@@ -1447,7 +1449,7 @@ pub const Reader = struct {
         }
     }
 
-    pub fn readPositional(r: *Reader, dest: []u8) std.io.Reader.Error!usize {
+    fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
             error.Unseekable => {
                 r.mode = r.mode.toStreaming();
@@ -1474,7 +1476,7 @@ pub const Reader = struct {
         return n;
     }
 
-    pub fn readStreaming(r: *Reader, dest: []u8) std.io.Reader.Error!usize {
+    fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.read(dest) catch |err| {
             r.err = err;
             return error.ReadFailed;
@@ -1485,14 +1487,6 @@ pub const Reader = struct {
         }
         r.pos += n;
         return n;
-    }
-
-    pub fn read(r: *Reader, dest: []u8) std.io.Reader.Error!usize {
-        switch (r.mode) {
-            .positional, .positional_reading => return readPositional(r, dest),
-            .streaming, .streaming_reading => return readStreaming(r, dest),
-            .failure => return error.ReadFailed,
-        }
     }
 
     pub fn atEnd(r: *Reader) bool {
@@ -1512,8 +1506,8 @@ pub const Writer = struct {
     sendfile_err: ?SendfileError = null,
     copy_file_range_err: ?CopyFileRangeError = null,
     fcopyfile_err: ?FcopyfileError = null,
-    seek_err: ?SeekError = null,
-    interface: std.io.Writer,
+    seek_err: ?Writer.SeekError = null,
+    interface: std.Io.Writer,
 
     pub const Mode = Reader.Mode;
 
@@ -1534,29 +1528,38 @@ pub const Writer = struct {
         Unexpected,
     };
 
+    pub const SeekError = File.SeekError;
+
     /// Number of slices to store on the stack, when trying to send as many byte
     /// vectors through the underlying write calls as possible.
     const max_buffers_len = 16;
 
     pub fn init(file: File, buffer: []u8) Writer {
-        return initMode(file, buffer, .positional);
-    }
-
-    pub fn initMode(file: File, buffer: []u8, init_mode: Writer.Mode) Writer {
         return .{
             .file = file,
             .interface = initInterface(buffer),
-            .mode = init_mode,
+            .mode = .positional,
         };
     }
 
-    pub fn initInterface(buffer: []u8) std.io.Writer {
+    /// Positional is more threadsafe, since the global seek position is not
+    /// affected, but when such syscalls are not available, preemptively
+    /// initializing in streaming mode will skip a failed syscall.
+    pub fn initStreaming(file: File, buffer: []u8) Writer {
+        return .{
+            .file = file,
+            .interface = initInterface(buffer),
+            .mode = .streaming,
+        };
+    }
+
+    pub fn initInterface(buffer: []u8) std.Io.Writer {
         return .{
             .vtable = &.{
                 .drain = drain,
                 .sendFile = switch (builtin.zig_backend) {
                     else => sendFile,
-                    .stage2_aarch64 => std.io.Writer.unimplementedSendFile,
+                    .stage2_aarch64 => std.Io.Writer.unimplementedSendFile,
                 },
             },
             .buffer = buffer,
@@ -1574,7 +1577,7 @@ pub const Writer = struct {
         };
     }
 
-    pub fn drain(io_w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+    pub fn drain(io_w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
         const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const handle = w.file.handle;
         const buffered = io_w.buffered();
@@ -1724,13 +1727,13 @@ pub const Writer = struct {
     }
 
     pub fn sendFile(
-        io_w: *std.io.Writer,
+        io_w: *std.Io.Writer,
         file_reader: *Reader,
-        limit: std.io.Limit,
-    ) std.io.Writer.FileError!usize {
+        limit: std.Io.Limit,
+    ) std.Io.Writer.FileError!usize {
         const reader_buffered = file_reader.interface.buffered();
         if (reader_buffered.len >= @intFromEnum(limit))
-            return sendFileBuffered(io_w, file_reader, reader_buffered);
+            return sendFileBuffered(io_w, file_reader, limit.slice(reader_buffered));
         const writer_buffered = io_w.buffered();
         const file_limit = @intFromEnum(limit) - reader_buffered.len;
         const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
@@ -1792,12 +1795,17 @@ pub const Writer = struct {
                 .NOBUFS => w.sendfile_err = error.SystemResources,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
+            }
             if (sbytes == 0) {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
             }
             const consumed = io_w.consume(@intCast(sbytes));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            file_reader.seekBy(@intCast(consumed)) catch return error.ReadFailed;
             return consumed;
         }
 
@@ -1848,12 +1856,17 @@ pub const Writer = struct {
                 .PIPE => w.sendfile_err = error.BrokenPipe,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
+            }
             if (len == 0) {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
             }
             const consumed = io_w.consume(@bitCast(len));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            file_reader.seekBy(@intCast(consumed)) catch return error.ReadFailed;
             return consumed;
         }
 
@@ -1867,15 +1880,7 @@ pub const Writer = struct {
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
                 .positional => o: {
-                    const size = file_reader.size orelse {
-                        if (file_reader.file.getEndPos()) |size| {
-                            file_reader.size = size;
-                        } else |err| {
-                            file_reader.size_err = err;
-                            file_reader.mode = .streaming;
-                        }
-                        return 0;
-                    };
+                    const size = file_reader.getSize() catch return 0;
                     off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse return error.ReadFailed;
                     break :o .{ &off, @min(@intFromEnum(limit), size - file_reader.pos, max_count) };
                 },
@@ -1912,7 +1917,7 @@ pub const Writer = struct {
 
         const copy_file_range = switch (native_os) {
             .freebsd => std.os.freebsd.copy_file_range,
-            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else {},
+            .linux => std.os.linux.wrapped.copy_file_range,
             else => {},
         };
         if (@TypeOf(copy_file_range) != void) cfr: {
@@ -1989,16 +1994,23 @@ pub const Writer = struct {
     }
 
     fn sendFileBuffered(
-        io_w: *std.io.Writer,
+        io_w: *std.Io.Writer,
         file_reader: *Reader,
         reader_buffered: []const u8,
-    ) std.io.Writer.FileError!usize {
+    ) std.Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
-        file_reader.seekTo(file_reader.pos + n) catch return error.ReadFailed;
+        file_reader.seekBy(@intCast(n)) catch return error.ReadFailed;
         return n;
     }
 
-    pub fn seekTo(w: *Writer, offset: u64) SeekError!void {
+    pub fn seekTo(w: *Writer, offset: u64) (Writer.SeekError || std.Io.Writer.Error)!void {
+        try w.interface.flush();
+        try seekToUnbuffered(w, offset);
+    }
+
+    /// Asserts that no data is currently buffered.
+    pub fn seekToUnbuffered(w: *Writer, offset: u64) Writer.SeekError!void {
+        assert(w.interface.buffered().len == 0);
         switch (w.mode) {
             .positional, .positional_reading => {
                 w.pos = offset;
@@ -2015,7 +2027,7 @@ pub const Writer = struct {
         }
     }
 
-    pub const EndError = SetEndPosError || std.io.Writer.Error;
+    pub const EndError = SetEndPosError || std.Io.Writer.Error;
 
     /// Flushes any buffered data and sets the end position of the file.
     ///
@@ -2051,15 +2063,10 @@ pub fn reader(file: File, buffer: []u8) Reader {
 }
 
 /// Positional is more threadsafe, since the global seek position is not
-/// affected, but when such syscalls are not available, preemptively choosing
-/// `Reader.Mode.streaming` will skip a failed syscall.
+/// affected, but when such syscalls are not available, preemptively
+/// initializing in streaming mode skips a failed syscall.
 pub fn readerStreaming(file: File, buffer: []u8) Reader {
-    return .{
-        .file = file,
-        .interface = Reader.initInterface(buffer),
-        .mode = .streaming,
-        .seek_err = error.Unseekable,
-    };
+    return .initStreaming(file, buffer);
 }
 
 /// Defaults to positional reading; falls back to streaming.
@@ -2071,10 +2078,10 @@ pub fn writer(file: File, buffer: []u8) Writer {
 }
 
 /// Positional is more threadsafe, since the global seek position is not
-/// affected, but when such syscalls are not available, preemptively choosing
-/// `Writer.Mode.streaming` will skip a failed syscall.
+/// affected, but when such syscalls are not available, preemptively
+/// initializing in streaming mode will skip a failed syscall.
 pub fn writerStreaming(file: File, buffer: []u8) Writer {
-    return .initMode(file, buffer, .streaming);
+    return .initStreaming(file, buffer);
 }
 
 const range_off: windows.LARGE_INTEGER = 0;

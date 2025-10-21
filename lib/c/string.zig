@@ -4,7 +4,6 @@ const common = @import("common.zig");
 
 comptime {
     @export(&strcmp, .{ .name = "strcmp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&strlen, .{ .name = "strlen", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strncmp, .{ .name = "strncmp", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strcasecmp, .{ .name = "strcasecmp", .linkage = common.linkage, .visibility = common.visibility });
     @export(&strncasecmp, .{ .name = "strncasecmp", .linkage = common.linkage, .visibility = common.visibility });
@@ -102,8 +101,4 @@ test strncmp {
     try std.testing.expect(strncmp(@ptrCast("a"), @ptrCast("c"), 1) < 0);
     try std.testing.expect(strncmp(@ptrCast("b"), @ptrCast("a"), 1) > 0);
     try std.testing.expect(strncmp(@ptrCast("\xff"), @ptrCast("\x02"), 1) > 0);
-}
-
-fn strlen(s: [*:0]const c_char) callconv(.c) usize {
-    return std.mem.len(s);
 }

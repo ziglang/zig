@@ -1,12 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
 const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const Color = std.zig.Color;
 const warn = std.log.warn;
@@ -45,7 +43,6 @@ const thread_stack_size = 60 << 20;
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
     .logFn = log,
-    .enable_segfault_handler = false,
 
     .log_level = switch (builtin.mode) {
         .Debug => .debug,
@@ -55,6 +52,7 @@ pub const std_options: std.Options = .{
 };
 
 pub const panic = crash_report.panic;
+pub const debug = crash_report.debug;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
@@ -88,6 +86,7 @@ const normal_usage =
     \\  build-lib        Create library from source or object files
     \\  build-obj        Create object from source or object files
     \\  test             Perform unit testing
+    \\  test-obj         Create object for unit testing
     \\  run              Create executable and run immediately
     \\
     \\  ast-check        Look for simple compile errors in any set of files
@@ -166,8 +165,6 @@ var debug_allocator: std.heap.DebugAllocator(.{
 }) = .init;
 
 pub fn main() anyerror!void {
-    crash_report.initialize();
-
     const gpa, const is_debug = gpa: {
         if (build_options.debug_gpa) break :gpa .{ debug_allocator.allocator(), true };
         if (native_os == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
@@ -193,6 +190,8 @@ pub fn main() anyerror!void {
 
     const args = try process.argsAlloc(arena);
 
+    if (args.len > 0) crash_report.zig_argv0 = args[0];
+
     if (tracy.enable_allocation) {
         var gpa_tracy = tracy.tracyAllocator(gpa);
         return mainArgs(gpa_tracy.allocator(), arena, args);
@@ -203,17 +202,6 @@ pub fn main() anyerror!void {
     }
 
     return mainArgs(gpa, arena, args);
-}
-
-/// Check that LLVM and Clang have been linked properly so that they are using the same
-/// libc++ and can safely share objects with pointers to static variables in libc++
-fn verifyLibcxxCorrectlyLinked() void {
-    if (build_options.have_llvm and ZigClangIsLLVMUsingSeparateLibcxx()) {
-        fatal(
-            \\Zig was built/linked incorrectly: LLVM and Clang have separate copies of libc++
-            \\       If you are dynamically linking LLVM, make sure you dynamically link libc++ too
-        , .{});
-    }
 }
 
 fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
@@ -312,7 +300,6 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "resinator",
             .root_src_path = "resinator/main.zig",
-            .windows_libs = &.{"advapi32"},
             .depend_on_aro = true,
             .prepend_zig_lib_dir_path = true,
             .server = use_server,
@@ -337,7 +324,6 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "std",
             .root_src_path = "std-docs.zig",
-            .windows_libs = &.{"ws2_32"},
             .prepend_zig_lib_dir_path = true,
             .prepend_zig_exe_path = true,
             .prepend_global_cache_path = true,
@@ -353,15 +339,16 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
         try fs.File.stdout().writeAll(build_options.version ++ "\n");
-        // Check libc++ linkage to make sure Zig was built correctly, but only
-        // for "env" and "version" to avoid affecting the startup time for
-        // build-critical commands (check takes about ~10 μs)
-        return verifyLibcxxCorrectlyLinked();
+        return;
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
-        verifyLibcxxCorrectlyLinked();
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
-        try @import("print_env.zig").cmdEnv(arena, &stdout_writer.interface);
+        try @import("print_env.zig").cmdEnv(
+            arena,
+            &stdout_writer.interface,
+            args,
+            if (native_os == .wasi) wasi_preopens,
+        );
         return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "reduce")) {
         return jitCmd(gpa, arena, cmd_args, .{
@@ -479,6 +466,7 @@ const usage_build_generic =
     \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\  -mexec-model=[value]      (WASI) Execution model
     \\  -municode                 (Windows) Use wmain/wWinMain as entry point
+    \\  --time-report             Send timing diagnostics to '--listen' clients
     \\
     \\Per-Module Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -535,8 +523,8 @@ const usage_build_generic =
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
-    \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
-    \\  -fno-error-tracing        Disable error tracing in Debug and ReleaseSafe mode
+    \\  -ferror-tracing           Enable error tracing in release builds
+    \\  -fno-error-tracing        Disable error tracing in debug builds
     \\  -fsingle-threaded         Code assumes there is only one thread
     \\  -fno-single-threaded      Code may not assume there is only one thread
     \\  -fstrip                   Omit debug symbols
@@ -664,16 +652,13 @@ const usage_build_generic =
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match any filter
-    \\  --test-name-prefix [text]      Add prefix to all tests
     \\  --test-cmd [arg]               Specify test execution command one arg at a time
     \\  --test-cmd-bin                 Appends test binary path to test cmd args
-    \\  --test-evented-io              Runs the test in evented I/O mode
     \\  --test-no-exec                 Compiles test binary without running it
     \\  --test-runner [path]           Specify a custom test runner
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -fopt-bisect-limit=[limit]   Only run [limit] first LLVM optimization passes
-    \\  -ftime-report                Print timing diagnostics
     \\  -fstack-report               Print stack size diagnostics
     \\  --verbose-link               Display linker invocations
     \\  --verbose-cc                 Display C compiler invocations
@@ -893,7 +878,6 @@ fn buildOutputType(
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
     var test_filters: std.ArrayListUnmanaged([]const u8) = .empty;
-    var test_name_prefix: ?[]const u8 = null;
     var test_runner_path: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
@@ -905,7 +889,6 @@ fn buildOutputType(
     var mingw_unicode_entry_point: bool = false;
     var enable_link_snapshots: bool = false;
     var debug_compiler_runtime_libs = false;
-    var opt_incremental: ?bool = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.File.Lld.Elf.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -1039,10 +1022,9 @@ fn buildOutputType(
 
             var file_ext: ?Compilation.FileExt = null;
             args_loop: while (args_iter.next()) |arg| {
-                if (mem.startsWith(u8, arg, "@")) {
+                if (mem.cutPrefix(u8, arg, "@")) |resp_file_path| {
                     // This is a "compiler response file". We must parse the file and treat its
                     // contents as command line parameters.
-                    const resp_file_path = arg[1..];
                     args_iter.resp_file = initArgIteratorResponseFile(arena, resp_file_path) catch |err| {
                         fatal("unable to read response file '{s}': {s}", .{ resp_file_path, @errorName(err) });
                     };
@@ -1060,9 +1042,8 @@ fn buildOutputType(
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
                     } else if (mem.eql(u8, arg, "--dep")) {
-                        var it = mem.splitScalar(u8, args_iter.nextOrFatal(), '=');
-                        const key = it.next().?;
-                        const value = it.next() orelse key;
+                        const next_arg = args_iter.nextOrFatal();
+                        const key, const value = mem.cutScalar(u8, next_arg, '=') orelse .{ next_arg, next_arg };
                         if (mem.eql(u8, key, "std") and !mem.eql(u8, value, "std")) {
                             fatal("unable to import as '{s}': conflicts with builtin module", .{
                                 key,
@@ -1079,10 +1060,8 @@ fn buildOutputType(
                             .key = key,
                             .value = value,
                         });
-                    } else if (mem.startsWith(u8, arg, "-M")) {
-                        var it = mem.splitScalar(u8, arg["-M".len..], '=');
-                        const mod_name = it.next().?;
-                        const root_src_orig = it.next();
+                    } else if (mem.cutPrefix(u8, arg, "-M")) |rest| {
+                        const mod_name, const root_src_orig = mem.cutScalar(u8, rest, '=') orelse .{ rest, null };
                         try handleModArg(
                             arena,
                             mod_name,
@@ -1113,8 +1092,8 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "-rcincludes")) {
                         rc_includes = parseRcIncludes(args_iter.nextOrFatal());
-                    } else if (mem.startsWith(u8, arg, "-rcincludes=")) {
-                        rc_includes = parseRcIncludes(arg["-rcincludes=".len..]);
+                    } else if (mem.cutPrefix(u8, arg, "-rcincludes=")) |rest| {
+                        rc_includes = parseRcIncludes(rest);
                     } else if (mem.eql(u8, arg, "-rcflags")) {
                         extra_rcflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -1124,9 +1103,9 @@ fn buildOutputType(
                             if (mem.eql(u8, next_arg, "--")) break;
                             try extra_rcflags.append(arena, next_arg);
                         }
-                    } else if (mem.startsWith(u8, arg, "-fstructured-cfg")) {
+                    } else if (mem.eql(u8, arg, "-fstructured-cfg")) {
                         mod_opts.structured_cfg = true;
-                    } else if (mem.startsWith(u8, arg, "-fno-structured-cfg")) {
+                    } else if (mem.eql(u8, arg, "-fno-structured-cfg")) {
                         mod_opts.structured_cfg = false;
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
@@ -1135,8 +1114,7 @@ fn buildOutputType(
                         color = std.meta.stringToEnum(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                         };
-                    } else if (mem.startsWith(u8, arg, "-j")) {
-                        const str = arg["-j".len..];
+                    } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
                         const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
                             fatal("unable to parse jobs count '{s}': {s}", .{
                                 str, @errorName(err),
@@ -1150,8 +1128,8 @@ fn buildOutputType(
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(args_iter.nextOrFatal());
-                    } else if (mem.startsWith(u8, arg, "-fentry=")) {
-                        entry = .{ .named = arg["-fentry=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-fentry=")) |rest| {
+                        entry = .{ .named = rest };
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
                     } else if (mem.eql(u8, arg, "--discard-all")) {
@@ -1178,8 +1156,7 @@ fn buildOutputType(
                         try create_module.frameworks.put(arena, args_iter.nextOrFatal(), .{ .needed = true });
                     } else if (mem.eql(u8, arg, "-install_name")) {
                         install_name = args_iter.nextOrFatal();
-                    } else if (mem.startsWith(u8, arg, "--compress-debug-sections=")) {
-                        const param = arg["--compress-debug-sections=".len..];
+                    } else if (mem.cutPrefix(u8, arg, "--compress-debug-sections=")) |param| {
                         linker_compress_debug_sections = std.meta.stringToEnum(link.File.Lld.Elf.CompressDebugSections, param) orelse {
                             fatal("expected --compress-debug-sections=[none|zlib|zstd], found '{s}'", .{param});
                         };
@@ -1277,8 +1254,8 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.startsWith(u8, arg, "--embed-dir=")) {
-                        try cssan.addIncludePath(arena, &cc_argv, .embed_dir, arg, arg["--embed-dir=".len..], true);
+                    } else if (mem.cutPrefix(u8, arg, "--embed-dir=")) |rest| {
+                        try cssan.addIncludePath(arena, &cc_argv, .embed_dir, arg, rest, true);
                     } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(arena, &cc_argv, .isystem, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iwithsysroot")) {
@@ -1305,14 +1282,14 @@ fn buildOutputType(
                         target_mcpu = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-mcmodel")) {
                         mod_opts.code_model = parseCodeModel(args_iter.nextOrFatal());
-                    } else if (mem.startsWith(u8, arg, "-mcmodel=")) {
-                        mod_opts.code_model = parseCodeModel(arg["-mcmodel=".len..]);
-                    } else if (mem.startsWith(u8, arg, "-ofmt=")) {
-                        create_module.object_format = arg["-ofmt=".len..];
-                    } else if (mem.startsWith(u8, arg, "-mcpu=")) {
-                        target_mcpu = arg["-mcpu=".len..];
-                    } else if (mem.startsWith(u8, arg, "-O")) {
-                        mod_opts.optimize_mode = parseOptimizeMode(arg["-O".len..]);
+                    } else if (mem.cutPrefix(u8, arg, "-mcmodel=")) |rest| {
+                        mod_opts.code_model = parseCodeModel(rest);
+                    } else if (mem.cutPrefix(u8, arg, "-ofmt=")) |rest| {
+                        create_module.object_format = rest;
+                    } else if (mem.cutPrefix(u8, arg, "-mcpu=")) |rest| {
+                        target_mcpu = rest;
+                    } else if (mem.cutPrefix(u8, arg, "-O")) |rest| {
+                        mod_opts.optimize_mode = parseOptimizeMode(rest);
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                         create_module.dynamic_linker = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--sysroot")) {
@@ -1323,8 +1300,6 @@ fn buildOutputType(
                         create_module.libc_paths_file = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-filter")) {
                         try test_filters.append(arena, args_iter.nextOrFatal());
-                    } else if (mem.eql(u8, arg, "--test-name-prefix")) {
-                        test_name_prefix = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-runner")) {
                         test_runner_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
@@ -1350,9 +1325,7 @@ fn buildOutputType(
                         } else {
                             dev.check(.network_listen);
                             // example: --listen 127.0.0.1:9000
-                            var it = std.mem.splitScalar(u8, next_arg, ':');
-                            const host = it.next().?;
-                            const port_text = it.next() orelse "14735";
+                            const host, const port_text = mem.cutScalar(u8, next_arg, ':') orelse .{ next_arg, "14735" };
                             const port = std.fmt.parseInt(u16, port_text, 10) catch |err|
                                 fatal("invalid port number: '{s}': {s}", .{ port_text, @errorName(err) });
                             listen = .{ .ip4 = std.net.Ip4Address.parse(host, port) catch |err|
@@ -1377,9 +1350,9 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "-fincremental")) {
                         dev.check(.incremental);
-                        opt_incremental = true;
+                        create_module.opts.incremental = true;
                     } else if (mem.eql(u8, arg, "-fno-incremental")) {
-                        opt_incremental = false;
+                        create_module.opts.incremental = false;
                     } else if (mem.eql(u8, arg, "--entitlements")) {
                         entitlements = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
@@ -1398,7 +1371,7 @@ fn buildOutputType(
                         try test_exec_args.append(arena, null);
                     } else if (mem.eql(u8, arg, "--test-no-exec")) {
                         test_no_exec = true;
-                    } else if (mem.eql(u8, arg, "-ftime-report")) {
+                    } else if (mem.eql(u8, arg, "--time-report")) {
                         time_report = true;
                     } else if (mem.eql(u8, arg, "-fstack-report")) {
                         stack_report = true;
@@ -1412,8 +1385,7 @@ fn buildOutputType(
                         create_module.opts.pie = false;
                     } else if (mem.eql(u8, arg, "-flto")) {
                         create_module.opts.lto = .full;
-                    } else if (mem.startsWith(u8, arg, "-flto=")) {
-                        const mode = arg["-flto=".len..];
+                    } else if (mem.cutPrefix(u8, arg, "-flto=")) |mode| {
                         if (mem.eql(u8, mode, "full")) {
                             create_module.opts.lto = .full;
                         } else if (mem.eql(u8, mode, "thin")) {
@@ -1447,8 +1419,7 @@ fn buildOutputType(
                         mod_opts.omit_frame_pointer = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
                         mod_opts.sanitize_c = .full;
-                    } else if (mem.startsWith(u8, arg, "-fsanitize-c=")) {
-                        const mode = arg["-fsanitize-c=".len..];
+                    } else if (mem.cutPrefix(u8, arg, "-fsanitize-c=")) |mode| {
                         if (mem.eql(u8, mode, "trap")) {
                             mod_opts.sanitize_c = .trap;
                         } else if (mem.eql(u8, mode, "full")) {
@@ -1482,6 +1453,10 @@ fn buildOutputType(
                         create_module.opts.use_lld = true;
                     } else if (mem.eql(u8, arg, "-fno-lld")) {
                         create_module.opts.use_lld = false;
+                    } else if (mem.eql(u8, arg, "-fnew-linker")) {
+                        create_module.opts.use_new_linker = true;
+                    } else if (mem.eql(u8, arg, "-fno-new-linker")) {
+                        create_module.opts.use_new_linker = false;
                     } else if (mem.eql(u8, arg, "-fclang")) {
                         create_module.opts.use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-clang")) {
@@ -1492,8 +1467,7 @@ fn buildOutputType(
                         create_module.opts.san_cov_trace_pc_guard = false;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         reference_trace = 256;
-                    } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
-                        const num = arg["-freference-trace=".len..];
+                    } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                         reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
                             fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
                         };
@@ -1507,51 +1481,51 @@ fn buildOutputType(
                         create_module.opts.rdynamic = true;
                     } else if (mem.eql(u8, arg, "-fsoname")) {
                         soname = .yes_default_value;
-                    } else if (mem.startsWith(u8, arg, "-fsoname=")) {
-                        soname = .{ .yes = arg["-fsoname=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-fsoname=")) |rest| {
+                        soname = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-soname")) {
                         soname = .no;
                     } else if (mem.eql(u8, arg, "-femit-bin")) {
                         emit_bin = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-bin=")) {
-                        emit_bin = .{ .yes = arg["-femit-bin=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-femit-bin=")) |rest| {
+                        emit_bin = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-bin")) {
                         emit_bin = .no;
                     } else if (mem.eql(u8, arg, "-femit-h")) {
                         emit_h = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-h=")) {
-                        emit_h = .{ .yes = arg["-femit-h=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-femit-h=")) |rest| {
+                        emit_h = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-h")) {
                         emit_h = .no;
                     } else if (mem.eql(u8, arg, "-femit-asm")) {
                         emit_asm = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-asm=")) {
-                        emit_asm = .{ .yes = arg["-femit-asm=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-femit-asm=")) |rest| {
+                        emit_asm = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-asm")) {
                         emit_asm = .no;
                     } else if (mem.eql(u8, arg, "-femit-llvm-ir")) {
                         emit_llvm_ir = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-llvm-ir=")) {
-                        emit_llvm_ir = .{ .yes = arg["-femit-llvm-ir=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-femit-llvm-ir=")) |rest| {
+                        emit_llvm_ir = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-llvm-ir")) {
                         emit_llvm_ir = .no;
                     } else if (mem.eql(u8, arg, "-femit-llvm-bc")) {
                         emit_llvm_bc = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-llvm-bc=")) {
-                        emit_llvm_bc = .{ .yes = arg["-femit-llvm-bc=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-femit-llvm-bc=")) |rest| {
+                        emit_llvm_bc = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-llvm-bc")) {
                         emit_llvm_bc = .no;
                     } else if (mem.eql(u8, arg, "-femit-docs")) {
                         emit_docs = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-docs=")) {
-                        emit_docs = .{ .yes = arg["-femit-docs=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-femit-docs=")) |rest| {
+                        emit_docs = .{ .yes = rest };
                     } else if (mem.eql(u8, arg, "-fno-emit-docs")) {
                         emit_docs = .no;
                     } else if (mem.eql(u8, arg, "-femit-implib")) {
                         emit_implib = .yes_default_path;
                         emit_implib_arg_provided = true;
-                    } else if (mem.startsWith(u8, arg, "-femit-implib=")) {
-                        emit_implib = .{ .yes = arg["-femit-implib=".len..] };
+                    } else if (mem.cutPrefix(u8, arg, "-femit-implib=")) |rest| {
+                        emit_implib = .{ .yes = rest };
                         emit_implib_arg_provided = true;
                     } else if (mem.eql(u8, arg, "-fno-emit-implib")) {
                         emit_implib = .no;
@@ -1601,8 +1575,7 @@ fn buildOutputType(
                         mod_opts.no_builtin = false;
                     } else if (mem.eql(u8, arg, "-fno-builtin")) {
                         mod_opts.no_builtin = true;
-                    } else if (mem.startsWith(u8, arg, "-fopt-bisect-limit=")) {
-                        const next_arg = arg["-fopt-bisect-limit=".len..];
+                    } else if (mem.cutPrefix(u8, arg, "-fopt-bisect-limit=")) |next_arg| {
                         llvm_opt_bisect_limit = std.fmt.parseInt(c_int, next_arg, 0) catch |err|
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
@@ -1645,10 +1618,10 @@ fn buildOutputType(
                             linker_z_relro = true;
                         } else if (mem.eql(u8, z_arg, "norelro")) {
                             linker_z_relro = false;
-                        } else if (mem.startsWith(u8, z_arg, "common-page-size=")) {
-                            linker_z_common_page_size = parseIntSuffix(z_arg, "common-page-size=".len);
-                        } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
-                            linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
+                        } else if (prefixedIntArg(z_arg, "common-page-size=")) |int| {
+                            linker_z_common_page_size = int;
+                        } else if (prefixedIntArg(z_arg, "max-page-size=")) |int| {
+                            linker_z_max_page_size = int;
                         } else {
                             fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
@@ -1669,16 +1642,16 @@ fn buildOutputType(
                         linker_import_table = true;
                     } else if (mem.eql(u8, arg, "--export-table")) {
                         linker_export_table = true;
-                    } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
-                        linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
-                    } else if (mem.startsWith(u8, arg, "--max-memory=")) {
-                        linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
+                    } else if (prefixedIntArg(arg, "--initial-memory=")) |int| {
+                        linker_initial_memory = int;
+                    } else if (prefixedIntArg(arg, "--max-memory=")) |int| {
+                        linker_max_memory = int;
                     } else if (mem.eql(u8, arg, "--shared-memory")) {
                         create_module.opts.shared_memory = true;
-                    } else if (mem.startsWith(u8, arg, "--global-base=")) {
-                        linker_global_base = parseIntSuffix(arg, "--global-base=".len);
-                    } else if (mem.startsWith(u8, arg, "--export=")) {
-                        try linker_export_symbol_names.append(arena, arg["--export=".len..]);
+                    } else if (prefixedIntArg(arg, "--global-base=")) |int| {
+                        linker_global_base = int;
+                    } else if (mem.cutPrefix(u8, arg, "--export=")) |rest| {
+                        try linker_export_symbol_names.append(arena, rest);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--gc-sections")) {
@@ -1687,8 +1660,7 @@ fn buildOutputType(
                         linker_gc_sections = false;
                     } else if (mem.eql(u8, arg, "--build-id")) {
                         build_id = .fast;
-                    } else if (mem.startsWith(u8, arg, "--build-id=")) {
-                        const style = arg["--build-id=".len..];
+                    } else if (mem.cutPrefix(u8, arg, "--build-id=")) |style| {
                         build_id = std.zig.BuildId.parse(style) catch |err| {
                             fatal("unable to parse --build-id style '{s}': {s}", .{
                                 style, @errorName(err),
@@ -1712,26 +1684,26 @@ fn buildOutputType(
                         verbose_generic_instances = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                         verbose_llvm_ir = "-";
-                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
-                        verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
-                        verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
+                    } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-ir=")) |rest| {
+                        verbose_llvm_ir = rest;
+                    } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-bc=")) |rest| {
+                        verbose_llvm_bc = rest;
                     } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                         verbose_cimport = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                         verbose_llvm_cpu_features = true;
-                    } else if (mem.startsWith(u8, arg, "-T")) {
-                        linker_script = arg[2..];
-                    } else if (mem.startsWith(u8, arg, "-L")) {
-                        try create_module.lib_dir_args.append(arena, arg[2..]);
-                    } else if (mem.startsWith(u8, arg, "-F")) {
-                        try create_module.framework_dirs.append(arena, arg[2..]);
-                    } else if (mem.startsWith(u8, arg, "-l")) {
+                    } else if (mem.cutPrefix(u8, arg, "-T")) |rest| {
+                        linker_script = rest;
+                    } else if (mem.cutPrefix(u8, arg, "-L")) |rest| {
+                        try create_module.lib_dir_args.append(arena, rest);
+                    } else if (mem.cutPrefix(u8, arg, "-F")) |rest| {
+                        try create_module.framework_dirs.append(arena, rest);
+                    } else if (mem.cutPrefix(u8, arg, "-l")) |name| {
                         // We don't know whether this library is part of libc
                         // or libc++ until we resolve the target, so we append
                         // to the list for now.
                         try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
-                            .name = arg["-l".len..],
+                            .name = name,
                             .query = .{
                                 .needed = false,
                                 .weak = false,
@@ -1740,9 +1712,9 @@ fn buildOutputType(
                                 .allow_so_scripts = allow_so_scripts,
                             },
                         } });
-                    } else if (mem.startsWith(u8, arg, "-needed-l")) {
+                    } else if (mem.cutPrefix(u8, arg, "-needed-l")) |name| {
                         try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
-                            .name = arg["-needed-l".len..],
+                            .name = name,
                             .query = .{
                                 .needed = true,
                                 .weak = false,
@@ -1751,9 +1723,9 @@ fn buildOutputType(
                                 .allow_so_scripts = allow_so_scripts,
                             },
                         } });
-                    } else if (mem.startsWith(u8, arg, "-weak-l")) {
+                    } else if (mem.cutPrefix(u8, arg, "-weak-l")) |name| {
                         try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
-                            .name = arg["-weak-l".len..],
+                            .name = name,
                             .query = .{
                                 .needed = false,
                                 .weak = true,
@@ -1764,13 +1736,10 @@ fn buildOutputType(
                         } });
                     } else if (mem.startsWith(u8, arg, "-D")) {
                         try cc_argv.append(arena, arg);
-                    } else if (mem.startsWith(u8, arg, "-I")) {
-                        try cssan.addIncludePath(arena, &cc_argv, .I, arg, arg[2..], true);
-                    } else if (mem.startsWith(u8, arg, "-x")) {
-                        const lang = if (arg.len == "-x".len)
-                            args_iter.nextOrFatal()
-                        else
-                            arg["-x".len..];
+                    } else if (mem.cutPrefix(u8, arg, "-I")) |rest| {
+                        try cssan.addIncludePath(arena, &cc_argv, .I, arg, rest, true);
+                    } else if (mem.cutPrefix(u8, arg, "-x")) |rest| {
+                        const lang = if (rest.len == 0) args_iter.nextOrFatal() else rest;
                         if (mem.eql(u8, lang, "none")) {
                             file_ext = null;
                         } else if (Compilation.LangToExt.get(lang)) |got_ext| {
@@ -1778,8 +1747,8 @@ fn buildOutputType(
                         } else {
                             fatal("language not recognized: '{s}'", .{lang});
                         }
-                    } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
-                        create_module.opts.wasi_exec_model = parseWasiExecModel(arg["-mexec-model=".len..]);
+                    } else if (mem.cutPrefix(u8, arg, "-mexec-model=")) |rest| {
+                        create_module.opts.wasi_exec_model = parseWasiExecModel(rest);
                     } else if (mem.eql(u8, arg, "-municode")) {
                         mingw_unicode_entry_point = true;
                     } else {
@@ -1873,8 +1842,8 @@ fn buildOutputType(
             var c_out_mode: ?COutMode = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
-            var preprocessor_args = std.ArrayList([]const u8).init(arena);
-            var linker_args = std.ArrayList([]const u8).init(arena);
+            var preprocessor_args = std.array_list.Managed([]const u8).init(arena);
+            var linker_args = std.array_list.Managed([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
             var emit_llvm = false;
             var needed = false;
@@ -2457,8 +2426,8 @@ fn buildOutputType(
                     linker_enable_new_dtags = false;
                 } else if (mem.eql(u8, arg, "-O")) {
                     linker_optimization = linker_args_it.nextOrFatal();
-                } else if (mem.startsWith(u8, arg, "-O")) {
-                    linker_optimization = arg["-O".len..];
+                } else if (mem.cutPrefix(u8, arg, "-O")) |rest| {
+                    linker_optimization = rest;
                 } else if (mem.eql(u8, arg, "-pagezero_size")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2540,11 +2509,8 @@ fn buildOutputType(
                     linker_compress_debug_sections = std.meta.stringToEnum(link.File.Lld.Elf.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
-                } else if (mem.startsWith(u8, arg, "-z")) {
-                    var z_arg = arg[2..];
-                    if (z_arg.len == 0) {
-                        z_arg = linker_args_it.nextOrFatal();
-                    }
+                } else if (mem.cutPrefix(u8, arg, "-z")) |z_rest| {
+                    const z_arg = if (z_rest.len == 0) linker_args_it.nextOrFatal() else z_rest;
                     if (mem.eql(u8, z_arg, "nodelete")) {
                         linker_z_nodelete = true;
                     } else if (mem.eql(u8, z_arg, "notext")) {
@@ -2567,12 +2533,12 @@ fn buildOutputType(
                         linker_z_relro = true;
                     } else if (mem.eql(u8, z_arg, "norelro")) {
                         linker_z_relro = false;
-                    } else if (mem.startsWith(u8, z_arg, "stack-size=")) {
-                        stack_size = parseStackSize(z_arg["stack-size=".len..]);
-                    } else if (mem.startsWith(u8, z_arg, "common-page-size=")) {
-                        linker_z_common_page_size = parseIntSuffix(z_arg, "common-page-size=".len);
-                    } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
-                        linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
+                    } else if (mem.cutPrefix(u8, z_arg, "stack-size=")) |rest| {
+                        stack_size = parseStackSize(rest);
+                    } else if (prefixedIntArg(z_arg, "common-page-size=")) |int| {
+                        linker_z_common_page_size = int;
+                    } else if (prefixedIntArg(z_arg, "max-page-size=")) |int| {
+                        linker_z_max_page_size = int;
                     } else {
                         fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
@@ -2686,9 +2652,9 @@ fn buildOutputType(
                             .allow_so_scripts = allow_so_scripts,
                         },
                     } });
-                } else if (mem.startsWith(u8, arg, "-weak-l")) {
+                } else if (mem.cutPrefix(u8, arg, "-weak-l")) |rest| {
                     try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
-                        .name = arg["-weak-l".len..],
+                        .name = rest,
                         .query = .{
                             .weak = true,
                             .needed = false,
@@ -2892,6 +2858,10 @@ fn buildOutputType(
 
     if (arg_mode == .zig_test_obj and !test_no_exec and listen == .none) {
         fatal("test-obj requires --test-no-exec", .{});
+    }
+
+    if (time_report and listen == .none) {
+        fatal("--time-report requires --listen", .{});
     }
 
     if (arg_mode == .translate_c and create_module.c_source_files.items.len != 1) {
@@ -3129,16 +3099,16 @@ fn buildOutputType(
         }
     }
 
-    var resolved_frameworks = std.ArrayList(Compilation.Framework).init(arena);
+    var resolved_frameworks = std.array_list.Managed(Compilation.Framework).init(arena);
 
     if (create_module.frameworks.keys().len > 0) {
-        var test_path = std.ArrayList(u8).init(gpa);
+        var test_path = std.array_list.Managed(u8).init(gpa);
         defer test_path.deinit();
 
-        var checked_paths = std.ArrayList(u8).init(gpa);
+        var checked_paths = std.array_list.Managed(u8).init(gpa);
         defer checked_paths.deinit();
 
-        var failed_frameworks = std.ArrayList(struct {
+        var failed_frameworks = std.array_list.Managed(struct {
             name: []const u8,
             checked_paths: []const u8,
         }).init(arena);
@@ -3370,7 +3340,7 @@ fn buildOutputType(
         else => false,
     };
 
-    const incremental = opt_incremental orelse false;
+    const incremental = create_module.resolved_options.incremental;
     if (debug_incremental and !incremental) {
         fatal("--debug-incremental requires -fincremental", .{});
     }
@@ -3388,7 +3358,16 @@ fn buildOutputType(
     var file_system_inputs: std.ArrayListUnmanaged(u8) = .empty;
     defer file_system_inputs.deinit(gpa);
 
-    const comp = Compilation.create(gpa, arena, .{
+    // Deduplicate rpath entries
+    var rpath_dedup = std.StringArrayHashMapUnmanaged(void){};
+    for (create_module.rpath_list.items) |rpath| {
+        try rpath_dedup.put(arena, rpath, {});
+    }
+    create_module.rpath_list.clearRetainingCapacity();
+    try create_module.rpath_list.appendSlice(arena, rpath_dedup.keys());
+
+    var create_diag: Compilation.CreateDiagnostic = undefined;
+    const comp = Compilation.create(gpa, arena, &create_diag, .{
         .dirs = dirs,
         .thread_pool = &thread_pool,
         .self_exe_path = switch (native_os) {
@@ -3487,13 +3466,11 @@ fn buildOutputType(
         .stack_report = stack_report,
         .build_id = build_id,
         .test_filters = test_filters.items,
-        .test_name_prefix = test_name_prefix,
         .test_runner_path = test_runner_path,
         .cache_mode = cache_mode,
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
         .debug_incremental = debug_incremental,
-        .incremental = incremental,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
         .entitlements = entitlements,
@@ -3514,47 +3491,45 @@ fn buildOutputType(
         .file_system_inputs = &file_system_inputs,
         .debug_compiler_runtime_libs = debug_compiler_runtime_libs,
     }) catch |err| switch (err) {
-        error.LibCUnavailable => {
-            const triple_name = try target.zigTriple(arena);
-            std.log.err("unable to find or provide libc for target '{s}'", .{triple_name});
+        error.CreateFail => switch (create_diag) {
+            .cross_libc_unavailable => {
+                // We can emit a more informative error for this.
+                const triple_name = try target.zigTriple(arena);
+                std.log.err("unable to provide libc for target '{s}'", .{triple_name});
 
-            for (std.zig.target.available_libcs) |t| {
-                if (t.arch == target.cpu.arch and t.os == target.os.tag) {
-                    // If there's a `glibc_min`, there's also an `os_ver`.
-                    if (t.glibc_min) |glibc_min| {
-                        std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}.{d}.{d}", .{
-                            @tagName(t.arch),
-                            @tagName(t.os),
-                            t.os_ver.?,
-                            @tagName(t.abi),
-                            glibc_min.major,
-                            glibc_min.minor,
-                        });
-                    } else if (t.os_ver) |os_ver| {
-                        std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}", .{
-                            @tagName(t.arch),
-                            @tagName(t.os),
-                            os_ver,
-                            @tagName(t.abi),
-                        });
-                    } else {
-                        std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
-                            @tagName(t.arch),
-                            @tagName(t.os),
-                            @tagName(t.abi),
-                        });
+                for (std.zig.target.available_libcs) |t| {
+                    if (t.arch == target.cpu.arch and t.os == target.os.tag) {
+                        // If there's a `glibc_min`, there's also an `os_ver`.
+                        if (t.glibc_min) |glibc_min| {
+                            std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}.{d}.{d}", .{
+                                @tagName(t.arch),
+                                @tagName(t.os),
+                                t.os_ver.?,
+                                @tagName(t.abi),
+                                glibc_min.major,
+                                glibc_min.minor,
+                            });
+                        } else if (t.os_ver) |os_ver| {
+                            std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}", .{
+                                @tagName(t.arch),
+                                @tagName(t.os),
+                                os_ver,
+                                @tagName(t.abi),
+                            });
+                        } else {
+                            std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
+                                @tagName(t.arch),
+                                @tagName(t.os),
+                                @tagName(t.abi),
+                            });
+                        }
                     }
                 }
-            }
-            process.exit(1);
+                process.exit(1);
+            },
+            else => fatal("{f}", .{create_diag}),
         },
-        error.ExportTableAndImportTableConflict => {
-            fatal("--import-table and --export-table may not be used together", .{});
-        },
-        error.IllegalZigImport => {
-            fatal("this compiler implementation does not support importing the root source file of a provided module", .{});
-        },
-        else => fatal("unable to create compilation: {s}", .{@errorName(err)}),
+        else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
     };
     var comp_destroyed = false;
     defer if (!comp_destroyed) comp.destroy();
@@ -3620,7 +3595,7 @@ fn buildOutputType(
         }
 
         updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-            error.SemanticAnalyzeFail => {
+            error.CompileErrorsReported => {
                 assert(listen == .none);
                 saveState(comp, incremental);
                 process.exit(1);
@@ -3650,6 +3625,7 @@ fn buildOutputType(
             } else if (target.os.tag == .windows) {
                 try test_exec_args.appendSlice(arena, &.{
                     "--subsystem", "console",
+                    "-lkernel32",  "-lntdll",
                 });
             }
 
@@ -3767,14 +3743,13 @@ fn createModule(
                     try llvm_to_zig_name.put(llvm_name, feature.name);
                 }
 
-                var mcpu_buffer = std.ArrayList(u8).init(gpa);
+                var mcpu_buffer = std.array_list.Managed(u8).init(gpa);
                 defer mcpu_buffer.deinit();
 
                 try mcpu_buffer.appendSlice(cli_mod.target_mcpu orelse "baseline");
 
                 for (create_module.llvm_m_args.items) |llvm_m_arg| {
-                    if (mem.startsWith(u8, llvm_m_arg, "mno-")) {
-                        const llvm_name = llvm_m_arg["mno-".len..];
+                    if (mem.cutPrefix(u8, llvm_m_arg, "mno-")) |llvm_name| {
                         const zig_name = llvm_to_zig_name.get(llvm_name) orelse {
                             fatal("target architecture {s} has no LLVM CPU feature named '{s}'", .{
                                 @tagName(cpu_arch), llvm_name,
@@ -3782,8 +3757,7 @@ fn createModule(
                         };
                         try mcpu_buffer.append('-');
                         try mcpu_buffer.appendSlice(zig_name);
-                    } else if (mem.startsWith(u8, llvm_m_arg, "m")) {
-                        const llvm_name = llvm_m_arg["m".len..];
+                    } else if (mem.cutPrefix(u8, llvm_m_arg, "m")) |llvm_name| {
                         const zig_name = llvm_to_zig_name.get(llvm_name) orelse {
                             fatal("target architecture {s} has no LLVM CPU feature named '{s}'", .{
                                 @tagName(cpu_arch), llvm_name,
@@ -3853,8 +3827,7 @@ fn createModule(
                     .only_compiler_rt => continue,
                 }
 
-                // We currently prefer import libraries provided by MinGW-w64 even for MSVC.
-                if (target.os.tag == .windows) {
+                if (target.isMinGW()) {
                     const exists = mingw.libExists(arena, target, create_module.dirs.zig_lib, lib_name) catch |err| {
                         fatal("failed to check zig installation for DLL import libs: {s}", .{
                             @errorName(err),
@@ -4009,6 +3982,8 @@ fn createModule(
             error.LldUnavailable => fatal("zig was compiled without LLD libraries", .{}),
             error.ClangUnavailable => fatal("zig was compiled without Clang libraries", .{}),
             error.DllExportFnsRequiresWindows => fatal("only Windows OS targets support DLLs", .{}),
+            error.NewLinkerIncompatibleObjectFormat => fatal("using the new linker to link {s} files is unsupported", .{@tagName(target.ofmt)}),
+            error.NewLinkerIncompatibleWithLld => fatal("using the new linker is incompatible with using lld", .{}),
         };
     }
 
@@ -4100,7 +4075,7 @@ fn serve(
     while (true) {
         const hdr = try server.receiveMessage();
 
-        // Lock the debug server while hanling the message.
+        // Lock the debug server while handling the message.
         if (comp.debugIncremental()) ids.mutex.lock();
         defer if (comp.debugIncremental()) ids.mutex.unlock();
 
@@ -4117,7 +4092,11 @@ fn serve(
                     var output: Compilation.CImportResult = undefined;
                     try cmdTranslateC(comp, arena, &output, file_system_inputs, main_progress_node);
                     defer output.deinit(gpa);
-                    try server.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+
+                    if (file_system_inputs.items.len != 0) {
+                        try server.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+                    }
+
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
                     } else {
@@ -4125,6 +4104,7 @@ fn serve(
                             .flags = .{ .cache_hit = output.cache_hit },
                         });
                     }
+
                     continue;
                 }
 
@@ -4203,6 +4183,84 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
         }
     }
 
+    if (comp.time_report) |*tr| {
+        var decls_len: u32 = 0;
+
+        var file_name_bytes: std.ArrayListUnmanaged(u8) = .empty;
+        defer file_name_bytes.deinit(gpa);
+        var files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void) = .empty;
+        defer files.deinit(gpa);
+        var decl_data: std.ArrayListUnmanaged(u8) = .empty;
+        defer decl_data.deinit(gpa);
+
+        // Each decl needs at least 34 bytes:
+        // * 2 for 1-byte name plus null terminator
+        // * 4 for `file`
+        // * 4 for `sema_count`
+        // * 8 for `sema_ns`
+        // * 8 for `codegen_ns`
+        // * 8 for `link_ns`
+        // Most, if not all, decls in `tr.decl_sema_ns` are valid, so we have a good size estimate.
+        try decl_data.ensureUnusedCapacity(gpa, tr.decl_sema_info.count() * 34);
+
+        for (tr.decl_sema_info.keys(), tr.decl_sema_info.values()) |tracked_inst, sema_info| {
+            const resolved = tracked_inst.resolveFull(&comp.zcu.?.intern_pool) orelse continue;
+            const file = comp.zcu.?.fileByIndex(resolved.file);
+            const zir = file.zir orelse continue;
+            const decl_name = zir.nullTerminatedString(zir.getDeclaration(resolved.inst).name);
+
+            const gop = try files.getOrPut(gpa, resolved.file);
+            if (!gop.found_existing) try file_name_bytes.print(gpa, "{f}\x00", .{file.path.fmt(comp)});
+
+            const codegen_ns = tr.decl_codegen_ns.get(tracked_inst) orelse 0;
+            const link_ns = tr.decl_link_ns.get(tracked_inst) orelse 0;
+
+            decls_len += 1;
+
+            try decl_data.ensureUnusedCapacity(gpa, 33 + decl_name.len);
+            decl_data.appendSliceAssumeCapacity(decl_name);
+            decl_data.appendAssumeCapacity(0);
+
+            const out_file = decl_data.addManyAsArrayAssumeCapacity(4);
+            const out_sema_count = decl_data.addManyAsArrayAssumeCapacity(4);
+            const out_sema_ns = decl_data.addManyAsArrayAssumeCapacity(8);
+            const out_codegen_ns = decl_data.addManyAsArrayAssumeCapacity(8);
+            const out_link_ns = decl_data.addManyAsArrayAssumeCapacity(8);
+            std.mem.writeInt(u32, out_file, @intCast(gop.index), .little);
+            std.mem.writeInt(u32, out_sema_count, sema_info.count, .little);
+            std.mem.writeInt(u64, out_sema_ns, sema_info.ns, .little);
+            std.mem.writeInt(u64, out_codegen_ns, codegen_ns, .little);
+            std.mem.writeInt(u64, out_link_ns, link_ns, .little);
+        }
+
+        const header: std.zig.Server.Message.TimeReport = .{
+            .stats = tr.stats,
+            .llvm_pass_timings_len = @intCast(tr.llvm_pass_timings.len),
+            .files_len = @intCast(files.count()),
+            .decls_len = decls_len,
+            .flags = .{
+                .use_llvm = comp.zcu != null and comp.zcu.?.llvm_object != null,
+            },
+        };
+
+        var slices: [4][]const u8 = .{
+            @ptrCast(&header),
+            tr.llvm_pass_timings,
+            file_name_bytes.items,
+            decl_data.items,
+        };
+        try s.serveMessageHeader(.{
+            .tag = .time_report,
+            .bytes_len = len: {
+                var len: u32 = 0;
+                for (slices) |slice| len += @intCast(slice.len);
+                break :len len;
+            },
+        });
+        try s.out.writeVecAll(&slices);
+        try s.out.flush();
+    }
+
     if (error_bundle.errorMessageCount() > 0) {
         try s.serveErrorBundle(error_bundle);
         return;
@@ -4248,7 +4306,7 @@ fn runOrTest(
         }),
     };
 
-    var argv = std.ArrayList([]const u8).init(gpa);
+    var argv = std.array_list.Managed([]const u8).init(gpa);
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
@@ -4369,7 +4427,7 @@ fn runOrTestHotSwap(
     };
     defer gpa.free(exe_path);
 
-    var argv = std.ArrayList([]const u8).init(gpa);
+    var argv = std.array_list.Managed([]const u8).init(gpa);
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
@@ -4407,10 +4465,11 @@ fn runOrTestHotSwap(
 
             // ASLR is probably a good default for better debugging experience/programming
             // with hot-code updates in mind. However, we can also make it work with ASLR on.
-            const flags: u16 = std.c.POSIX_SPAWN.SETSIGDEF |
-                std.c.POSIX_SPAWN.SETSIGMASK |
-                std.c.POSIX_SPAWN.DISABLE_ASLR;
-            try attr.set(flags);
+            try attr.set(.{
+                .SETSIGDEF = true,
+                .SETSIGMASK = true,
+                .DISABLE_ASLR = true,
+            });
 
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);
             defer arena_allocator.deinit();
@@ -4436,7 +4495,12 @@ fn runOrTestHotSwap(
     }
 }
 
-fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) !void {
+const UpdateModuleError = Compilation.UpdateError || error{
+    /// The update caused compile errors. The error bundle has already been
+    /// reported to the user by being rendered to stderr.
+    CompileErrorsReported,
+};
+fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) UpdateModuleError!void {
     try comp.update(prog_node);
 
     var errors = try comp.getAllErrorsAlloc();
@@ -4444,7 +4508,7 @@ fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) 
 
     if (errors.errorMessageCount() > 0) {
         errors.renderToStdErr(color.renderOptions());
-        return error.SemanticAnalyzeFail;
+        return error.CompileErrorsReported;
     }
 }
 
@@ -4457,11 +4521,10 @@ fn cmdTranslateC(
 ) !void {
     dev.check(.translate_c_command);
 
-    const color: Color = .auto;
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
-    const translated_zig_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{comp.root_name});
+    const translated_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{comp.root_name});
 
     var man: Cache.Manifest = comp.obtainCObjectCacheManifest(comp.root_mod);
     man.want_shared_lock = false;
@@ -4473,163 +4536,75 @@ fn cmdTranslateC(
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
 
-    if (fancy_output) |p| p.cache_hit = true;
-    const bin_digest, const hex_digest = if (try man.hit()) digest: {
-        if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
-        const bin_digest = man.finalBin();
-        const hex_digest = Cache.binToHex(bin_digest);
-        break :digest .{ bin_digest, hex_digest };
-    } else digest: {
-        if (fancy_output) |p| p.cache_hit = false;
-        var argv = std.ArrayList([]const u8).init(arena);
-        switch (comp.config.c_frontend) {
-            .aro => {},
-            .clang => {
-                // argv[0] is program name, actual args start at [1]
-                try argv.append(@tagName(comp.config.c_frontend));
-            },
-        }
+    const result: Compilation.CImportResult = if (try man.hit()) .{
+        .digest = man.finalBin(),
+        .cache_hit = true,
+        .errors = std.zig.ErrorBundle.empty,
+    } else result: {
+        const result = try comp.translateC(
+            arena,
+            &man,
+            Compilation.classifyFileExt(c_source_file.src_path),
+            .{ .path = c_source_file.src_path },
+            translated_basename,
+            comp.root_mod,
+            prog_node,
+        );
 
-        var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
-        defer zig_cache_tmp_dir.close();
-
-        const ext = Compilation.classifyFileExt(c_source_file.src_path);
-        const out_dep_path: ?[]const u8 = blk: {
-            if (comp.config.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
-                break :blk null;
-
-            const c_src_basename = fs.path.basename(c_source_file.src_path);
-            const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
-            const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
-            break :blk out_dep_path;
-        };
-
-        // TODO
-        if (comp.config.c_frontend != .aro)
-            try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
-        try argv.append(c_source_file.src_path);
-
-        if (comp.verbose_cc) {
-            Compilation.dump_argv(argv.items);
-        }
-
-        const Result = union(enum) {
-            success: []const u8,
-            error_bundle: std.zig.ErrorBundle,
-        };
-
-        const result: Result = switch (comp.config.c_frontend) {
-            .aro => f: {
-                var stdout: []u8 = undefined;
-                try jitCmd(comp.gpa, arena, argv.items, .{
-                    .cmd_name = "aro_translate_c",
-                    .root_src_path = "aro_translate_c.zig",
-                    .depend_on_aro = true,
-                    .capture = &stdout,
-                    .progress_node = prog_node,
-                });
-                break :f .{ .success = stdout };
-            },
-            .clang => f: {
-                if (!build_options.have_llvm) unreachable;
-                const translate_c = @import("translate_c.zig");
-
-                // Convert to null terminated args.
-                const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
-                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
-                new_argv_with_sentinel[clang_args_len] = null;
-                const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
-                for (argv.items, 0..) |arg, i| {
-                    new_argv[i] = try arena.dupeZ(u8, arg);
-                }
-                for (c_source_file.extra_flags, 0..) |arg, i| {
-                    new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
-                }
-
-                const c_headers_dir_path_z = try comp.dirs.zig_lib.joinZ(arena, &.{"include"});
-                var errors = std.zig.ErrorBundle.empty;
-                var tree = translate_c.translate(
-                    comp.gpa,
-                    new_argv.ptr,
-                    new_argv.ptr + new_argv.len,
-                    &errors,
-                    c_headers_dir_path_z,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
-                };
-                defer tree.deinit(comp.gpa);
-                break :f .{ .success = try tree.renderAlloc(arena) };
-            },
-        };
-
-        if (out_dep_path) |dep_file_path| add_deps: {
-            const dep_basename = fs.path.basename(dep_file_path);
-            // Add the files depended on to the cache system.
-            man.addDepFilePost(zig_cache_tmp_dir, dep_basename) catch |err| switch (err) {
-                error.FileNotFound => {
-                    // Clang didn't emit the dep file; nothing to add to the manifest.
-                    break :add_deps;
-                },
-                else => |e| return e,
-            };
-            // Just to save disk space, we delete the file because it is never needed again.
-            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
-            };
-        }
-
-        const formatted = switch (result) {
-            .success => |formatted| formatted,
-            .error_bundle => |eb| {
+        if (result.errors.errorMessageCount() != 0) {
+            if (fancy_output) |p| {
                 if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
-                if (fancy_output) |p| {
-                    p.errors = eb;
-                    return;
-                } else {
-                    eb.renderToStdErr(color.renderOptions());
-                    process.exit(1);
-                }
-            },
-        };
+                p.* = result;
+                return;
+            } else {
+                const color: Color = .auto;
+                result.errors.renderToStdErr(color.renderOptions());
+                process.exit(1);
+            }
+        }
 
-        const bin_digest = man.finalBin();
-        const hex_digest = Cache.binToHex(bin_digest);
-
-        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &hex_digest });
-
-        var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
-        defer o_dir.close();
-
-        var zig_file = try o_dir.createFile(translated_zig_basename, .{});
-        defer zig_file.close();
-
-        try zig_file.writeAll(formatted);
-
-        man.writeManifest() catch |err| warn("failed to write cache manifest: {s}", .{
-            @errorName(err),
-        });
-
-        if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
-
-        break :digest .{ bin_digest, hex_digest };
+        man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
+        break :result result;
     };
 
+    if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
     if (fancy_output) |p| {
-        p.digest = bin_digest;
-        p.errors = std.zig.ErrorBundle.empty;
+        p.* = result;
     } else {
-        const out_zig_path = try fs.path.join(arena, &.{ "o", &hex_digest, translated_zig_basename });
+        const hex_digest = Cache.binToHex(result.digest);
+        const out_zig_path = try fs.path.join(arena, &.{ "o", &hex_digest, translated_basename });
         const zig_file = comp.dirs.local_cache.handle.openFile(out_zig_path, .{}) catch |err| {
             const path = comp.dirs.local_cache.path orelse ".";
-            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ path, fs.path.sep_str, out_zig_path, @errorName(err) });
+            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{
+                path,
+                fs.path.sep_str,
+                out_zig_path,
+                @errorName(err),
+            });
         };
         defer zig_file.close();
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         var file_reader = zig_file.reader(&.{});
         _ = try stdout_writer.interface.sendFileAll(&file_reader, .unlimited);
+        try stdout_writer.interface.flush();
         return cleanExit();
     }
+}
+
+pub fn translateC(
+    gpa: Allocator,
+    arena: Allocator,
+    argv: []const []const u8,
+    prog_node: std.Progress.Node,
+    capture: ?*[]u8,
+) !void {
+    try jitCmd(gpa, arena, argv, .{
+        .cmd_name = "translate-c",
+        .root_src_path = "translate-c/main.zig",
+        .depend_on_aro = true,
+        .progress_node = prog_node,
+        .capture = capture,
+    });
 }
 
 const usage_init =
@@ -4709,7 +4684,8 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             writeSimpleTemplateFile(Package.Manifest.basename,
                 \\.{{
                 \\    .name = .{s},
-                \\    .version = "{s}",
+                \\    .version = "0.0.1",
+                \\    .minimum_zig_version = "{s}",
                 \\    .paths = .{{""}},
                 \\    .fingerprint = 0x{x},
                 \\}}
@@ -4724,6 +4700,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             };
             writeSimpleTemplateFile(Package.build_zig_basename,
                 \\const std = @import("std");
+                \\
                 \\pub fn build(b: *std.Build) void {{
                 \\    _ = b; // stub
                 \\}}
@@ -4786,7 +4763,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
     var override_build_runner: ?[]const u8 = try EnvVar.ZIG_BUILD_RUNNER.get(arena);
-    var child_argv = std.ArrayList([]const u8).init(arena);
+    var child_argv = std.array_list.Managed([]const u8).init(arena);
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
@@ -4804,6 +4781,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var fetch_mode: Package.Fetch.JobQueue.Mode = .needed;
     var system_pkg_dir_path: ?[]const u8 = null;
     var debug_target: ?[]const u8 = null;
+    var debug_libc_paths_file: ?[]const u8 = null;
 
     const argv_index_exe = child_argv.items.len;
     _ = try child_argv.addOne();
@@ -4883,9 +4861,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     reference_trace = 256;
                 } else if (mem.eql(u8, arg, "--fetch")) {
                     fetch_only = true;
-                } else if (mem.startsWith(u8, arg, "--fetch=")) {
+                } else if (mem.cutPrefix(u8, arg, "--fetch=")) |sub_arg| {
                     fetch_only = true;
-                    const sub_arg = arg["--fetch=".len..];
                     fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
                         fatal("expected [needed|all] after '--fetch=', found '{s}'", .{
                             sub_arg,
@@ -4896,8 +4873,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     system_pkg_dir_path = args[i];
                     try child_argv.append("--system");
                     continue;
-                } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
-                    const num = arg["-freference-trace=".len..];
+                } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                     reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
                         fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
                     };
@@ -4927,6 +4903,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     } else {
                         warn("Zig was compiled without debug extensions. --debug-target has no effect.", .{});
                     }
+                } else if (mem.eql(u8, arg, "--debug-libc")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    if (build_options.enable_debug_extensions) {
+                        debug_libc_paths_file = args[i];
+                    } else {
+                        warn("Zig was compiled without debug extensions. --debug-libc has no effect.", .{});
+                    }
                 } else if (mem.eql(u8, arg, "--verbose-link")) {
                     verbose_link = true;
                 } else if (mem.eql(u8, arg, "--verbose-cc")) {
@@ -4939,10 +4923,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     verbose_generic_instances = true;
                 } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                     verbose_llvm_ir = "-";
-                } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
-                    verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-                } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
-                    verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
+                } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-ir=")) |rest| {
+                    verbose_llvm_ir = rest;
+                } else if (mem.cutPrefix(u8, arg, "--verbose-llvm-bc=")) |rest| {
+                    verbose_llvm_bc = rest;
                 } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                     verbose_cimport = true;
                 } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
@@ -4955,8 +4939,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     };
                     try child_argv.appendSlice(&.{ arg, args[i] });
                     continue;
-                } else if (mem.startsWith(u8, arg, "-j")) {
-                    const str = arg["-j".len..];
+                } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
                     const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
                         fatal("unable to parse jobs count '{s}': {s}", .{
                             str, @errorName(err),
@@ -5013,6 +4996,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .is_native_abi = true,
             .is_explicit_dynamic_linker = false,
         };
+    };
+    // Likewise, `--debug-libc` allows overriding the libc installation.
+    const libc_installation: ?*const LibCInstallation = lci: {
+        const paths_file = debug_libc_paths_file orelse break :lci null;
+        if (!build_options.enable_debug_extensions) unreachable;
+        const lci = try arena.create(LibCInstallation);
+        lci.* = try .parse(arena, paths_file, &resolved_target.result);
+        break :lci lci;
     };
 
     process.raiseFileDescriptorLimit();
@@ -5196,7 +5187,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
                 if (fetch_only) return cleanExit();
 
-                var source_buf = std.ArrayList(u8).init(gpa);
+                var source_buf = std.array_list.Managed(u8).init(gpa);
                 defer source_buf.deinit();
                 try job_queue.createDependenciesSource(&source_buf);
                 const deps_mod = try createDependenciesModule(
@@ -5269,13 +5260,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
             try root_mod.deps.put(arena, "@build", build_mod);
 
-            var windows_libs: std.StringArrayHashMapUnmanaged(void) = .empty;
-
-            if (resolved_target.result.os.tag == .windows) {
-                try windows_libs.put(arena, "advapi32", {});
-            }
-
-            const comp = Compilation.create(gpa, arena, .{
+            var create_diag: Compilation.CreateDiagnostic = undefined;
+            const comp = Compilation.create(gpa, arena, &create_diag, .{
+                .libc_installation = libc_installation,
                 .dirs = dirs,
                 .root_name = "build",
                 .config = config,
@@ -5296,14 +5283,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .cache_mode = .whole,
                 .reference_trace = reference_trace,
                 .debug_compile_errors = debug_compile_errors,
-                .windows_lib_names = windows_libs.keys(),
-            }) catch |err| {
-                fatal("unable to create compilation: {s}", .{@errorName(err)});
+            }) catch |err| switch (err) {
+                error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
+                else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
             };
             defer comp.destroy();
 
             updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-                error.SemanticAnalyzeFail => process.exit(2),
+                error.CompileErrorsReported => process.exit(2),
                 else => |e| return e,
             };
 
@@ -5346,7 +5333,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         // that are missing.
                         const s = fs.path.sep_str;
                         const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
-                        const stdout = dirs.local_cache.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
+                        const stdout = dirs.local_cache.handle.readFileAlloc(tmp_sub_path, arena, .limited(50 * 1024 * 1024)) catch |err| {
                             fatal("unable to read results of configure phase from '{f}{s}': {s}", .{
                                 dirs.local_cache, tmp_sub_path, @errorName(err),
                             });
@@ -5400,7 +5387,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 const JitCmdOptions = struct {
     cmd_name: []const u8,
     root_src_path: []const u8,
-    windows_libs: []const []const u8 = &.{},
     prepend_zig_lib_dir_path: bool = false,
     prepend_global_cache_path: bool = false,
     prepend_zig_exe_path: bool = false,
@@ -5517,14 +5503,8 @@ fn jitCmd(
             try root_mod.deps.put(arena, "aro", aro_mod);
         }
 
-        var windows_libs: std.StringArrayHashMapUnmanaged(void) = .empty;
-
-        if (resolved_target.result.os.tag == .windows) {
-            try windows_libs.ensureUnusedCapacity(arena, options.windows_libs.len);
-            for (options.windows_libs) |lib| windows_libs.putAssumeCapacity(lib, {});
-        }
-
-        const comp = Compilation.create(gpa, arena, .{
+        var create_diag: Compilation.CreateDiagnostic = undefined;
+        const comp = Compilation.create(gpa, arena, &create_diag, .{
             .dirs = dirs,
             .root_name = options.cmd_name,
             .config = config,
@@ -5534,9 +5514,9 @@ fn jitCmd(
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
             .cache_mode = .whole,
-            .windows_lib_names = windows_libs.keys(),
-        }) catch |err| {
-            fatal("unable to create compilation: {s}", .{@errorName(err)});
+        }) catch |err| switch (err) {
+            error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
+            else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
         };
         defer comp.destroy();
 
@@ -5557,7 +5537,7 @@ fn jitCmd(
             }
         } else {
             updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-                error.SemanticAnalyzeFail => process.exit(2),
+                error.CompileErrorsReported => process.exit(2),
                 else => |e| return e,
             };
         }
@@ -5580,12 +5560,13 @@ fn jitCmd(
     child_argv.appendSliceAssumeCapacity(args);
 
     if (process.can_execv and options.capture == null) {
+        if (EnvVar.ZIG_DEBUG_CMD.isSet()) {
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            std.debug.print("{s}\n", .{cmd});
+        }
         const err = process.execv(gpa, child_argv.items);
         const cmd = try std.mem.join(arena, " ", child_argv.items);
-        fatal("the following command failed to execve with '{s}':\n{s}", .{
-            @errorName(err),
-            cmd,
-        });
+        fatal("the following command failed to execve with '{t}':\n{s}", .{ err, cmd });
     }
 
     if (!process.can_spawn) {
@@ -5603,7 +5584,8 @@ fn jitCmd(
     try child.spawn();
 
     if (options.capture) |ptr| {
-        ptr.* = try child.stdout.?.readToEndAlloc(arena, std.math.maxInt(u32));
+        var stdout_reader = child.stdout.?.readerStreaming(&.{});
+        ptr.* = try stdout_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
     }
 
     const term = try child.wait();
@@ -5736,7 +5718,7 @@ const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, 
 /// Initialize the arguments from a Response File. "*.rsp"
 fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8) !ArgIteratorResponseFile {
     const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
-    const cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
+    const cmd_line = try fs.cwd().readFileAlloc(resp_file_path, allocator, .limited(max_bytes));
     errdefer allocator.free(cmd_line);
 
     return ArgIteratorResponseFile.initTakeOwnership(allocator, cmd_line);
@@ -5889,7 +5871,7 @@ pub const ClangArgIterator = struct {
             // NOTE: The ArgIteratorResponseFile returns tokens from next() that are slices of an
             // internal buffer. This internal buffer is arena allocated, so it is not cleaned up here.
 
-            var resp_arg_list = std.ArrayList([]const u8).init(arena);
+            var resp_arg_list = std.array_list.Managed([]const u8).init(arena);
             defer resp_arg_list.deinit();
             {
                 while (self.arg_iterator_response_file.next()) |token| {
@@ -6533,10 +6515,9 @@ fn eatIntPrefix(arg: []const u8, base: u8) []const u8 {
     return arg;
 }
 
-fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
-    return std.fmt.parseUnsigned(u64, arg[prefix_len..], 0) catch |err| {
-        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
-    };
+fn prefixedIntArg(arg: []const u8, prefix: []const u8) ?u64 {
+    const number = mem.cutPrefix(u8, arg, prefix) orelse return null;
+    return std.fmt.parseUnsigned(u64, number, 0) catch |err| fatal("unable to parse '{s}': {t}", .{ arg, err });
 }
 
 fn warnAboutForeignBinaries(
@@ -6771,8 +6752,8 @@ const ClangSearchSanitizer = struct {
 };
 
 fn accessFrameworkPath(
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList(u8),
+    test_path: *std.array_list.Managed(u8),
+    checked_paths: *std.array_list.Managed(u8),
     framework_dir_path: []const u8,
     framework_name: []const u8,
 ) !bool {
@@ -6863,12 +6844,12 @@ fn cmdFetch(
                     debug_hash = true;
                 } else if (mem.eql(u8, arg, "--save")) {
                     save = .{ .yes = null };
-                } else if (mem.startsWith(u8, arg, "--save=")) {
-                    save = .{ .yes = arg["--save=".len..] };
+                } else if (mem.cutPrefix(u8, arg, "--save=")) |rest| {
+                    save = .{ .yes = rest };
                 } else if (mem.eql(u8, arg, "--save-exact")) {
                     save = .{ .exact = null };
-                } else if (mem.startsWith(u8, arg, "--save-exact=")) {
-                    save = .{ .exact = arg["--save-exact=".len..] };
+                } else if (mem.cutPrefix(u8, arg, "--save-exact=")) |rest| {
+                    save = .{ .exact = rest };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -7102,7 +7083,7 @@ fn cmdFetch(
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     try ast.render(gpa, &aw.writer, fixups);
-    const rendered = aw.getWritten();
+    const rendered = aw.written();
 
     build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered }) catch |err| {
         fatal("unable to write {s} file: {t}", .{ Package.Manifest.basename, err });
@@ -7117,7 +7098,7 @@ fn createEmptyDependenciesModule(
     dirs: Compilation.Directories,
     global_options: Compilation.Config,
 ) !void {
-    var source = std.ArrayList(u8).init(arena);
+    var source = std.array_list.Managed(u8).init(arena);
     try Package.Fetch.JobQueue.createEmptyDependenciesSource(&source);
     _ = try createDependenciesModule(
         arena,
@@ -7260,10 +7241,9 @@ fn loadManifest(
 ) !struct { Package.Manifest, Ast } {
     const manifest_bytes = while (true) {
         break options.dir.readFileAllocOptions(
-            arena,
             Package.Manifest.basename,
-            Package.Manifest.max_bytes,
-            null,
+            arena,
+            .limited(Package.Manifest.max_bytes),
             .@"1",
             0,
         ) catch |err| switch (err) {
@@ -7321,7 +7301,7 @@ fn loadManifest(
 const Templates = struct {
     zig_lib_directory: Cache.Directory,
     dir: fs.Dir,
-    buffer: std.ArrayList(u8),
+    buffer: std.array_list.Managed(u8),
 
     fn deinit(templates: *Templates) void {
         templates.zig_lib_directory.handle.close();
@@ -7345,7 +7325,7 @@ const Templates = struct {
         }
 
         const max_bytes = 10 * 1024 * 1024;
-        const contents = templates.dir.readFileAlloc(arena, template_path, max_bytes) catch |err| {
+        const contents = templates.dir.readFileAlloc(template_path, arena, .limited(max_bytes)) catch |err| {
             fatal("unable to read template file '{s}': {s}", .{ template_path, @errorName(err) });
         };
         templates.buffer.clearRetainingCapacity();
@@ -7360,7 +7340,7 @@ const Templates = struct {
                     i += "_NAME".len;
                     continue;
                 } else if (std.mem.startsWith(u8, contents[i + 1 ..], "FINGERPRINT")) {
-                    try templates.buffer.writer().print("0x{x}", .{fingerprint.int()});
+                    try templates.buffer.print("0x{x}", .{fingerprint.int()});
                     i += "_FINGERPRINT".len;
                     continue;
                 } else if (std.mem.startsWith(u8, contents[i + 1 ..], "ZIGVER")) {
@@ -7413,7 +7393,7 @@ fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
     return .{
         .zig_lib_directory = zig_lib_directory,
         .dir = template_dir,
-        .buffer = std.ArrayList(u8).init(gpa),
+        .buffer = std.array_list.Managed(u8).init(gpa),
     };
 }
 

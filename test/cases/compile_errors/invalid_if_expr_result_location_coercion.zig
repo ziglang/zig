@@ -23,8 +23,6 @@ export fn invalidComptimeElse() u0 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:34: error: type 'u8' cannot represent integer value '256'
 // :9:34: error: type 'u8' cannot represent integer value '256'

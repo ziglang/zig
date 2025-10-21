@@ -268,8 +268,8 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) link.File.FlushError!void {
 
     object.dg.ctype_pool.freeUnusedCapacity(gpa);
     self.uavs.values()[i] = .{
-        .fwd_decl = try self.addString(object.dg.fwd_decl.getWritten()),
-        .code = try self.addString(object.code.getWritten()),
+        .fwd_decl = try self.addString(object.dg.fwd_decl.written()),
+        .code = try self.addString(object.code.written()),
         .ctype_pool = object.dg.ctype_pool.move(),
     };
 }
@@ -335,8 +335,8 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         },
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
-    gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.getWritten());
-    gop.value_ptr.code = try self.addString(object.code.getWritten());
+    gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.written());
+    gop.value_ptr.code = try self.addString(object.code.written());
     try self.addUavsFromCodegen(&object.dg.uavs);
 }
 
@@ -348,7 +348,7 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
     _ = ti_id;
 }
 
-fn abiDefines(w: *std.io.Writer, target: *const std.Target) !void {
+fn abiDefines(w: *std.Io.Writer, target: *const std.Target) !void {
     switch (target.abi) {
         .msvc, .itanium => try w.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
@@ -400,7 +400,7 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     };
     defer f.deinit(gpa);
 
-    var abi_defines_aw: std.io.Writer.Allocating = .init(gpa);
+    var abi_defines_aw: std.Io.Writer.Allocating = .init(gpa);
     defer abi_defines_aw.deinit();
     abiDefines(&abi_defines_aw.writer, zcu.getTarget()) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
@@ -409,18 +409,18 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     // Covers defines, zig.h, ctypes, asm, lazy fwd.
     try f.all_buffers.ensureUnusedCapacity(gpa, 5);
 
-    f.appendBufAssumeCapacity(abi_defines_aw.getWritten());
+    f.appendBufAssumeCapacity(abi_defines_aw.written());
     f.appendBufAssumeCapacity(zig_h);
 
     const ctypes_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    var asm_aw: std.io.Writer.Allocating = .init(gpa);
+    var asm_aw: std.Io.Writer.Allocating = .init(gpa);
     defer asm_aw.deinit();
     codegen.genGlobalAsm(zcu, &asm_aw.writer) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
-    f.appendBufAssumeCapacity(asm_aw.getWritten());
+    f.appendBufAssumeCapacity(asm_aw.written());
 
     const lazy_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
@@ -582,7 +582,7 @@ fn flushCTypes(
     try global_from_decl_map.ensureTotalCapacity(gpa, decl_ctype_pool.items.len);
     defer global_from_decl_map.clearRetainingCapacity();
 
-    var ctypes_aw: std.io.Writer.Allocating = .fromArrayList(gpa, &f.ctypes);
+    var ctypes_aw: std.Io.Writer.Allocating = .fromArrayList(gpa, &f.ctypes);
     const ctypes_bw = &ctypes_aw.writer;
     defer f.ctypes = ctypes_aw.toArrayList();
 
@@ -766,7 +766,7 @@ pub fn flushEmitH(zcu: *Zcu) !void {
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     const num_buffers = emit_h.decl_table.count() + 1;
-    var all_buffers = try std.ArrayList(std.posix.iovec_const).initCapacity(zcu.gpa, num_buffers);
+    var all_buffers = try std.array_list.Managed(std.posix.iovec_const).initCapacity(zcu.gpa, num_buffers);
     defer all_buffers.deinit();
 
     var file_size: u64 = zig_h.len;
@@ -849,7 +849,7 @@ pub fn updateExports(
     codegen.genExports(&dg, exported, export_indices) catch |err| switch (err) {
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
-    exported_block.* = .{ .fwd_decl = try self.addString(dg.fwd_decl.getWritten()) };
+    exported_block.* = .{ .fwd_decl = try self.addString(dg.fwd_decl.written()) };
 }
 
 pub fn deleteExport(

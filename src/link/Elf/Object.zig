@@ -189,7 +189,7 @@ pub fn validateEFlags(
     e_flags: elf.Word,
 ) !void {
     switch (target.cpu.arch) {
-        .riscv64 => {
+        .riscv64, .riscv64be => {
             const flags: riscv.Eflags = @bitCast(e_flags);
             var any_errors: bool = false;
 
@@ -366,7 +366,7 @@ fn initAtoms(
                 const rel_count: u32 = @intCast(relocs.len);
                 self.setAtomFields(atom_ptr, .{ .rel_index = rel_index, .rel_count = rel_count });
                 try self.relocs.appendUnalignedSlice(gpa, relocs);
-                if (target.cpu.arch == .riscv64) {
+                if (target.cpu.arch.isRiscv64()) {
                     sortRelocs(self.relocs.items[rel_index..][0..rel_count]);
                 }
             }
@@ -445,7 +445,7 @@ fn parseEhFrame(
     // We expect relocations to be sorted by r_offset as per this comment in mold linker:
     // https://github.com/rui314/mold/blob/8e4f7b53832d8af4f48a633a8385cbc932d1944e/src/input-files.cc#L653
     // Except for RISCV and Loongarch which do not seem to be uphold this convention.
-    if (target.cpu.arch == .riscv64) {
+    if (target.cpu.arch.isRiscv64()) {
         sortRelocs(self.relocs.items[rel_start..][0..relocs.len]);
     }
     const fdes_start = self.fdes.items.len;
@@ -634,7 +634,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
 
         const is_import = blk: {
             if (!elf_file.isEffectivelyDynLib()) break :blk false;
-            const vis = @as(elf.STV, @enumFromInt(esym.st_other));
+            const vis: elf.STV = @enumFromInt(@as(u3, @truncate(esym.st_other)));
             if (vis == .HIDDEN) break :blk false;
             break :blk true;
         };
@@ -707,7 +707,7 @@ pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
         const file = sym.file(elf_file).?;
         // https://github.com/ziglang/zig/issues/21678
         if (@as(u16, @bitCast(sym.version_index)) == @as(u16, @bitCast(elf.Versym.LOCAL))) continue;
-        const vis: elf.STV = @enumFromInt(sym.elfSym(elf_file).st_other);
+        const vis: elf.STV = @enumFromInt(@as(u3, @truncate(sym.elfSym(elf_file).st_other)));
         if (vis == .HIDDEN) continue;
         if (file == .shared_object and !sym.isAbs(elf_file)) {
             sym.flags.import = true;
@@ -952,7 +952,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const is_tls = sym.type(elf_file) == elf.STT_TLS;
         const name = if (is_tls) ".tls_common" else ".common";
         const name_offset = @as(u32, @intCast(self.strtab.items.len));
-        try self.strtab.writer(gpa).print("{s}\x00", .{name});
+        try self.strtab.print(gpa, "{s}\x00", .{name});
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;
@@ -1198,15 +1198,14 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
         const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
         switch (chdr.ch_type) {
             .ZLIB => {
-                var stream = std.io.fixedBufferStream(data[@sizeOf(elf.Elf64_Chdr)..]);
-                var zlib_stream = std.compress.zlib.decompressor(stream.reader());
+                var stream: std.Io.Reader = .fixed(data[@sizeOf(elf.Elf64_Chdr)..]);
+                var zlib_stream: std.compress.flate.Decompress = .init(&stream, .zlib, &.{});
                 const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
-                const decomp = try gpa.alloc(u8, size);
-                const nread = zlib_stream.reader().readAll(decomp) catch return error.InputOutput;
-                if (nread != decomp.len) {
-                    return error.InputOutput;
-                }
-                return decomp;
+                var aw: std.Io.Writer.Allocating = .init(gpa);
+                try aw.ensureUnusedCapacity(size);
+                defer aw.deinit();
+                _ = try zlib_stream.reader.streamRemaining(&aw.writer);
+                return aw.toOwnedSlice();
             },
             else => @panic("TODO unhandled compression scheme"),
         }
@@ -1432,7 +1431,7 @@ pub fn group(self: *Object, index: Elf.Group.Index) *Elf.Group {
     return &self.groups.items[index];
 }
 
-pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
@@ -1443,7 +1442,7 @@ const Format = struct {
     object: *Object,
     elf_file: *Elf,
 
-    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         const elf_file = f.elf_file;
         try writer.writeAll("  locals\n");
@@ -1462,7 +1461,7 @@ const Format = struct {
         }
     }
 
-    fn atoms(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn atoms(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  atoms\n");
         for (object.atoms_indexes.items) |atom_index| {
@@ -1471,7 +1470,7 @@ const Format = struct {
         }
     }
 
-    fn cies(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn cies(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  cies\n");
         for (object.cies.items, 0..) |cie, i| {
@@ -1479,7 +1478,7 @@ const Format = struct {
         }
     }
 
-    fn fdes(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn fdes(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  fdes\n");
         for (object.fdes.items, 0..) |fde, i| {
@@ -1487,7 +1486,7 @@ const Format = struct {
         }
     }
 
-    fn groups(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn groups(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         const elf_file = f.elf_file;
         try writer.writeAll("  groups\n");
@@ -1505,39 +1504,39 @@ const Format = struct {
     }
 };
 
-pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
+pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.cies) {
+pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.fdes) {
+pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.groups) {
+pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.groups) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Alt(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatPath(object: Object, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (object.archive) |ar| {
         try writer.print("{f}({f})", .{ ar.path, object.path });
     } else {

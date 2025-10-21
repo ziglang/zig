@@ -267,6 +267,8 @@ test "implicit cast error unions with non-optional to optional pointer" {
 }
 
 test "compare equality of optional and non-optional pointer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a = @as(*const usize, @ptrFromInt(0x12345678));
     const b = @as(?*usize, @ptrFromInt(0x12345678));
     try expect(a == b);
@@ -417,7 +419,6 @@ test "pointer sentinel with enums" {
 }
 
 test "pointer sentinel with optional element" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -453,6 +454,8 @@ test "pointer sentinel with +inf" {
 }
 
 test "pointer to array at fixed address" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const array = @as(*volatile [2]u32, @ptrFromInt(0x10));
     // Silly check just to reference `array`
     try expect(@intFromPtr(&array[0]) == 0x10);
@@ -494,6 +497,8 @@ test "pointer-integer arithmetic affects the alignment" {
 }
 
 test "@intFromPtr on null optional at comptime" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     {
         const pointer = @as(?*u8, @ptrFromInt(0x000));
         const x = @intFromPtr(pointer);
@@ -704,6 +709,8 @@ test "pointer-to-array constness for zero-size elements, const" {
 }
 
 test "cast pointers with zero sized elements" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: *void = undefined;
     const b: *[1]void = a;
     _ = b;
@@ -770,4 +777,12 @@ test "pointers to elements of many-ptr to zero-bit type" {
     const b = &many_ptr[1];
 
     try expect(a == b);
+}
+
+test "comptime C pointer to optional pointer" {
+    const opt: ?*u8 = @ptrFromInt(0x1000);
+    const outer_ptr: [*c]const ?*u8 = &opt;
+    const inner_ptr = &outer_ptr.*.?;
+    comptime assert(@TypeOf(inner_ptr) == [*c]const *u8);
+    comptime assert(@intFromPtr(inner_ptr.*) == 0x1000);
 }

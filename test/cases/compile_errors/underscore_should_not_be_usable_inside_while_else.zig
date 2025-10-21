@@ -12,7 +12,5 @@ fn optionalReturnError() !?u32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:17: error: '_' used as an identifier without @"_" syntax

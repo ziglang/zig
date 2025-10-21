@@ -7,7 +7,7 @@ const net = @This();
 const mem = std.mem;
 const posix = std.posix;
 const fs = std.fs;
-const io = std.io;
+const Io = std.Io;
 const native_endian = builtin.target.cpu.arch.endian();
 const native_os = builtin.os.tag;
 const windows = std.os.windows;
@@ -41,6 +41,47 @@ pub const Address = extern union {
     in: Ip4Address,
     in6: Ip6Address,
     un: if (has_unix_sockets) posix.sockaddr.un else void,
+
+    /// Parse an IP address which may include a port. For IPv4, this is just written `address:port`.
+    /// For IPv6, RFC 3986 defines this as an "IP literal", and the port is differentiated from the
+    /// address by surrounding the address part in brackets '[addr]:port'. Even if the port is not
+    /// given, the brackets are mandatory.
+    pub fn parseIpAndPort(str: []const u8) error{ InvalidAddress, InvalidPort }!Address {
+        if (str.len == 0) return error.InvalidAddress;
+        if (str[0] == '[') {
+            const addr_end = std.mem.indexOfScalar(u8, str, ']') orelse
+                return error.InvalidAddress;
+            const addr_str = str[1..addr_end];
+            const port: u16 = p: {
+                if (addr_end == str.len - 1) break :p 0;
+                if (str[addr_end + 1] != ':') return error.InvalidAddress;
+                break :p parsePort(str[addr_end + 2 ..]) orelse return error.InvalidPort;
+            };
+            return parseIp6(addr_str, port) catch error.InvalidAddress;
+        } else {
+            if (std.mem.indexOfScalar(u8, str, ':')) |idx| {
+                // hold off on `error.InvalidPort` since `error.InvalidAddress` might make more sense
+                const port: ?u16 = parsePort(str[idx + 1 ..]);
+                const addr = parseIp4(str[0..idx], port orelse 0) catch return error.InvalidAddress;
+                if (port == null) return error.InvalidPort;
+                return addr;
+            } else {
+                return parseIp4(str, 0) catch error.InvalidAddress;
+            }
+        }
+    }
+    fn parsePort(str: []const u8) ?u16 {
+        var p: u16 = 0;
+        for (str) |c| switch (c) {
+            '0'...'9' => {
+                const shifted = std.math.mul(u16, p, 10) catch return null;
+                p = std.math.add(u16, shifted, c - '0') catch return null;
+            },
+            else => return null,
+        };
+        if (p == 0) return null;
+        return p;
+    }
 
     /// Parse the given IP address string into an Address value.
     /// It is recommended to use `resolveIp` instead, to handle
@@ -165,7 +206,7 @@ pub const Address = extern union {
         }
     }
 
-    pub fn format(self: Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Address, w: *Io.Writer) Io.Writer.Error!void {
         switch (self.any.family) {
             posix.AF.INET => try self.in.format(w),
             posix.AF.INET6 => try self.in6.format(w),
@@ -218,6 +259,7 @@ pub const Address = extern union {
         /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
         /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
         reuse_address: bool = false,
+        /// Sets O_NONBLOCK.
         force_nonblocking: bool = false,
     };
 
@@ -342,7 +384,7 @@ pub const Ip4Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(self: Ip4Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Ip4Address, w: *Io.Writer) Io.Writer.Error!void {
         const bytes: *const [4]u8 = @ptrCast(&self.sa.addr);
         try w.print("{d}.{d}.{d}.{d}:{d}", .{ bytes[0], bytes[1], bytes[2], bytes[3], self.getPort() });
     }
@@ -633,7 +675,7 @@ pub const Ip6Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(self: Ip6Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
         const port = mem.bigToNative(u16, self.sa.port);
         if (mem.eql(u8, self.sa.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
             try w.print("[::ffff:{d}.{d}.{d}.{d}]:{d}", .{
@@ -704,6 +746,9 @@ pub const Ip6Address = extern struct {
             if (i != native_endian_parts.len - 1) {
                 try w.writeAll(":");
             }
+        }
+        if (self.sa.scope_id != 0) {
+            try w.print("%{}", .{self.sa.scope_id});
         }
         try w.print("]:{}", .{port});
     }
@@ -1348,10 +1393,10 @@ fn parseHosts(
     name: []const u8,
     family: posix.sa_family_t,
     port: u16,
-    br: *io.Reader,
+    br: *Io.Reader,
 ) error{ OutOfMemory, ReadFailed }!void {
     while (true) {
-        const line = br.takeDelimiterExclusive('\n') catch |err| switch (err) {
+        const line = br.takeDelimiter('\n') catch |err| switch (err) {
             error.StreamTooLong => {
                 // Skip lines that are too long.
                 _ = br.discardDelimiterInclusive('\n') catch |e| switch (e) {
@@ -1361,7 +1406,8 @@ fn parseHosts(
                 continue;
             },
             error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => break,
+        } orelse {
+            break; // end of stream
         };
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
@@ -1402,7 +1448,7 @@ test parseHosts {
         // TODO parsing addresses should not have OS dependencies
         return error.SkipZigTest;
     }
-    var reader: std.io.Reader = .fixed(
+    var reader: Io.Reader = .fixed(
         \\127.0.0.1 localhost
         \\::1 localhost
         \\127.0.0.2 abcd
@@ -1583,7 +1629,7 @@ const ResolvConf = struct {
     const Directive = enum { options, nameserver, domain, search };
     const Option = enum { ndots, attempts, timeout };
 
-    fn parse(rc: *ResolvConf, reader: *io.Reader) !void {
+    fn parse(rc: *ResolvConf, reader: *Io.Reader) !void {
         const gpa = rc.gpa;
         while (reader.takeSentinel('\n')) |line_with_comment| {
             const line = line: {
@@ -1894,7 +1940,7 @@ pub const Stream = struct {
     pub const Reader = switch (native_os) {
         .windows => struct {
             /// Use `interface` for portable code.
-            interface_state: io.Reader,
+            interface_state: Io.Reader,
             /// Use `getStream` for portable code.
             net_stream: Stream,
             /// Use `getError` for portable code.
@@ -1903,21 +1949,24 @@ pub const Stream = struct {
             pub const Error = ReadError;
 
             pub fn getStream(r: *const Reader) Stream {
-                return r.stream;
+                return r.net_stream;
             }
 
             pub fn getError(r: *const Reader) ?Error {
                 return r.error_state;
             }
 
-            pub fn interface(r: *Reader) *io.Reader {
+            pub fn interface(r: *Reader) *Io.Reader {
                 return &r.interface_state;
             }
 
             pub fn init(net_stream: Stream, buffer: []u8) Reader {
                 return .{
                     .interface_state = .{
-                        .vtable = &.{ .stream = stream },
+                        .vtable = &.{
+                            .stream = stream,
+                            .readVec = readVec,
+                        },
                         .buffer = buffer,
                         .seek = 0,
                         .end = 0,
@@ -1927,24 +1976,34 @@ pub const Stream = struct {
                 };
             }
 
-            fn stream(io_r: *io.Reader, io_w: *io.Writer, limit: io.Limit) io.Reader.StreamError!usize {
+            fn stream(io_r: *Io.Reader, io_w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
+                const dest = limit.slice(try io_w.writableSliceGreedy(1));
+                var bufs: [1][]u8 = .{dest};
+                const n = try readVec(io_r, &bufs);
+                io_w.advance(n);
+                return n;
+            }
+
+            fn readVec(io_r: *std.Io.Reader, data: [][]u8) Io.Reader.Error!usize {
                 const r: *Reader = @alignCast(@fieldParentPtr("interface_state", io_r));
                 var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
-                const bufs = try io_w.writableVectorWsa(&iovecs, limit);
+                const bufs_n, const data_size = try io_r.writableVectorWsa(&iovecs, data);
+                const bufs = iovecs[0..bufs_n];
                 assert(bufs[0].len != 0);
                 const n = streamBufs(r, bufs) catch |err| {
                     r.error_state = err;
                     return error.ReadFailed;
                 };
                 if (n == 0) return error.EndOfStream;
+                if (n > data_size) {
+                    io_r.end += n - data_size;
+                    return data_size;
+                }
                 return n;
             }
 
-            fn streamBufs(r: *Reader, bufs: []windows.ws2_32.WSABUF) Error!u32 {
-                var n: u32 = undefined;
-                var flags: u32 = 0;
-                const rc = windows.ws2_32.WSARecvFrom(r.net_stream.handle, bufs.ptr, @intCast(bufs.len), &n, &flags, null, null, null, null);
-                if (rc != 0) switch (windows.ws2_32.WSAGetLastError()) {
+            fn handleRecvError(winsock_error: windows.ws2_32.WinsockError) Error!void {
+                switch (winsock_error) {
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
                     .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
@@ -1955,10 +2014,39 @@ pub const Stream = struct {
                     .WSAENOTCONN => return error.SocketNotConnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
-                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_IO_PENDING => unreachable,
                     .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
+                }
+            }
+
+            fn streamBufs(r: *Reader, bufs: []windows.ws2_32.WSABUF) Error!u32 {
+                var flags: u32 = 0;
+                var overlapped: windows.OVERLAPPED = std.mem.zeroes(windows.OVERLAPPED);
+
+                var n: u32 = undefined;
+                if (windows.ws2_32.WSARecv(
+                    r.net_stream.handle,
+                    bufs.ptr,
+                    @intCast(bufs.len),
+                    &n,
+                    &flags,
+                    &overlapped,
+                    null,
+                ) == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSA_IO_PENDING => {
+                        var result_flags: u32 = undefined;
+                        if (windows.ws2_32.WSAGetOverlappedResult(
+                            r.net_stream.handle,
+                            &overlapped,
+                            &n,
+                            windows.TRUE,
+                            &result_flags,
+                        ) == windows.FALSE) try handleRecvError(windows.ws2_32.WSAGetLastError());
+                    },
+                    else => |winsock_error| try handleRecvError(winsock_error),
                 };
+
                 return n;
             }
         },
@@ -1968,7 +2056,7 @@ pub const Stream = struct {
 
             pub const Error = ReadError;
 
-            pub fn interface(r: *Reader) *io.Reader {
+            pub fn interface(r: *Reader) *Io.Reader {
                 return &r.file_reader.interface;
             }
 
@@ -1979,6 +2067,7 @@ pub const Stream = struct {
                         .file = .{ .handle = net_stream.handle },
                         .mode = .streaming,
                         .seek_err = error.Unseekable,
+                        .size_err = error.Streaming,
                     },
                 };
             }
@@ -1996,7 +2085,7 @@ pub const Stream = struct {
     pub const Writer = switch (native_os) {
         .windows => struct {
             /// This field is present on all systems.
-            interface: io.Writer,
+            interface: Io.Writer,
             /// Use `getStream` for cross-platform support.
             stream: Stream,
             /// This field is present on all systems.
@@ -2034,7 +2123,7 @@ pub const Stream = struct {
                 }
             }
 
-            fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
+            fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
                 const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
                 comptime assert(native_os == .windows);
@@ -2078,10 +2167,8 @@ pub const Stream = struct {
                 return io_w.consume(n);
             }
 
-            fn sendBufs(handle: Stream.Handle, bufs: []windows.ws2_32.WSABUF) Error!u32 {
-                var n: u32 = undefined;
-                const rc = windows.ws2_32.WSASend(handle, bufs.ptr, @intCast(bufs.len), &n, 0, null, null);
-                if (rc == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+            fn handleSendError(winsock_error: windows.ws2_32.WinsockError) Error!void {
+                switch (winsock_error) {
                     .WSAECONNABORTED => return error.ConnectionResetByPeer,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
@@ -2097,16 +2184,43 @@ pub const Stream = struct {
                     .WSAESHUTDOWN => unreachable, // cannot send on a socket after write shutdown
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
-                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_IO_PENDING => unreachable,
                     .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
+                }
+            }
+
+            fn sendBufs(handle: Stream.Handle, bufs: []windows.ws2_32.WSABUF) Error!u32 {
+                var n: u32 = undefined;
+                var overlapped: windows.OVERLAPPED = std.mem.zeroes(windows.OVERLAPPED);
+                if (windows.ws2_32.WSASend(
+                    handle,
+                    bufs.ptr,
+                    @intCast(bufs.len),
+                    &n,
+                    0,
+                    &overlapped,
+                    null,
+                ) == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSA_IO_PENDING => {
+                        var result_flags: u32 = undefined;
+                        if (windows.ws2_32.WSAGetOverlappedResult(
+                            handle,
+                            &overlapped,
+                            &n,
+                            windows.TRUE,
+                            &result_flags,
+                        ) == windows.FALSE) try handleSendError(windows.ws2_32.WSAGetLastError());
+                    },
+                    else => |winsock_error| try handleSendError(winsock_error),
                 };
+
                 return n;
             }
         },
         else => struct {
             /// This field is present on all systems.
-            interface: io.Writer,
+            interface: Io.Writer,
 
             err: ?Error = null,
             file_writer: File.Writer,
@@ -2122,7 +2236,7 @@ pub const Stream = struct {
                         },
                         .buffer = buffer,
                     },
-                    .file_writer = .initMode(.{ .handle = stream.handle }, &.{}, .streaming),
+                    .file_writer = .initStreaming(.{ .handle = stream.handle }, &.{}),
                 };
             }
 
@@ -2138,7 +2252,7 @@ pub const Stream = struct {
                 i.* += 1;
             }
 
-            fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
+            fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
                 const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
                 var iovecs: [max_buffers_len]posix.iovec_const = undefined;
@@ -2190,7 +2304,7 @@ pub const Stream = struct {
                 });
             }
 
-            fn sendFile(io_w: *io.Writer, file_reader: *File.Reader, limit: io.Limit) io.Writer.FileError!usize {
+            fn sendFile(io_w: *Io.Writer, file_reader: *File.Reader, limit: Io.Limit) Io.Writer.FileError!usize {
                 const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const n = try w.file_writer.interface.sendFileHeader(io_w.buffered(), file_reader, limit);
                 return io_w.consume(n);

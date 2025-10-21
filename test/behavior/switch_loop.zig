@@ -249,3 +249,27 @@ test "switch loop on larger than pointer integer" {
     }
     try expect(entry == 3);
 }
+
+test "switch loop on non-exhaustive enum" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const E = enum(u8) { a, b, c, _ };
+
+        fn doTheTest() !void {
+            var start: E = undefined;
+            start = .a;
+            const result: u32 = s: switch (start) {
+                .a => continue :s .c,
+                else => continue :s @enumFromInt(123),
+                .b, _ => |x| break :s @intFromEnum(x),
+            };
+            try expect(result == 123);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}

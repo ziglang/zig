@@ -1,6 +1,5 @@
 const std = @import("std");
 const uefi = std.os.uefi;
-const io = std.io;
 const Guid = uefi.Guid;
 const Time = uefi.Time;
 const Status = uefi.Status;

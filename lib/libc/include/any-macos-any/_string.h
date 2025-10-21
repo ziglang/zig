@@ -100,7 +100,7 @@ char *_LIBC_CSTR
 		_LIBC_PTRCHECK_REPLACED(strlcat);
 int	 strncmp(const char *_LIBC_UNSAFE_INDEXABLE __s1,
 		const char *_LIBC_UNSAFE_INDEXABLE __s2, size_t __n);
-char *_LIBC_UNSAFE_INDEXABLE
+char *_LIBC_COUNT(__n)
 		strncpy(char *_LIBC_COUNT(__n) __dst,
         const char *_LIBC_UNSAFE_INDEXABLE __src, size_t __n)
         _LIBC_PTRCHECK_REPLACED(strlcpy);
@@ -155,7 +155,7 @@ __END_DECLS
 __BEGIN_DECLS
 char *_LIBC_CSTR
         stpcpy(char *_LIBC_UNSAFE_INDEXABLE __dst, const char *__src) _LIBC_PTRCHECK_REPLACED(strlcpy);
-char *_LIBC_CSTR
+char *_LIBC_COUNT(__n)
         stpncpy(char *_LIBC_UNSAFE_INDEXABLE __dst,
         const char *_LIBC_UNSAFE_INDEXABLE __src, size_t __n)
         __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3)

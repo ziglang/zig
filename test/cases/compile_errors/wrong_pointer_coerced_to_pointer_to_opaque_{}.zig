@@ -6,8 +6,6 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:9: error: expected type '*tmp.Derp', found '*anyopaque'
 // :5:9: note: pointer type child 'anyopaque' cannot cast into pointer type child 'tmp.Derp'

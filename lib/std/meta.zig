@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const debug = std.debug;
 const mem = std.mem;
@@ -742,13 +743,7 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
                 if (!eql(e, b[i])) return false;
             return true;
         },
-        .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!eql(a[i], b[i])) return false;
-            }
-            return true;
-        },
+        .vector => return @reduce(.And, a == b),
         .pointer => |info| {
             return switch (info.size) {
                 .one, .many, .c => a == b,
@@ -816,14 +811,6 @@ test eql {
     try testing.expect(eql(EU.tst(false), EU.tst(false)));
     try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
-    const V = @Vector(4, u32);
-    const v1: V = @splat(1);
-    const v2: V = @splat(1);
-    const v3: V = @splat(2);
-
-    try testing.expect(eql(v1, v2));
-    try testing.expect(!eql(v1, v3));
-
     const CU = union(enum) {
         a: void,
         b: void,
@@ -832,6 +819,16 @@ test eql {
 
     try testing.expect(eql(CU{ .a = {} }, .a));
     try testing.expect(!eql(CU{ .a = {} }, .b));
+
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+
+    const V = @Vector(4, u32);
+    const v1: V = @splat(1);
+    const v2: V = @splat(1);
+    const v3: V = @splat(2);
+
+    try testing.expect(eql(v1, v2));
+    try testing.expect(!eql(v1, v3));
 }
 
 /// Deprecated: use `std.enums.fromInt` instead and handle null.
@@ -935,11 +932,11 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
-            .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
+            .name = std.fmt.bufPrintSentinel(&num_buf, "{d}", .{i}, 0) catch unreachable,
             .type = T,
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = 0,
+            .alignment = @alignOf(T),
         };
     }
 
@@ -1192,13 +1189,6 @@ test hasUniqueRepresentation {
     };
 
     try testing.expect(hasUniqueRepresentation(TestStruct6));
-
-    const TestUnion1 = packed union {
-        a: u32,
-        b: u16,
-    };
-
-    try testing.expect(!hasUniqueRepresentation(TestUnion1));
 
     const TestUnion2 = extern union {
         a: u32,

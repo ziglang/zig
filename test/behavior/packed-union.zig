@@ -59,14 +59,17 @@ test "flags in packed union at offset" {
 
 fn testFlagsInPackedUnionAtOffset() !void {
     const FlagBits = packed union {
-        base_flags: packed union {
-            flags: packed struct(u4) {
-                enable_1: bool = true,
-                enable_2: bool = false,
-                enable_3: bool = false,
-                enable_4: bool = false,
+        base_flags: packed struct(u12) {
+            a: packed union {
+                flags: packed struct(u4) {
+                    enable_1: bool = true,
+                    enable_2: bool = false,
+                    enable_3: bool = false,
+                    enable_4: bool = false,
+                },
+                bits: u4,
             },
-            bits: u4,
+            pad: u8 = 0,
         },
         adv_flags: packed struct(u12) {
             pad: u8 = 0,
@@ -140,6 +143,7 @@ test "packed union initialized with a runtime value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const Fields = packed struct {
         timestamp: u50,

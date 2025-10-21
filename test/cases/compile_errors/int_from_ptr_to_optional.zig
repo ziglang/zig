@@ -5,8 +5,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:9: error: unable to evaluate comptime expression
 // :4:21: note: operation is runtime due to this operand

@@ -14,7 +14,7 @@
 #include "sanitizer_platform.h"
 
 #if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD || \
-    SANITIZER_SOLARIS
+    SANITIZER_SOLARIS || SANITIZER_HAIKU
 
 #  include "sanitizer_allocator_internal.h"
 #  include "sanitizer_atomic.h"
@@ -28,8 +28,19 @@
 #  include "sanitizer_procmaps.h"
 #  include "sanitizer_solaris.h"
 
+#  if SANITIZER_HAIKU
+#    define _DEFAULT_SOURCE
+#  endif
+
 #  if SANITIZER_NETBSD
-#    define _RTLD_SOURCE  // for __lwp_gettcb_fast() / __lwp_getprivate_fast()
+#    // for __lwp_gettcb_fast() / __lwp_getprivate_fast()
+#    define _RTLD_SOURCE
+#    include <machine/mcontext.h>
+#    undef _RTLD_SOURCE
+#    include <sys/param.h>
+#    if __NetBSD_Version__ >= 1099001200
+#      include <machine/lwp_private.h>
+#    endif
 #  endif
 
 #  include <dlfcn.h>  // for dlsym()
@@ -74,18 +85,9 @@ extern "C" int __sys_sigaction(int signum, const struct sigaction *act,
 #    include <thread.h>
 #  endif
 
-#  if SANITIZER_ANDROID
-#    include <android/api-level.h>
-#    if !defined(CPU_COUNT) && !defined(__aarch64__)
-#      include <dirent.h>
-#      include <fcntl.h>
-struct __sanitizer::linux_dirent {
-  long d_ino;
-  off_t d_off;
-  unsigned short d_reclen;
-  char d_name[];
-};
-#    endif
+#  if SANITIZER_HAIKU
+#    include <kernel/OS.h>
+#    include <sys/link_elf.h>
 #  endif
 
 #  if !SANITIZER_ANDROID
@@ -651,6 +653,7 @@ static void GetTls(uptr *addr, uptr *size) {
       *addr = (uptr)tcb->tcb_dtv[1];
     }
   }
+#    elif SANITIZER_HAIKU
 #    else
 #      error "Unknown OS"
 #    endif
@@ -721,8 +724,13 @@ static int AddModuleSegments(const char *module_name, dl_phdr_info *info,
     if (phdr->p_type == PT_LOAD) {
       uptr cur_beg = info->dlpi_addr + phdr->p_vaddr;
       uptr cur_end = cur_beg + phdr->p_memsz;
+#  if SANITIZER_HAIKU
+      bool executable = phdr->p_flags & PF_EXECUTE;
+      bool writable = phdr->p_flags & PF_WRITE;
+#  else
       bool executable = phdr->p_flags & PF_X;
       bool writable = phdr->p_flags & PF_W;
+#  endif
       cur_module.addAddressRange(cur_beg, cur_end, executable, writable);
     } else if (phdr->p_type == PT_NOTE) {
 #  ifdef NT_GNU_BUILD_ID
@@ -774,42 +782,13 @@ static int dl_iterate_phdr_cb(dl_phdr_info *info, size_t size, void *arg) {
   return 0;
 }
 
-static bool requiresProcmaps() {
-#  if SANITIZER_ANDROID && __ANDROID_API__ <= 22
-  // Fall back to /proc/maps if dl_iterate_phdr is unavailable or broken.
-  // The runtime check allows the same library to work with
-  // both K and L (and future) Android releases.
-  return AndroidGetApiLevel() <= ANDROID_LOLLIPOP_MR1;
-#  else
-  return false;
-#  endif
-}
-
-static void procmapsInit(InternalMmapVectorNoCtor<LoadedModule> *modules) {
-  MemoryMappingLayout memory_mapping(/*cache_enabled*/ true);
-  memory_mapping.DumpListOfModules(modules);
-}
-
 void ListOfModules::init() {
   clearOrInit();
-  if (requiresProcmaps()) {
-    procmapsInit(&modules_);
-  } else {
-    DlIteratePhdrData data = {&modules_, true};
-    dl_iterate_phdr(dl_iterate_phdr_cb, &data);
-  }
+  DlIteratePhdrData data = {&modules_, true};
+  dl_iterate_phdr(dl_iterate_phdr_cb, &data);
 }
 
-// When a custom loader is used, dl_iterate_phdr may not contain the full
-// list of modules. Allow callers to fall back to using procmaps.
-void ListOfModules::fallbackInit() {
-  if (!requiresProcmaps()) {
-    clearOrInit();
-    procmapsInit(&modules_);
-  } else {
-    clear();
-  }
-}
+void ListOfModules::fallbackInit() { clear(); }
 
 // getrusage does not give us the current RSS, only the max RSS.
 // Still, this is better than nothing if /proc/self/statm is not available
@@ -855,45 +834,17 @@ u32 GetNumberOfCPUs() {
   int req[2];
   uptr len = sizeof(ncpu);
   req[0] = CTL_HW;
+#    ifdef HW_NCPUONLINE
+  req[1] = HW_NCPUONLINE;
+#    else
   req[1] = HW_NCPU;
+#    endif
   CHECK_EQ(internal_sysctl(req, 2, &ncpu, &len, NULL, 0), 0);
   return ncpu;
-#  elif SANITIZER_ANDROID && !defined(CPU_COUNT) && !defined(__aarch64__)
-  // Fall back to /sys/devices/system/cpu on Android when cpu_set_t doesn't
-  // exist in sched.h. That is the case for toolchains generated with older
-  // NDKs.
-  // This code doesn't work on AArch64 because internal_getdents makes use of
-  // the 64bit getdents syscall, but cpu_set_t seems to always exist on AArch64.
-  uptr fd = internal_open("/sys/devices/system/cpu", O_RDONLY | O_DIRECTORY);
-  if (internal_iserror(fd))
-    return 0;
-  InternalMmapVector<u8> buffer(4096);
-  uptr bytes_read = buffer.size();
-  uptr n_cpus = 0;
-  u8 *d_type;
-  struct linux_dirent *entry = (struct linux_dirent *)&buffer[bytes_read];
-  while (true) {
-    if ((u8 *)entry >= &buffer[bytes_read]) {
-      bytes_read = internal_getdents(fd, (struct linux_dirent *)buffer.data(),
-                                     buffer.size());
-      if (internal_iserror(bytes_read) || !bytes_read)
-        break;
-      entry = (struct linux_dirent *)buffer.data();
-    }
-    d_type = (u8 *)entry + entry->d_reclen - 1;
-    if (d_type >= &buffer[bytes_read] ||
-        (u8 *)&entry->d_name[3] >= &buffer[bytes_read])
-      break;
-    if (entry->d_ino != 0 && *d_type == DT_DIR) {
-      if (entry->d_name[0] == 'c' && entry->d_name[1] == 'p' &&
-          entry->d_name[2] == 'u' && entry->d_name[3] >= '0' &&
-          entry->d_name[3] <= '9')
-        n_cpus++;
-    }
-    entry = (struct linux_dirent *)(((u8 *)entry) + entry->d_reclen);
-  }
-  internal_close(fd);
-  return n_cpus;
+#  elif SANITIZER_HAIKU
+  system_info info;
+  get_system_info(&info);
+  return info.cpu_count;
 #  elif SANITIZER_SOLARIS
   return sysconf(_SC_NPROCESSORS_ONLN);
 #  else

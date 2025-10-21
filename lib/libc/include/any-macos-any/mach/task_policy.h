@@ -121,6 +121,7 @@ typedef enum task_role {
 	TASK_NONUI_APPLICATION          = 6,
 	TASK_DEFAULT_APPLICATION        = 7,
 	TASK_DARWINBG_APPLICATION       = 8,
+	TASK_USER_INIT_APPLICATION      = 9,
 } task_role_t;
 
 struct task_category_policy {

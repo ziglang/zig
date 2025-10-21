@@ -154,16 +154,6 @@ struct if_clonereq {
 
 #define IFQ_MAXLEN      128
 #define IFNET_SLOWHZ    1       /* granularity is 1 second */
-#define IFQ_DEF_C_TARGET_DELAY        (10ULL * 1000 * 1000)   /* 10 ms */
-#define IFQ_DEF_C_UPDATE_INTERVAL     (100ULL * 1000 * 1000)  /* 100 ms */
-#define IFQ_DEF_L4S_TARGET_DELAY        (2ULL * 1000 * 1000)   /* 2 ms */
-#define IFQ_DEF_L4S_WIRELESS_TARGET_DELAY   (15ULL * 1000 * 1000)   /* 15 ms */
-#define IFQ_DEF_L4S_UPDATE_INTERVAL     (100ULL * 1000 * 1000)  /* 100 ms */
-#define IFQ_LL_C_TARGET_DELAY     (10ULL * 1000 * 1000)   /* 10 ms */
-#define IFQ_LL_C_UPDATE_INTERVAL  (100ULL * 1000 * 1000)  /* 100 ms */
-#define IFQ_LL_L4S_TARGET_DELAY     (2ULL * 1000 * 1000)   /* 2 ms */
-#define IFQ_LL_L4S_WIRELESS_TARGET_DELAY   (15ULL * 1000 * 1000)   /* 15 ms */
-#define IFQ_LL_L4S_UPDATE_INTERVAL  (100ULL * 1000 * 1000)  /* 100 ms */
 /*
  * Message format for use in obtaining information about interfaces
  * from sysctl and the routing socket
@@ -332,6 +322,7 @@ struct  ifreq {
 #define IFRTYPE_FUNCTIONAL_LAST                 8
 		u_int8_t ifru_is_directlink;
 		u_int8_t ifru_is_vpn;
+		u_int8_t ifru_is_companionlink;
 	} ifr_ifru;
 #define ifr_addr        ifr_ifru.ifru_addr      /* address */
 #define ifr_dstaddr     ifr_ifru.ifru_dstaddr   /* other end of p-to-p link */

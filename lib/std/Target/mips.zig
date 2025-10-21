@@ -17,6 +17,8 @@ pub const Feature = enum {
     fpxx,
     ginv,
     gp64,
+    i6400,
+    i6500,
     long_calls,
     micromips,
     mips1,
@@ -136,6 +138,22 @@ pub const all_features = blk: {
         .llvm_name = "gp64",
         .description = "General Purpose Registers are 64-bit wide",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.i6400)] = .{
+        .llvm_name = "i6400",
+        .description = "MIPS I6400 Processor",
+        .dependencies = featureSet(&[_]Feature{
+            .mips64r6,
+            .msa,
+        }),
+    };
+    result[@intFromEnum(Feature.i6500)] = .{
+        .llvm_name = "i6500",
+        .description = "MIPS I6500 Processor",
+        .dependencies = featureSet(&[_]Feature{
+            .mips64r6,
+            .msa,
+        }),
     };
     result[@intFromEnum(Feature.long_calls)] = .{
         .llvm_name = "long-calls",
@@ -406,6 +424,20 @@ pub const cpu = struct {
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
             .mips32,
+        }),
+    };
+    pub const @"i6400": CpuModel = .{
+        .name = "i6400",
+        .llvm_name = "i6400",
+        .features = featureSet(&[_]Feature{
+            .i6400,
+        }),
+    };
+    pub const @"i6500": CpuModel = .{
+        .name = "i6500",
+        .llvm_name = "i6500",
+        .features = featureSet(&[_]Feature{
+            .i6500,
         }),
     };
     pub const mips1: CpuModel = .{

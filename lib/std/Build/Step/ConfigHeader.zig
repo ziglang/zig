@@ -2,7 +2,7 @@ const std = @import("std");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const Style = union(enum) {
     /// A configure format supported by autotools that uses `#undef foo` to
@@ -196,7 +196,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     man.hash.addBytes(config_header.include_path);
     man.hash.addOptionalBytes(config_header.include_guard_override);
 
-    var aw: std.io.Writer.Allocating = .init(gpa);
+    var aw: Writer.Allocating = .init(gpa);
     defer aw.deinit();
     const bw = &aw.writer;
 
@@ -208,7 +208,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         .autoconf_undef, .autoconf_at => |file_source| {
             try bw.writeAll(c_generated_line);
             const src_path = file_source.getPath2(b, step);
-            const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
+            const contents = std.fs.cwd().readFileAlloc(src_path, arena, .limited(config_header.max_bytes)) catch |err| {
                 return step.fail("unable to read autoconf input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
@@ -222,7 +222,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         .cmake => |file_source| {
             try bw.writeAll(c_generated_line);
             const src_path = file_source.getPath2(b, step);
-            const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
+            const contents = std.fs.cwd().readFileAlloc(src_path, arena, .limited(config_header.max_bytes)) catch |err| {
                 return step.fail("unable to read cmake input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
@@ -239,7 +239,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         },
     }
 
-    const output = aw.getWritten();
+    const output = aw.written();
     man.hash.addBytes(output);
 
     if (try step.cacheHit(&man)) {
@@ -329,7 +329,7 @@ fn render_autoconf_undef(
 fn render_autoconf_at(
     step: *Step,
     contents: []const u8,
-    aw: *std.io.Writer.Allocating,
+    aw: *Writer.Allocating,
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
@@ -347,10 +347,10 @@ fn render_autoconf_at(
     while (line_it.next()) |line| : (line_index += 1) {
         const last_line = line_it.index == line_it.buffer.len;
 
-        const old_len = aw.getWritten().len;
+        const old_len = aw.written().len;
         expand_variables_autoconf_at(bw, line, values, used) catch |err| switch (err) {
             error.MissingValue => {
-                const name = aw.getWritten()[old_len..];
+                const name = aw.written()[old_len..];
                 defer aw.shrinkRetainingCapacity(old_len);
                 try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                     src_path, line_index + 1, name,
@@ -621,7 +621,7 @@ fn expand_variables_cmake(
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
 ) ![]const u8 {
-    var result: std.ArrayList(u8) = .init(allocator);
+    var result: std.array_list.Managed(u8) = .init(allocator);
     errdefer result.deinit();
 
     const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
@@ -633,7 +633,7 @@ fn expand_variables_cmake(
         source: usize,
         target: usize,
     };
-    var var_stack: std.ArrayList(Position) = .init(allocator);
+    var var_stack: std.array_list.Managed(Position) = .init(allocator);
     defer var_stack.deinit();
     loop: while (curr < contents.len) : (curr += 1) {
         switch (contents[curr]) {
@@ -753,7 +753,7 @@ fn testReplaceVariablesAutoconfAt(
     expected: []const u8,
     values: std.StringArrayHashMap(Value),
 ) !void {
-    var aw: std.io.Writer.Allocating = .init(allocator);
+    var aw: Writer.Allocating = .init(allocator);
     defer aw.deinit();
 
     const used = try allocator.alloc(bool, values.count());
@@ -763,7 +763,7 @@ fn testReplaceVariablesAutoconfAt(
     try expand_variables_autoconf_at(&aw.writer, contents, values, used);
 
     for (used) |u| if (!u) return error.UnusedValue;
-    try std.testing.expectEqualStrings(expected, aw.getWritten());
+    try std.testing.expectEqualStrings(expected, aw.written());
 }
 
 fn testReplaceVariablesCMake(

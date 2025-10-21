@@ -66,7 +66,10 @@ enum ZigLLVMThinOrFullLTOPhase {
 struct ZigLLVMEmitOptions {
     bool is_debug;
     bool is_small;
-    bool time_report;
+    // If not null, and `ZigLLVMTargetMachineEmitToFile` returns `false` indicating success, this
+    // `char *` will be populated with a `malloc`-allocated string containing the serialized (as
+    // JSON) time report data. The caller is responsible for freeing that memory.
+    char **time_report_out;
     bool tsan;
     bool sancov;
     ZigLLVMThinOrFullLTOPhase lto;
@@ -120,8 +123,5 @@ ZIG_EXTERN_C bool ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_earl
 
 ZIG_EXTERN_C bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size_t file_name_count,
     ZigLLVMArchiveKind archive_kind);
-
-ZIG_EXTERN_C bool ZigLLVMWriteImportLibrary(const char *def_path, unsigned int coff_machine,
-    const char *output_lib_path, bool kill_at);
 
 #endif

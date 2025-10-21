@@ -48,6 +48,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .none },
 
+    .{ .cpu_arch = .arm, .os_tag = .@"3ds", .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf },
@@ -69,6 +70,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .arm, .os_tag = .rtems, .abi = .eabihf },
     // .{ .cpu_arch = .arm, .os_tag = .uefi, .abi = .eabi },
     // .{ .cpu_arch = .arm, .os_tag = .uefi, .abi = .eabihf },
+    .{ .cpu_arch = .arm, .os_tag = .vita, .abi = .eabihf },
 
     .{ .cpu_arch = .armeb, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .armeb, .os_tag = .freestanding, .abi = .eabihf },
@@ -216,6 +218,8 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv32, .os_tag = .rtems, .abi = .none },
     // .{ .cpu_arch = .riscv32, .os_tag = .uefi, .abi = .none },
 
+    // .{ .cpu_arch = .riscv32be, .os_tag = .freestanding, .abi = .none },
+
     .{ .cpu_arch = .riscv64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .fuchsia, .abi = .none },
@@ -229,6 +233,8 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv64, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .serenity, .abi = .none },
     // .{ .cpu_arch = .riscv64, .os_tag = .uefi, .abi = .none },
+
+    // .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none },
 
     .{ .cpu_arch = .s390x, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },
@@ -258,6 +264,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .thumb, .os_tag = .linux, .abi = .musleabihf },
     .{ .cpu_arch = .thumb, .os_tag = .rtems, .abi = .eabi },
     .{ .cpu_arch = .thumb, .os_tag = .rtems, .abi = .eabihf },
+    .{ .cpu_arch = .thumb, .os_tag = .vita, .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .windows, .abi = .gnu },
     .{ .cpu_arch = .thumb, .os_tag = .windows, .abi = .itanium },
     .{ .cpu_arch = .thumb, .os_tag = .windows, .abi = .msvc },

@@ -1,13 +1,11 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
 const panic = std.debug.panic;
 const assert = debug.assert;
 const log = std.log;
-const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const Target = std.Target;
@@ -16,12 +14,15 @@ const EnvMap = std.process.EnvMap;
 const File = fs.File;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
+const ArrayList = std.ArrayList;
 
 pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
 pub const Watch = @import("Build/Watch.zig");
 pub const Fuzz = @import("Build/Fuzz.zig");
+pub const WebServer = @import("Build/WebServer.zig");
+pub const abi = @import("Build/abi.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
@@ -30,7 +31,7 @@ uninstall_tls: TopLevelStep,
 allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
-available_options_list: ArrayList(AvailableOption),
+available_options_list: std.array_list.Managed(AvailableOption),
 verbose: bool,
 verbose_link: bool,
 verbose_cc: bool,
@@ -50,7 +51,7 @@ exe_dir: []const u8,
 h_dir: []const u8,
 install_path: []const u8,
 sysroot: ?[]const u8 = null,
-search_prefixes: std.ArrayListUnmanaged([]const u8),
+search_prefixes: ArrayList([]const u8),
 libc_file: ?[]const u8 = null,
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
@@ -125,6 +126,7 @@ pub const Graph = struct {
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
+    time_report: bool,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -217,10 +219,10 @@ const UserInputOption = struct {
 const UserValue = union(enum) {
     flag: void,
     scalar: []const u8,
-    list: ArrayList([]const u8),
+    list: std.array_list.Managed([]const u8),
     map: StringHashMap(*const UserValue),
     lazy_path: LazyPath,
-    lazy_path_list: ArrayList(LazyPath),
+    lazy_path_list: std.array_list.Managed(LazyPath),
 };
 
 const TypeId = enum {
@@ -274,10 +276,10 @@ pub fn create(
         .allocator = arena,
         .user_input_options = UserInputOptionsMap.init(arena),
         .available_options_map = AvailableOptionsMap.init(arena),
-        .available_options_list = ArrayList(AvailableOption).init(arena),
+        .available_options_list = std.array_list.Managed(AvailableOption).init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
-        .search_prefixes = .{},
+        .search_prefixes = .empty,
         .install_prefix = undefined,
         .lib_dir = undefined,
         .exe_dir = undefined,
@@ -360,7 +362,7 @@ fn createChildOnly(
         },
         .user_input_options = user_input_options,
         .available_options_map = AvailableOptionsMap.init(allocator),
-        .available_options_list = ArrayList(AvailableOption).init(allocator),
+        .available_options_list = std.array_list.Managed(AvailableOption).init(allocator),
         .verbose = parent.verbose,
         .verbose_link = parent.verbose_link,
         .verbose_cc = parent.verbose_cc,
@@ -465,7 +467,7 @@ fn addUserInputOptionFromArg(
             }) catch @panic("OOM");
         },
         []const LazyPath => return if (maybe_value) |v| {
-            var list = ArrayList(LazyPath).initCapacity(arena, v.len) catch @panic("OOM");
+            var list = std.array_list.Managed(LazyPath).initCapacity(arena, v.len) catch @panic("OOM");
             for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(arena));
             map.put(field.name, .{
                 .name = field.name,
@@ -481,7 +483,7 @@ fn addUserInputOptionFromArg(
             }) catch @panic("OOM");
         },
         []const []const u8 => return if (maybe_value) |v| {
-            var list = ArrayList([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
+            var list = std.array_list.Managed([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
             for (v) |s| list.appendAssumeCapacity(arena.dupe(u8, s) catch @panic("OOM"));
             map.put(field.name, .{
                 .name = field.name,
@@ -539,7 +541,7 @@ fn addUserInputOptionFromArg(
                 },
                 .slice => switch (@typeInfo(ptr_info.child)) {
                     .@"enum" => return if (maybe_value) |v| {
-                        var list = ArrayList([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
+                        var list = std.array_list.Managed([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
                         for (v) |tag| list.appendAssumeCapacity(@tagName(tag));
                         map.put(field.name, .{
                             .name = field.name,
@@ -586,10 +588,10 @@ fn addUserInputOptionFromArg(
 const OrderedUserValue = union(enum) {
     flag: void,
     scalar: []const u8,
-    list: ArrayList([]const u8),
-    map: ArrayList(Pair),
+    list: std.array_list.Managed([]const u8),
+    map: std.array_list.Managed(Pair),
     lazy_path: LazyPath,
-    lazy_path_list: ArrayList(LazyPath),
+    lazy_path_list: std.array_list.Managed(LazyPath),
 
     const Pair = struct {
         name: []const u8,
@@ -639,8 +641,8 @@ const OrderedUserValue = union(enum) {
         }
     }
 
-    fn mapFromUnordered(allocator: Allocator, unordered: std.StringHashMap(*const UserValue)) ArrayList(Pair) {
-        var ordered = ArrayList(Pair).init(allocator);
+    fn mapFromUnordered(allocator: Allocator, unordered: std.StringHashMap(*const UserValue)) std.array_list.Managed(Pair) {
+        var ordered = std.array_list.Managed(Pair).init(allocator);
         var it = unordered.iterator();
         while (it.next()) |entry| {
             ordered.append(.{
@@ -691,7 +693,7 @@ const OrderedUserInputOption = struct {
 // The hash should be consistent with the same values given a different order.
 // This function takes a user input map, orders it, then hashes the contents.
 fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOptionsMap, hasher: *std.hash.Wyhash) void {
-    var ordered = ArrayList(OrderedUserInputOption).init(allocator);
+    var ordered = std.array_list.Managed(OrderedUserInputOption).init(allocator);
     var it = user_input_options.iterator();
     while (it.next()) |entry|
         ordered.append(OrderedUserInputOption.fromUnordered(allocator, entry.value_ptr.*)) catch @panic("OOM");
@@ -954,8 +956,37 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
             run_step.addArtifactArg(exe);
         }
 
-        const test_server_mode = if (exe.test_runner) |r| r.mode == .server else true;
-        if (test_server_mode) run_step.enableTestRunnerMode();
+        const test_server_mode: bool = s: {
+            if (exe.test_runner) |r| break :s r.mode == .server;
+            if (exe.use_llvm == false) {
+                // The default test runner does not use the server protocol if the selected backend
+                // is too immature to support it. Keep this logic in sync with `need_simple` in the
+                // default test runner implementation.
+                switch (exe.rootModuleTarget().cpu.arch) {
+                    // stage2_aarch64
+                    .aarch64,
+                    .aarch64_be,
+                    // stage2_powerpc
+                    .powerpc,
+                    .powerpcle,
+                    .powerpc64,
+                    .powerpc64le,
+                    // stage2_riscv64
+                    .riscv64,
+                    => break :s false,
+
+                    else => {},
+                }
+            }
+            break :s true;
+        };
+        if (test_server_mode) {
+            run_step.enableTestRunnerMode();
+        } else if (exe.test_runner == null) {
+            // If a test runner does not use the `std.zig.Server` protocol, it can instead
+            // communicate failure via its exit code.
+            run_step.expectExitCode(0);
+        }
     } else {
         run_step.addArtifactArg(exe);
     }
@@ -1083,7 +1114,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
         const EnumType = if (type_id == .enum_list) @typeInfo(T).pointer.child else T;
         const fields = comptime std.meta.fields(EnumType);
-        var options = ArrayList([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
+        var options = std.array_list.Managed([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
 
         inline for (fields) |field| {
             options.appendAssumeCapacity(field.name);
@@ -1485,7 +1516,7 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
     switch (gop.value_ptr.value) {
         .scalar => |s| {
             // turn it into a list
-            var list = ArrayList([]const u8).init(b.allocator);
+            var list = std.array_list.Managed([]const u8).init(b.allocator);
             try list.append(s);
             try list.append(value);
             try b.user_input_options.put(name, .{
@@ -1590,20 +1621,6 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
     }
 
     return b.invalid_user_input;
-}
-
-fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
-    for (argv) |arg| {
-        try buf.print(gpa, "{s} ", .{arg});
-    }
-    return buf.toOwnedSlice(gpa);
-}
-
-fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
-    const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
-    std.debug.print("{s}\n", .{text});
 }
 
 /// This creates the install step and adds it to the dependencies of the
@@ -1827,7 +1844,8 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    const stdout = child.stdout.?.deprecatedReader().readAllAlloc(b.allocator, max_output_size) catch {
+    var stdout_reader = child.stdout.?.readerStreaming(&.{});
+    const stdout = stdout_reader.interface.allocRemaining(b.allocator, .limited(max_output_size)) catch {
         return error.ReadFailure;
     };
     errdefer b.allocator.free(stdout);
@@ -1854,14 +1872,14 @@ pub fn runAllowFail(
 pub fn run(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
-            try allocPrintCmd(b.allocator, null, argv),
+            try Step.allocPrintCmd(b.allocator, null, argv),
         });
         process.exit(1);
     }
 
     var code: u8 = undefined;
     return b.runAllowFail(argv, &code, .Inherit) catch |err| {
-        const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
+        const printed_cmd = Step.allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
         std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
             @errorName(err), printed_cmd,
         });
@@ -2192,7 +2210,7 @@ fn dependencyInner(
         sub_builder.runBuild(bz) catch @panic("unhandled error");
 
         if (sub_builder.validateUserInputDidItFail()) {
-            std.debug.dumpCurrentStackTrace(@returnAddress());
+            std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
         }
     }
 
@@ -2521,7 +2539,10 @@ pub const LazyPath = union(enum) {
                 .up = gen.up,
                 .sub_path = dupePathInner(allocator, gen.sub_path),
             } },
-            .dependency => |dep| .{ .dependency = dep },
+            .dependency => |dep| .{ .dependency = .{
+                .dependency = dep.dependency,
+                .sub_path = dupePathInner(allocator, dep.sub_path),
+            } },
         };
     }
 };
@@ -2537,7 +2558,7 @@ fn dumpBadDirnameHelp(
 
     try w.print(msg, args);
 
-    const tty_config = std.io.tty.detectConfig(.stderr());
+    const tty_config = std.Io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
@@ -2563,8 +2584,8 @@ fn dumpBadDirnameHelp(
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
     s: *Step,
-    w: *std.io.Writer,
-    tty_config: std.io.tty.Config,
+    w: *std.Io.Writer,
+    tty_config: std.Io.tty.Config,
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {

@@ -164,7 +164,7 @@ pub const Language = packed struct(u16) {
         return @bitCast(self);
     }
 
-    pub fn format(language: Language, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(language: Language, w: *std.Io.Writer) std.Io.Writer.Error!void {
         const language_id = language.asInt();
         const language_name = language_name: {
             if (std.enums.fromInt(lang.LanguageId, language_id)) |lang_enum_val| {
@@ -258,7 +258,7 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    pub fn write(self: NameOrOrdinal, writer: anytype) !void {
+    pub fn write(self: NameOrOrdinal, writer: *std.Io.Writer) !void {
         switch (self) {
             .name => |name| {
                 try writer.writeAll(std.mem.sliceAsBytes(name[0 .. name.len + 1]));
@@ -270,7 +270,7 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    pub fn writeEmpty(writer: anytype) !void {
+    pub fn writeEmpty(writer: *std.Io.Writer) !void {
         try writer.writeInt(u16, 0, .little);
     }
 
@@ -284,7 +284,7 @@ pub const NameOrOrdinal = union(enum) {
     pub fn nameFromString(allocator: Allocator, bytes: SourceBytes) !NameOrOrdinal {
         // Names have a limit of 256 UTF-16 code units + null terminator
         var buf = try std.ArrayList(u16).initCapacity(allocator, @min(257, bytes.slice.len));
-        errdefer buf.deinit();
+        errdefer buf.deinit(allocator);
 
         var i: usize = 0;
         while (bytes.code_page.codepointAt(i, bytes.slice)) |codepoint| : (i += codepoint.byte_len) {
@@ -292,27 +292,27 @@ pub const NameOrOrdinal = union(enum) {
 
             const c = codepoint.value;
             if (c == Codepoint.invalid) {
-                try buf.append(std.mem.nativeToLittle(u16, '�'));
+                try buf.append(allocator, std.mem.nativeToLittle(u16, '�'));
             } else if (c < 0x7F) {
                 // ASCII chars in names are always converted to uppercase
-                try buf.append(std.mem.nativeToLittle(u16, std.ascii.toUpper(@intCast(c))));
+                try buf.append(allocator, std.mem.nativeToLittle(u16, std.ascii.toUpper(@intCast(c))));
             } else if (c < 0x10000) {
                 const short: u16 = @intCast(c);
-                try buf.append(std.mem.nativeToLittle(u16, short));
+                try buf.append(allocator, std.mem.nativeToLittle(u16, short));
             } else {
                 const high = @as(u16, @intCast((c - 0x10000) >> 10)) + 0xD800;
-                try buf.append(std.mem.nativeToLittle(u16, high));
+                try buf.append(allocator, std.mem.nativeToLittle(u16, high));
 
                 // Note: This can cut-off in the middle of a UTF-16 surrogate pair,
                 //       i.e. it can make the string end with an unpaired high surrogate
                 if (buf.items.len == 256) break;
 
                 const low = @as(u16, @intCast(c & 0x3FF)) + 0xDC00;
-                try buf.append(std.mem.nativeToLittle(u16, low));
+                try buf.append(allocator, std.mem.nativeToLittle(u16, low));
             }
         }
 
-        return NameOrOrdinal{ .name = try buf.toOwnedSliceSentinel(0) };
+        return NameOrOrdinal{ .name = try buf.toOwnedSliceSentinel(allocator, 0) };
     }
 
     /// Returns `null` if the bytes do not form a valid number.
@@ -439,7 +439,7 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    pub fn format(self: NameOrOrdinal, w: *std.io.Writer) !void {
+    pub fn format(self: NameOrOrdinal, w: *std.Io.Writer) !void {
         switch (self) {
             .name => |name| {
                 try w.print("{f}", .{std.unicode.fmtUtf16Le(name)});
@@ -450,7 +450,7 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    fn formatResourceType(self: NameOrOrdinal, w: *std.io.Writer) std.io.Writer.Error!void {
+    fn formatResourceType(self: NameOrOrdinal, w: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self) {
             .name => |name| {
                 try w.print("{f}", .{std.unicode.fmtUtf16Le(name)});
@@ -465,7 +465,7 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    pub fn fmtResourceType(type_value: NameOrOrdinal) std.fmt.Formatter(NameOrOrdinal, formatResourceType) {
+    pub fn fmtResourceType(type_value: NameOrOrdinal) std.fmt.Alt(NameOrOrdinal, formatResourceType) {
         return .{ .data = type_value };
     }
 };
@@ -1079,7 +1079,7 @@ pub const FixedFileInfo = struct {
         }
     };
 
-    pub fn write(self: FixedFileInfo, writer: anytype) !void {
+    pub fn write(self: FixedFileInfo, writer: *std.Io.Writer) !void {
         try writer.writeInt(u32, signature, .little);
         try writer.writeInt(u32, version, .little);
         try writer.writeInt(u32, self.file_version.mostSignificantCombinedParts(), .little);

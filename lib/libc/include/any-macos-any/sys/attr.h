@@ -50,9 +50,10 @@
 #define FSOPT_PACK_INVAL_ATTRS  0x00000008
 
 
-#define FSOPT_ATTR_CMN_EXTENDED 0x00000020
+#define FSOPT_ATTR_CMN_EXTENDED  0x00000020
 #define FSOPT_RETURN_REALDEV     0x00000200
 #define FSOPT_NOFOLLOW_ANY       0x00000800
+#define FSOPT_RESOLVE_BENEATH    0x00001000
 
 /* we currently aren't anywhere near this amount for a valid
  * fssearchblock.sizeofsearchparams1 or fssearchblock.sizeofsearchparams2
@@ -369,6 +370,9 @@ typedef struct vol_capabilities_attr {
  *
  * VOL_CAP_INT_PUNCHHOLE: When set, the volume supports the F_PUNCHHOLE
  * fcntl.
+ *
+ * VOL_CAP_INT_BARRIERFSYNC: When set, the volume supports the F_BARRIERFSYNC
+ * fcntl.
  */
 #define VOL_CAP_INT_SEARCHFS                    0x00000001
 #define VOL_CAP_INT_ATTRLIST                    0x00000002
@@ -393,6 +397,7 @@ typedef struct vol_capabilities_attr {
 #define VOL_CAP_INT_RENAME_SECLUDE              0x00200000
 #define VOL_CAP_INT_ATTRIBUTION_TAG             0x00400000
 #define VOL_CAP_INT_PUNCHHOLE                   0x00800000
+#define VOL_CAP_INT_BARRIERFSYNC                0x01000000
 
 typedef struct vol_attributes_attr {
 	attribute_set_t validattr;

@@ -58,8 +58,8 @@ const Value = extern struct {
         }
 
         return switch (size) {
-            64 => @as(*const u64, @alignCast(@ptrCast(value.handle))).*,
-            128 => @as(*const u128, @alignCast(@ptrCast(value.handle))).*,
+            64 => @as(*const u64, @ptrCast(@alignCast(value.handle))).*,
+            128 => @as(*const u128, @ptrCast(@alignCast(value.handle))).*,
             else => @trap(),
         };
     }
@@ -74,8 +74,8 @@ const Value = extern struct {
             return (handle << extra_bits) >> extra_bits;
         }
         return switch (size) {
-            64 => @as(*const i64, @alignCast(@ptrCast(value.handle))).*,
-            128 => @as(*const i128, @alignCast(@ptrCast(value.handle))).*,
+            64 => @as(*const i64, @ptrCast(@alignCast(value.handle))).*,
+            128 => @as(*const i128, @ptrCast(@alignCast(value.handle))).*,
             else => @trap(),
         };
     }
@@ -92,9 +92,9 @@ const Value = extern struct {
             }, @bitCast(@intFromPtr(value.handle)));
         }
         return @floatCast(switch (size) {
-            64 => @as(*const f64, @alignCast(@ptrCast(value.handle))).*,
-            80 => @as(*const f80, @alignCast(@ptrCast(value.handle))).*,
-            128 => @as(*const f128, @alignCast(@ptrCast(value.handle))).*,
+            64 => @as(*const f64, @ptrCast(@alignCast(value.handle))).*,
+            80 => @as(*const f80, @ptrCast(@alignCast(value.handle))).*,
+            128 => @as(*const f128, @ptrCast(@alignCast(value.handle))).*,
             else => @trap(),
         });
     }
@@ -119,13 +119,7 @@ const Value = extern struct {
         }
     }
 
-    pub fn format(value: Value, writer: *std.io.Writer) std.io.Writer.Error!void {
-        // Work around x86_64 backend limitation.
-        if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
-            try writer.writeAll("(unknown)");
-            return;
-        }
-
+    pub fn format(value: Value, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (value.td.kind) {
             .integer => {
                 if (value.td.isSigned()) {
@@ -624,10 +618,11 @@ fn exportHandler(
     handler: anytype,
     comptime sym_name: []const u8,
 ) void {
-    // Work around x86_64 backend limitation.
-    const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
-    const N = "__ubsan_handle_" ++ sym_name;
-    @export(handler, .{ .name = N, .linkage = linkage });
+    @export(handler, .{
+        .name = "__ubsan_handle_" ++ sym_name,
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
 }
 
 fn exportHandlerWithAbort(
@@ -635,16 +630,16 @@ fn exportHandlerWithAbort(
     abort_handler: anytype,
     comptime sym_name: []const u8,
 ) void {
-    // Work around x86_64 backend limitation.
-    const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
-    {
-        const N = "__ubsan_handle_" ++ sym_name;
-        @export(handler, .{ .name = N, .linkage = linkage });
-    }
-    {
-        const N = "__ubsan_handle_" ++ sym_name ++ "_abort";
-        @export(abort_handler, .{ .name = N, .linkage = linkage });
-    }
+    @export(handler, .{
+        .name = "__ubsan_handle_" ++ sym_name,
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
+    @export(abort_handler, .{
+        .name = "__ubsan_handle_" ++ sym_name ++ "_abort",
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
 }
 
 const can_build_ubsan = switch (builtin.zig_backend) {

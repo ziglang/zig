@@ -1912,7 +1912,7 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
                 -0x1,
             });
             try testArgs(@Vector(2, i1), .{
-                0x0, 0x00,
+                0x0, 0x0,
             }, .{
                 -0x1, -0x1,
             });
@@ -5172,15 +5172,6 @@ test mulSaturate {
     try test_mul_saturate.testIntVectors();
 }
 
-inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) Type {
-    return lhs * rhs;
-}
-test multiply {
-    const test_multiply = binary(multiply, .{});
-    try test_multiply.testFloats();
-    try test_multiply.testFloatVectors();
-}
-
 inline fn divide(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs / rhs;
 }
@@ -5264,7 +5255,8 @@ inline fn mod(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @mod(lhs, rhs);
 }
 test mod {
-    if (@import("builtin").object_format == .coff) return error.SkipZigTest;
+    const builtin = @import("builtin");
+    if (builtin.object_format == .coff and builtin.abi != .gnu) return error.SkipZigTest;
     const test_mod = binary(mod, .{});
     try test_mod.testInts();
     try test_mod.testIntVectors();
@@ -5473,8 +5465,6 @@ inline fn shlSaturate(comptime Type: type, lhs: Type, rhs: Type) Type {
         // workaround https://github.com/ziglang/zig/issues/23139
         return lhs <<| @min(@abs(rhs), splat(ChangeScalar(Type, u64), imax(u64)));
     }
-    // workaround https://github.com/ziglang/zig/issues/23033
-    @setRuntimeSafety(false);
     return lhs <<| @abs(rhs);
 }
 test shlSaturate {

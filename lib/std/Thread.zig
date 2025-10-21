@@ -83,10 +83,9 @@ pub fn sleep(nanoseconds: u64) void {
                     req = rem;
                     continue;
                 },
-                .FAULT,
-                .INVAL,
-                .OPNOTSUPP,
-                => unreachable,
+                .FAULT => unreachable,
+                .INVAL => unreachable,
+                .OPNOTSUPP => unreachable,
                 else => return,
             }
         }
@@ -167,7 +166,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
             defer file.close();
 
-            try file.deprecatedWriter().writeAll(name);
+            try file.writeAll(name);
             return;
         },
         .windows => {
@@ -251,7 +250,7 @@ pub const GetNameError = error{
     Unexpected,
 } || posix.PrctlError || posix.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
@@ -281,8 +280,10 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
-            const data_len = try file.deprecatedReader().readAll(buffer_ptr[0 .. max_name_len + 1]);
-
+            var file_reader = file.readerStreaming(&.{});
+            const data_len = file_reader.interface.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
+                error.ReadFailed => return file_reader.err.?,
+            };
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
         },
         .windows => {
@@ -529,7 +530,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
                     @call(.auto, f, args) catch |err| {
                         std.debug.print("error: {s}\n", .{@errorName(err)});
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
                     };
 
@@ -761,7 +762,7 @@ const PosixThreadImpl = struct {
                 var count_len: usize = @sizeOf(c_int);
                 const name = if (comptime target.os.tag.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
                 posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong, error.UnknownName => unreachable,
+                    error.UnknownName => unreachable,
                     else => |e| return e,
                 };
                 return @as(usize, @intCast(count));
@@ -1190,12 +1191,22 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
-                .x86_64 => asm volatile (
-                    \\  movq $11, %%rax # SYS_munmap
-                    \\  syscall
-                    \\  movq $60, %%rax # SYS_exit
-                    \\  movq $1, %%rdi
-                    \\  syscall
+                .x86_64 => asm volatile (switch (target.abi) {
+                        .gnux32, .muslx32 =>
+                        \\  movl $0x4000000b, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $0x4000003c, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                        else =>
+                        \\  movl $11, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $60, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                    }
                     :
                     : [ptr] "{rdi}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{rsi}" (self.mapped.len),
@@ -1241,26 +1252,50 @@ const LinuxThreadImpl = struct {
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
                 // 7928eb0370d1133d0d8cd2f5ddfca19c309079d5.
                 .mips, .mipsel => asm volatile (
-                    \\  move $sp, $25
-                    \\  li $2, 4091 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 4001 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                    \\ move $sp, $t9
+                    \\ li $v0, 4091 # SYS_munmap
+                    \\ move $a0, %[ptr]
+                    \\ move $a1, %[len]
+                    \\ syscall
+                    \\ li $v0, 4001 # SYS_exit
+                    \\ li $a0, 0
+                    \\ syscall
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
-                .mips64, .mips64el => asm volatile (
-                    \\  li $2, 5011 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 5058 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                .mips64, .mips64el => asm volatile (switch (target.abi) {
+                        .gnuabin32, .muslabin32 =>
+                        \\ li $v0, 6011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 6058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                        else =>
+                        \\ li $v0, 5011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 5058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                    }
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
+                .or1k => asm volatile (
+                    \\ l.ori r11, r0, 215 # SYS_munmap
+                    \\ l.ori r3, %[ptr]
+                    \\ l.ori r4, %[len]
+                    \\ l.sys 1
+                    \\ l.ori r11, r0, 93 # SYS_exit
+                    \\ l.ori r3, r0, r0
+                    \\ l.sys 1
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
@@ -1635,4 +1670,41 @@ test detach {
 
     event.wait();
     try std.testing.expectEqual(value, 1);
+}
+
+test "Thread.getCpuCount" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    const cpu_count = try Thread.getCpuCount();
+    try std.testing.expect(cpu_count >= 1);
+}
+
+fn testThreadIdFn(thread_id: *Thread.Id) void {
+    thread_id.* = Thread.getCurrentId();
+}
+
+test "Thread.getCurrentId" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    var thread_current_id: Thread.Id = undefined;
+    const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
+    thread.join();
+    try std.testing.expect(Thread.getCurrentId() != thread_current_id);
+}
+
+test "thread local storage" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    const thread1 = try Thread.spawn(.{}, testTls, .{});
+    const thread2 = try Thread.spawn(.{}, testTls, .{});
+    try testTls();
+    thread1.join();
+    thread2.join();
+}
+
+threadlocal var x: i32 = 1234;
+fn testTls() !void {
+    if (x != 1234) return error.TlsBadStartValue;
+    x += 1;
+    if (x != 1235) return error.TlsBadEndValue;
 }

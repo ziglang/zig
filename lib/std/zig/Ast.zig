@@ -204,7 +204,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
 /// `gpa` is used for allocating the resulting formatted source code.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
 pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
-    var aw: std.io.Writer.Allocating = .init(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     render(tree, gpa, &aw.writer, .{}) catch |err| switch (err) {
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
@@ -3361,7 +3361,7 @@ pub const Node = struct {
         /// The `main_token` might be a ** token, which is shared with a
         /// parent/child pointer type and may require special handling.
         ptr_type_sentinel,
-        /// The `data` field is a `.opt_node_and_node`:
+        /// The `data` field is a `.extra_and_node`:
         ///   1. a `ExtraIndex` to `PtrType`.
         ///   2. a `Node.Index` to the element type expression.
         ///
@@ -3370,7 +3370,7 @@ pub const Node = struct {
         /// The `main_token` might be a ** token, which is shared with a
         /// parent/child pointer type and may require special handling.
         ptr_type,
-        /// The `data` field is a `.opt_node_and_node`:
+        /// The `data` field is a `.extra_and_node`:
         ///   1. a `ExtraIndex` to `PtrTypeBitRange`.
         ///   2. a `Node.Index` to the element type expression.
         ///

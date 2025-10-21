@@ -699,7 +699,7 @@ pub fn main() anyerror!void {
     defer parsed.deinit();
     const root_map = &parsed.value.object;
 
-    var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
+    var all_objects = std.array_list.Managed(*json.ObjectMap).init(allocator);
     {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {
@@ -965,7 +965,7 @@ fn printUsageAndExit(arg0: []const u8) noreturn {
     std.process.exit(1);
 }
 
-fn printUsage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     try w.print(
         \\Usage: {s} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project

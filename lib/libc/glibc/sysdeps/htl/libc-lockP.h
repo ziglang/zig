@@ -75,7 +75,6 @@
 
 extern int __pthread_mutex_init (pthread_mutex_t *__mutex,
 				 const pthread_mutexattr_t *__mutex_attr);
-
 extern int __pthread_mutex_destroy (pthread_mutex_t *__mutex);
 libc_hidden_proto (__pthread_mutex_destroy)
 
@@ -91,75 +90,47 @@ libc_hidden_proto (__pthread_mutexattr_init)
 extern int __pthread_mutexattr_destroy (pthread_mutexattr_t *__attr);
 libc_hidden_proto (__pthread_mutexattr_destroy)
 
-extern int __pthread_mutexattr_settype (pthread_mutexattr_t *__attr,
-					int __kind);
-
 extern int __pthread_rwlock_init (pthread_rwlock_t *__rwlock,
 				  const pthread_rwlockattr_t *__attr);
+libc_hidden_proto (__pthread_rwlock_init)
 
 extern int __pthread_rwlock_destroy (pthread_rwlock_t *__rwlock);
+libc_hidden_proto (__pthread_rwlock_destroy)
 
 extern int __pthread_rwlock_rdlock (pthread_rwlock_t *__rwlock);
+libc_hidden_proto (__pthread_rwlock_rdlock)
 
 extern int __pthread_rwlock_tryrdlock (pthread_rwlock_t *__rwlock);
+libc_hidden_proto (__pthread_rwlock_tryrdlock)
 
 extern int __pthread_rwlock_wrlock (pthread_rwlock_t *__rwlock);
+libc_hidden_proto (__pthread_rwlock_wrlock)
 
 extern int __pthread_rwlock_trywrlock (pthread_rwlock_t *__rwlock);
+libc_hidden_proto (__pthread_rwlock_trywrlock)
 
 extern int __pthread_rwlock_unlock (pthread_rwlock_t *__rwlock);
+libc_hidden_proto (__pthread_rwlock_unlock)
 
 extern int __pthread_once (pthread_once_t *__once_control,
 			   void (*__init_routine) (void));
+libc_hidden_proto (__pthread_once);
 
 extern int __pthread_atfork (void (*__prepare) (void),
 			     void (*__parent) (void),
 			     void (*__child) (void));
 
+extern int __pthread_setcancelstate (int state, int *oldstate);
+libc_hidden_proto (__pthread_setcancelstate)
 /* Make the pthread functions weak so that we can elide them from
    single-threaded processes.  */
 #if !defined(__NO_WEAK_PTHREAD_ALIASES) && !IS_IN (libpthread)
 # ifdef weak_extern
-weak_extern (__pthread_mutex_init)
-weak_extern (__pthread_mutex_destroy)
-weak_extern (__pthread_mutex_lock)
-weak_extern (__pthread_mutex_trylock)
-weak_extern (__pthread_mutex_unlock)
-weak_extern (__pthread_mutexattr_settype)
-weak_extern (__pthread_rwlock_init)
-weak_extern (__pthread_rwlock_destroy)
-weak_extern (__pthread_rwlock_rdlock)
-weak_extern (__pthread_rwlock_tryrdlock)
-weak_extern (__pthread_rwlock_wrlock)
-weak_extern (__pthread_rwlock_trywrlock)
-weak_extern (__pthread_rwlock_unlock)
-weak_extern (__pthread_key_create)
-weak_extern (__pthread_setspecific)
-weak_extern (__pthread_getspecific)
-weak_extern (__pthread_once)
 weak_extern (__pthread_initialize)
 weak_extern (__pthread_atfork)
-weak_extern (__pthread_setcancelstate)
 # else
-#  pragma weak __pthread_mutex_init
-#  pragma weak __pthread_mutex_destroy
-#  pragma weak __pthread_mutex_lock
-#  pragma weak __pthread_mutex_trylock
-#  pragma weak __pthread_mutex_unlock
-#  pragma weak __pthread_mutexattr_settype
-#  pragma weak __pthread_rwlock_destroy
-#  pragma weak __pthread_rwlock_rdlock
-#  pragma weak __pthread_rwlock_tryrdlock
-#  pragma weak __pthread_rwlock_wrlock
-#  pragma weak __pthread_rwlock_trywrlock
-#  pragma weak __pthread_rwlock_unlock
-#  pragma weak __pthread_key_create
-#  pragma weak __pthread_setspecific
-#  pragma weak __pthread_getspecific
-#  pragma weak __pthread_once
 #  pragma weak __pthread_initialize
 #  pragma weak __pthread_atfork
-#  pragma weak __pthread_setcancelstate
 # endif
 #endif
 

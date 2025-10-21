@@ -3,7 +3,6 @@
 const builtin = @import("builtin");
 
 const std = @import("std.zig");
-const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -12,7 +11,7 @@ const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const float = @import("fmt/float.zig");
 
@@ -28,9 +27,6 @@ pub const Case = enum { lower, upper };
 
 const default_alignment = .right;
 const default_fill_char = ' ';
-
-/// Deprecated in favor of `Options`.
-pub const FormatOptions = Options;
 
 pub const Options = struct {
     precision: ?usize = null,
@@ -77,14 +73,6 @@ pub const Number = struct {
         }
     };
 };
-
-/// Deprecated in favor of `Writer.print`.
-pub fn format(writer: anytype, comptime fmt: []const u8, args: anytype) !void {
-    var adapter = writer.adaptToNewApi();
-    return adapter.new_interface.print(fmt, args) catch |err| switch (err) {
-        error.WriteFailed => return adapter.err.?,
-    };
-}
 
 pub const Placeholder = struct {
     specifier_arg: []const u8,
@@ -275,9 +263,6 @@ pub fn digits2(value: u8) [2]u8 {
     }
 }
 
-/// Deprecated in favor of `Alt`.
-pub const Formatter = Alt;
-
 /// Creates a type suitable for instantiating and passing to a "{f}" placeholder.
 pub fn Alt(
     comptime Data: type,
@@ -295,7 +280,7 @@ pub fn Alt(
 pub fn alt(
     context: anytype,
     comptime func_name: @TypeOf(.enum_literal),
-) Formatter(@TypeOf(context), @field(@TypeOf(context), @tagName(func_name))) {
+) Alt(@TypeOf(context), @field(@TypeOf(context), @tagName(func_name))) {
     return .{ .data = context };
 }
 
@@ -608,7 +593,7 @@ pub const BufPrintError = error{
     NoSpaceLeft,
 };
 
-/// Print a Formatter string into `buf`. Returns a slice of the bytes printed.
+/// Print a format string into `buf`. Returns a slice of the bytes printed.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var w: Writer = .fixed(buf);
     w.print(fmt, args) catch |err| switch (err) {
@@ -617,9 +602,19 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
     return w.buffered();
 }
 
+/// Deprecated in favor of `bufPrintSentinel`
 pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
-    const result = try bufPrint(buf, fmt ++ "\x00", args);
-    return result[0 .. result.len - 1 :0];
+    return try bufPrintSentinel(buf, fmt, args, 0);
+}
+
+pub fn bufPrintSentinel(
+    buf: []u8,
+    comptime fmt: []const u8,
+    args: anytype,
+    comptime sentinel: u8,
+) BufPrintError![:sentinel]u8 {
+    const result = try bufPrint(buf, fmt ++ [_]u8{sentinel}, args);
+    return result[0 .. result.len - 1 :sentinel];
 }
 
 /// Count the characters needed for format.
@@ -1101,6 +1096,8 @@ test "float.libc.sanity" {
 }
 
 test "union" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     const TU = union(enum) {
         float: f32,
         int: u32,
@@ -1223,12 +1220,6 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
-    if (builtin.target.cpu.arch == .riscv64) {
-        // https://github.com/ziglang/zig/issues/4486
-        return error.SkipZigTest;
-    }
-
     const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
     const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
     const vu64: @Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };

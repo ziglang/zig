@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const io = std.io;
 const fs = std.fs;
 const print = std.debug.print;
 const mem = std.mem;
@@ -23,19 +22,20 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_file, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
     var out_dir = try fs.cwd().openDir(fs.path.dirname(output_file).?, .{});
     defer out_dir.close();
 
-    const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(u32));
-
-    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
+    var in_file_reader = in_file.reader(&.{});
+    const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .unlimited);
 
     var tokenizer = Tokenizer.init(input_file, input_file_bytes);
 
-    try walk(arena, &tokenizer, out_dir, buffered_writer.writer());
+    try walk(arena, &tokenizer, out_dir, &out_file_writer.interface);
 
-    try buffered_writer.flush();
+    try out_file_writer.end();
 }
 
 const Token = struct {
@@ -319,13 +319,13 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
                     }
 
                     var mode: std.builtin.OptimizeMode = .Debug;
-                    var link_objects = std.ArrayList([]const u8).init(arena);
+                    var link_objects = std.array_list.Managed([]const u8).init(arena);
                     var target_str: ?[]const u8 = null;
                     var link_libc = false;
                     var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
                     var verbose_cimport = false;
-                    var additional_options = std.ArrayList([]const u8).init(arena);
+                    var additional_options = std.array_list.Managed([]const u8).init(arena);
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, .content);
@@ -382,46 +382,50 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
                         fatal("unable to create file '{s}': {s}", .{ name, @errorName(err) });
                     };
                     defer file.close();
+                    var file_buffer: [1024]u8 = undefined;
+                    var file_writer = file.writer(&file_buffer);
+                    const code = &file_writer.interface;
 
                     const source = tokenizer.buffer[source_token.start..source_token.end];
-                    try file.writeAll(std.mem.trim(u8, source[1..], " \t\r\n"));
-                    try file.writeAll("\n\n");
+                    try code.writeAll(std.mem.trim(u8, source[1..], " \t\r\n"));
+                    try code.writeAll("\n\n");
 
                     if (just_check_syntax) {
-                        try file.deprecatedWriter().print("// syntax\n", .{});
+                        try code.print("// syntax\n", .{});
                     } else switch (code_kind_id) {
-                        .@"test" => try file.deprecatedWriter().print("// test\n", .{}),
-                        .lib => try file.deprecatedWriter().print("// lib\n", .{}),
-                        .test_error => |s| try file.deprecatedWriter().print("// test_error={s}\n", .{s}),
-                        .test_safety => |s| try file.deprecatedWriter().print("// test_safety={s}\n", .{s}),
-                        .exe => |s| try file.deprecatedWriter().print("// exe={s}\n", .{@tagName(s)}),
+                        .@"test" => try code.print("// test\n", .{}),
+                        .lib => try code.print("// lib\n", .{}),
+                        .test_error => |s| try code.print("// test_error={s}\n", .{s}),
+                        .test_safety => |s| try code.print("// test_safety={s}\n", .{s}),
+                        .exe => |s| try code.print("// exe={s}\n", .{@tagName(s)}),
                         .obj => |opt| if (opt) |s| {
-                            try file.deprecatedWriter().print("// obj={s}\n", .{s});
+                            try code.print("// obj={s}\n", .{s});
                         } else {
-                            try file.deprecatedWriter().print("// obj\n", .{});
+                            try code.print("// obj\n", .{});
                         },
                     }
 
                     if (mode != .Debug)
-                        try file.deprecatedWriter().print("// optimize={s}\n", .{@tagName(mode)});
+                        try code.print("// optimize={s}\n", .{@tagName(mode)});
 
                     for (link_objects.items) |link_object| {
-                        try file.deprecatedWriter().print("// link_object={s}\n", .{link_object});
+                        try code.print("// link_object={s}\n", .{link_object});
                     }
 
                     if (target_str) |s|
-                        try file.deprecatedWriter().print("// target={s}\n", .{s});
+                        try code.print("// target={s}\n", .{s});
 
-                    if (link_libc) try file.deprecatedWriter().print("// link_libc\n", .{});
-                    if (disable_cache) try file.deprecatedWriter().print("// disable_cache\n", .{});
-                    if (verbose_cimport) try file.deprecatedWriter().print("// verbose_cimport\n", .{});
+                    if (link_libc) try code.print("// link_libc\n", .{});
+                    if (disable_cache) try code.print("// disable_cache\n", .{});
+                    if (verbose_cimport) try code.print("// verbose_cimport\n", .{});
 
                     if (link_mode) |m|
-                        try file.deprecatedWriter().print("// link_mode={s}\n", .{@tagName(m)});
+                        try code.print("// link_mode={s}\n", .{@tagName(m)});
 
                     for (additional_options.items) |o| {
-                        try file.deprecatedWriter().print("// additional_option={s}\n", .{o});
+                        try code.print("// additional_option={s}\n", .{o});
                     }
+                    try code.flush();
                     try w.print("{{#code|{s}#}}\n", .{basename});
                 } else {
                     const close_bracket = while (true) {
@@ -437,7 +441,7 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
 }
 
 fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();

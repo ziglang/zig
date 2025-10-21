@@ -5,7 +5,5 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:12: error: type 'u32' does not support array initialization syntax

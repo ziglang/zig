@@ -376,10 +376,10 @@ const APackedStruct = packed struct {
 };
 
 test "packed struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = APackedStruct{
         .x = 1,
@@ -744,11 +744,11 @@ const S0 = struct {
 var g_foo: S0 = S0.init();
 
 test "packed struct with fp fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = packed struct {
         data0: f32,
@@ -1347,6 +1347,8 @@ test "struct field has a pointer to an aligned version of itself" {
 }
 
 test "struct has only one reference" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn optionalStructParam(_: ?struct { x: u8 }) void {}
         fn errorUnionStructParam(_: error{}!struct { x: u8 }) void {}
@@ -1553,6 +1555,7 @@ test "struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1582,6 +1585,7 @@ test "extern struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1822,7 +1826,7 @@ test "assign to slice.len of global variable" {
 
     const S = struct {
         const allocator = std.testing.allocator;
-        var list = std.ArrayList(u32).init(allocator);
+        var list = std.array_list.Managed(u32).init(allocator);
     };
 
     S.list.items.len = 0;
@@ -1920,7 +1924,6 @@ test "runtime value in nested initializer passed as pointer to function" {
 }
 
 test "struct field default value is a call" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -2131,4 +2134,45 @@ test "field access through mem ptr arg" {
         undefined,
         &.{ .field = 0x0ced271f },
     ) == 0x0ced271f);
+}
+
+test "align 1 struct parameter dereferenced and returned" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = extern struct {
+        a: u32,
+
+        fn gimme(p: *align(1) @This()) @This() {
+            return p.*;
+        }
+    };
+    var buffer: [5]u8 align(4) = .{ 1, 2, 3, 4, 5 };
+    const s = S.gimme(@ptrCast(buffer[1..]));
+    switch (native_endian) {
+        .big => try expect(s.a == 0x02030405),
+        .little => try expect(s.a == 0x05040302),
+    }
+}
+
+test "avoid unused field function body compile error" {
+    const Case = struct {
+        const This = @This();
+
+        const S = struct {
+            a: usize = 1,
+            b: fn () void = This.functionThatDoesNotCompile,
+        };
+
+        const s: S = .{};
+
+        fn entry() usize {
+            return s.a;
+        }
+
+        pub fn functionThatDoesNotCompile() void {
+            @compileError("told you so");
+        }
+    };
+
+    try expect(Case.entry() == 1);
 }

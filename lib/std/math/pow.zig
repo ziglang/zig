@@ -192,8 +192,8 @@ fn isOddInteger(x: f64) bool {
 }
 
 test isOddInteger {
-    try expect(isOddInteger(math.maxInt(i64) * 2) == false);
-    try expect(isOddInteger(math.maxInt(i64) * 2 + 1) == false);
+    try expect(isOddInteger(@floatFromInt(math.maxInt(i64) * 2)) == false);
+    try expect(isOddInteger(@floatFromInt(math.maxInt(i64) * 2 + 1)) == false);
     try expect(isOddInteger(1 << 53) == false);
     try expect(isOddInteger(12.0) == false);
     try expect(isOddInteger(15.0) == true);

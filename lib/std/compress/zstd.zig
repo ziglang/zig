@@ -78,15 +78,14 @@ pub const table_size_max = struct {
 };
 
 fn testDecompress(gpa: std.mem.Allocator, compressed: []const u8) ![]u8 {
-    var out: std.ArrayListUnmanaged(u8) = .empty;
-    defer out.deinit(gpa);
-    try out.ensureUnusedCapacity(gpa, default_window_len);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
 
-    var in: std.io.Reader = .fixed(compressed);
+    var in: std.Io.Reader = .fixed(compressed);
     var zstd_stream: Decompress = .init(&in, &.{}, .{});
-    try zstd_stream.reader.appendRemaining(gpa, null, &out, .unlimited);
+    _ = try zstd_stream.reader.streamRemaining(&out.writer);
 
-    return out.toOwnedSlice(gpa);
+    return out.toOwnedSlice();
 }
 
 fn testExpectDecompress(uncompressed: []const u8, compressed: []const u8) !void {
@@ -99,15 +98,14 @@ fn testExpectDecompress(uncompressed: []const u8, compressed: []const u8) !void 
 fn testExpectDecompressError(err: anyerror, compressed: []const u8) !void {
     const gpa = std.testing.allocator;
 
-    var out: std.ArrayListUnmanaged(u8) = .empty;
-    defer out.deinit(gpa);
-    try out.ensureUnusedCapacity(gpa, default_window_len);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
 
-    var in: std.io.Reader = .fixed(compressed);
+    var in: std.Io.Reader = .fixed(compressed);
     var zstd_stream: Decompress = .init(&in, &.{}, .{});
     try std.testing.expectError(
         error.ReadFailed,
-        zstd_stream.reader.appendRemaining(gpa, null, &out, .unlimited),
+        zstd_stream.reader.streamRemaining(&out.writer),
     );
     try std.testing.expectError(err, zstd_stream.err orelse {});
 }
@@ -119,6 +117,12 @@ test Decompress {
 
     try testExpectDecompress(uncompressed, compressed3);
     try testExpectDecompress(uncompressed, compressed19);
+}
+
+test "partial magic number" {
+    const input_raw =
+        "\x28\xb5\x2f"; // 3 bytes of the 4-byte zstandard frame magic number
+    try testExpectDecompressError(error.BadMagic, input_raw);
 }
 
 test "zero sized raw block" {
@@ -149,4 +153,13 @@ test "declared raw literals size too large" {
     // Note that the regenerated_size in the above input is larger than block maximum size, so the
     // block can't be valid as it is a raw literals block.
     try testExpectDecompressError(error.MalformedLiteralsSection, input_raw);
+}
+
+test "skippable frame" {
+    const input_raw =
+        "\x50\x2a\x4d\x18" ++ // min magic number for a skippable frame
+        "\x02\x00\x00\x00" ++ // number of bytes to skip
+        "\xFF\xFF"; // the bytes that are skipped
+
+    try testExpectDecompress("", input_raw);
 }

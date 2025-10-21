@@ -317,6 +317,7 @@
           <a href="https://ziglang.org/documentation/0.12.0/">0.12.0</a> |
           <a href="https://ziglang.org/documentation/0.13.0/">0.13.0</a> |
           <a href="https://ziglang.org/documentation/0.14.1/">0.14.1</a> |
+          <a href="https://ziglang.org/documentation/0.15.2/">0.15.2</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -1968,6 +1969,14 @@ or
       </p>
       {#see_also|@splat|@shuffle|@select|@reduce#}
 
+      {#header_open|Relationship with Arrays#}
+      <p>Vectors and {#link|Arrays#} each have a well-defined <strong>bit layout</strong>
+      and therefore support {#link|@bitCast#} between each other. {#link|Type Coercion#} implicitly peforms
+      {#syntax#}@bitCast{#endsyntax#}.</p>
+      <p>Arrays have well-defined byte layout, but vectors do not, making {#link|@ptrCast#} between
+      them {#link|Illegal Behavior#}.</p>
+      {#header_close#}
+
       {#header_open|Destructuring Vectors#}
       <p>
         Vectors can be destructured:
@@ -2470,6 +2479,13 @@ or
       {#code|test_union_method.zig#}
 
       <p>
+      Unions with inferred enum tag types can also assign ordinal values to their inferred tag.
+      This requires the tag to specify an explicit integer type.
+      {#link|@intFromEnum#} can be used to access the ordinal value corresponding to the active field.
+      </p>
+      {#code|test_tagged_union_with_tag_values.zig#}
+
+      <p>
       {#link|@tagName#} can be used to return a {#link|comptime#}
       {#syntax#}[:0]const u8{#endsyntax#} value representing the field name:
       </p>
@@ -2488,6 +2504,7 @@ or
       {#header_open|packed union#}
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
           to be in a {#link|packed struct#}.</p>
+      <p>All fields in a packed union must have the same {#link|@bitSizeOf#}.</p>
       {#header_close#}
 
       {#header_open|Anonymous Union Literals#}
@@ -3215,7 +3232,7 @@ fn createFoo(param: i32) !Foo {
       to increase their development pace.
       </p>
       <p>
-      Error Return Traces are enabled by default in {#link|Debug#} and {#link|ReleaseSafe#} builds and disabled by default in {#link|ReleaseFast#} and {#link|ReleaseSmall#} builds.
+      Error Return Traces are enabled by default in {#link|Debug#} builds and disabled by default in {#link|ReleaseFast#}, {#link|ReleaseSafe#} and {#link|ReleaseSmall#} builds.
       </p>
       <p>
       There are a few ways to activate this error return tracing feature:
@@ -4319,7 +4336,7 @@ comptime {
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
@@ -4333,7 +4350,7 @@ comptime {
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
@@ -4347,7 +4364,7 @@ comptime {
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
@@ -4576,8 +4593,8 @@ comptime {
       more efficiently in machine instructions.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#},
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
@@ -4608,8 +4625,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#},
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
@@ -4840,7 +4857,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       This builtin can be called from a {#link|comptime#} block to conditionally export symbols.
       When <code>ptr</code> points to a function with the C calling convention and
-      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}.Strong{#endsyntax#}, this is equivalent to
+      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}.strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
       {#code|export_builtin.zig#}
@@ -4880,8 +4897,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@fieldParentPtr#}
       <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
-      Given a pointer to a struct field, returns a pointer to the struct containing that field.
-      The return type (and struct in question) is the inferred result type.
+      Given a pointer to a struct or union field, returns a pointer to the struct or union containing that field.
+      The return type (pointer to the parent struct or union in question) is the inferred result type.
       </p>
       <p>
       If {#syntax#}field_ptr{#endsyntax#} does not point to the {#syntax#}field_name{#endsyntax#} field of an instance of
@@ -4952,34 +4969,25 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@import#}
-      <pre>{#syntax#}@import(comptime path: []const u8) type{#endsyntax#}</pre>
-      <p>
-      This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and adds it to the build,
-      if it is not already added.
-      </p>
-      <p>
-      Zig source files are implicitly structs, with a name equal to the file's basename with the extension
-      truncated. {#syntax#}@import{#endsyntax#} returns the struct type corresponding to the file.
-      </p>
-      <p>
-      Declarations which have the {#syntax#}pub{#endsyntax#} keyword may be referenced from a different
-      source file than the one they are declared in.
-      </p>
-      <p>
-      {#syntax#}path{#endsyntax#} can be a relative path or it can be the name of a package.
-      If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
-      function call.
-      </p>
-      <p>
-      The following packages are always available:
-      </p>
+      <pre>{#syntax#}@import(comptime target: []const u8) anytype{#endsyntax#}</pre>
+      <p>Imports the file at {#syntax#}target{#endsyntax#}, adding it to the compilation if it is not already
+      added. {#syntax#}target{#endsyntax#} is either a relative path to another file from the file containing
+      the {#syntax#}@import{#endsyntax#} call, or it is the name of a {#link|module|Compilation Model#}, with
+      the import referring to the root source file of that module. Either way, the file path must end in
+      either <code>.zig</code> (for a Zig source file) or <code>.zon</code> (for a ZON data file).</p>
+      <p>If {#syntax#}target{#endsyntax#} refers to a Zig source file, then {#syntax#}@import{#endsyntax#} returns
+      that file's {#link|corresponding struct type|Source File Structs#}, essentially as if the builtin call was
+      replaced by {#syntax#}struct { FILE_CONTENTS }{#endsyntax#}. The return type is {#syntax#}type{#endsyntax#}.</p>
+      <p>If {#syntax#}target{#endsyntax#} refers to a ZON file, then {#syntax#}@import{#endsyntax#} returns the value
+      of the literal in the file. If there is an inferred {#link|result type|Result Types#}, then the return type
+      is that type, and the ZON literal is interpreted as that type ({#link|Result Types#} are propagated through
+      the ZON expression). Otherwise, the return type is the type of the equivalent Zig expression, essentially as
+      if the builtin call was replaced by the ZON file contents.</p>
+      <p>The following modules are always available for import:</p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
-              The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
-          </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Root source file
-              This is usually <code>src/main.zig</code> but depends on what file is built.
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information. The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.</li>
+          <li>{#syntax#}@import("root"){#endsyntax#} - Alias for the root module. In typical project structures, this means it refers back to <code>src/main.zig</code>.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
@@ -5179,7 +5187,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Modulus division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#}, otherwise the
       operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>
@@ -5284,7 +5292,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@rem(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Remainder division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#}, otherwise the
       operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>
@@ -6086,7 +6094,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
       {#header_open|Exact Left Shift Overflow#}
       <p>At compile-time:</p>
-      {#code|test_comptime_shlExact_overwlow.zig#}
+      {#code|test_comptime_shlExact_overflow.zig#}
 
       <p>At runtime:</p>
       {#code|runtime_shlExact_overflow.zig#}
@@ -6250,9 +6258,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       C has a default allocator - <code>malloc</code>, <code>realloc</code>, and <code>free</code>.
       When linking against libc, Zig exposes this allocator with {#syntax#}std.heap.c_allocator{#endsyntax#}.
       However, by convention, there is no default allocator in Zig. Instead, functions which need to
-      allocate accept an {#syntax#}Allocator{#endsyntax#} parameter. Likewise, data structures such as
-      {#syntax#}std.ArrayList{#endsyntax#} accept an {#syntax#}Allocator{#endsyntax#} parameter in
-      their initialization functions:
+      allocate accept an {#syntax#}Allocator{#endsyntax#} parameter. Likewise, some data structures
+      accept an {#syntax#}Allocator{#endsyntax#} parameter in their initialization functions:
       </p>
       {#code|test_allocator.zig#}
 
@@ -6280,10 +6287,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>
-              Need to use the same allocator in multiple threads? Use one of your choice
-              wrapped around {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}
-          </li>
-          <li>
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}.
           </li>
@@ -6292,7 +6295,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
               cyclical pattern (such as a video game main loop, or a web server request handler),
               such that it would make sense to free everything at once at the end?
               In this case, it is recommended to follow this pattern:
-      {#code|cli_allocation.zig#}
+              {#code|cli_allocation.zig#}
 
               When using this kind of allocator, there is no need to free anything manually. Everything
               gets freed at once with the call to {#syntax#}arena.deinit(){#endsyntax#}.
@@ -6315,14 +6318,18 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           </li>
           <li>
               Finally, if none of the above apply, you need a general purpose allocator.
-              Zig's general purpose allocator is available as a function that takes a {#link|comptime#}
-              {#link|struct#} of configuration options and returns a type.
-              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#} in
-              your main function, and then pass it or sub-allocators around to various parts of your
+              If you are in Debug mode, {#syntax#}std.heap.DebugAllocator{#endsyntax#} is available as a
+              function that takes a {#link|comptime#} {#link|struct#} of configuration options and returns a type.
+              Generally, you will set up exactly one in your main function, and
+              then pass it or sub-allocators around to various parts of your
               application.
           </li>
           <li>
-              You can also consider {#link|Implementing an Allocator#}.
+              If you are compiling in ReleaseFast mode, {#syntax#}std.heap.smp_allocator{#endsyntax#} is
+              a solid choice for a general purpose allocator.
+          </li>
+          <li>
+              You can also consider implementing an allocator.
           </li>
       </ol>
       {#header_close#}
@@ -6355,17 +6362,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}allocator.create{#endsyntax#} is determined by the allocator's implementation.
       </p>
       <p>TODO: thread local variables</p>
-      {#header_close#}
-
-      {#header_open|Implementing an Allocator#}
-      <p>Zig programmers can implement their own allocators by fulfilling the Allocator interface.
-      In order to do this one must read carefully the documentation comments in std/mem.zig and
-      then supply a {#syntax#}allocFn{#endsyntax#} and a {#syntax#}resizeFn{#endsyntax#}.
-      </p>
-      <p>
-      There are many example allocators to look at for inspiration. Look at std/heap.zig and
-      {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}.
-      </p>
       {#header_close#}
 
       {#header_open|Heap Allocation Failure#}
@@ -7806,11 +7802,11 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Grammar#}
-      {#syntax_block|peg|grammar.y#}
-Root <- skip container_doc_comment? ContainerMembers eof
+      {#syntax_block|peg|grammar.peg#}
+Root <- skip ContainerMembers eof
 
 # *** Top level ***
-ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
+ContainerMembers <- container_doc_comment? ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 
 ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 
@@ -7839,7 +7835,6 @@ Statement
      / KEYWORD_errdefer Payload? BlockExprStatement
      / IfStatement
      / LabeledStatement
-     / SwitchExpr
      / VarDeclExprStatement
 
 ComptimeStatement
@@ -7850,7 +7845,7 @@ IfStatement
     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
      / IfPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
 
-LabeledStatement <- BlockLabel? (Block / LoopStatement)
+LabeledStatement <- BlockLabel? (Block / LoopStatement / SwitchExpr)
 
 LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
 
@@ -7904,7 +7899,7 @@ PrimaryExpr
      / KEYWORD_break BreakLabel? Expr?
      / KEYWORD_comptime Expr
      / KEYWORD_nosuspend Expr
-     / KEYWORD_continue BreakLabel?
+     / KEYWORD_continue BreakLabel? Expr?
      / KEYWORD_resume Expr
      / KEYWORD_return Expr?
      / BlockLabel? LoopExpr
@@ -7954,7 +7949,6 @@ PrimaryTypeExpr
      / KEYWORD_anyframe
      / KEYWORD_unreachable
      / STRINGLITERAL
-     / SwitchExpr
 
 ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
 
@@ -7967,6 +7961,7 @@ IfTypeExpr <- IfPrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
 LabeledTypeExpr
     <- BlockLabel Block
      / BlockLabel? LoopTypeExpr
+     / BlockLabel? SwitchExpr
 
 LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
 
@@ -8136,7 +8131,7 @@ PtrTypeStart
 ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
 
 # ContainerDecl specific
-ContainerDeclAuto <- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
+ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
 
 ContainerDeclType
     <- KEYWORD_struct (LPAREN Expr RPAREN)?
@@ -8155,8 +8150,6 @@ SwitchProngList <- (SwitchProng COMMA)* SwitchProng?
 AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
 
 AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
-
-StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
 
 ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
 
@@ -8204,7 +8197,7 @@ oxC2_oxDF <- [\302-\337]
 # [0xF1,0xF3]     [0x80,0xBF]     [0x80,0xBF]     [0x80,0xBF]
 #    0xF4         [0x80,0x8F]     [0x80,0xBF]     [0x80,0xBF]
 
-mb_utf8_literal <-
+multibyte_utf8 <-
        oxF4      ox80_ox8F ox80_oxBF ox80_oxBF
      / oxF1_oxF3 ox80_oxBF ox80_oxBF ox80_oxBF
      / oxF0      ox90_0xBF ox80_oxBF ox80_oxBF
@@ -8214,46 +8207,47 @@ mb_utf8_literal <-
      / oxE0      oxA0_oxBF ox80_oxBF
      / oxC2_oxDF ox80_oxBF
 
-ascii_char_not_nl_slash_squote <- [\000-\011\013-\046\050-\133\135-\177]
+non_control_ascii <- [\040-\176]
 
 char_escape
     <- "\\x" hex hex
      / "\\u{" hex+ "}"
      / "\\" [nr\\t'"]
 char_char
-    <- mb_utf8_literal
+    <- multibyte_utf8
      / char_escape
-     / ascii_char_not_nl_slash_squote
+     / ![\\'\n] non_control_ascii
 
 string_char
-    <- char_escape
-     / [^\\"\n]
+    <- multibyte_utf8
+     / char_escape
+     / ![\\"\n] non_control_ascii
 
 container_doc_comment <- ('//!' [^\n]* [ \n]* skip)+
 doc_comment <- ('///' [^\n]* [ \n]* skip)+
 line_comment <- '//' ![!/][^\n]* / '////' [^\n]*
-line_string <- ("\\\\" [^\n]* [ \n]*)+
+line_string <- ('\\\\' [^\n]* [ \n]*)+
 skip <- ([ \n] / line_comment)*
 
-CHAR_LITERAL <- "'" char_char "'" skip
+CHAR_LITERAL <- ['] char_char ['] skip
 FLOAT
-    <- "0x" hex_int "." hex_int ([pP] [-+]? dec_int)? skip
-     /      dec_int "." dec_int ([eE] [-+]? dec_int)? skip
-     / "0x" hex_int [pP] [-+]? dec_int skip
+    <- '0x' hex_int '.' hex_int ([pP] [-+]? dec_int)? skip
+     /      dec_int '.' dec_int ([eE] [-+]? dec_int)? skip
+     / '0x' hex_int [pP] [-+]? dec_int skip
      /      dec_int [eE] [-+]? dec_int skip
 INTEGER
-    <- "0b" bin_int skip
-     / "0o" oct_int skip
-     / "0x" hex_int skip
+    <- '0b' bin_int skip
+     / '0o' oct_int skip
+     / '0x' hex_int skip
      /      dec_int   skip
-STRINGLITERALSINGLE <- "\"" string_char* "\"" skip
+STRINGLITERALSINGLE <- ["] string_char* ["] skip
 STRINGLITERAL
     <- STRINGLITERALSINGLE
      / (line_string                 skip)+
 IDENTIFIER
     <- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
-     / "@" STRINGLITERALSINGLE
-BUILTINIDENTIFIER <- "@"[A-Za-z_][A-Za-z0-9_]* skip
+     / '@' STRINGLITERALSINGLE
+BUILTINIDENTIFIER <- '@'[A-Za-z_][A-Za-z0-9_]* skip
 
 
 AMPERSAND            <- '&'      ![=]      skip

@@ -4,6 +4,12 @@
 //! Laid out in memory like:
 //! capacity  |--------------------------|
 //! data                   |-------------|
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const testing = std.testing;
+
 data: []u8,
 capacity: usize,
 allocator: Allocator,
@@ -45,12 +51,6 @@ pub fn prependSlice(self: *ArrayListReverse, data: []const u8) Error!void {
     self.data.ptr = begin;
 }
 
-pub const Writer = std.io.GenericWriter(*ArrayListReverse, Error, prependSliceSize);
-/// Warning: This writer writes backwards. `fn print` will NOT work as expected.
-pub fn writer(self: *ArrayListReverse) Writer {
-    return .{ .context = self };
-}
-
 fn prependSliceSize(self: *ArrayListReverse, data: []const u8) Error!usize {
     try self.prependSlice(data);
     return data.len;
@@ -76,11 +76,6 @@ pub fn toOwnedSlice(self: *ArrayListReverse) Error![]u8 {
     self.clearAndFree();
     return new_memory;
 }
-
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const testing = std.testing;
 
 test ArrayListReverse {
     var b = ArrayListReverse.init(testing.allocator);

@@ -5,7 +5,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: expected error set type, found 'i32'

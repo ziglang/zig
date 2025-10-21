@@ -238,6 +238,8 @@ test "slicing pointer by length" {
 const x = @as([*]i32, @ptrFromInt(0x1000))[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     try expect(@intFromPtr(x) == 0x1000);
     try expect(x.len == 0x500);
 
@@ -628,9 +630,6 @@ test "slice syntax resulting in pointer-to-array" {
             comptime assert(@TypeOf(ptr[1..][0..2]) == *[2]u8);
             comptime assert(@TypeOf(ptr[1..][0..4]) == *[4]u8);
             comptime assert(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..2]) == *[2]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..4]) == *[4]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..2 :4]) == *[2:4]u8);
 
             var ptr_z: [*:0]u8 = &array;
             comptime assert(@TypeOf(ptr_z[1..][0..2]) == *[2]u8);
@@ -1039,6 +1038,8 @@ test "sentinel-terminated 0-length slices" {
 }
 
 test "peer slices keep abi alignment with empty struct" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     var cond: bool = undefined;
     cond = false;
     const slice = if (cond) &[1]u32{42} else &.{};

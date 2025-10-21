@@ -308,6 +308,10 @@ __END_DECLS
 
 #if __DARWIN_C_LEVEL >= 198808L
 
+#define	L_ctermid	1024	/* size for ctermid(); PATH_MAX */
+#undef _LIBC_COUNT__L_CTERMID
+#define _LIBC_COUNT__L_CTERMID _LIBC_COUNT_OR_NULL(L_ctermid)
+
 #include <_ctermid.h>
 
 __BEGIN_DECLS

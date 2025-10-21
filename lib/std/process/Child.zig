@@ -14,7 +14,7 @@ const assert = std.debug.assert;
 const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
@@ -52,6 +52,8 @@ term: ?(SpawnError!Term),
 argv: []const []const u8,
 
 /// Leave as null to use the current env map using the supplied allocator.
+/// Required if unable to access the current env map (e.g. building a library on
+/// some platforms).
 env_map: ?*const EnvMap,
 
 stdin_behavior: StdIo,
@@ -160,7 +162,7 @@ pub const SpawnError = error{
     NoDevice,
 
     /// Windows-only. `cwd` or `argv` was provided and it was invalid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 
     /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
@@ -414,6 +416,8 @@ pub fn run(args: struct {
     argv: []const []const u8,
     cwd: ?[]const u8 = null,
     cwd_dir: ?fs.Dir = null,
+    /// Required if unable to access the current env map (e.g. building a
+    /// library on some platforms).
     env_map: ?*const EnvMap = null,
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: Arg0Expand = .no_expand,
@@ -614,7 +618,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             })).ptr;
         } else {
             // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
+            @panic("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
         }
     };
 
@@ -901,11 +905,6 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             if (dir_buf.items.len > 0) try dir_buf.append(self.allocator, fs.path.sep);
             try dir_buf.appendSlice(self.allocator, app_dir);
         }
-        if (dir_buf.items.len > 0) {
-            // Need to normalize the path, openDirW can't handle things like double backslashes
-            const normalized_len = windows.normalizePath(u16, dir_buf.items) catch return error.BadPathName;
-            dir_buf.shrinkRetainingCapacity(normalized_len);
-        }
 
         windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo) catch |no_path_err| {
             const original_err = switch (no_path_err) {
@@ -930,10 +929,6 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             while (it.next()) |search_path| {
                 dir_buf.clearRetainingCapacity();
                 try dir_buf.appendSlice(self.allocator, search_path);
-                // Need to normalize the path, some PATH values can contain things like double
-                // backslashes which openDirW can't handle
-                const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
-                dir_buf.shrinkRetainingCapacity(normalized_len);
 
                 if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo)) {
                     break :run;
@@ -1012,14 +1007,14 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     var buffer: [8]u8 = undefined;
-    var fw: std.fs.File.Writer = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    var fw: std.fs.File.Writer = .initStreaming(.{ .handle = fd }, &buffer);
     fw.interface.writeInt(u64, value, .little) catch unreachable;
     fw.interface.flush() catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     var buffer: [8]u8 = undefined;
-    var fr: std.fs.File.Reader = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    var fr: std.fs.File.Reader = .initStreaming(.{ .handle = fd }, &buffer);
     return @intCast(fr.interface.takeInt(u64, .little) catch return error.SystemResources);
 }
 
@@ -1329,10 +1324,11 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
     const pipe_path = blk: {
         var tmp_buf: [128]u8 = undefined;
         // Forge a random path for the pipe.
-        const pipe_path = std.fmt.bufPrintZ(
+        const pipe_path = std.fmt.bufPrintSentinel(
             &tmp_buf,
             "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
             .{ windows.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .monotonic) },
+            0,
         ) catch unreachable;
         const len = std.unicode.wtf8ToWtf16Le(&tmp_bufw, pipe_path) catch unreachable;
         tmp_bufw[len] = 0;
@@ -1554,7 +1550,7 @@ fn argvToCommandLineWindows(
     allocator: mem.Allocator,
     argv: []const []const u8,
 ) ArgvToCommandLineError![:0]u16 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     if (argv.len != 0) {
@@ -1734,7 +1730,7 @@ fn argvToScriptCommandLineWindows(
     /// Arguments, not including the script name itself. Expected to be encoded as WTF-8.
     script_args: []const []const u8,
 ) ArgvToScriptCommandLineError![:0]u16 {
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 64);
+    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 64);
     defer buf.deinit();
 
     // `/d` disables execution of AutoRun commands.

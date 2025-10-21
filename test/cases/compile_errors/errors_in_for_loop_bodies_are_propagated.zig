@@ -4,7 +4,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:26: error: expected 1 argument, found 2

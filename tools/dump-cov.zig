@@ -5,7 +5,7 @@ const std = @import("std");
 const fatal = std.process.fatal;
 const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
-const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
+const SeenPcsHeader = std.Build.abi.fuzz.SeenPcsHeader;
 
 pub fn main() !void {
     var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -38,10 +38,9 @@ pub fn main() !void {
     defer debug_info.deinit(gpa);
 
     const cov_bytes = cov_path.root_dir.handle.readFileAllocOptions(
-        arena,
         cov_path.sub_path,
-        1 << 30,
-        null,
+        arena,
+        .limited(1 << 30),
         .of(SeenPcsHeader),
         null,
     ) catch |err| {

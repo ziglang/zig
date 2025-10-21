@@ -392,7 +392,6 @@ test "read 128-bit field from default aligned struct in global memory" {
 }
 
 test "struct field explicit alignment" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // flaky
@@ -561,6 +560,8 @@ test "function pointer @intFromPtr/@ptrFromInt roundtrip" {
 }
 
 test "function pointer align mask" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const int = if (builtin.cpu.arch.isArm() or builtin.cpu.arch.isMIPS()) 0x20202021 else 0x20202020;
     const unaligned: *const fn () callconv(.c) void = @ptrFromInt(int);
     const aligned: *align(16) const fn () callconv(.c) void = @alignCast(unaligned);

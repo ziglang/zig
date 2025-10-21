@@ -5,9 +5,16 @@ const native_endian = native_arch.endian();
 const std = @import("std");
 const leb = std.leb;
 const OP = std.dwarf.OP;
-const abi = std.debug.Dwarf.abi;
 const mem = std.mem;
 const assert = std.debug.assert;
+const testing = std.testing;
+const Writer = std.Io.Writer;
+
+const regNative = std.debug.Dwarf.SelfUnwinder.regNative;
+
+const ip_reg_num = std.debug.Dwarf.ipRegNum(native_arch).?;
+const fp_reg_num = std.debug.Dwarf.fpRegNum(native_arch);
+const sp_reg_num = std.debug.Dwarf.spRegNum(native_arch);
 
 /// Expressions can be evaluated in different contexts, each requiring its own set of inputs.
 /// Callers should specify all the fields relevant to their context. If a field is required
@@ -15,17 +22,13 @@ const assert = std.debug.assert;
 pub const Context = struct {
     /// The dwarf format of the section this expression is in
     format: std.dwarf.Format = .@"32",
-    /// If specified, any addresses will pass through before being accessed
-    memory_accessor: ?*std.debug.MemoryAccessor = null,
     /// The compilation unit this expression relates to, if any
     compile_unit: ?*const std.debug.Dwarf.CompileUnit = null,
     /// When evaluating a user-presented expression, this is the address of the object being evaluated
     object_address: ?*const anyopaque = null,
     /// .debug_addr section
     debug_addr: ?[]const u8 = null,
-    /// Thread context
-    thread_context: ?*std.debug.ThreadContext = null,
-    reg_context: ?abi.RegisterContext = null,
+    cpu_context: ?*std.debug.cpu_context.Native = null,
     /// Call frame address, if in a CFI context
     cfa: ?usize = null,
     /// This expression is a sub-expression from an OP.entry_value instruction
@@ -62,7 +65,9 @@ pub const Error = error{
     InvalidTypeLength,
 
     TruncatedIntegralType,
-} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
+
+    IncompatibleRegisterSize,
+} || std.debug.cpu_context.DwarfRegisterError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero, ReadFailed };
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
@@ -178,61 +183,60 @@ pub fn StackMachine(comptime options: Options) type {
             }
         }
 
-        pub fn readOperand(stream: *std.io.FixedBufferStream([]const u8), opcode: u8, context: Context) !?Operand {
-            const reader = stream.reader();
+        pub fn readOperand(reader: *std.Io.Reader, opcode: u8, context: Context) !?Operand {
             return switch (opcode) {
-                OP.addr => generic(try reader.readInt(addr_type, options.endian)),
+                OP.addr => generic(try reader.takeInt(addr_type, options.endian)),
                 OP.call_ref => switch (context.format) {
-                    .@"32" => generic(try reader.readInt(u32, options.endian)),
-                    .@"64" => generic(try reader.readInt(u64, options.endian)),
+                    .@"32" => generic(try reader.takeInt(u32, options.endian)),
+                    .@"64" => generic(try reader.takeInt(u64, options.endian)),
                 },
                 OP.const1u,
                 OP.pick,
-                => generic(try reader.readByte()),
+                => generic(try reader.takeByte()),
                 OP.deref_size,
                 OP.xderef_size,
-                => .{ .type_size = try reader.readByte() },
-                OP.const1s => generic(try reader.readByteSigned()),
+                => .{ .type_size = try reader.takeByte() },
+                OP.const1s => generic(try reader.takeByteSigned()),
                 OP.const2u,
                 OP.call2,
-                => generic(try reader.readInt(u16, options.endian)),
-                OP.call4 => generic(try reader.readInt(u32, options.endian)),
-                OP.const2s => generic(try reader.readInt(i16, options.endian)),
+                => generic(try reader.takeInt(u16, options.endian)),
+                OP.call4 => generic(try reader.takeInt(u32, options.endian)),
+                OP.const2s => generic(try reader.takeInt(i16, options.endian)),
                 OP.bra,
                 OP.skip,
-                => .{ .branch_offset = try reader.readInt(i16, options.endian) },
-                OP.const4u => generic(try reader.readInt(u32, options.endian)),
-                OP.const4s => generic(try reader.readInt(i32, options.endian)),
-                OP.const8u => generic(try reader.readInt(u64, options.endian)),
-                OP.const8s => generic(try reader.readInt(i64, options.endian)),
+                => .{ .branch_offset = try reader.takeInt(i16, options.endian) },
+                OP.const4u => generic(try reader.takeInt(u32, options.endian)),
+                OP.const4s => generic(try reader.takeInt(i32, options.endian)),
+                OP.const8u => generic(try reader.takeInt(u64, options.endian)),
+                OP.const8s => generic(try reader.takeInt(i64, options.endian)),
                 OP.constu,
                 OP.plus_uconst,
                 OP.addrx,
                 OP.constx,
                 OP.convert,
                 OP.reinterpret,
-                => generic(try leb.readUleb128(u64, reader)),
+                => generic(try reader.takeLeb128(u64)),
                 OP.consts,
                 OP.fbreg,
-                => generic(try leb.readIleb128(i64, reader)),
+                => generic(try reader.takeLeb128(i64)),
                 OP.lit0...OP.lit31 => |n| generic(n - OP.lit0),
                 OP.reg0...OP.reg31 => |n| .{ .register = n - OP.reg0 },
                 OP.breg0...OP.breg31 => |n| .{ .base_register = .{
                     .base_register = n - OP.breg0,
-                    .offset = try leb.readIleb128(i64, reader),
+                    .offset = try reader.takeLeb128(i64),
                 } },
-                OP.regx => .{ .register = try leb.readUleb128(u8, reader) },
+                OP.regx => .{ .register = try reader.takeLeb128(u8) },
                 OP.bregx => blk: {
-                    const base_register = try leb.readUleb128(u8, reader);
-                    const offset = try leb.readIleb128(i64, reader);
+                    const base_register = try reader.takeLeb128(u8);
+                    const offset = try reader.takeLeb128(i64);
                     break :blk .{ .base_register = .{
                         .base_register = base_register,
                         .offset = offset,
                     } };
                 },
                 OP.regval_type => blk: {
-                    const register = try leb.readUleb128(u8, reader);
-                    const type_offset = try leb.readUleb128(addr_type, reader);
+                    const register = try reader.takeLeb128(u8);
+                    const type_offset = try reader.takeLeb128(addr_type);
                     break :blk .{ .register_type = .{
                         .register = register,
                         .type_offset = type_offset,
@@ -240,33 +244,27 @@ pub fn StackMachine(comptime options: Options) type {
                 },
                 OP.piece => .{
                     .composite_location = .{
-                        .size = try leb.readUleb128(u8, reader),
+                        .size = try reader.takeLeb128(u8),
                         .offset = 0,
                     },
                 },
                 OP.bit_piece => blk: {
-                    const size = try leb.readUleb128(u8, reader);
-                    const offset = try leb.readIleb128(i64, reader);
+                    const size = try reader.takeLeb128(u8);
+                    const offset = try reader.takeLeb128(i64);
                     break :blk .{ .composite_location = .{
                         .size = size,
                         .offset = offset,
                     } };
                 },
                 OP.implicit_value, OP.entry_value => blk: {
-                    const size = try leb.readUleb128(u8, reader);
-                    if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
-                    const block = stream.buffer[stream.pos..][0..size];
-                    stream.pos += size;
-                    break :blk .{
-                        .block = block,
-                    };
+                    const size = try reader.takeLeb128(u8);
+                    const block = try reader.take(size);
+                    break :blk .{ .block = block };
                 },
                 OP.const_type => blk: {
-                    const type_offset = try leb.readUleb128(addr_type, reader);
-                    const size = try reader.readByte();
-                    if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
-                    const value_bytes = stream.buffer[stream.pos..][0..size];
-                    stream.pos += size;
+                    const type_offset = try reader.takeLeb128(addr_type);
+                    const size = try reader.takeByte();
+                    const value_bytes = try reader.take(size);
                     break :blk .{ .const_type = .{
                         .type_offset = type_offset,
                         .value_bytes = value_bytes,
@@ -276,8 +274,8 @@ pub fn StackMachine(comptime options: Options) type {
                 OP.xderef_type,
                 => .{
                     .deref_type = .{
-                        .size = try reader.readByte(),
-                        .type_offset = try leb.readUleb128(addr_type, reader),
+                        .size = try reader.takeByte(),
+                        .type_offset = try reader.takeLeb128(addr_type),
                     },
                 },
                 OP.lo_user...OP.hi_user => return error.UnimplementedUserOpcode,
@@ -293,7 +291,7 @@ pub fn StackMachine(comptime options: Options) type {
             initial_value: ?usize,
         ) Error!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
-            var stream = std.io.fixedBufferStream(expression);
+            var stream: std.Io.Reader = .fixed(expression);
             while (try self.step(&stream, allocator, context)) {}
             if (self.stack.items.len == 0) return null;
             return self.stack.items[self.stack.items.len - 1];
@@ -302,14 +300,14 @@ pub fn StackMachine(comptime options: Options) type {
         /// Reads an opcode and its operands from `stream`, then executes it
         pub fn step(
             self: *Self,
-            stream: *std.io.FixedBufferStream([]const u8),
+            stream: *std.Io.Reader,
             allocator: std.mem.Allocator,
             context: Context,
         ) Error!bool {
             if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != native_endian)
                 @compileError("Execution of non-native address sizes / endianness is not supported");
 
-            const opcode = try stream.reader().readByte();
+            const opcode = try stream.takeByte();
             if (options.call_frame_context and !isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             const operand = try readOperand(stream, opcode, context);
             switch (opcode) {
@@ -376,29 +374,20 @@ pub fn StackMachine(comptime options: Options) type {
                 OP.breg0...OP.breg31,
                 OP.bregx,
                 => {
-                    if (context.thread_context == null) return error.IncompleteExpressionContext;
+                    const cpu_context = context.cpu_context orelse return error.IncompleteExpressionContext;
 
-                    const base_register = operand.?.base_register;
-                    var value: i64 = @intCast(mem.readInt(usize, (try abi.regBytes(
-                        context.thread_context.?,
-                        base_register.base_register,
-                        context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian));
-                    value += base_register.offset;
-                    try self.stack.append(allocator, .{ .generic = @intCast(value) });
+                    const br = operand.?.base_register;
+                    const value: i64 = @intCast((try regNative(cpu_context, br.base_register)).*);
+                    try self.stack.append(allocator, .{ .generic = @intCast(value + br.offset) });
                 },
                 OP.regval_type => {
-                    const register_type = operand.?.register_type;
-                    const value = mem.readInt(usize, (try abi.regBytes(
-                        context.thread_context.?,
-                        register_type.register,
-                        context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian);
+                    const cpu_context = context.cpu_context orelse return error.IncompleteExpressionContext;
+                    const rt = operand.?.register_type;
                     try self.stack.append(allocator, .{
                         .regval_type = .{
-                            .type_offset = register_type.type_offset,
+                            .type_offset = rt.type_offset,
                             .type_size = @sizeOf(addr_type),
-                            .value = value,
+                            .value = (try regNative(cpu_context, rt.register)).*,
                         },
                     });
                 },
@@ -464,16 +453,6 @@ pub fn StackMachine(comptime options: Options) type {
                         => operand.?.deref_type.size,
                         else => unreachable,
                     };
-
-                    if (context.memory_accessor) |memory_accessor| {
-                        if (!switch (size) {
-                            1 => memory_accessor.load(u8, addr) != null,
-                            2 => memory_accessor.load(u16, addr) != null,
-                            4 => memory_accessor.load(u32, addr) != null,
-                            8 => memory_accessor.load(u64, addr) != null,
-                            else => return error.InvalidExpression,
-                        }) return error.InvalidExpression;
-                    }
 
                     const value: addr_type = std.math.cast(addr_type, @as(u64, switch (size) {
                         1 => @as(*const u8, @ptrFromInt(addr)).*,
@@ -673,11 +652,11 @@ pub fn StackMachine(comptime options: Options) type {
                     if (condition) {
                         const new_pos = std.math.cast(
                             usize,
-                            try std.math.add(isize, @as(isize, @intCast(stream.pos)), branch_offset),
+                            try std.math.add(isize, @as(isize, @intCast(stream.seek)), branch_offset),
                         ) orelse return error.InvalidExpression;
 
                         if (new_pos < 0 or new_pos > stream.buffer.len) return error.InvalidExpression;
-                        stream.pos = new_pos;
+                        stream.seek = new_pos;
                     }
                 },
                 OP.call2,
@@ -751,14 +730,14 @@ pub fn StackMachine(comptime options: Options) type {
 
                     // TODO: The spec states that this sub-expression needs to observe the state (ie. registers)
                     //       as it was upon entering the current subprogram. If this isn't being called at the
-                    //       end of a frame unwind operation, an additional ThreadContext with this state will be needed.
+                    //       end of a frame unwind operation, an additional cpu_context.Native with this state will be needed.
 
                     if (isOpcodeRegisterLocation(block[0])) {
-                        if (context.thread_context == null) return error.IncompleteExpressionContext;
+                        const cpu_context = context.cpu_context orelse return error.IncompleteExpressionContext;
 
-                        var block_stream = std.io.fixedBufferStream(block);
+                        var block_stream: std.Io.Reader = .fixed(block);
                         const register = (try readOperand(&block_stream, block[0], context)).?.register;
-                        const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
+                        const value = (try regNative(cpu_context, register)).*;
                         try self.stack.append(allocator, .{ .generic = value });
                     } else {
                         var stack_machine: Self = .{};
@@ -779,7 +758,7 @@ pub fn StackMachine(comptime options: Options) type {
                 },
             }
 
-            return stream.pos < stream.buffer.len;
+            return stream.seek < stream.buffer.len;
         }
     };
 }
@@ -794,7 +773,7 @@ pub fn Builder(comptime options: Options) type {
 
     return struct {
         /// Zero-operand instructions
-        pub fn writeOpcode(writer: anytype, comptime opcode: u8) !void {
+        pub fn writeOpcode(writer: *Writer, comptime opcode: u8) !void {
             if (options.call_frame_context and !comptime isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             switch (opcode) {
                 OP.dup,
@@ -835,14 +814,14 @@ pub fn Builder(comptime options: Options) type {
         }
 
         // 2.5.1.1: Literal Encodings
-        pub fn writeLiteral(writer: anytype, literal: u8) !void {
+        pub fn writeLiteral(writer: *Writer, literal: u8) !void {
             switch (literal) {
                 0...31 => |n| try writer.writeByte(n + OP.lit0),
                 else => return error.InvalidLiteral,
             }
         }
 
-        pub fn writeConst(writer: anytype, comptime T: type, value: T) !void {
+        pub fn writeConst(writer: *Writer, comptime T: type, value: T) !void {
             if (@typeInfo(T) != .int) @compileError("Constants must be integers");
 
             switch (T) {
@@ -864,115 +843,115 @@ pub fn Builder(comptime options: Options) type {
                 else => switch (@typeInfo(T).int.signedness) {
                     .unsigned => {
                         try writer.writeByte(OP.constu);
-                        try leb.writeUleb128(writer, value);
+                        try writer.writeUleb128(value);
                     },
                     .signed => {
                         try writer.writeByte(OP.consts);
-                        try leb.writeIleb128(writer, value);
+                        try writer.writeLeb128(value);
                     },
                 },
             }
         }
 
-        pub fn writeConstx(writer: anytype, debug_addr_offset: anytype) !void {
+        pub fn writeConstx(writer: *Writer, debug_addr_offset: anytype) !void {
             try writer.writeByte(OP.constx);
-            try leb.writeUleb128(writer, debug_addr_offset);
+            try writer.writeUleb128(debug_addr_offset);
         }
 
-        pub fn writeConstType(writer: anytype, die_offset: anytype, value_bytes: []const u8) !void {
+        pub fn writeConstType(writer: *Writer, die_offset: anytype, value_bytes: []const u8) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             if (value_bytes.len > 0xff) return error.InvalidTypeLength;
             try writer.writeByte(OP.const_type);
-            try leb.writeUleb128(writer, die_offset);
+            try writer.writeUleb128(die_offset);
             try writer.writeByte(@intCast(value_bytes.len));
             try writer.writeAll(value_bytes);
         }
 
-        pub fn writeAddr(writer: anytype, value: addr_type) !void {
+        pub fn writeAddr(writer: *Writer, value: addr_type) !void {
             try writer.writeByte(OP.addr);
             try writer.writeInt(addr_type, value, options.endian);
         }
 
-        pub fn writeAddrx(writer: anytype, debug_addr_offset: anytype) !void {
+        pub fn writeAddrx(writer: *Writer, debug_addr_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.addrx);
-            try leb.writeUleb128(writer, debug_addr_offset);
+            try writer.writeUleb128(debug_addr_offset);
         }
 
         // 2.5.1.2: Register Values
-        pub fn writeFbreg(writer: anytype, offset: anytype) !void {
+        pub fn writeFbreg(writer: *Writer, offset: anytype) !void {
             try writer.writeByte(OP.fbreg);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
-        pub fn writeBreg(writer: anytype, register: u8, offset: anytype) !void {
+        pub fn writeBreg(writer: *Writer, register: u8, offset: anytype) !void {
             if (register > 31) return error.InvalidRegister;
             try writer.writeByte(OP.breg0 + register);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
-        pub fn writeBregx(writer: anytype, register: anytype, offset: anytype) !void {
+        pub fn writeBregx(writer: *Writer, register: anytype, offset: anytype) !void {
             try writer.writeByte(OP.bregx);
-            try leb.writeUleb128(writer, register);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeUleb128(register);
+            try writer.writeSleb128(offset);
         }
 
-        pub fn writeRegvalType(writer: anytype, register: anytype, offset: anytype) !void {
+        pub fn writeRegvalType(writer: *Writer, register: anytype, offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.regval_type);
-            try leb.writeUleb128(writer, register);
-            try leb.writeUleb128(writer, offset);
+            try writer.writeUleb128(register);
+            try writer.writeUleb128(offset);
         }
 
         // 2.5.1.3: Stack Operations
-        pub fn writePick(writer: anytype, index: u8) !void {
+        pub fn writePick(writer: *Writer, index: u8) !void {
             try writer.writeByte(OP.pick);
             try writer.writeByte(index);
         }
 
-        pub fn writeDerefSize(writer: anytype, size: u8) !void {
+        pub fn writeDerefSize(writer: *Writer, size: u8) !void {
             try writer.writeByte(OP.deref_size);
             try writer.writeByte(size);
         }
 
-        pub fn writeXDerefSize(writer: anytype, size: u8) !void {
+        pub fn writeXDerefSize(writer: *Writer, size: u8) !void {
             try writer.writeByte(OP.xderef_size);
             try writer.writeByte(size);
         }
 
-        pub fn writeDerefType(writer: anytype, size: u8, die_offset: anytype) !void {
+        pub fn writeDerefType(writer: *Writer, size: u8, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.deref_type);
             try writer.writeByte(size);
-            try leb.writeUleb128(writer, die_offset);
+            try writer.writeUleb128(die_offset);
         }
 
-        pub fn writeXDerefType(writer: anytype, size: u8, die_offset: anytype) !void {
+        pub fn writeXDerefType(writer: *Writer, size: u8, die_offset: anytype) !void {
             try writer.writeByte(OP.xderef_type);
             try writer.writeByte(size);
-            try leb.writeUleb128(writer, die_offset);
+            try writer.writeUleb128(die_offset);
         }
 
         // 2.5.1.4: Arithmetic and Logical Operations
 
-        pub fn writePlusUconst(writer: anytype, uint_value: anytype) !void {
+        pub fn writePlusUconst(writer: *Writer, uint_value: anytype) !void {
             try writer.writeByte(OP.plus_uconst);
-            try leb.writeUleb128(writer, uint_value);
+            try writer.writeUleb128(uint_value);
         }
 
         // 2.5.1.5: Control Flow Operations
 
-        pub fn writeSkip(writer: anytype, offset: i16) !void {
+        pub fn writeSkip(writer: *Writer, offset: i16) !void {
             try writer.writeByte(OP.skip);
             try writer.writeInt(i16, offset, options.endian);
         }
 
-        pub fn writeBra(writer: anytype, offset: i16) !void {
+        pub fn writeBra(writer: *Writer, offset: i16) !void {
             try writer.writeByte(OP.bra);
             try writer.writeInt(i16, offset, options.endian);
         }
 
-        pub fn writeCall(writer: anytype, comptime T: type, offset: T) !void {
+        pub fn writeCall(writer: *Writer, comptime T: type, offset: T) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             switch (T) {
                 u16 => try writer.writeByte(OP.call2),
@@ -983,45 +962,45 @@ pub fn Builder(comptime options: Options) type {
             try writer.writeInt(T, offset, options.endian);
         }
 
-        pub fn writeCallRef(writer: anytype, comptime is_64: bool, value: if (is_64) u64 else u32) !void {
+        pub fn writeCallRef(writer: *Writer, comptime is_64: bool, value: if (is_64) u64 else u32) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.call_ref);
             try writer.writeInt(if (is_64) u64 else u32, value, options.endian);
         }
 
-        pub fn writeConvert(writer: anytype, die_offset: anytype) !void {
+        pub fn writeConvert(writer: *Writer, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.convert);
-            try leb.writeUleb128(writer, die_offset);
+            try writer.writeUleb128(die_offset);
         }
 
-        pub fn writeReinterpret(writer: anytype, die_offset: anytype) !void {
+        pub fn writeReinterpret(writer: *Writer, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.reinterpret);
-            try leb.writeUleb128(writer, die_offset);
+            try writer.writeUleb128(die_offset);
         }
 
         // 2.5.1.7: Special Operations
 
-        pub fn writeEntryValue(writer: anytype, expression: []const u8) !void {
+        pub fn writeEntryValue(writer: *Writer, expression: []const u8) !void {
             try writer.writeByte(OP.entry_value);
-            try leb.writeUleb128(writer, expression.len);
+            try writer.writeUleb128(expression.len);
             try writer.writeAll(expression);
         }
 
         // 2.6: Location Descriptions
-        pub fn writeReg(writer: anytype, register: u8) !void {
+        pub fn writeReg(writer: *Writer, register: u8) !void {
             try writer.writeByte(OP.reg0 + register);
         }
 
-        pub fn writeRegx(writer: anytype, register: anytype) !void {
+        pub fn writeRegx(writer: *Writer, register: anytype) !void {
             try writer.writeByte(OP.regx);
-            try leb.writeUleb128(writer, register);
+            try writer.writeUleb128(register);
         }
 
-        pub fn writeImplicitValue(writer: anytype, value_bytes: []const u8) !void {
+        pub fn writeImplicitValue(writer: *Writer, value_bytes: []const u8) !void {
             try writer.writeByte(OP.implicit_value);
-            try leb.writeUleb128(writer, value_bytes.len);
+            try writer.writeUleb128(value_bytes.len);
             try writer.writeAll(value_bytes);
         }
     };
@@ -1054,8 +1033,7 @@ fn isOpcodeRegisterLocation(opcode: u8) bool {
     };
 }
 
-const testing = std.testing;
-test "DWARF expressions" {
+test "basics" {
     const allocator = std.testing.allocator;
 
     const options = Options{};
@@ -1064,10 +1042,10 @@ test "DWARF expressions" {
 
     const b = Builder(options);
 
-    var program = std.ArrayList(u8).init(allocator);
+    var program: std.Io.Writer.Allocating = .init(allocator);
     defer program.deinit();
 
-    const writer = program.writer();
+    const writer = &program.writer;
 
     // Literals
     {
@@ -1076,7 +1054,7 @@ test "DWARF expressions" {
             try b.writeLiteral(writer, @intCast(i));
         }
 
-        _ = try stack_machine.run(program.items, allocator, context, 0);
+        _ = try stack_machine.run(program.written(), allocator, context, 0);
 
         for (0..32) |i| {
             const expected = 31 - i;
@@ -1120,16 +1098,16 @@ test "DWARF expressions" {
         var mock_compile_unit: std.debug.Dwarf.CompileUnit = undefined;
         mock_compile_unit.addr_base = 1;
 
-        var mock_debug_addr = std.ArrayList(u8).init(allocator);
+        var mock_debug_addr: std.Io.Writer.Allocating = .init(allocator);
         defer mock_debug_addr.deinit();
 
-        try mock_debug_addr.writer().writeInt(u16, 0, native_endian);
-        try mock_debug_addr.writer().writeInt(usize, input[11], native_endian);
-        try mock_debug_addr.writer().writeInt(usize, input[12], native_endian);
+        try mock_debug_addr.writer.writeInt(u16, 0, native_endian);
+        try mock_debug_addr.writer.writeInt(usize, input[11], native_endian);
+        try mock_debug_addr.writer.writeInt(usize, input[12], native_endian);
 
-        const context = Context{
+        const context: Context = .{
             .compile_unit = &mock_compile_unit,
-            .debug_addr = mock_debug_addr.items,
+            .debug_addr = mock_debug_addr.written(),
         };
 
         try b.writeConstx(writer, @as(usize, 1));
@@ -1139,7 +1117,7 @@ test "DWARF expressions" {
         const type_bytes: []const u8 = &.{ 1, 2, 3, 4 };
         try b.writeConstType(writer, die_offset, type_bytes);
 
-        _ = try stack_machine.run(program.items, allocator, context, 0);
+        _ = try stack_machine.run(program.written(), allocator, context, 0);
 
         const const_type = stack_machine.stack.pop().?.const_type;
         try testing.expectEqual(die_offset, const_type.type_offset);
@@ -1167,55 +1145,36 @@ test "DWARF expressions" {
     }
 
     // Register values
-    if (@sizeOf(std.debug.ThreadContext) != 0) {
+    if (std.debug.cpu_context.Native != noreturn) {
         stack_machine.reset();
         program.clearRetainingCapacity();
 
-        const reg_context = abi.RegisterContext{
-            .eh_frame = true,
-            .is_macho = builtin.os.tag == .macos,
-        };
-        var thread_context: std.debug.ThreadContext = undefined;
-        std.debug.relocateContext(&thread_context);
+        var cpu_context: std.debug.cpu_context.Native = undefined;
         const context = Context{
-            .thread_context = &thread_context,
-            .reg_context = reg_context,
+            .cpu_context = &cpu_context,
         };
 
-        // Only test register operations on arch / os that have them implemented
-        if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
+        const reg_bytes = try cpu_context.dwarfRegisterBytes(0);
 
-            // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
+        // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
-            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
-            (try abi.regValueNative(&thread_context, abi.fpRegNum(native_arch, reg_context), reg_context)).* = 1;
-            (try abi.regValueNative(&thread_context, abi.spRegNum(native_arch, reg_context), reg_context)).* = 2;
-            (try abi.regValueNative(&thread_context, abi.ipRegNum(native_arch).?, reg_context)).* = 3;
+        mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
+        (try regNative(&cpu_context, fp_reg_num)).* = 1;
+        (try regNative(&cpu_context, ip_reg_num)).* = 2;
 
-            try b.writeBreg(writer, abi.fpRegNum(native_arch, reg_context), @as(usize, 100));
-            try b.writeBreg(writer, abi.spRegNum(native_arch, reg_context), @as(usize, 200));
-            try b.writeBregx(writer, abi.ipRegNum(native_arch).?, @as(usize, 300));
-            try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
+        try b.writeBreg(writer, fp_reg_num, @as(usize, 100));
+        try b.writeBregx(writer, ip_reg_num, @as(usize, 200));
+        try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 300));
 
-            _ = try stack_machine.run(program.items, allocator, context, 0);
+        _ = try stack_machine.run(program.written(), allocator, context, 0);
 
-            const regval_type = stack_machine.stack.pop().?.regval_type;
-            try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
-            try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
-            try testing.expectEqual(@as(usize, 0xee), regval_type.value);
+        const regval_type = stack_machine.stack.pop().?.regval_type;
+        try testing.expectEqual(@as(usize, 300), regval_type.type_offset);
+        try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
+        try testing.expectEqual(@as(usize, 0xee), regval_type.value);
 
-            try testing.expectEqual(@as(usize, 303), stack_machine.stack.pop().?.generic);
-            try testing.expectEqual(@as(usize, 202), stack_machine.stack.pop().?.generic);
-            try testing.expectEqual(@as(usize, 101), stack_machine.stack.pop().?.generic);
-        } else |err| {
-            switch (err) {
-                error.UnimplementedArch,
-                error.UnimplementedOs,
-                error.ThreadContextNotSupported,
-                => {},
-                else => return err,
-            }
-        }
+        try testing.expectEqual(@as(usize, 202), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 101), stack_machine.stack.pop().?.generic);
     }
 
     // Stack operations
@@ -1226,7 +1185,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeConst(writer, u8, 1);
         try b.writeOpcode(writer, OP.dup);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 1), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(usize, 1), stack_machine.stack.pop().?.generic);
 
@@ -1234,7 +1193,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeConst(writer, u8, 1);
         try b.writeOpcode(writer, OP.drop);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expect(stack_machine.stack.pop() == null);
 
         stack_machine.reset();
@@ -1243,7 +1202,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 5);
         try b.writeConst(writer, u8, 6);
         try b.writePick(writer, 2);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 4), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1252,7 +1211,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 5);
         try b.writeConst(writer, u8, 6);
         try b.writeOpcode(writer, OP.over);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1260,7 +1219,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 5);
         try b.writeConst(writer, u8, 6);
         try b.writeOpcode(writer, OP.swap);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(usize, 6), stack_machine.stack.pop().?.generic);
 
@@ -1270,7 +1229,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 5);
         try b.writeConst(writer, u8, 6);
         try b.writeOpcode(writer, OP.rot);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(usize, 4), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(usize, 6), stack_machine.stack.pop().?.generic);
@@ -1281,7 +1240,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeOpcode(writer, OP.deref);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(deref_target, stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1289,14 +1248,14 @@ test "DWARF expressions" {
         try b.writeLiteral(writer, 0);
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeOpcode(writer, OP.xderef);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(deref_target, stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeDerefSize(writer, 1);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1304,7 +1263,7 @@ test "DWARF expressions" {
         try b.writeLiteral(writer, 0);
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeXDerefSize(writer, 1);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.pop().?.generic);
 
         const type_offset: usize = @truncate(0xaabbaabb_aabbaabb);
@@ -1313,7 +1272,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeDerefType(writer, 1, type_offset);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         const deref_type = stack_machine.stack.pop().?.regval_type;
         try testing.expectEqual(type_offset, deref_type.type_offset);
         try testing.expectEqual(@as(u8, 1), deref_type.type_size);
@@ -1324,7 +1283,7 @@ test "DWARF expressions" {
         try b.writeLiteral(writer, 0);
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeXDerefType(writer, 1, type_offset);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         const xderef_type = stack_machine.stack.pop().?.regval_type;
         try testing.expectEqual(type_offset, xderef_type.type_offset);
         try testing.expectEqual(@as(u8, 1), xderef_type.type_size);
@@ -1335,7 +1294,7 @@ test "DWARF expressions" {
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeOpcode(writer, OP.push_object_address);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, @intFromPtr(context.object_address.?)), stack_machine.stack.pop().?.generic);
 
         // TODO: Test OP.form_tls_address
@@ -1345,7 +1304,7 @@ test "DWARF expressions" {
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeOpcode(writer, OP.call_frame_cfa);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(context.cfa.?, stack_machine.stack.pop().?.generic);
     }
 
@@ -1357,7 +1316,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeConst(writer, i16, -4096);
         try b.writeOpcode(writer, OP.abs);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 4096), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1365,7 +1324,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xff0f);
         try b.writeConst(writer, u16, 0xf0ff);
         try b.writeOpcode(writer, OP.@"and");
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 0xf00f), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1373,7 +1332,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, i16, -404);
         try b.writeConst(writer, i16, 100);
         try b.writeOpcode(writer, OP.div);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(isize, -404 / 100), @as(isize, @bitCast(stack_machine.stack.pop().?.generic)));
 
         stack_machine.reset();
@@ -1381,7 +1340,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 200);
         try b.writeConst(writer, u16, 50);
         try b.writeOpcode(writer, OP.minus);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 150), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1389,7 +1348,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 123);
         try b.writeConst(writer, u16, 100);
         try b.writeOpcode(writer, OP.mod);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 23), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1397,7 +1356,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xff);
         try b.writeConst(writer, u16, 0xee);
         try b.writeOpcode(writer, OP.mul);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 0xed12), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1406,7 +1365,7 @@ test "DWARF expressions" {
         try b.writeOpcode(writer, OP.neg);
         try b.writeConst(writer, i16, -6);
         try b.writeOpcode(writer, OP.neg);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 6), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(isize, -5), @as(isize, @bitCast(stack_machine.stack.pop().?.generic)));
 
@@ -1414,7 +1373,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeConst(writer, u16, 0xff0f);
         try b.writeOpcode(writer, OP.not);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(~@as(usize, 0xff0f), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1422,7 +1381,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xff0f);
         try b.writeConst(writer, u16, 0xf0ff);
         try b.writeOpcode(writer, OP.@"or");
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 0xffff), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1430,14 +1389,14 @@ test "DWARF expressions" {
         try b.writeConst(writer, i16, 402);
         try b.writeConst(writer, i16, 100);
         try b.writeOpcode(writer, OP.plus);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 502), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeConst(writer, u16, 4096);
         try b.writePlusUconst(writer, @as(usize, 8192));
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 4096 + 8192), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1445,7 +1404,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xfff);
         try b.writeConst(writer, u16, 1);
         try b.writeOpcode(writer, OP.shl);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 0xfff << 1), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1453,7 +1412,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xfff);
         try b.writeConst(writer, u16, 1);
         try b.writeOpcode(writer, OP.shr);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 0xfff >> 1), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1461,7 +1420,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xfff);
         try b.writeConst(writer, u16, 1);
         try b.writeOpcode(writer, OP.shr);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, @bitCast(@as(isize, 0xfff) >> 1)), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1469,7 +1428,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xf0ff);
         try b.writeConst(writer, u16, 0xff0f);
         try b.writeOpcode(writer, OP.xor);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 0x0ff0), stack_machine.stack.pop().?.generic);
     }
 
@@ -1498,7 +1457,7 @@ test "DWARF expressions" {
             try b.writeConst(writer, u16, 1);
             try b.writeConst(writer, u16, 0);
             try b.writeOpcode(writer, e[0]);
-            _ = try stack_machine.run(program.items, allocator, context, null);
+            _ = try stack_machine.run(program.written(), allocator, context, null);
             try testing.expectEqual(@as(usize, e[3]), stack_machine.stack.pop().?.generic);
             try testing.expectEqual(@as(usize, e[2]), stack_machine.stack.pop().?.generic);
             try testing.expectEqual(@as(usize, e[1]), stack_machine.stack.pop().?.generic);
@@ -1509,7 +1468,7 @@ test "DWARF expressions" {
         try b.writeLiteral(writer, 2);
         try b.writeSkip(writer, 1);
         try b.writeLiteral(writer, 3);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 2), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
@@ -1521,7 +1480,7 @@ test "DWARF expressions" {
         try b.writeBra(writer, 1);
         try b.writeLiteral(writer, 4);
         try b.writeLiteral(writer, 5);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
         try testing.expectEqual(@as(usize, 4), stack_machine.stack.pop().?.generic);
         try testing.expect(stack_machine.stack.pop() == null);
@@ -1547,7 +1506,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeConvert(writer, @as(usize, 0));
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(value, stack_machine.stack.pop().?.generic);
 
         // Reinterpret to generic type
@@ -1555,7 +1514,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeReinterpret(writer, @as(usize, 0));
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expectEqual(value, stack_machine.stack.pop().?.generic);
 
         // Reinterpret to new type
@@ -1565,7 +1524,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeReinterpret(writer, die_offset);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         const const_type = stack_machine.stack.pop().?.const_type;
         try testing.expectEqual(die_offset, const_type.type_offset);
 
@@ -1573,7 +1532,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeLiteral(writer, 0);
         try b.writeReinterpret(writer, die_offset);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         const regval_type = stack_machine.stack.pop().?.regval_type;
         try testing.expectEqual(die_offset, regval_type.type_offset);
     }
@@ -1585,56 +1544,39 @@ test "DWARF expressions" {
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeOpcode(writer, OP.nop);
-        _ = try stack_machine.run(program.items, allocator, context, null);
+        _ = try stack_machine.run(program.written(), allocator, context, null);
         try testing.expect(stack_machine.stack.pop() == null);
 
         // Sub-expression
         {
-            var sub_program = std.ArrayList(u8).init(allocator);
+            var sub_program: std.Io.Writer.Allocating = .init(allocator);
             defer sub_program.deinit();
-            const sub_writer = sub_program.writer();
+            const sub_writer = &sub_program.writer;
             try b.writeLiteral(sub_writer, 3);
 
             stack_machine.reset();
             program.clearRetainingCapacity();
-            try b.writeEntryValue(writer, sub_program.items);
-            _ = try stack_machine.run(program.items, allocator, context, null);
+            try b.writeEntryValue(writer, sub_program.written());
+            _ = try stack_machine.run(program.written(), allocator, context, null);
             try testing.expectEqual(@as(usize, 3), stack_machine.stack.pop().?.generic);
         }
 
         // Register location description
-        const reg_context = abi.RegisterContext{
-            .eh_frame = true,
-            .is_macho = builtin.os.tag == .macos,
-        };
-        var thread_context: std.debug.ThreadContext = undefined;
-        std.debug.relocateContext(&thread_context);
-        context = Context{
-            .thread_context = &thread_context,
-            .reg_context = reg_context,
-        };
+        var cpu_context: std.debug.cpu_context.Native = undefined;
+        context = .{ .cpu_context = &cpu_context };
 
-        if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
-            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
+        const reg_bytes = try cpu_context.dwarfRegisterBytes(0);
+        mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
 
-            var sub_program = std.ArrayList(u8).init(allocator);
-            defer sub_program.deinit();
-            const sub_writer = sub_program.writer();
-            try b.writeReg(sub_writer, 0);
+        var sub_program: std.Io.Writer.Allocating = .init(allocator);
+        defer sub_program.deinit();
+        const sub_writer = &sub_program.writer;
+        try b.writeReg(sub_writer, 0);
 
-            stack_machine.reset();
-            program.clearRetainingCapacity();
-            try b.writeEntryValue(writer, sub_program.items);
-            _ = try stack_machine.run(program.items, allocator, context, null);
-            try testing.expectEqual(@as(usize, 0xee), stack_machine.stack.pop().?.generic);
-        } else |err| {
-            switch (err) {
-                error.UnimplementedArch,
-                error.UnimplementedOs,
-                error.ThreadContextNotSupported,
-                => {},
-                else => return err,
-            }
-        }
+        stack_machine.reset();
+        program.clearRetainingCapacity();
+        try b.writeEntryValue(writer, sub_program.written());
+        _ = try stack_machine.run(program.written(), allocator, context, null);
+        try testing.expectEqual(@as(usize, 0xee), stack_machine.stack.pop().?.generic);
     }
 }

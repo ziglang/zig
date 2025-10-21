@@ -9,7 +9,7 @@ const StringIndexContext = std.hash_map.StringIndexContext;
 const ZonGen = @This();
 const Zoir = @import("Zoir.zig");
 const Ast = @import("Ast.zig");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 gpa: Allocator,
 tree: Ast,
@@ -472,7 +472,7 @@ fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) error{ OutOfMemory, 
     const raw_string = zg.tree.tokenSlice(ident_token)[offset..];
     try zg.string_bytes.ensureUnusedCapacity(gpa, raw_string.len);
     const result = r: {
-        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
+        var aw: Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
         defer zg.string_bytes = aw.toArrayList();
         break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
@@ -570,7 +570,7 @@ fn strLitAsString(zg: *ZonGen, str_node: Ast.Node.Index) error{ OutOfMemory, Bad
     const size_hint = strLitSizeHint(zg.tree, str_node);
     try string_bytes.ensureUnusedCapacity(gpa, size_hint);
     const result = r: {
-        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
+        var aw: Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
         defer zg.string_bytes = aw.toArrayList();
         break :r parseStrLit(zg.tree, str_node, &aw.writer) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
@@ -885,7 +885,7 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     const tree = zg.tree;
     assert(tree.errors.len > 0);
 
-    var msg: std.io.Writer.Allocating = .init(gpa);
+    var msg: Writer.Allocating = .init(gpa);
     defer msg.deinit();
     const msg_bw = &msg.writer;
 
@@ -896,12 +896,12 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
             tree.renderError(err, msg_bw) catch return error.OutOfMemory;
-            try notes.append(gpa, try zg.errNoteTok(err.token, "{s}", .{msg.getWritten()}));
+            try notes.append(gpa, try zg.errNoteTok(err.token, "{s}", .{msg.written()}));
         } else {
             // Flush error
             tree.renderError(cur_err, msg_bw) catch return error.OutOfMemory;
             const extra_offset = tree.errorOffset(cur_err);
-            try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
+            try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.written()}, notes.items);
             notes.clearRetainingCapacity();
             cur_err = err;
 
@@ -917,5 +917,5 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     // Flush error
     const extra_offset = tree.errorOffset(cur_err);
     tree.renderError(cur_err, msg_bw) catch return error.OutOfMemory;
-    try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
+    try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.written()}, notes.items);
 }

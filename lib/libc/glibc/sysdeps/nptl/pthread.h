@@ -1317,6 +1317,11 @@ extern int pthread_getcpuclockid (pthread_t __thread_id,
      __THROW __nonnull ((2));
 #endif
 
+#ifdef __USE_GNU
+/* Return the Linux TID for THREAD_ID.  Returns -1 on failure.  */
+extern pid_t pthread_gettid_np (pthread_t __thread_id);
+#endif
+
 
 /* Install handlers to be called when a new process is created with FORK.
    The PREPARE handler is called in the parent process just before performing

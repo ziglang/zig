@@ -260,7 +260,12 @@ __END_DECLS
 
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 #define EQFULL          106             /* Interface output queue is full */
-#define ELAST           106             /* Must be equal largest errno */
+#endif
+
+#define ENOTCAPABLE     107             /* Capabilities insufficient */
+
+#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+#define ELAST           107             /* Must be equal largest errno */
 #endif
 
 #endif /* _SYS_ERRNO_H_ */
