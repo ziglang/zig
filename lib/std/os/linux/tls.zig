@@ -63,12 +63,13 @@ const Variant = enum {
 };
 
 const current_variant: Variant = switch (native_arch) {
+    .aarch64,
+    .aarch64_be,
+    .alpha,
     .arc,
     .arceb,
     .arm,
     .armeb,
-    .aarch64,
-    .aarch64_be,
     .csky,
     .thumb,
     .thumbeb,
@@ -138,6 +139,7 @@ const AbiTcb = switch (current_variant) {
         // usual, while the second one is unspecified.
         .aarch64,
         .aarch64_be,
+        .alpha,
         .arm,
         .armeb,
         .thumb,
@@ -240,6 +242,14 @@ pub fn setThreadPointer(addr: usize) void {
         .aarch64, .aarch64_be => {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
+                :
+                : [addr] "r" (addr),
+            );
+        },
+        .alpha => {
+            asm volatile (
+                \\ lda a0, %[addr]
+                \\ wruniq
                 :
                 : [addr] "r" (addr),
             );
