@@ -1,4 +1,5 @@
-const std = @import("../std.zig");
+const std = @import("std");
+//const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 const MemoryPool = std.heap.MemoryPool;
@@ -80,9 +81,9 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
         }
 
         /// Destroys the memory pool and frees all allocated memory.
-        pub fn deinit(pool: *Pool, allocator: Allocator) void {
-            pool.arena_state.promote(allocator).deinit();
-            pool.* = undefined;
+        pub fn deinit(self: *Pool, allocator: Allocator) void {
+            self.arena_state.promote(allocator).deinit();
+            self.* = undefined;
         }
 
         pub fn toManaged(pool: Pool, allocator: Allocator) ExtraManaged(Item, pool_options) {
@@ -95,14 +96,14 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
         /// Pre-allocates `num` items and adds them to the memory pool.
         /// This allows at least `num` active allocations before an
         /// `OutOfMemory` error might happen when calling `create()`.
-        pub fn addCapacity(pool: *Pool, allocator: Allocator, num: usize) Allocator.Error!void {
-            const raw_mem = try pool.allocNew(allocator, num);
+        pub fn addCapacity(self: *Pool, allocator: Allocator, num: usize) Allocator.Error!void {
+            const raw_mem = try self.allocNew(allocator, num);
             const uni_slc = raw_mem[0..num];
-            for (uni_slc) |*unit| pool.free_list.prepend(@ptrCast(unit));
+            for (uni_slc) |*unit| self.free_list.prepend(@ptrCast(unit));
         }
 
         pub const ResetMode = union(enum) {
-            /// Releases all allocated memory in the arena.
+            /// Releases all allocated memory in the memory pool.
             free_all,
             /// This will pre-heat the memory pool for future allocations by allocating a
             /// large enough buffer to accomodate the highest amount of actively allocated items
@@ -125,9 +126,9 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
         /// be slower.
         ///
         /// NOTE: If `mode` is `free_all`, the function will always return `true`.
-        pub fn reset(pool: *Pool, allocator: Allocator, mode: ResetMode) bool {
-            var arena = pool.arena_state.promote(allocator);
-            defer pool.arena_state = arena.state;
+        pub fn reset(self: *Pool, allocator: Allocator, mode: ResetMode) bool {
+            var arena = self.arena_state.promote(allocator);
+            defer self.arena_state = arena.state;
 
             const ArenaResetMode = std.heap.ArenaAllocator.ResetMode;
             const arena_mode = switch (mode) {
@@ -135,24 +136,24 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
                 .retain_capacity => .retain_capacity,
                 .retain_with_limit => |limit| ArenaResetMode{ .retain_with_limit = limit * item_size },
             };
-            pool.free_list = null;
+            self.free_list = null;
             if (!arena.reset(arena_mode)) return false;
             // When the backing arena allocator is being reset to
             // a capacity greater than 0, then its internals consists
             // of a *single* buffer node of said capacity. This means,
             // we can safely pre-heat without causing additional allocations.
-            const arena_capacity = pool.arena.queryCapacity() / item_size;
-            if (arena_capacity != 0) pool.addCapacity(arena_capacity) catch unreachable;
+            const arena_capacity = arena.queryCapacity() / item_size;
+            if (arena_capacity != 0) self.addCapacity(arena_capacity) catch unreachable;
             return true;
         }
 
         /// Creates a new item and adds it to the memory pool.
         /// `allocator` may be `undefined` if pool is not `growable`.
-        pub fn create(pool: *Pool, allocator: Allocator) Allocator.Error!ItemPtr {
-            const ptr: ItemPtr = if (pool.free_list.popFirst()) |node|
+        pub fn create(self: *Pool, allocator: Allocator) Allocator.Error!ItemPtr {
+            const ptr: ItemPtr = if (self.free_list.popFirst()) |node|
                 @ptrCast(@alignCast(node))
             else if (pool_options.growable)
-                @ptrCast(try pool.allocNew(allocator, 1))
+                @ptrCast(try self.allocNew(allocator, 1))
             else
                 return error.OutOfMemory;
 
@@ -162,14 +163,14 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
 
         /// Destroys a previously created item.
         /// Only pass items to `ptr` that were previously created with `create()` of the same memory pool!
-        pub fn destroy(pool: *Pool, ptr: ItemPtr) void {
+        pub fn destroy(self: *Pool, ptr: ItemPtr) void {
             ptr.* = undefined;
-            pool.free_list.prepend(@ptrCast(ptr));
+            self.free_list.prepend(@ptrCast(ptr));
         }
 
-        fn allocNew(pool: *Pool, allocator: Allocator, num: usize) Allocator.Error![*]align(unit_al_bytes) Unit {
-            var arena = pool.arena_state.promote(allocator);
-            defer pool.arena_state = arena.state;
+        fn allocNew(self: *Pool, allocator: Allocator, num: usize) Allocator.Error![*]align(unit_al_bytes) Unit {
+            var arena = self.arena_state.promote(allocator);
+            defer self.arena_state = arena.state;
             const memory = try arena.allocator().alignedAlloc(Unit, item_alignment, num);
             return memory.ptr;
         }
@@ -212,16 +213,16 @@ pub fn ExtraManaged(comptime Item: type, comptime pool_options: Options) type {
         }
 
         /// Destroys the memory pool and frees all allocated memory.
-        pub fn deinit(pool: *Pool) void {
-            pool.unmanaged.deinit(pool.allocator);
-            pool.* = undefined;
+        pub fn deinit(self: *Pool) void {
+            self.unmanaged.deinit(self.allocator);
+            self.* = undefined;
         }
 
         /// Pre-allocates `num` items and adds them to the memory pool.
         /// This allows at least `num` active allocations before an
         /// `OutOfMemory` error might happen when calling `create()`.
-        pub fn addCapacity(pool: *Pool, num: usize) Allocator.Error!void {
-            return pool.unmanaged.addCapacity(pool.allocator, num);
+        pub fn addCapacity(self: *Pool, num: usize) Allocator.Error!void {
+            return self.unmanaged.addCapacity(self.allocator, num);
         }
 
         pub const ResetMode = Unmanaged.ResetMode;
@@ -235,24 +236,23 @@ pub fn ExtraManaged(comptime Item: type, comptime pool_options: Options) type {
         /// be slower.
         ///
         /// NOTE: If `mode` is `free_all`, the function will always return `true`.
-        pub fn reset(pool: *Pool, mode: ResetMode) bool {
-            return pool.unmanaged.reset(pool.allocator, mode);
+        pub fn reset(self: *Pool, mode: ResetMode) bool {
+            return self.unmanaged.reset(self.allocator, mode);
         }
 
         /// Creates a new item and adds it to the memory pool.
-        pub fn create(pool: *Pool) Allocator.Error!ItemPtr {
-            return pool.unmanaged.create(pool.allocator);
+        pub fn create(self: *Pool) Allocator.Error!ItemPtr {
+            return self.unmanaged.create(self.allocator);
         }
 
         /// Destroys a previously created item.
         /// Only pass items to `ptr` that were previously created with `create()` of the same memory pool!
-        pub fn destroy(pool: *Pool, ptr: ItemPtr) void {
-            return pool.unmanaged.destroy(ptr);
+        pub fn destroy(self: *Pool, ptr: ItemPtr) void {
+            return self.unmanaged.destroy(ptr);
         }
 
-        fn allocNew(pool: *Pool, num: usize) Allocator.Error![*]align(unit_al_bytes) Unit {
-            const memory = try pool.arena.allocator().alignedAlloc(Unit, item_alignment, num);
-            return memory.ptr;
+        fn allocNew(self: *Pool, num: usize) Allocator.Error![*]align(unit_al_bytes) Unit {
+            return self.unmanaged.allocNew(self.allocator, num);
         }
     };
 }
