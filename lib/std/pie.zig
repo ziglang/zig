@@ -19,6 +19,7 @@ const R_OR1K_RELATIVE = 21;
 const R_PPC_RELATIVE = 22;
 const R_RISCV_RELATIVE = 3;
 const R_390_RELATIVE = 12;
+const R_SH_RELATIVE = 165;
 const R_SPARC_RELATIVE = 22;
 
 const R_RELATIVE = switch (builtin.cpu.arch) {
@@ -38,6 +39,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => R_PPC_RELATIVE,
     .riscv32, .riscv32be, .riscv64, .riscv64be => R_RISCV_RELATIVE,
     .s390x => R_390_RELATIVE,
+    .sh, .sheb => R_SH_RELATIVE,
     .sparc, .sparc64 => R_SPARC_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
 };
@@ -223,6 +225,20 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ 2:
                 : [ret] "=a" (-> [*]const elf.Dyn),
             ),
+            .sh, .sheb => asm volatile (
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
+                \\ mova 1f, r0
+                \\ mov.l 1f, %[ret]
+                \\ add r0, %[ret]
+                \\ bra 2f
+                \\1:
+                \\ .balign 4
+                \\ .long DYNAMIC - .
+                \\2:
+                : [ret] "=r" (-> [*]const elf.Dyn),
+                :
+                : .{ .r0 = true }),
             // The compiler does not necessarily have any obligation to load the `l7` register (pointing
             // to the GOT), so do it ourselves just in case.
             .sparc, .sparc64 => asm volatile (
