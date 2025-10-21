@@ -1259,6 +1259,18 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
+                .hppa => asm volatile (
+                    \\ ldi 91, %%r20 /* SYS_munmap */
+                    \\ copy %[ptr], %%r26
+                    \\ copy %[len], %%r25
+                    \\ ble 0x100(%%sr2, %%r0)
+                    \\ ldi 1, %%r20 /* SYS_exit */
+                    \\ ldi 0, %%r26
+                    \\ ble 0x100(%%sr2, %%r0)
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .m68k => asm volatile (
                     \\ move.l #91, %%d0 // SYS_munmap
                     \\ move.l %[ptr], %%d1
