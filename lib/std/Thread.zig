@@ -1383,6 +1383,28 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
+                .sh, .sheb => asm volatile (
+                    \\ mov #91, r3 ! SYS_munmap
+                    \\ mov %[ptr], r4
+                    \\ mov %[len], r5
+                    \\ trapa #31
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ mov #1, r3 ! SYS_exit
+                    \\ mov #0, r4
+                    \\ trapa #31
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .sparc => asm volatile (
                     \\ # See sparc64 comments below.
                     \\ 1:
