@@ -32,11 +32,7 @@ pub const Kind = Io.File.Kind;
 /// the `touch` command, which would correspond to `0o644`. However, POSIX
 /// libc implementations use `0o666` inside `fopen` and then rely on the
 /// process-scoped "umask" setting to adjust this number for file creation.
-pub const default_mode = switch (builtin.os.tag) {
-    .windows => 0,
-    .wasi => 0,
-    else => 0o666,
-};
+pub const default_mode: Mode = if (Mode == u0) 0 else 0o666;
 
 /// Deprecated in favor of `Io.File.OpenError`.
 pub const OpenError = Io.File.OpenError || error{WouldBlock};
