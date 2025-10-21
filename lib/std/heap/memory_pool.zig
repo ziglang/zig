@@ -77,26 +77,26 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         }
 
         /// Destroys the memory pool and frees all allocated memory.
-        pub fn deinit(pool: *Pool) void {
-            pool.arena.deinit();
-            pool.* = undefined;
+        pub fn deinit(self: *Pool) void {
+            self.arena.deinit();
+            self.* = undefined;
         }
 
         /// Preheats the memory pool by pre-allocating `size` items.
         /// This allows up to `size` active allocations before an
         /// `OutOfMemory` error might happen when calling `create()`.
-        pub fn preheat(pool: *Pool, size: usize) MemoryPoolError!void {
-            const raw_mem = try pool.allocNew(size);
+        pub fn preheat(self: *Pool, size: usize) MemoryPoolError!void {
+            const raw_mem = try self.allocNew(size);
             const uni_slc = raw_mem[0..size];
             for (uni_slc) |*unit| {
                 const free_node: NodePtr = @ptrCast(unit);
-                free_node.next = pool.free_list;
-                pool.free_list = free_node;
+                free_node.next = self.free_list;
+                self.free_list = free_node;
             }
         }
 
         pub const ResetMode = union(enum) {
-            /// Releases all allocated memory in the arena.
+            /// Releases all allocated memory in the memory pool.
             free_all,
             /// This will pre-heat the memory pool for future allocations by allocating a
             /// large enough buffer to accomodate the highest amount of actively allocated items
@@ -119,31 +119,31 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         /// be slower.
         ///
         /// NOTE: If `mode` is `free_all`, the function will always return `true`.
-        pub fn reset(pool: *Pool, mode: ResetMode) bool {
+        pub fn reset(self: *Pool, mode: ResetMode) bool {
             const ArenaResetMode = std.heap.ArenaAllocator.ResetMode;
             const arena_mode = switch (mode) {
                 .free_all => .free_all,
                 .retain_capacity => .retain_capacity,
                 .retain_with_limit => |limit| ArenaResetMode{ .retain_with_limit = limit * item_size },
             };
-            pool.free_list = null;
-            if (!pool.arena.reset(arena_mode)) return false;
+            self.free_list = null;
+            if (!self.arena.reset(arena_mode)) return false;
             // When the backing arena allocator is being reset to
             // a capacity greater than 0, then its internals consists
             // of a *single* buffer node of said capacity. This means,
             // we can safely pre-heat without causing additional allocations.
-            const arena_capacity = pool.arena.queryCapacity() / item_size;
-            if (arena_capacity != 0) pool.preheat(arena_capacity) catch unreachable;
+            const arena_capacity = self.arena.queryCapacity() / item_size;
+            if (arena_capacity != 0) self.preheat(arena_capacity) catch unreachable;
             return true;
         }
 
         /// Creates a new item and adds it to the memory pool.
-        pub fn create(pool: *Pool) !ItemPtr {
-            const node_ptr: NodePtr = if (pool.free_list) |item| blk: {
-                pool.free_list = item.next;
+        pub fn create(self: *Pool) !ItemPtr {
+            const node_ptr: NodePtr = if (self.free_list) |item| blk: {
+                self.free_list = item.next;
                 break :blk item;
             } else if (pool_options.growable)
-                @ptrCast(try pool.allocNew(1))
+                @ptrCast(try self.allocNew(1))
             else
                 return error.OutOfMemory;
 
@@ -154,15 +154,15 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
 
         /// Destroys a previously created item.
         /// Only pass items to `ptr` that were previously created with `create()` of the same memory pool!
-        pub fn destroy(pool: *Pool, ptr: ItemPtr) void {
+        pub fn destroy(self: *Pool, ptr: ItemPtr) void {
             ptr.* = undefined;
             const node_ptr: NodePtr = @ptrCast(ptr);
-            node_ptr.next = pool.free_list;
-            pool.free_list = node_ptr;
+            node_ptr.next = self.free_list;
+            self.free_list = node_ptr;
         }
 
-        fn allocNew(pool: *Pool, n: usize) MemoryPoolError![*]align(unit_al_bytes) Unit {
-            const mem = try pool.arena.allocator().alignedAlloc(Unit, item_alignment, n);
+        fn allocNew(self: *Pool, n: usize) MemoryPoolError![*]align(unit_al_bytes) Unit {
+            const mem = try self.arena.allocator().alignedAlloc(Unit, item_alignment, n);
             return mem.ptr;
         }
     };
