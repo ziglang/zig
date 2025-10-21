@@ -52,8 +52,9 @@ else switch (native_os) {
         pub const fd_t = void;
         pub const uid_t = void;
         pub const gid_t = void;
-        pub const mode_t = void;
+        pub const mode_t = u0;
         pub const ino_t = void;
+        pub const IFNAMESIZE = {};
     },
 };
 
