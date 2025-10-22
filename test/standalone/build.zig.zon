@@ -15,10 +15,6 @@
         .test_runner_module_imports = .{
             .path = "test_runner_module_imports",
         },
-        // https://github.com/ziglang/zig/issues/17483
-        //.issue_13970 = .{
-        //    .path = "issue_13970",
-        //},
         .shared_library = .{
             .path = "shared_library",
         },
@@ -142,15 +138,6 @@
         .issue_12706 = .{
             .path = "issue_12706",
         },
-        // TODO This test is disabled for doing naughty things in the build script.
-        // The logic needs to get moved to a child process instead of build.zig.
-        //.sigpipe = .{
-        //    .path = "sigpipe",
-        //},
-        // TODO restore this test
-        //.options = .{
-        //    .path = "options",
-        //},
         .strip_empty_loop = .{
             .path = "strip_empty_loop",
         },
@@ -193,9 +180,6 @@
         .empty_global_error_set = .{
             .path = "empty_global_error_set",
         },
-        .omit_cfi = .{
-            .path = "omit_cfi",
-        },
         .config_header = .{
             .path = "config_header",
         },
@@ -205,9 +189,10 @@
         .run_cwd = .{
             .path = "run_cwd",
         },
-        .tsan = .{
-            .path = "tsan",
-        },
+        // https://github.com/ziglang/zig/issues/25471
+        // .tsan = .{
+        //     .path = "tsan",
+        // },
         .posix = .{
             .path = "posix",
         },

@@ -303,7 +303,8 @@ fn allocBytesWithAlignment(
 /// It is guaranteed to not move the pointer, however the allocator
 /// implementation may refuse the resize request by returning `false`.
 ///
-/// `allocation` may be an empty slice, in which case a new allocation is made.
+/// `allocation` may be an empty slice, in which case `false` is returned,
+/// unless `new_len` is also 0, in which case `true` is returned.
 ///
 /// `new_len` may be zero, in which case the allocation is freed.
 pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {

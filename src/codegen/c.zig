@@ -5770,6 +5770,20 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 .bool_true => {
                     const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
                     assert(name.len != 0);
+
+                    const target = &f.object.dg.mod.resolved_target.result;
+                    if (target.cpu.arch.isMIPS() and name[0] == 'r') {
+                        // GCC uses "$N" for register names instead of "rN" used by Zig.
+                        var c_name_buf: [4]u8 = undefined;
+                        const c_name = (&c_name_buf)[0..name.len];
+                        @memcpy(c_name, name);
+                        c_name_buf[0] = '$';
+
+                        try w.print(" {f}", .{fmtStringLiteral(c_name, null)});
+                        (try w.writableArray(1))[0] = ',';
+                        continue;
+                    }
+
                     try w.print(" {f}", .{fmtStringLiteral(name, null)});
                     (try w.writableArray(1))[0] = ',';
                 },
@@ -8062,6 +8076,10 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
 
         .arm_aapcs => "pcs(\"aapcs\")",
         .arm_aapcs_vfp => "pcs(\"aapcs-vfp\")",
+
+        .arc_interrupt => |opts| switch (opts.type) {
+            inline else => |t| "interrupt(\"" ++ @tagName(t) ++ "\")",
+        },
 
         .arm_interrupt => |opts| switch (opts.type) {
             .generic => "interrupt",

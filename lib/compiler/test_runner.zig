@@ -17,7 +17,9 @@ var fba_buffer: [8192]u8 = undefined;
 var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
 
-const crippled = switch (builtin.zig_backend) {
+/// Keep in sync with logic in `std.Build.addRunArtifact` which decides whether
+/// the test runner will communicate with the build runner via `std.zig.Server`.
+const need_simple = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
@@ -33,7 +35,7 @@ pub fn main() void {
         return;
     }
 
-    if (crippled) {
+    if (need_simple) {
         return mainSimple() catch @panic("test failure\n");
     }
 
@@ -132,29 +134,38 @@ fn mainServer() !void {
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
-                var fail = false;
-                var skip = false;
                 is_fuzz_test = false;
-                test_fn.func() catch |err| switch (err) {
-                    error.SkipZigTest => skip = true,
-                    else => {
-                        fail = true;
+
+                // let the build server know we're starting the test now
+                try server.serveStringMessage(.test_started, &.{});
+
+                const TestResults = std.zig.Server.Message.TestResults;
+                const status: TestResults.Status = if (test_fn.func()) |v| s: {
+                    v;
+                    break :s .pass;
+                } else |err| switch (err) {
+                    error.SkipZigTest => .skip,
+                    else => s: {
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace);
                         }
+                        break :s .fail;
                     },
                 };
-                const leak = testing.allocator_instance.deinit() == .leak;
+                const leak_count = testing.allocator_instance.detectLeaks();
+                testing.allocator_instance.deinitWithoutLeakChecks();
                 try server.serveTestResults(.{
                     .index = index,
                     .flags = .{
-                        .fail = fail,
-                        .skip = skip,
-                        .leak = leak,
+                        .status = status,
                         .fuzz = is_fuzz_test,
                         .log_err_count = std.math.lossyCast(
-                            @FieldType(std.zig.Server.Message.TestResults.Flags, "log_err_count"),
+                            @FieldType(TestResults.Flags, "log_err_count"),
                             log_err_count,
+                        ),
+                        .leak_count = std.math.lossyCast(
+                            @FieldType(TestResults.Flags, "leak_count"),
+                            leak_count,
                         ),
                     },
                 });
@@ -371,7 +382,7 @@ pub fn fuzz(
 
     // Some compiler backends are not capable of handling fuzz testing yet but
     // we still want CI test coverage enabled.
-    if (crippled) return;
+    if (need_simple) return;
 
     // Smoke test to ensure the test did not use conditional compilation to
     // contradict itself by making it not actually be a fuzz test when the test

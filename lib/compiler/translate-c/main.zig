@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const process = std.process;
 const aro = @import("aro");
+const compiler_util = @import("../util.zig");
 const Translator = @import("Translator.zig");
 
 const fast_exit = @import("builtin").mode != .Debug;
@@ -13,24 +14,33 @@ pub fn main() u8 {
     const gpa = general_purpose_allocator.allocator();
     defer _ = general_purpose_allocator.deinit();
 
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = process.argsAlloc(arena) catch {
+    var args = process.argsAlloc(arena) catch {
         std.debug.print("ran out of memory allocating arguments\n", .{});
         if (fast_exit) process.exit(1);
         return 1;
     };
 
+    var zig_integration = false;
+    if (args.len > 1 and std.mem.eql(u8, args[1], "--zig-integration")) {
+        zig_integration = true;
+    }
+
     var stderr_buf: [1024]u8 = undefined;
     var stderr = std.fs.File.stderr().writer(&stderr_buf);
-    var diagnostics: aro.Diagnostics = .{
-        .output = .{ .to_writer = .{
+    var diagnostics: aro.Diagnostics = switch (zig_integration) {
+        false => .{ .output = .{ .to_writer = .{
             .color = .detect(stderr.file),
             .writer = &stderr.interface,
-        } },
+        } } },
+        true => .{ .output = .{ .to_list = .{
+            .arena = .init(gpa),
+        } } },
     };
+    defer diagnostics.deinit();
 
     var comp = aro.Compilation.initDefault(gpa, arena, &diagnostics, std.fs.cwd()) catch |err| switch (err) {
         error.OutOfMemory => {
@@ -47,13 +57,22 @@ pub fn main() u8 {
     var toolchain: aro.Toolchain = .{ .driver = &driver, .filesystem = .{ .real = comp.cwd } };
     defer toolchain.deinit();
 
-    translate(&driver, &toolchain, args) catch |err| switch (err) {
+    translate(&driver, &toolchain, args, zig_integration) catch |err| switch (err) {
         error.OutOfMemory => {
             std.debug.print("ran out of memory translating\n", .{});
             if (fast_exit) process.exit(1);
             return 1;
         },
-        error.FatalError => {
+        error.FatalError => if (zig_integration) {
+            serveErrorBundle(arena, &diagnostics) catch |bundle_err| {
+                std.debug.print("unable to serve error bundle: {}\n", .{bundle_err});
+                if (fast_exit) process.exit(1);
+                return 1;
+            };
+
+            if (fast_exit) process.exit(0);
+            return 0;
+        } else {
             if (fast_exit) process.exit(1);
             return 1;
         },
@@ -63,8 +82,25 @@ pub fn main() u8 {
             return 1;
         },
     };
+
+    assert(comp.diagnostics.errors == 0 or !zig_integration);
     if (fast_exit) process.exit(@intFromBool(comp.diagnostics.errors != 0));
     return @intFromBool(comp.diagnostics.errors != 0);
+}
+
+fn serveErrorBundle(arena: std.mem.Allocator, diagnostics: *const aro.Diagnostics) !void {
+    const error_bundle = try compiler_util.aroDiagnosticsToErrorBundle(
+        diagnostics,
+        arena,
+        "translation failure",
+    );
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var server: std.zig.Server = .{
+        .out = &stdout_writer.interface,
+        .in = undefined,
+    };
+    try server.serveErrorBundle(error_bundle);
 }
 
 pub const usage =
@@ -79,7 +115,7 @@ pub const usage =
     \\
 ;
 
-fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
+fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8, zig_integration: bool) !void {
     const gpa = d.comp.gpa;
 
     const aro_args = args: {
@@ -99,6 +135,9 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
                 try stdout.interface.writeAll("0.0.0-dev\n");
                 try stdout.interface.flush();
                 return;
+            } else if (mem.eql(u8, arg, "--zig-integration")) {
+                if (i != 1 or !zig_integration)
+                    return d.fatal("--zig-integration must be the first argument", .{});
             } else {
                 i += 1;
             }
@@ -114,6 +153,14 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
         assert(!try d.parseArgs(&discarding.writer, &macro_buf, aro_args));
         if (macro_buf.items.len > std.math.maxInt(u32)) {
             return d.fatal("user provided macro source exceeded max size", .{});
+        }
+
+        const has_output_file = if (d.output_name) |path|
+            !std.mem.eql(u8, path, "-")
+        else
+            false;
+        if (zig_integration and !has_output_file) {
+            return d.fatal("--zig-integration requires specifying an output file", .{});
         }
 
         const content = try macro_buf.toOwnedSlice(gpa);
@@ -160,7 +207,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
     defer c_tree.deinit();
 
     if (d.diagnostics.errors != 0) {
-        if (fast_exit) process.exit(1);
+        if (fast_exit and !zig_integration) process.exit(1);
         return error.FatalError;
     }
 
@@ -212,7 +259,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
     if (out_writer.err) |write_err|
         return d.fatal("failed to write result to '{s}': {s}", .{ out_file_path, aro.Driver.errorDescription(write_err) });
 
-    if (fast_exit) process.exit(0);
+    if (fast_exit and !zig_integration) process.exit(0);
 }
 
 test {

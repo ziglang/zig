@@ -1082,7 +1082,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
     };
 }
 
-pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
+pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
     return switch (target.cpu.arch) {
         .arm => .ARM,
         .thumb => .ARMNT,
@@ -1092,7 +1092,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
         .riscv32 => .RISCV32,
         .riscv64 => .RISCV64,
         .x86 => .I386,
-        .x86_64 => .X64,
+        .x86_64 => .AMD64,
 
         .amdgcn,
         .arc,
@@ -1754,6 +1754,7 @@ pub const Cpu = struct {
                 => &.{ .wasm64, .wasm32 },
 
                 .arc_sysv,
+                .arc_interrupt,
                 => &.{.arc},
 
                 .avr_gnu,
@@ -1912,7 +1913,11 @@ pub const Cpu = struct {
                 .powerpc64le => &powerpc.cpu.ppc64le,
                 .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
                 .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
-                .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
+                // gcc/clang do not have a generic s390x model.
+                .s390x => switch (os.tag) {
+                    .zos => &s390x.cpu.arch10,
+                    else => &s390x.cpu.arch8,
+                },
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .sparc64 => switch (os.tag) {
                     .solaris => &sparc.cpu.ultrasparc3,
@@ -1938,35 +1943,6 @@ pub const Cpu = struct {
     /// of features that is expected to be supported on most available hardware.
     pub fn baseline(arch: Arch, os: Os) Cpu {
         return Model.baseline(arch, os).toCpu(arch);
-    }
-
-    /// Returns whether this architecture supports `address_space`. If `context` is `null`, this
-    /// function simply answers the general question of whether the architecture has any concept
-    /// of `address_space`; if non-`null`, the function additionally checks whether
-    /// `address_space` is valid in that context.
-    pub fn supportsAddressSpace(
-        cpu: Cpu,
-        address_space: std.builtin.AddressSpace,
-        context: ?std.builtin.AddressSpace.Context,
-    ) bool {
-        const arch = cpu.arch;
-
-        const is_nvptx = arch.isNvptx();
-        const is_spirv = arch.isSpirV();
-        const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
-
-        return switch (address_space) {
-            .generic => true,
-            .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
-            .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
-            .cog, .hub => arch == .propeller,
-            .lut => arch == .propeller and cpu.has(.propeller, .p2),
-
-            .global, .local, .shared => is_gpu,
-            .constant => is_gpu and (context == null or context == .constant),
-            .param => is_nvptx,
-            .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
-        };
     }
 
     /// Returns true if `feature` is enabled.
@@ -2125,6 +2101,35 @@ pub fn requiresLibC(target: *const Target) bool {
         .other,
         .@"3ds",
         => false,
+    };
+}
+
+/// Returns whether this target supports `address_space`. If `context` is `null`, this
+/// function simply answers the general question of whether the target has any concept
+/// of `address_space`; if non-`null`, the function additionally checks whether
+/// `address_space` is valid in that context.
+pub fn supportsAddressSpace(
+    target: Target,
+    address_space: std.builtin.AddressSpace,
+    context: ?std.builtin.AddressSpace.Context,
+) bool {
+    const arch = target.cpu.arch;
+
+    const is_nvptx = arch.isNvptx();
+    const is_spirv = arch.isSpirV();
+    const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
+
+    return switch (address_space) {
+        .generic => true,
+        .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
+        .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
+        .cog, .hub => arch == .propeller,
+        .lut => arch == .propeller and std.Target.propeller.featureSetHas(target.cpu.features, .p2),
+
+        .global, .local, .shared => is_gpu,
+        .constant => is_gpu and (context == null or context == .constant),
+        .param => is_nvptx,
+        .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
     };
 }
 
@@ -2459,9 +2464,9 @@ pub const DynamicLinker = struct {
                         => init("/lib/ld.so.1"),
                         else => none,
                     },
-                    // TODO: ELFv2 ABI (`/lib64/ld64.so.2`) opt-in support.
-                    .powerpc64 => if (abi == .gnu) init("/lib64/ld64.so.1") else none,
-                    .powerpc64le => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
+                    .powerpc64,
+                    .powerpc64le,
+                    => if (abi == .gnu) init("/lib64/ld64.so.2") else none,
 
                     .riscv32,
                     .riscv64,

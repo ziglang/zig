@@ -1841,110 +1841,6 @@ pub const PROT = switch (native_os) {
     else => void,
 };
 
-pub const REG = switch (native_os) {
-    .linux => linux.REG,
-    .emscripten => emscripten.REG,
-    .freebsd => switch (builtin.cpu.arch) {
-        .aarch64 => struct {
-            pub const FP = 29;
-            pub const SP = 31;
-            pub const PC = 32;
-        },
-        .arm => struct {
-            pub const FP = 11;
-            pub const SP = 13;
-            pub const PC = 15;
-        },
-        .x86_64 => struct {
-            pub const RBP = 12;
-            pub const RIP = 21;
-            pub const RSP = 24;
-        },
-        else => struct {},
-    },
-    .solaris, .illumos => struct {
-        pub const R15 = 0;
-        pub const R14 = 1;
-        pub const R13 = 2;
-        pub const R12 = 3;
-        pub const R11 = 4;
-        pub const R10 = 5;
-        pub const R9 = 6;
-        pub const R8 = 7;
-        pub const RDI = 8;
-        pub const RSI = 9;
-        pub const RBP = 10;
-        pub const RBX = 11;
-        pub const RDX = 12;
-        pub const RCX = 13;
-        pub const RAX = 14;
-        pub const RIP = 17;
-        pub const RSP = 20;
-    },
-    .netbsd => switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be => struct {
-            pub const FP = 29;
-            pub const SP = 31;
-            pub const PC = 32;
-        },
-        .arm, .armeb => struct {
-            pub const FP = 11;
-            pub const SP = 13;
-            pub const PC = 15;
-        },
-        .x86 => struct {
-            pub const GS = 0;
-            pub const FS = 1;
-            pub const ES = 2;
-            pub const DS = 3;
-            pub const EDI = 4;
-            pub const ESI = 5;
-            pub const EBP = 6;
-            pub const ESP = 7;
-            pub const EBX = 8;
-            pub const EDX = 9;
-            pub const ECX = 10;
-            pub const EAX = 11;
-            pub const TRAPNO = 12;
-            pub const ERR = 13;
-            pub const EIP = 14;
-            pub const CS = 15;
-            pub const EFL = 16;
-            pub const UESP = 17;
-            pub const SS = 18;
-        },
-        .x86_64 => struct {
-            pub const RDI = 0;
-            pub const RSI = 1;
-            pub const RDX = 2;
-            pub const RCX = 3;
-            pub const R8 = 4;
-            pub const R9 = 5;
-            pub const R10 = 6;
-            pub const R11 = 7;
-            pub const R12 = 8;
-            pub const R13 = 9;
-            pub const R14 = 10;
-            pub const R15 = 11;
-            pub const RBP = 12;
-            pub const RBX = 13;
-            pub const RAX = 14;
-            pub const GS = 15;
-            pub const FS = 16;
-            pub const ES = 17;
-            pub const DS = 18;
-            pub const TRAPNO = 19;
-            pub const ERR = 20;
-            pub const RIP = 21;
-            pub const CS = 22;
-            pub const RFLAGS = 23;
-            pub const RSP = 24;
-            pub const SS = 25;
-        },
-        else => struct {},
-    },
-    else => struct {},
-};
 pub const RLIM = switch (native_os) {
     .linux => linux.RLIM,
     .emscripten => emscripten.RLIM,
@@ -3140,8 +3036,17 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
     },
+    // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal.h
     // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal_numbers.h
     .serenity => struct {
+        pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+        pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+        pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+
+        pub const BLOCK = 1;
+        pub const UNBLOCK = 2;
+        pub const SETMASK = 3;
+
         pub const INVAL = 0;
         pub const HUP = 1;
         pub const INT = 2;
@@ -3346,15 +3251,15 @@ pub const Sigaction = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L39-L46
     .serenity => extern struct {
-        pub const handler_fn = *align(1) const fn (c_int) callconv(.c) void;
-        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         handler: extern union {
             handler: ?handler_fn,
             sigaction: ?sigaction_fn,
         },
         mask: sigset_t,
-        flags: c_int,
+        flags: c_uint,
     },
     else => void,
 };
@@ -4544,7 +4449,7 @@ pub const rusage = switch (native_os) {
 pub const siginfo_t = switch (native_os) {
     .linux => linux.siginfo_t,
     .emscripten => emscripten.siginfo_t,
-    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         signo: c_int,
         errno: c_int,
         code: c_int,
@@ -10808,7 +10713,9 @@ pub extern "c" fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) c_int;
 pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
 pub extern "c" fn getuid() uid_t;
+pub extern "c" fn getgid() gid_t;
 pub extern "c" fn geteuid() uid_t;
+pub extern "c" fn getegid() gid_t;
 pub extern "c" fn getresuid(ruid: *uid_t, euid: *uid_t, suid: *uid_t) c_int;
 pub extern "c" fn getresgid(rgid: *gid_t, egid: *gid_t, sgid: *gid_t) c_int;
 
@@ -11075,7 +10982,6 @@ pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
 pub const ctid_t = solaris.ctid_t;
 pub const file_obj = solaris.file_obj;
-pub const fpregset_t = solaris.fpregset_t;
 pub const id_t = solaris.id_t;
 pub const lif_ifinfo_req = solaris.lif_ifinfo_req;
 pub const lif_nd_req = solaris.lif_nd_req;

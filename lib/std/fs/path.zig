@@ -2,7 +2,7 @@
 //!
 //! Windows paths are arbitrary sequences of `u16` (WTF-16).
 //! For cross-platform APIs that deal with sequences of `u8`, Windows
-//! paths are encoded by Zig as [WTF-8](https://simonsapin.github.io/wtf-8/).
+//! paths are encoded by Zig as [WTF-8](https://wtf-8.codeberg.page/).
 //! WTF-8 is a superset of UTF-8 that allows encoding surrogate codepoints,
 //! which enables lossless roundtripping when converting to/from WTF-16
 //! (as long as the WTF-8 encoded surrogate codepoints do not form a pair).

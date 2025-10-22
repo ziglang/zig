@@ -20,7 +20,7 @@ pub const changeCurDirZ = posix.chdirZ;
 pub const GetCwdError = posix.GetCwdError;
 
 /// The result is a slice of `out_buffer`, from index `0`.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getCwd(out_buffer: []u8) ![]u8 {
     return posix.getcwd(out_buffer);
@@ -29,7 +29,7 @@ pub fn getCwd(out_buffer: []u8) ![]u8 {
 pub const GetCwdAllocError = Allocator.Error || posix.GetCwdError;
 
 /// Caller must free the returned memory.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
     // The use of max_path_bytes here is just a heuristic: most paths will fit
@@ -139,7 +139,7 @@ pub const EnvMap = struct {
     /// Same as `put` but the key and value become owned by the EnvMap rather
     /// than being copied.
     /// If `putMove` fails, the ownership of key and value does not transfer.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn putMove(self: *EnvMap, key: []u8, value: []u8) !void {
         assert(unicode.wtf8ValidateSlice(key));
         const get_or_put = try self.hash_map.getOrPut(key);
@@ -152,7 +152,7 @@ pub const EnvMap = struct {
     }
 
     /// `key` and `value` are copied into the EnvMap.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn put(self: *EnvMap, key: []const u8, value: []const u8) !void {
         assert(unicode.wtf8ValidateSlice(key));
         const value_copy = try self.copy(value);
@@ -171,7 +171,7 @@ pub const EnvMap = struct {
 
     /// Find the address of the value associated with a key.
     /// The returned pointer is invalidated if the map resizes.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn getPtr(self: EnvMap, key: []const u8) ?*[]const u8 {
         assert(unicode.wtf8ValidateSlice(key));
         return self.hash_map.getPtr(key);
@@ -180,7 +180,7 @@ pub const EnvMap = struct {
     /// Return the map's copy of the value associated with
     /// a key.  The returned string is invalidated if this
     /// key is removed from the map.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn get(self: EnvMap, key: []const u8) ?[]const u8 {
         assert(unicode.wtf8ValidateSlice(key));
         return self.hash_map.get(key);
@@ -188,7 +188,7 @@ pub const EnvMap = struct {
 
     /// Removes the item from the map and frees its value.
     /// This invalidates the value returned by get() for this key.
-    /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
+    /// On Windows `key` must be a valid [WTF-8](https://wtf-8.codeberg.page/) string.
     pub fn remove(self: *EnvMap, key: []const u8) void {
         assert(unicode.wtf8ValidateSlice(key));
         const kv = self.hash_map.fetchRemove(key) orelse return;
@@ -387,14 +387,14 @@ pub const GetEnvVarOwnedError = error{
     EnvironmentVariableNotFound,
 
     /// On Windows, environment variable keys provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 };
 
 /// Caller must free returned memory.
-/// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
+/// On Windows, if `key` is not valid [WTF-8](https://wtf-8.codeberg.page/),
 /// then `error.InvalidWtf8` is returned.
-/// On Windows, the value is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the value is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the value is an opaque sequence of bytes with no particular encoding.
 pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (native_os == .windows) {
@@ -469,11 +469,11 @@ pub const HasEnvVarError = error{
     OutOfMemory,
 
     /// On Windows, environment variable keys provided by the user must be valid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 };
 
-/// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
+/// On Windows, if `key` is not valid [WTF-8](https://wtf-8.codeberg.page/),
 /// then `error.InvalidWtf8` is returned.
 pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     if (native_os == .windows) {
@@ -491,7 +491,7 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     }
 }
 
-/// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
+/// On Windows, if `key` is not valid [WTF-8](https://wtf-8.codeberg.page/),
 /// then `error.InvalidWtf8` is returned.
 pub fn hasNonEmptyEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     if (native_os == .windows) {
@@ -737,7 +737,7 @@ pub const ArgIteratorWindows = struct {
 
     /// Returns the next argument and advances the iterator. Returns `null` if at the end of the
     /// command-line string. The iterator owns the returned slice.
-    /// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
     pub fn next(self: *ArgIteratorWindows) ?[:0]const u8 {
         return self.nextWithStrategy(next_strategy);
     }
@@ -771,7 +771,7 @@ pub const ArgIteratorWindows = struct {
             // check to see if we've emitted two consecutive surrogate
             // codepoints that form a valid surrogate pair in order
             // to ensure that we're always emitting well-formed WTF-8
-            // (https://simonsapin.github.io/wtf-8/#concatenating).
+            // (https://wtf-8.codeberg.page/#concatenating).
             //
             // If we do have a valid surrogate pair, we need to emit
             // the UTF-8 sequence for the codepoint that they encode
@@ -1196,7 +1196,7 @@ pub const ArgIterator = struct {
 
     /// Get the next argument. Returns 'null' if we are at the end.
     /// Returned slice is pointing to the iterator's internal buffer.
-    /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
     /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
     pub fn next(self: *ArgIterator) ?([:0]const u8) {
         return self.inner.next();
@@ -1234,7 +1234,7 @@ pub fn argsWithAllocator(allocator: Allocator) ArgIterator.InitError!ArgIterator
 }
 
 /// Caller must call argsFree on result.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.

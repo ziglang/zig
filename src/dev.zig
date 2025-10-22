@@ -96,6 +96,7 @@ pub const Env = enum {
                 .spirv_backend,
                 .lld_linker,
                 .coff_linker,
+                .coff2_linker,
                 .elf_linker,
                 .elf2_linker,
                 .macho_linker,
@@ -284,6 +285,7 @@ pub const Feature = enum {
 
     lld_linker,
     coff_linker,
+    coff2_linker,
     elf_linker,
     elf2_linker,
     macho_linker,

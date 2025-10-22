@@ -34,6 +34,12 @@ pub const Message = struct {
         test_metadata,
         /// Body is a TestResults
         test_results,
+        /// Does not have a body.
+        /// Notifies the build runner that the next test (requested by `Client.Message.Tag.run_test`)
+        /// is starting execution. This message helps to ensure that the timestamp used by the build
+        /// runner to enforce unit test time limits is relatively accurate under extreme system load
+        /// (where there may be a non-trivial delay before the test process is scheduled).
+        test_started,
         /// Body is a series of strings, delimited by null bytes.
         /// Each string is a prefixed file path.
         /// The first byte indicates the file prefix path (see prefixes fields
@@ -90,15 +96,16 @@ pub const Message = struct {
 
     pub const TestResults = extern struct {
         index: u32,
-        flags: Flags,
+        flags: Flags align(4),
 
-        pub const Flags = packed struct(u32) {
-            fail: bool,
-            skip: bool,
-            leak: bool,
+        pub const Flags = packed struct(u64) {
+            status: Status,
             fuzz: bool,
-            log_err_count: u28 = 0,
+            log_err_count: u30,
+            leak_count: u31,
         };
+
+        pub const Status = enum(u2) { pass, fail, skip };
     };
 
     /// Trailing is the same as in `std.Build.abi.time_report.CompileResult`, excluding `step_name`.
@@ -229,6 +236,28 @@ pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
     try s.out.writeSliceEndian(u32, error_bundle.extra, .little);
     try s.out.writeAll(error_bundle.string_bytes);
     try s.out.flush();
+}
+
+pub fn allocErrorBundle(allocator: std.mem.Allocator, body: []const u8) !std.zig.ErrorBundle {
+    const eb_hdr = @as(*align(1) const OutMessage.ErrorBundle, @ptrCast(body));
+    const extra_bytes =
+        body[@sizeOf(OutMessage.ErrorBundle)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
+    const string_bytes =
+        body[@sizeOf(OutMessage.ErrorBundle) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
+    const unaligned_extra: []align(1) const u32 = @ptrCast(extra_bytes);
+
+    var error_bundle: std.zig.ErrorBundle = .{
+        .string_bytes = &.{},
+        .extra = &.{},
+    };
+    errdefer error_bundle.deinit(allocator);
+
+    error_bundle.string_bytes = try allocator.dupe(u8, string_bytes);
+    const extra = try allocator.alloc(u32, unaligned_extra.len);
+    @memcpy(extra, unaligned_extra);
+    error_bundle.extra = extra;
+
+    return error_bundle;
 }
 
 pub const TestMetadata = struct {

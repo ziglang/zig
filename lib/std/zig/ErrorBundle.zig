@@ -416,6 +416,18 @@ pub const Wip = struct {
         wip.root_list.appendAssumeCapacity(try addErrorMessage(wip, em));
     }
 
+    pub fn addRootErrorMessageWithNotes(
+        wip: *Wip,
+        msg: ErrorMessage,
+        notes: []const ErrorMessage,
+    ) !void {
+        try wip.addRootErrorMessage(msg);
+        const notes_start = try wip.reserveNotes(@intCast(notes.len));
+        for (notes_start.., notes) |i, note| {
+            wip.extra.items[i] = @intFromEnum(wip.addErrorMessageAssumeCapacity(note));
+        }
+    }
+
     pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) Allocator.Error!MessageIndex {
         return @enumFromInt(try addExtra(wip, em));
     }

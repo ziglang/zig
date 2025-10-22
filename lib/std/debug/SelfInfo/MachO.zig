@@ -401,21 +401,11 @@ fn unwindFrameInner(si: *SelfInfo, gpa: Allocator, context: *UnwindContext) !usi
                     }
                 }
 
-                inline for (@typeInfo(@TypeOf(frame.d_reg_pairs)).@"struct".fields, 0..) |field, i| {
-                    if (@field(frame.d_reg_pairs, field.name) != 0) {
-                        // Only the lower half of the 128-bit V registers are restored during unwinding
-                        {
-                            const dest: *align(1) usize = @ptrCast(try context.cpu_state.dwarfRegisterBytes(64 + 8 + i));
-                            dest.* = @as(*const usize, @ptrFromInt(reg_addr)).*;
-                        }
-                        reg_addr += @sizeOf(usize);
-                        {
-                            const dest: *align(1) usize = @ptrCast(try context.cpu_state.dwarfRegisterBytes(64 + 9 + i));
-                            dest.* = @as(*const usize, @ptrFromInt(reg_addr)).*;
-                        }
-                        reg_addr += @sizeOf(usize);
-                    }
-                }
+                // We intentionally skip restoring `frame.d_reg_pairs`; we know we don't support
+                // vector registers in the AArch64 `cpu_context` anyway, so there's no reason to
+                // fail a legitimate unwind just because we're asked to restore the registers here.
+                // If some weird/broken unwind info tells us to read them later, we will fail then.
+                reg_addr += 16 * @as(usize, @popCount(@as(u4, @bitCast(frame.d_reg_pairs))));
 
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_fp = @as(*const usize, @ptrFromInt(fp)).*;

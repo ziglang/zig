@@ -81,52 +81,67 @@ pub fn getExternalExecutor(
     // If the OS matches, we can use QEMU to emulate a foreign architecture.
     if (options.allow_qemu and os_match and (!cpu_ok or options.qemu_fixes_dl)) {
         return switch (candidate.cpu.arch) {
-            .aarch64 => Executor{ .qemu = "qemu-aarch64" },
-            .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-            .arm, .thumb => Executor{ .qemu = "qemu-arm" },
-            .armeb, .thumbeb => Executor{ .qemu = "qemu-armeb" },
-            .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
-            .m68k => Executor{ .qemu = "qemu-m68k" },
-            .mips => Executor{ .qemu = "qemu-mips" },
-            .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32",
-                    else => "qemu-mips64",
-                },
+            inline .aarch64,
+            .arm,
+            .riscv64,
+            .x86,
+            .x86_64,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                .freebsd,
+                => .{ .qemu = switch (t) {
+                    .x86 => "qemu-i386",
+                    .x86_64 => switch (candidate.abi) {
+                        .gnux32, .muslx32 => return bad_result,
+                        else => "qemu-x86_64",
+                    },
+                    else => "qemu-" ++ @tagName(t),
+                } },
+                else => bad_result,
             },
-            .mips64el => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32el",
-                    else => "qemu-mips64el",
-                },
+            inline .aarch64_be,
+            .armeb,
+            .hexagon,
+            .loongarch64,
+            .m68k,
+            .mips,
+            .mipsel,
+            .mips64,
+            .mips64el,
+            .or1k,
+            .powerpc,
+            .powerpc64,
+            .powerpc64le,
+            .riscv32,
+            .s390x,
+            .sparc,
+            .sparc64,
+            .thumb,
+            .thumbeb,
+            .xtensa,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                => .{ .qemu = switch (t) {
+                    .powerpc => "qemu-ppc",
+                    .powerpc64 => "qemu-ppc64",
+                    .powerpc64le => "qemu-ppc64le",
+                    .mips64, .mips64el => switch (candidate.abi) {
+                        .gnuabin32, .muslabin32 => if (t == .mips64el) "qemu-mipsn32el" else "qemu-mipsn32",
+                        else => "qemu-" ++ @tagName(t),
+                    },
+                    .sparc => if (candidate.cpu.has(.sparc, .v8plus)) "qemu-sparc32plus" else "qemu-sparc",
+                    .thumb => "qemu-arm",
+                    .thumbeb => "qemu-armeb",
+                    else => "qemu-" ++ @tagName(t),
+                } },
+                else => bad_result,
             },
-            .powerpc => Executor{ .qemu = "qemu-ppc" },
-            .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
-            .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
-            .riscv32 => Executor{ .qemu = "qemu-riscv32" },
-            .riscv64 => Executor{ .qemu = "qemu-riscv64" },
-            .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{
-                .qemu = if (candidate.cpu.has(.sparc, .v8plus))
-                    "qemu-sparc32plus"
-                else
-                    "qemu-sparc",
-            },
-            .sparc64 => Executor{ .qemu = "qemu-sparc64" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
-            .x86_64 => switch (candidate.abi) {
-                .gnux32, .muslx32 => return bad_result,
-                else => Executor{ .qemu = "qemu-x86_64" },
-            },
-            .xtensa => Executor{ .qemu = "qemu-xtensa" },
-            else => return bad_result,
+            else => bad_result,
         };
     }
 
     if (options.allow_wasmtime and candidate.cpu.arch.isWasm()) {
-        return Executor{ .wasmtime = "wasmtime" };
+        return .{ .wasmtime = "wasmtime" };
     }
 
     switch (candidate.os.tag) {
@@ -142,7 +157,7 @@ pub fn getExternalExecutor(
                     .x86_64 => host.cpu.arch == .x86_64,
                     else => false,
                 };
-                return if (wine_supported) Executor{ .wine = "wine" } else bad_result;
+                return if (wine_supported) .{ .wine = "wine" } else bad_result;
             }
             return bad_result;
         },
@@ -154,7 +169,7 @@ pub fn getExternalExecutor(
                 if (candidate.cpu.arch != host.cpu.arch) {
                     return bad_result;
                 }
-                return Executor{ .darling = "darling" };
+                return .{ .darling = "darling" };
             }
             return bad_result;
         },

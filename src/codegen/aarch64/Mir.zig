@@ -135,11 +135,6 @@ pub fn emit(
         else if (lf.cast(.macho)) |mf|
             mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_reloc.symbol) catch |err|
                 return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
-        else if (lf.cast(.coff)) |cf|
-            if (cf.getOrCreateAtomForLazySymbol(pt, lazy_reloc.symbol)) |atom|
-                cf.getAtom(atom).getSymbolIndex().?
-            else |err|
-                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
         else
             return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {s}", .{@tagName(lf.tag)}),
         mir.body[lazy_reloc.reloc.label],
@@ -154,8 +149,6 @@ pub fn emit(
             try ef.getGlobalSymbol(std.mem.span(global_reloc.name), null)
         else if (lf.cast(.macho)) |mf|
             try mf.getGlobalSymbol(std.mem.span(global_reloc.name), null)
-        else if (lf.cast(.coff)) |cf|
-            try cf.getGlobalSymbol(std.mem.span(global_reloc.name), "compiler_rt")
         else
             return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {s}", .{@tagName(lf.tag)}),
         mir.body[global_reloc.reloc.label],

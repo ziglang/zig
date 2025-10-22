@@ -162,7 +162,7 @@ pub const SpawnError = error{
     NoDevice,
 
     /// Windows-only. `cwd` or `argv` was provided and it was invalid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 
     /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.

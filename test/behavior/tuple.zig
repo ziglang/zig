@@ -486,6 +486,15 @@ test "tuple with comptime fields with non empty initializer" {
     _ = a;
 }
 
+test "anon tuple field referencing comptime var isn't comptime" {
+    comptime var a: u8 = 0;
+    const tuple = .{&a};
+    // field isn't comptime but tuple is still comptime-known
+    comptime assert(@TypeOf(tuple) == struct { *u8 });
+    a = 1;
+    comptime assert(tuple[0].* == 1);
+}
+
 test "tuple with runtime value coerced into a slice with a sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -601,4 +610,25 @@ test "field pointer of underaligned tuple" {
     };
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "OPV tuple fields aren't comptime" {
+    const T = struct { void };
+    const t_info = @typeInfo(T);
+    try expect(!t_info.@"struct".fields[0].is_comptime);
+
+    const T2 = @Type(.{ .@"struct" = .{
+        .layout = .auto,
+        .fields = &.{.{
+            .name = "0",
+            .type = void,
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = @alignOf(void),
+        }},
+        .decls = &.{},
+        .is_tuple = true,
+    } });
+    const t2_info = @typeInfo(T2);
+    try expect(!t2_info.@"struct".fields[0].is_comptime);
 }

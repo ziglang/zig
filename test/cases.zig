@@ -12,5 +12,4 @@ pub const BuildOptions = struct {
 pub fn addCases(cases: *Cases, build_options: BuildOptions, b: *std.Build) !void {
     try @import("compile_errors.zig").addCases(cases, b);
     try @import("llvm_targets.zig").addCases(cases, build_options, b);
-    try @import("nvptx.zig").addCases(cases, b);
 }

@@ -98,7 +98,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
 /// For example, while it generally works on Linux, macOS, FreeBSD or Windows, it is
 /// unsupported on WASI.
 ///
-/// * On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// * On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// * On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 ///
 /// Calling this function is usually a bug.

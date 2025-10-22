@@ -5,8 +5,9 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
 }
 
 pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
-    const gpa = macho_file.base.comp.gpa;
-    const diags = &macho_file.base.comp.link_diags;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -55,23 +56,30 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
             mem.eql(u8, name, SYMDEF_SORTED) or
             mem.eql(u8, name, SYMDEF64_SORTED)) continue;
 
+        const abs_path = try std.fs.path.resolvePosix(gpa, &.{
+            comp.dirs.cwd,
+            path.root_dir.path orelse ".",
+            path.sub_path,
+        });
+        errdefer gpa.free(abs_path);
+
+        const o_basename = try gpa.dupe(u8, name);
+        errdefer gpa.free(o_basename);
+
         const object: Object = .{
             .offset = pos,
             .in_archive = .{
-                .path = .{
-                    .root_dir = path.root_dir,
-                    .sub_path = try gpa.dupe(u8, path.sub_path),
-                },
+                .path = abs_path,
                 .size = hdr_size,
             },
-            .path = Path.initCwd(try gpa.dupe(u8, name)),
+            .path = o_basename,
             .file_handle = handle_index,
             .index = undefined,
             .alive = false,
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{f}' from archive '{f}'", .{ object.path, path });
+        log.debug("extracting object '{s}' from archive '{f}'", .{ o_basename, path });
 
         try self.objects.append(gpa, object);
     }

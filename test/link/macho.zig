@@ -3,6 +3,9 @@
 pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
 
+    // https://github.com/ziglang/zig/issues/25323
+    if (builtin.os.tag == .freebsd) return macho_step;
+
     const x86_64_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .macos,

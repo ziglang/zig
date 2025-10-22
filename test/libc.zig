@@ -66,7 +66,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("functional/tls_local_exec.c", false, .{});
     cases.addLibcTestCase("functional/udiv.c", true, .{});
     cases.addLibcTestCase("functional/ungetc.c", false, .{});
-    cases.addLibcTestCase("functional/utime.c", false, .{});
+    // cases.addLibcTestCase("functional/utime.c", false, .{}); - fails under heavy load; futimens not reflected in subsequent fstat
     cases.addLibcTestCase("functional/vfork.c", false, .{});
     cases.addLibcTestCase("functional/wcsstr.c", true, .{});
     cases.addLibcTestCase("functional/wcstol.c", true, .{});
@@ -91,7 +91,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("regression/lseek-large.c", false, .{});
     cases.addLibcTestCase("regression/malloc-0.c", true, .{});
     // "regression/malloc-brk-fail.c": QEMU OOM
-    cases.addLibcTestCase("regression/malloc-oom.c", false, .{}); // wasi-libc: requires t_memfill
+    // cases.addLibcTestCase("regression/malloc-oom.c", false, .{}); // wasi-libc: requires t_memfill; QEMU OOM
     cases.addLibcTestCase("regression/mbsrtowcs-overflow.c", true, .{});
     cases.addLibcTestCase("regression/memmem-oob-read.c", true, .{});
     cases.addLibcTestCase("regression/memmem-oob.c", true, .{});

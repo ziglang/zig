@@ -1105,8 +1105,8 @@ fn createTestServer(S: type) !*TestServer {
     const test_server = try std.testing.allocator.create(TestServer);
     test_server.* = .{
         .net_server = try address.listen(.{ .reuse_address = true }),
-        .server_thread = try std.Thread.spawn(.{}, S.run, .{test_server}),
         .shutting_down = false,
+        .server_thread = try std.Thread.spawn(.{}, S.run, .{test_server}),
     };
     return test_server;
 }

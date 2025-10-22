@@ -1396,7 +1396,7 @@ fn parseHosts(
     br: *Io.Reader,
 ) error{ OutOfMemory, ReadFailed }!void {
     while (true) {
-        const line = br.takeDelimiterExclusive('\n') catch |err| switch (err) {
+        const line = br.takeDelimiter('\n') catch |err| switch (err) {
             error.StreamTooLong => {
                 // Skip lines that are too long.
                 _ = br.discardDelimiterInclusive('\n') catch |e| switch (e) {
@@ -1406,7 +1406,8 @@ fn parseHosts(
                 continue;
             },
             error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => break,
+        } orelse {
+            break; // end of stream
         };
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
