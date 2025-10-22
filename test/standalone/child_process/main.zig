@@ -20,6 +20,10 @@ pub fn main() !void {
     };
     defer if (needs_free) gpa.free(child_path);
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var child = std.process.Child.init(&.{ child_path, "hello arg" }, gpa);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
@@ -32,7 +36,7 @@ pub fn main() !void {
 
     const hello_stdout = "hello from stdout";
     var buf: [hello_stdout.len]u8 = undefined;
-    var stdout_reader = child.stdout.?.readerStreaming(&.{});
+    var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
     const n = try stdout_reader.interface.readSliceShort(&buf);
     if (!std.mem.eql(u8, buf[0..n], hello_stdout)) {
         testError("child stdout: '{s}'; want '{s}'", .{ buf[0..n], hello_stdout });
