@@ -70,7 +70,7 @@ export fn testVector() void {
 // tmp.zig:22:29: note: imported here
 // vec2.zon:1:2: error: expected type '?tmp.Enum'
 // tmp.zig:28:30: note: imported here
-// vec2.zon:1:2: error: expected type '?@Type(.enum_literal)'
+// vec2.zon:1:2: error: expected type '?@EnumLiteral()'
 // tmp.zig:33:39: note: imported here
 // vec2.zon:1:2: error: expected type '?[1]u8'
 // tmp.zig:38:31: note: imported here

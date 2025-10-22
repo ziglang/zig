@@ -106,10 +106,7 @@ pub const Node = extern struct {
         has_content: bool,
         /// Whether a moved event on this node bubbles down to children.
         bubbles_moved: bool,
-        unused: @Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = 32 - @bitSizeOf(std.mem.Alignment) - 6,
-        } }) = 0,
+        unused: @Int(.unsigned, 32 - @bitSizeOf(std.mem.Alignment) - 6) = 0,
     };
 
     pub const Location = union(enum(u1)) {
@@ -120,19 +117,16 @@ pub const Node = extern struct {
         },
         large: extern struct {
             index: usize,
-            unused: @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = 64 - @bitSizeOf(usize),
-            } }) = 0,
+            unused: @Int(.unsigned, 64 - @bitSizeOf(usize)) = 0,
         },
 
         pub const Tag = @typeInfo(Location).@"union".tag_type.?;
-        pub const Payload = @Type(.{ .@"union" = .{
+        pub const Payload = @Union(.{
             .layout = .@"extern",
             .tag_type = null,
             .fields = @typeInfo(Location).@"union".fields,
             .decls = &.{},
-        } });
+        });
 
         pub fn resolve(loc: Location, mf: *const MappedFile) [2]u64 {
             return switch (loc) {

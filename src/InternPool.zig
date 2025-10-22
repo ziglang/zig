@@ -1164,12 +1164,12 @@ const Local = struct {
                             .alignment = @alignOf(T),
                         };
                     }
-                    return @Type(.{ .@"struct" = .{
+                    return @Struct(.{
                         .layout = .auto,
                         .fields = &new_fields,
                         .decls = &.{},
                         .is_tuple = elem_info.is_tuple,
-                    } });
+                    });
                 }
                 fn PtrElem(comptime opts: struct {
                     size: std.builtin.Type.Pointer.Size,
@@ -1179,7 +1179,7 @@ const Local = struct {
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
                     for (&new_fields, elem_fields) |*new_field, elem_field| {
-                        const T = @Type(.{ .pointer = .{
+                        const T = @Pointer(.{
                             .size = opts.size,
                             .is_const = opts.is_const,
                             .is_volatile = false,
@@ -1188,7 +1188,7 @@ const Local = struct {
                             .child = elem_field.type,
                             .is_allowzero = false,
                             .sentinel_ptr = null,
-                        } });
+                        });
                         new_field.* = .{
                             .name = elem_field.name,
                             .type = T,
@@ -1197,12 +1197,12 @@ const Local = struct {
                             .alignment = @alignOf(T),
                         };
                     }
-                    return @Type(.{ .@"struct" = .{
+                    return @Struct(.{
                         .layout = .auto,
                         .fields = &new_fields,
                         .decls = &.{},
                         .is_tuple = elem_info.is_tuple,
-                    } });
+                    });
                 }
 
                 pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .one }) {
@@ -2017,7 +2017,7 @@ pub const Key = union(enum) {
     error_union_type: ErrorUnionType,
     simple_type: SimpleType,
     /// This represents a struct that has been explicitly declared in source code,
-    /// or was created with `@Type`. It is unique and based on a declaration.
+    /// or was created with `@Struct`. It is unique and based on a declaration.
     /// It may be a tuple, if declared like this: `struct {A, B, C}`.
     struct_type: NamespaceType,
     /// This is a tuple type. Tuples are logically similar to structs, but have some
@@ -2176,7 +2176,7 @@ pub const Key = union(enum) {
             /// The union for which this is a tag type.
             union_type: Index,
         },
-        /// This type originates from a reification via `@Type`, or from an anonymous initialization.
+        /// This type originates from a reification via `@Enum`, `@Struct`, `@Union` or from an anonymous initialization.
         /// It is hashed based on its ZIR instruction index and fields, attributes, etc.
         /// To avoid making this key overly complex, the type-specific data is hashed by Sema.
         reified: struct {
@@ -10228,16 +10228,8 @@ pub fn getGeneratedTagEnumType(
 }
 
 pub const OpaqueTypeInit = struct {
-    key: union(enum) {
-        declared: struct {
-            zir_index: TrackedInst.Index,
-            captures: []const CaptureValue,
-        },
-        reified: struct {
-            zir_index: TrackedInst.Index,
-            // No type hash since reifid opaques have no data other than the `@Type` location
-        },
-    },
+    zir_index: TrackedInst.Index,
+    captures: []const CaptureValue,
 };
 
 pub fn getOpaqueType(
@@ -10246,16 +10238,10 @@ pub fn getOpaqueType(
     tid: Zcu.PerThread.Id,
     ini: OpaqueTypeInit,
 ) Allocator.Error!WipNamespaceType.Result {
-    var gop = try ip.getOrPutKey(gpa, tid, .{ .opaque_type = switch (ini.key) {
-        .declared => |d| .{ .declared = .{
-            .zir_index = d.zir_index,
-            .captures = .{ .external = d.captures },
-        } },
-        .reified => |r| .{ .reified = .{
-            .zir_index = r.zir_index,
-            .type_hash = 0,
-        } },
-    } });
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .opaque_type = .{ .declared = .{
+        .zir_index = ini.zir_index,
+        .captures = .{ .external = ini.captures },
+    } } });
     defer gop.deinit();
     if (gop == .existing) return .{ .existing = gop.existing };
 
@@ -10264,30 +10250,19 @@ pub fn getOpaqueType(
     const extra = local.getMutableExtra(gpa);
     try items.ensureUnusedCapacity(1);
 
-    try extra.ensureUnusedCapacity(@typeInfo(Tag.TypeOpaque).@"struct".fields.len + switch (ini.key) {
-        .declared => |d| d.captures.len,
-        .reified => 0,
-    });
+    try extra.ensureUnusedCapacity(@typeInfo(Tag.TypeOpaque).@"struct".fields.len + ini.captures.len);
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeOpaque{
         .name = undefined, // set by `finish`
         .name_nav = undefined, // set by `finish`
         .namespace = undefined, // set by `finish`
-        .zir_index = switch (ini.key) {
-            inline else => |x| x.zir_index,
-        },
-        .captures_len = switch (ini.key) {
-            .declared => |d| @intCast(d.captures.len),
-            .reified => std.math.maxInt(u32),
-        },
+        .zir_index = ini.zir_index,
+        .captures_len = @intCast(ini.captures.len),
     });
     items.appendAssumeCapacity(.{
         .tag = .type_opaque,
         .data = extra_index,
     });
-    switch (ini.key) {
-        .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
-        .reified => {},
-    }
+    extra.appendSliceAssumeCapacity(.{@ptrCast(ini.captures)});
     return .{
         .wip = .{
             .tid = tid,

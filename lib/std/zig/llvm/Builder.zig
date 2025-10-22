@@ -8641,12 +8641,12 @@ pub const Metadata = packed struct(u32) {
             }
             fmt_str = fmt_str ++ ")\n";
 
-            var fmt_args: @Type(.{ .@"struct" = .{
+            var fmt_args: @Struct(.{
                 .layout = .auto,
                 .fields = &fields,
                 .decls = &.{},
                 .is_tuple = false,
-            } }) = undefined;
+            }) = undefined;
             fmt_args.distinct = @tagName(distinct);
             fmt_args.node = @tagName(node);
             inline for (names) |name| @field(fmt_args, name) = try formatter.fmt(

@@ -556,10 +556,10 @@ test "lazy values passed to anytype parameter" {
 
 test "pass and return comptime-only types" {
     const S = struct {
-        fn returnNull(comptime x: @Type(.null)) @Type(.null) {
+        fn returnNull(comptime x: @TypeOf(null)) @TypeOf(null) {
             return x;
         }
-        fn returnUndefined(comptime x: @Type(.undefined)) @Type(.undefined) {
+        fn returnUndefined(comptime x: @TypeOf(undefined)) @TypeOf(undefined) {
             return x;
         }
     };

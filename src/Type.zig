@@ -309,7 +309,7 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             .undefined,
             => try writer.print("@TypeOf({s})", .{@tagName(s)}),
 
-            .enum_literal => try writer.writeAll("@Type(.enum_literal)"),
+            .enum_literal => try writer.writeAll("@EnumLiteral()"),
 
             .generic_poison => unreachable,
         },
@@ -3501,7 +3501,10 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
             .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_line,
             .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_line,
             .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_line,
-            .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            .enum_reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            .pointer_reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            .struct_reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            .union_reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
             else => unreachable,
         },
         else => unreachable,

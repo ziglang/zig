@@ -4497,7 +4497,10 @@ fn updateContainerTypeWriterError(
                     .enum_decl => @as(Zir.Inst.EnumDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .union_decl => @as(Zir.Inst.UnionDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .opaque_decl => @as(Zir.Inst.OpaqueDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-                    .reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+                    .enum_reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+                    .pointer_reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+                    .struct_reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+                    .union_reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
                     else => unreachable,
                 },
                 else => unreachable,
@@ -5149,12 +5152,12 @@ fn DeclValEnum(comptime T: type) type {
         if (min_value == null or min_value.? > value) min_value = value;
         if (max_value == null or max_value.? < value) max_value = value;
     }
-    return @Type(.{ .@"enum" = .{
+    return @Enum(.{
         .tag_type = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0),
         .fields = fields[0..fields_len],
         .decls = &.{},
         .is_exhaustive = true,
-    } });
+    });
 }
 
 const AbbrevCode = enum {
@@ -6388,10 +6391,12 @@ fn freeCommonEntry(
 
 fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
     switch (buf.len) {
-        inline 0...8 => |len| std.mem.writeInt(@Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = len * 8,
-        } }), buf[0..len], @intCast(int), dwarf.endian),
+        inline 0...8 => |len| std.mem.writeInt(
+            @Int(.unsigned, len * 8),
+            buf[0..len],
+            @intCast(int),
+            dwarf.endian,
+        ),
         else => unreachable,
     }
 }

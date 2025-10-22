@@ -230,10 +230,7 @@ test "switch loop on larger than pointer integer" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    var entry: @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = @bitSizeOf(usize) + 1,
-    } }) = undefined;
+    var entry: @Int(.unsigned, @bitSizeOf(usize) + 1) = undefined;
     entry = 0;
     loop: switch (entry) {
         0 => {

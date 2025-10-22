@@ -1,25 +1,21 @@
-const Tag = @Type(.{
-    .@"enum" = .{
-        .tag_type = u2,
-        .fields = &.{
-            .{ .name = "signed", .value = 0 },
-            .{ .name = "unsigned", .value = 1 },
-        },
-        .decls = &.{},
-        .is_exhaustive = true,
+const Tag = @Enum(.{
+    .tag_type = u2,
+    .fields = &.{
+        .{ .name = "signed", .value = 0 },
+        .{ .name = "unsigned", .value = 1 },
     },
+    .decls = &.{},
+    .is_exhaustive = true,
 });
 
-const Packed = @Type(.{
-    .@"union" = .{
-        .layout = .@"packed",
-        .tag_type = Tag,
-        .fields = &.{
-            .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
-            .{ .name = "unsigned", .type = u32, .alignment = @alignOf(u32) },
-        },
-        .decls = &.{},
+const Packed = @Union(.{
+    .layout = .@"packed",
+    .tag_type = Tag,
+    .fields = &.{
+        .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
+        .{ .name = "unsigned", .type = u32, .alignment = @alignOf(u32) },
     },
+    .decls = &.{},
 });
 
 export fn entry() void {
@@ -29,4 +25,4 @@ export fn entry() void {
 
 // error
 //
-// :13:16: error: packed union does not support enum tag type
+// :11:16: error: packed union does not support enum tag type
