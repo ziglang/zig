@@ -289,11 +289,7 @@ pub const CodePointOptions = struct {
 /// Serialize `val` as a Unicode codepoint.
 ///
 /// Returns `error.InvalidCodepoint` if `val` is not a valid Unicode codepoint.
-pub fn codePoint(
-    self: *Serializer,
-    val: u21,
-    options: CodePointOptions,
-) CodePointError!void {
+pub fn codePoint(self: *Serializer, val: u21, options: CodePointOptions) CodePointError!void {
     try self.writer.writeByte('\'');
     try self.writeCodepoint(val, .{
         .escape_non_ascii = options.escape_non_ascii,
@@ -365,16 +361,12 @@ const WriteCodepointOptions = struct {
 /// Write a Unicode codepoint to the writer using the given options.
 ///
 /// Returns `error.InvalidCodepoint` if `codepoint` is not a valid Unicode codepoint.
-fn writeCodepoint(
-    self: *Serializer,
-    codepoint: u21,
-    options: WriteCodepointOptions,
-) CodePointError!void {
-    switch (codepoint) {
+fn writeCodepoint(self: *Serializer, val: u21, options: WriteCodepointOptions) CodePointError!void {
+    switch (val) {
         // Printable ASCII
-        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try self.writer.writeByte(@intCast(codepoint)),
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try self.writer.writeByte(@intCast(val)),
         // Unprintable ASCII
-        0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F, 0x7F => try self.writer.print("\\x{x:0>2}", .{codepoint}),
+        0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F, 0x7F => try self.writer.print("\\x{x:0>2}", .{val}),
         // ASCII with special escapes
         '\n' => try self.writer.writeAll("\\n"),
         '\r' => try self.writer.writeAll("\\r"),
@@ -385,19 +377,19 @@ fn writeCodepoint(
         '\"' => if (options.quote_style == .double) try self.writer.writeAll("\\\"") else try self.writer.writeByte('"'),
         // Non-ASCII but still one byte
         0x80...0xFF => if (options.escape_non_ascii) {
-            try self.writer.print("\\x{x:0>2}", .{codepoint});
+            try self.writer.print("\\x{x:0>2}", .{val});
         } else {
-            try self.writer.writeByte(@intCast(codepoint));
+            try self.writer.writeByte(@intCast(val));
         },
 
         // Surrogates can only be written with an escape
-        0xD800...0xDFFF => try self.writer.print("\\u{{{x}}}", .{codepoint}),
+        0xD800...0xDFFF => try self.writer.print("\\u{{{x}}}", .{val}),
         // Other valid codepoints
         0x100...0xD7FF, 0xE000...0x10FFFF => if (options.escape_non_ascii) {
-            try self.writer.print("\\u{{{x}}}", .{codepoint});
+            try self.writer.print("\\u{{{x}}}", .{val});
         } else {
             var buf: [7]u8 = undefined;
-            const len = std.unicode.utf8Encode(codepoint, &buf) catch unreachable;
+            const len = std.unicode.utf8Encode(val, &buf) catch unreachable;
             try self.writer.writeAll(buf[0..len]);
         },
         // Invalid codepoints
