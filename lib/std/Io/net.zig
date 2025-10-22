@@ -1075,7 +1075,8 @@ pub const Socket = struct {
     /// Transfers `data` to `dest`, connectionless, in one packet.
     pub fn send(s: *const Socket, io: Io, dest: *const IpAddress, data: []const u8) SendError!void {
         var message: OutgoingMessage = .{ .address = dest, .data_ptr = data.ptr, .data_len = data.len };
-        try io.vtable.netSend(io.userdata, s.handle, &message, .{});
+        const err, const n = io.vtable.netSend(io.userdata, s.handle, (&message)[0..1], .{});
+        if (n != 1) return err.?;
         if (message.data_len != data.len) return error.MessageOversize;
     }
 
