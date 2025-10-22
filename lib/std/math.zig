@@ -102,7 +102,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .float or @typeInfo(T) == .comptime_float);
+    comptime assert(@typeInfo(T) == .float or @typeInfo(T) == .comptime_float);
     assert(tolerance > 0);
 
     // Fast path for equal values (and signed zeros and infinites).
