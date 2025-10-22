@@ -38,10 +38,7 @@ pub fn firstUnchecked(self: FloatStream) u8 {
 }
 
 pub fn first(self: FloatStream) ?u8 {
-    return if (self.hasLen(1))
-        return self.firstUnchecked()
-    else
-        null;
+    return if (self.hasLen(1)) self.firstUnchecked() else null;
 }
 
 pub fn isEmpty(self: FloatStream) bool {
@@ -84,10 +81,7 @@ pub fn readU64Unchecked(self: FloatStream) u64 {
 }
 
 pub fn readU64(self: FloatStream) ?u64 {
-    if (self.hasLen(8)) {
-        return self.readU64Unchecked();
-    }
-    return null;
+    return if (self.hasLen(8)) self.readU64Unchecked() else null;
 }
 
 pub fn atUnchecked(self: *FloatStream, i: usize) u8 {
