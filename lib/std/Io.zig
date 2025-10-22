@@ -559,6 +559,7 @@ const Io = @This();
 
 pub const Evented = switch (builtin.os.tag) {
     .linux => @import("Io/IoUring.zig"),
+    .dragonfly, .freebsd, .netbsd, .openbsd, .macos, .ios, .tvos, .visionos, .watchos => @import("Io/Kqueue.zig"),
     else => void,
 };
 pub const Threaded = @import("Io/Threaded.zig");
