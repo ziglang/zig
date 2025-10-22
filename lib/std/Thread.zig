@@ -1288,6 +1288,18 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
+                .or1k => asm volatile (
+                    \\ l.ori r11, r0, 215 # SYS_munmap
+                    \\ l.ori r3, %[ptr]
+                    \\ l.ori r4, %[len]
+                    \\ l.sys 1
+                    \\ l.ori r11, r0, 93 # SYS_exit
+                    \\ l.ori r3, r0, r0
+                    \\ l.sys 1
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91 # SYS_munmap
                     \\  mr 3, %[ptr]
@@ -1682,11 +1694,6 @@ test "Thread.getCurrentId" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
-
-    if (builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) {
-        // https://github.com/ziglang/zig/issues/24061
-        return error.SkipZigTest;
-    }
 
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});

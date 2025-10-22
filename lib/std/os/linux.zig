@@ -42,6 +42,7 @@ const arch_bits = switch (native_arch) {
         .gnuabin32, .muslabin32 => @import("linux/mipsn32.zig"),
         else => @import("linux/mips64.zig"),
     },
+    .or1k => @import("linux/or1k.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     .riscv32 => @import("linux/riscv32.zig"),
@@ -273,7 +274,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .hexagon, .m68k, .s390x => packed struct(u32) {
+    .hexagon, .m68k, .or1k, .s390x => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -444,7 +445,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _23: u9 = 0,
     },
-    .hexagon, .s390x => packed struct(u32) {
+    .hexagon, .or1k, .s390x => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -965,6 +966,10 @@ pub fn umount(special: [*:0]const u8) usize {
 
 pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(.umount2, @intFromPtr(special), flags);
+}
+
+pub fn pivot_root(new_root: [*:0]const u8, put_old: [*:0]const u8) usize {
+    return syscall2(.pivot_root, @intFromPtr(new_root), @intFromPtr(put_old));
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
@@ -1931,7 +1936,7 @@ pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        if (native_arch == .hexagon or is_loongarch or is_mips or is_riscv) {
+        if (native_arch == .hexagon or is_loongarch or is_mips or native_arch == .or1k or is_riscv) {
             ksa = .{
                 .handler = new.handler.handler,
                 .flags = new.flags,
@@ -2522,6 +2527,10 @@ pub fn setitimer(which: i32, new_value: *const itimerspec, old_value: ?*itimersp
 
 pub fn unshare(flags: usize) usize {
     return syscall1(.unshare, flags);
+}
+
+pub fn setns(fd: fd_t, flags: u32) usize {
+    return syscall2(.setns, fd, flags);
 }
 
 pub fn capget(hdrp: *cap_user_header_t, datap: *cap_user_data_t) usize {
@@ -3747,7 +3756,7 @@ pub const SA = if (is_mips) struct {
     pub const ONSTACK = 0x1;
     pub const NODEFER = 0x20;
     pub const RESTORER = 0x04000000;
-} else if (native_arch == .hexagon or is_loongarch or is_riscv) struct {
+} else if (native_arch == .hexagon or is_loongarch or native_arch == .or1k or is_riscv) struct {
     pub const NOCLDSTOP = 1;
     pub const NOCLDWAIT = 2;
     pub const SIGINFO = 4;
@@ -5828,7 +5837,7 @@ pub const k_sigaction = switch (native_arch) {
         handler: k_sigaction_funcs.handler,
         mask: sigset_t,
     },
-    .hexagon, .loongarch32, .loongarch64, .riscv32, .riscv64 => extern struct {
+    .hexagon, .loongarch32, .loongarch64, .or1k, .riscv32, .riscv64 => extern struct {
         handler: k_sigaction_funcs.handler,
         flags: c_ulong,
         mask: sigset_t,
@@ -6161,6 +6170,7 @@ pub const MINSIGSTKSZ = switch (native_arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .or1k,
     .powerpc,
     .powerpcle,
     .riscv32,
@@ -6195,6 +6205,7 @@ pub const SIGSTKSZ = switch (native_arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .or1k,
     .powerpc,
     .powerpcle,
     .riscv32,
@@ -9744,6 +9755,7 @@ pub const AUDIT = struct {
                 .gnuabin32, .muslabin32 => .MIPSEL64N32,
                 else => .MIPSEL64,
             },
+            .or1k => .OPENRISC,
             .powerpc => .PPC,
             .powerpc64 => .PPC64,
             .powerpc64le => .PPC64LE,

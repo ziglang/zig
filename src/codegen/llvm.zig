@@ -11816,6 +11816,7 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: *const std.Targ
     const incoming_stack_alignment: ?u64, const register_params: u2 = switch (cc) {
         inline else => |pl| switch (@TypeOf(pl)) {
             void => .{ null, 0 },
+            std.builtin.CallingConvention.ArcInterruptOptions,
             std.builtin.CallingConvention.ArmInterruptOptions,
             std.builtin.CallingConvention.RiscvInterruptOptions,
             std.builtin.CallingConvention.MipsInterruptOptions,
@@ -11919,6 +11920,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .powerpc_aix_altivec,
         .wasm_mvp,
         .arc_sysv,
+        .arc_interrupt,
         .avr_gnu,
         .bpf_std,
         .csky_sysv,
