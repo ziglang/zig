@@ -9,4 +9,5 @@ pub fn main() void {
     print("strict = {}\n", .{foo_strict(x)});
 }
 
-// syntax
+// exe=succeed
+// optimize=ReleaseFast
