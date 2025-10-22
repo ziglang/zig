@@ -890,7 +890,7 @@ fn genLval(c: *CodeGen, node_index: Node.Index) Error!Ir.Ref {
                 }
             }
 
-            const duped_name = try c.builder.arena.allocator().dupeZ(u8, slice);
+            const duped_name = try c.builder.arena.allocator().dupeSentinel(u8, slice, 0);
             const ref: Ir.Ref = @enumFromInt(c.builder.instructions.len);
             try c.builder.instructions.append(c.builder.gpa, .{ .tag = .symbol, .data = .{ .label = duped_name }, .ty = .ptr });
             return ref;
@@ -1108,7 +1108,7 @@ fn genCall(c: *CodeGen, call: Node.Call) Error!Ir.Ref {
                     }
                 }
 
-                const duped_name = try c.builder.arena.allocator().dupeZ(u8, slice);
+                const duped_name = try c.builder.arena.allocator().dupeSentinel(u8, slice, 0);
                 const ref: Ir.Ref = @enumFromInt(c.builder.instructions.len);
                 try c.builder.instructions.append(c.builder.gpa, .{ .tag = .symbol, .data = .{ .label = duped_name }, .ty = .ptr });
                 break :blk ref;

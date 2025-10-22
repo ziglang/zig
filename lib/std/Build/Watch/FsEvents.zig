@@ -193,7 +193,7 @@ pub fn setPaths(fse: *FsEvents, gpa: Allocator, steps: []const *std.Build.Step) 
     } else {
         fse.watch_roots = try gpa.realloc(fse.watch_roots, need_dirs.count());
         for (fse.watch_roots, need_dirs.keys()) |*out, in| {
-            out.* = try paths_arena.dupeZ(u8, in);
+            out.* = try paths_arena.dupeSentinel(u8, in, 0);
         }
     }
     if (enable_debug_logs) {

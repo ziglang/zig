@@ -105,7 +105,7 @@ const TestContext = struct {
         const allocator = self.arena.allocator();
         const transformed_path = try self.transform_fn(allocator, self.dir, relative_path);
         if (native_os == .windows) {
-            const transformed_sep_path = try allocator.dupeZ(u8, transformed_path);
+            const transformed_sep_path = try allocator.dupeSentinel(u8, transformed_path, 0);
             std.mem.replaceScalar(u8, transformed_sep_path, switch (self.path_sep) {
                 '/' => '\\',
                 '\\' => '/',
@@ -123,7 +123,7 @@ const TestContext = struct {
     pub fn toCanonicalPathSep(self: *TestContext, path: [:0]const u8) ![:0]const u8 {
         if (native_os == .windows) {
             const allocator = self.arena.allocator();
-            const transformed_sep_path = try allocator.dupeZ(u8, path);
+            const transformed_sep_path = try allocator.dupeSentinel(u8, path, 0);
             std.mem.replaceScalar(u8, transformed_sep_path, '/', '\\');
             return transformed_sep_path;
         }
