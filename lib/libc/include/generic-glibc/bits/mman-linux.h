@@ -113,6 +113,8 @@
 				    locked pages too.  */
 # define MADV_COLLAPSE    25	/* Synchronous hugepage collapse.  */
 # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+# define MADV_GUARD_INSTALL 102 /* Fatal signal on access to range */
+# define MADV_GUARD_REMOVE 103  /* Unguard range */
 #endif
 
 /* The POSIX people had to invent similar names for the same things.  */

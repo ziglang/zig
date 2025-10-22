@@ -68,12 +68,16 @@ __MATHCALL_VEC (tan,, (_Mdouble_ __x));
 #if __GLIBC_USE (IEC_60559_FUNCS_EXT_C23)
 /* Arc cosine of X, divided by pi.  */
 __MATHCALL (acospi,, (_Mdouble_ __x));
+__MATHCALL_VEC (acospi,, (_Mdouble_ __x));
 /* Arc sine of X, divided by pi.  */
 __MATHCALL (asinpi,, (_Mdouble_ __x));
+__MATHCALL_VEC (asinpi,, (_Mdouble_ __x));
 /* Arc tangent of X, divided by pi.  */
 __MATHCALL (atanpi,, (_Mdouble_ __x));
+__MATHCALL_VEC (atanpi,, (_Mdouble_ __x));
 /* Arc tangent of Y/X, divided by pi.  */
 __MATHCALL (atan2pi,, (_Mdouble_ __y, _Mdouble_ __x));
+__MATHCALL_VEC (atan2pi,, (_Mdouble_ __y, _Mdouble_ __x));
 
 /* Cosine of pi * X.  */
 __MATHCALL_VEC (cospi,, (_Mdouble_ __x));
@@ -183,6 +187,23 @@ __MATHCALL_VEC (hypot,, (_Mdouble_ __x, _Mdouble_ __y));
 #if defined __USE_XOPEN_EXTENDED || defined __USE_ISOC99
 /* Return the cube root of X.  */
 __MATHCALL_VEC (cbrt,, (_Mdouble_ __x));
+#endif
+
+#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C23)
+/* Return 1+X to the Y power.  */
+__MATHCALL (compoundn,, (_Mdouble_ __x, long long int __y));
+
+/* Return X to the Y power.  */
+__MATHCALL (pown,, (_Mdouble_ __x, long long int __y));
+
+/* Return X to the Y power.  */
+__MATHCALL (powr,, (_Mdouble_ __x, _Mdouble_ __y));
+
+/* Return the Yth root of X.  */
+__MATHCALL (rootn,, (_Mdouble_ __x, long long int __y));
+
+/* Return the reciprocal of the square root of X.  */
+__MATHCALL (rsqrt,, (_Mdouble_ __x));
 #endif
 
 

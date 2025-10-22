@@ -4,7 +4,5 @@ fn main() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:28: error: invalid digit 'a' in exponent

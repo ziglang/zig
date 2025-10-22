@@ -20,8 +20,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'
 // :6:24: note: '[*c]const [*c]const u8' could have null values which are illegal in type '*const [*]const u8'

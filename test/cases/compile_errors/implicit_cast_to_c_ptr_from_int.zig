@@ -7,8 +7,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:21: error: expected type '[*c]u8', found 'u65'
 // :3:21: note: unsigned 64-bit int cannot represent all possible unsigned 65-bit values

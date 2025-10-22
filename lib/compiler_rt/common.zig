@@ -16,10 +16,10 @@ else
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
-pub const visibility: std.builtin.SymbolVisibility = if (linkage != .internal)
-    .hidden
+pub const visibility: std.builtin.SymbolVisibility = if (linkage == .internal or builtin.link_mode == .dynamic)
+    .default
 else
-    .default;
+    .hidden;
 
 pub const PreferredLoadStoreElement = element: {
     if (std.simd.suggestVectorLength(u8)) |vec_size| {
@@ -87,7 +87,9 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
     .wasm32,
     .wasm64,
     .riscv64,
+    .riscv64be,
     .riscv32,
+    .riscv32be,
     => false,
 
     .x86, .x86_64 => true,
@@ -102,9 +104,14 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
 
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
+pub const test_safety = switch (builtin.zig_backend) {
+    .stage2_aarch64 => false,
+    else => builtin.is_test,
+};
+
 // Avoid dragging in the runtime safety mechanisms into this .o file, unless
 // we're trying to test compiler-rt.
-pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
+pub const panic = if (test_safety) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
 
 /// This seems to mostly correspond to `clang::TargetInfo::HasFloat16`.
 pub fn F16T(comptime OtherType: type) type {
@@ -116,15 +123,19 @@ pub fn F16T(comptime OtherType: type) type {
         .thumbeb,
         .aarch64,
         .aarch64_be,
+        .hexagon,
+        .loongarch32,
+        .loongarch64,
         .nvptx,
         .nvptx64,
         .riscv32,
+        .riscv32be,
         .riscv64,
-        .spirv,
+        .riscv64be,
+        .s390x,
         .spirv32,
         .spirv64,
         => f16,
-        .hexagon => if (builtin.target.cpu.has(.hexagon, .v68)) f16 else u16,
         .x86, .x86_64 => if (builtin.target.os.tag.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???

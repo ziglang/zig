@@ -14,7 +14,7 @@
 #include "sanitizer_platform.h"
 
 #if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD || \
-    SANITIZER_SOLARIS
+    SANITIZER_SOLARIS || SANITIZER_HAIKU
 
 #  include "sanitizer_common.h"
 #  include "sanitizer_flags.h"
@@ -63,15 +63,17 @@
 #  include <sched.h>
 #  include <signal.h>
 #  include <sys/mman.h>
-#  if !SANITIZER_SOLARIS
+#  if !SANITIZER_SOLARIS && !SANITIZER_HAIKU
 #    include <sys/ptrace.h>
 #  endif
 #  include <sys/resource.h>
 #  include <sys/stat.h>
-#  include <sys/syscall.h>
+#  if !SANITIZER_HAIKU
+#    include <sys/syscall.h>
+#    include <ucontext.h>
+#  endif
 #  include <sys/time.h>
 #  include <sys/types.h>
-#  include <ucontext.h>
 #  include <unistd.h>
 
 #  if SANITIZER_LINUX
@@ -80,6 +82,12 @@
 
 #  if SANITIZER_LINUX && !SANITIZER_ANDROID
 #    include <sys/personality.h>
+#  endif
+
+#  if SANITIZER_ANDROID && __ANDROID_API__ < 35
+// The weak `strerrorname_np` (introduced in API level 35) definition,
+// allows for checking the API level at runtime.
+extern "C" SANITIZER_WEAK_ATTRIBUTE const char *strerrorname_np(int);
 #  endif
 
 #  if SANITIZER_LINUX && defined(__loongarch__)
@@ -116,6 +124,13 @@ extern struct ps_strings *__ps_strings;
 #    include <sys/frame.h>
 #    include <thread.h>
 #    define environ _environ
+#  endif
+
+#  if SANITIZER_HAIKU
+#    include <OS.h>
+#    include <elf.h>
+#    include <image.h>
+extern "C" char **__libc_argv;
 #  endif
 
 extern char **environ;
@@ -246,7 +261,7 @@ ScopedBlockSignals::~ScopedBlockSignals() { SetSigProcMask(&saved_, nullptr); }
 #  endif
 
 // --------------- sanitizer_libc.h
-#  if !SANITIZER_SOLARIS && !SANITIZER_NETBSD
+#  if !SANITIZER_SOLARIS && !SANITIZER_NETBSD && !SANITIZER_HAIKU
 #    if !SANITIZER_S390
 uptr internal_mmap(void *addr, uptr length, int prot, int flags, int fd,
                    u64 offset) {
@@ -591,9 +606,9 @@ uptr internal_execve(const char *filename, char *const argv[],
   return internal_syscall(SYSCALL(execve), (uptr)filename, (uptr)argv,
                           (uptr)envp);
 }
-#  endif  // !SANITIZER_SOLARIS && !SANITIZER_NETBSD
+#  endif  // !SANITIZER_SOLARIS && !SANITIZER_NETBSD && !SANITIZER_HAIKU
 
-#  if !SANITIZER_NETBSD
+#  if !SANITIZER_NETBSD && !SANITIZER_HAIKU
 void internal__exit(int exitcode) {
 #    if SANITIZER_FREEBSD || SANITIZER_SOLARIS
   internal_syscall(SYSCALL(exit), exitcode);
@@ -602,7 +617,7 @@ void internal__exit(int exitcode) {
 #    endif
   Die();  // Unreachable.
 }
-#  endif  // !SANITIZER_NETBSD
+#  endif  // !SANITIZER_NETBSD && !SANITIZER_HAIKU
 
 // ----------------- sanitizer_common.h
 bool FileExists(const char *filename) {
@@ -630,6 +645,8 @@ tid_t GetTid() {
   return Tid;
 #    elif SANITIZER_SOLARIS
   return thr_self();
+#    elif SANITIZER_HAIKU
+  return find_thread(NULL);
 #    else
   return internal_syscall(SYSCALL(gettid));
 #    endif
@@ -645,6 +662,8 @@ int TgKill(pid_t pid, tid_t tid, int sig) {
   errno = thr_kill(tid, sig);
   // TgKill is expected to return -1 on error, not an errno.
   return errno != 0 ? -1 : 0;
+#    elif SANITIZER_HAIKU
+  return kill_thread(tid);
 #    endif
 }
 #  endif
@@ -672,7 +691,8 @@ u64 NanoTime() {
 // 'environ' array (on some others) and does not use libc. This function
 // should be called first inside __asan_init.
 const char *GetEnv(const char *name) {
-#  if SANITIZER_FREEBSD || SANITIZER_NETBSD || SANITIZER_SOLARIS
+#  if SANITIZER_FREEBSD || SANITIZER_NETBSD || SANITIZER_SOLARIS || \
+      SANITIZER_HAIKU
   if (::environ != 0) {
     uptr NameLen = internal_strlen(name);
     for (char **Env = ::environ; *Env != 0; Env++) {
@@ -710,13 +730,14 @@ const char *GetEnv(const char *name) {
 #  endif
 }
 
-#  if !SANITIZER_FREEBSD && !SANITIZER_NETBSD && !SANITIZER_GO
+#  if !SANITIZER_HAIKU && !SANITIZER_FREEBSD && !SANITIZER_NETBSD && \
+      !SANITIZER_GO
 extern "C" {
 SANITIZER_WEAK_ATTRIBUTE extern void *__libc_stack_end;
 }
 #  endif
 
-#  if !SANITIZER_FREEBSD && !SANITIZER_NETBSD
+#  if !SANITIZER_HAIKU && !SANITIZER_FREEBSD && !SANITIZER_NETBSD
 static void ReadNullSepFileToArray(const char *path, char ***arr,
                                    int arr_size) {
   char *buff;
@@ -743,7 +764,10 @@ static void ReadNullSepFileToArray(const char *path, char ***arr,
 #  endif
 
 static void GetArgsAndEnv(char ***argv, char ***envp) {
-#  if SANITIZER_FREEBSD
+#  if SANITIZER_HAIKU
+  *argv = __libc_argv;
+  *envp = environ;
+#  elif SANITIZER_FREEBSD
   // On FreeBSD, retrieving the argument and environment arrays is done via the
   // kern.ps_strings sysctl, which returns a pointer to a structure containing
   // this information. See also <sys/exec.h>.
@@ -783,7 +807,7 @@ static void GetArgsAndEnv(char ***argv, char ***envp) {
 #    if !SANITIZER_GO
   }
 #    endif  // !SANITIZER_GO
-#  endif    // SANITIZER_FREEBSD
+#  endif    // SANITIZER_HAIKU
 }
 
 char **GetArgv() {
@@ -802,7 +826,7 @@ char **GetEnviron() {
 void FutexWait(atomic_uint32_t *p, u32 cmp) {
 #    if SANITIZER_FREEBSD
   _umtx_op(p, UMTX_OP_WAIT_UINT, cmp, 0, 0);
-#    elif SANITIZER_NETBSD
+#    elif SANITIZER_NETBSD || SANITIZER_HAIKU
   sched_yield(); /* No userspace futex-like synchronization */
 #    else
   internal_syscall(SYSCALL(futex), (uptr)p, FUTEX_WAIT_PRIVATE, cmp, 0, 0, 0);
@@ -812,7 +836,7 @@ void FutexWait(atomic_uint32_t *p, u32 cmp) {
 void FutexWake(atomic_uint32_t *p, u32 count) {
 #    if SANITIZER_FREEBSD
   _umtx_op(p, UMTX_OP_WAKE, count, 0, 0);
-#    elif SANITIZER_NETBSD
+#    elif SANITIZER_NETBSD || SANITIZER_HAIKU
   /* No userspace futex-like synchronization */
 #    else
   internal_syscall(SYSCALL(futex), (uptr)p, FUTEX_WAKE_PRIVATE, count, 0, 0, 0);
@@ -844,7 +868,7 @@ struct linux_dirent {
 };
 #  endif
 
-#  if !SANITIZER_SOLARIS && !SANITIZER_NETBSD
+#  if !SANITIZER_SOLARIS && !SANITIZER_NETBSD && !SANITIZER_HAIKU
 // Syscall wrappers.
 uptr internal_ptrace(int request, int pid, void *addr, void *data) {
   return internal_syscall(SYSCALL(ptrace), request, pid, (uptr)addr,
@@ -1058,7 +1082,7 @@ bool internal_sigismember(__sanitizer_sigset_t *set, int signum) {
 #    endif
 #  endif  // !SANITIZER_SOLARIS
 
-#  if !SANITIZER_NETBSD
+#  if !SANITIZER_NETBSD && !SANITIZER_HAIKU
 // ThreadLister implementation.
 ThreadLister::ThreadLister(pid_t pid) : buffer_(4096) {
   task_path_.AppendF("/proc/%d/task", pid);
@@ -1244,6 +1268,16 @@ uptr GetPageSize() {
   CHECK_EQ(rv, 0);
   return (uptr)pz;
 #    elif SANITIZER_USE_GETAUXVAL
+#      if SANITIZER_ANDROID && __ANDROID_API__ < 35
+  // The 16 KB page size was introduced in Android 15 (API level 35), while
+  // earlier versions of Android always used a 4 KB page size.
+  // We are checking the weak definition of `strerrorname_np` (introduced in API
+  // level 35) because some earlier API levels crashed when
+  // `getauxval(AT_PAGESZ)` was called from the `.preinit_array`.
+  if (!strerrorname_np)
+    return 4096;
+#      endif
+
   return getauxval(AT_PAGESZ);
 #    else
   return sysconf(_SC_PAGESIZE);  // EXEC_PAGESIZE may not be trustworthy.
@@ -1252,7 +1286,19 @@ uptr GetPageSize() {
 #  endif
 
 uptr ReadBinaryName(/*out*/ char *buf, uptr buf_len) {
-#  if SANITIZER_SOLARIS
+#  if SANITIZER_HAIKU
+  int cookie = 0;
+  image_info info;
+  const char *argv0 = "<UNKNOWN>";
+  while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {
+    if (info.type != B_APP_IMAGE)
+      continue;
+    argv0 = info.name;
+    break;
+  }
+  internal_strncpy(buf, argv0, buf_len);
+  return internal_strlen(buf);
+#  elif SANITIZER_SOLARIS
   const char *default_module_name = getexecname();
   CHECK_NE(default_module_name, NULL);
   return internal_snprintf(buf, buf_len, "%s", default_module_name);
@@ -1318,11 +1364,11 @@ bool LibraryNameIs(const char *full_name, const char *base_name) {
   return (name[base_name_length] == '-' || name[base_name_length] == '.');
 }
 
-#  if !SANITIZER_ANDROID
+#  if !SANITIZER_ANDROID && !SANITIZER_HAIKU
 // Call cb for each region mapped by map.
 void ForEachMappedRegion(link_map *map, void (*cb)(const void *, uptr)) {
   CHECK_NE(map, nullptr);
-#    if !SANITIZER_FREEBSD
+#    if !SANITIZER_FREEBSD && !SANITIZER_HAIKU
   typedef ElfW(Phdr) Elf_Phdr;
   typedef ElfW(Ehdr) Elf_Ehdr;
 #    endif  // !SANITIZER_FREEBSD
@@ -1855,54 +1901,6 @@ int internal_uname(struct utsname *buf) {
 }
 #  endif
 
-#  if SANITIZER_ANDROID
-static int dl_iterate_phdr_test_cb(struct dl_phdr_info *info, size_t size,
-                                   void *data) {
-  // Any name starting with "lib" indicates a bug in L where library base names
-  // are returned instead of paths.
-  if (info->dlpi_name && info->dlpi_name[0] == 'l' &&
-      info->dlpi_name[1] == 'i' && info->dlpi_name[2] == 'b') {
-    *(bool *)data = true;
-    return 1;
-  }
-  return 0;
-}
-
-static atomic_uint32_t android_api_level;
-
-static AndroidApiLevel AndroidDetectApiLevelStatic() {
-#    if __ANDROID_API__ <= 22
-  return ANDROID_LOLLIPOP_MR1;
-#    else
-  return ANDROID_POST_LOLLIPOP;
-#    endif
-}
-
-static AndroidApiLevel AndroidDetectApiLevel() {
-  bool base_name_seen = false;
-  dl_iterate_phdr(dl_iterate_phdr_test_cb, &base_name_seen);
-  if (base_name_seen)
-    return ANDROID_LOLLIPOP_MR1;  // L MR1
-  return ANDROID_POST_LOLLIPOP;   // post-L
-  // Plain L (API level 21) is completely broken wrt ASan and not very
-  // interesting to detect.
-}
-
-extern "C" __attribute__((weak)) void *_DYNAMIC;
-
-AndroidApiLevel AndroidGetApiLevel() {
-  AndroidApiLevel level =
-      (AndroidApiLevel)atomic_load(&android_api_level, memory_order_relaxed);
-  if (level)
-    return level;
-  level = &_DYNAMIC == nullptr ? AndroidDetectApiLevelStatic()
-                               : AndroidDetectApiLevel();
-  atomic_store(&android_api_level, level, memory_order_relaxed);
-  return level;
-}
-
-#  endif
-
 static HandleSignalMode GetHandleSignalModeImpl(int signum) {
   switch (signum) {
     case SIGABRT:
@@ -1981,11 +1979,15 @@ using Context = ucontext_t;
 SignalContext::WriteFlag SignalContext::GetWriteFlag() const {
   Context *ucontext = (Context *)context;
 #  if defined(__x86_64__) || defined(__i386__)
+#    if !SANITIZER_HAIKU
   static const uptr PF_WRITE = 1U << 1;
+#    endif
 #    if SANITIZER_FREEBSD
   uptr err = ucontext->uc_mcontext.mc_err;
 #    elif SANITIZER_NETBSD
   uptr err = ucontext->uc_mcontext.__gregs[_REG_ERR];
+#    elif SANITIZER_HAIKU
+  uptr err = ucontext->uc_mcontext.r13;
 #    elif SANITIZER_SOLARIS && defined(__i386__)
   const int Err = 13;
   uptr err = ucontext->uc_mcontext.gregs[Err];
@@ -2598,6 +2600,11 @@ static void GetPcSpBp(void *context, uptr *pc, uptr *sp, uptr *bp) {
   *pc = ucontext->uc_mcontext.mc_rip;
   *bp = ucontext->uc_mcontext.mc_rbp;
   *sp = ucontext->uc_mcontext.mc_rsp;
+#    elif SANITIZER_HAIKU
+  ucontext_t *ucontext = (ucontext_t *)context;
+  *pc = ucontext->uc_mcontext.rip;
+  *bp = ucontext->uc_mcontext.rbp;
+  *sp = ucontext->uc_mcontext.rsp;
 #    else
   ucontext_t *ucontext = (ucontext_t *)context;
   *pc = ucontext->uc_mcontext.gregs[REG_RIP];

@@ -464,7 +464,7 @@ test "Dir.Iterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -497,7 +497,7 @@ test "Dir.Iterator many entries" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -531,7 +531,7 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         // Create iterator.
         var iter = tmp_dir.dir.iterate();
@@ -567,7 +567,7 @@ test "Dir.Iterator reset" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
@@ -617,7 +617,7 @@ fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+fn contains(entries: *const std.array_list.Managed(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }
@@ -676,37 +676,47 @@ test "Dir.realpath smoke test" {
     }.impl);
 }
 
-test "readAllAlloc" {
+test "readFileAlloc" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
     var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
     defer file.close();
 
-    const buf1 = try file.readToEndAlloc(testing.allocator, 1024);
+    const buf1 = try tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(1024));
     defer testing.allocator.free(buf1);
-    try testing.expectEqual(@as(usize, 0), buf1.len);
+    try testing.expectEqualStrings("", buf1);
 
     const write_buf: []const u8 = "this is a test.\nthis is a test.\nthis is a test.\nthis is a test.\n";
     try file.writeAll(write_buf);
-    try file.seekTo(0);
 
-    // max_bytes > file_size
-    const buf2 = try file.readToEndAlloc(testing.allocator, 1024);
-    defer testing.allocator.free(buf2);
-    try testing.expectEqual(write_buf.len, buf2.len);
-    try testing.expectEqualStrings(write_buf, buf2);
-    try file.seekTo(0);
+    {
+        // max_bytes > file_size
+        const buf2 = try tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(1024));
+        defer testing.allocator.free(buf2);
+        try testing.expectEqualStrings(write_buf, buf2);
+    }
 
-    // max_bytes == file_size
-    const buf3 = try file.readToEndAlloc(testing.allocator, write_buf.len);
-    defer testing.allocator.free(buf3);
-    try testing.expectEqual(write_buf.len, buf3.len);
-    try testing.expectEqualStrings(write_buf, buf3);
-    try file.seekTo(0);
+    {
+        // max_bytes == file_size
+        try testing.expectError(
+            error.StreamTooLong,
+            tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(write_buf.len)),
+        );
+    }
+
+    {
+        // max_bytes == file_size + 1
+        const buf2 = try tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(write_buf.len + 1));
+        defer testing.allocator.free(buf2);
+        try testing.expectEqualStrings(write_buf, buf2);
+    }
 
     // max_bytes < file_size
-    try testing.expectError(error.FileTooBig, file.readToEndAlloc(testing.allocator, write_buf.len - 1));
+    try testing.expectError(
+        error.StreamTooLong,
+        tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(write_buf.len - 1)),
+    );
 }
 
 test "Dir.statFile" {
@@ -778,16 +788,16 @@ test "file operations on directories" {
             switch (native_os) {
                 .dragonfly, .netbsd => {
                     // no error when reading a directory. See https://github.com/ziglang/zig/issues/5732
-                    const buf = try ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize));
+                    const buf = try ctx.dir.readFileAlloc(test_dir_name, testing.allocator, .unlimited);
                     testing.allocator.free(buf);
                 },
                 .wasi => {
                     // WASI return EBADF, which gets mapped to NotOpenForReading.
                     // See https://github.com/bytecodealliance/wasmtime/issues/1935
-                    try testing.expectError(error.NotOpenForReading, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+                    try testing.expectError(error.NotOpenForReading, ctx.dir.readFileAlloc(test_dir_name, testing.allocator, .unlimited));
                 },
                 else => {
-                    try testing.expectError(error.IsDir, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+                    try testing.expectError(error.IsDir, ctx.dir.readFileAlloc(test_dir_name, testing.allocator, .unlimited));
                 },
             }
 
@@ -1435,14 +1445,17 @@ test "setEndPos" {
     try testing.expectEqual(0, try f.preadAll(&buffer, 0));
 
     // Invalid file length should error gracefully. Actual limit is host
-    // and file-system dependent, but 1PB should fail most everywhere.
-    // Except MacOS APFS limit is 8 exabytes.
+    // and file-system dependent, but 1PB should fail on filesystems like
+    // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
     f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
         return err;
     };
 
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63))); // Maximum signed value
+    f.setEndPos(std.math.maxInt(u63)) catch |err| if (err != error.FileTooBig) {
+        return err;
+    };
 
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
     try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
 }
 
@@ -1496,34 +1509,55 @@ test "sendfile" {
     const header2 = "second header\n";
     const trailer1 = "trailer1\n";
     const trailer2 = "second trailer\n";
-    var hdtr = [_]posix.iovec_const{
-        .{
-            .base = header1,
-            .len = header1.len,
-        },
-        .{
-            .base = header2,
-            .len = header2.len,
-        },
-        .{
-            .base = trailer1,
-            .len = trailer1.len,
-        },
-        .{
-            .base = trailer2,
-            .len = trailer2.len,
-        },
-    };
+    var headers: [2][]const u8 = .{ header1, header2 };
+    var trailers: [2][]const u8 = .{ trailer1, trailer2 };
 
     var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
+    var file_reader = src_file.reader(&.{});
+    var fallback_buffer: [50]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+    try file_writer.interface.writeVecAll(&headers);
+    try file_reader.seekTo(1);
+    try testing.expectEqual(10, try file_writer.interface.sendFileAll(&file_reader, .limited(10)));
+    try file_writer.interface.writeVecAll(&trailers);
+    try file_writer.interface.flush();
     const amt = try dest_file.preadAll(&written_buf, 0);
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
+}
+
+test "sendfile with buffered data" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+
+    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    defer dir.close();
+
+    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writeAll("AAAABBBB");
+
+    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    var src_buffer: [32]u8 = undefined;
+    var file_reader = src_file.reader(&src_buffer);
+
+    try file_reader.seekTo(0);
+    try file_reader.interface.fill(8);
+
+    var fallback_buffer: [32]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+
+    try std.testing.expectEqual(4, try file_writer.interface.sendFileAll(&file_reader, .limited(4)));
+
+    var written_buf: [8]u8 = undefined;
+    const amt = try dest_file.preadAll(&written_buf, 0);
+
+    try std.testing.expectEqual(4, amt);
+    try std.testing.expectEqualSlices(u8, "AAAA", written_buf[0..amt]);
 }
 
 test "copyRangeAll" {
@@ -1575,7 +1609,7 @@ test "copyFile" {
 }
 
 fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
-    const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
+    const contents = try dir.readFileAlloc(file_path, testing.allocator, .limited(1000));
     defer testing.allocator.free(contents);
 
     try testing.expectEqualSlices(u8, data, contents);
@@ -1592,12 +1626,13 @@ test "AtomicFile" {
             ;
 
             {
-                var af = try ctx.dir.atomicFile(test_out_file, .{});
+                var buffer: [100]u8 = undefined;
+                var af = try ctx.dir.atomicFile(test_out_file, .{ .write_buffer = &buffer });
                 defer af.deinit();
-                try af.file.writeAll(test_content);
+                try af.file_writer.interface.writeAll(test_content);
                 try af.finish();
             }
-            const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
+            const content = try ctx.dir.readFileAlloc(test_out_file, allocator, .limited(9999));
             try testing.expectEqualStrings(test_content, content);
 
             try ctx.dir.deleteFile(test_out_file);
@@ -1765,14 +1800,14 @@ test "walker" {
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
-    const expected_paths = std.StaticStringMap(void).initComptime(.{
-        .{"dir1"},
-        .{"dir2"},
-        .{"dir3"},
-        .{"dir4"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub1"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1"},
+    const expected_paths = std.StaticStringMap(usize).initComptime(.{
+        .{ "dir1", 1 },
+        .{ "dir2", 1 },
+        .{ "dir3", 1 },
+        .{ "dir4", 1 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub1", 2 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2", 2 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1", 3 },
     });
 
     const expected_basenames = std.StaticStringMap(void).initComptime(.{
@@ -1795,13 +1830,83 @@ test "walker" {
     var num_walked: usize = 0;
     while (try walker.next()) |entry| {
         testing.expect(expected_basenames.has(entry.basename)) catch |err| {
-            std.debug.print("found unexpected basename: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.basename)});
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
             return err;
         };
         testing.expect(expected_paths.has(entry.path)) catch |err| {
-            std.debug.print("found unexpected path: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.path)});
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
             return err;
         };
+        testing.expectEqual(expected_paths.get(entry.path).?, entry.depth()) catch |err| {
+            std.debug.print("path reported unexpected depth: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+        // make sure that the entry.dir is the containing dir
+        var entry_dir = try entry.dir.openDir(entry.basename, .{});
+        defer entry_dir.close();
+        num_walked += 1;
+    }
+    try testing.expectEqual(expected_paths.kvs.len, num_walked);
+}
+
+test "selective walker, skip entries that start with ." {
+    var tmp = tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const paths_to_create: []const []const u8 = &.{
+        "dir1/foo/.git/ignored",
+        ".hidden/bar",
+        "a/b/c",
+        "a/baz",
+    };
+
+    // iteration order of walker is undefined, so need lookup maps to check against
+
+    const expected_paths = std.StaticStringMap(usize).initComptime(.{
+        .{ "dir1", 1 },
+        .{ "dir1" ++ fs.path.sep_str ++ "foo", 2 },
+        .{ "a", 1 },
+        .{ "a" ++ fs.path.sep_str ++ "b", 2 },
+        .{ "a" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c", 3 },
+        .{ "a" ++ fs.path.sep_str ++ "baz", 2 },
+    });
+
+    const expected_basenames = std.StaticStringMap(void).initComptime(.{
+        .{"dir1"},
+        .{"foo"},
+        .{"a"},
+        .{"b"},
+        .{"c"},
+        .{"baz"},
+    });
+
+    for (paths_to_create) |path| {
+        try tmp.dir.makePath(path);
+    }
+
+    var walker = try tmp.dir.walkSelectively(testing.allocator);
+    defer walker.deinit();
+
+    var num_walked: usize = 0;
+    while (try walker.next()) |entry| {
+        if (entry.basename[0] == '.') continue;
+        if (entry.kind == .directory) {
+            try walker.enter(entry);
+        }
+
+        testing.expect(expected_basenames.has(entry.basename)) catch |err| {
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
+            return err;
+        };
+        testing.expect(expected_paths.has(entry.path)) catch |err| {
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+        testing.expectEqual(expected_paths.get(entry.path).?, entry.depth()) catch |err| {
+            std.debug.print("path reported unexpected depth: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+
         // make sure that the entry.dir is the containing dir
         var entry_dir = try entry.dir.openDir(entry.basename, .{});
         defer entry_dir.close();
@@ -1950,113 +2055,6 @@ test "chown" {
     try dir.chown(null, null);
 }
 
-test "File.Metadata" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    try testing.expectEqual(File.Kind.file, metadata.kind());
-    try testing.expectEqual(@as(u64, 0), metadata.size());
-    _ = metadata.accessed();
-    _ = metadata.modified();
-    _ = metadata.created();
-}
-
-test "File.Permissions" {
-    if (native_os == .wasi)
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-
-    try testing.expect(!permissions.readOnly());
-    permissions.setReadOnly(true);
-    try testing.expect(permissions.readOnly());
-
-    try file.setPermissions(permissions);
-    const new_permissions = (try file.metadata()).permissions();
-    try testing.expect(new_permissions.readOnly());
-
-    // Must be set to non-read-only to delete
-    permissions.setReadOnly(false);
-    try file.setPermissions(permissions);
-}
-
-test "File.PermissionsUnix" {
-    if (native_os == .windows or native_os == .wasi)
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .mode = 0o666, .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-
-    permissions.setReadOnly(true);
-    try testing.expect(permissions.readOnly());
-    try testing.expect(!permissions.inner.unixHas(.user, .write));
-    permissions.inner.unixSet(.user, .{ .write = true });
-    try testing.expect(!permissions.readOnly());
-    try testing.expect(permissions.inner.unixHas(.user, .write));
-    try testing.expect(permissions.inner.mode & 0o400 != 0);
-
-    permissions.setReadOnly(true);
-    try file.setPermissions(permissions);
-    permissions = (try file.metadata()).permissions();
-    try testing.expect(permissions.readOnly());
-
-    // Must be set to non-read-only to delete
-    permissions.setReadOnly(false);
-    try file.setPermissions(permissions);
-
-    const permissions_unix = File.PermissionsUnix.unixNew(0o754);
-    try testing.expect(permissions_unix.unixHas(.user, .execute));
-    try testing.expect(!permissions_unix.unixHas(.other, .execute));
-}
-
-test "delete a read-only file on windows" {
-    if (native_os != .windows)
-        return error.SkipZigTest;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-    // Create a file and make it read-only
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-    permissions.setReadOnly(true);
-    try file.setPermissions(permissions);
-
-    // If the OS and filesystem support it, POSIX_SEMANTICS and IGNORE_READONLY_ATTRIBUTE
-    // is used meaning that the deletion of a read-only file will succeed.
-    // Otherwise, this delete will fail and the read-only flag must be unset before it's
-    // able to be deleted.
-    const delete_result = tmp.dir.deleteFile("test_file");
-    if (delete_result) {
-        try testing.expectError(error.FileNotFound, tmp.dir.deleteFile("test_file"));
-    } else |err| {
-        try testing.expectEqual(@as(anyerror, error.AccessDenied), err);
-        // Now make the file not read-only
-        permissions.setReadOnly(false);
-        try file.setPermissions(permissions);
-        try tmp.dir.deleteFile("test_file");
-    }
-}
-
 test "delete a setAsCwd directory on Windows" {
     if (native_os != .windows) return error.SkipZigTest;
 
@@ -2121,7 +2119,7 @@ test "invalid UTF-8/WTF-8 paths" {
             }
 
             try testing.expectError(expected_err, ctx.dir.readFile(invalid_path, &[_]u8{}));
-            try testing.expectError(expected_err, ctx.dir.readFileAlloc(testing.allocator, invalid_path, 0));
+            try testing.expectError(expected_err, ctx.dir.readFileAlloc(invalid_path, testing.allocator, .limited(0)));
 
             try testing.expectError(expected_err, ctx.dir.deleteTree(invalid_path));
             try testing.expectError(expected_err, ctx.dir.deleteTreeMinStackSize(invalid_path));
@@ -2174,4 +2172,147 @@ test "invalid UTF-8/WTF-8 paths" {
             }
         }
     }.impl);
+}
+
+test "read file non vectored" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "hello, world!\n";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var file_reader: std.fs.File.Reader = .init(file, &.{});
+
+    var write_buffer: [100]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&write_buffer);
+
+    var i: usize = 0;
+    while (true) {
+        i += file_reader.interface.stream(&w, .limited(3)) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+    }
+    try testing.expectEqualStrings(contents, w.buffered());
+    try testing.expectEqual(contents.len, i);
+}
+
+test "seek keeping partial buffer" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "0123456789";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [3]u8 = undefined;
+    var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
+
+    try testing.expectEqual(0, file_reader.logicalPos());
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+
+    if (file_reader.interface.bufferedLen() != 3) {
+        // Pass the test if the OS doesn't give us vectored reads.
+        return;
+    }
+
+    try testing.expectEqual(4, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+    try file_reader.seekTo(6);
+    try testing.expectEqual(6, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+
+    try testing.expectEqualStrings("0123", &buf);
+
+    const n = try file_reader.interface.readSliceShort(&buf);
+    try testing.expectEqual(4, n);
+
+    try testing.expectEqualStrings("6789", &buf);
+}
+
+test "seekBy" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+    var reader = f.readerStreaming(&.{});
+    try reader.seekBy(2);
+
+    var buffer: [20]u8 = undefined;
+    const n = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(15, n);
+    try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
+}
+
+test "seekTo flushes buffered data" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const contents = "data";
+
+    const file = try tmp.dir.createFile("seek.bin", .{ .read = true });
+    defer file.close();
+    {
+        var buf: [16]u8 = undefined;
+        var file_writer = std.fs.File.writer(file, &buf);
+
+        try file_writer.interface.writeAll(contents);
+        try file_writer.seekTo(8);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [16]u8 = undefined;
+    var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+    try std.testing.expectEqualStrings(contents, &buf);
+}
+
+test "File.Writer sendfile with buffered contents" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    {
+        try tmp_dir.dir.writeFile(.{ .sub_path = "a", .data = "bcd" });
+        const in = try tmp_dir.dir.openFile("a", .{});
+        defer in.close();
+        const out = try tmp_dir.dir.createFile("b", .{});
+        defer out.close();
+
+        var in_buf: [2]u8 = undefined;
+        var in_r = in.reader(&in_buf);
+        _ = try in_r.getSize(); // Catch seeks past end by populating size
+        try in_r.interface.fill(2);
+
+        var out_buf: [1]u8 = undefined;
+        var out_w = out.writerStreaming(&out_buf);
+        try out_w.interface.writeByte('a');
+        try testing.expectEqual(3, try out_w.interface.sendFileAll(&in_r, .unlimited));
+        try out_w.interface.flush();
+    }
+
+    var check = try tmp_dir.dir.openFile("b", .{});
+    defer check.close();
+    var check_buf: [4]u8 = undefined;
+    var check_r = check.reader(&check_buf);
+    try testing.expectEqualStrings("abcd", try check_r.interface.take(4));
+    try testing.expectError(error.EndOfStream, check_r.interface.takeByte());
 }

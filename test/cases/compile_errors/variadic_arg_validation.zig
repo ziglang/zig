@@ -19,8 +19,6 @@ pub export fn entry3() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:33: error: integer and float literals passed to variadic function must be casted to a fixed-size number type
 // :9:24: error: arrays must be passed by reference to variadic function

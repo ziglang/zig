@@ -4,7 +4,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:14: error: expected type expression, found '...'

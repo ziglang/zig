@@ -143,7 +143,7 @@ pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const arena = arena_state.allocator();
     const args = try std.process.argsAlloc(arena);
-    var search_paths = std.ArrayList([]const u8).init(arena);
+    var search_paths = std.array_list.Managed([]const u8).init(arena);
     var opt_out_dir: ?[]const u8 = null;
 
     var arg_i: usize = 1;
@@ -186,7 +186,7 @@ pub fn main() !void {
             const target_include_dir = try std.fs.path.join(arena, &.{
                 search_path, linux_target.name, "include",
             });
-            var dir_stack = std.ArrayList([]const u8).init(arena);
+            var dir_stack = std.array_list.Managed([]const u8).init(arena);
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.pop()) |full_dir_name| {
@@ -206,7 +206,7 @@ pub fn main() !void {
                         .file => {
                             const rel_path = try std.fs.path.relative(arena, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
-                            const raw_bytes = try std.fs.cwd().readFileAlloc(arena, full_path, max_size);
+                            const raw_bytes = try std.fs.cwd().readFileAlloc(full_path, arena, .limited(max_size));
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try arena.alloc(u8, 32);
@@ -218,10 +218,10 @@ pub fn main() !void {
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
                                 gop.value_ptr.hit_count += 1;
-                                std.debug.print("duplicate: {s} {s} ({:2})\n", .{
+                                std.debug.print("duplicate: {s} {s} ({B})\n", .{
                                     linux_target.name,
                                     rel_path,
-                                    std.fmt.fmtIntSizeDec(raw_bytes.len),
+                                    raw_bytes.len,
                                 });
                             } else {
                                 gop.value_ptr.* = Contents{
@@ -249,9 +249,9 @@ pub fn main() !void {
             std.debug.print("warning: libc target not found: {s}\n", .{linux_target.name});
         }
     }
-    std.debug.print("summary: {:2} could be reduced to {:2}\n", .{
-        std.fmt.fmtIntSizeDec(total_bytes),
-        std.fmt.fmtIntSizeDec(total_bytes - max_bytes_saved),
+    std.debug.print("summary: {B} could be reduced to {B}\n", .{
+        total_bytes,
+        total_bytes - max_bytes_saved,
     });
     try std.fs.cwd().makePath(out_dir);
 
@@ -261,7 +261,7 @@ pub fn main() !void {
     // gets their header in a separate arch directory.
     var path_it = path_table.iterator();
     while (path_it.next()) |path_kv| {
-        var contents_list = std.ArrayList(*Contents).init(arena);
+        var contents_list = std.array_list.Managed(*Contents).init(arena);
         {
             var hash_it = path_kv.value_ptr.*.iterator();
             while (hash_it.next()) |hash_kv| {
@@ -281,8 +281,8 @@ pub fn main() !void {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.print("Missed opportunity ({:2}): {s}\n", .{
-                        std.fmt.fmtIntSizeDec(this_missed_bytes),
+                    std.debug.print("Missed opportunity ({B}): {s}\n", .{
+                        this_missed_bytes,
                         path_kv.key_ptr.*,
                     });
                 } else break;

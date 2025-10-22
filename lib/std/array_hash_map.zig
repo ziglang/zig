@@ -50,7 +50,7 @@ pub fn eqlString(a: []const u8, b: []const u8) bool {
 }
 
 pub fn hashString(s: []const u8) u32 {
-    return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
+    return @truncate(std.hash.Wyhash.hash(0, s));
 }
 
 /// Deprecated in favor of `ArrayHashMapWithAllocator` (no code changes needed)
@@ -460,8 +460,17 @@ pub fn ArrayHashMapWithAllocator(
         /// Sorts the entries and then rebuilds the index.
         /// `sort_ctx` must have this method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses a stable sorting algorithm.
         pub fn sort(self: *Self, sort_ctx: anytype) void {
             return self.unmanaged.sortContext(sort_ctx, self.ctx);
+        }
+
+        /// Sorts the entries and then rebuilds the index.
+        /// `sort_ctx` must have this method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses an unstable sorting algorithm.
+        pub fn sortUnstable(self: *Self, sort_ctx: anytype) void {
+            return self.unmanaged.sortUnstableContext(sort_ctx, self.ctx);
         }
 
         /// Shrinks the underlying `Entry` array to `new_len` elements and
@@ -1271,6 +1280,33 @@ pub fn ArrayHashMapUnmanaged(
             defer self.pointer_stability.unlock();
 
             self.removeByIndex(index, if (store_hash) {} else ctx, .ordered);
+        }
+
+        /// Remove the entries indexed by `sorted_indexes`. The indexes to be
+        /// removed correspond to state before deletion.
+        ///
+        /// This operation is O(N).
+        ///
+        /// Asserts that each index to be removed is in bounds.
+        ///
+        /// Invalidates key and element pointers beyond the first deleted index.
+        pub fn orderedRemoveAtMany(self: *Self, gpa: Allocator, sorted_indexes: []const usize) Oom!void {
+            if (@sizeOf(ByIndexContext) != 0)
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call orderedRemoveAtContext instead.");
+            return self.orderedRemoveAtManyContext(gpa, sorted_indexes, undefined);
+        }
+
+        pub fn orderedRemoveAtManyContext(
+            self: *Self,
+            gpa: Allocator,
+            sorted_indexes: []const usize,
+            ctx: Context,
+        ) Oom!void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
+            self.entries.orderedRemoveMany(sorted_indexes);
+            try self.reIndexContext(gpa, ctx);
         }
 
         /// Create a copy of the hash map which can be modified separately.
@@ -2086,7 +2122,7 @@ const IndexHeader = struct {
     /// Returns the attached array of indexes.  I must match the type
     /// returned by capacityIndexType.
     fn indexes(header: *IndexHeader, comptime I: type) []Index(I) {
-        const start_ptr: [*]Index(I) = @alignCast(@ptrCast(@as([*]u8, @ptrCast(header)) + @sizeOf(IndexHeader)));
+        const start_ptr: [*]Index(I) = @ptrCast(@alignCast(@as([*]u8, @ptrCast(header)) + @sizeOf(IndexHeader)));
         return start_ptr[0..header.length()];
     }
 
@@ -2122,7 +2158,7 @@ const IndexHeader = struct {
         const nbytes = @sizeOf(IndexHeader) + index_size * len;
         const bytes = try gpa.alignedAlloc(u8, .of(IndexHeader), nbytes);
         @memset(bytes[@sizeOf(IndexHeader)..], 0xff);
-        const result: *IndexHeader = @alignCast(@ptrCast(bytes.ptr));
+        const result: *IndexHeader = @ptrCast(@alignCast(bytes.ptr));
         result.* = .{
             .bit_index = new_bit_index,
         };
@@ -2650,4 +2686,30 @@ pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime str
             return @as(u32, @truncate(hasher.final()));
         }
     }.hash;
+}
+
+test "orderedRemoveAtMany" {
+    const gpa = testing.allocator;
+
+    var map: AutoArrayHashMapUnmanaged(usize, void) = .empty;
+    defer map.deinit(gpa);
+
+    for (0..10) |n| {
+        try map.put(gpa, n, {});
+    }
+
+    try map.orderedRemoveAtMany(gpa, &.{ 1, 5, 5, 7, 9 });
+    try testing.expectEqualSlices(usize, &.{ 0, 2, 3, 4, 6, 8 }, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{0});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{ 1, 2, 3, 4 });
+    try testing.expectEqualSlices(usize, &.{2}, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{0});
+    try testing.expectEqualSlices(usize, &.{}, map.keys());
 }

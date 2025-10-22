@@ -8,7 +8,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:23: error: label not found: 'outer'

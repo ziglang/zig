@@ -7,8 +7,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:28: error: type 'anyerror!struct { u8, u8 }' cannot be destructured
 // :4:26: note: result destructured here

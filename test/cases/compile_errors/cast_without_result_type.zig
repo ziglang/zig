@@ -19,8 +19,6 @@ export fn e() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: @ptrFromInt must have a known result type
 // :2:9: note: use @as to provide explicit result type

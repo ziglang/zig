@@ -14,7 +14,7 @@
 #include "interception.h"
 
 #if SANITIZER_LINUX || SANITIZER_FREEBSD || SANITIZER_NETBSD || \
-    SANITIZER_SOLARIS
+    SANITIZER_SOLARIS || SANITIZER_HAIKU
 
 #include <dlfcn.h>   // for dlsym() and dlvsym()
 
@@ -80,4 +80,4 @@ bool InterceptFunction(const char *name, const char *ver, uptr *ptr_to_real,
 }  // namespace __interception
 
 #endif  // SANITIZER_LINUX || SANITIZER_FREEBSD || SANITIZER_NETBSD ||
-        // SANITIZER_SOLARIS
+        // SANITIZER_SOLARIS || SANITIZER_HAIKU

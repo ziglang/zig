@@ -31,6 +31,7 @@ pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const emscripten = @import("os/emscripten.zig");
 pub const windows = @import("os/windows.zig");
+pub const freebsd = @import("os/freebsd.zig");
 
 test {
     _ = linux;
@@ -97,7 +98,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
 /// For example, while it generally works on Linux, macOS, FreeBSD or Windows, it is
 /// unsupported on WASI.
 ///
-/// * On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// * On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// * On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 ///
 /// Calling this function is usually a bug.
@@ -131,7 +132,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
         },
         .linux, .serenity => {
             var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-            const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{fd}) catch unreachable;
+            const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/fd/{d}", .{fd}, 0) catch unreachable;
 
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| {
                 switch (err) {
@@ -148,7 +149,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
         },
         .solaris, .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
-            const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/path/{d}", .{fd}) catch unreachable;
+            const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/path/{d}", .{fd}, 0) catch unreachable;
 
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,

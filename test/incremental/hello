@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #target=wasm32-wasi-selfhosted
@@ -6,13 +7,13 @@
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("good morning\n");
+    try std.fs.File.stdout().writeAll("good morning\n");
 }
 #expect_stdout="good morning\n"
 #update=change the string
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("おはようございます\n");
+    try std.fs.File.stdout().writeAll("おはようございます\n");
 }
 #expect_stdout="おはようございます\n"

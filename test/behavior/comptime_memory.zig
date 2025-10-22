@@ -66,7 +66,6 @@ fn bigToNativeEndian(comptime T: type, v: T) T {
     return if (endian == .big) v else @byteSwap(v);
 }
 test "type pun endianness" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     comptime {
@@ -360,7 +359,6 @@ test "offset field ptr by enclosing array element size" {
 }
 
 test "accessing reinterpreted memory of parent object" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = extern struct {
@@ -408,6 +406,8 @@ test "mutate entire slice at comptime" {
 }
 
 test "dereference undefined pointer to zero-bit type" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const p0: *void = undefined;
     try testing.expectEqual({}, p0.*);
 
@@ -423,6 +423,8 @@ test "type pun extern struct" {
 }
 
 test "type pun @ptrFromInt" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const p: *u8 = @ptrFromInt(42);
     // note that expectEqual hides the bug
     try testing.expect(@as(*const [*]u8, @ptrCast(&p)).* == @as([*]u8, @ptrFromInt(42)));
@@ -479,7 +481,7 @@ fn GenericIntApplier(
         }
 
         fn typeErasedApplyFn(context: *const anyopaque, arg: u32) void {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
+            const ptr: *const Context = @ptrCast(@alignCast(context));
             applyFn(ptr.*, arg);
         }
     };
@@ -513,6 +515,8 @@ fn fieldPtrTest() u32 {
     return a.value;
 }
 test "pointer in aggregate field can mutate comptime state" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     try comptime std.testing.expect(fieldPtrTest() == 2);
 }
 

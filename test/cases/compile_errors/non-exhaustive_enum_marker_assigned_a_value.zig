@@ -14,8 +14,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:9: error: '_' is used to mark an enum as non-exhaustive and cannot be assigned a value
 // :6:11: error: non-exhaustive enum missing integer tag type

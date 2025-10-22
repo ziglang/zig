@@ -15,8 +15,7 @@ pub fn syscall1(number: usize, arg1: usize) usize {
         : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (number),
           [arg1] "{rdi}" (arg1),
-        : "rcx", "r11"
-    );
+        : .{ .rcx = true, .r11 = true });
 }
 
 pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -26,8 +25,7 @@ pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
-        : "rcx", "r11"
-    );
+        : .{ .rcx = true, .r11 = true });
 }
 
 // exe=succeed

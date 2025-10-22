@@ -9,7 +9,6 @@ const InstallDir = std.Build.InstallDir;
 const Step = std.Build.Step;
 const elf = std.elf;
 const fs = std.fs;
-const io = std.io;
 const sort = std.sort;
 
 pub const base_id: Step.Id = .objcopy;
@@ -182,7 +181,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         return step.fail("unable to make path {s}: {s}", .{ cache_path, @errorName(err) });
     };
 
-    var argv = std.ArrayList([]const u8).init(b.allocator);
+    var argv = std.array_list.Managed([]const u8).init(b.allocator);
     try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
 
     if (objcopy.only_section) |only_section| {
@@ -209,7 +208,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
     if (objcopy.add_section) |section| {
         try argv.append("--add-section");
-        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath(b) })});
+        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath2(b, step) })});
     }
     if (objcopy.set_section_alignment) |set_align| {
         try argv.append("--set-section-alignment");
@@ -236,7 +235,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
 
     try argv.append("--listen=-");
-    _ = try step.evalZigProcess(argv.items, prog_node, false);
+    _ = try step.evalZigProcess(argv.items, prog_node, false, options.web_server, options.gpa);
 
     objcopy.output_file.path = full_dest_path;
     if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;

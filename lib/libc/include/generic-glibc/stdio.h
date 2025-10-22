@@ -168,8 +168,11 @@ extern int renameat (int __oldfd, const char *__old, int __newfd,
 #ifdef __USE_GNU
 /* Flags for renameat2.  */
 # define RENAME_NOREPLACE (1 << 0)
+# define AT_RENAME_NOREPLACE RENAME_NOREPLACE
 # define RENAME_EXCHANGE (1 << 1)
+# define AT_RENAME_EXCHANGE RENAME_EXCHANGE
 # define RENAME_WHITEOUT (1 << 2)
+# define AT_RENAME_WHITEOUT RENAME_WHITEOUT
 
 /* Rename file OLD relative to OLDFD to NEW relative to NEWFD, with
    additional flags.  */
@@ -604,9 +607,6 @@ extern int fgetc_unlocked (FILE *__stream) __nonnull ((1));
 /* Write a character to STREAM.
 
    These functions are possible cancellation points and therefore not
-   marked with __THROW.
-
-   These functions is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern int fputc (int __c, FILE *__stream) __nonnull ((2));
 extern int putc (int __c, FILE *__stream) __nonnull ((2));

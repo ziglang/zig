@@ -195,7 +195,8 @@ extern void globfree64 (glob64_t *__pglob) __THROW;
 
    This function is not part of the interface specified by POSIX.2
    but several programs want to use it.  */
-extern int glob_pattern_p (const char *__pattern, int __quote) __THROW;
+extern int glob_pattern_p (const char *__pattern, int __quote) __THROW
+	__nonnull ((1));
 #endif
 
 __END_DECLS

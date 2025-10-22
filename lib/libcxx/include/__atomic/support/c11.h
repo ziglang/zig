@@ -35,7 +35,7 @@ struct __cxx_atomic_base_impl {
   }
 #endif // _LIBCPP_CXX03_LANG
   _LIBCPP_CONSTEXPR explicit __cxx_atomic_base_impl(_Tp __value) _NOEXCEPT : __a_value(__value) {}
-  _LIBCPP_DISABLE_EXTENSION_WARNING _Atomic(_Tp) __a_value;
+  _Atomic(_Tp) __a_value;
 };
 
 #define __cxx_atomic_is_lock_free(__s) __c11_atomic_is_lock_free(__s)

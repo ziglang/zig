@@ -349,6 +349,11 @@ struct proc_threadwithpathinfo {
 	struct vnode_info_path  pvip;
 };
 
+struct proc_archinfo {
+	cpu_type_t              p_cputype;
+	cpu_subtype_t           p_cpusubtype;
+};
+
 /*
  *  Socket
  */
@@ -757,6 +762,9 @@ struct channel_fdinfo {
 
 #define PROC_PID_RUSAGE                 16
 #define PROC_PID_RUSAGE_SIZE            0
+
+#define PROC_PIDARCHINFO                19
+#define PROC_PIDARCHINFO_SIZE           (sizeof(struct proc_archinfo))
 
 /* Flavors for proc_pidfdinfo */
 

@@ -16,7 +16,6 @@ const math = std.math;
 const assert = std.debug.assert;
 const native_arch = @import("builtin").cpu.arch;
 const linux = std.os.linux;
-const posix = std.posix;
 const page_size_min = std.heap.page_size_min;
 
 /// Represents an ELF TLS variant.
@@ -80,6 +79,7 @@ const current_variant: Variant = switch (native_arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .or1k,
     .powerpc,
     .powerpcle,
     .powerpc64,
@@ -286,6 +286,13 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
         },
+        .or1k => {
+            asm volatile (
+                \\ l.ori r10, %[addr], 0
+                :
+                : [addr] "r" (addr),
+            );
+        },
         .powerpc, .powerpcle => {
             asm volatile (
                 \\ mr 2, %[addr]
@@ -308,8 +315,7 @@ pub fn setThreadPointer(addr: usize) void {
                 \\ sar %%a0, %%r0
                 :
                 : [addr] "r" (addr),
-                : "r0"
-            );
+                : .{ .r0 = true });
         },
         .sparc, .sparc64 => {
             asm volatile (
@@ -524,7 +530,7 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
 }
 
 inline fn mmap_tls(length: usize) usize {
-    const prot = posix.PROT.READ | posix.PROT.WRITE;
+    const prot = linux.PROT.READ | linux.PROT.WRITE;
     const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
 
     if (@hasField(linux.SYS, "mmap2")) {

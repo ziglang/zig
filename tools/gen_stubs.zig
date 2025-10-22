@@ -299,18 +299,18 @@ pub fn main() !void {
 
         // Read the ELF header.
         const elf_bytes = build_all_dir.readFileAllocOptions(
-            arena,
             libc_so_path,
-            100 * 1024 * 1024,
-            1 * 1024 * 1024,
-            @alignOf(elf.Elf64_Ehdr),
+            arena,
+            .limited(100 * 1024 * 1024),
+            .of(elf.Elf64_Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {s}", .{
                 build_all_path, libc_so_path, @errorName(err),
             });
         };
-        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+        var stream: std.Io.Reader = .fixed(elf_bytes);
+        const header = try elf.Header.read(&stream);
 
         const parse: Parse = .{
             .arena = arena,
@@ -333,7 +333,9 @@ pub fn main() !void {
         }
     }
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll(
         \\#ifdef PTR64
         \\#define WEAK64 .weak
@@ -533,6 +535,8 @@ pub fn main() !void {
         .all => {},
         .single, .multi, .family, .time32 => try stdout.writeAll("#endif\n"),
     }
+
+    try stdout.flush();
 }
 
 fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian) !void {
@@ -604,7 +608,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
         const ty = @as(u4, @truncate(sym.st_info));
         const binding = @as(u4, @truncate(sym.st_info >> 4));
-        const visib = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
+        const visib = @as(elf.STV, @enumFromInt(@as(u3, @truncate(sym.st_other))));
         const size = s(sym.st_size);
 
         if (size == 0) {

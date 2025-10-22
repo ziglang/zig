@@ -152,7 +152,7 @@ int sched_setattr (pid_t tid, struct sched_attr *attr, unsigned int flags)
    store it in *ATTR.  */
 int sched_getattr (pid_t tid, struct sched_attr *attr, unsigned int size,
 		   unsigned int flags)
-  __THROW __nonnull ((2)) __attr_access ((__write_only__, 2, 3));
+  __THROW __nonnull ((2));
 
 #endif
 

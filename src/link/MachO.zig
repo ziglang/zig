@@ -163,7 +163,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .macho);
 
     const gpa = comp.gpa;
@@ -328,6 +328,7 @@ pub fn deinit(self: *MachO) void {
     self.unwind_info.deinit(gpa);
     self.data_in_code.deinit(gpa);
 
+    for (self.thunks.items) |*thunk| thunk.deinit(gpa);
     self.thunks.deinit(gpa);
 }
 
@@ -358,7 +359,7 @@ pub fn flush(
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, zcu_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, zcu_obj_path);
 
-    var positionals = std.ArrayList(link.Input).init(gpa);
+    var positionals = std.array_list.Managed(link.Input).init(gpa);
     defer positionals.deinit();
 
     try positionals.ensureUnusedCapacity(comp.link_inputs.len);
@@ -403,7 +404,7 @@ pub fn flush(
             diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    var system_libs = std.ArrayList(SystemLib).init(gpa);
+    var system_libs = std.array_list.Managed(SystemLib).init(gpa);
     defer system_libs.deinit();
 
     // frameworks
@@ -543,7 +544,7 @@ pub fn flush(
     self.allocateSyntheticSymbols();
 
     if (build_options.enable_logging) {
-        state_log.debug("{}", .{self.dumpState()});
+        state_log.debug("{f}", .{self.dumpState()});
     }
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
@@ -588,7 +589,7 @@ pub fn flush(
     );
 
     const ncmds, const sizeofcmds, const uuid_cmd_offset = self.writeLoadCommands() catch |err| switch (err) {
-        error.NoSpaceLeft => unreachable,
+        error.WriteFailed => unreachable,
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
     };
@@ -612,7 +613,6 @@ pub fn flush(
         };
         const emit = self.base.emit;
         invalidateKernelCache(emit.root_dir.handle, emit.sub_path) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
             else => |e| return diags.fail("failed to invalidate kernel cache: {s}", .{@errorName(e)}),
         };
     }
@@ -632,7 +632,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         break :p try p.toString(arena);
     } else null;
 
-    var argv = std.ArrayList([]const u8).init(arena);
+    var argv = std.array_list.Managed([]const u8).init(arena);
 
     try argv.append("zig");
 
@@ -677,12 +677,12 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         try argv.append("-platform_version");
         try argv.append(@tagName(self.platform.os_tag));
-        try argv.append(try std.fmt.allocPrint(arena, "{}", .{self.platform.version}));
+        try argv.append(try std.fmt.allocPrint(arena, "{f}", .{self.platform.version}));
 
         if (self.sdk_version) |ver| {
             try argv.append(try std.fmt.allocPrint(arena, "{d}.{d}", .{ ver.major, ver.minor }));
         } else {
-            try argv.append(try std.fmt.allocPrint(arena, "{}", .{self.platform.version}));
+            try argv.append(try std.fmt.allocPrint(arena, "{f}", .{self.platform.version}));
         }
 
         if (comp.sysroot) |syslibroot| {
@@ -827,8 +827,8 @@ pub fn resolveLibSystem(
 ) !void {
     const diags = &self.base.comp.link_diags;
 
-    var test_path = std.ArrayList(u8).init(arena);
-    var checked_paths = std.ArrayList([]const u8).init(arena);
+    var test_path = std.array_list.Managed(u8).init(arena);
+    var checked_paths = std.array_list.Managed([]const u8).init(arena);
 
     success: {
         if (self.sdk_layout) |sdk_layout| switch (sdk_layout) {
@@ -863,7 +863,7 @@ pub fn classifyInputFile(self: *MachO, input: link.Input) !void {
 
     const path, const file = input.pathAndFile().?;
     // TODO don't classify now, it's too late. The input file has already been classified
-    log.debug("classifying input file {}", .{path});
+    log.debug("classifying input file {f}", .{path});
 
     const fh = try self.addFileHandle(file);
     var buffer: [Archive.SARMAG]u8 = undefined;
@@ -919,7 +919,16 @@ fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !v
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+
+    const abs_path = try std.fs.path.resolvePosix(gpa, &.{
+        comp.dirs.cwd,
+        path.root_dir.path orelse ".",
+        path.sub_path,
+    });
+    errdefer gpa.free(abs_path);
+
     const mtime: u64 = mtime: {
         const file = self.getFileHandle(handle);
         const stat = file.stat() catch break :mtime 0;
@@ -928,10 +937,7 @@ fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !v
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
         .offset = offset,
-        .path = .{
-            .root_dir = path.root_dir,
-            .sub_path = try gpa.dupe(u8, path.sub_path),
-        },
+        .path = abs_path,
         .file_handle = handle,
         .mtime = mtime,
         .index = index,
@@ -1065,8 +1071,8 @@ fn isHoisted(self: *MachO, install_name: []const u8) bool {
 /// TODO delete this, libraries must be instead resolved when instantiating the compilation pipeline
 fn accessLibPath(
     arena: Allocator,
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
+    test_path: *std.array_list.Managed(u8),
+    checked_paths: *std.array_list.Managed([]const u8),
     search_dir: []const u8,
     name: []const u8,
 ) !bool {
@@ -1074,7 +1080,7 @@ fn accessLibPath(
 
     for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "lib{s}{s}", .{ search_dir, name, ext });
+        try test_path.print("{s}" ++ sep ++ "lib{s}{s}", .{ search_dir, name, ext });
         try checked_paths.append(try arena.dupe(u8, test_path.items));
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
@@ -1088,8 +1094,8 @@ fn accessLibPath(
 
 fn accessFrameworkPath(
     arena: Allocator,
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
+    test_path: *std.array_list.Managed(u8),
+    checked_paths: *std.array_list.Managed([]const u8),
     search_dir: []const u8,
     name: []const u8,
 ) !bool {
@@ -1097,7 +1103,7 @@ fn accessFrameworkPath(
 
     for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
+        try test_path.print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
             search_dir,
             name,
             name,
@@ -1138,7 +1144,7 @@ fn parseDependentDylibs(self: *MachO) !void {
     while (index < self.dylibs.items.len) : (index += 1) {
         const dylib_index = self.dylibs.items[index];
 
-        var dependents = std.ArrayList(File.Index).init(gpa);
+        var dependents = std.array_list.Managed(File.Index).init(gpa);
         defer dependents.deinit();
         try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
 
@@ -1151,8 +1157,8 @@ fn parseDependentDylibs(self: *MachO) !void {
             // 3. If name is a relative path, substitute @rpath, @loader_path, @executable_path with
             //    dependees list of rpaths, and search there.
             // 4. Finally, just search the provided relative path directly in CWD.
-            var test_path = std.ArrayList(u8).init(arena);
-            var checked_paths = std.ArrayList([]const u8).init(arena);
+            var test_path = std.array_list.Managed(u8).init(arena);
+            var checked_paths = std.array_list.Managed([]const u8).init(arena);
 
             const full_path = full_path: {
                 {
@@ -1178,9 +1184,9 @@ fn parseDependentDylibs(self: *MachO) !void {
                     for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
                         test_path.clearRetainingCapacity();
                         if (self.base.comp.sysroot) |root| {
-                            try test_path.writer().print("{s}" ++ fs.path.sep_str ++ "{s}{s}", .{ root, path, ext });
+                            try test_path.print("{s}" ++ fs.path.sep_str ++ "{s}{s}", .{ root, path, ext });
                         } else {
-                            try test_path.writer().print("{s}{s}", .{ path, ext });
+                            try test_path.print("{s}{s}", .{ path, ext });
                         }
                         try checked_paths.append(try arena.dupe(u8, test_path.items));
                         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
@@ -1550,7 +1556,7 @@ fn reportUndefs(self: *MachO) !void {
     const max_notes = 4;
 
     // We will sort by name, and then by file to ensure deterministic output.
-    var keys = try std.ArrayList(SymbolResolver.Index).initCapacity(gpa, self.undefs.keys().len);
+    var keys = try std.array_list.Managed(SymbolResolver.Index).initCapacity(gpa, self.undefs.keys().len);
     defer keys.deinit();
     keys.appendSliceAssumeCapacity(self.undefs.keys());
     self.sortGlobalSymbolsByName(keys.items);
@@ -1591,7 +1597,7 @@ fn reportUndefs(self: *MachO) !void {
                     const ref = refs.items[inote];
                     const file = self.getFile(ref.file).?;
                     const atom = ref.getAtom(self).?;
-                    err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+                    err.addNote("referenced by {f}:{s}", .{ file.fmtPath(), atom.getName(self) });
                 }
 
                 if (refs.items.len > max_notes) {
@@ -1813,7 +1819,7 @@ pub fn sortSections(self: *MachO) !void {
 
     const gpa = self.base.comp.gpa;
 
-    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.sections.slice().len);
+    var entries = try std.array_list.Managed(Entry).initCapacity(gpa, self.sections.slice().len);
     defer entries.deinit();
     for (0..self.sections.slice().len) |index| {
         entries.appendAssumeCapacity(.{ .index = @intCast(index) });
@@ -2123,7 +2129,7 @@ fn initSegments(self: *MachO) !void {
         }
     };
 
-    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.segments.items.len);
+    var entries = try std.array_list.Managed(Entry).initCapacity(gpa, self.segments.items.len);
     defer entries.deinit();
     for (0..self.segments.items.len) |index| {
         entries.appendAssumeCapacity(.{ .index = @intCast(index) });
@@ -2528,8 +2534,8 @@ fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
         fn doWork(th: Thunk, buffer: []u8, macho_file: *MachO) !void {
             const off = try macho_file.cast(usize, th.value);
             const size = th.size();
-            var stream = std.io.fixedBufferStream(buffer[off..][0..size]);
-            try th.write(macho_file, stream.writer());
+            var stream: Writer = .fixed(buffer[off..][0..size]);
+            try th.write(macho_file, &stream);
         }
     }.doWork;
     const out = self.sections.items(.out)[thunk.out_n_sect].items;
@@ -2556,15 +2562,15 @@ fn writeSyntheticSectionWorker(self: *MachO, sect_id: u8, out: []u8) void {
 
     const doWork = struct {
         fn doWork(macho_file: *MachO, tag: Tag, buffer: []u8) !void {
-            var stream = std.io.fixedBufferStream(buffer);
+            var stream: Writer = .fixed(buffer);
             switch (tag) {
                 .eh_frame => eh_frame.write(macho_file, buffer),
                 .unwind_info => try macho_file.unwind_info.write(macho_file, buffer),
-                .got => try macho_file.got.write(macho_file, stream.writer()),
-                .stubs => try macho_file.stubs.write(macho_file, stream.writer()),
-                .la_symbol_ptr => try macho_file.la_symbol_ptr.write(macho_file, stream.writer()),
-                .tlv_ptr => try macho_file.tlv_ptr.write(macho_file, stream.writer()),
-                .objc_stubs => try macho_file.objc_stubs.write(macho_file, stream.writer()),
+                .got => try macho_file.got.write(macho_file, &stream),
+                .stubs => try macho_file.stubs.write(macho_file, &stream),
+                .la_symbol_ptr => try macho_file.la_symbol_ptr.write(macho_file, &stream),
+                .tlv_ptr => try macho_file.tlv_ptr.write(macho_file, &stream),
+                .objc_stubs => try macho_file.objc_stubs.write(macho_file, &stream),
             }
         }
     }.doWork;
@@ -2605,8 +2611,8 @@ fn updateLazyBindSizeWorker(self: *MachO) void {
             try macho_file.lazy_bind_section.updateSize(macho_file);
             const sect_id = macho_file.stubs_helper_sect_index.?;
             const out = &macho_file.sections.items(.out)[sect_id];
-            var stream = std.io.fixedBufferStream(out.items);
-            try macho_file.stubs_helper.write(macho_file, stream.writer());
+            var stream: Writer = .fixed(out.items);
+            try macho_file.stubs_helper.write(macho_file, &stream);
         }
     }.doWork;
     doWork(self) catch |err|
@@ -2669,18 +2675,17 @@ fn writeDyldInfo(self: *MachO) !void {
     defer gpa.free(buffer);
     @memset(buffer, 0);
 
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var writer: Writer = .fixed(buffer);
 
-    try self.rebase_section.write(writer);
-    try stream.seekTo(cmd.bind_off - base_off);
-    try self.bind_section.write(writer);
-    try stream.seekTo(cmd.weak_bind_off - base_off);
-    try self.weak_bind_section.write(writer);
-    try stream.seekTo(cmd.lazy_bind_off - base_off);
-    try self.lazy_bind_section.write(writer);
-    try stream.seekTo(cmd.export_off - base_off);
-    try self.export_trie.write(writer);
+    try self.rebase_section.write(&writer);
+    writer.end = @intCast(cmd.bind_off - base_off);
+    try self.bind_section.write(&writer);
+    writer.end = @intCast(cmd.weak_bind_off - base_off);
+    try self.weak_bind_section.write(&writer);
+    writer.end = @intCast(cmd.lazy_bind_off - base_off);
+    try self.lazy_bind_section.write(&writer);
+    writer.end = @intCast(cmd.export_off - base_off);
+    try self.export_trie.write(&writer);
     try self.pwriteAll(buffer, cmd.rebase_off);
 }
 
@@ -2689,10 +2694,10 @@ pub fn writeDataInCode(self: *MachO) !void {
     defer tracy.end();
     const gpa = self.base.comp.gpa;
     const cmd = self.data_in_code_cmd;
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, self.data_in_code.size());
+    var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.data_in_code.size());
     defer buffer.deinit();
-    try self.data_in_code.write(self, buffer.writer());
-    try self.pwriteAll(buffer.items, cmd.dataoff);
+    self.data_in_code.write(self, &buffer.writer) catch return error.OutOfMemory;
+    try self.pwriteAll(buffer.written(), cmd.dataoff);
 }
 
 fn writeIndsymtab(self: *MachO) !void {
@@ -2701,17 +2706,18 @@ fn writeIndsymtab(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
     const cmd = self.dysymtab_cmd;
     const needed_size = cmd.nindirectsyms * @sizeOf(u32);
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, needed_size);
-    defer buffer.deinit();
-    try self.indsymtab.write(self, buffer.writer());
-    try self.pwriteAll(buffer.items, cmd.indirectsymoff);
+    const buffer = try gpa.alloc(u8, needed_size);
+    defer gpa.free(buffer);
+    var writer: Writer = .fixed(buffer);
+    try self.indsymtab.write(self, &writer);
+    try self.pwriteAll(buffer, cmd.indirectsymoff);
 }
 
 pub fn writeSymtabToFile(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     const cmd = self.symtab_cmd;
-    try self.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.pwriteAll(@ptrCast(self.symtab.items), cmd.symoff);
     try self.pwriteAll(self.strtab.items, cmd.stroff);
 }
 
@@ -2746,7 +2752,7 @@ fn calcSymtabSize(self: *MachO) !void {
 
     const gpa = self.base.comp.gpa;
 
-    var files = std.ArrayList(File.Index).init(gpa);
+    var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + self.dylibs.items.len + 2);
     if (self.zig_object) |index| files.appendAssumeCapacity(index);
@@ -2821,8 +2827,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
 
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var writer: Writer = .fixed(buffer);
 
     var ncmds: usize = 0;
 
@@ -2831,26 +2836,26 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         const slice = self.sections.slice();
         var sect_id: usize = 0;
         for (self.segments.items) |seg| {
-            try writer.writeStruct(seg);
+            try writer.writeStruct(seg, .little);
             for (slice.items(.header)[sect_id..][0..seg.nsects]) |header| {
-                try writer.writeStruct(header);
+                try writer.writeStruct(header, .little);
             }
             sect_id += seg.nsects;
         }
         ncmds += self.segments.items.len;
     }
 
-    try writer.writeStruct(self.dyld_info_cmd);
+    try writer.writeStruct(self.dyld_info_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.function_starts_cmd);
+    try writer.writeStruct(self.function_starts_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.data_in_code_cmd);
+    try writer.writeStruct(self.data_in_code_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.symtab_cmd);
+    try writer.writeStruct(self.symtab_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.dysymtab_cmd);
+    try writer.writeStruct(self.dysymtab_cmd, .little);
     ncmds += 1;
-    try load_commands.writeDylinkerLC(writer);
+    try load_commands.writeDylinkerLC(&writer);
     ncmds += 1;
 
     if (self.getInternalObject()) |obj| {
@@ -2861,44 +2866,44 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
                 0
             else
                 @as(u32, @intCast(sym.getAddress(.{ .stubs = true }, self) - seg.vmaddr));
-            try writer.writeStruct(macho.entry_point_command{
+            try writer.writeStruct(@as(macho.entry_point_command, .{
                 .entryoff = entryoff,
                 .stacksize = self.base.stack_size,
-            });
+            }), .little);
             ncmds += 1;
         }
     }
 
     if (self.base.isDynLib()) {
-        try load_commands.writeDylibIdLC(self, writer);
+        try load_commands.writeDylibIdLC(self, &writer);
         ncmds += 1;
     }
 
     for (self.rpath_list) |rpath| {
-        try load_commands.writeRpathLC(rpath, writer);
+        try load_commands.writeRpathLC(rpath, &writer);
         ncmds += 1;
     }
     if (comp.config.any_sanitize_thread) {
         const path = try comp.tsan_lib.?.full_object_path.toString(gpa);
         defer gpa.free(path);
         const rpath = std.fs.path.dirname(path) orelse ".";
-        try load_commands.writeRpathLC(rpath, writer);
+        try load_commands.writeRpathLC(rpath, &writer);
         ncmds += 1;
     }
 
-    try writer.writeStruct(macho.source_version_command{ .version = 0 });
+    try writer.writeStruct(@as(macho.source_version_command, .{ .version = 0 }), .little);
     ncmds += 1;
 
     if (self.platform.isBuildVersionCompatible()) {
-        try load_commands.writeBuildVersionLC(self.platform, self.sdk_version, writer);
+        try load_commands.writeBuildVersionLC(self.platform, self.sdk_version, &writer);
         ncmds += 1;
     } else {
-        try load_commands.writeVersionMinLC(self.platform, self.sdk_version, writer);
+        try load_commands.writeVersionMinLC(self.platform, self.sdk_version, &writer);
         ncmds += 1;
     }
 
-    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + stream.pos;
-    try writer.writeStruct(self.uuid_cmd);
+    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + writer.end;
+    try writer.writeStruct(self.uuid_cmd, .little);
     ncmds += 1;
 
     for (self.dylibs.items) |index| {
@@ -2916,16 +2921,16 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
             .timestamp = dylib_id.timestamp,
             .current_version = dylib_id.current_version,
             .compatibility_version = dylib_id.compatibility_version,
-        }, writer);
+        }, &writer);
         ncmds += 1;
     }
 
     if (self.requiresCodeSig()) {
-        try writer.writeStruct(self.codesig_cmd);
+        try writer.writeStruct(self.codesig_cmd, .little);
         ncmds += 1;
     }
 
-    assert(stream.pos == needed_size);
+    assert(writer.end == needed_size);
 
     try self.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
@@ -3014,25 +3019,32 @@ pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
 pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const seg = self.getTextSegment();
     const offset = self.codesig_cmd.dataoff;
+    const gpa = self.base.comp.gpa;
 
-    var buffer = std.ArrayList(u8).init(self.base.comp.gpa);
+    var buffer: std.Io.Writer.Allocating = .init(gpa);
     defer buffer.deinit();
-    try buffer.ensureTotalCapacityPrecise(code_sig.size());
-    try code_sig.writeAdhocSignature(self, .{
+    // The writeAdhocSignature function internally changes code_sig.size()
+    // during the execution.
+    try buffer.ensureUnusedCapacity(code_sig.size());
+
+    code_sig.writeAdhocSignature(self, .{
         .file = self.base.file.?,
         .exec_seg_base = seg.fileoff,
         .exec_seg_limit = seg.filesize,
         .file_size = offset,
         .dylib = self.base.isDynLib(),
-    }, buffer.writer());
-    assert(buffer.items.len == code_sig.size());
+    }, &buffer.writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    assert(buffer.written().len == code_sig.size());
 
     log.debug("writing code signature from 0x{x} to 0x{x}", .{
         offset,
-        offset + buffer.items.len,
+        offset + buffer.written().len,
     });
 
-    try self.pwriteAll(buffer.items, offset);
+    try self.pwriteAll(buffer.written(), offset);
 }
 
 pub fn updateFunc(
@@ -3092,7 +3104,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
 
@@ -3545,8 +3557,8 @@ pub fn markDirty(self: *MachO, sect_index: u8) void {
     }
 }
 
-pub fn getTarget(self: MachO) std.Target {
-    return self.base.comp.root_mod.resolved_target.result;
+pub fn getTarget(self: *const MachO) *const std.Target {
+    return &self.base.comp.root_mod.resolved_target.result;
 }
 
 /// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
@@ -3791,7 +3803,7 @@ pub fn reportParseError2(
     const diags = &self.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
     try err.addMsg(format, args);
-    err.addNote("while parsing {}", .{self.getFile(file_index).?.fmtPath()});
+    err.addNote("while parsing {f}", .{self.getFile(file_index).?.fmtPath()});
 }
 
 fn reportMissingDependencyError(
@@ -3806,7 +3818,7 @@ fn reportMissingDependencyError(
     var err = try diags.addErrorWithNotes(2 + checked_paths.len);
     try err.addMsg(format, args);
     err.addNote("while resolving {s}", .{path});
-    err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    err.addNote("a dependency of {f}", .{self.getFile(parent).?.fmtPath()});
     for (checked_paths) |p| {
         err.addNote("tried {s}", .{p});
     }
@@ -3823,7 +3835,7 @@ fn reportDependencyError(
     var err = try diags.addErrorWithNotes(2);
     try err.addMsg(format, args);
     err.addNote("while parsing {s}", .{path});
-    err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    err.addNote("a dependency of {f}", .{self.getFile(parent).?.fmtPath()});
 }
 
 fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
@@ -3837,7 +3849,7 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
     const max_notes = 3;
 
     // We will sort by name, and then by file to ensure deterministic output.
-    var keys = try std.ArrayList(SymbolResolver.Index).initCapacity(gpa, self.dupes.keys().len);
+    var keys = try std.array_list.Managed(SymbolResolver.Index).initCapacity(gpa, self.dupes.keys().len);
     defer keys.deinit();
     keys.appendSliceAssumeCapacity(self.dupes.keys());
     self.sortGlobalSymbolsByName(keys.items);
@@ -3853,12 +3865,12 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
 
         var err = try diags.addErrorWithNotes(nnotes + 1);
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
-        err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
+        err.addNote("defined by {f}", .{sym.getFile(self).?.fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file = self.getFile(notes.items[inote]).?;
-            err.addNote("defined by {}", .{file.fmtPath()});
+            err.addNote("defined by {f}", .{file.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
@@ -3900,35 +3912,28 @@ pub fn ptraceDetach(self: *MachO, pid: std.posix.pid_t) !void {
     self.hot_state.mach_task = null;
 }
 
-pub fn dumpState(self: *MachO) std.fmt.Formatter(fmtDumpState) {
+pub fn dumpState(self: *MachO) std.fmt.Alt(*MachO, fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(
-    self: *MachO,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn fmtDumpState(self: *MachO, w: *Writer) Writer.Error!void {
     if (self.getZigObject()) |zo| {
-        try writer.print("zig_object({d}) : {s}\n", .{ zo.index, zo.basename });
-        try writer.print("{}{}\n", .{
+        try w.print("zig_object({d}) : {s}\n", .{ zo.index, zo.basename });
+        try w.print("{f}{f}\n", .{
             zo.fmtAtoms(self),
             zo.fmtSymtab(self),
         });
     }
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
-        try writer.print("object({d}) : {} : has_debug({})", .{
+        try w.print("object({d}) : {f} : has_debug({})", .{
             index,
             object.fmtPath(),
             object.hasDebugInfo(),
         });
-        if (!object.alive) try writer.writeAll(" : ([*])");
-        try writer.writeByte('\n');
-        try writer.print("{}{}{}{}{}\n", .{
+        if (!object.alive) try w.writeAll(" : ([*])");
+        try w.writeByte('\n');
+        try w.print("{f}{f}{f}{f}{f}\n", .{
             object.fmtAtoms(self),
             object.fmtCies(self),
             object.fmtFdes(self),
@@ -3938,48 +3943,41 @@ fn fmtDumpState(
     }
     for (self.dylibs.items) |index| {
         const dylib = self.getFile(index).?.dylib;
-        try writer.print("dylib({d}) : {} : needed({}) : weak({})", .{
+        try w.print("dylib({d}) : {f} : needed({}) : weak({})", .{
             index,
             @as(Path, dylib.path),
             dylib.needed,
             dylib.weak,
         });
-        if (!dylib.isAlive(self)) try writer.writeAll(" : ([*])");
-        try writer.writeByte('\n');
-        try writer.print("{}\n", .{dylib.fmtSymtab(self)});
+        if (!dylib.isAlive(self)) try w.writeAll(" : ([*])");
+        try w.writeByte('\n');
+        try w.print("{f}\n", .{dylib.fmtSymtab(self)});
     }
     if (self.getInternalObject()) |internal| {
-        try writer.print("internal({d}) : internal\n", .{internal.index});
-        try writer.print("{}{}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
+        try w.print("internal({d}) : internal\n", .{internal.index});
+        try w.print("{f}{f}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
     }
-    try writer.writeAll("thunks\n");
+    try w.writeAll("thunks\n");
     for (self.thunks.items, 0..) |thunk, index| {
-        try writer.print("thunk({d}) : {}\n", .{ index, thunk.fmt(self) });
+        try w.print("thunk({d}) : {f}\n", .{ index, thunk.fmt(self) });
     }
-    try writer.print("stubs\n{}\n", .{self.stubs.fmt(self)});
-    try writer.print("objc_stubs\n{}\n", .{self.objc_stubs.fmt(self)});
-    try writer.print("got\n{}\n", .{self.got.fmt(self)});
-    try writer.print("tlv_ptr\n{}\n", .{self.tlv_ptr.fmt(self)});
-    try writer.writeByte('\n');
-    try writer.print("sections\n{}\n", .{self.fmtSections()});
-    try writer.print("segments\n{}\n", .{self.fmtSegments()});
+    try w.print("stubs\n{f}\n", .{self.stubs.fmt(self)});
+    try w.print("objc_stubs\n{f}\n", .{self.objc_stubs.fmt(self)});
+    try w.print("got\n{f}\n", .{self.got.fmt(self)});
+    try w.print("tlv_ptr\n{f}\n", .{self.tlv_ptr.fmt(self)});
+    try w.writeByte('\n');
+    try w.print("sections\n{f}\n", .{self.fmtSections()});
+    try w.print("segments\n{f}\n", .{self.fmtSegments()});
 }
 
-fn fmtSections(self: *MachO) std.fmt.Formatter(formatSections) {
+fn fmtSections(self: *MachO) std.fmt.Alt(*MachO, formatSections) {
     return .{ .data = self };
 }
 
-fn formatSections(
-    self: *MachO,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn formatSections(self: *MachO, w: *Writer) Writer.Error!void {
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.segment_id), 0..) |header, seg_id, i| {
-        try writer.print(
+        try w.print(
             "sect({d}) : seg({d}) : {s},{s} : @{x} ({x}) : align({x}) : size({x}) : relocs({x};{d})\n",
             .{
                 i,               seg_id,      header.segName(), header.sectName(), header.addr, header.offset,
@@ -3989,38 +3987,24 @@ fn formatSections(
     }
 }
 
-fn fmtSegments(self: *MachO) std.fmt.Formatter(formatSegments) {
+fn fmtSegments(self: *MachO) std.fmt.Alt(*MachO, formatSegments) {
     return .{ .data = self };
 }
 
-fn formatSegments(
-    self: *MachO,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn formatSegments(self: *MachO, w: *Writer) Writer.Error!void {
     for (self.segments.items, 0..) |seg, i| {
-        try writer.print("seg({d}) : {s} : @{x}-{x} ({x}-{x})\n", .{
+        try w.print("seg({d}) : {s} : @{x}-{x} ({x}-{x})\n", .{
             i,           seg.segName(),              seg.vmaddr, seg.vmaddr + seg.vmsize,
             seg.fileoff, seg.fileoff + seg.filesize,
         });
     }
 }
 
-pub fn fmtSectType(tt: u8) std.fmt.Formatter(formatSectType) {
+pub fn fmtSectType(tt: u8) std.fmt.Alt(u8, formatSectType) {
     return .{ .data = tt };
 }
 
-fn formatSectType(
-    tt: u8,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn formatSectType(tt: u8, w: *Writer) Writer.Error!void {
     const name = switch (tt) {
         macho.S_REGULAR => "REGULAR",
         macho.S_ZEROFILL => "ZEROFILL",
@@ -4044,9 +4028,9 @@ fn formatSectType(
         macho.S_THREAD_LOCAL_VARIABLE_POINTERS => "THREAD_LOCAL_VARIABLE_POINTERS",
         macho.S_THREAD_LOCAL_INIT_FUNCTION_POINTERS => "THREAD_LOCAL_INIT_FUNCTION_POINTERS",
         macho.S_INIT_FUNC_OFFSETS => "INIT_FUNC_OFFSETS",
-        else => |x| return writer.print("UNKNOWN({x})", .{x}),
+        else => |x| return w.print("UNKNOWN({x})", .{x}),
     };
-    try writer.print("{s}", .{name});
+    try w.print("{s}", .{name});
 }
 
 const is_hot_update_compatible = switch (builtin.target.os.tag) {
@@ -4171,9 +4155,9 @@ pub const SymtabCtx = struct {
 
 pub const null_sym = macho.nlist_64{
     .n_strx = 0,
-    .n_type = 0,
+    .n_type = @bitCast(@as(u8, 0)),
     .n_sect = 0,
-    .n_desc = 0,
+    .n_desc = @bitCast(@as(u16, 0)),
     .n_value = 0,
 };
 
@@ -4233,7 +4217,7 @@ pub const Platform = struct {
         }
     }
 
-    pub fn fromTarget(target: std.Target) Platform {
+    pub fn fromTarget(target: *const std.Target) Platform {
         return .{
             .os_tag = target.os.tag,
             .abi = target.abi,
@@ -4279,34 +4263,27 @@ pub const Platform = struct {
         return false;
     }
 
-    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatTarget) {
+    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Alt(Format, Format.target) {
         return .{ .data = .{ .platform = plat, .cpu_arch = cpu_arch } };
     }
 
-    const FmtCtx = struct {
+    const Format = struct {
         platform: Platform,
         cpu_arch: std.Target.Cpu.Arch,
-    };
 
-    pub fn formatTarget(
-        ctx: FmtCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.print("{s}-{s}", .{ @tagName(ctx.cpu_arch), @tagName(ctx.platform.os_tag) });
-        if (ctx.platform.abi != .none) {
-            try writer.print("-{s}", .{@tagName(ctx.platform.abi)});
+        pub fn target(f: Format, w: *Writer) Writer.Error!void {
+            try w.print("{s}-{s}", .{ @tagName(f.cpu_arch), @tagName(f.platform.os_tag) });
+            if (f.platform.abi != .none) {
+                try w.print("-{s}", .{@tagName(f.platform.abi)});
+            }
         }
-    }
+    };
 
     /// Caller owns the memory.
     pub fn allocPrintTarget(plat: Platform, gpa: Allocator, cpu_arch: std.Target.Cpu.Arch) error{OutOfMemory}![]u8 {
-        var buffer = std.ArrayList(u8).init(gpa);
+        var buffer = std.array_list.Managed(u8).init(gpa);
         defer buffer.deinit();
-        try buffer.writer().print("{}", .{plat.fmtTarget(cpu_arch)});
+        try buffer.writer().print("{f}", .{plat.fmtTarget(cpu_arch)});
         return buffer.toOwnedSlice();
     }
 
@@ -4390,7 +4367,7 @@ fn inferSdkVersion(comp: *Compilation, sdk_layout: SdkLayout) ?std.SemanticVersi
 // The file/property is also available with vendored libc.
 fn readSdkVersionFromSettings(arena: Allocator, dir: []const u8) ![]const u8 {
     const sdk_path = try fs.path.join(arena, &.{ dir, "SDKSettings.json" });
-    const contents = try fs.cwd().readFileAlloc(arena, sdk_path, std.math.maxInt(u16));
+    const contents = try fs.cwd().readFileAlloc(sdk_path, arena, .limited(std.math.maxInt(u16)));
     const parsed = try std.json.parseFromSlice(std.json.Value, arena, contents, .{});
     if (parsed.value.object.get("MinimalDisplayName")) |ver| return ver.string;
     return error.SdkVersionFailure;
@@ -4507,15 +4484,8 @@ pub const Ref = struct {
         };
     }
 
-    pub fn format(
-        ref: Ref,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.print("%{d} in file({d})", .{ ref.index, ref.file });
+    pub fn format(ref: Ref, bw: *Writer) Writer.Error!void {
+        try bw.print("%{d} in file({d})", .{ ref.index, ref.file });
     }
 };
 
@@ -5106,7 +5076,7 @@ pub fn getKernError(err: std.c.kern_return_t) KernE {
 pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(.{});
     }
     return error.Unexpected;
 }
@@ -5315,7 +5285,7 @@ fn createThunks(macho_file: *MachO, sect_id: u8) !void {
         try scanThunkRelocs(thunk_index, gpa, atoms[start..i], macho_file);
         thunk.value = advanceSection(header, thunk.size(), .@"4");
 
-        log.debug("thunk({d}) : {}", .{ thunk_index, thunk.fmt(macho_file) });
+        log.debug("thunk({d}) : {f}", .{ thunk_index, thunk.fmt(macho_file) });
     }
 }
 
@@ -5414,8 +5384,9 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const Writer = std.Io.Writer;
 
-const aarch64 = @import("../arch/aarch64/bits.zig");
+const aarch64 = codegen.aarch64.encoding;
 const bind = @import("MachO/dyld_info/bind.zig");
 const calcUuid = @import("MachO/uuid.zig").calcUuid;
 const codegen = @import("../codegen.zig");

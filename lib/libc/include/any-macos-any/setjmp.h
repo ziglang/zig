@@ -51,9 +51,6 @@ typedef int jmp_buf[_JBLEN];
 typedef int sigjmp_buf[_JBLEN + 1];
 
 #elif defined(__arm__) && !defined(__ARM_ARCH_7K__)
-
-#include <machine/signal.h>
-
 /*
  *	_JBLEN is number of ints required to save the following:
  *	r4-r8, r10, fp, sp, lr, sig  == 10 register_t sized

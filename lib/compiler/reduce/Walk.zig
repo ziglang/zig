@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const BuiltinFn = std.zig.BuiltinFn;
 
 ast: *const Ast,
-transformations: *std.ArrayList(Transformation),
+transformations: *std.array_list.Managed(Transformation),
 unreferenced_globals: std.StringArrayHashMapUnmanaged(Ast.Node.Index),
 in_scope_names: std.StringArrayHashMapUnmanaged(u32),
 replace_names: std.StringArrayHashMapUnmanaged(u32),
@@ -54,7 +54,7 @@ pub const Error = error{OutOfMemory};
 pub fn findTransformations(
     arena: std.mem.Allocator,
     ast: *const Ast,
-    transformations: *std.ArrayList(Transformation),
+    transformations: *std.array_list.Managed(Transformation),
 ) !void {
     transformations.clearRetainingCapacity();
 
@@ -158,12 +158,6 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
         .fn_proto,
         => {
             try walkExpression(w, decl);
-        },
-
-        .@"usingnamespace" => {
-            try w.transformations.append(.{ .delete_node = decl });
-            const expr = ast.nodeData(decl).node;
-            try walkExpression(w, expr);
         },
 
         .global_var_decl,
@@ -335,7 +329,6 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .address_of,
         .@"try",
         .@"resume",
-        .@"await",
         .deref,
         => {
             return walkExpression(w, ast.nodeData(node).node);
@@ -379,12 +372,8 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return walkCall(w, ast.fullCall(&buf, node).?);
@@ -512,6 +501,10 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .@"asm",
         => return walkAsm(w, ast.fullAsm(node).?),
 
+        .asm_legacy => {
+            return walkAsmLegacy(w, ast.legacyAsm(node).?);
+        },
+
         .enum_literal => {
             return walkIdentifier(w, ast.nodeMainToken(node)); // name
         },
@@ -525,7 +518,6 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .local_var_decl => unreachable,
         .simple_var_decl => unreachable,
         .aligned_var_decl => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .asm_output => unreachable,
         .asm_input => unreachable,
@@ -677,7 +669,7 @@ fn walkStructInit(
 
 fn walkCall(w: *Walk, call: Ast.full.Call) Error!void {
     try walkExpression(w, call.ast.fn_expr);
-    try walkParamList(w, call.ast.params);
+    try walkExpressions(w, call.ast.params);
 }
 
 fn walkSlice(
@@ -842,7 +834,7 @@ fn walkWhile(w: *Walk, node_index: Ast.Node.Index, while_node: Ast.full.While) E
 }
 
 fn walkFor(w: *Walk, for_node: Ast.full.For) Error!void {
-    try walkParamList(w, for_node.ast.inputs);
+    try walkExpressions(w, for_node.ast.inputs);
     try walkExpression(w, for_node.ast.then_expr);
     if (for_node.ast.else_expr.unwrap()) |else_expr| {
         try walkExpression(w, else_expr);
@@ -886,15 +878,12 @@ fn walkIf(w: *Walk, node_index: Ast.Node.Index, if_node: Ast.full.If) Error!void
 
 fn walkAsm(w: *Walk, asm_node: Ast.full.Asm) Error!void {
     try walkExpression(w, asm_node.ast.template);
-    for (asm_node.ast.items) |item| {
-        try walkExpression(w, item);
-    }
+    try walkExpressions(w, asm_node.ast.items);
 }
 
-fn walkParamList(w: *Walk, params: []const Ast.Node.Index) Error!void {
-    for (params) |param_node| {
-        try walkExpression(w, param_node);
-    }
+fn walkAsmLegacy(w: *Walk, asm_node: Ast.full.AsmLegacy) Error!void {
+    try walkExpression(w, asm_node.ast.template);
+    try walkExpressions(w, asm_node.ast.items);
 }
 
 /// Check if it is already gutted (i.e. its body replaced with `@trap()`).

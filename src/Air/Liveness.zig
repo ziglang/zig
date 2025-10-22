@@ -10,6 +10,7 @@ const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Log2Int = std.math.Log2Int;
+const Writer = std.Io.Writer;
 
 const Liveness = @This();
 const trace = @import("../tracy.zig").trace;
@@ -204,499 +205,6 @@ pub fn operandDies(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) bool 
     const mask = @as(usize, 1) <<
         @as(Log2Int(usize), @intCast((@intFromEnum(inst) % (@bitSizeOf(usize) / bpi)) * bpi + operand));
     return (l.tomb_bits[usize_index] & mask) != 0;
-}
-
-const OperandCategory = enum {
-    /// The operand lives on, but this instruction cannot possibly mutate memory.
-    none,
-    /// The operand lives on and this instruction can mutate memory.
-    write,
-    /// The operand dies at this instruction.
-    tomb,
-    /// The operand lives on, and this instruction is noreturn.
-    noret,
-    /// This instruction is too complicated for analysis, no information is available.
-    complex,
-};
-
-/// Given an instruction that we are examining, and an operand that we are looking for,
-/// returns a classification.
-pub fn categorizeOperand(
-    l: Liveness,
-    air: Air,
-    zcu: *Zcu,
-    inst: Air.Inst.Index,
-    operand: Air.Inst.Index,
-    ip: *const InternPool,
-) OperandCategory {
-    const air_tags = air.instructions.items(.tag);
-    const air_datas = air.instructions.items(.data);
-    const operand_ref = operand.toRef();
-    switch (air_tags[@intFromEnum(inst)]) {
-        .add,
-        .add_safe,
-        .add_wrap,
-        .add_sat,
-        .add_optimized,
-        .sub,
-        .sub_safe,
-        .sub_wrap,
-        .sub_sat,
-        .sub_optimized,
-        .mul,
-        .mul_safe,
-        .mul_wrap,
-        .mul_sat,
-        .mul_optimized,
-        .div_float,
-        .div_trunc,
-        .div_floor,
-        .div_exact,
-        .rem,
-        .mod,
-        .bit_and,
-        .bit_or,
-        .xor,
-        .cmp_lt,
-        .cmp_lte,
-        .cmp_eq,
-        .cmp_gte,
-        .cmp_gt,
-        .cmp_neq,
-        .bool_and,
-        .bool_or,
-        .array_elem_val,
-        .slice_elem_val,
-        .ptr_elem_val,
-        .shl,
-        .shl_exact,
-        .shl_sat,
-        .shr,
-        .shr_exact,
-        .min,
-        .max,
-        .div_float_optimized,
-        .div_trunc_optimized,
-        .div_floor_optimized,
-        .div_exact_optimized,
-        .rem_optimized,
-        .mod_optimized,
-        .neg_optimized,
-        .cmp_lt_optimized,
-        .cmp_lte_optimized,
-        .cmp_eq_optimized,
-        .cmp_gte_optimized,
-        .cmp_gt_optimized,
-        .cmp_neq_optimized,
-        => {
-            const o = air_datas[@intFromEnum(inst)].bin_op;
-            if (o.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (o.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
-            return .none;
-        },
-
-        .store,
-        .store_safe,
-        .atomic_store_unordered,
-        .atomic_store_monotonic,
-        .atomic_store_release,
-        .atomic_store_seq_cst,
-        .set_union_tag,
-        .memset,
-        .memset_safe,
-        .memcpy,
-        .memmove,
-        => {
-            const o = air_datas[@intFromEnum(inst)].bin_op;
-            if (o.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-            if (o.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
-            return .write;
-        },
-
-        .vector_store_elem => {
-            const o = air_datas[@intFromEnum(inst)].vector_store_elem;
-            const extra = air.extraData(Air.Bin, o.payload).data;
-            if (o.vector_ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
-            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
-            return .write;
-        },
-
-        .arg,
-        .alloc,
-        .inferred_alloc,
-        .inferred_alloc_comptime,
-        .ret_ptr,
-        .trap,
-        .breakpoint,
-        .repeat,
-        .switch_dispatch,
-        .dbg_stmt,
-        .dbg_empty_stmt,
-        .unreach,
-        .ret_addr,
-        .frame_addr,
-        .wasm_memory_size,
-        .err_return_trace,
-        .save_err_return_trace_index,
-        .runtime_nav_ptr,
-        .c_va_start,
-        .work_item_id,
-        .work_group_size,
-        .work_group_id,
-        => return .none,
-
-        .not,
-        .bitcast,
-        .load,
-        .fpext,
-        .fptrunc,
-        .intcast,
-        .intcast_safe,
-        .trunc,
-        .optional_payload,
-        .optional_payload_ptr,
-        .wrap_optional,
-        .unwrap_errunion_payload,
-        .unwrap_errunion_err,
-        .unwrap_errunion_payload_ptr,
-        .unwrap_errunion_err_ptr,
-        .wrap_errunion_payload,
-        .wrap_errunion_err,
-        .slice_ptr,
-        .slice_len,
-        .ptr_slice_len_ptr,
-        .ptr_slice_ptr_ptr,
-        .struct_field_ptr_index_0,
-        .struct_field_ptr_index_1,
-        .struct_field_ptr_index_2,
-        .struct_field_ptr_index_3,
-        .array_to_slice,
-        .int_from_float,
-        .int_from_float_optimized,
-        .float_from_int,
-        .get_union_tag,
-        .clz,
-        .ctz,
-        .popcount,
-        .byte_swap,
-        .bit_reverse,
-        .splat,
-        .error_set_has_value,
-        .addrspace_cast,
-        .c_va_arg,
-        .c_va_copy,
-        .abs,
-        => {
-            const o = air_datas[@intFromEnum(inst)].ty_op;
-            if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-
-        .optional_payload_ptr_set,
-        .errunion_payload_ptr_set,
-        => {
-            const o = air_datas[@intFromEnum(inst)].ty_op;
-            if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-            return .write;
-        },
-
-        .is_null,
-        .is_non_null,
-        .is_null_ptr,
-        .is_non_null_ptr,
-        .is_err,
-        .is_non_err,
-        .is_err_ptr,
-        .is_non_err_ptr,
-        .is_named_enum_value,
-        .tag_name,
-        .error_name,
-        .sqrt,
-        .sin,
-        .cos,
-        .tan,
-        .exp,
-        .exp2,
-        .log,
-        .log2,
-        .log10,
-        .floor,
-        .ceil,
-        .round,
-        .trunc_float,
-        .neg,
-        .cmp_lt_errors_len,
-        .c_va_end,
-        => {
-            const o = air_datas[@intFromEnum(inst)].un_op;
-            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-
-        .ret,
-        .ret_safe,
-        .ret_load,
-        => {
-            const o = air_datas[@intFromEnum(inst)].un_op;
-            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .noret);
-            return .noret;
-        },
-
-        .set_err_return_trace => {
-            const o = air_datas[@intFromEnum(inst)].un_op;
-            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-            return .write;
-        },
-
-        .add_with_overflow,
-        .sub_with_overflow,
-        .mul_with_overflow,
-        .shl_with_overflow,
-        .ptr_add,
-        .ptr_sub,
-        .ptr_elem_ptr,
-        .slice_elem_ptr,
-        .slice,
-        => {
-            const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
-            const extra = air.extraData(Air.Bin, ty_pl.payload).data;
-            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
-            return .none;
-        },
-
-        .dbg_var_ptr,
-        .dbg_var_val,
-        .dbg_arg_inline,
-        => {
-            const o = air_datas[@intFromEnum(inst)].pl_op.operand;
-            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-
-        .prefetch => {
-            const prefetch = air_datas[@intFromEnum(inst)].prefetch;
-            if (prefetch.ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-
-        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
-            const inst_data = air_datas[@intFromEnum(inst)].pl_op;
-            const callee = inst_data.operand;
-            const extra = air.extraData(Air.Call, inst_data.payload);
-            const args = @as([]const Air.Inst.Ref, @ptrCast(air.extra.items[extra.end..][0..extra.data.args_len]));
-            if (args.len + 1 <= bpi - 1) {
-                if (callee == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-                for (args, 0..) |arg, i| {
-                    if (arg == operand_ref) return matchOperandSmallIndex(l, inst, @as(OperandInt, @intCast(i + 1)), .write);
-                }
-                return .write;
-            }
-            var bt = l.iterateBigTomb(inst);
-            if (bt.feed()) {
-                if (callee == operand_ref) return .tomb;
-            } else {
-                if (callee == operand_ref) return .write;
-            }
-            for (args) |arg| {
-                if (bt.feed()) {
-                    if (arg == operand_ref) return .tomb;
-                } else {
-                    if (arg == operand_ref) return .write;
-                }
-            }
-            return .write;
-        },
-        .select => {
-            const pl_op = air_datas[@intFromEnum(inst)].pl_op;
-            const extra = air.extraData(Air.Bin, pl_op.payload).data;
-            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
-            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
-            return .none;
-        },
-        .shuffle_one => {
-            const unwrapped = air.unwrapShuffleOne(zcu, inst);
-            if (unwrapped.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-        .shuffle_two => {
-            const unwrapped = air.unwrapShuffleTwo(zcu, inst);
-            if (unwrapped.operand_a == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (unwrapped.operand_b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
-            return .none;
-        },
-        .reduce, .reduce_optimized => {
-            const reduce = air_datas[@intFromEnum(inst)].reduce;
-            if (reduce.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-        .cmp_vector, .cmp_vector_optimized => {
-            const extra = air.extraData(Air.VectorCmp, air_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
-            return .none;
-        },
-        .aggregate_init => {
-            const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
-            const aggregate_ty = ty_pl.ty.toType();
-            const len = @as(usize, @intCast(aggregate_ty.arrayLenIp(ip)));
-            const elements = @as([]const Air.Inst.Ref, @ptrCast(air.extra.items[ty_pl.payload..][0..len]));
-
-            if (elements.len <= bpi - 1) {
-                for (elements, 0..) |elem, i| {
-                    if (elem == operand_ref) return matchOperandSmallIndex(l, inst, @as(OperandInt, @intCast(i)), .none);
-                }
-                return .none;
-            }
-
-            var bt = l.iterateBigTomb(inst);
-            for (elements) |elem| {
-                if (bt.feed()) {
-                    if (elem == operand_ref) return .tomb;
-                } else {
-                    if (elem == operand_ref) return .write;
-                }
-            }
-            return .write;
-        },
-        .union_init => {
-            const extra = air.extraData(Air.UnionInit, air_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            if (extra.init == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-        .struct_field_ptr, .struct_field_val => {
-            const extra = air.extraData(Air.StructField, air_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            if (extra.struct_operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-        .field_parent_ptr => {
-            const extra = air.extraData(Air.FieldParentPtr, air_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            if (extra.field_ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-        .cmpxchg_strong, .cmpxchg_weak => {
-            const extra = air.extraData(Air.Cmpxchg, air_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            if (extra.ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-            if (extra.expected_value == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
-            if (extra.new_value == operand_ref) return matchOperandSmallIndex(l, inst, 2, .write);
-            return .write;
-        },
-        .mul_add => {
-            const pl_op = air_datas[@intFromEnum(inst)].pl_op;
-            const extra = air.extraData(Air.Bin, pl_op.payload).data;
-            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
-            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
-            return .none;
-        },
-        .atomic_load => {
-            const ptr = air_datas[@intFromEnum(inst)].atomic_load.ptr;
-            if (ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-        .atomic_rmw => {
-            const pl_op = air_datas[@intFromEnum(inst)].pl_op;
-            const extra = air.extraData(Air.AtomicRmw, pl_op.payload).data;
-            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-            if (extra.operand == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
-            return .write;
-        },
-
-        .br => {
-            const br = air_datas[@intFromEnum(inst)].br;
-            if (br.operand == operand_ref) return matchOperandSmallIndex(l, operand, 0, .noret);
-            return .noret;
-        },
-        .assembly => {
-            return .complex;
-        },
-        .block, .dbg_inline_block => |tag| {
-            const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
-            const body: []const Air.Inst.Index = @ptrCast(switch (tag) {
-                inline .block, .dbg_inline_block => |comptime_tag| body: {
-                    const extra = air.extraData(switch (comptime_tag) {
-                        .block => Air.Block,
-                        .dbg_inline_block => Air.DbgInlineBlock,
-                        else => unreachable,
-                    }, ty_pl.payload);
-                    break :body air.extra.items[extra.end..][0..extra.data.body_len];
-                },
-                else => unreachable,
-            });
-
-            if (body.len == 1 and air_tags[@intFromEnum(body[0])] == .cond_br) {
-                // Peephole optimization for "panic-like" conditionals, which have
-                // one empty branch and another which calls a `noreturn` function.
-                // This allows us to infer that safety checks do not modify memory,
-                // as far as control flow successors are concerned.
-
-                const inst_data = air_datas[@intFromEnum(body[0])].pl_op;
-                const cond_extra = air.extraData(Air.CondBr, inst_data.payload);
-                if (inst_data.operand == operand_ref and operandDies(l, body[0], 0))
-                    return .tomb;
-
-                if (cond_extra.data.then_body_len > 2 or cond_extra.data.else_body_len > 2)
-                    return .complex;
-
-                const then_body: []const Air.Inst.Index = @ptrCast(air.extra.items[cond_extra.end..][0..cond_extra.data.then_body_len]);
-                const else_body: []const Air.Inst.Index = @ptrCast(air.extra.items[cond_extra.end + cond_extra.data.then_body_len ..][0..cond_extra.data.else_body_len]);
-                if (then_body.len > 1 and air_tags[@intFromEnum(then_body[1])] != .unreach)
-                    return .complex;
-                if (else_body.len > 1 and air_tags[@intFromEnum(else_body[1])] != .unreach)
-                    return .complex;
-
-                var operand_live: bool = true;
-                for (&[_]Air.Inst.Index{ then_body[0], else_body[0] }) |cond_inst| {
-                    if (l.categorizeOperand(air, zcu, cond_inst, operand, ip) == .tomb)
-                        operand_live = false;
-
-                    switch (air_tags[@intFromEnum(cond_inst)]) {
-                        .br => { // Breaks immediately back to block
-                            const br = air_datas[@intFromEnum(cond_inst)].br;
-                            if (br.block_inst != inst)
-                                return .complex;
-                        },
-                        .call => {}, // Calls a noreturn function
-                        else => return .complex,
-                    }
-                }
-                return if (operand_live) .none else .tomb;
-            }
-
-            return .complex;
-        },
-
-        .@"try",
-        .try_cold,
-        .try_ptr,
-        .try_ptr_cold,
-        .loop,
-        .cond_br,
-        .switch_br,
-        .loop_switch_br,
-        => return .complex,
-
-        .wasm_memory_grow => {
-            const pl_op = air_datas[@intFromEnum(inst)].pl_op;
-            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            return .none;
-        },
-    }
-}
-
-fn matchOperandSmallIndex(
-    l: Liveness,
-    inst: Air.Inst.Index,
-    operand: OperandInt,
-    default: OperandCategory,
-) OperandCategory {
-    if (operandDies(l, inst, operand)) {
-        return .tomb;
-    } else {
-        return default;
-    }
 }
 
 /// Higher level API.
@@ -1015,6 +523,8 @@ fn analyzeInst(
         .array_to_slice,
         .int_from_float,
         .int_from_float_optimized,
+        .int_from_float_safe,
+        .int_from_float_optimized_safe,
         .float_from_int,
         .get_union_tag,
         .clz,
@@ -1204,8 +714,9 @@ fn analyzeInst(
 
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[@intFromEnum(inst)].ty_pl.payload);
+            const outputs_len = extra.data.flags.outputs_len;
             var extra_i: usize = extra.end;
-            const outputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..extra.data.outputs_len]));
+            const outputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..outputs_len]));
             extra_i += outputs.len;
             const inputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..extra.data.inputs_len]));
             extra_i += inputs.len;
@@ -1295,10 +806,10 @@ fn analyzeOperands(
 
             // This logic must synchronize with `will_die_immediately` in `AnalyzeBigOperands.init`.
             const immediate_death = if (data.live_set.remove(inst)) blk: {
-                log.debug("[{}] %{}: removed from live set", .{ pass, @intFromEnum(inst) });
+                log.debug("[{}] %{d}: removed from live set", .{ pass, @intFromEnum(inst) });
                 break :blk false;
             } else blk: {
-                log.debug("[{}] %{}: immediate death", .{ pass, @intFromEnum(inst) });
+                log.debug("[{}] %{d}: immediate death", .{ pass, @intFromEnum(inst) });
                 break :blk true;
             };
 
@@ -1319,7 +830,7 @@ fn analyzeOperands(
                     const mask = @as(Bpi, 1) << @as(OperandInt, @intCast(i));
 
                     if ((try data.live_set.fetchPut(gpa, operand, {})) == null) {
-                        log.debug("[{}] %{}: added %{} to live set (operand dies here)", .{ pass, @intFromEnum(inst), operand });
+                        log.debug("[{}] %{d}: added %{d} to live set (operand dies here)", .{ pass, @intFromEnum(inst), operand });
                         tomb_bits |= mask;
                     }
                 }
@@ -1458,19 +969,19 @@ fn analyzeInstBlock(
         },
 
         .main_analysis => {
-            log.debug("[{}] %{}: block live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
+            log.debug("[{}] %{f}: block live set is {f}", .{ pass, inst, fmtInstSet(&data.live_set) });
             // We can move the live set because the body should have a noreturn
             // instruction which overrides the set.
             try data.block_scopes.put(gpa, inst, .{
                 .live_set = data.live_set.move(),
             });
             defer {
-                log.debug("[{}] %{}: popped block scope", .{ pass, inst });
+                log.debug("[{}] %{f}: popped block scope", .{ pass, inst });
                 var scope = data.block_scopes.fetchRemove(inst).?.value;
                 scope.live_set.deinit(gpa);
             }
 
-            log.debug("[{}] %{}: pushed new block scope", .{ pass, inst });
+            log.debug("[{}] %{f}: pushed new block scope", .{ pass, inst });
             try analyzeBody(a, pass, data, body);
 
             // If the block is noreturn, block deaths not only aren't useful, they're impossible to
@@ -1497,7 +1008,7 @@ fn analyzeInstBlock(
                 }
                 assert(measured_num == num_deaths); // post-live-set should be a subset of pre-live-set
                 try a.special.put(gpa, inst, extra_index);
-                log.debug("[{}] %{}: block deaths are {}", .{
+                log.debug("[{}] %{f}: block deaths are {f}", .{
                     pass,
                     inst,
                     fmtInstList(@ptrCast(a.extra.items[extra_index + 1 ..][0..num_deaths])),
@@ -1534,7 +1045,7 @@ fn writeLoopInfo(
         const block_inst = key.*;
         a.extra.appendAssumeCapacity(@intFromEnum(block_inst));
     }
-    log.debug("[{}] %{}: includes breaks to {}", .{ LivenessPass.loop_analysis, inst, fmtInstSet(&data.breaks) });
+    log.debug("[{}] %{f}: includes breaks to {f}", .{ LivenessPass.loop_analysis, inst, fmtInstSet(&data.breaks) });
 
     // Now we put the live operands from the loop body in too
     const num_live = data.live_set.count();
@@ -1546,7 +1057,7 @@ fn writeLoopInfo(
         const alive = key.*;
         a.extra.appendAssumeCapacity(@intFromEnum(alive));
     }
-    log.debug("[{}] %{}: maintain liveness of {}", .{ LivenessPass.loop_analysis, inst, fmtInstSet(&data.live_set) });
+    log.debug("[{}] %{f}: maintain liveness of {f}", .{ LivenessPass.loop_analysis, inst, fmtInstSet(&data.live_set) });
 
     try a.special.put(gpa, inst, extra_index);
 
@@ -1587,7 +1098,7 @@ fn resolveLoopLiveSet(
     try data.live_set.ensureUnusedCapacity(gpa, @intCast(loop_live.len));
     for (loop_live) |alive| data.live_set.putAssumeCapacity(alive, {});
 
-    log.debug("[{}] %{}: block live set is {}", .{ LivenessPass.main_analysis, inst, fmtInstSet(&data.live_set) });
+    log.debug("[{}] %{f}: block live set is {f}", .{ LivenessPass.main_analysis, inst, fmtInstSet(&data.live_set) });
 
     for (breaks) |block_inst| {
         // We might break to this block, so include every operand that the block needs alive
@@ -1600,7 +1111,7 @@ fn resolveLoopLiveSet(
         }
     }
 
-    log.debug("[{}] %{}: loop live set is {}", .{ LivenessPass.main_analysis, inst, fmtInstSet(&data.live_set) });
+    log.debug("[{}] %{f}: loop live set is {f}", .{ LivenessPass.main_analysis, inst, fmtInstSet(&data.live_set) });
 }
 
 fn analyzeInstLoop(
@@ -1638,7 +1149,7 @@ fn analyzeInstLoop(
                 .live_set = data.live_set.move(),
             });
             defer {
-                log.debug("[{}] %{}: popped loop block scop", .{ pass, inst });
+                log.debug("[{}] %{f}: popped loop block scop", .{ pass, inst });
                 var scope = data.block_scopes.fetchRemove(inst).?.value;
                 scope.live_set.deinit(gpa);
             }
@@ -1739,13 +1250,13 @@ fn analyzeInstCondBr(
                 }
             }
 
-            log.debug("[{}] %{}: 'then' branch mirrored deaths are {}", .{ pass, inst, fmtInstList(then_mirrored_deaths.items) });
-            log.debug("[{}] %{}: 'else' branch mirrored deaths are {}", .{ pass, inst, fmtInstList(else_mirrored_deaths.items) });
+            log.debug("[{}] %{f}: 'then' branch mirrored deaths are {f}", .{ pass, inst, fmtInstList(then_mirrored_deaths.items) });
+            log.debug("[{}] %{f}: 'else' branch mirrored deaths are {f}", .{ pass, inst, fmtInstList(else_mirrored_deaths.items) });
 
             data.live_set.deinit(gpa);
             data.live_set = then_live.move(); // Really the union of both live sets
 
-            log.debug("[{}] %{}: new live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
+            log.debug("[{}] %{f}: new live set is {f}", .{ pass, inst, fmtInstSet(&data.live_set) });
 
             // Write the mirrored deaths to `extra`
             const then_death_count = @as(u32, @intCast(then_mirrored_deaths.items.len));
@@ -1813,7 +1324,7 @@ fn analyzeInstSwitchBr(
                 });
             }
             defer if (is_dispatch_loop) {
-                log.debug("[{}] %{}: popped loop block scop", .{ pass, inst });
+                log.debug("[{}] %{f}: popped loop block scop", .{ pass, inst });
                 var scope = data.block_scopes.fetchRemove(inst).?.value;
                 scope.live_set.deinit(gpa);
             };
@@ -1871,13 +1382,13 @@ fn analyzeInstSwitchBr(
                 }
 
                 for (mirrored_deaths, 0..) |mirrored, i| {
-                    log.debug("[{}] %{}: case {} mirrored deaths are {}", .{ pass, inst, i, fmtInstList(mirrored.items) });
+                    log.debug("[{}] %{f}: case {} mirrored deaths are {f}", .{ pass, inst, i, fmtInstList(mirrored.items) });
                 }
 
                 data.live_set.deinit(gpa);
                 data.live_set = all_alive.move();
 
-                log.debug("[{}] %{}: new live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
+                log.debug("[{}] %{f}: new live set is {f}", .{ pass, inst, fmtInstSet(&data.live_set) });
             }
 
             const else_death_count = @as(u32, @intCast(mirrored_deaths[ncases].items.len));
@@ -1976,7 +1487,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
 
                 .main_analysis => {
                     if ((try big.data.live_set.fetchPut(gpa, operand, {})) == null) {
-                        log.debug("[{}] %{}: added %{} to live set (operand dies here)", .{ pass, big.inst, operand });
+                        log.debug("[{}] %{f}: added %{f} to live set (operand dies here)", .{ pass, big.inst, operand });
                         big.extra_tombs[extra_byte] |= @as(u32, 1) << extra_bit;
                     }
                 },
@@ -2032,15 +1543,15 @@ fn fmtInstSet(set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void)) FmtIns
 const FmtInstSet = struct {
     set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
 
-    pub fn format(val: FmtInstSet, comptime _: []const u8, _: std.fmt.FormatOptions, w: anytype) !void {
+    pub fn format(val: FmtInstSet, w: *Writer) Writer.Error!void {
         if (val.set.count() == 0) {
             try w.writeAll("[no instructions]");
             return;
         }
         var it = val.set.keyIterator();
-        try w.print("%{}", .{it.next().?.*});
+        try w.print("%{f}", .{it.next().?.*});
         while (it.next()) |key| {
-            try w.print(" %{}", .{key.*});
+            try w.print(" %{f}", .{key.*});
         }
     }
 };
@@ -2052,14 +1563,14 @@ fn fmtInstList(list: []const Air.Inst.Index) FmtInstList {
 const FmtInstList = struct {
     list: []const Air.Inst.Index,
 
-    pub fn format(val: FmtInstList, comptime _: []const u8, _: std.fmt.FormatOptions, w: anytype) !void {
+    pub fn format(val: FmtInstList, w: *Writer) Writer.Error!void {
         if (val.list.len == 0) {
             try w.writeAll("[no instructions]");
             return;
         }
-        try w.print("%{}", .{val.list[0]});
+        try w.print("%{f}", .{val.list[0]});
         for (val.list[1..]) |inst| {
-            try w.print(" %{}", .{inst});
+            try w.print(" %{f}", .{inst});
         }
     }
 };

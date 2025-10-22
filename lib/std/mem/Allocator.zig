@@ -81,6 +81,19 @@ pub const VTable = struct {
     free: *const fn (*anyopaque, memory: []u8, alignment: Alignment, ret_addr: usize) void,
 };
 
+pub fn noAlloc(
+    self: *anyopaque,
+    len: usize,
+    alignment: Alignment,
+    ret_addr: usize,
+) ?[*]u8 {
+    _ = self;
+    _ = len;
+    _ = alignment;
+    _ = ret_addr;
+    return null;
+}
+
 pub fn noResize(
     self: *anyopaque,
     memory: []u8,
@@ -253,7 +266,7 @@ pub inline fn allocAdvancedWithRetAddr(
     n: usize,
     return_address: usize,
 ) Error![]align(if (alignment) |a| a.toByteUnits() else @alignOf(T)) T {
-    const a = comptime (alignment orelse Alignment.fromByteUnits(@alignOf(T)));
+    const a = comptime (alignment orelse Alignment.of(T));
     const ptr: [*]align(a.toByteUnits()) T = @ptrCast(try self.allocWithSizeAndAlignment(@sizeOf(T), a, n, return_address));
     return ptr[0..n];
 }
@@ -358,8 +371,10 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
     return mem.bytesAsSlice(T, new_memory);
 }
 
-/// This function requests a new byte size for an existing allocation, which
+/// This function requests a new size for an existing allocation, which
 /// can be larger, smaller, or the same size as the old memory allocation.
+/// The result is an array of `new_n` items of the same type as the existing
+/// allocation.
 ///
 /// If `new_n` is 0, this is the same as `free` and it always succeeds.
 ///
@@ -442,4 +457,63 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) Error![:0]T {
     @memcpy(new_buf[0..m.len], m);
     new_buf[m.len] = 0;
     return new_buf[0..m.len :0];
+}
+
+/// An allocator that always fails to allocate.
+pub const failing: Allocator = .{
+    .ptr = undefined,
+    .vtable = &.{
+        .alloc = noAlloc,
+        .resize = unreachableResize,
+        .remap = unreachableRemap,
+        .free = unreachableFree,
+    },
+};
+
+fn unreachableResize(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    new_len: usize,
+    ret_addr: usize,
+) bool {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = new_len;
+    _ = ret_addr;
+    unreachable;
+}
+
+fn unreachableRemap(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    new_len: usize,
+    ret_addr: usize,
+) ?[*]u8 {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = new_len;
+    _ = ret_addr;
+    unreachable;
+}
+
+fn unreachableFree(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    ret_addr: usize,
+) void {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = ret_addr;
+    unreachable;
+}
+
+test failing {
+    const f: Allocator = .failing;
+    try std.testing.expectError(error.OutOfMemory, f.alloc(u8, 123));
 }

@@ -146,7 +146,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.time.sleep(std.time.ns_per_ms);
+                std.Thread.sleep(std.time.ns_per_ms);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
@@ -202,7 +202,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         const name = UNICODE_STRING{
             .Length = len,
             .MaximumLength = len,
-            .Buffer = @constCast(@ptrCast(str)),
+            .Buffer = @ptrCast(@constCast(str)),
         };
         const attrs = OBJECT_ATTRIBUTES{
             .ObjectName = @constCast(&name),
@@ -408,7 +408,12 @@ pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInfor
     }
 }
 
-pub const RtlGenRandomError = error{Unexpected};
+pub const RtlGenRandomError = error{
+    /// `RtlGenRandom` has been known to fail in situations where the system is under heavy load.
+    /// Unfortunately, it does not call `SetLastError`, so it is not possible to get more specific
+    /// error information; it could actually be due to an out-of-memory condition, for example.
+    SystemResources,
+};
 
 /// Call RtlGenRandom() instead of CryptGetRandom() on Windows
 /// https://github.com/rust-lang-nursery/rand/issues/111
@@ -422,7 +427,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
         const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
-            return unexpectedError(GetLastError());
+            return error.SystemResources;
         }
 
         total_read += to_read;
@@ -744,7 +749,7 @@ pub const GetCurrentDirectoryError = error{
 };
 
 /// The result is a slice of `buffer`, indexed from 0.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     var wtf16le_buf: [PATH_MAX_WIDE:0]u16 = undefined;
     const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len + 1, &wtf16le_buf);
@@ -971,7 +976,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
 }
 
 /// Asserts that there is enough space is `out_buffer`.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
     const win32_namespace_path = path: {
         if (is_relative) break :path path;
@@ -1066,13 +1071,18 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
     defer CloseHandle(tmp_handle);
 
-    // FileDispositionInformationEx (and therefore FILE_DISPOSITION_POSIX_SEMANTICS and FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE)
-    // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
-    // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
-    // us INVALID_PARAMETER.
-    // The same reasoning for win10_rs5 as in os.renameatW() applies (FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5).
-    var need_fallback = true;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
+    // FileDispositionInformationEx has varying levels of support:
+    // - FILE_DISPOSITION_INFORMATION_EX requires >= win10_rs1
+    //   (INVALID_INFO_CLASS is returned if not supported)
+    // - Requires the NTFS filesystem
+    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
+    // - FILE_DISPOSITION_POSIX_SEMANTICS requires >= win10_rs1
+    // - FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
+    //   (NOT_SUPPORTED is returned if a flag is unsupported)
+    //
+    // The strategy here is just to try using FileDispositionInformationEx and fall back to
+    // FileDispositionInformation if the return value lets us know that some aspect of it is not supported.
+    const need_fallback = need_fallback: {
         // Deletion with posix semantics if the filesystem supports it.
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
@@ -1089,12 +1099,18 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         );
         switch (rc) {
             .SUCCESS => return,
-            // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER => {},
+            // The filesystem does not support FileDispositionInformationEx
+            .INVALID_PARAMETER,
+            // The operating system does not support FileDispositionInformationEx
+            .INVALID_INFO_CLASS,
+            // The operating system does not support one of the flags
+            .NOT_SUPPORTED,
+            => break :need_fallback true,
             // For all other statuses, fall down to the switch below to handle them.
-            else => need_fallback = false,
+            else => break :need_fallback false,
         }
-    }
+    };
+
     if (need_fallback) {
         // Deletion with file pending semantics, which requires waiting or moving
         // files to get them removed (from here).
@@ -1332,7 +1348,7 @@ pub fn GetFinalPathNameByHandle(
             // dropping the \Device\Mup\ and making sure the path begins with \\
             if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
                 out_buffer[0] = '\\';
-                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                @memmove(out_buffer[1..][0..file_name_u16.len], file_name_u16);
                 return out_buffer[0 .. 1 + file_name_u16.len];
             }
 
@@ -1400,7 +1416,7 @@ pub fn GetFinalPathNameByHandle(
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
                     @memcpy(out_buffer[0..drive_letter.len], drive_letter);
-                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
+                    @memmove(out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
@@ -1449,12 +1465,7 @@ pub fn GetFinalPathNameByHandle(
                     // to copy backwards. We also need to do this before copying the volume path because
                     // it could overwrite the file_name_u16 memory.
                     const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
-                    const file_name_byte_offset = @intFromPtr(file_name_u16.ptr) - @intFromPtr(out_buffer.ptr);
-                    const file_name_index = file_name_byte_offset / @sizeOf(u16);
-                    if (volume_path.len > file_name_index)
-                        mem.copyBackwards(u16, file_name_dest, file_name_u16)
-                    else
-                        mem.copyForwards(u16, file_name_dest, file_name_u16);
+                    @memmove(file_name_dest, file_name_u16);
                     @memcpy(out_buffer[0..volume_path.len], volume_path);
                     const total_len = volume_path.len + file_name_u16.len;
 
@@ -1912,6 +1923,7 @@ pub const CreateProcessError = error{
     NameTooLong,
     InvalidExe,
     SystemResources,
+    FileBusy,
     Unexpected,
 };
 
@@ -1982,6 +1994,7 @@ pub fn CreateProcessW(
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
             .FILENAME_EXCED_RANGE => return error.NameTooLong,
+            .SHARING_VIOLATION => return error.FileBusy,
             // These are all the system errors that are mapped to ENOEXEC by
             // the undocumented _dosmaperr (old CRT) or __acrt_errno_map_os_error
             // (newer CRT) functions. Their code can be found in crt/src/dosmap.c (old SDK)
@@ -2416,13 +2429,13 @@ pub const Wtf8ToPrefixedFileWError = error{InvalidWtf8} || Wtf16ToPrefixedFileWE
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated WTF-8 encoded path.
-/// https://simonsapin.github.io/wtf-8/
+/// https://wtf-8.codeberg.page/
 pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) Wtf8ToPrefixedFileWError!PathSpace {
     return sliceToPrefixedFileW(dir, mem.sliceTo(s, 0));
 }
 
 /// Same as `wToPrefixedFileW` but accepts a WTF-8 encoded path.
-/// https://simonsapin.github.io/wtf-8/
+/// https://wtf-8.codeberg.page/
 pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) Wtf8ToPrefixedFileWError!PathSpace {
     var temp_path: PathSpace = undefined;
     temp_path.len = try std.unicode.wtf8ToWtf16Le(&temp_path.data, path);
@@ -2846,11 +2859,10 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
             buf_wstr.len,
             null,
         );
-        std.debug.print("error.Unexpected: GetLastError({}): {}\n", .{
-            @intFromEnum(err),
-            std.unicode.fmtUtf16Le(buf_wstr[0..len]),
+        std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
+            err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
         });
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
 }
@@ -2864,7 +2876,7 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) UnexpectedError {
 pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
 }
@@ -2882,9 +2894,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
-
-/// Deprecated; use `std.builtin.CallingConvention.winapi` instead.
-pub const WINAPI: std.builtin.CallingConvention = .winapi;
 
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
@@ -3131,12 +3140,12 @@ pub const FILE_DISPOSITION_INFORMATION_EX = extern struct {
     Flags: ULONG,
 };
 
-const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
-const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
-const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
-const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
-const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
-const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
+pub const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
+pub const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
+pub const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
+pub const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
+pub const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
+pub const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
 // FILE_RENAME_INFORMATION.Flags
 pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
@@ -4231,8 +4240,8 @@ pub const CONTEXT = switch (native_arch) {
         SegSs: DWORD,
         ExtendedRegisters: [512]BYTE,
 
-        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
-            return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+            return .{ .bp = ctx.Ebp, .ip = ctx.Eip, .sp = ctx.Esp };
         }
     },
     .x86_64 => extern struct {

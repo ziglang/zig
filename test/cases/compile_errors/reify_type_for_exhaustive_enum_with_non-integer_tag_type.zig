@@ -11,7 +11,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:13: error: Type.Enum.tag_type must be an integer type

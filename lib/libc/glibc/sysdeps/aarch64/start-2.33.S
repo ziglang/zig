@@ -54,8 +54,8 @@ _start:
 	mov	x5, x0
 
 	/* Load argc and a pointer to argv */
-	ldr	PTR_REG (1), [sp, #0]
-	add	x2, sp, #PTR_SIZE
+	ldr	x1, [sp, #0]
+	add	x2, sp, 8
 
 	/* Setup stack limit in argument register */
 	mov	x6, sp
@@ -63,13 +63,13 @@ _start:
 #ifdef PIC
 # ifdef SHARED
         adrp    x0, :got:main
-	ldr     PTR_REG (0), [x0, #:got_lo12:main]
+	ldr     x0, [x0, #:got_lo12:main]
 
         adrp    x3, :got:__libc_csu_init
-	ldr     PTR_REG (3), [x3, #:got_lo12:__libc_csu_init]
+	ldr     x3, [x3, #:got_lo12:__libc_csu_init]
 
         adrp    x4, :got:__libc_csu_fini
-	ldr     PTR_REG (4), [x4, #:got_lo12:__libc_csu_fini]
+	ldr     x4, [x4, #:got_lo12:__libc_csu_fini]
 # else
 	adrp	x0, __wrap_main
 	add	x0, x0, :lo12:__wrap_main
@@ -80,9 +80,18 @@ _start:
 # endif
 #else
 	/* Set up the other arguments in registers */
-	MOVL (0, main)
-	MOVL (3, __libc_csu_init)
-	MOVL (4, __libc_csu_fini)
+	movz    x0, :abs_g3:main
+	movk    x0, :abs_g2_nc:main
+	movk    x0, :abs_g1_nc:main
+	movk    x0, :abs_g0_nc:main
+	movz    x3, :abs_g3:__libc_csu_init
+	movk    x3, :abs_g2_nc:__libc_csu_init
+	movk    x3, :abs_g1_nc:__libc_csu_init
+	movk    x3, :abs_g0_nc:__libc_csu_init
+	movz    x4, :abs_g3:__libc_csu_fini
+	movk    x4, :abs_g2_nc:__libc_csu_fini
+	movk    x4, :abs_g1_nc:__libc_csu_fini
+	movk    x4, :abs_g0_nc:__libc_csu_fini
 #endif
 
 	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini,

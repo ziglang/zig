@@ -146,8 +146,7 @@ first_trailing_zero(T value) {
 template <typename T>
 [[nodiscard]] LIBC_INLINE constexpr cpp::enable_if_t<cpp::is_unsigned_v<T>, int>
 first_trailing_one(T value) {
-  return value == cpp::numeric_limits<T>::max() ? 0
-                                                : cpp::countr_zero(value) + 1;
+  return value == 0 ? 0 : cpp::countr_zero(value) + 1;
 }
 
 template <typename T>

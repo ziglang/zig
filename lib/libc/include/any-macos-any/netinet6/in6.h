@@ -101,6 +101,7 @@
 
 #include <sys/_types.h>
 #include <sys/_types/_sa_family_t.h>
+#include <sys/_types/_in_port_t.h>
 
 /*
  * Identification of the network protocol stack

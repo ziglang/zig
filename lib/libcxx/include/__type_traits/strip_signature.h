@@ -26,52 +26,52 @@ struct __strip_signature;
 
 template <class _Rp, class... _Args>
 struct __strip_signature<_Rp (*)(_Args...)> {
-  using type = _Rp(_Args...);
+  using type _LIBCPP_NODEBUG = _Rp(_Args...);
 };
 
 template <class _Rp, class... _Args>
 struct __strip_signature<_Rp (*)(_Args...) noexcept> {
-  using type = _Rp(_Args...);
+  using type _LIBCPP_NODEBUG = _Rp(_Args...);
 };
 
 #  endif // defined(__cpp_static_call_operator) && __cpp_static_call_operator >= 202207L
 
 // clang-format off
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...)> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...)> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) &> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) &> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const &> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const &> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile &> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile &> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile &> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile &> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) & noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) & noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const & noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const & noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile & noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile & noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
-struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile & noexcept> { using type = _Rp(_Ap...); };
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile & noexcept> { using type _LIBCPP_NODEBUG = _Rp(_Ap...); };
 // clang-format on
 
 _LIBCPP_END_NAMESPACE_STD

@@ -78,37 +78,46 @@ pub fn defaultQueryPageSize() usize {
     };
     var size = global.cached_result.load(.unordered);
     if (size > 0) return size;
-    size = switch (builtin.os.tag) {
-        .linux => if (builtin.link_libc) @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE))) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
+    size = size: switch (builtin.os.tag) {
+        .linux => if (builtin.link_libc)
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
+        else
+            std.os.linux.getauxval(std.elf.AT_PAGESZ),
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
-            if (task_port == std.c.TASK_NULL)
-                break :blk 0;
-            var info_count = std.c.TASK_VM_INFO_COUNT;
+            if (task_port == std.c.TASK.NULL) break :size 0;
+            var info_count = std.c.TASK.VM.INFO_COUNT;
             var vm_info: std.c.task_vm_info_data_t = undefined;
             vm_info.page_size = 0;
             _ = std.c.task_info(
                 task_port,
-                std.c.TASK_VM_INFO,
+                std.c.TASK.VM.INFO,
                 @as(std.c.task_info_t, @ptrCast(&vm_info)),
                 &info_count,
             );
-            assert(vm_info.page_size != 0);
-            break :blk @intCast(vm_info.page_size);
+            break :size @intCast(vm_info.page_size);
         },
-        .windows => blk: {
-            var info: std.os.windows.SYSTEM_INFO = undefined;
-            std.os.windows.kernel32.GetSystemInfo(&info);
-            break :blk info.dwPageSize;
+        .windows => {
+            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            switch (windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            )) {
+                .SUCCESS => break :size sbi.PageSize,
+                else => break :size 0,
+            }
         },
         else => if (builtin.link_libc)
-            @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
         else if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
             @compileError("unsupported target: freestanding/other")
         else
             @compileError("pageSize on " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " is not supported without linking libc, using the default implementation"),
     };
+    if (size == 0) size = page_size_max;
 
     assert(size >= page_size_min);
     assert(size <= page_size_max);
@@ -146,12 +155,12 @@ const CAllocator = struct {
     else {};
 
     pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
+        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
         else => false,
     };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
+        return @ptrCast(@alignCast(ptr - @sizeOf(usize)));
     }
 
     fn alignedAlloc(len: usize, alignment: Alignment) ?[*]u8 {
@@ -287,7 +296,7 @@ fn rawCAlloc(
 ) ?[*]u8 {
     _ = context;
     _ = return_address;
-    assert(alignment.compare(.lte, comptime .fromByteUnits(@alignOf(std.c.max_align_t))));
+    assert(alignment.compare(.lte, .of(std.c.max_align_t)));
     // Note that this pointer cannot be aligncasted to max_align_t because if
     // len is < max_align_t then the alignment can be smaller. For example, if
     // max_align_t is 16, but the user requests 8 bytes, there is no built-in
@@ -673,7 +682,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
-    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    var stuff_to_free = std.array_list.Managed([]align(16) u8).init(debug_allocator);
     // On Windows, VirtualAlloc returns addresses aligned to a 64K boundary,
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
@@ -823,6 +832,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
         .loongarch32, .loongarch64 => 4 << 10,
         .m68k => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .or1k => 8 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv32, .riscv64 => 4 << 10,
         .s390x => 4 << 10,
@@ -970,6 +980,7 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
         .loongarch32, .loongarch64 => 64 << 10,
         .m68k => 8 << 10,
         .mips, .mipsel, .mips64, .mips64el => 64 << 10,
+        .or1k => 8 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 256 << 10,
         .riscv32, .riscv64 => 4 << 10,
         .s390x => 4 << 10,

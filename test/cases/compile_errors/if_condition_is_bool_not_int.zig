@@ -7,8 +7,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: expected type 'bool', found 'comptime_int'
 // :6:18: error: expected type 'bool', found 'comptime_int'

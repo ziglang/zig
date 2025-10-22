@@ -52,7 +52,7 @@ pub fn main() !void {
     const zig_exe = opt_zig_exe orelse fatal("missing path to zig\n{s}", .{usage});
     const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
 
-    const input_file_bytes = try std.fs.cwd().readFileAlloc(arena, input_file_name, std.math.maxInt(u32));
+    const input_file_bytes = try std.fs.cwd().readFileAlloc(input_file_name, arena, .limited(std.math.maxInt(u32)));
     const case = try Case.parse(arena, input_file_bytes);
 
     // Check now: if there are any targets using the `cbe` backend, we need the lib dir.
@@ -186,7 +186,7 @@ pub fn main() !void {
 
         try child.spawn();
 
-        var poller = std.io.poll(arena, Eval.StreamEnum, .{
+        var poller = std.Io.poll(arena, Eval.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         });
@@ -226,7 +226,7 @@ const Eval = struct {
     cc_child_args: *std.ArrayListUnmanaged([]const u8),
 
     const StreamEnum = enum { stdout, stderr };
-    const Poller = std.io.Poller(StreamEnum);
+    const Poller = std.Io.Poller(StreamEnum);
 
     /// Currently this function assumes the previous updates have already been written.
     fn write(eval: *Eval, update: Case.Update) void {
@@ -247,38 +247,21 @@ const Eval = struct {
 
     fn check(eval: *Eval, poller: *Poller, update: Case.Update, prog_node: std.Progress.Node) !void {
         const arena = eval.arena;
-        const Header = std.zig.Server.Message.Header;
-        const stdout = poller.fifo(.stdout);
-        const stderr = poller.fifo(.stderr);
+        const stdout = poller.reader(.stdout);
+        const stderr = poller.reader(.stderr);
 
         poll: while (true) {
-            while (stdout.readableLength() < @sizeOf(Header)) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const header = stdout.reader().readStruct(Header) catch unreachable;
-            while (stdout.readableLength() < header.bytes_len) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const body = stdout.readableSliceOfLen(header.bytes_len);
+            const Header = std.zig.Server.Message.Header;
+            while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+            const header = stdout.takeStruct(Header, .little) catch unreachable;
+            while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+            const body = stdout.take(header.bytes_len) catch unreachable;
 
             switch (header.tag) {
                 .error_bundle => {
-                    const EbHdr = std.zig.Server.Message.ErrorBundle;
-                    const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                    const extra_bytes =
-                        body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                    const string_bytes =
-                        body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                    // TODO: use @ptrCast when the compiler supports it
-                    const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                    const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                    @memcpy(extra_array, unaligned_extra);
-                    const result_error_bundle: std.zig.ErrorBundle = .{
-                        .string_bytes = try arena.dupe(u8, string_bytes),
-                        .extra = extra_array,
-                    };
-                    if (stderr.readableLength() > 0) {
-                        const stderr_data = try stderr.toOwnedSlice();
+                    const result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
+                    if (stderr.bufferedLen() > 0) {
+                        const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {
                             std.log.info("error_bundle included stderr:\n{s}", .{stderr_data});
                         } else {
@@ -289,15 +272,14 @@ const Eval = struct {
                         try eval.checkErrorOutcome(update, result_error_bundle);
                     }
                     // This message indicates the end of the update.
-                    stdout.discard(body.len);
                     return;
                 },
                 .emit_digest => {
                     const EbpHdr = std.zig.Server.Message.EmitDigest;
                     const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                     _ = ebp_hdr;
-                    if (stderr.readableLength() > 0) {
-                        const stderr_data = try stderr.toOwnedSlice();
+                    if (stderr.bufferedLen() > 0) {
+                        const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {
                             std.log.info("emit_digest included stderr:\n{s}", .{stderr_data});
                         } else {
@@ -308,7 +290,6 @@ const Eval = struct {
                     if (eval.target.backend == .sema) {
                         try eval.checkSuccessOutcome(update, null, prog_node);
                         // This message indicates the end of the update.
-                        stdout.discard(body.len);
                     }
 
                     const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
@@ -316,28 +297,25 @@ const Eval = struct {
 
                     const bin_name = try std.zig.EmitArtifact.bin.cacheName(arena, .{
                         .root_name = "root", // corresponds to the module name "root"
-                        .target = eval.target.resolved,
+                        .target = &eval.target.resolved,
                         .output_mode = .Exe,
                     });
                     const bin_path = try std.fs.path.join(arena, &.{ result_dir, bin_name });
 
                     try eval.checkSuccessOutcome(update, bin_path, prog_node);
                     // This message indicates the end of the update.
-                    stdout.discard(body.len);
                 },
                 else => {
                     // Ignore other messages.
-                    stdout.discard(body.len);
                 },
             }
         }
 
-        if (stderr.readableLength() > 0) {
-            const stderr_data = try stderr.toOwnedSlice();
+        if (stderr.bufferedLen() > 0) {
             if (eval.allow_stderr) {
-                std.log.info("update '{s}' included stderr:\n{s}", .{ update.name, stderr_data });
+                std.log.info("update '{s}' included stderr:\n{s}", .{ update.name, stderr.buffered() });
             } else {
-                eval.fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+                eval.fatal("update '{s}' failed:\n{s}", .{ update.name, stderr.buffered() });
             }
         }
 
@@ -444,7 +422,7 @@ const Eval = struct {
 
         var argv_buf: [2][]const u8 = undefined;
         const argv: []const []const u8, const is_foreign: bool = switch (std.zig.system.getExternalExecutor(
-            eval.host,
+            &eval.host,
             &eval.target.resolved,
             .{ .link_libc = eval.target.backend == .cbe },
         )) {
@@ -537,25 +515,19 @@ const Eval = struct {
     fn end(eval: *Eval, poller: *Poller) !void {
         requestExit(eval.child, eval);
 
-        const Header = std.zig.Server.Message.Header;
-        const stdout = poller.fifo(.stdout);
-        const stderr = poller.fifo(.stderr);
+        const stdout = poller.reader(.stdout);
+        const stderr = poller.reader(.stderr);
 
         poll: while (true) {
-            while (stdout.readableLength() < @sizeOf(Header)) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const header = stdout.reader().readStruct(Header) catch unreachable;
-            while (stdout.readableLength() < header.bytes_len) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const body = stdout.readableSliceOfLen(header.bytes_len);
-            stdout.discard(body.len);
+            const Header = std.zig.Server.Message.Header;
+            while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+            const header = stdout.takeStruct(Header, .little) catch unreachable;
+            while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+            stdout.toss(header.bytes_len);
         }
 
-        if (stderr.readableLength() > 0) {
-            const stderr_data = try stderr.toOwnedSlice();
-            eval.fatal("unexpected stderr:\n{s}", .{stderr_data});
+        if (stderr.bufferedLen() > 0) {
+            eval.fatal("unexpected stderr:\n{s}", .{stderr.buffered()});
         }
     }
 

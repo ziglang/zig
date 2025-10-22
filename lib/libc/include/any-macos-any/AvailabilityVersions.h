@@ -74,7 +74,6 @@
 #define __MAC_12_7                                      120700
 #define __MAC_13_0                                      130000
 #define __MAC_13_1                                      130100
-#define __MAC_13_1                                      130100
 #define __MAC_13_2                                      130200
 #define __MAC_13_3                                      130300
 #define __MAC_13_4                                      130400
@@ -95,6 +94,9 @@
 #define __MAC_15_3                                      150300
 #define __MAC_15_4                                      150400
 #define __MAC_15_5                                      150500
+#define __MAC_15_6                                      150600
+#define __MAC_16_0                                      160000
+#define __MAC_26_0                                      260000
 /* __MAC__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __IPHONE_2_0                                     20000
@@ -149,8 +151,6 @@
 #define __IPHONE_14_2                                   140200
 #define __IPHONE_14_3                                   140300
 #define __IPHONE_14_5                                   140500
-#define __IPHONE_14_4                                   140400
-#define __IPHONE_14_5                                   140500
 #define __IPHONE_14_6                                   140600
 #define __IPHONE_14_7                                   140700
 #define __IPHONE_14_8                                   140800
@@ -185,6 +185,9 @@
 #define __IPHONE_18_3                                   180300
 #define __IPHONE_18_4                                   180400
 #define __IPHONE_18_5                                   180500
+#define __IPHONE_18_6                                   180600
+#define __IPHONE_19_0                                   190000
+#define __IPHONE_26_0                                   260000
 /* __IPHONE__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __WATCHOS_1_0                                    10000
@@ -242,6 +245,9 @@
 #define __WATCHOS_11_3                                  110300
 #define __WATCHOS_11_4                                  110400
 #define __WATCHOS_11_5                                  110500
+#define __WATCHOS_11_6                                  110600
+#define __WATCHOS_12_0                                  120000
+#define __WATCHOS_26_0                                  260000
 /* __WATCHOS__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __TVOS_9_0                                       90000
@@ -299,6 +305,9 @@
 #define __TVOS_18_3                                     180300
 #define __TVOS_18_4                                     180400
 #define __TVOS_18_5                                     180500
+#define __TVOS_18_6                                     180600
+#define __TVOS_19_0                                     190000
+#define __TVOS_26_0                                     260000
 /* __TVOS__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __BRIDGEOS_2_0                                   20000
@@ -317,7 +326,6 @@
 #define __BRIDGEOS_6_6                                   60600
 #define __BRIDGEOS_7_0                                   70000
 #define __BRIDGEOS_7_1                                   70100
-#define __BRIDGEOS_7_1                                   70100
 #define __BRIDGEOS_7_2                                   70200
 #define __BRIDGEOS_7_3                                   70300
 #define __BRIDGEOS_7_4                                   70400
@@ -335,6 +343,8 @@
 #define __BRIDGEOS_9_3                                   90300
 #define __BRIDGEOS_9_4                                   90400
 #define __BRIDGEOS_9_5                                   90500
+#define __BRIDGEOS_9_6                                   90600
+#define __BRIDGEOS_10_0                                 100000
 
 
 #define __DRIVERKIT_19_0                                190000
@@ -357,6 +367,8 @@
 #define __DRIVERKIT_24_3                                240300
 #define __DRIVERKIT_24_4                                240400
 #define __DRIVERKIT_24_5                                240500
+#define __DRIVERKIT_24_6                                240600
+#define __DRIVERKIT_25_0                                250000
 /* __DRIVERKIT__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __VISIONOS_1_0                                   10000
@@ -369,6 +381,9 @@
 #define __VISIONOS_2_3                                   20300
 #define __VISIONOS_2_4                                   20400
 #define __VISIONOS_2_5                                   20500
+#define __VISIONOS_2_6                                   20600
+#define __VISIONOS_3_0                                   30000
+#define __VISIONOS_26_0                                 260000
 /* __VISIONOS__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 
@@ -436,7 +451,6 @@
 #define  MAC_OS_VERSION_12_7                             __MAC_12_7
 #define  MAC_OS_VERSION_13_0                             __MAC_13_0
 #define  MAC_OS_VERSION_13_1                             __MAC_13_1
-#define  MAC_OS_VERSION_13_1                             __MAC_13_1
 #define  MAC_OS_VERSION_13_2                             __MAC_13_2
 #define  MAC_OS_VERSION_13_3                             __MAC_13_3
 #define  MAC_OS_VERSION_13_4                             __MAC_13_4
@@ -457,6 +471,9 @@
 #define  MAC_OS_VERSION_15_3                             __MAC_15_3
 #define  MAC_OS_VERSION_15_4                             __MAC_15_4
 #define  MAC_OS_VERSION_15_5                             __MAC_15_5
+#define  MAC_OS_VERSION_15_6                             __MAC_15_6
+#define  MAC_OS_VERSION_16_0                             __MAC_16_0
+#define  MAC_OS_VERSION_26_0                             __MAC_26_0
 
 #endif /* #if (!defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE)) || defined(_DARWIN_C_SOURCE) */
 

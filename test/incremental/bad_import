@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #target=wasm32-wasi-selfhosted
@@ -7,7 +8,7 @@
 #file=main.zig
 pub fn main() !void {
     _ = @import("foo.zig");
-    try std.io.getStdOut().writeAll("success\n");
+    try std.fs.File.stdout().writeAll("success\n");
 }
 const std = @import("std");
 #file=foo.zig
@@ -29,7 +30,7 @@ comptime {
 #file=main.zig
 pub fn main() !void {
     //_ = @import("foo.zig");
-    try std.io.getStdOut().writeAll("success\n");
+    try std.fs.File.stdout().writeAll("success\n");
 }
 const std = @import("std");
 #expect_stdout="success\n"

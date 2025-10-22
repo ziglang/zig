@@ -18,13 +18,12 @@
 #if defined(_LIBCPP_ABI_VCRUNTIME)
 #  include <new.h>
 #else
-// purposefully not using versioning namespace
-namespace std {
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
 struct _LIBCPP_EXPORTED_FROM_ABI nothrow_t {
   explicit nothrow_t() = default;
 };
 extern _LIBCPP_EXPORTED_FROM_ABI const nothrow_t nothrow;
-} // namespace std
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 #endif // _LIBCPP_ABI_VCRUNTIME
 
 #endif // _LIBCPP___NEW_NOTHROW_T_H

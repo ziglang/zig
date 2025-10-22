@@ -15,11 +15,11 @@ pub const DarwinSdkLayout = enum {
 pub fn detect(
     arena: Allocator,
     zig_lib_dir: []const u8,
-    target: std.Target,
+    target: *const std.Target,
     is_native_abi: bool,
     link_libc: bool,
     libc_installation: ?*const LibCInstallation,
-) !LibCDirs {
+) LibCInstallation.FindError!LibCDirs {
     if (!link_libc) {
         return .{
             .libc_include_dir_list = &[0][]u8{},
@@ -88,9 +88,9 @@ pub fn detect(
     };
 }
 
-fn detectFromInstallation(arena: Allocator, target: std.Target, lci: *const LibCInstallation) !LibCDirs {
-    var list = try std.ArrayList([]const u8).initCapacity(arena, 5);
-    var framework_list = std.ArrayList([]const u8).init(arena);
+fn detectFromInstallation(arena: Allocator, target: *const std.Target, lci: *const LibCInstallation) !LibCDirs {
+    var list = try std.array_list.Managed([]const u8).initCapacity(arena, 5);
+    var framework_list = std.array_list.Managed([]const u8).init(arena);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
@@ -114,7 +114,7 @@ fn detectFromInstallation(arena: Allocator, target: std.Target, lci: *const LibC
         }
     }
     if (target.os.tag == .haiku) {
-        const include_dir_path = lci.include_dir orelse return error.LibCInstallationNotAvailable;
+        const include_dir_path = lci.include_dir.?;
         const os_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "os" });
         list.appendAssumeCapacity(os_dir);
         // Errors.h
@@ -146,7 +146,7 @@ fn detectFromInstallation(arena: Allocator, target: std.Target, lci: *const LibC
 pub fn detectFromBuilding(
     arena: Allocator,
     zig_lib_dir: []const u8,
-    target: std.Target,
+    target: *const std.Target,
 ) !LibCDirs {
     const s = std.fs.path.sep_str;
 
@@ -224,7 +224,7 @@ pub fn detectFromBuilding(
     };
 }
 
-fn libCGenericName(target: std.Target) [:0]const u8 {
+fn libCGenericName(target: *const std.Target) [:0]const u8 {
     switch (target.os.tag) {
         .windows => return "mingw",
         .macos, .ios, .tvos, .watchos, .visionos => return "darwin",

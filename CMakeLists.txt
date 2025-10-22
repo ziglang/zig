@@ -38,7 +38,7 @@ project(zig
 )
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 15)
+set(ZIG_VERSION_MINOR 16)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -133,9 +133,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 20)
-find_package(clang 20)
-find_package(lld 20)
+find_package(llvm 21)
+find_package(clang 21)
+find_package(lld 21)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -158,6 +158,16 @@ if(ZIG_STATIC_ZSTD)
     find_library(ZSTD NAMES libzstd.a libzstdstatic.a zstd NAMES_PER_DIR)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
+
+if (MSVC)
+    if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+            # avoid linking to the debug versions of ucrt by default
+            # as they are not redistributable.
+            set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+        endif()
+    endif()
+endif ()
 
 if(ZIG_STATIC_CURSES)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
@@ -187,7 +197,6 @@ set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
     src/zig_llvm.cpp
     src/zig_llvm-ar.cpp
-    src/zig_clang.cpp
     src/zig_clang_driver.cpp
     src/zig_clang_cc1_main.cpp
     src/zig_clang_cc1as_main.cpp
@@ -377,6 +386,9 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Build.zig
     lib/std/Build/Cache.zig
     lib/std/Build/Cache/DepTokenizer.zig
+    lib/std/Io.zig
+    lib/std/Io/Reader.zig
+    lib/std/Io/Writer.zig
     lib/std/Progress.zig
     lib/std/Random.zig
     lib/std/Target.zig
@@ -424,9 +436,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/dwarf/OP.zig
     lib/std/dwarf/TAG.zig
     lib/std/elf.zig
-    lib/std/fifo.zig
     lib/std/fmt.zig
-    lib/std/fmt/format_float.zig
     lib/std/fmt/parse_float.zig
     lib/std/fs.zig
     lib/std/fs/AtomicFile.zig
@@ -440,20 +450,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/hash_map.zig
     lib/std/heap.zig
     lib/std/heap/arena_allocator.zig
-    lib/std/io.zig
-    lib/std/io/Reader.zig
-    lib/std/io/Writer.zig
-    lib/std/io/buffered_atomic_file.zig
-    lib/std/io/buffered_writer.zig
-    lib/std/io/change_detection_stream.zig
-    lib/std/io/counting_reader.zig
-    lib/std/io/counting_writer.zig
-    lib/std/io/find_byte_writer.zig
-    lib/std/io/fixed_buffer_stream.zig
-    lib/std/io/limited_reader.zig
-    lib/std/io/seekable_stream.zig
     lib/std/json.zig
-    lib/std/json/stringify.zig
     lib/std/leb128.zig
     lib/std/log.zig
     lib/std/macho.zig
@@ -496,6 +493,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/unicode.zig
     lib/std/zig.zig
     lib/std/zig/Ast.zig
+    lib/std/zig/Ast/Render.zig
     lib/std/zig/AstGen.zig
     lib/std/zig/AstRlAnnotate.zig
     lib/std/zig/LibCInstallation.zig
@@ -503,8 +501,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/Server.zig
     lib/std/zig/WindowsSdk.zig
     lib/std/zig/Zir.zig
-    lib/std/zig/c_builtins.zig
-    lib/std/zig/render.zig
     lib/std/zig/string_literal.zig
     lib/std/zig/system.zig
     lib/std/zig/system/NativePaths.zig
@@ -539,58 +535,21 @@ set(ZIG_STAGE2_SOURCES
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/arch/aarch64/CodeGen.zig
-    src/arch/aarch64/Emit.zig
-    src/arch/aarch64/Mir.zig
-    src/arch/aarch64/abi.zig
-    src/arch/aarch64/bits.zig
-    src/arch/arm/CodeGen.zig
-    src/arch/arm/Emit.zig
-    src/arch/arm/Mir.zig
-    src/arch/arm/abi.zig
-    src/arch/arm/bits.zig
-    src/arch/powerpc/CodeGen.zig
-    src/arch/riscv64/abi.zig
-    src/arch/riscv64/bits.zig
-    src/arch/riscv64/CodeGen.zig
-    src/arch/riscv64/Emit.zig
-    src/arch/riscv64/encoding.zig
-    src/arch/riscv64/Lower.zig
-    src/arch/riscv64/Mir.zig
-    src/arch/riscv64/mnem.zig
-    src/arch/sparc64/CodeGen.zig
-    src/arch/sparc64/Emit.zig
-    src/arch/sparc64/Mir.zig
-    src/arch/sparc64/abi.zig
-    src/arch/sparc64/bits.zig
-    src/arch/wasm/CodeGen.zig
-    src/arch/wasm/Emit.zig
-    src/arch/wasm/Mir.zig
-    src/arch/wasm/abi.zig
-    src/arch/x86/bits.zig
-    src/arch/x86_64/CodeGen.zig
-    src/arch/x86_64/Disassembler.zig
-    src/arch/x86_64/Emit.zig
-    src/arch/x86_64/Encoding.zig
-    src/arch/x86_64/Lower.zig
-    src/arch/x86_64/Mir.zig
-    src/arch/x86_64/abi.zig
-    src/arch/x86_64/bits.zig
-    src/arch/x86_64/encoder.zig
-    src/arch/x86_64/encodings.zon
-    src/clang.zig
     src/clang_options.zig
     src/clang_options_data.zig
     src/codegen.zig
+    src/codegen/aarch64.zig
+    src/codegen/aarch64/abi.zig
+    src/codegen/aarch64/Assemble.zig
+    src/codegen/aarch64/Disassemble.zig
+    src/codegen/aarch64/encoding.zig
+    src/codegen/aarch64/instructions.zon
+    src/codegen/aarch64/Mir.zig
+    src/codegen/aarch64/Select.zig
     src/codegen/c.zig
     src/codegen/c/Type.zig
     src/codegen/llvm.zig
     src/codegen/llvm/bindings.zig
-    src/codegen/spirv.zig
-    src/codegen/spirv/Assembler.zig
-    src/codegen/spirv/Module.zig
-    src/codegen/spirv/Section.zig
-    src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
     src/libs/freebsd.zig
@@ -621,6 +580,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
+    src/link/Elf2.zig
     src/link/Goff.zig
     src/link/LdScript.zig
     src/link/Lld.zig
@@ -650,14 +610,8 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
-    src/link/Plan9.zig
-    src/link/Plan9/aout.zig
+    src/link/MappedFile.zig
     src/link/Queue.zig
-    src/link/SpirV.zig
-    src/link/SpirV/BinaryModule.zig
-    src/link/SpirV/deduplicate.zig
-    src/link/SpirV/lower_invocation_globals.zig
-    src/link/SpirV/prune_unused.zig
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
@@ -684,7 +638,6 @@ set(ZIG_STAGE2_SOURCES
     src/register_manager.zig
     src/target.zig
     src/tracy.zig
-    src/translate_c.zig
     src/libs/wasi_libc.zig
 )
 
@@ -694,6 +647,12 @@ if(MSVC)
         set(ZIG_DIA_GUIDS_LIB "${MSVC_DIA_SDK_DIR}/lib/amd64/diaguids.lib")
         string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_DIA_GUIDS_LIB_ESCAPED "${ZIG_DIA_GUIDS_LIB}")
     endif()
+
+    # The /RTC[c][s][u] flag enables extra runtime checks. ("/RTC1" == "/RTCsu")
+    # The "c" (PossibleDataLoss) and "u" (UninitializeVariable) flags trap on valid C code so we disable
+    # them.  The "s" flag seems like it might be OK.
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
 configure_file (

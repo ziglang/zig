@@ -7,8 +7,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:31: error: expected type 'builtin.Type', found 'builtin.Type.Int'
 // :?:?: note: struct declared here

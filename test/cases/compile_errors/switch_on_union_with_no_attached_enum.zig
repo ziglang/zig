@@ -15,8 +15,6 @@ fn foo(a: *const Payload) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :11:14: error: switch on union with no attached enum
 // :1:17: note: consider 'union(enum)' here

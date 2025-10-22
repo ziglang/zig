@@ -434,10 +434,14 @@ weak_alias(__tzset, tzset);
 void __secs_to_zone(long long t, int local, int *isdst, int *offset, long *oppoff, const char **zonename)
 {
 	// Minimalist implementation for now.
-	*isdst = 0;
-	*offset = 0;
-	*oppoff = 0;
-	*zonename = __utc;
+	if (isdst)
+		*isdst = 0;
+	if (offset)
+		*offset = 0;
+	if (oppoff)
+		*oppoff = 0;
+	if (zonename)
+		*zonename = __utc;
 }
 #endif
 

@@ -65,6 +65,47 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   xorl  %eax, %eax    # return UNW_ESUCCESS
   ret
 
+#elif defined(__arm64ec__)
+
+//
+// extern int __unw_getcontext(unw_context_t* thread_state)
+//
+// On entry:
+//  thread_state pointer is in x0
+//
+  .section .text,"xr",discard,"#__unw_getcontext"
+  .p2align 2
+DEFINE_LIBUNWIND_FUNCTION("#__unw_getcontext")
+  stp    x8, x27, [x0, #0x000]  // rax, rbx
+  stp    x0, x1,  [x0, #0x010]  // rcx, rdx
+  stp    x26,x25, [x0, #0x020]  // rdi, rsi
+  mov    x1, sp
+  stp    fp, x1,  [x0, #0x030]  // rbp, rsp
+  stp    x2, x3,  [x0, #0x040]  // r8,  r9
+  stp    x4, x5,  [x0, #0x050]  // r10, r11
+  stp    x19,x20, [x0, #0x060]  // r12, r13
+  stp    x21,x22, [x0, #0x070]  // r14, r15
+  str    x30,     [x0, #0x080]  // store return address as pc
+  stp    q0, q1,  [x0, #0x0b0]  // xmm0, xmm1
+  stp    q2, q3,  [x0, #0x0d0]  // xmm2, xmm3
+  stp    q4, q5,  [x0, #0x0f0]  // xmm4, xmm5
+  stp    q6, q7,  [x0, #0x110]  // xmm6, xmm7
+  stp    q8, q9,  [x0, #0x130]  // xmm8, xmm9
+  stp    q10,q11, [x0, #0x150]  // xmm10,xmm11
+  stp    q12,q13, [x0, #0x170]  // xmm12,xmm13
+  stp    q14,q15, [x0, #0x190]  // xmm14,xmm15
+  mov    x0, #0                 // return UNW_ESUCCESS
+  ret
+
+  .weak_anti_dep __unw_getcontext
+  .set __unw_getcontext, "#__unw_getcontext"
+
+  .section .hybmp$x,"yi"
+  .symidx "#__unw_getcontext"
+  .symidx $ientry_thunk$cdecl$i8$i8
+  .word 1
+  .text
+
 #elif defined(__x86_64__)
 
 #
@@ -1181,7 +1222,15 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 
 #endif
 
+#ifdef __arm64ec__
+  .globl "#unw_getcontext"
+  .set "#unw_getcontext", "#__unw_getcontext"
+  .weak_anti_dep unw_getcontext
+  .set unw_getcontext, "#unw_getcontext"
+  EXPORT_SYMBOL(unw_getcontext)
+#else
   WEAK_ALIAS(__unw_getcontext, unw_getcontext)
+#endif
 
 #endif /* !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__wasm__) */
 

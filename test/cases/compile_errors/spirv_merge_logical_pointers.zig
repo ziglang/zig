@@ -11,9 +11,8 @@ export fn a() void {
 }
 
 // error
-// backend=stage2
 // target=spirv64-vulkan
 //
 // :9:13: error: value with non-mergable pointer type '*i32' depends on runtime control flow
 // :9:17: note: runtime control flow here
-// :9:13: note: pointers with address space 'generic' cannot be returned from a branch on target spirv-vulkan by compiler backend stage2_spirv64
+// :9:13: note: pointers with address space 'generic' cannot be returned from a branch on target spirv-vulkan by compiler backend stage2_spirv

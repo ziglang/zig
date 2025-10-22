@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -74,7 +75,7 @@ fn ModfTests(comptime T: type) type {
             r = modf(@as(T, 43874.3));
             try expectEqual(43874.0, r.ipart);
             // account for precision error
-            const expected_b: T = 43874.3 - @as(T, 43874);
+            const expected_b: T = 43874.3 - @as(T, 43874.0);
             try expectApproxEqAbs(expected_b, r.fpart, epsilon);
 
             r = modf(@as(T, 1234.340780));
@@ -84,18 +85,11 @@ fn ModfTests(comptime T: type) type {
             try expectApproxEqAbs(expected_c, r.fpart, epsilon);
         }
         test "vector" {
-            // Currently, a compiler bug is breaking the usage
-            // of @trunc on @Vector types
+            if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) return error.SkipZigTest;
+            if (builtin.cpu.arch == .s390x) return error.SkipZigTest;
+            if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/159529
 
-            // TODO: Repopulate the below array and
-            // remove the skip statement once this
-            // bug is fixed
-
-            // const widths = [_]comptime_int{ 1, 2, 3, 4, 8, 16 };
-            const widths = [_]comptime_int{};
-
-            if (widths.len == 0)
-                return error.SkipZigTest;
+            const widths = [_]comptime_int{ 1, 2, 3, 4, 8, 16 };
 
             inline for (widths) |len| {
                 const V: type = @Vector(len, T);

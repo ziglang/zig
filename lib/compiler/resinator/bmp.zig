@@ -27,6 +27,7 @@ pub const windows_format_id = std.mem.readInt(u16, "BM", native_endian);
 pub const file_header_len = 14;
 
 pub const ReadError = error{
+    ReadFailed,
     UnexpectedEOF,
     InvalidFileHeader,
     ImpossiblePixelDataOffset,
@@ -94,9 +95,12 @@ pub const BitmapInfo = struct {
     }
 };
 
-pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
+pub fn read(reader: *std.Io.Reader, max_size: u64) ReadError!BitmapInfo {
     var bitmap_info: BitmapInfo = undefined;
-    const file_header = reader.readBytesNoEof(file_header_len) catch return error.UnexpectedEOF;
+    const file_header = reader.takeArray(file_header_len) catch |err| switch (err) {
+        error.EndOfStream => return error.UnexpectedEOF,
+        else => |e| return e,
+    };
 
     const id = std.mem.readInt(u16, file_header[0..2], native_endian);
     if (id != windows_format_id) return error.InvalidFileHeader;
@@ -104,14 +108,17 @@ pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
     bitmap_info.pixel_data_offset = std.mem.readInt(u32, file_header[10..14], .little);
     if (bitmap_info.pixel_data_offset > max_size) return error.ImpossiblePixelDataOffset;
 
-    bitmap_info.dib_header_size = reader.readInt(u32, .little) catch return error.UnexpectedEOF;
+    bitmap_info.dib_header_size = reader.takeInt(u32, .little) catch return error.UnexpectedEOF;
     if (bitmap_info.pixel_data_offset < file_header_len + bitmap_info.dib_header_size) return error.ImpossiblePixelDataOffset;
     const dib_version = BitmapHeader.Version.get(bitmap_info.dib_header_size);
     switch (dib_version) {
         .@"nt3.1", .@"nt4.0", .@"nt5.0" => {
             var dib_header_buf: [@sizeOf(BITMAPINFOHEADER)]u8 align(@alignOf(BITMAPINFOHEADER)) = undefined;
             std.mem.writeInt(u32, dib_header_buf[0..4], bitmap_info.dib_header_size, .little);
-            reader.readNoEof(dib_header_buf[4..]) catch return error.UnexpectedEOF;
+            reader.readSliceAll(dib_header_buf[4..]) catch |err| switch (err) {
+                error.EndOfStream => return error.UnexpectedEOF,
+                error.ReadFailed => |e| return e,
+            };
             var dib_header: *BITMAPINFOHEADER = @ptrCast(&dib_header_buf);
             structFieldsLittleToNative(BITMAPINFOHEADER, dib_header);
 
@@ -126,7 +133,10 @@ pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
         .@"win2.0" => {
             var dib_header_buf: [@sizeOf(BITMAPCOREHEADER)]u8 align(@alignOf(BITMAPCOREHEADER)) = undefined;
             std.mem.writeInt(u32, dib_header_buf[0..4], bitmap_info.dib_header_size, .little);
-            reader.readNoEof(dib_header_buf[4..]) catch return error.UnexpectedEOF;
+            reader.readSliceAll(dib_header_buf[4..]) catch |err| switch (err) {
+                error.EndOfStream => return error.UnexpectedEOF,
+                error.ReadFailed => |e| return e,
+            };
             const dib_header: *BITMAPCOREHEADER = @ptrCast(&dib_header_buf);
             structFieldsLittleToNative(BITMAPCOREHEADER, dib_header);
 
@@ -238,26 +248,26 @@ fn structFieldsLittleToNative(comptime T: type, x: *T) void {
 
 test "read" {
     var bmp_data = "BM<\x00\x00\x00\x00\x00\x00\x006\x00\x00\x00(\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\x10\x00\x00\x00\x00\x00\x06\x00\x00\x00\x12\x0b\x00\x00\x12\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\x7f\x00\x00\x00\x00".*;
-    var fbs = std.io.fixedBufferStream(&bmp_data);
+    var fbs: std.Io.Reader = .fixed(&bmp_data);
 
     {
-        const bitmap = try read(fbs.reader(), bmp_data.len);
+        const bitmap = try read(&fbs, bmp_data.len);
         try std.testing.expectEqual(@as(u32, BitmapHeader.Version.@"nt3.1".len()), bitmap.dib_header_size);
     }
 
     {
-        fbs.reset();
+        fbs.seek = 0;
         bmp_data[file_header_len] = 11;
-        try std.testing.expectError(error.UnknownBitmapVersion, read(fbs.reader(), bmp_data.len));
+        try std.testing.expectError(error.UnknownBitmapVersion, read(&fbs, bmp_data.len));
 
         // restore
         bmp_data[file_header_len] = BitmapHeader.Version.@"nt3.1".len();
     }
 
     {
-        fbs.reset();
+        fbs.seek = 0;
         bmp_data[0] = 'b';
-        try std.testing.expectError(error.InvalidFileHeader, read(fbs.reader(), bmp_data.len));
+        try std.testing.expectError(error.InvalidFileHeader, read(&fbs, bmp_data.len));
 
         // restore
         bmp_data[0] = 'B';
@@ -265,13 +275,13 @@ test "read" {
 
     {
         const cutoff_len = file_header_len + BitmapHeader.Version.@"nt3.1".len() - 1;
-        var dib_cutoff_fbs = std.io.fixedBufferStream(bmp_data[0..cutoff_len]);
-        try std.testing.expectError(error.UnexpectedEOF, read(dib_cutoff_fbs.reader(), bmp_data.len));
+        var dib_cutoff_fbs: std.Io.Reader = .fixed(bmp_data[0..cutoff_len]);
+        try std.testing.expectError(error.UnexpectedEOF, read(&dib_cutoff_fbs, bmp_data.len));
     }
 
     {
         const cutoff_len = file_header_len - 1;
-        var bmp_cutoff_fbs = std.io.fixedBufferStream(bmp_data[0..cutoff_len]);
-        try std.testing.expectError(error.UnexpectedEOF, read(bmp_cutoff_fbs.reader(), bmp_data.len));
+        var bmp_cutoff_fbs: std.Io.Reader = .fixed(bmp_data[0..cutoff_len]);
+        try std.testing.expectError(error.UnexpectedEOF, read(&bmp_cutoff_fbs, bmp_data.len));
     }
 }

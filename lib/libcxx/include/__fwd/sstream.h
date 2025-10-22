@@ -20,14 +20,14 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_stringbuf;
+class basic_stringbuf;
 
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_istringstream;
+class basic_istringstream;
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_ostringstream;
+class basic_ostringstream;
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_stringstream;
+class basic_stringstream;
 
 using stringbuf     = basic_stringbuf<char>;
 using istringstream = basic_istringstream<char>;

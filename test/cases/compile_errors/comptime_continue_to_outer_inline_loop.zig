@@ -15,8 +15,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:30: error: comptime control flow inside runtime block
 // :7:13: note: runtime control flow here

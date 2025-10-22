@@ -3,7 +3,5 @@ export fn u() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:20: error: expected type 'type', found 'comptime_int'

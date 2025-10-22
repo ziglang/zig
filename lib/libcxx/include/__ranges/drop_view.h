@@ -185,22 +185,22 @@ struct __passthrough_type;
 
 template <class _Tp, size_t _Extent>
 struct __passthrough_type<span<_Tp, _Extent>> {
-  using type = span<_Tp>;
+  using type _LIBCPP_NODEBUG = span<_Tp>;
 };
 
 template <class _CharT, class _Traits>
 struct __passthrough_type<basic_string_view<_CharT, _Traits>> {
-  using type = basic_string_view<_CharT, _Traits>;
+  using type _LIBCPP_NODEBUG = basic_string_view<_CharT, _Traits>;
 };
 
 template <class _Np, class _Bound>
 struct __passthrough_type<iota_view<_Np, _Bound>> {
-  using type = iota_view<_Np, _Bound>;
+  using type _LIBCPP_NODEBUG = iota_view<_Np, _Bound>;
 };
 
 template <class _Iter, class _Sent, subrange_kind _Kind>
 struct __passthrough_type<subrange<_Iter, _Sent, _Kind>> {
-  using type = subrange<_Iter, _Sent, _Kind>;
+  using type _LIBCPP_NODEBUG = subrange<_Iter, _Sent, _Kind>;
 };
 
 template <class _Tp>

@@ -12,8 +12,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:5: error: found compile log statement
 //

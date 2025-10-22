@@ -28,7 +28,7 @@ fn AesOcb(comptime Aes: anytype) type {
             table: [56]Block align(16) = undefined,
             upto: usize,
 
-            inline fn double(l: Block) Block {
+            fn double(l: Block) Block {
                 const l_ = mem.readInt(u128, &l, .big);
                 const l_2 = (l_ << 1) ^ (0x87 & -%(l_ >> 127));
                 var l2: Block = undefined;
@@ -76,7 +76,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 xorWith(&offset, lx.star);
                 var padded = [_]u8{0} ** 16;
                 @memcpy(padded[0..leftover], a[i * 16 ..][0..leftover]);
-                padded[leftover] = 1;
+                padded[leftover] = 0x80;
                 var e = xorBlocks(offset, padded);
                 aes_enc_ctx.encrypt(&e, &e);
                 xorWith(&sum, e);
@@ -155,12 +155,12 @@ fn AesOcb(comptime Aes: anytype) type {
                 xorWith(&offset, lx.star);
                 var pad = offset;
                 aes_enc_ctx.encrypt(&pad, &pad);
-                for (m[i * 16 ..], 0..) |x, j| {
-                    c[i * 16 + j] = pad[j] ^ x;
-                }
                 var e = [_]u8{0} ** 16;
                 @memcpy(e[0..leftover], m[i * 16 ..][0..leftover]);
                 e[leftover] = 0x80;
+                for (m[i * 16 ..], 0..) |x, j| {
+                    c[i * 16 + j] = pad[j] ^ x;
+                }
                 xorWith(&sum, e);
             }
             var e = xorBlocks(xorBlocks(sum, offset), lx.dol);
@@ -244,7 +244,7 @@ fn AesOcb(comptime Aes: anytype) type {
     };
 }
 
-inline fn xorBlocks(x: Block, y: Block) Block {
+fn xorBlocks(x: Block, y: Block) Block {
     var z: Block = x;
     for (&z, 0..) |*v, i| {
         v.* = x[i] ^ y[i];
@@ -252,13 +252,14 @@ inline fn xorBlocks(x: Block, y: Block) Block {
     return z;
 }
 
-inline fn xorWith(x: *Block, y: Block) void {
+fn xorWith(x: *Block, y: Block) void {
     for (x, 0..) |*v, i| {
         v.* ^= y[i];
     }
 }
 
 const hexToBytes = std.fmt.hexToBytes;
+const testing = std.testing;
 
 test "AesOcb test vector 1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
@@ -296,6 +297,7 @@ test "AesOcb test vector 2" {
     var expected_tag: [tag.len]u8 = undefined;
     _ = try hexToBytes(&expected_tag, "C5CD9D1850C141E358649994EE701B68");
 
+    try testing.expectEqualSlices(u8, &expected_tag, &tag);
     var m: [0]u8 = undefined;
     try Aes128Ocb.decrypt(&m, &c, tag, &ad, nonce, k);
 }
@@ -319,6 +321,8 @@ test "AesOcb test vector 3" {
     _ = try hexToBytes(&expected_tag, "479AD363AC366B95A98CA5F3000B1479");
     _ = try hexToBytes(&expected_c, "4412923493C57D5DE0D700F753CCE0D1D2D95060122E9F15A5DDBFC5787E50B5CC55EE507BCB084E");
 
+    try testing.expectEqualSlices(u8, &expected_tag, &tag);
+    try testing.expectEqualSlices(u8, &expected_c, &c);
     var m2: [m.len]u8 = undefined;
     try Aes128Ocb.decrypt(&m2, &c, tag, "", nonce, k);
     assert(mem.eql(u8, &m, &m2));
@@ -331,20 +335,51 @@ test "AesOcb test vector 4" {
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
     var tag: [Aes128Ocb.tag_length]u8 = undefined;
     var m: [40]u8 = undefined;
-    var ad = m;
     var c: [m.len]u8 = undefined;
     _ = try hexToBytes(&k, "000102030405060708090A0B0C0D0E0F");
     _ = try hexToBytes(&m, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F2021222324252627");
-    _ = try hexToBytes(&nonce, "BBAA99887766554433221104");
+    _ = try hexToBytes(&nonce, "BBAA9988776655443322110D");
+    const ad = m;
 
     Aes128Ocb.encrypt(&c, &tag, &m, &ad, nonce, k);
 
     var expected_c: [c.len]u8 = undefined;
     var expected_tag: [tag.len]u8 = undefined;
-    _ = try hexToBytes(&expected_tag, "3AD7A4FF3835B8C5701C1CCEC8FC3358");
-    _ = try hexToBytes(&expected_c, "571D535B60B277188BE5147170A9A22C");
+    _ = try hexToBytes(&expected_tag, "ED07BA06A4A69483A7035490C5769E60");
+    _ = try hexToBytes(&expected_c, "D5CA91748410C1751FF8A2F618255B68A0A12E093FF454606E59F9C1D0DDC54B65E8628E568BAD7A");
 
+    try testing.expectEqualSlices(u8, &expected_tag, &tag);
+    try testing.expectEqualSlices(u8, &expected_c, &c);
     var m2: [m.len]u8 = undefined;
     try Aes128Ocb.decrypt(&m2, &c, tag, &ad, nonce, k);
     assert(mem.eql(u8, &m, &m2));
+}
+
+test "AesOcb in-place encryption-decryption" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    var k: [Aes128Ocb.key_length]u8 = undefined;
+    var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
+    var tag: [Aes128Ocb.tag_length]u8 = undefined;
+    var m: [40]u8 = undefined;
+    var original_m: [m.len]u8 = undefined;
+    _ = try hexToBytes(&k, "000102030405060708090A0B0C0D0E0F");
+    _ = try hexToBytes(&m, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F2021222324252627");
+    _ = try hexToBytes(&nonce, "BBAA9988776655443322110D");
+    const ad = m;
+
+    @memcpy(&original_m, &m);
+
+    Aes128Ocb.encrypt(&m, &tag, &m, &ad, nonce, k);
+
+    var expected_c: [m.len]u8 = undefined;
+    var expected_tag: [tag.len]u8 = undefined;
+    _ = try hexToBytes(&expected_tag, "ED07BA06A4A69483A7035490C5769E60");
+    _ = try hexToBytes(&expected_c, "D5CA91748410C1751FF8A2F618255B68A0A12E093FF454606E59F9C1D0DDC54B65E8628E568BAD7A");
+
+    try testing.expectEqualSlices(u8, &expected_tag, &tag);
+    try testing.expectEqualSlices(u8, &expected_c, &m);
+    try Aes128Ocb.decrypt(&m, &m, tag, &ad, nonce, k);
+
+    try testing.expectEqualSlices(u8, &original_m, &m);
 }

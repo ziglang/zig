@@ -9,7 +9,6 @@ fn alignedSmall() align(4) i32 {
 }
 
 // error
-// backend=stage2
 // target=x86_64-linux
 //
 // :2:35: error: expected type '*align(8) const fn () i32', found '*align(4) const fn () i32'

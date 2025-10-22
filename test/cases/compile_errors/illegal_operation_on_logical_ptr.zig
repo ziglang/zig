@@ -35,7 +35,6 @@ export fn ptrIntArithmetic() void {
 }
 
 // error
-// backend=stage2
 // target=spirv64-vulkan
 //
 // :3:8: error: illegal operation on logical pointer of type '[*]u8'

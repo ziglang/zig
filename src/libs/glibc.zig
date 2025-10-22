@@ -37,13 +37,13 @@ pub const ABI = struct {
 // The order of the elements in this array defines the linking order.
 pub const libs = [_]Lib{
     .{ .name = "m", .sover = 6 },
-    .{ .name = "pthread", .sover = 0, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "c", .sover = 6 },
+    .{ .name = "ld", .sover = 2 },
+    .{ .name = "resolv", .sover = 2 },
+    .{ .name = "pthread", .sover = 0, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "dl", .sover = 2, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "rt", .sover = 1, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
-    .{ .name = "ld", .sover = 2 },
     .{ .name = "util", .sover = 1, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
-    .{ .name = "resolv", .sover = 2 },
 };
 
 pub const LoadMetaDataError = error{
@@ -162,7 +162,7 @@ pub const CrtFile = enum {
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -172,7 +172,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const target_ver = target.os.versionRange().gnuLibCVersion().?;
     const nonshared_stat = target_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) != .gt;
     const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
@@ -186,7 +186,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     switch (crt_file) {
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try add_include_dirs(comp, arena, &args);
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
@@ -210,7 +210,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 };
             };
             const abi_note_o: Compilation.CSourceFile = blk: {
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-I",
                     try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
@@ -306,7 +306,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             for (deps) |dep| {
                 if (!dep.include) continue;
 
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-std=gnu11",
                     "-fgnu89-inline",
@@ -364,7 +364,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
 
     const s = path.sep_str;
 
-    var result = std.ArrayList(u8).init(arena);
+    var result = std.array_list.Managed(u8).init(arena);
     try result.appendSlice(comp.dirs.zig_lib.path orelse ".");
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
@@ -408,7 +408,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     return result.items;
 }
 
-fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.array_list.Managed([]const u8)) error{OutOfMemory}!void {
     const target = comp.getTarget();
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
 
@@ -484,8 +484,8 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
 
 fn add_include_dirs_arch(
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
-    target: std.Target,
+    args: *std.array_list.Managed([]const u8),
+    target: *const std.Target,
     opt_nptl: ?[]const u8,
     dir: []const u8,
 ) error{OutOfMemory}!void {
@@ -649,14 +649,14 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
-fn wordDirective(target: std.Target) []const u8 {
+fn wordDirective(target: *const std.Target) []const u8 {
     // Based on its description in the GNU `as` manual, you might assume that `.word` is sized
     // according to the target word size. But no; that would just make too much sense.
     return if (target.ptrBitWidth() == 64) ".quad" else ".long";
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -736,32 +736,32 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             .lt => continue,
             .gt => {
                 // TODO Expose via compile error mechanism instead of log.
-                log.warn("invalid target glibc version: {}", .{target_version});
+                log.warn("invalid target glibc version: {f}", .{target_version});
                 return error.InvalidTargetGLibCVersion;
             },
         }
     } else blk: {
         const latest_index = metadata.all_versions.len - 1;
-        log.warn("zig cannot build new glibc version {}; providing instead {}", .{
+        log.warn("zig cannot build new glibc version {f}; providing instead {f}", .{
             target_version, metadata.all_versions[latest_index],
         });
         break :blk latest_index;
     };
 
     {
-        var map_contents = std.ArrayList(u8).init(arena);
+        var map_contents = std.array_list.Managed(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
             if (ver.patch == 0) {
-                try map_contents.writer().print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
+                try map_contents.print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
             } else {
-                try map_contents.writer().print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
+                try map_contents.print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
             }
         }
         try o_directory.handle.writeFile(.{ .sub_path = all_map_basename, .data = map_contents.items });
         map_contents.deinit(); // The most recent allocation of an arena can be freed :)
     }
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -773,7 +773,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_asm.appendSlice(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf: std.Io.Writer.Allocating = .init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;
@@ -794,24 +794,25 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         // twice, which causes a "duplicate symbol" assembler error.
         var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
 
-        var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
-        var inc_reader = inc_fbs.reader();
+        var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
-        const fn_inclusions_len = try inc_reader.readInt(u16, .little);
+        const fn_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         while (sym_i < fn_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 versions_buffer = undefined;
                 versions_len = 0;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
-            const targets = try std.leb.readUleb128(u64, inc_reader);
-            var lib_index = try inc_reader.readByte();
+            const targets = try inc_reader.takeLeb128(u64);
+            var lib_index = try inc_reader.takeByte();
 
             const is_terminal = (lib_index & (1 << 7)) != 0;
             if (is_terminal) {
@@ -825,7 +826,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
             while (true) {
-                const byte = try inc_reader.readByte();
+                const byte = try inc_reader.takeByte();
                 const last = (byte & 0b1000_0000) != 0;
                 const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -880,7 +881,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function
@@ -905,7 +906,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor, ver.patch },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function
@@ -950,7 +951,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         // versions where the symbol didn't exist. We only care about modern glibc versions, so use
         // a strong reference.
         if (std.mem.eql(u8, lib.name, "c")) {
-            try stubs_asm.writer().print(
+            try stubs_asm.print(
                 \\.balign {d}
                 \\.globl _IO_stdin_used
                 \\{s} _IO_stdin_used
@@ -963,7 +964,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
         try stubs_asm.appendSlice(".data\n");
 
-        const obj_inclusions_len = try inc_reader.readInt(u16, .little);
+        const obj_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         var sizes = try arena.alloc(u16, metadata.all_versions.len);
 
@@ -974,17 +975,19 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         while (sym_i < obj_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 versions_buffer = undefined;
                 versions_len = 0;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
-            const targets = try std.leb.readUleb128(u64, inc_reader);
-            const size = try std.leb.readUleb128(u16, inc_reader);
-            var lib_index = try inc_reader.readByte();
+            const targets = try inc_reader.takeLeb128(u64);
+            const size = try inc_reader.takeLeb128(u16);
+            var lib_index = try inc_reader.takeByte();
 
             const is_terminal = (lib_index & (1 << 7)) != 0;
             if (is_terminal) {
@@ -998,7 +1001,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
             while (true) {
-                const byte = try inc_reader.readByte();
+                const byte = try inc_reader.takeByte();
                 const last = (byte & 0b1000_0000) != 0;
                 const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -1055,7 +1058,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object
@@ -1083,7 +1086,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor, ver.patch },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object
@@ -1128,18 +1131,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
         },
     });
-}
-
-pub fn sharedObjectsCount(target: *const std.Target) u8 {
-    const target_version = target.os.versionRange().gnuLibCVersion() orelse return 0;
-    var count: u8 = 0;
-    for (libs) |lib| {
-        if (lib.removed_in) |rem_in| {
-            if (target_version.order(rem_in) != .lt) continue;
-        }
-        count += 1;
-    }
-    return count;
 }
 
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
@@ -1235,7 +1226,10 @@ fn buildSharedLib(
         },
     };
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .@"glibc shared object";
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
@@ -1260,10 +1254,16 @@ fn buildSharedLib(
         .soname = soname,
         .c_source_files = &c_source_files,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .@"glibc shared object", prog_node);
+    try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }
 
 pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {

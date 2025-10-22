@@ -5,7 +5,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:12: error: variable of type 'tmp.entry.E' must be const or comptime

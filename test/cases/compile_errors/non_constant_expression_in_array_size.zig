@@ -11,8 +11,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:12: error: unable to resolve comptime value
 // :2:12: note: called at comptime from here

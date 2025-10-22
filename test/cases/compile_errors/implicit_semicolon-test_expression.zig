@@ -9,7 +9,5 @@ export fn entry() void {
 fn foo() void {}
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:26: error: expected ';' after statement

@@ -54,10 +54,18 @@ pub const Md5 = struct {
         };
     }
 
-    pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
+    pub fn hash(data: []const u8, out: *[digest_length]u8, options: Options) void {
         var d = Md5.init(options);
-        d.update(b);
+        d.update(data);
         d.final(out);
+    }
+
+    pub fn hashResult(data: []const u8) [digest_length]u8 {
+        var out: [digest_length]u8 = undefined;
+        var d = Md5.init(.{});
+        d.update(data);
+        d.final(&out);
+        return out;
     }
 
     pub fn update(d: *Self, b: []const u8) void {

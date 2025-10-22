@@ -7,7 +7,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:27: error: backing integer type 'u32' has bit size 32 but the struct fields have a total bit size of 1

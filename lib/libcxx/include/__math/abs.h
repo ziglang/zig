@@ -39,6 +39,30 @@ template <class _A1, __enable_if_t<is_integral<_A1>::value, int> = 0>
   return __builtin_fabs((double)__x);
 }
 
+// abs
+
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI inline float abs(float __x) _NOEXCEPT { return __builtin_fabsf(__x); }
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI inline double abs(double __x) _NOEXCEPT { return __builtin_fabs(__x); }
+
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI inline long double abs(long double __x) _NOEXCEPT {
+  return __builtin_fabsl(__x);
+}
+
+template <class = int>
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI inline int abs(int __x) _NOEXCEPT {
+  return __builtin_abs(__x);
+}
+
+template <class = int>
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI inline long abs(long __x) _NOEXCEPT {
+  return __builtin_labs(__x);
+}
+
+template <class = int>
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI inline long long abs(long long __x) _NOEXCEPT {
+  return __builtin_llabs(__x);
+}
+
 } // namespace __math
 
 _LIBCPP_END_NAMESPACE_STD

@@ -4,7 +4,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:24: error: expected 2 array elements; found 3

@@ -37,7 +37,7 @@ using __insert_iterator_iter_t _LIBCPP_NODEBUG = typename _Container::iterator;
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Container>
-class _LIBCPP_TEMPLATE_VIS insert_iterator
+class insert_iterator
 #if _LIBCPP_STD_VER <= 14 || !defined(_LIBCPP_ABI_NO_ITERATOR_BASES)
     : public iterator<output_iterator_tag, void, void, void, void>
 #endif

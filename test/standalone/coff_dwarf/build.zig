@@ -1,16 +1,25 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 /// This tests the path where DWARF information is embedded in a COFF binary
 pub fn build(b: *std.Build) void {
+    const host = b.graph.host;
+
+    switch (host.result.cpu.arch) {
+        .aarch64,
+        .x86,
+        .x86_64,
+        => {},
+        else => return,
+    }
+
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = if (builtin.os.tag == .windows)
-        b.standardTargetOptions(.{})
-    else
-        b.resolveTargetQuery(.{ .os_tag = .windows });
+    const target = switch (host.result.os.tag) {
+        .windows => host,
+        else => b.resolveTargetQuery(.{ .os_tag = .windows }),
+    };
 
     const exe = b.addExecutable(.{
         .name = "main",

@@ -4,7 +4,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:33: error: pointer type '*i32' does not allow address zero

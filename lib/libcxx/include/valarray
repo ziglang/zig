@@ -382,9 +382,9 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS valarray;
+class valarray;
 
-class _LIBCPP_TEMPLATE_VIS slice {
+class slice {
   size_t __start_;
   size_t __size_;
   size_t __stride_;
@@ -409,14 +409,14 @@ public:
 };
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS slice_array;
+class slice_array;
 class _LIBCPP_EXPORTED_FROM_ABI gslice;
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS gslice_array;
+class gslice_array;
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS mask_array;
+class mask_array;
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS indirect_array;
+class indirect_array;
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI _Tp* begin(valarray<_Tp>& __v);
@@ -638,7 +638,7 @@ public:
   template <class>
   friend class __val_expr;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS valarray;
+  friend class valarray;
 };
 
 template <class _ValExpr>
@@ -780,7 +780,7 @@ template <class _Tp>
 struct __val_expr_use_member_functions<indirect_array<_Tp> > : true_type {};
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS valarray {
+class valarray {
 public:
   typedef _Tp value_type;
   typedef _Tp __result_type;
@@ -918,17 +918,17 @@ public:
 
 private:
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS valarray;
+  friend class valarray;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS slice_array;
+  friend class slice_array;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS gslice_array;
+  friend class gslice_array;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS mask_array;
+  friend class mask_array;
   template <class>
   friend class __mask_expr;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS indirect_array;
+  friend class indirect_array;
   template <class>
   friend class __indirect_expr;
   template <class>
@@ -1038,7 +1038,7 @@ struct _BinaryOp<_Op, valarray<_Tp>, valarray<_Tp> > {
 // slice_array
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS slice_array {
+class slice_array {
 public:
   typedef _Tp value_type;
 
@@ -1268,7 +1268,7 @@ private:
 // gslice_array
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS gslice_array {
+class gslice_array {
 public:
   typedef _Tp value_type;
 
@@ -1453,7 +1453,7 @@ inline void gslice_array<_Tp>::operator=(const value_type& __x) const {
 // mask_array
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS mask_array {
+class mask_array {
 public:
   typedef _Tp value_type;
 
@@ -1658,7 +1658,7 @@ public:
 // indirect_array
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS indirect_array {
+class indirect_array {
 public:
   typedef _Tp value_type;
 
@@ -1860,7 +1860,7 @@ public:
   template <class>
   friend class __val_expr;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS valarray;
+  friend class valarray;
 };
 
 template <class _ValExpr>

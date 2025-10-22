@@ -5,8 +5,6 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:9: error: value of type 'comptime_int' ignored
 // :3:9: note: all non-void values must be used

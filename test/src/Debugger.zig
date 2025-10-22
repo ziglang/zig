@@ -21,7 +21,7 @@ pub const Target = struct {
     test_name_suffix: []const u8,
 };
 
-pub fn addTestsForTarget(db: *Debugger, target: Target) void {
+pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
     db.addLldbTest(
         "basic",
         target,
@@ -491,16 +491,16 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\    (error{One,Two}) Two = error.Two
             \\  }
             \\  (type) Three = error {
-            \\    (error{One,Two,Three}) One = error.One
-            \\    (error{One,Two,Three}) Two = error.Two
-            \\    (error{One,Two,Three}) Three = error.Three
+            \\    (error{One,Three,Two}) One = error.One
+            \\    (error{One,Three,Two}) Two = error.Two
+            \\    (error{One,Three,Two}) Three = error.Three
             \\  }
             \\}
             \\(lldb) frame variable --show-types -- errors
             \\(root.errors.Errors) errors = {
             \\  (error{One}) .one = error.One
             \\  (error{One,Two}) .two = error.Two
-            \\  (error{One,Two,Three}) .three = error.Three
+            \\  (error{One,Three,Two}) .three = error.Three
             \\  (anyerror) .any = error.Any
             \\  (anyerror!void) .any_void = {
             \\    (anyerror) .error = error.NotVoid
@@ -2188,187 +2188,6 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
-    db.addLldbTest(
-        "segmented_list",
-        target,
-        &.{
-            .{
-                .path = "main.zig",
-                .source =
-                \\const std = @import("std");
-                \\fn testSegmentedList() void {}
-                \\pub fn main() !void {
-                \\    var list0: std.SegmentedList(usize, 0) = .{};
-                \\    defer list0.deinit(std.heap.page_allocator);
-                \\
-                \\    var list1: std.SegmentedList(usize, 1) = .{};
-                \\    defer list1.deinit(std.heap.page_allocator);
-                \\
-                \\    var list2: std.SegmentedList(usize, 2) = .{};
-                \\    defer list2.deinit(std.heap.page_allocator);
-                \\
-                \\    var list4: std.SegmentedList(usize, 4) = .{};
-                \\    defer list4.deinit(std.heap.page_allocator);
-                \\
-                \\    for (0..32) |i| {
-                \\        try list0.append(std.heap.page_allocator, i);
-                \\        try list1.append(std.heap.page_allocator, i);
-                \\        try list2.append(std.heap.page_allocator, i);
-                \\        try list4.append(std.heap.page_allocator, i);
-                \\    }
-                \\    testSegmentedList();
-                \\}
-                \\
-                ,
-            },
-        },
-        \\breakpoint set --file main.zig --source-pattern-regexp 'testSegmentedList\(\);'
-        \\process launch
-        \\frame variable -- list0 list1 list2 list4
-        \\breakpoint delete --force 1
-    ,
-        &.{
-            \\(lldb) frame variable -- list0 list1 list2 list4
-            \\(std.segmented_list.SegmentedList(usize,0)) list0 = len=32 {
-            \\  [0] = 0
-            \\  [1] = 1
-            \\  [2] = 2
-            \\  [3] = 3
-            \\  [4] = 4
-            \\  [5] = 5
-            \\  [6] = 6
-            \\  [7] = 7
-            \\  [8] = 8
-            \\  [9] = 9
-            \\  [10] = 10
-            \\  [11] = 11
-            \\  [12] = 12
-            \\  [13] = 13
-            \\  [14] = 14
-            \\  [15] = 15
-            \\  [16] = 16
-            \\  [17] = 17
-            \\  [18] = 18
-            \\  [19] = 19
-            \\  [20] = 20
-            \\  [21] = 21
-            \\  [22] = 22
-            \\  [23] = 23
-            \\  [24] = 24
-            \\  [25] = 25
-            \\  [26] = 26
-            \\  [27] = 27
-            \\  [28] = 28
-            \\  [29] = 29
-            \\  [30] = 30
-            \\  [31] = 31
-            \\}
-            \\(std.segmented_list.SegmentedList(usize,1)) list1 = len=32 {
-            \\  [0] = 0
-            \\  [1] = 1
-            \\  [2] = 2
-            \\  [3] = 3
-            \\  [4] = 4
-            \\  [5] = 5
-            \\  [6] = 6
-            \\  [7] = 7
-            \\  [8] = 8
-            \\  [9] = 9
-            \\  [10] = 10
-            \\  [11] = 11
-            \\  [12] = 12
-            \\  [13] = 13
-            \\  [14] = 14
-            \\  [15] = 15
-            \\  [16] = 16
-            \\  [17] = 17
-            \\  [18] = 18
-            \\  [19] = 19
-            \\  [20] = 20
-            \\  [21] = 21
-            \\  [22] = 22
-            \\  [23] = 23
-            \\  [24] = 24
-            \\  [25] = 25
-            \\  [26] = 26
-            \\  [27] = 27
-            \\  [28] = 28
-            \\  [29] = 29
-            \\  [30] = 30
-            \\  [31] = 31
-            \\}
-            \\(std.segmented_list.SegmentedList(usize,2)) list2 = len=32 {
-            \\  [0] = 0
-            \\  [1] = 1
-            \\  [2] = 2
-            \\  [3] = 3
-            \\  [4] = 4
-            \\  [5] = 5
-            \\  [6] = 6
-            \\  [7] = 7
-            \\  [8] = 8
-            \\  [9] = 9
-            \\  [10] = 10
-            \\  [11] = 11
-            \\  [12] = 12
-            \\  [13] = 13
-            \\  [14] = 14
-            \\  [15] = 15
-            \\  [16] = 16
-            \\  [17] = 17
-            \\  [18] = 18
-            \\  [19] = 19
-            \\  [20] = 20
-            \\  [21] = 21
-            \\  [22] = 22
-            \\  [23] = 23
-            \\  [24] = 24
-            \\  [25] = 25
-            \\  [26] = 26
-            \\  [27] = 27
-            \\  [28] = 28
-            \\  [29] = 29
-            \\  [30] = 30
-            \\  [31] = 31
-            \\}
-            \\(std.segmented_list.SegmentedList(usize,4)) list4 = len=32 {
-            \\  [0] = 0
-            \\  [1] = 1
-            \\  [2] = 2
-            \\  [3] = 3
-            \\  [4] = 4
-            \\  [5] = 5
-            \\  [6] = 6
-            \\  [7] = 7
-            \\  [8] = 8
-            \\  [9] = 9
-            \\  [10] = 10
-            \\  [11] = 11
-            \\  [12] = 12
-            \\  [13] = 13
-            \\  [14] = 14
-            \\  [15] = 15
-            \\  [16] = 16
-            \\  [17] = 17
-            \\  [18] = 18
-            \\  [19] = 19
-            \\  [20] = 20
-            \\  [21] = 21
-            \\  [22] = 22
-            \\  [23] = 23
-            \\  [24] = 24
-            \\  [25] = 25
-            \\  [26] = 26
-            \\  [27] = 27
-            \\  [28] = 28
-            \\  [29] = 29
-            \\  [30] = 30
-            \\  [31] = 31
-            \\}
-            \\(lldb) breakpoint delete --force 1
-            \\1 breakpoints deleted; 0 breakpoint locations disabled.
-        },
-    );
 }
 
 const File = struct { import: ?[]const u8 = null, path: []const u8, source: []const u8 };
@@ -2376,7 +2195,7 @@ const File = struct { import: ?[]const u8 = null, path: []const u8, source: []co
 fn addGdbTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
@@ -2402,7 +2221,7 @@ fn addGdbTest(
 fn addLldbTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
@@ -2433,7 +2252,7 @@ const success = 99;
 fn addTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     db_argv1: []const []const u8,
     db_commands: []const u8,
@@ -2447,7 +2266,7 @@ fn addTest(
         } else return;
     }
     if (db.options.test_target_filters.len > 0) {
-        const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");
+        const triple_txt = target.resolved.query.zigTriple(db.b.allocator) catch @panic("OOM");
         for (db.options.test_target_filters) |filter| {
             if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
         } else return;
