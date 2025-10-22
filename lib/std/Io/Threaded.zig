@@ -285,7 +285,7 @@ pub fn io(t: *Threaded) Io {
     };
 }
 
-const socket_flags_unsupported = builtin.os.tag.isDarwin() or native_os == .haiku; // 💩💩
+pub const socket_flags_unsupported = builtin.os.tag.isDarwin() or native_os == .haiku; // 💩💩
 const have_accept4 = !socket_flags_unsupported;
 const have_flock_open_flags = @hasField(posix.O, "EXLOCK");
 const have_networking = builtin.os.tag != .wasi;
@@ -4283,7 +4283,7 @@ fn netLookupFallible(
     return error.OptionUnsupported;
 }
 
-const PosixAddress = extern union {
+pub const PosixAddress = extern union {
     any: posix.sockaddr,
     in: posix.sockaddr.in,
     in6: posix.sockaddr.in6,
@@ -4301,14 +4301,14 @@ const WsaAddress = extern union {
     un: ws2_32.sockaddr.un,
 };
 
-fn posixAddressFamily(a: *const IpAddress) posix.sa_family_t {
+pub fn posixAddressFamily(a: *const IpAddress) posix.sa_family_t {
     return switch (a.*) {
         .ip4 => posix.AF.INET,
         .ip6 => posix.AF.INET6,
     };
 }
 
-fn addressFromPosix(posix_address: *const PosixAddress) IpAddress {
+pub fn addressFromPosix(posix_address: *const PosixAddress) IpAddress {
     return switch (posix_address.any.family) {
         posix.AF.INET => .{ .ip4 = address4FromPosix(&posix_address.in) },
         posix.AF.INET6 => .{ .ip6 = address6FromPosix(&posix_address.in6) },
@@ -4324,7 +4324,7 @@ fn addressFromWsa(wsa_address: *const WsaAddress) IpAddress {
     };
 }
 
-fn addressToPosix(a: *const IpAddress, storage: *PosixAddress) posix.socklen_t {
+pub fn addressToPosix(a: *const IpAddress, storage: *PosixAddress) posix.socklen_t {
     return switch (a.*) {
         .ip4 => |ip4| {
             storage.in = address4ToPosix(ip4);
@@ -4405,7 +4405,7 @@ fn address6ToPosix(a: *const net.Ip6Address) posix.sockaddr.in6 {
     };
 }
 
-fn errnoBug(err: posix.E) Io.UnexpectedError {
+pub fn errnoBug(err: posix.E) Io.UnexpectedError {
     switch (builtin.mode) {
         .Debug => std.debug.panic("programmer bug caused syscall error: {t}", .{err}),
         else => return error.Unexpected,
@@ -4419,7 +4419,7 @@ fn wsaErrorBug(err: ws2_32.WinsockError) Io.UnexpectedError {
     }
 }
 
-fn posixSocketMode(mode: net.Socket.Mode) u32 {
+pub fn posixSocketMode(mode: net.Socket.Mode) u32 {
     return switch (mode) {
         .stream => posix.SOCK.STREAM,
         .dgram => posix.SOCK.DGRAM,
@@ -4429,7 +4429,7 @@ fn posixSocketMode(mode: net.Socket.Mode) u32 {
     };
 }
 
-fn posixProtocol(protocol: ?net.Protocol) u32 {
+pub fn posixProtocol(protocol: ?net.Protocol) u32 {
     return @intFromEnum(protocol orelse return 0);
 }
 
