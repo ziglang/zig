@@ -224,7 +224,7 @@ pub fn intRangeLessThan(r: Random, comptime T: type, at_least: T, less_than: T) 
     }
 }
 
-/// Constant-time implementation off `intRangeAtMostBiased`.
+/// Constant-time implementation off `intRangeAtMost`.
 /// The results of this function may be biased.
 pub fn intRangeAtMostBiased(r: Random, comptime T: type, at_least: T, at_most: T) T {
     assert(at_least <= at_most);
