@@ -1159,7 +1159,12 @@ fn dirMakeOpenPathWindows(
     }
 }
 
-fn dirMakeOpenPathWasi(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeOpenPathError!Io.Dir {
+fn dirMakeOpenPathWasi(
+    userdata: ?*anyopaque,
+    dir: Io.Dir,
+    sub_path: []const u8,
+    mode: Io.Dir.OpenOptions,
+) Io.Dir.MakeOpenPathError!Io.Dir {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
     _ = dir;
