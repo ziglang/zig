@@ -3555,7 +3555,8 @@ fn netSendOne(
         .namelen = addressToPosix(message.address, &addr),
         .iov = (&iovec)[0..1],
         .iovlen = 1,
-        .control = @constCast(message.control.ptr),
+        // OS returns EINVAL if this pointer is invalid even if controllen is zero.
+        .control = if (message.control.len == 0) null else @constCast(message.control.ptr),
         .controllen = @intCast(message.control.len),
         .flags = 0,
     };
