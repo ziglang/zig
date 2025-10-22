@@ -4000,9 +4000,7 @@ fn netInterfaceNameResolve(
 
     if (native_os == .windows) {
         try t.checkCancel();
-        const index = ws2_32.if_nametoindex(&name.bytes);
-        if (index == 0) return error.InterfaceNotFound;
-        return .{ .index = index };
+        @panic("TODO");
     }
 
     if (builtin.link_libc) {

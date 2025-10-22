@@ -2161,7 +2161,3 @@ pub extern "ws2_32" fn getnameinfo(
     ServiceBufferName: u32,
     Flags: i32,
 ) callconv(.winapi) i32;
-
-pub extern "iphlpapi" fn if_nametoindex(
-    InterfaceName: [*:0]const u8,
-) callconv(.winapi) u32;
