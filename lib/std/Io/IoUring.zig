@@ -1,9 +1,10 @@
-const std = @import("../std.zig");
+const EventLoop = @This();
 const builtin = @import("builtin");
+
+const std = @import("../std.zig");
+const Io = std.Io;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Io = std.Io;
-const EventLoop = @This();
 const Alignment = std.mem.Alignment;
 const IoUring = std.os.linux.IoUring;
 
