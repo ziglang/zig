@@ -13,6 +13,7 @@ const R_CSKY_RELATIVE = 9;
 const R_HEXAGON_RELATIVE = 35;
 const R_LARCH_RELATIVE = 3;
 const R_68K_RELATIVE = 22;
+const R_MICROBLAZE_REL = 16;
 const R_MIPS_RELATIVE = 128;
 const R_OR1K_RELATIVE = 21;
 const R_PPC_RELATIVE = 22;
@@ -31,6 +32,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .hexagon => R_HEXAGON_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .m68k => R_68K_RELATIVE,
+    .microblaze, .microblazeel => R_MICROBLAZE_REL,
     .mips, .mipsel, .mips64, .mips64el => R_MIPS_RELATIVE,
     .or1k => R_OR1K_RELATIVE,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => R_PPC_RELATIVE,
@@ -127,6 +129,10 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ lea _DYNAMIC - . - 8, %[ret]
                 \\ lea (%[ret], %%pc), %[ret]
+                : [ret] "=r" (-> [*]const elf.Dyn),
+            ),
+            .microblaze, .microblazeel => asm volatile (
+                \\ lwi %[ret], r20, 0
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
             .mips, .mipsel => asm volatile (
