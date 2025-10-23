@@ -1972,7 +1972,7 @@ pub const Cpu = struct {
                 .spirv_vertex,
                 => &.{ .spirv32, .spirv64 },
 
-                .ez80_ti,
+                .ez80_cet,
                 .ez80_tiflags,
                 => &.{.ez80},
             };
@@ -3766,7 +3766,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv32, .spirv64 => .spirv_device,
-        .ez80 => .ez80_ti,
+        .ez80 => .ez80_cet,
     };
 }
 
