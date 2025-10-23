@@ -100,15 +100,14 @@ pub fn main() !void {
     for (case.targets) |target| {
         const target_prog_node = node: {
             var name_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-            const name = std.fmt.bufPrint(&name_buf, "{s}-{s}", .{ target.query, @tagName(target.backend) }) catch &name_buf;
+            const name = std.fmt.bufPrint(&name_buf, "{s}-{t}", .{ target.query, target.backend }) catch &name_buf;
             break :node prog_node.start(name, case.updates.len);
         };
         defer target_prog_node.end();
 
         if (debug_log_verbose) {
-            std.log.scoped(.status).info("target: '{s}-{s}'", .{ target.query, @tagName(target.backend) });
+            std.log.scoped(.status).info("target: '{s}-{t}'", .{ target.query, target.backend });
         }
-
         var child_args: std.ArrayListUnmanaged([]const u8) = .empty;
         try child_args.appendSlice(arena, &.{
             resolved_zig_exe,
@@ -121,8 +120,10 @@ pub fn main() !void {
             ".local-cache",
             "--global-cache-dir",
             ".global-cache",
-            "--listen=-",
         });
+        if (target.resolved.os.tag == .windows) try child_args.append(arena, "-lws2_32");
+        try child_args.append(arena, "--listen=-");
+
         if (opt_resolved_lib_dir) |resolved_lib_dir| {
             try child_args.appendSlice(arena, &.{ "--zig-lib-dir", resolved_lib_dir });
         }
@@ -174,8 +175,12 @@ pub fn main() !void {
                 target.query,
                 "-I",
                 opt_resolved_lib_dir.?, // verified earlier
-                "-o",
             });
+
+            if (target.resolved.os.tag == .windows)
+                try cc_child_args.append(arena, "-lws2_32");
+
+            try cc_child_args.append(arena, "-o");
         }
 
         var eval: Eval = .{
