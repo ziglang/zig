@@ -494,159 +494,88 @@ pub const O = switch (native_arch) {
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
+/// flags for `pipe2` and `IoUring.pipe`
 pub const Pipe2 = switch (native_arch) {
     .x86_64, .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
         _: u7 = 0,
-        EXCL: bool = false, //
+        notification_pipe: bool = false,
         _9: u3 = 0,
-        NONBLOCK: bool = false, //
+        nonblock: bool = false,
         _13: u2 = 0,
-        DIRECT: bool = false, //
+        direct: bool = false,
         _16: u4 = 0,
-        CLOEXEC: bool = false, //
+        cloexec: bool = false,
         _21: u12 = 0,
     },
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
-        ACCMODE: ACCMODE = .RDONLY,
-        _2: u4 = 0,
-        CREAT: bool = false,
-        EXCL: bool = false, //
-        NOCTTY: bool = false,
-        TRUNC: bool = false,
-        APPEND: bool = false,
-        NONBLOCK: bool = false, //
-        DSYNC: bool = false,
-        ASYNC: bool = false,
-        DIRECTORY: bool = false,
-        NOFOLLOW: bool = false,
-        DIRECT: bool = false, //
-        LARGEFILE: bool = false,
-        NOATIME: bool = false,
-        CLOEXEC: bool = false, //
-        SYNC: bool = false,
-        PATH: bool = false,
-        TMPFILE: bool = false,
-        _23: u9 = 0,
+        _: u7 = 0,
+        notification_pipe: bool = false,
+        _9: u3 = 0,
+        nonblock: bool = false,
+        _13: u4 = 0,
+        direct: bool = false,
+        _18: u2 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
     },
     .sparc64 => packed struct(u32) {
-        ACCMODE: ACCMODE = .RDONLY,
-        _2: u1 = 0,
-        APPEND: bool = false,
-        _4: u2 = 0,
-        ASYNC: bool = false,
-        _7: u2 = 0,
-        CREAT: bool = false,
-        TRUNC: bool = false,
-        EXCL: bool = false, //
-        _12: u1 = 0,
-        DSYNC: bool = false,
-        NONBLOCK: bool = false, //
-        NOCTTY: bool = false,
-        DIRECTORY: bool = false,
-        NOFOLLOW: bool = false,
-        _18: u2 = 0,
-        DIRECT: bool = false, //
-        NOATIME: bool = false,
-        CLOEXEC: bool = false, //
-        SYNC: bool = false,
-        PATH: bool = false,
-        TMPFILE: bool = false,
-        _27: u6 = 0,
+        _: u11 = 0,
+        notification_pipe: bool = false,
+        _13: u2 = 0,
+        nonblock: bool = false,
+        _16: u5 = 0,
+        direct: bool = false,
+        _22: u1 = 0,
+        cloexec: bool = false,
+        _24: u9 = 0,
     },
     .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
-        ACCMODE: ACCMODE = .RDONLY,
-        _2: u1 = 0,
-        APPEND: bool = false,
-        DSYNC: bool = false,
-        _5: u2 = 0,
-        NONBLOCK: bool = false, //
-        CREAT: bool = false,
-        TRUNC: bool = false,
-        EXCL: bool = false, //
-        NOCTTY: bool = false,
-        ASYNC: bool = false,
-        LARGEFILE: bool = false,
-        SYNC: bool = false,
-        DIRECT: bool = false, //
-        DIRECTORY: bool = false,
-        NOFOLLOW: bool = false,
-        NOATIME: bool = false, //
-        CLOEXEC: bool = false,
-        _20: u1 = 0,
-        PATH: bool = false,
-        TMPFILE: bool = false,
-        _23: u9 = 0,
+        _: u7 = 0,
+        nonblock: bool = false,
+        _9: u2 = 0,
+        notification_pipe: bool = false,
+        _12: u4 = 0,
+        direct: bool = false,
+        _17: u3 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
     },
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        ACCMODE: ACCMODE = .RDONLY,
-        _2: u4 = 0,
-        CREAT: bool = false,
-        EXCL: bool = false, //
-        NOCTTY: bool = false,
-        TRUNC: bool = false,
-        APPEND: bool = false,
-        NONBLOCK: bool = false, //
-        DSYNC: bool = false,
-        ASYNC: bool = false,
-        DIRECTORY: bool = false,
-        NOFOLLOW: bool = false,
-        LARGEFILE: bool = false,
-        DIRECT: bool = false, //
-        NOATIME: bool = false,
-        CLOEXEC: bool = false, //
-        SYNC: bool = false,
-        PATH: bool = false,
-        TMPFILE: bool = false,
-        _23: u9 = 0,
+        _: u7 = 0,
+        notification_pipe: bool = false,
+        _9: u3 = 0,
+        nonblock: bool = false,
+        _13: u5 = 0,
+        direct: bool = false,
+        _19: u1 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
     },
+    // matches `x86_64` above check if the full struct matches
     .hexagon, .or1k, .s390x => packed struct(u32) {
-        ACCMODE: ACCMODE = .RDONLY,
-        _2: u4 = 0,
-        CREAT: bool = false,
-        EXCL: bool = false, //
-        NOCTTY: bool = false,
-        TRUNC: bool = false,
-        APPEND: bool = false,
-        NONBLOCK: bool = false, //
-        DSYNC: bool = false,
-        ASYNC: bool = false,
-        DIRECT: bool = false, //
-        LARGEFILE: bool = false,
-        DIRECTORY: bool = false,
-        NOFOLLOW: bool = false,
-        NOATIME: bool = false,
-        CLOEXEC: bool = false, //
-        _20: u1 = 0,
-        PATH: bool = false,
-        _22: u10 = 0,
-
-        // #define O_RSYNC    04010000
-        // #define O_SYNC     04010000
-        // #define O_TMPFILE 020200000
-        // #define O_NDELAY O_NONBLOCK
+        _: u7 = 0,
+        notification_pipe: bool = false,
+        _9: u3 = 0,
+        nonblock: bool = false,
+        _13: u2 = 0,
+        direct: bool = false,
+        _16: u4 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
     },
+    // matches `aarch64` above check if the full struct matches
     .m68k => packed struct(u32) {
-        ACCMODE: ACCMODE = .RDONLY,
-        _2: u4 = 0,
-        CREAT: bool = false,
-        EXCL: bool = false, //
-        NOCTTY: bool = false,
-        TRUNC: bool = false,
-        APPEND: bool = false,
-        NONBLOCK: bool = false, //
-        DSYNC: bool = false,
-        ASYNC: bool = false,
-        DIRECTORY: bool = false,
-        NOFOLLOW: bool = false,
-        DIRECT: bool = false, //
-        LARGEFILE: bool = false,
-        NOATIME: bool = false,
-        CLOEXEC: bool = false, //
-        _20: u1 = 0,
-        PATH: bool = false,
-        _22: u10 = 0,
+        _: u7 = 0,
+        notification_pipe: bool = false,
+        _9: u3 = 0,
+        nonblock: bool = false,
+        _13: u4 = 0,
+        direct: bool = false,
+        _18: u2 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
     },
-    else => @compileError("missing std.os.linux.O constants for this architecture"),
+    else => @compileError("missing std.os.linux.Pipe2 flags for this architecture"),
 };
 
 /// Set by startup code, used by `getauxval`.
@@ -1422,7 +1351,7 @@ pub fn pipe(fd: *[2]i32) usize {
     }
 }
 
-pub fn pipe2(fd: *[2]i32, flags: O) usize {
+pub fn pipe2(fd: *[2]i32, flags: Pipe2) usize {
     return syscall2(.pipe2, @intFromPtr(fd), @as(u32, @bitCast(flags)));
 }
 
