@@ -195,9 +195,10 @@ fn _start() callconv(.naked) noreturn {
     // This is the first userspace frame. Prevent DWARF-based unwinders from unwinding further. We
     // prevent FP-based unwinders from unwinding further by zeroing the register below.
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (switch (native_arch) {
+            .aarch64, .aarch64_be => ".cfi_undefined lr",
+            .alpha => ".cfi_undefined $26",
             .arc, .arceb => ".cfi_undefined blink",
             .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
-            .aarch64, .aarch64_be => ".cfi_undefined lr",
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
@@ -252,6 +253,18 @@ fn _start() callconv(.naked) noreturn {
             \\ mov x0, sp
             \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
+            ,
+            .alpha =>
+            // $15 = FP, $26 = LR, $29 = GP, $30 = SP
+            \\ br $29, 1f
+            \\1:
+            \\ ldgp $29, 0($29)
+            \\ mov 0, $15
+            \\ mov 0, $26
+            \\ mov $30, $16
+            \\ ldi $1, -16
+            \\ and $30, $30, $1
+            \\ jsr $26, %[posixCallMainAndExit]
             ,
             .arc, .arceb =>
             // ARC v1 and v2 had a very low stack alignment requirement of 4; v3 increased it to 16.
