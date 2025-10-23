@@ -649,7 +649,7 @@ pub noinline fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: 
 /// See `captureCurrentStackTrace` to capture the trace addresses into a buffer instead of printing.
 pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_config: tty.Config) Writer.Error!void {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
 
     if (!std.options.allow_stack_tracing) {
         tty_config.setColor(writer, .dim) catch {};
@@ -780,7 +780,7 @@ pub fn writeStackTrace(st: *const StackTrace, writer: *Writer, tty_config: tty.C
     // We use an independent Io implementation here in case there was a problem
     // with the application's Io implementation itself.
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
 
     // Fetch `st.index` straight away. Aside from avoiding redundant loads, this prevents issues if
     // `st` is `@errorReturnTrace()` and errors are encountered while writing the stack trace.
@@ -1602,7 +1602,7 @@ test "manage resources correctly" {
     };
     const gpa = std.testing.allocator;
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     var discarding: Io.Writer.Discarding = .init(&.{});
     var di: SelfInfo = .init;
     defer di.deinit(gpa);

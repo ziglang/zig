@@ -320,7 +320,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
             var threaded: std.Io.Threaded = .init_single_threaded;
-            const io = threaded.io();
+            const io = threaded.ioBasic();
 
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();

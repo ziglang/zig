@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
@@ -85,7 +86,7 @@ pub fn main() anyerror!void {
         } else try argv.append(arg);
     }
 
-    var threaded: std.Io.Threaded = .init(gpa);
+    var threaded: Io.Threaded = .init(gpa);
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -118,12 +119,13 @@ pub fn main() anyerror!void {
             .arch = arch,
             .os_ver = os_ver,
         };
-        try fetchTarget(allocator, argv.items, sysroot_path, target, version, tmp);
+        try fetchTarget(allocator, io, argv.items, sysroot_path, target, version, tmp);
     }
 }
 
 fn fetchTarget(
     arena: Allocator,
+    io: Io,
     args: []const []const u8,
     sysroot: []const u8,
     target: Target,
@@ -194,7 +196,7 @@ fn fetchTarget(
     var dirs = std.StringHashMap(fs.Dir).init(arena);
     try dirs.putNoClobber(".", dest_dir);
 
-    var headers_list_file_reader = headers_list_file.reader(&.{});
+    var headers_list_file_reader = headers_list_file.reader(io, &.{});
     const headers_list_str = try headers_list_file_reader.interface.allocRemaining(arena, .unlimited);
     const prefix = "/usr/include";
 
@@ -267,8 +269,8 @@ const Version = struct {
 
     pub fn format(
         v: Version,
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
+        writer: *Io.Writer,
+    ) Io.Writer.Error!void {
         try writer.print("{d}.{d}.{d}", .{ v.major, v.minor, v.patch });
     }
 };

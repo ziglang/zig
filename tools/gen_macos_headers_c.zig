@@ -73,7 +73,7 @@ fn findHeaders(
         switch (entry.kind) {
             .directory => {
                 const path = try std.fs.path.join(arena, &.{ prefix, entry.name });
-                var subdir = try dir.openDir(entry.name, .{ .no_follow = true });
+                var subdir = try dir.openDir(entry.name, .{ .follow_symlinks = false });
                 defer subdir.close();
                 try findHeaders(arena, subdir, path, paths);
             },

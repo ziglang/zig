@@ -1089,7 +1089,7 @@ fn windowsCreateProcessPathExt(
     // opening function knowing which implementation we are in. Here, we imitate
     // that scenario.
     var threaded: std.Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
 
     var dir = dir: {
         // needs to be null-terminated
