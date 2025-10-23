@@ -67,8 +67,8 @@ const Fiber = struct {
     const min_stack_size = 4 * 1024 * 1024;
     const max_context_align: Alignment = .@"16";
     const max_context_size = max_context_align.forward(1024);
-    const max_closure_size: usize = @max(@sizeOf(AsyncClosure), @sizeOf(DetachedClosure));
-    const max_closure_align: Alignment = .max(.of(AsyncClosure), .of(DetachedClosure));
+    const max_closure_size: usize = @sizeOf(AsyncClosure);
+    const max_closure_align: Alignment = .of(AsyncClosure);
     const allocation_size = std.mem.alignForward(
         usize,
         max_closure_align.max(max_context_align).forward(
@@ -886,7 +886,7 @@ fn concurrent(
                 .rip = @intFromPtr(&fiberEntry),
             },
             .aarch64 => .{
-                .sp = @intFromPtr(closure) - @sizeOf(usize) - 1,
+                .sp = @intFromPtr(closure),
                 .fp = 0,
                 .pc = @intFromPtr(&fiberEntry),
             },
@@ -909,34 +909,6 @@ fn concurrent(
     event_loop.schedule(.current(), .{ .head = fiber, .tail = fiber });
     return @ptrCast(fiber);
 }
-
-const DetachedClosure = struct {
-    event_loop: *EventLoop,
-    fiber: *Fiber,
-    start: *const fn (context: *const anyopaque) void,
-    detached_queue_node: std.DoublyLinkedList.Node,
-
-    fn contextPointer(closure: *DetachedClosure) [*]align(Fiber.max_context_align.toByteUnits()) u8 {
-        return @alignCast(@as([*]u8, @ptrCast(closure)) + @sizeOf(DetachedClosure));
-    }
-
-    fn call(closure: *DetachedClosure, message: *const SwitchMessage) callconv(.withStackAlign(.c, @alignOf(DetachedClosure))) noreturn {
-        message.handle(closure.event_loop);
-        std.log.debug("{*} performing async detached", .{closure.fiber});
-        closure.start(closure.contextPointer());
-        const awaiter = @atomicRmw(?*Fiber, &closure.fiber.awaiter, .Xchg, Fiber.finished, .acq_rel);
-        closure.event_loop.yield(awaiter, pending_task: {
-            closure.event_loop.detached.mutex.lock(closure.event_loop.io()) catch |err| switch (err) {
-                error.Canceled => break :pending_task .nothing,
-            };
-            defer closure.event_loop.detached.mutex.unlock(closure.event_loop.io());
-            if (closure.detached_queue_node.next == &closure.detached_queue_node) break :pending_task .nothing;
-            closure.event_loop.detached.list.remove(&closure.detached_queue_node);
-            break :pending_task .recycle;
-        });
-        unreachable; // switched to dead fiber
-    }
-};
 
 fn await(
     userdata: ?*anyopaque,
