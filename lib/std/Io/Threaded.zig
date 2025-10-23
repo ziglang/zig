@@ -247,7 +247,10 @@ pub fn io(t: *Threaded) Io {
                 .windows => netListenIpWindows,
                 else => netListenIpPosix,
             },
-            .netListenUnix = netListenUnix,
+            .netListenUnix = switch (builtin.os.tag) {
+                .windows => netListenUnixWindows,
+                else => netListenUnixPosix,
+            },
             .netAccept = switch (builtin.os.tag) {
                 .windows => netAcceptWindows,
                 else => netAcceptPosix,
@@ -2873,7 +2876,7 @@ fn netListenIpWindows(
     };
 }
 
-fn netListenUnix(
+fn netListenUnixPosix(
     userdata: ?*anyopaque,
     address: *const net.UnixAddress,
     options: net.UnixAddress.ListenOptions,
@@ -2904,6 +2907,19 @@ fn netListenUnix(
     }
 
     return socket_fd;
+}
+
+fn netListenUnixWindows(
+    userdata: ?*anyopaque,
+    address: *const net.UnixAddress,
+    options: net.UnixAddress.ListenOptions,
+) net.UnixAddress.ListenError!net.Socket.Handle {
+    if (!net.has_unix_sockets) return error.AddressFamilyUnsupported;
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    _ = address;
+    _ = options;
+    @panic("TODO");
 }
 
 fn posixBindUnix(t: *Threaded, fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
