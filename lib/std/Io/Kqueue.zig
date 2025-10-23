@@ -1308,11 +1308,64 @@ fn netSend(
         @as(u32, if (@hasDecl(posix.MSG, "FASTOPEN") and flags.fastopen) posix.MSG.FASTOPEN else 0) |
         posix.MSG.NOSIGNAL;
 
-    _ = k;
-    _ = posix_flags;
-    _ = handle;
-    _ = outgoing_messages;
-    @panic("TODO");
+    for (outgoing_messages, 0..) |*msg, i| {
+        netSendOne(k, handle, msg, posix_flags) catch |err| return .{ err, i };
+    }
+
+    return .{ null, outgoing_messages.len };
+}
+
+fn netSendOne(
+    k: *Kqueue,
+    handle: net.Socket.Handle,
+    message: *net.OutgoingMessage,
+    flags: u32,
+) net.Socket.SendError!void {
+    var addr: Io.Threaded.PosixAddress = undefined;
+    var iovec: posix.iovec_const = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
+    const msg: posix.msghdr_const = .{
+        .name = &addr.any,
+        .namelen = Io.Threaded.addressToPosix(message.address, &addr),
+        .iov = (&iovec)[0..1],
+        .iovlen = 1,
+        // OS returns EINVAL if this pointer is invalid even if controllen is zero.
+        .control = if (message.control.len == 0) null else @constCast(message.control.ptr),
+        .controllen = @intCast(message.control.len),
+        .flags = 0,
+    };
+    while (true) {
+        try k.checkCancel();
+        const rc = posix.system.sendmsg(handle, &msg, flags);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                message.data_len = @intCast(rc);
+                return;
+            },
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+
+            .ACCES => return error.AccessDenied,
+            .ALREADY => return error.FastOpenAlreadyInProgress,
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .DESTADDRREQ => |err| return errnoBug(err),
+            .FAULT => |err| return errnoBug(err),
+            .INVAL => |err| return errnoBug(err),
+            .ISCONN => |err| return errnoBug(err),
+            .MSGSIZE => return error.MessageOversize,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTSOCK => |err| return errnoBug(err),
+            .OPNOTSUPP => |err| return errnoBug(err),
+            .PIPE => return error.SocketUnconnected,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .HOSTUNREACH => return error.HostUnreachable,
+            .NETUNREACH => return error.NetworkUnreachable,
+            .NOTCONN => return error.SocketUnconnected,
+            .NETDOWN => return error.NetworkDown,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
 }
 
 fn netReceive(
