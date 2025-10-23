@@ -313,7 +313,7 @@ pub const StatError = posix.FStatError;
 /// Returns `Stat` containing basic information about the `File`.
 pub fn stat(self: File) StatError!Stat {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return Io.File.stat(.{ .handle = self.handle }, io);
 }
 

@@ -340,7 +340,7 @@ pub const OpenSelfExeError = Io.File.OpenSelfExeError;
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (native_os == .linux or native_os == .serenity or native_os == .windows) {
         var threaded: Io.Threaded = .init_single_threaded;
-        const io = threaded.io();
+        const io = threaded.ioBasic();
         return .adaptFromNewApi(try Io.File.openSelfExe(io, flags));
     }
     // Use of max_path_bytes here is valid as the resulting path is immediately

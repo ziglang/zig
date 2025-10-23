@@ -168,80 +168,28 @@ pub fn io(t: *Threaded) Io {
             .conditionWaitUncancelable = conditionWaitUncancelable,
             .conditionWake = conditionWake,
 
-            .dirMake = switch (native_os) {
-                .windows => dirMakeWindows,
-                .wasi => dirMakeWasi,
-                else => dirMakePosix,
-            },
-            .dirMakePath = switch (native_os) {
-                .windows => dirMakePathWindows,
-                else => dirMakePathPosix,
-            },
-            .dirMakeOpenPath = switch (native_os) {
-                .windows => dirMakeOpenPathWindows,
-                .wasi => dirMakeOpenPathWasi,
-                else => dirMakeOpenPathPosix,
-            },
+            .dirMake = dirMake,
+            .dirMakePath = dirMakePath,
+            .dirMakeOpenPath = dirMakeOpenPath,
             .dirStat = dirStat,
-            .dirStatPath = switch (native_os) {
-                .linux => dirStatPathLinux,
-                .windows => dirStatPathWindows,
-                .wasi => dirStatPathWasi,
-                else => dirStatPathPosix,
-            },
-            .fileStat = switch (native_os) {
-                .linux => fileStatLinux,
-                .windows => fileStatWindows,
-                .wasi => fileStatWasi,
-                else => fileStatPosix,
-            },
-            .dirAccess = switch (native_os) {
-                .windows => dirAccessWindows,
-                .wasi => dirAccessWasi,
-                else => dirAccessPosix,
-            },
-            .dirCreateFile = switch (native_os) {
-                .windows => dirCreateFileWindows,
-                .wasi => dirCreateFileWasi,
-                else => dirCreateFilePosix,
-            },
-            .dirOpenFile = switch (native_os) {
-                .windows => dirOpenFileWindows,
-                .wasi => dirOpenFileWasi,
-                else => dirOpenFilePosix,
-            },
-            .dirOpenDir = switch (native_os) {
-                .wasi => dirOpenDirWasi,
-                .haiku => dirOpenDirHaiku,
-                else => dirOpenDirPosix,
-            },
+            .dirStatPath = dirStatPath,
+            .fileStat = fileStat,
+            .dirAccess = dirAccess,
+            .dirCreateFile = dirCreateFile,
+            .dirOpenFile = dirOpenFile,
+            .dirOpenDir = dirOpenDir,
             .dirClose = dirClose,
             .fileClose = fileClose,
             .fileWriteStreaming = fileWriteStreaming,
             .fileWritePositional = fileWritePositional,
-            .fileReadStreaming = switch (native_os) {
-                .windows => fileReadStreamingWindows,
-                else => fileReadStreamingPosix,
-            },
-            .fileReadPositional = switch (native_os) {
-                .windows => fileReadPositionalWindows,
-                else => fileReadPositionalPosix,
-            },
+            .fileReadStreaming = fileReadStreaming,
+            .fileReadPositional = fileReadPositional,
             .fileSeekBy = fileSeekBy,
             .fileSeekTo = fileSeekTo,
             .openSelfExe = openSelfExe,
 
-            .now = switch (native_os) {
-                .windows => nowWindows,
-                .wasi => nowWasi,
-                else => nowPosix,
-            },
-            .sleep = switch (native_os) {
-                .windows => sleepWindows,
-                .wasi => sleepWasi,
-                .linux => sleepLinux,
-                else => sleepPosix,
-            },
+            .now = now,
+            .sleep = sleep,
 
             .netListenIp = switch (native_os) {
                 .windows => netListenIpWindows,
@@ -287,6 +235,73 @@ pub fn io(t: *Threaded) Io {
             .netInterfaceNameResolve = netInterfaceNameResolve,
             .netInterfaceName = netInterfaceName,
             .netLookup = netLookup,
+        },
+    };
+}
+
+/// Same as `io` but disables all networking functionality, which has
+/// an additional dependency on Windows (ws2_32).
+pub fn ioBasic(t: *Threaded) Io {
+    return .{
+        .userdata = t,
+        .vtable = &.{
+            .async = async,
+            .concurrent = concurrent,
+            .await = await,
+            .cancel = cancel,
+            .cancelRequested = cancelRequested,
+            .select = select,
+
+            .groupAsync = groupAsync,
+            .groupWait = groupWait,
+            .groupWaitUncancelable = groupWaitUncancelable,
+            .groupCancel = groupCancel,
+
+            .mutexLock = mutexLock,
+            .mutexLockUncancelable = mutexLockUncancelable,
+            .mutexUnlock = mutexUnlock,
+
+            .conditionWait = conditionWait,
+            .conditionWaitUncancelable = conditionWaitUncancelable,
+            .conditionWake = conditionWake,
+
+            .dirMake = dirMake,
+            .dirMakePath = dirMakePath,
+            .dirMakeOpenPath = dirMakeOpenPath,
+            .dirStat = dirStat,
+            .dirStatPath = dirStatPath,
+            .fileStat = fileStat,
+            .dirAccess = dirAccess,
+            .dirCreateFile = dirCreateFile,
+            .dirOpenFile = dirOpenFile,
+            .dirOpenDir = dirOpenDir,
+            .dirClose = dirClose,
+            .fileClose = fileClose,
+            .fileWriteStreaming = fileWriteStreaming,
+            .fileWritePositional = fileWritePositional,
+            .fileReadStreaming = fileReadStreaming,
+            .fileReadPositional = fileReadPositional,
+            .fileSeekBy = fileSeekBy,
+            .fileSeekTo = fileSeekTo,
+            .openSelfExe = openSelfExe,
+
+            .now = now,
+            .sleep = sleep,
+
+            .netListenIp = netListenIpUnavailable,
+            .netListenUnix = netListenUnixUnavailable,
+            .netAccept = netAcceptUnavailable,
+            .netBindIp = netBindIpUnavailable,
+            .netConnectIp = netConnectIpUnavailable,
+            .netConnectUnix = netConnectUnixUnavailable,
+            .netClose = netCloseUnavailable,
+            .netRead = netReadUnavailable,
+            .netWrite = netWriteUnavailable,
+            .netSend = netSendUnavailable,
+            .netReceive = netReceiveUnavailable,
+            .netInterfaceNameResolve = netInterfaceNameResolveUnavailable,
+            .netInterfaceName = netInterfaceNameUnavailable,
+            .netLookup = netLookupUnavailable,
         },
     };
 }
@@ -804,7 +819,7 @@ fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mut
 fn conditionWaitUncancelable(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) void {
     if (builtin.single_threaded) unreachable; // Deadlock.
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const t_io = t.io();
+    const t_io = ioBasic(t);
     comptime assert(@TypeOf(cond.state) == u64);
     const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
     const cond_state = &ints[0];
@@ -835,6 +850,7 @@ fn conditionWaitUncancelable(userdata: ?*anyopaque, cond: *Io.Condition, mutex: 
 fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) Io.Cancelable!void {
     if (builtin.single_threaded) unreachable; // Deadlock.
     const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = ioBasic(t);
     comptime assert(@TypeOf(cond.state) == u64);
     const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
     const cond_state = &ints[0];
@@ -858,8 +874,8 @@ fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) I
     assert(state & waiter_mask != waiter_mask);
     state += one_waiter;
 
-    mutex.unlock(t.io());
-    defer mutex.lockUncancelable(t.io());
+    mutex.unlock(t_io);
+    defer mutex.lockUncancelable(t_io);
 
     while (true) {
         try futexWait(t, cond_epoch, epoch);
@@ -938,6 +954,12 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
         };
     }
 }
+
+const dirMake = switch (native_os) {
+    .windows => dirMakeWindows,
+    .wasi => dirMakeWasi,
+    else => dirMakePosix,
+};
 
 fn dirMakePosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -1027,6 +1049,11 @@ fn dirMakeWindows(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode
     windows.CloseHandle(sub_dir_handle);
 }
 
+const dirMakePath = switch (native_os) {
+    .windows => dirMakePathWindows,
+    else => dirMakePathPosix,
+};
+
 fn dirMakePathPosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
@@ -1045,6 +1072,12 @@ fn dirMakePathWindows(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, 
     @panic("TODO implement dirMakePathWindows");
 }
 
+const dirMakeOpenPath = switch (native_os) {
+    .windows => dirMakeOpenPathWindows,
+    .wasi => dirMakeOpenPathWasi,
+    else => dirMakeOpenPathPosix,
+};
+
 fn dirMakeOpenPathPosix(
     userdata: ?*anyopaque,
     dir: Io.Dir,
@@ -1052,11 +1085,11 @@ fn dirMakeOpenPathPosix(
     options: Io.Dir.OpenOptions,
 ) Io.Dir.MakeOpenPathError!Io.Dir {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const t_io = t.io();
-    return dir.openDir(t_io, sub_path, options) catch |err| switch (err) {
+    const t_io = ioBasic(t);
+    return dirOpenDirPosix(t, dir, sub_path, options) catch |err| switch (err) {
         error.FileNotFound => {
             try dir.makePath(t_io, sub_path);
-            return dir.openDir(t_io, sub_path, options);
+            return dirOpenDirPosix(t, dir, sub_path, options);
         },
         else => |e| return e,
     };
@@ -1135,7 +1168,7 @@ fn dirMakeOpenPathWindows(
                 // could cause an infinite loop
                 check_dir: {
                     // workaround for windows, see https://github.com/ziglang/zig/issues/16738
-                    const fstat = dir.statPath(t.io(), component.path, .{
+                    const fstat = dirStatPathWindows(t, dir, component.path, .{
                         .follow_symlinks = options.follow_symlinks,
                     }) catch |stat_err| switch (stat_err) {
                         error.IsDir => break :check_dir,
@@ -1186,6 +1219,13 @@ fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
     _ = dir;
     @panic("TODO implement dirStat");
 }
+
+const dirStatPath = switch (native_os) {
+    .linux => dirStatPathLinux,
+    .windows => dirStatPathWindows,
+    .wasi => dirStatPathWasi,
+    else => dirStatPathPosix,
+};
 
 fn dirStatPathLinux(
     userdata: ?*anyopaque,
@@ -1275,12 +1315,11 @@ fn dirStatPathWindows(
     options: Io.Dir.StatPathOptions,
 ) Io.Dir.StatPathError!Io.File.Stat {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const t_io = t.io();
-    var file = try dir.openFile(t_io, sub_path, .{
+    const file = try dirOpenFileWindows(t, dir, sub_path, .{
         .follow_symlinks = options.follow_symlinks,
     });
-    defer file.close(t_io);
-    return file.stat(t_io);
+    defer windows.CloseHandle(file.handle);
+    return fileStatWindows(t, file);
 }
 
 fn dirStatPathWasi(
@@ -1317,6 +1356,13 @@ fn dirStatPathWasi(
         }
     }
 }
+
+const fileStat = switch (native_os) {
+    .linux => fileStatLinux,
+    .windows => fileStatWindows,
+    .wasi => fileStatWasi,
+    else => fileStatPosix,
+};
 
 fn fileStatPosix(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -1439,6 +1485,12 @@ fn fileStatWasi(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.
         }
     }
 }
+
+const dirAccess = switch (native_os) {
+    .windows => dirAccessWindows,
+    .wasi => dirAccessWasi,
+    else => dirAccessPosix,
+};
 
 fn dirAccessPosix(
     userdata: ?*anyopaque,
@@ -1588,6 +1640,12 @@ fn dirAccessWindows(
         else => |rc| return windows.unexpectedStatus(rc),
     }
 }
+
+const dirCreateFile = switch (native_os) {
+    .windows => dirCreateFileWindows,
+    .wasi => dirCreateFileWasi,
+    else => dirCreateFilePosix,
+};
 
 fn dirCreateFilePosix(
     userdata: ?*anyopaque,
@@ -1826,6 +1884,12 @@ fn dirCreateFileWasi(
         }
     }
 }
+
+const dirOpenFile = switch (native_os) {
+    .windows => dirOpenFileWindows,
+    .wasi => dirOpenFileWasi,
+    else => dirOpenFilePosix,
+};
 
 fn dirOpenFilePosix(
     userdata: ?*anyopaque,
@@ -2077,6 +2141,12 @@ fn dirOpenFileWasi(
     }
 }
 
+const dirOpenDir = switch (native_os) {
+    .wasi => dirOpenDirWasi,
+    .haiku => dirOpenDirHaiku,
+    else => dirOpenDirPosix,
+};
+
 fn dirOpenDirPosix(
     userdata: ?*anyopaque,
     dir: Io.Dir,
@@ -2320,6 +2390,11 @@ fn fileClose(userdata: ?*anyopaque, file: Io.File) void {
     posix.close(file.handle);
 }
 
+const fileReadStreaming = switch (native_os) {
+    .windows => fileReadStreamingWindows,
+    else => fileReadStreamingPosix,
+};
+
 fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
 
@@ -2481,6 +2556,11 @@ fn fileReadPositionalPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8, o
         }
     }
 }
+
+const fileReadPositional = switch (native_os) {
+    .windows => fileReadPositionalWindows,
+    else => fileReadPositionalPosix,
+};
 
 fn fileReadPositionalWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -2652,6 +2732,12 @@ fn nowPosix(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestamp 
     }
 }
 
+const now = switch (native_os) {
+    .windows => nowWindows,
+    .wasi => nowWasi,
+    else => nowPosix,
+};
+
 fn nowWindows(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestamp {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
@@ -2679,6 +2765,13 @@ fn nowWasi(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestamp {
     if (err != .SUCCESS) return error.Unexpected;
     return .fromNanoseconds(ns);
 }
+
+const sleep = switch (native_os) {
+    .windows => sleepWindows,
+    .wasi => sleepWasi,
+    .linux => sleepLinux,
+    else => sleepPosix,
+};
 
 fn sleepLinux(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -2710,9 +2803,10 @@ fn sleepLinux(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
 
 fn sleepWindows(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = ioBasic(t);
     try t.checkCancel();
     const ms = ms: {
-        const d = (try timeout.toDurationFromNow(t.io())) orelse
+        const d = (try timeout.toDurationFromNow(t_io)) orelse
             break :ms std.math.maxInt(windows.DWORD);
         break :ms std.math.lossyCast(windows.DWORD, d.raw.toMilliseconds());
     };
@@ -2721,11 +2815,12 @@ fn sleepWindows(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
 
 fn sleepWasi(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = ioBasic(t);
     try t.checkCancel();
 
     const w = std.os.wasi;
 
-    const clock: w.subscription_clock_t = if (try timeout.toDurationFromNow(t.io())) |d| .{
+    const clock: w.subscription_clock_t = if (try timeout.toDurationFromNow(t_io)) |d| .{
         .id = clockToWasi(d.clock),
         .timeout = std.math.lossyCast(u64, d.raw.nanoseconds),
         .precision = 0,
@@ -2750,11 +2845,12 @@ fn sleepWasi(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
 
 fn sleepPosix(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = ioBasic(t);
     const sec_type = @typeInfo(posix.timespec).@"struct".fields[0].type;
     const nsec_type = @typeInfo(posix.timespec).@"struct".fields[1].type;
 
     var timespec: posix.timespec = t: {
-        const d = (try timeout.toDurationFromNow(t.io())) orelse break :t .{
+        const d = (try timeout.toDurationFromNow(t_io)) orelse break :t .{
             .sec = std.math.maxInt(sec_type),
             .nsec = std.math.maxInt(nsec_type),
         };
@@ -2919,6 +3015,17 @@ fn netListenIpWindows(
     };
 }
 
+fn netListenIpUnavailable(
+    userdata: ?*anyopaque,
+    address: IpAddress,
+    options: IpAddress.ListenOptions,
+) IpAddress.ListenError!net.Server {
+    _ = userdata;
+    _ = address;
+    _ = options;
+    return error.NetworkDown;
+}
+
 fn netListenUnixPosix(
     userdata: ?*anyopaque,
     address: *const net.UnixAddress,
@@ -2963,6 +3070,17 @@ fn netListenUnixWindows(
     _ = address;
     _ = options;
     @panic("TODO implement netListenUnixWindows");
+}
+
+fn netListenUnixUnavailable(
+    userdata: ?*anyopaque,
+    address: *const net.UnixAddress,
+    options: net.UnixAddress.ListenOptions,
+) net.UnixAddress.ListenError!net.Socket.Handle {
+    _ = userdata;
+    _ = address;
+    _ = options;
+    return error.AddressFamilyUnsupported;
 }
 
 fn posixBindUnix(t: *Threaded, fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
@@ -3235,6 +3353,17 @@ fn netConnectIpWindows(
     } };
 }
 
+fn netConnectIpUnavailable(
+    userdata: ?*anyopaque,
+    address: *const IpAddress,
+    options: IpAddress.ConnectOptions,
+) IpAddress.ConnectError!net.Stream {
+    _ = userdata;
+    _ = address;
+    _ = options;
+    return error.NetworkDown;
+}
+
 fn netConnectUnixPosix(
     userdata: ?*anyopaque,
     address: *const net.UnixAddress,
@@ -3261,6 +3390,15 @@ fn netConnectUnixWindows(
     try t.checkCancel();
     _ = address;
     @panic("TODO implement netConnectUnixWindows");
+}
+
+fn netConnectUnixUnavailable(
+    userdata: ?*anyopaque,
+    address: *const net.UnixAddress,
+) net.UnixAddress.ConnectError!net.Socket.Handle {
+    _ = userdata;
+    _ = address;
+    return error.AddressFamilyUnsupported;
 }
 
 fn netBindIpPosix(
@@ -3328,6 +3466,17 @@ fn netBindIpWindows(
         .handle = socket_handle,
         .address = addressFromWsa(&storage),
     };
+}
+
+fn netBindIpUnavailable(
+    userdata: ?*anyopaque,
+    address: *const IpAddress,
+    options: IpAddress.BindOptions,
+) IpAddress.BindError!net.Socket {
+    _ = userdata;
+    _ = address;
+    _ = options;
+    return error.NetworkDown;
 }
 
 fn openSocketPosix(
@@ -3498,7 +3647,14 @@ fn netAcceptWindows(userdata: ?*anyopaque, listen_handle: net.Socket.Handle) net
     }
 }
 
+fn netAcceptUnavailable(userdata: ?*anyopaque, listen_handle: net.Socket.Handle) net.Server.AcceptError!net.Stream {
+    _ = userdata;
+    _ = listen_handle;
+    return error.NetworkDown;
+}
+
 fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
+    if (!have_networking) return error.NetworkDown;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
 
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
@@ -3560,12 +3716,19 @@ fn netReadPosix(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.
 }
 
 fn netReadWindows(userdata: ?*anyopaque, handle: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
-    if (!have_networking) return .{ error.NetworkDown, 0 };
+    if (!have_networking) return error.NetworkDown;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
     _ = handle;
     _ = data;
     @panic("TODO implement netReadWindows");
+}
+
+fn netReadUnavailable(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
+    _ = userdata;
+    _ = fd;
+    _ = data;
+    return error.NetworkDown;
 }
 
 fn netSendPosix(
@@ -3610,6 +3773,19 @@ fn netSendWindows(
     _ = messages;
     _ = flags;
     @panic("TODO netSendWindows");
+}
+
+fn netSendUnavailable(
+    userdata: ?*anyopaque,
+    handle: net.Socket.Handle,
+    messages: []net.OutgoingMessage,
+    flags: net.SendFlags,
+) struct { ?net.Socket.SendError, usize } {
+    _ = userdata;
+    _ = handle;
+    _ = messages;
+    _ = flags;
+    return .{ error.NetworkDown, 0 };
 }
 
 fn netSendOne(
@@ -3777,6 +3953,7 @@ fn netReceivePosix(
 ) struct { ?net.Socket.ReceiveTimeoutError, usize } {
     if (!have_networking) return .{ error.NetworkDown, 0 };
     const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = io(t);
 
     // recvmmsg is useless, here's why:
     // * [timeout bug](https://bugzilla.kernel.org/show_bug.cgi?id=75371)
@@ -3803,7 +3980,7 @@ fn netReceivePosix(
     var message_i: usize = 0;
     var data_i: usize = 0;
 
-    const deadline = timeout.toDeadline(t.io()) catch |err| return .{ err, message_i };
+    const deadline = timeout.toDeadline(t_io) catch |err| return .{ err, message_i };
 
     recv: while (true) {
         t.checkCancel() catch |err| return .{ err, message_i };
@@ -3849,7 +4026,7 @@ fn netReceivePosix(
 
                 const max_poll_ms = std.math.maxInt(u31);
                 const timeout_ms: u31 = if (deadline) |d| t: {
-                    const duration = d.durationFromNow(t.io()) catch |err| return .{ err, message_i };
+                    const duration = d.durationFromNow(t_io) catch |err| return .{ err, message_i };
                     if (duration.raw.nanoseconds <= 0) return .{ error.Timeout, message_i };
                     break :t @intCast(@min(max_poll_ms, duration.raw.toMilliseconds()));
                 } else max_poll_ms;
@@ -3913,6 +4090,23 @@ fn netReceiveWindows(
     _ = flags;
     _ = timeout;
     @panic("TODO implement netReceiveWindows");
+}
+
+fn netReceiveUnavailable(
+    userdata: ?*anyopaque,
+    handle: net.Socket.Handle,
+    message_buffer: []net.IncomingMessage,
+    data_buffer: []u8,
+    flags: net.ReceiveFlags,
+    timeout: Io.Timeout,
+) struct { ?net.Socket.ReceiveTimeoutError, usize } {
+    _ = userdata;
+    _ = handle;
+    _ = message_buffer;
+    _ = data_buffer;
+    _ = flags;
+    _ = timeout;
+    return .{ error.NetworkDown, 0 };
 }
 
 fn netWritePosix(
@@ -4013,6 +4207,21 @@ fn netWriteWindows(
     @panic("TODO implement netWriteWindows");
 }
 
+fn netWriteUnavailable(
+    userdata: ?*anyopaque,
+    handle: net.Socket.Handle,
+    header: []const u8,
+    data: []const []const u8,
+    splat: usize,
+) net.Stream.Writer.Error!usize {
+    _ = userdata;
+    _ = handle;
+    _ = header;
+    _ = data;
+    _ = splat;
+    return error.NetworkDown;
+}
+
 fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
     // OS checks ptr addr before length so zero length vectors must be omitted.
     if (bytes.len == 0) return;
@@ -4028,6 +4237,12 @@ fn netClose(userdata: ?*anyopaque, handle: net.Socket.Handle) void {
         .windows => closeSocketWindows(handle),
         else => posix.close(handle),
     }
+}
+
+fn netCloseUnavailable(userdata: ?*anyopaque, handle: net.Socket.Handle) void {
+    _ = userdata;
+    _ = handle;
+    unreachable; // How you gonna close something that was impossible to open?
 }
 
 fn netInterfaceNameResolve(
@@ -4089,6 +4304,15 @@ fn netInterfaceNameResolve(
     @panic("unimplemented");
 }
 
+fn netInterfaceNameResolveUnavailable(
+    userdata: ?*anyopaque,
+    name: *const net.Interface.Name,
+) net.Interface.Name.ResolveError!net.Interface {
+    _ = userdata;
+    _ = name;
+    return error.InterfaceNotFound;
+}
+
 fn netInterfaceName(userdata: ?*anyopaque, interface: net.Interface) net.Interface.NameError!net.Interface.Name {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     try t.checkCancel();
@@ -4109,6 +4333,12 @@ fn netInterfaceName(userdata: ?*anyopaque, interface: net.Interface) net.Interfa
     @panic("unimplemented");
 }
 
+fn netInterfaceNameUnavailable(userdata: ?*anyopaque, interface: net.Interface) net.Interface.NameError!net.Interface.Name {
+    _ = userdata;
+    _ = interface;
+    return error.Unexpected;
+}
+
 fn netLookup(
     userdata: ?*anyopaque,
     host_name: HostName,
@@ -4116,8 +4346,21 @@ fn netLookup(
     options: HostName.LookupOptions,
 ) void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const t_io = t.io();
+    const t_io = io(t);
     resolved.putOneUncancelable(t_io, .{ .end = netLookupFallible(t, host_name, resolved, options) });
+}
+
+fn netLookupUnavailable(
+    userdata: ?*anyopaque,
+    host_name: HostName,
+    resolved: *Io.Queue(HostName.LookupResult),
+    options: HostName.LookupOptions,
+) void {
+    _ = host_name;
+    _ = options;
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const t_io = ioBasic(t);
+    resolved.putOneUncancelable(t_io, .{ .end = error.NetworkDown });
 }
 
 fn netLookupFallible(
@@ -4126,7 +4369,8 @@ fn netLookupFallible(
     resolved: *Io.Queue(HostName.LookupResult),
     options: HostName.LookupOptions,
 ) !void {
-    const t_io = t.io();
+    if (!have_networking) return error.NetworkDown;
+    const t_io = io(t);
     const name = host_name.bytes;
     assert(name.len <= HostName.max_len);
 
@@ -4637,7 +4881,7 @@ fn lookupDnsSearch(
     resolved: *Io.Queue(HostName.LookupResult),
     options: HostName.LookupOptions,
 ) HostName.LookupError!void {
-    const t_io = t.io();
+    const t_io = io(t);
     const rc = HostName.ResolvConf.init(t_io) catch return error.ResolvConfParseFailed;
 
     // Count dots, suppress search when >=ndots or name ends in
@@ -4681,7 +4925,7 @@ fn lookupDns(
     resolved: *Io.Queue(HostName.LookupResult),
     options: HostName.LookupOptions,
 ) HostName.LookupError!void {
-    const t_io = t.io();
+    const t_io = io(t);
     const family_records: [2]struct { af: IpAddress.Family, rr: HostName.DnsRecord } = .{
         .{ .af = .ip6, .rr = .A },
         .{ .af = .ip4, .rr = .AAAA },
@@ -4868,7 +5112,7 @@ fn lookupHosts(
     resolved: *Io.Queue(HostName.LookupResult),
     options: HostName.LookupOptions,
 ) !void {
-    const t_io = t.io();
+    const t_io = io(t);
     const file = Io.File.openAbsolute(t_io, "/etc/hosts", .{}) catch |err| switch (err) {
         error.FileNotFound,
         error.NotDir,
@@ -4906,7 +5150,7 @@ fn lookupHostsReader(
     options: HostName.LookupOptions,
     reader: *Io.Reader,
 ) error{ ReadFailed, Canceled, UnknownHostName }!void {
-    const t_io = t.io();
+    const t_io = io(t);
     var addresses_len: usize = 0;
     var canonical_name: ?HostName = null;
     while (true) {
@@ -5374,7 +5618,7 @@ const Wsa = struct {
 };
 
 fn initializeWsa(t: *Threaded) error{NetworkDown}!void {
-    const t_io = t.io();
+    const t_io = io(t);
     const wsa = &t.wsa;
     wsa.mutex.lockUncancelable(t_io);
     defer wsa.mutex.unlock(t_io);

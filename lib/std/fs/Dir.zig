@@ -850,14 +850,14 @@ pub fn close(self: *Dir) void {
 /// Deprecated in favor of `Io.Dir.openFile`.
 pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return .adaptFromNewApi(try Io.Dir.openFile(self.adaptToNewApi(), io, sub_path, flags));
 }
 
 /// Deprecated in favor of `Io.Dir.createFile`.
 pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     const new_file = try Io.Dir.createFile(self.adaptToNewApi(), io, sub_path, flags);
     return .adaptFromNewApi(new_file);
 }
@@ -868,7 +868,7 @@ pub const MakeError = Io.Dir.MakeError;
 /// Deprecated in favor of `Io.Dir.makeDir`.
 pub fn makeDir(self: Dir, sub_path: []const u8) MakeError!void {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return Io.Dir.makeDir(.{ .handle = self.fd }, io, sub_path);
 }
 
@@ -895,14 +895,14 @@ pub const MakePathError = Io.Dir.MakePathError;
 /// Deprecated in favor of `Io.Dir.makePathStatus`.
 pub fn makePathStatus(self: Dir, sub_path: []const u8) MakePathError!MakePathStatus {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return Io.Dir.makePathStatus(.{ .handle = self.fd }, io, sub_path);
 }
 
 /// Deprecated in favor of `Io.Dir.makeOpenPath`.
 pub fn makeOpenPath(dir: Dir, sub_path: []const u8, options: OpenOptions) Io.Dir.MakeOpenPathError!Dir {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return .adaptFromNewApi(try Io.Dir.makeOpenPath(dir.adaptToNewApi(), io, sub_path, options));
 }
 
@@ -1071,7 +1071,7 @@ pub const OpenOptions = Io.Dir.OpenOptions;
 /// Deprecated in favor of `Io.Dir.openDir`.
 pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return .adaptFromNewApi(try Io.Dir.openDir(.{ .handle = self.fd }, io, sub_path, args));
 }
 
@@ -1385,7 +1385,7 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
 /// Deprecated in favor of `Io.Dir.readFile`.
 pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return Io.Dir.readFile(.{ .handle = self.fd }, io, file_path, buffer);
 }
 
@@ -1438,7 +1438,7 @@ pub fn readFileAllocOptions(
     comptime sentinel: ?u8,
 ) ReadFileAllocError!(if (sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
 
     var file = try dir.openFile(sub_path, .{});
     defer file.close();
@@ -1893,7 +1893,7 @@ pub const AccessError = Io.Dir.AccessError;
 /// Deprecated in favor of `Io.Dir.access`.
 pub fn access(self: Dir, sub_path: []const u8, options: Io.Dir.AccessOptions) AccessError!void {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return Io.Dir.access(self.adaptToNewApi(), io, sub_path, options);
 }
 
@@ -1929,7 +1929,7 @@ pub fn copyFile(
     options: CopyFileOptions,
 ) CopyFileError!void {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
 
     const file = try source_dir.openFile(source_path, .{});
     var file_reader: File.Reader = .init(.{ .handle = file.handle }, io, &.{});
@@ -1997,7 +1997,7 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// Deprecated in favor of `Io.Dir.statPath`.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     var threaded: Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
+    const io = threaded.ioBasic();
     return Io.Dir.statPath(.{ .handle = self.fd }, io, sub_path, .{});
 }
 

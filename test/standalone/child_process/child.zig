@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 
 // 42 is expected by parent; other values result in test failure
 var exit_code: u8 = 42;
@@ -6,12 +7,17 @@ var exit_code: u8 = 42;
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const arena = arena_state.allocator();
-    try run(arena);
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    try run(arena, io);
     arena_state.deinit();
     std.process.exit(exit_code);
 }
 
-fn run(allocator: std.mem.Allocator) !void {
+fn run(allocator: std.mem.Allocator, io: Io) !void {
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
     _ = args.next() orelse unreachable; // skip binary name
@@ -33,7 +39,8 @@ fn run(allocator: std.mem.Allocator) !void {
     const hello_stdin = "hello from stdin";
     var buf: [hello_stdin.len]u8 = undefined;
     const stdin: std.fs.File = .stdin();
-    const n = try stdin.readAll(&buf);
+    var reader = stdin.reader(io, &.{});
+    const n = try reader.interface.readSliceShort(&buf);
     if (!std.mem.eql(u8, buf[0..n], hello_stdin)) {
         testError("stdin: '{s}'; want '{s}'", .{ buf[0..n], hello_stdin });
     }
