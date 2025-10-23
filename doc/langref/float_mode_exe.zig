@@ -9,5 +9,8 @@ pub fn main() void {
     print("strict = {}\n", .{foo_strict(x)});
 }
 
-// exe=succeed
-// optimize=ReleaseFast
+// syntax
+// This file requires the object file of float_mode_obj.zig
+// Currently the automatic generation of the langref runs each file independently
+// and does therefore not support this use case
+// The output for this snippet is written into the langref manually as a workaround
