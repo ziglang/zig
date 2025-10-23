@@ -494,6 +494,161 @@ pub const O = switch (native_arch) {
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
+pub const Pipe2 = switch (native_arch) {
+    .x86_64, .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
+        _: u7 = 0,
+        EXCL: bool = false, //
+        _9: u3 = 0,
+        NONBLOCK: bool = false, //
+        _13: u2 = 0,
+        DIRECT: bool = false, //
+        _16: u4 = 0,
+        CLOEXEC: bool = false, //
+        _21: u12 = 0,
+    },
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false, //
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false, //
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false, //
+        LARGEFILE: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false, //
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _23: u9 = 0,
+    },
+    .sparc64 => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u1 = 0,
+        APPEND: bool = false,
+        _4: u2 = 0,
+        ASYNC: bool = false,
+        _7: u2 = 0,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false, //
+        _12: u1 = 0,
+        DSYNC: bool = false,
+        NONBLOCK: bool = false, //
+        NOCTTY: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        _18: u2 = 0,
+        DIRECT: bool = false, //
+        NOATIME: bool = false,
+        CLOEXEC: bool = false, //
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _27: u6 = 0,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u1 = 0,
+        APPEND: bool = false,
+        DSYNC: bool = false,
+        _5: u2 = 0,
+        NONBLOCK: bool = false, //
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false, //
+        NOCTTY: bool = false,
+        ASYNC: bool = false,
+        LARGEFILE: bool = false,
+        SYNC: bool = false,
+        DIRECT: bool = false, //
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false, //
+        CLOEXEC: bool = false,
+        _20: u1 = 0,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _23: u9 = 0,
+    },
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false, //
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false, //
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        LARGEFILE: bool = false,
+        DIRECT: bool = false, //
+        NOATIME: bool = false,
+        CLOEXEC: bool = false, //
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _23: u9 = 0,
+    },
+    .hexagon, .or1k, .s390x => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false, //
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false, //
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false, //
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false, //
+        _20: u1 = 0,
+        PATH: bool = false,
+        _22: u10 = 0,
+
+        // #define O_RSYNC    04010000
+        // #define O_SYNC     04010000
+        // #define O_TMPFILE 020200000
+        // #define O_NDELAY O_NONBLOCK
+    },
+    .m68k => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false, //
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false, //
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false, //
+        LARGEFILE: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false, //
+        _20: u1 = 0,
+        PATH: bool = false,
+        _22: u10 = 0,
+    },
+    else => @compileError("missing std.os.linux.O constants for this architecture"),
+};
+
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
@@ -745,7 +900,6 @@ pub fn futex_4arg(uaddr: *const u32, futex_op: FUTEX_OP, val: u32, timeout: ?*co
 /// most recently woken, nor...)
 ///
 /// Requires at least kernel v5.16.
-// TODO: can't we use slices here? and assert `Futex2.waitone_max`
 pub fn futex2_waitv(
     /// The length of `futexes` slice must not exceed `Futex2.waitone_max`
     futexes: []const Futex2.WaitOne,
@@ -3757,8 +3911,11 @@ pub const Futex2 = struct {
 
         /// `Bitset` with all bits set for the FUTEX_xxx_BITSET OPs to request a
         /// match of any bit. matches FUTEX_BITSET_MATCH_ANY
-        pub const match_any: Bitset = @bitCast(@as(u64, 0x00000000ffffffff));
-        /// Bitset must not be empty, this is only useful in test
+        pub const match_any: Bitset = @bitCast(@as(u64, 0x0000_0000_ffff_ffff));
+        /// An empty `Bitset` will not wake any threads because the kernel
+        /// requires at least one bit to be set in the bitmask to identify
+        /// which waiters should be woken up. Therefore, no action will be
+        /// taken if the bitset is zero, this is only useful in test
         pub const empty: Bitset = .{};
 
         /// Create from raw u64 value

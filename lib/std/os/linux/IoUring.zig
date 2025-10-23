@@ -1806,7 +1806,6 @@ pub fn futex_wait(
     return sqe;
 }
 
-// TODO: ensure flags and Wait in futexv are correct
 /// Available since kernel 6.7
 pub fn futex_waitv(
     self: *IoUring,
@@ -1817,6 +1816,55 @@ pub fn futex_waitv(
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_futex_waitv(futexv, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+pub fn fixed_fd_install(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    flags: uflags.FixedFd,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_fixed_fd_install(fd, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+pub fn ftruncate(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    offset: u64,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_ftruncate(fd, offset);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+pub fn cmd_discard(
+    self: *IoUring,
+    user_data: u64,
+    fd: linux.fd_t,
+    offset: u64,
+    nbytes: u64,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_cmd_discard(fd, offset, nbytes);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+pub fn pipe(
+    self: *IoUring,
+    user_data: u64,
+    fds: *[2]linux.fd_t,
+    flags: uflags.,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_pipe(fds, offset, nbytes);
     sqe.user_data = user_data;
     return sqe;
 }
@@ -2332,7 +2380,7 @@ pub const Sqe = extern struct {
     /// msg_flags | timeout_flags | accept_flags | cancel_flags | open_flags |
     /// statx_flags | fadvise_advice | splice_flags | rename_flags |
     /// unlink_flags | hardlink_flags xattr_flags | msg_ring_flags |
-    /// uring_cmd_flags | waitid_flags | futex_flags install_fd_flags |
+    /// uring_cmd_flags | waitid_flags | futex_flags | install_fd_flags |
     /// nop_flags | pipe_flags
     rw_flags: u32,
     /// data to be passed back at completion time
@@ -3323,6 +3371,73 @@ pub const Sqe = extern struct {
         sqe.rw_flags = flags;
     }
 
+    pub fn prep_fixed_fd_install(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        flags: uflags.FixedFd,
+    ) void {
+        sqe.prep_rw(
+            .fixed_fd_install,
+            fd,
+            undefined,
+            0,
+            0,
+        );
+        sqe.flags = .{ .fixed_file = true };
+        sqe.rw_flags = @bitCast(flags);
+    }
+
+    pub fn prep_ftruncate(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        offset: u64,
+    ) void {
+        sqe.prep_rw(
+            .ftruncate,
+            fd,
+            undefined,
+            0,
+            offset,
+        );
+    }
+
+    pub fn prep_cmd_discard(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        offset: u64,
+        nbytes: u64,
+    ) void {
+        sqe.prep_rw(
+            .uring_cmd,
+            fd,
+            undefined,
+            0,
+            0,
+        );
+        // sqe.off maps to sqe.cmd_op in liburing
+        sqe.off = constants.BLOCK_URING_CMD_DISCARD;
+        sqe.addr = offset;
+        sqe.addr3 = nbytes;
+    }
+
+    pub fn prep_pipe(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        offset: u64,
+        nbytes: u64,
+    ) void {
+        sqe.prep_rw(
+            .uring_cmd,
+            fd,
+            undefined,
+            0,
+            0,
+        );
+        // sqe.off maps to sqe.cmd_op in liburing
+        sqe.off = constants.BLOCK_URING_CMD_DISCARD;
+        sqe.addr = offset;
+        sqe.addr3 = nbytes;
+    }
     // TODO: maybe remove unused flag fields?
     pub fn prep_bind(
         sqe: *Sqe,
@@ -4143,6 +4258,10 @@ pub const ZcrxIfqRegister = extern struct {
 
 // COMMIT: move IoUring constants to Constants
 pub const constants = struct {
+    /// io_uring block file commands, see IORING_OP_URING_CMD.
+    /// It's a different number space from ioctl(), reuse the block's code 0x12.
+    /// It is the value of ioctl.IO(0x12, 0) at runtime
+    pub const BLOCK_URING_CMD_DISCARD = 0x1200;
     /// If sqe.file_index (splice_fd_in in Zig Struct) is set to this for
     /// opcodes that instantiate a new an available direct descriptor instead
     /// of having the application pass one direct descriptor
