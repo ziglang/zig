@@ -1033,7 +1033,7 @@ fn dirMakePathPosix(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mo
     _ = dir;
     _ = sub_path;
     _ = mode;
-    @panic("TODO");
+    @panic("TODO implement dirMakePathPosix");
 }
 
 fn dirMakePathWindows(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, mode: Io.Dir.Mode) Io.Dir.MakeError!void {
@@ -1042,7 +1042,7 @@ fn dirMakePathWindows(userdata: ?*anyopaque, dir: Io.Dir, sub_path: []const u8, 
     _ = dir;
     _ = sub_path;
     _ = mode;
-    @panic("TODO");
+    @panic("TODO implement dirMakePathWindows");
 }
 
 fn dirMakeOpenPathPosix(
@@ -1176,7 +1176,7 @@ fn dirMakeOpenPathWasi(
     _ = dir;
     _ = sub_path;
     _ = mode;
-    @panic("TODO");
+    @panic("TODO implement dirMakeOpenPathWindows");
 }
 
 fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
@@ -1184,7 +1184,7 @@ fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
     try t.checkCancel();
 
     _ = dir;
-    @panic("TODO");
+    @panic("TODO implement dirStat");
 }
 
 fn dirStatPathLinux(
@@ -1375,8 +1375,48 @@ fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
 fn fileStatWindows(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     try t.checkCancel();
-    _ = file;
-    @panic("TODO");
+
+    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+    var info: windows.FILE_ALL_INFORMATION = undefined;
+    const rc = windows.ntdll.NtQueryInformationFile(file.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        // Buffer overflow here indicates that there is more information available than was able to be stored in the buffer
+        // size provided. This is treated as success because the type of variable-length information that this would be relevant for
+        // (name, volume name, etc) we don't care about.
+        .BUFFER_OVERFLOW => {},
+        .INVALID_PARAMETER => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        else => return windows.unexpectedStatus(rc),
+    }
+    return .{
+        .inode = info.InternalInformation.IndexNumber,
+        .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
+        .mode = 0,
+        .kind = if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) reparse_point: {
+            var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
+            const tag_rc = windows.ntdll.NtQueryInformationFile(file.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
+            switch (tag_rc) {
+                .SUCCESS => {},
+                // INFO_LENGTH_MISMATCH and ACCESS_DENIED are the only documented possible errors
+                // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d295752f-ce89-4b98-8553-266d37c84f0e
+                .INFO_LENGTH_MISMATCH => unreachable,
+                .ACCESS_DENIED => return error.AccessDenied,
+                else => return windows.unexpectedStatus(rc),
+            }
+            if (tag_info.ReparseTag & windows.reparse_tag_name_surrogate_bit != 0) {
+                break :reparse_point .sym_link;
+            }
+            // Unknown reparse point
+            break :reparse_point .unknown;
+        } else if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0)
+            .directory
+        else
+            .file,
+        .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
+        .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
+        .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
+    };
 }
 
 fn fileStatWasi(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File.Stat {
@@ -2490,7 +2530,7 @@ fn fileSeekBy(userdata: ?*anyopaque, file: Io.File, offset: i64) Io.File.SeekErr
 
     _ = file;
     _ = offset;
-    @panic("TODO");
+    @panic("TODO implement fileSeekBy");
 }
 
 fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekError!void {
@@ -2571,7 +2611,7 @@ fn openSelfExe(userdata: ?*anyopaque, flags: Io.File.OpenFlags) Io.File.OpenSelf
 
         return dirOpenFileWindowsInner(t, .{ .handle = cwd_handle }, image_path_name, flags);
     }
-    @panic("TODO");
+    @panic("TODO implement openSelfExe");
 }
 
 fn fileWritePositional(
@@ -2586,7 +2626,7 @@ fn fileWritePositional(
         _ = file;
         _ = buffer;
         _ = offset;
-        @panic("TODO");
+        @panic("TODO implement fileWritePositional");
     }
 }
 
@@ -2596,7 +2636,7 @@ fn fileWriteStreaming(userdata: ?*anyopaque, file: Io.File, buffer: [][]const u8
         try t.checkCancel();
         _ = file;
         _ = buffer;
-        @panic("TODO");
+        @panic("TODO implement fileWriteStreaming");
     }
 }
 
@@ -2922,7 +2962,7 @@ fn netListenUnixWindows(
     try t.checkCancel();
     _ = address;
     _ = options;
-    @panic("TODO");
+    @panic("TODO implement netListenUnixWindows");
 }
 
 fn posixBindUnix(t: *Threaded, fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
@@ -3122,7 +3162,7 @@ fn netConnectIpPosix(
     options: IpAddress.ConnectOptions,
 ) IpAddress.ConnectError!net.Stream {
     if (!have_networking) return error.NetworkDown;
-    if (options.timeout != .none) @panic("TODO");
+    if (options.timeout != .none) @panic("TODO implement netConnectIpPosix with timeout");
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(address);
     const socket_fd = try openSocketPosix(t, family, .{
@@ -3146,7 +3186,7 @@ fn netConnectIpWindows(
     options: IpAddress.ConnectOptions,
 ) IpAddress.ConnectError!net.Stream {
     if (!have_networking) return error.NetworkDown;
-    if (options.timeout != .none) @panic("TODO");
+    if (options.timeout != .none) @panic("TODO implement netConnectIpWindows with timeout");
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const family = posixAddressFamily(address);
     const socket_handle = try openSocketWsa(t, family, .{
@@ -3220,7 +3260,7 @@ fn netConnectUnixWindows(
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     try t.checkCancel();
     _ = address;
-    @panic("TODO");
+    @panic("TODO implement netConnectUnixWindows");
 }
 
 fn netBindIpPosix(
@@ -3525,7 +3565,7 @@ fn netReadWindows(userdata: ?*anyopaque, handle: net.Socket.Handle, data: [][]u8
     _ = t;
     _ = handle;
     _ = data;
-    @panic("TODO");
+    @panic("TODO implement netReadWindows");
 }
 
 fn netSendPosix(
@@ -3569,7 +3609,7 @@ fn netSendWindows(
     _ = handle;
     _ = messages;
     _ = flags;
-    @panic("TODO");
+    @panic("TODO netSendWindows");
 }
 
 fn netSendOne(
@@ -3872,7 +3912,7 @@ fn netReceiveWindows(
     _ = data_buffer;
     _ = flags;
     _ = timeout;
-    @panic("TODO");
+    @panic("TODO implement netReceiveWindows");
 }
 
 fn netWritePosix(
@@ -3970,7 +4010,7 @@ fn netWriteWindows(
     _ = header;
     _ = data;
     _ = splat;
-    @panic("TODO");
+    @panic("TODO implement netWriteWindows");
 }
 
 fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
@@ -4036,7 +4076,7 @@ fn netInterfaceNameResolve(
 
     if (native_os == .windows) {
         try t.checkCancel();
-        @panic("TODO");
+        @panic("TODO implement netInterfaceNameResolve for Windows");
     }
 
     if (builtin.link_libc) {
@@ -4055,15 +4095,15 @@ fn netInterfaceName(userdata: ?*anyopaque, interface: net.Interface) net.Interfa
 
     if (native_os == .linux) {
         _ = interface;
-        @panic("TODO");
+        @panic("TODO implement netInterfaceName for linux");
     }
 
     if (native_os == .windows) {
-        @panic("TODO");
+        @panic("TODO implement netInterfaceName for windows");
     }
 
     if (builtin.link_libc) {
-        @panic("TODO");
+        @panic("TODO implement netInterfaceName for libc");
     }
 
     @panic("unimplemented");
