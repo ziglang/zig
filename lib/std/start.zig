@@ -212,6 +212,7 @@ fn _start() callconv(.naked) noreturn {
             else
                 ".cfi_undefined ra",
             .s390x => ".cfi_undefined %%r14",
+            .sh, .sheb => ".cfi_undefined pr",
             .sparc, .sparc64 => ".cfi_undefined %%i7",
             .x86 => ".cfi_undefined %%eip",
             .x86_64 => ".cfi_undefined %%rip",
@@ -454,6 +455,21 @@ fn _start() callconv(.naked) noreturn {
             \\ lghi %%r0, 0
             \\ stg  %%r0, 0(%%r15)
             \\ jg %[posixCallMainAndExit]
+            ,
+            .sh, .sheb =>
+            // r14 = FP, r15 = SP, pr = LR
+            \\ mov #0, r0
+            \\ lds r0, pr
+            \\ mov r0, r14
+            \\ mov r15, r4
+            \\ mov #-4, r0
+            \\ and r0, r15
+            \\ mov.l 2f, r1
+            \\1:
+            \\ bsrf r1
+            \\2:
+            \\ .balign 4
+            \\ .long %[posixCallMainAndExit]@PCREL - (1b + 4 - .)
             ,
             .sparc =>
             // argc is stored after a register window (16 registers * 4 bytes).
