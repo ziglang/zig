@@ -1120,6 +1120,10 @@
       otherwise the optimizer figures out all the values at compile-time,
       which operates in strict mode.</p>
       {#code|float_mode_exe.zig#}
+	  {#shell_samp#}$ zig build-exe float_mode_exe.zig -O ReleaseFast
+$ ./float_mode_exe
+optimized = 0.001
+strict = 0.0009765625{#end_shell_samp#}
 
       {#see_also|@setFloatMode|Division by Zero#}
       {#header_close#}
