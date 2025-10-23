@@ -733,7 +733,6 @@ pub const arm = @import("Target/arm.zig");
 pub const avr = @import("Target/avr.zig");
 pub const bpf = @import("Target/bpf.zig");
 pub const csky = @import("Target/csky.zig");
-pub const ez80 = @import("Target/generic.zig");
 pub const hexagon = @import("Target/hexagon.zig");
 pub const hppa = @import("Target/generic.zig");
 pub const kalimba = @import("Target/generic.zig");
@@ -757,6 +756,7 @@ pub const wasm = @import("Target/wasm.zig");
 pub const x86 = @import("Target/x86.zig");
 pub const xcore = @import("Target/xcore.zig");
 pub const xtensa = @import("Target/xtensa.zig");
+pub const z80 = @import("Target/generic.zig");
 
 pub const Abi = enum {
     none,
@@ -1733,7 +1733,6 @@ pub const Cpu = struct {
         /// All CPU features Zig is aware of, sorted lexicographically by name.
         pub fn allFeaturesList(arch: Arch) []const Cpu.Feature {
             return switch (arch.family()) {
-                .z80 => &Target.ez80.all_features,
                 inline else => |f| &@field(Target, @tagName(f)).all_features,
             };
         }
@@ -1741,7 +1740,6 @@ pub const Cpu = struct {
         /// All processors Zig is aware of, sorted lexicographically by name.
         pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
             return switch (arch.family()) {
-                .z80 => comptime allCpusFromDecls(Target.ez80.cpu),
                 inline else => |f| comptime allCpusFromDecls(@field(Target, @tagName(f)).cpu),
             };
         }
@@ -1992,7 +1990,6 @@ pub const Cpu = struct {
             return switch (arch) {
                 .amdgcn => &amdgcn.cpu.gfx600,
                 .avr => &avr.cpu.avr1,
-                .ez80 => &ez80.cpu.generic,
                 .loongarch32 => &loongarch.cpu.generic_la32,
                 .loongarch64 => &loongarch.cpu.generic_la64,
                 .mips, .mipsel => &mips.cpu.mips32,
