@@ -1265,12 +1265,57 @@ fn netBindIp(
     };
 }
 fn netConnectIp(userdata: ?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.ConnectOptions) net.IpAddress.ConnectError!net.Stream {
+    if (options.timeout != .none) @panic("TODO");
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
-    _ = k;
-    _ = address;
-    _ = options;
-    @panic("TODO");
+    const family = Io.Threaded.posixAddressFamily(address);
+    const socket_fd = try openSocketPosix(k, family, .{
+        .mode = options.mode,
+        .protocol = options.protocol,
+    });
+    errdefer posix.close(socket_fd);
+    var storage: Io.Threaded.PosixAddress = undefined;
+    var addr_len = Io.Threaded.addressToPosix(address, &storage);
+    try posixConnect(k, socket_fd, &storage.any, addr_len);
+    try posixGetSockName(k, socket_fd, &storage.any, &addr_len);
+    return .{ .socket = .{
+        .handle = socket_fd,
+        .address = Io.Threaded.addressFromPosix(&storage),
+    } };
 }
+
+fn posixConnect(k: *Kqueue, socket_fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
+    while (true) {
+        try k.checkCancel();
+        switch (posix.errno(posix.system.connect(socket_fd, addr, addr_len))) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+            .AGAIN => @panic("TODO"),
+            .INPROGRESS => return, // Due to TCP fast open, we find out possible error later.
+
+            .ADDRNOTAVAIL => return error.AddressUnavailable,
+            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
+            .ALREADY => return error.ConnectionPending,
+            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .CONNREFUSED => return error.ConnectionRefused,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .FAULT => |err| return errnoBug(err),
+            .ISCONN => |err| return errnoBug(err),
+            .HOSTUNREACH => return error.HostUnreachable,
+            .NETUNREACH => return error.NetworkUnreachable,
+            .NOTSOCK => |err| return errnoBug(err),
+            .PROTOTYPE => |err| return errnoBug(err),
+            .TIMEDOUT => return error.Timeout,
+            .CONNABORTED => |err| return errnoBug(err),
+            .ACCES => return error.AccessDenied,
+            .PERM => |err| return errnoBug(err),
+            .NOENT => |err| return errnoBug(err),
+            .NETDOWN => return error.NetworkDown,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
 fn netListenUnix(
     userdata: ?*anyopaque,
     unix_address: *const net.UnixAddress,
@@ -1343,6 +1388,7 @@ fn netSendOne(
             },
             .INTR => continue,
             .CANCELED => return error.Canceled,
+            .AGAIN => @panic("TODO register kevent"),
 
             .ACCES => return error.AccessDenied,
             .ALREADY => return error.FastOpenAlreadyInProgress,
