@@ -1861,10 +1861,23 @@ pub fn pipe(
     self: *IoUring,
     user_data: u64,
     fds: *[2]linux.fd_t,
-    flags: uflags.,
+    flags: linux.Pipe2,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_pipe(fds, offset, nbytes);
+    sqe.prep_pipe(fds, flags);
+    sqe.user_data = user_data;
+    return sqe;
+}
+
+pub fn pipe_direct(
+    self: *IoUring,
+    user_data: u64,
+    fds: *[2]linux.fd_t,
+    flags: linux.Pipe2,
+    file_index: u32,
+) !*Sqe {
+    const sqe = try self.get_sqe();
+    sqe.prep_pipe_direct(fds, flags, file_index);
     sqe.user_data = user_data;
     return sqe;
 }
@@ -3422,22 +3435,29 @@ pub const Sqe = extern struct {
 
     pub fn prep_pipe(
         sqe: *Sqe,
-        fd: linux.fd_t,
-        offset: u64,
-        nbytes: u64,
+        fds: *[2]linux.fd_t,
+        flags: linux.Pipe2,
     ) void {
         sqe.prep_rw(
-            .uring_cmd,
-            fd,
-            undefined,
+            .pipe,
+            0,
+            @intFromPtr(fds),
             0,
             0,
         );
-        // sqe.off maps to sqe.cmd_op in liburing
-        sqe.off = constants.BLOCK_URING_CMD_DISCARD;
-        sqe.addr = offset;
-        sqe.addr3 = nbytes;
+        sqe.rw_flags = @bitCast(flags);
     }
+
+    pub fn prep_pipe_direct(
+        sqe: *Sqe,
+        fds: *[2]linux.fd_t,
+        flags: linux.Pipe2,
+        file_index: u32,
+    ) void {
+        sqe.prep_pipe(fds, flags);
+        sqe.set_target_fixed_file(file_index);
+    }
+
     // TODO: maybe remove unused flag fields?
     pub fn prep_bind(
         sqe: *Sqe,
