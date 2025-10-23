@@ -1456,7 +1456,25 @@ fn netRead(userdata: ?*anyopaque, fd: net.Socket.Handle, data: [][]u8) net.Strea
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
             .CANCELED => return error.Canceled,
-            .AGAIN => @panic("TODO"),
+            .AGAIN => {
+                const thread: *Thread = .current();
+                const fiber = thread.currentFiber();
+                const changes = [_]posix.Kevent{
+                    .{
+                        .ident = @as(u32, @bitCast(fd)),
+                        .filter = std.c.EVFILT.READ,
+                        .flags = std.c.EV.ADD | std.c.EV.ONESHOT,
+                        .fflags = 0,
+                        .data = 0,
+                        .udata = @intFromPtr(fiber),
+                    },
+                };
+                assert(0 == (posix.kevent(thread.kq_fd, &changes, &.{}, null) catch |err| {
+                    @panic(@errorName(err)); // TODO
+                }));
+                yield(k, null, .nothing);
+                continue;
+            },
 
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
