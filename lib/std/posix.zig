@@ -4415,24 +4415,82 @@ pub const GetSockOptError = error{
 
     /// Insufficient resources are available in the system to complete the call.
     SystemResources,
+
+    /// The supplied opt buffer was too small for the data to be returned.
+    BufferTooSmall,
+
+    /// This can mean different things depending on the platform, the option
+    /// name, and conditions.  One known oddball example is SO_ACCEPTFILTER on
+    /// BSDs, which returns this error to indicate that no filter is currently
+    /// installed.
+    InvalidOption,
+
+    NetworkSubsystemFailed,
+    BlockingOperationInProgress,
+    FileDescriptorNotASocket,
 } || UnexpectedError;
 
+/// Get a socket's options.  This is the simple interface for retrieving
+/// options with a known, fixed size, e.g. simple integer values or singular
+/// fixed structs.  If you're using one of the few options that may return
+/// variable-length option data, see getsockoptSlice().
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
+    const returned = try getsockoptSlice(fd, level, optname, opt);
+    assert(returned.len == opt.len);
+}
+
+/// This is getsockopt for options which return variably-long data.  It will
+/// return a slice of the provided opt buffer according to the optlen the
+/// system returned.
+///
+/// Known examples:
+/// IP_OPTIONS: Returns 0-40 bytes of actual IP header option data.
+///
+/// Linux SO_PEERSEC: there is no documented buffer length that will always be
+/// sufficient, so the caller has to observe the BufferTooSmall error and then
+/// try with a larger buffer until success, and then still needs to know the
+/// real length of the successfully returned value, which may be smaller than
+/// the buffer.
+///
+/// Linux SO_BINDTODEVICE: recommends the input buffer to be IFNAMSIZ long to
+/// hold any device name, but returns the actual length of the stored name in
+/// optlen, which will usually be shorter than the buffer length, and thus
+/// would fail the otherwise-useful optlen equality check in the
+/// normal getsockopt() interface.
+pub fn getsockoptSlice(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError![]u8 {
     var len: socklen_t = @intCast(opt.len);
-    switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
-        .SUCCESS => {
-            std.debug.assert(len == opt.len);
-        },
-        .BADF => unreachable,
-        .NOTSOCK => unreachable,
-        .INVAL => unreachable,
-        .FAULT => unreachable,
-        .NOPROTOOPT => return error.InvalidProtocolOption,
-        .NOMEM => return error.SystemResources,
-        .NOBUFS => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        else => |err| return unexpectedErrno(err),
+    if (native_os == .windows) {
+        const rc = windows.ws2_32.getsockopt(fd, level, @intCast(optname), opt.ptr, @ptrCast(&len));
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
+                // https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-getsockopt
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEFAULT => unreachable,
+                .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+                .WSAEINVAL => return error.InvalidOption,
+                .WSAENOPROTOOPT => return error.InvalidProtocolOption,
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                else => |err| return windows.unexpectedWSAError(err),
+            }
+        }
+    } else {
+        switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
+            .SUCCESS => {},
+            .BADF => unreachable,
+            .NOTSOCK => unreachable,
+            .FAULT => unreachable,
+            .INVAL => return error.InvalidOption,
+            .NOPROTOOPT => return error.InvalidProtocolOption,
+            .NOMEM => return error.SystemResources,
+            .NOBUFS => return error.SystemResources,
+            .ACCES => return error.AccessDenied,
+            .RANGE => return error.BufferTooSmall,
+            else => |err| return unexpectedErrno(err),
+        }
     }
+    assert(len <= opt.len);
+    return opt[0..len];
 }
 
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
@@ -6838,45 +6896,61 @@ pub const SetSockOptError = error{
     /// Setting the socket option requires more elevated permissions.
     PermissionDenied,
 
+    /// This can mean many different things depending on the platform, the
+    /// option name, and conditions.  For example:
+    /// - That the socket was not listen()ing when setting SO_ACCEPTFILTER on BSDs.
+    /// - That an non-multicast IP address was set for IP_ADD_MEMBERSHIP on Linux.
+    /// - That the socket is shut down and the option requires otherwise
+    /// - etc...
+    InvalidOption,
+
+    BlockingOperationInProgress,
+    ConnectionTimedOut,
+    ConnectionResetByPeer,
     OperationNotSupported,
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
-    SocketNotBound,
     NoDevice,
 } || UnexpectedError;
 
 /// Set a socket's options.
-pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSockOptError!void {
+pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: ?[]const u8) SetSockOptError!void {
+    const optval: ?[*]const u8 = if (opt) |o| o.ptr else null;
+    const optlen: socklen_t = if (opt) |o| @intCast(o.len) else 0;
     if (native_os == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), opt.ptr, @intCast(opt.len));
+        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), @ptrCast(optval), @intCast(optlen));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
+                // https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-setsockopt
                 .WSANOTINITIALISED => unreachable,
                 .WSAENETDOWN => return error.NetworkSubsystemFailed,
                 .WSAEFAULT => unreachable,
+                .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+                .WSAEINVAL => return error.InvalidOption,
+                .WSAENETRESET => return error.ConnectionTimedOut,
+                .WSAENOPROTOOPT => return error.InvalidProtocolOption,
+                .WSAENOTCONN => return error.ConnectionResetByPeer,
                 .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEINVAL => return error.SocketNotBound,
                 else => |err| return windows.unexpectedWSAError(err),
             }
         }
         return;
-    } else {
-        switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(opt.len)))) {
-            .SUCCESS => {},
-            .BADF => unreachable, // always a race condition
-            .NOTSOCK => unreachable, // always a race condition
-            .INVAL => unreachable,
-            .FAULT => unreachable,
-            .DOM => return error.TimeoutTooBig,
-            .ISCONN => return error.AlreadyConnected,
-            .NOPROTOOPT => return error.InvalidProtocolOption,
-            .NOMEM => return error.SystemResources,
-            .NOBUFS => return error.SystemResources,
-            .PERM => return error.PermissionDenied,
-            .NODEV => return error.NoDevice,
-            .OPNOTSUPP => return error.OperationNotSupported,
-            else => |err| return unexpectedErrno(err),
-        }
+    }
+    switch (errno(system.setsockopt(fd, level, optname, @ptrCast(optval), optlen))) {
+        .SUCCESS => {},
+        .BADF => unreachable, // always a race condition
+        .NOTSOCK => unreachable, // always a race condition
+        .FAULT => unreachable,
+        .INVAL => return error.InvalidOption,
+        .DOM => return error.TimeoutTooBig,
+        .ISCONN => return error.AlreadyConnected,
+        .NOPROTOOPT => return error.InvalidProtocolOption,
+        .NOMEM => return error.SystemResources,
+        .NOBUFS => return error.SystemResources,
+        .PERM => return error.PermissionDenied,
+        .NODEV => return error.NoDevice,
+        .OPNOTSUPP => return error.OperationNotSupported,
+        else => |err| return unexpectedErrno(err),
     }
 }
 
