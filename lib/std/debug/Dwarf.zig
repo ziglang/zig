@@ -1430,7 +1430,7 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u16 {
 pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 32,
-        .arc => 160,
+        .arc, .arceb => 160,
         .arm, .armeb, .thumb, .thumbeb => 15,
         .csky => 64,
         .hexagon => 76,
@@ -1453,7 +1453,7 @@ pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
 pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 29,
-        .arc => 27,
+        .arc, .arceb => 27,
         .arm, .armeb, .thumb, .thumbeb => 11,
         .csky => 14,
         .hexagon => 30,
@@ -1476,7 +1476,7 @@ pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
 pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 31,
-        .arc => 28,
+        .arc, .arceb => 28,
         .arm, .armeb, .thumb, .thumbeb => 13,
         .csky => 14,
         .hexagon => 29,

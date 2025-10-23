@@ -3905,6 +3905,8 @@ fn updateLazyType(
 
                     .m68k_rtd => .LLVM_M68kRTD,
 
+                    .sh_renesas => .GNU_renesas_sh,
+
                     .amdgcn_kernel => .LLVM_OpenCLKernel,
                     .nvptx_kernel,
                     .spirv_kernel,
@@ -3917,12 +3919,15 @@ fn updateLazyType(
                     .mips_interrupt,
                     .riscv64_interrupt,
                     .riscv32_interrupt,
+                    .sh_interrupt,
                     .arc_interrupt,
                     .avr_builtin,
                     .avr_signal,
                     .avr_interrupt,
                     .csky_interrupt,
                     .m68k_interrupt,
+                    .microblaze_interrupt,
+                    .msp430_interrupt,
                     => .normal,
 
                     else => .nocall,

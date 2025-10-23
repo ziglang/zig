@@ -872,13 +872,18 @@ const StackIterator = union(enum) {
     };
 
     const fp_usability: FpUsability = switch (builtin.target.cpu.arch) {
+        .alpha,
         .avr,
         .csky,
+        .microblaze,
+        .microblazeel,
         .mips,
         .mipsel,
         .mips64,
         .mips64el,
         .msp430,
+        .sh,
+        .sheb,
         .xcore,
         => .useless,
         .hexagon,
@@ -969,11 +974,15 @@ const StackIterator = union(enum) {
                 const ra_ptr: *const usize = @ptrFromInt(ra_addr);
                 const bp = applyOffset(bp_ptr.*, stack_bias) orelse return .end;
 
-                // The stack grows downards, so `bp > fp` should always hold. If it doesn't, this
-                // frame is invalid, so we'll treat it as though it we reached end of stack. The
+                // If the stack grows downwards, `bp > fp` should always hold; conversely, if it
+                // grows upwards, `bp < fp` should always hold. If that is not the case, this
+                // frame is invalid, so we'll treat it as though we reached end of stack. The
                 // exception is address 0, which is a graceful end-of-stack signal, in which case
                 // *this* return address is valid and the *next* iteration will be the last.
-                if (bp != 0 and bp <= fp) return .end;
+                if (bp != 0 and switch (comptime builtin.target.stackGrowth()) {
+                    .down => bp <= fp,
+                    .up => bp >= fp,
+                }) return .end;
 
                 it.fp = bp;
                 const ra = stripInstructionPtrAuthCode(ra_ptr.*);
@@ -985,6 +994,11 @@ const StackIterator = union(enum) {
 
     /// Offset of the saved base pointer (previous frame pointer) wrt the frame pointer.
     const fp_to_bp_offset = off: {
+        // On 32-bit PA-RISC, the base pointer is the final word of the frame marker.
+        if (native_arch == .hppa) break :off -1 * @sizeOf(usize);
+        // On 64-bit PA-RISC, the frame marker was shrunk significantly; now there's just the return
+        // address followed by the base pointer.
+        if (native_arch == .hppa64) break :off -1 * @sizeOf(usize);
         // On LoongArch and RISC-V, the frame pointer points to the top of the saved register area,
         // in which the base pointer is the first word.
         if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -2 * @sizeOf(usize);
@@ -999,6 +1013,11 @@ const StackIterator = union(enum) {
 
     /// Offset of the saved return address wrt the frame pointer.
     const fp_to_ra_offset = off: {
+        // On 32-bit PA-RISC, the return address sits in the middle-ish of the frame marker.
+        if (native_arch == .hppa) break :off -5 * @sizeOf(usize);
+        // On 64-bit PA-RISC, the frame marker was shrunk significantly; now there's just the return
+        // address followed by the base pointer.
+        if (native_arch == .hppa64) break :off -2 * @sizeOf(usize);
         // On LoongArch and RISC-V, the frame pointer points to the top of the saved register area,
         // in which the return address is the second word.
         if (native_arch.isLoongArch() or native_arch.isRISCV()) break :off -1 * @sizeOf(usize);

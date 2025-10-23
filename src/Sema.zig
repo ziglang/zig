@@ -9035,6 +9035,7 @@ pub fn handleExternLibName(
 /// functions or there are no more other calling conventions that support variadic functions.
 const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention.Tag{
     .x86_64_sysv,
+    .x86_64_x32,
     .x86_64_win,
     .x86_sysv,
     .x86_win,
@@ -9043,8 +9044,10 @@ const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention
     .aarch64_aapcs_win,
     .aarch64_vfabi,
     .aarch64_vfabi_sve,
+    .alpha_osf,
     .arm_aapcs,
     .arm_aapcs_vfp,
+    .microblaze_std,
     .mips64_n64,
     .mips64_n32,
     .mips_o32,
@@ -9068,6 +9071,8 @@ const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention
     .csky_sysv,
     .hexagon_sysv,
     .hexagon_sysv_hvx,
+    .hppa_elf,
+    .hppa64_elf,
     .lanai_sysv,
     .loongarch64_lp64,
     .loongarch32_ilp32,
@@ -9078,6 +9083,8 @@ const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention
     .or1k_sysv,
     .s390x_sysv,
     .s390x_sysv_vx,
+    .sh_gnu,
+    .sh_renesas,
     .ve_sysv,
     .xcore_xs1,
     .xcore_xs2,
@@ -9128,10 +9135,13 @@ fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
         .avr_signal,
         .csky_interrupt,
         .m68k_interrupt,
+        .microblaze_interrupt,
         .mips_interrupt,
         .mips64_interrupt,
+        .msp430_interrupt,
         .riscv32_interrupt,
         .riscv64_interrupt,
+        .sh_interrupt,
         .x86_interrupt,
         .x86_64_interrupt,
 
@@ -9287,13 +9297,16 @@ fn funcCommon(
             },
             .arc_interrupt,
             .arm_interrupt,
+            .microblaze_interrupt,
             .mips64_interrupt,
             .mips_interrupt,
             .riscv64_interrupt,
             .riscv32_interrupt,
+            .sh_interrupt,
             .avr_interrupt,
             .csky_interrupt,
             .m68k_interrupt,
+            .msp430_interrupt,
             .avr_signal,
             => return sema.fail(block, param_src, "parameters are not allowed with '{s}' calling convention", .{@tagName(cc)}),
             else => {},
@@ -9517,10 +9530,13 @@ fn finishFunc(
         .mips_interrupt,
         .riscv64_interrupt,
         .riscv32_interrupt,
+        .sh_interrupt,
         .arc_interrupt,
         .avr_interrupt,
         .csky_interrupt,
         .m68k_interrupt,
+        .microblaze_interrupt,
+        .msp430_interrupt,
         .avr_signal,
         => if (return_type.zigTypeTag(zcu) != .void and return_type.zigTypeTag(zcu) != .noreturn) {
             return sema.fail(block, ret_ty_src, "function with calling convention '{s}' must return 'void' or 'noreturn'", .{@tagName(cc_resolved)});
@@ -30047,11 +30063,17 @@ fn callconvCoerceAllowed(
                 std.builtin.CallingConvention.ArmInterruptOptions => {
                     if (src_data.type != dest_data.type) return false;
                 },
+                std.builtin.CallingConvention.MicroblazeInterruptOptions => {
+                    if (src_data.type != dest_data.type) return false;
+                },
                 std.builtin.CallingConvention.MipsInterruptOptions => {
                     if (src_data.mode != dest_data.mode) return false;
                 },
                 std.builtin.CallingConvention.RiscvInterruptOptions => {
                     if (src_data.mode != dest_data.mode) return false;
+                },
+                std.builtin.CallingConvention.ShInterruptOptions => {
+                    if (src_data.save != dest_data.save) return false;
                 },
                 else => comptime unreachable,
             }
@@ -36495,7 +36517,7 @@ fn resolveAddressSpace(
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-    ctx: std.builtin.AddressSpace.Context,
+    ctx: std.Target.AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const air_ref = try sema.resolveInst(zir_ref);
     return sema.analyzeAsAddressSpace(block, src, air_ref, ctx);
@@ -36506,7 +36528,7 @@ pub fn analyzeAsAddressSpace(
     block: *Block,
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
-    ctx: std.builtin.AddressSpace.Context,
+    ctx: std.Target.AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const pt = sema.pt;
     const addrspace_ty = try sema.getBuiltinType(src, .AddressSpace);
@@ -37631,7 +37653,7 @@ pub fn resolveNavPtrModifiers(
     };
 
     const @"addrspace": std.builtin.AddressSpace = as: {
-        const addrspace_ctx: std.builtin.AddressSpace.Context = switch (zir_decl.kind) {
+        const addrspace_ctx: std.Target.AddressSpaceContext = switch (zir_decl.kind) {
             .@"var" => .variable,
             else => switch (nav_ty.zigTypeTag(zcu)) {
                 .@"fn" => .function,

@@ -195,13 +195,15 @@ fn _start() callconv(.naked) noreturn {
     // This is the first userspace frame. Prevent DWARF-based unwinders from unwinding further. We
     // prevent FP-based unwinders from unwinding further by zeroing the register below.
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (switch (native_arch) {
-            .arc => ".cfi_undefined blink",
-            .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
             .aarch64, .aarch64_be => ".cfi_undefined lr",
+            .alpha => ".cfi_undefined $26",
+            .arc, .arceb => ".cfi_undefined blink",
+            .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
+            .microblaze, .microblazeel => ".cfi_undefined r15",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .or1k => ".cfi_undefined r9",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
@@ -210,6 +212,7 @@ fn _start() callconv(.naked) noreturn {
             else
                 ".cfi_undefined ra",
             .s390x => ".cfi_undefined %%r14",
+            .sh, .sheb => ".cfi_undefined pr",
             .sparc, .sparc64 => ".cfi_undefined %%i7",
             .x86 => ".cfi_undefined %%eip",
             .x86_64 => ".cfi_undefined %%rip",
@@ -253,7 +256,19 @@ fn _start() callconv(.naked) noreturn {
             \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
-            .arc =>
+            .alpha =>
+            // $15 = FP, $26 = LR, $29 = GP, $30 = SP
+            \\ br $29, 1f
+            \\1:
+            \\ ldgp $29, 0($29)
+            \\ mov 0, $15
+            \\ mov 0, $26
+            \\ mov $30, $16
+            \\ ldi $1, -16
+            \\ and $30, $30, $1
+            \\ jsr $26, %[posixCallMainAndExit]
+            ,
+            .arc, .arceb =>
             // ARC v1 and v2 had a very low stack alignment requirement of 4; v3 increased it to 16.
             \\ mov fp, 0
             \\ mov blink, 0
@@ -332,6 +347,16 @@ fn _start() callconv(.naked) noreturn {
             \\ move.l %%a0, -(%%sp)
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
+            ,
+            .microblaze, .microblazeel =>
+            // r1 = SP, r15 = LR, r19 = FP, r20 = GP
+            \\ ori r15, r0, r0
+            \\ ori r19, r0, r0
+            \\ mfs r20, rpc
+            \\ addik r20, r20, _GLOBAL_OFFSET_TABLE_ + 8
+            \\ ori r5, r1, r0
+            \\ andi r1, r1, -4
+            \\ brlid r15, %[posixCallMainAndExit]
             ,
             .mips, .mipsel =>
             \\ move $fp, $zero
@@ -430,6 +455,21 @@ fn _start() callconv(.naked) noreturn {
             \\ lghi %%r0, 0
             \\ stg  %%r0, 0(%%r15)
             \\ jg %[posixCallMainAndExit]
+            ,
+            .sh, .sheb =>
+            // r14 = FP, r15 = SP, pr = LR
+            \\ mov #0, r0
+            \\ lds r0, pr
+            \\ mov r0, r14
+            \\ mov r15, r4
+            \\ mov #-4, r0
+            \\ and r0, r15
+            \\ mov.l 2f, r1
+            \\1:
+            \\ bsrf r1
+            \\2:
+            \\ .balign 4
+            \\ .long %[posixCallMainAndExit]@PCREL - (1b + 4 - .)
             ,
             .sparc =>
             // argc is stored after a register window (16 registers * 4 bytes).
