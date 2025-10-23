@@ -736,6 +736,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     },
     .netbsd => switch (builtin.cpu.arch) {
         // NetBSD/sys/arch/*
+        .alpha => 8 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 4 << 10,
@@ -894,6 +895,7 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     },
     .netbsd => switch (builtin.cpu.arch) {
         // NetBSD/sys/arch/*
+        .alpha => 8 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 64 << 10,
