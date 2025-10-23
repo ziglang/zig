@@ -11972,7 +11972,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
-        .ez80_ti,
+        .ez80_cet,
         .ez80_tiflags,
         => null,
     };

@@ -378,7 +378,7 @@ pub const CallingConvention = union(enum(u8)) {
     spirv_vertex,
 
     // Calling conventions for the `ez80` architecture.
-    ez80_ti,
+    ez80_cet,
     ez80_tiflags,
 
     /// Options shared across most calling conventions.
