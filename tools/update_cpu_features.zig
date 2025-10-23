@@ -967,7 +967,7 @@ const targets = [_]ArchTarget{
         },
     },
     .{
-        .zig_name = "ez80",
+        .zig_name = "z80",
         .llvm = null,
     },
     .{
