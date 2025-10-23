@@ -203,6 +203,7 @@ fn _start() callconv(.naked) noreturn {
             .hexagon => ".cfi_undefined r31",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
+            .microblaze, .microblazeel => ".cfi_undefined r15",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .or1k => ".cfi_undefined r9",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
@@ -345,6 +346,16 @@ fn _start() callconv(.naked) noreturn {
             \\ move.l %%a0, -(%%sp)
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
+            ,
+            .microblaze, .microblazeel =>
+            // r1 = SP, r15 = LR, r19 = FP, r20 = GP
+            \\ ori r15, r0, r0
+            \\ ori r19, r0, r0
+            \\ mfs r20, rpc
+            \\ addik r20, r20, _GLOBAL_OFFSET_TABLE_ + 8
+            \\ ori r5, r1, r0
+            \\ andi r1, r1, -4
+            \\ brlid r15, %[posixCallMainAndExit]
             ,
             .mips, .mipsel =>
             \\ move $fp, $zero
