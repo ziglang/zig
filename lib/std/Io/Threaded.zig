@@ -1651,7 +1651,7 @@ fn dirCreateFilePosix(
                 else => |err| return posix.unexpectedErrno(err),
             }
         };
-        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
+        fl_flags |= @as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
         while (true) {
             try t.checkCancel();
             switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFL, fl_flags))) {
@@ -1897,7 +1897,7 @@ fn dirOpenFilePosix(
                 else => |err| return posix.unexpectedErrno(err),
             }
         };
-        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
+        fl_flags |= @as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
         while (true) {
             try t.checkCancel();
             switch (posix.errno(posix.system.fcntl(fd, posix.F.SETFL, fl_flags))) {
