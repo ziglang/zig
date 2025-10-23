@@ -57,7 +57,7 @@ const Closure = struct {
     fn requestCancel(closure: *Closure) void {
         switch (@atomicRmw(std.Thread.Id, &closure.cancel_tid, .Xchg, canceling_tid, .acq_rel)) {
             0, canceling_tid => {},
-            else => |tid| switch (builtin.os.tag) {
+            else => |tid| switch (native_os) {
                 .linux => _ = std.os.linux.tgkill(std.os.linux.getpid(), @bitCast(tid), posix.SIG.IO),
                 else => {},
             },
@@ -168,49 +168,49 @@ pub fn io(t: *Threaded) Io {
             .conditionWaitUncancelable = conditionWaitUncancelable,
             .conditionWake = conditionWake,
 
-            .dirMake = switch (builtin.os.tag) {
+            .dirMake = switch (native_os) {
                 .windows => dirMakeWindows,
                 .wasi => dirMakeWasi,
                 else => dirMakePosix,
             },
-            .dirMakePath = switch (builtin.os.tag) {
+            .dirMakePath = switch (native_os) {
                 .windows => dirMakePathWindows,
                 else => dirMakePathPosix,
             },
-            .dirMakeOpenPath = switch (builtin.os.tag) {
+            .dirMakeOpenPath = switch (native_os) {
                 .windows => dirMakeOpenPathWindows,
                 .wasi => dirMakeOpenPathWasi,
                 else => dirMakeOpenPathPosix,
             },
             .dirStat = dirStat,
-            .dirStatPath = switch (builtin.os.tag) {
+            .dirStatPath = switch (native_os) {
                 .linux => dirStatPathLinux,
                 .windows => dirStatPathWindows,
                 .wasi => dirStatPathWasi,
                 else => dirStatPathPosix,
             },
-            .fileStat = switch (builtin.os.tag) {
+            .fileStat = switch (native_os) {
                 .linux => fileStatLinux,
                 .windows => fileStatWindows,
                 .wasi => fileStatWasi,
                 else => fileStatPosix,
             },
-            .dirAccess = switch (builtin.os.tag) {
+            .dirAccess = switch (native_os) {
                 .windows => dirAccessWindows,
                 .wasi => dirAccessWasi,
                 else => dirAccessPosix,
             },
-            .dirCreateFile = switch (builtin.os.tag) {
+            .dirCreateFile = switch (native_os) {
                 .windows => dirCreateFileWindows,
                 .wasi => dirCreateFileWasi,
                 else => dirCreateFilePosix,
             },
-            .dirOpenFile = switch (builtin.os.tag) {
+            .dirOpenFile = switch (native_os) {
                 .windows => dirOpenFileWindows,
                 .wasi => dirOpenFileWasi,
                 else => dirOpenFilePosix,
             },
-            .dirOpenDir = switch (builtin.os.tag) {
+            .dirOpenDir = switch (native_os) {
                 .wasi => dirOpenDirWasi,
                 .haiku => dirOpenDirHaiku,
                 else => dirOpenDirPosix,
@@ -219,11 +219,11 @@ pub fn io(t: *Threaded) Io {
             .fileClose = fileClose,
             .fileWriteStreaming = fileWriteStreaming,
             .fileWritePositional = fileWritePositional,
-            .fileReadStreaming = switch (builtin.os.tag) {
+            .fileReadStreaming = switch (native_os) {
                 .windows => fileReadStreamingWindows,
                 else => fileReadStreamingPosix,
             },
-            .fileReadPositional = switch (builtin.os.tag) {
+            .fileReadPositional = switch (native_os) {
                 .windows => fileReadPositionalWindows,
                 else => fileReadPositionalPosix,
             },
@@ -231,53 +231,56 @@ pub fn io(t: *Threaded) Io {
             .fileSeekTo = fileSeekTo,
             .openSelfExe = openSelfExe,
 
-            .now = switch (builtin.os.tag) {
+            .now = switch (native_os) {
                 .windows => nowWindows,
                 .wasi => nowWasi,
                 else => nowPosix,
             },
-            .sleep = switch (builtin.os.tag) {
+            .sleep = switch (native_os) {
                 .windows => sleepWindows,
                 .wasi => sleepWasi,
                 .linux => sleepLinux,
                 else => sleepPosix,
             },
 
-            .netListenIp = switch (builtin.os.tag) {
+            .netListenIp = switch (native_os) {
                 .windows => netListenIpWindows,
                 else => netListenIpPosix,
             },
-            .netListenUnix = switch (builtin.os.tag) {
+            .netListenUnix = switch (native_os) {
                 .windows => netListenUnixWindows,
                 else => netListenUnixPosix,
             },
-            .netAccept = switch (builtin.os.tag) {
+            .netAccept = switch (native_os) {
                 .windows => netAcceptWindows,
                 else => netAcceptPosix,
             },
-            .netBindIp = switch (builtin.os.tag) {
+            .netBindIp = switch (native_os) {
                 .windows => netBindIpWindows,
                 else => netBindIpPosix,
             },
-            .netConnectIp = switch (builtin.os.tag) {
+            .netConnectIp = switch (native_os) {
                 .windows => netConnectIpWindows,
                 else => netConnectIpPosix,
             },
-            .netConnectUnix = netConnectUnix,
+            .netConnectUnix = switch (native_os) {
+                .windows => netConnectUnixWindows,
+                else => netConnectUnixPosix,
+            },
             .netClose = netClose,
-            .netRead = switch (builtin.os.tag) {
+            .netRead = switch (native_os) {
                 .windows => netReadWindows,
                 else => netReadPosix,
             },
-            .netWrite = switch (builtin.os.tag) {
+            .netWrite = switch (native_os) {
                 .windows => netWriteWindows,
                 else => netWritePosix,
             },
-            .netSend = switch (builtin.os.tag) {
+            .netSend = switch (native_os) {
                 .windows => netSendWindows,
                 else => netSendPosix,
             },
-            .netReceive = switch (builtin.os.tag) {
+            .netReceive = switch (native_os) {
                 .windows => netReceiveWindows,
                 else => netReceivePosix,
             },
@@ -288,12 +291,12 @@ pub fn io(t: *Threaded) Io {
     };
 }
 
-pub const socket_flags_unsupported = builtin.os.tag.isDarwin() or native_os == .haiku; // 💩💩
+pub const socket_flags_unsupported = native_os.isDarwin() or native_os == .haiku; // 💩💩
 const have_accept4 = !socket_flags_unsupported;
 const have_flock_open_flags = @hasField(posix.O, "EXLOCK");
-const have_networking = builtin.os.tag != .wasi;
+const have_networking = native_os != .wasi;
 const have_flock = @TypeOf(posix.system.flock) != void;
-const have_sendmmsg = builtin.os.tag == .linux;
+const have_sendmmsg = native_os == .linux;
 const have_futex = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => builtin.cpu.has(.wasm, .atomics),
     else => true,
@@ -2916,7 +2919,7 @@ fn netListenUnixWindows(
 ) net.UnixAddress.ListenError!net.Socket.Handle {
     if (!net.has_unix_sockets) return error.AddressFamilyUnsupported;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    _ = t;
+    try t.checkCancel();
     _ = address;
     _ = options;
     @panic("TODO");
@@ -3192,7 +3195,7 @@ fn netConnectIpWindows(
     } };
 }
 
-fn netConnectUnix(
+fn netConnectUnixPosix(
     userdata: ?*anyopaque,
     address: *const net.UnixAddress,
 ) net.UnixAddress.ConnectError!net.Socket.Handle {
@@ -3207,6 +3210,17 @@ fn netConnectUnix(
     const addr_len = addressUnixToPosix(address, &storage);
     try posixConnectUnix(t, socket_fd, &storage.any, addr_len);
     return socket_fd;
+}
+
+fn netConnectUnixWindows(
+    userdata: ?*anyopaque,
+    address: *const net.UnixAddress,
+) net.UnixAddress.ConnectError!net.Socket.Handle {
+    if (!net.has_unix_sockets) return error.AddressFamilyUnsupported;
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    try t.checkCancel();
+    _ = address;
+    @panic("TODO");
 }
 
 fn netBindIpPosix(
@@ -4456,11 +4470,11 @@ fn recoverableOsBugDetected() void {
 fn clockToPosix(clock: Io.Clock) posix.clockid_t {
     return switch (clock) {
         .real => posix.CLOCK.REALTIME,
-        .awake => switch (builtin.os.tag) {
+        .awake => switch (native_os) {
             .macos, .ios, .watchos, .tvos => posix.CLOCK.UPTIME_RAW,
             else => posix.CLOCK.MONOTONIC,
         },
-        .boot => switch (builtin.os.tag) {
+        .boot => switch (native_os) {
             .macos, .ios, .watchos, .tvos => posix.CLOCK.MONOTONIC_RAW,
             else => posix.CLOCK.BOOTTIME,
         },
@@ -4523,7 +4537,7 @@ fn statFromPosix(st: *const std.posix.Stat) Io.File.Stat {
                 std.posix.S.IFSOCK => break :k .unix_domain_socket,
                 else => {},
             }
-            if (builtin.os.tag == .illumos) switch (m) {
+            if (native_os == .illumos) switch (m) {
                 std.posix.S.IFDOOR => break :k .door,
                 std.posix.S.IFPORT => break :k .event_port,
                 else => {},
