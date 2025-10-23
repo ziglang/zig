@@ -754,11 +754,14 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     },
     .openbsd => switch (builtin.cpu.arch) {
         // OpenBSD/sys/arch/*
+        .alpha => 8 << 10,
+        .hppa => 4 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
         .mips64, .mips64el => 4 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv64 => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc64 => 8 << 10,
         else => null,
     },
@@ -906,11 +909,14 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     },
     .openbsd => switch (builtin.cpu.arch) {
         // OpenBSD/sys/arch/*
+        .alpha => 8 << 10,
+        .hppa => 4 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
         .mips64, .mips64el => 16 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv64 => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc64 => 8 << 10,
         else => null,
     },
