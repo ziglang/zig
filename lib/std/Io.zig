@@ -1604,6 +1604,13 @@ pub fn cancelRequested(io: Io) bool {
 
 pub const SleepError = error{UnsupportedClock} || UnexpectedError || Cancelable;
 
+pub fn sleep(io: Io, duration: Duration, clock: Clock) SleepError!void {
+    return io.vtable.sleep(io.userdata, .{ .duration = .{
+        .raw = duration,
+        .clock = clock,
+    } });
+}
+
 /// Given a struct with each field a `*Future`, returns a union with the same
 /// fields, each field type the future's result.
 pub fn SelectUnion(S: type) type {
