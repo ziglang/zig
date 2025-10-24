@@ -4406,6 +4406,9 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 }
             }
             break :ok switch (cc) {
+                .x86_16_cdecl,
+                .x86_16_stdcall,
+                .x86_16_regparmcall,
                 .x86_16_interrupt,
                 .x86_64_sysv,
                 .x86_64_win,
@@ -4453,12 +4456,10 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .sh_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
-                .x86_16_cdecl,
-                .x86_16_stdcall,
                 .x86_sysv,
                 .x86_win,
                 .x86_stdcall,
-                => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+                => |opts| opts.incoming_stack_alignment == null,
 
                 .avr_interrupt,
                 .avr_signal,

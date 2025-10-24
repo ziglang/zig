@@ -11923,6 +11923,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         // Note that these are often still supported through the `cCallingConvention` path above via `ccc`.
         .x86_16_cdecl,
         .x86_16_stdcall,
+        .x86_16_regparmcall,
         .x86_16_interrupt,
         .x86_sysv,
         .x86_win,

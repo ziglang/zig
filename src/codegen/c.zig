@@ -8056,6 +8056,7 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .auto, .naked => null,
 
         .x86_16_cdecl => "cdecl",
+        .x86_16_regparmcall => "regparmcall",
         .x86_64_sysv, .x86_sysv => "sysv_abi",
         .x86_64_win, .x86_win => "ms_abi",
         .x86_16_stdcall, .x86_stdcall => "stdcall",

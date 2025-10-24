@@ -1101,12 +1101,11 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .sparc => if (target.cpu.has(.sparc, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .ve => .VE,
-        .x86 => .@"386",
+        .x86_16, .x86 => .@"386",
         .x86_64 => .X86_64,
         .xcore => .XCORE,
         .xtensa, .xtensaeb => .XTENSA,
 
-        .x86_16,
         .nvptx,
         .nvptx64,
         .spirv32,
@@ -1136,7 +1135,6 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .x86_64 => .AMD64,
 
         .aarch64_be,
-        .x86_16,
         .amdgcn,
         .arc,
         .arceb,
@@ -1174,6 +1172,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .ve,
         .wasm32,
         .wasm64,
+        .x86_16,
         .xcore,
         .xtensa,
         .xtensaeb,
@@ -1813,6 +1812,7 @@ pub const Cpu = struct {
 
                 .x86_16_cdecl,
                 .x86_16_stdcall,
+                .x86_16_regparmcall,
                 .x86_16_interrupt,
                 => &.{.x86_16},
 

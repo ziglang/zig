@@ -223,8 +223,11 @@ pub const CallingConvention = union(enum(u8)) {
     x86_vectorcall: CommonOptions,
     x86_interrupt: CommonOptions,
 
-    x86_16_cdecl: X86RegparmOptions,
-    x86_16_stdcall: X86RegparmOptions,
+    // Calling conventions for the `x86_16` architecture.
+
+    x86_16_cdecl: CommonOptions,
+    x86_16_stdcall: CommonOptions,
+    x86_16_regparmcall: CommonOptions,
     x86_16_interrupt: CommonOptions,
 
     // Calling conventions for the `aarch64` and `aarch64_be` architectures.
