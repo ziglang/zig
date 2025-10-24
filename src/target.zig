@@ -216,6 +216,7 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         => false,
 
         // No LLVM backend exists.
+        .x86_16,
         .alpha,
         .arceb,
         .hppa,

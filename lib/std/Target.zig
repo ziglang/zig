@@ -1106,6 +1106,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .xcore => .XCORE,
         .xtensa, .xtensaeb => .XTENSA,
 
+        .x86_16,
         .nvptx,
         .nvptx64,
         .spirv32,
@@ -1135,6 +1136,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .x86_64 => .AMD64,
 
         .aarch64_be,
+        .x86_16,
         .amdgcn,
         .arc,
         .arceb,
@@ -1394,6 +1396,7 @@ pub const Cpu = struct {
         ve,
         wasm32,
         wasm64,
+        x86_16,
         x86,
         x86_64,
         xcore,
@@ -1485,7 +1488,7 @@ pub const Cpu = struct {
                 .spirv32, .spirv64 => .spirv,
                 .ve => .ve,
                 .wasm32, .wasm64 => .wasm,
-                .x86, .x86_64 => .x86,
+                .x86_16, .x86, .x86_64 => .x86,
                 .xcore => .xcore,
                 .xtensa, .xtensaeb => .xtensa,
             };
@@ -1493,7 +1496,7 @@ pub const Cpu = struct {
 
         pub inline fn isX86(arch: Arch) bool {
             return switch (arch) {
-                .x86, .x86_64 => true,
+                .x86_16, .x86, .x86_64 => true,
                 else => false,
             };
         }
@@ -1687,6 +1690,7 @@ pub const Cpu = struct {
                 .ve,
                 .wasm32,
                 .wasm64,
+                .x86_16,
                 .x86,
                 .x86_64,
                 .xcore,
@@ -1806,6 +1810,11 @@ pub const Cpu = struct {
                 .x86_vectorcall,
                 .x86_interrupt,
                 => &.{.x86},
+
+                .x86_16_cdecl,
+                .x86_16_stdcall,
+                .x86_16_interrupt,
+                => &.{.x86_16},
 
                 .aarch64_aapcs,
                 .aarch64_aapcs_darwin,
@@ -1989,6 +1998,7 @@ pub const Cpu = struct {
                 .riscv64, .riscv64be => &riscv.cpu.generic_rv64,
                 .sparc64 => &sparc.cpu.v9, // SPARC can only be 64-bit from v9 and up.
                 .wasm32, .wasm64 => &wasm.cpu.mvp,
+                .x86_16 => &x86.cpu.i86,
                 .x86 => &x86.cpu.i386,
                 .x86_64 => &x86.cpu.x86_64,
                 inline else => |a| &@field(Target, @tagName(a.family())).cpu.generic,
@@ -2260,7 +2270,10 @@ pub fn supportsAddressSpace(
 
     return switch (address_space) {
         .generic => true,
-        .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
+        .fs, .gs, .ss => (arch == .x86_64 or arch == .x86 or arch == .x86_16) and (context == null or context == .pointer),
+        // Technically x86 can use segmentation...
+        .far => (arch == .x86_16),
+
         .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
         .cog, .hub => arch == .propeller,
         .lut => arch == .propeller and std.Target.propeller.featureSetHas(target.cpu.features, .p2),
@@ -2831,6 +2844,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         else => {},
     }
     return switch (cpu_arch) {
+        .x86_16,
         .avr,
         .msp430,
         => 16,
@@ -3046,7 +3060,7 @@ pub fn cTypeByteSize(t: *const Target, c_type: CType) u16 {
 pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
     switch (target.os.tag) {
         .freestanding, .other => switch (target.cpu.arch) {
-            .msp430 => switch (c_type) {
+            .x86_16, .msp430 => switch (c_type) {
                 .char => return 8,
                 .short, .ushort, .int, .uint => return 16,
                 .float, .long, .ulong => return 32,
@@ -3404,6 +3418,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
         std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
             .msp430,
+            .x86_16,
             => 2,
 
             .arc,
@@ -3511,7 +3526,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
     return @min(
         std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
-            .msp430 => 2,
+            .x86_16, .msp430 => 2,
 
             .arc,
             .arceb,
@@ -3583,7 +3598,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
     return switch (target.cpu.arch) {
         .avr => 1,
 
-        .msp430 => 2,
+        .x86_16, .msp430 => 2,
 
         .arc,
         .arceb,
@@ -3660,6 +3675,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             .windows, .uefi => .{ .x86_win = .{} },
             else => .{ .x86_sysv = .{} },
         },
+        .x86_16 => .{ .x86_16_cdecl = .{} },
         .aarch64, .aarch64_be => if (target.os.tag.isDarwin())
             .{ .aarch64_aapcs_darwin = .{} }
         else switch (target.os.tag) {

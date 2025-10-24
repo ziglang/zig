@@ -1,5 +1,5 @@
 pub const Clobbers = switch (@import("builtin").cpu.arch) {
-    .x86, .x86_64 => packed struct {
+    .x86_16, .x86, .x86_64 => packed struct {
         /// Whether the inline assembly code may perform stores to memory
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,

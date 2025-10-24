@@ -106,6 +106,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .wasm64 => "wasm64",
         .ve => "ve",
 
+        .x86_16,
         .alpha,
         .arceb,
         .hppa,
@@ -482,6 +483,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
+        .x86_16,
         .alpha,
         .arceb,
         .hppa,
@@ -11919,6 +11921,9 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
 
         // All the calling conventions which LLVM does not have a general representation for.
         // Note that these are often still supported through the `cCallingConvention` path above via `ccc`.
+        .x86_16_cdecl,
+        .x86_16_stdcall,
+        .x86_16_interrupt,
         .x86_sysv,
         .x86_win,
         .x86_thiscall_mingw,
@@ -13137,6 +13142,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM does does not have a backend for these.
+        .x86_16,
         .alpha,
         .arceb,
         .hppa,
