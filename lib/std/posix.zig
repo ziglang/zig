@@ -6639,7 +6639,7 @@ pub fn ppoll(fds: []pollfd, timeout: ?*const timespec, mask: ?*const sigset_t) P
     }
 }
 
-pub const RecvFromError = error{
+pub const RecvError = error{
     /// The socket is marked nonblocking and the requested operation would block, and
     /// there is no global event loop configured.
     WouldBlock,
@@ -6651,11 +6651,26 @@ pub const RecvFromError = error{
     /// Could not allocate kernel memory.
     SystemResources,
 
+    ///The connection was reset by the peer
     ConnectionResetByPeer,
+
+    ///Operation now in progress.A blocking operation is currently executing.
+    BlockingOperationInProgress,
+
+    ///Connection timed out
     ConnectionTimedOut,
 
     /// The socket has not been bound.
     SocketNotBound,
+
+    ///Software caused connection abort. An established connection was aborted by the software in your host computer, possibly due to a data transmission time-out or protocol error.
+    ConnectionAborted,
+
+    /// The file descriptor sockfd does not refer to a socket.
+    FileDescriptorNotASocket,
+
+    /// The socket is not of a type that supports the recv() operation.
+    OperationNotSupported,
 
     /// The UDP message was too big for the buffer and part of it has been discarded
     MessageTooBig,
@@ -6666,12 +6681,63 @@ pub const RecvFromError = error{
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
 
-    /// The other end closed the socket unexpectedly or a read is executed on a shut down socket
-    BrokenPipe,
+    /// Already connected
+    AlreadyConnected,
 } || UnexpectedError;
 
-pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
-    return recvfrom(sock, buf, flags, null, null);
+pub const RecvFromError = RecvError || error{
+    /// The passed address didn't have the correct address family in its sa_family field.
+    AddressFamilyNotSupported,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    AddressNotAvailable,
+
+    /// The destination address is not reachable by the bound address.
+    UnreachableAddress,
+} || UnexpectedError;
+
+/// Receive messages from a socket.
+/// The `recv` call may be used only when the socket is in a connected state (so that the intended
+/// recipient  is  known).   The  only  difference  between `recv` and `read` is the presence of
+/// flags.  With a zero flags argument, `recv` is equivalent to  `read`.   Also,  the  following
+/// call
+///
+///     recv(sockfd, buf, flags);
+///
+/// is equivalent to
+///
+///     recvfrom(sockfd, buf, flags, NULL, NULL);
+///
+/// If  recvfrom()  is used on a connection-mode (`SOCK.STREAM`, `SOCK.SEQPACKET`) socket, the arguments
+/// `src_addr` and `addrlen` are asserted to be `null` and `null` respectively, and asserted
+/// that the socket was actually connected.
+/// Otherwise, the address of the source is given by `src_addr` with `addrlen` specifying  its  size.
+///
+/// If the message is too long to pass atomically through the underlying protocol,
+/// `RecvError.MessageTooBig` is returned, and the message is not transmitted.
+///
+/// When the message does not fit into the recv buffer of the socket,  `recv`  normally  blocks,
+/// unless the socket has been placed in nonblocking I/O mode.  In nonblocking mode it would fail
+/// with `RecvError.WouldBlock`.  The `select` call may be used to determine when it is
+/// possible to receive more data.
+pub fn recv(
+    /// The file descriptor of the sending socket.
+    sock: socket_t,
+    buf: []u8,
+    flags: u32,
+) RecvError!usize {
+    return recvfrom(sock, buf, flags, null, null) catch |err| switch (err) {
+        error.AddressFamilyNotSupported => unreachable,
+        error.SymLinkLoop => unreachable,
+        error.NameTooLong => unreachable,
+        error.FileNotFound => unreachable,
+        error.NotDir => unreachable,
+        error.NetworkUnreachable => unreachable,
+        error.AddressNotAvailable => unreachable,
+        error.SocketNotConnected => unreachable,
+        error.UnreachableAddress => unreachable,
+        else => |e| return e,
+    };
 }
 
 /// If `sockfd` is opened in non blocking mode, the function will
@@ -6684,39 +6750,48 @@ pub fn recvfrom(
     addrlen: ?*socklen_t,
 ) RecvFromError!usize {
     while (true) {
-        const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
         if (native_os == .windows) {
+            const rc = windows.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSANOTINITIALISED => unreachable,
-                    .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEINVAL => return error.SocketNotBound,
-                    .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                    .WSAEINTR => continue,
+                    .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+                    .WSAEINVAL => return error.SocketNotBound,
+                    .WSAEISCONN => return error.AlreadyConnected,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    .WSAEOPNOTSUPP => return error.OperationNotSupported,
+                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
                     .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAETIMEDOUT => return error.ConnectionTimedOut,
-                    // TODO: handle more errors
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAECONNABORTED => return error.ConnectionAborted,
+                    // TODO: test all errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
                 return @intCast(rc);
             }
         } else {
+            const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
             switch (errno(rc)) {
                 .SUCCESS => return @intCast(rc),
                 .BADF => unreachable, // always a race condition
                 .FAULT => unreachable,
-                .INVAL => unreachable,
+                .INVAL => return error.SocketNotBound,
                 .NOTCONN => return error.SocketNotConnected,
-                .NOTSOCK => unreachable,
+                .NOTSOCK => return error.FileDescriptorNotASocket,
                 .INTR => continue,
                 .AGAIN => return error.WouldBlock,
                 .NOMEM => return error.SystemResources,
                 .CONNREFUSED => return error.ConnectionRefused,
                 .CONNRESET => return error.ConnectionResetByPeer,
                 .TIMEDOUT => return error.ConnectionTimedOut,
-                .PIPE => return error.BrokenPipe,
                 else => |err| return unexpectedErrno(err),
             }
         }
