@@ -495,8 +495,9 @@ pub const O = switch (native_arch) {
 };
 
 /// flags for `pipe2` and `IoUring.pipe`
+/// matches flags in `O` but specific to `pipe2` syscall
 pub const Pipe2 = switch (native_arch) {
-    .x86_64, .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
+    .x86_64, .x86, .riscv32, .riscv64, .loongarch64, .hexagon, .or1k, .s390x => packed struct(u32) {
         _: u7 = 0,
         notification_pipe: bool = false,
         _9: u3 = 0,
@@ -507,7 +508,7 @@ pub const Pipe2 = switch (native_arch) {
         cloexec: bool = false,
         _21: u12 = 0,
     },
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .m68k => packed struct(u32) {
         _: u7 = 0,
         notification_pipe: bool = false,
         _9: u3 = 0,
@@ -548,30 +549,6 @@ pub const Pipe2 = switch (native_arch) {
         _13: u5 = 0,
         direct: bool = false,
         _19: u1 = 0,
-        cloexec: bool = false,
-        _21: u12 = 0,
-    },
-    // matches `x86_64` above check if the full struct matches
-    .hexagon, .or1k, .s390x => packed struct(u32) {
-        _: u7 = 0,
-        notification_pipe: bool = false,
-        _9: u3 = 0,
-        nonblock: bool = false,
-        _13: u2 = 0,
-        direct: bool = false,
-        _16: u4 = 0,
-        cloexec: bool = false,
-        _21: u12 = 0,
-    },
-    // matches `aarch64` above check if the full struct matches
-    .m68k => packed struct(u32) {
-        _: u7 = 0,
-        notification_pipe: bool = false,
-        _9: u3 = 0,
-        nonblock: bool = false,
-        _13: u4 = 0,
-        direct: bool = false,
-        _18: u2 = 0,
         cloexec: bool = false,
         _21: u12 = 0,
     },
