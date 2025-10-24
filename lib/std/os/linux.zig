@@ -499,6 +499,7 @@ pub const O = switch (native_arch) {
 pub const Pipe2 = switch (native_arch) {
     .x86_64, .x86, .riscv32, .riscv64, .loongarch64, .hexagon, .or1k, .s390x => packed struct(u32) {
         _: u7 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
         notification_pipe: bool = false,
         _9: u3 = 0,
         nonblock: bool = false,
@@ -510,6 +511,7 @@ pub const Pipe2 = switch (native_arch) {
     },
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .m68k => packed struct(u32) {
         _: u7 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
         notification_pipe: bool = false,
         _9: u3 = 0,
         nonblock: bool = false,
@@ -521,6 +523,7 @@ pub const Pipe2 = switch (native_arch) {
     },
     .sparc64 => packed struct(u32) {
         _: u11 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
         notification_pipe: bool = false,
         _13: u2 = 0,
         nonblock: bool = false,
@@ -534,6 +537,7 @@ pub const Pipe2 = switch (native_arch) {
         _: u7 = 0,
         nonblock: bool = false,
         _9: u2 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
         notification_pipe: bool = false,
         _12: u4 = 0,
         direct: bool = false,
@@ -543,6 +547,7 @@ pub const Pipe2 = switch (native_arch) {
     },
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
         _: u7 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
         notification_pipe: bool = false,
         _9: u3 = 0,
         nonblock: bool = false,
@@ -882,7 +887,6 @@ pub fn futex2_wake(
 /// Identical to `FUTEX.CMP_REQUEUE`, except it is part of the futex2 family of calls.
 ///
 /// Requires at least kernel v6.7.
-// TODO: test to ensure I didn't break it
 pub fn futex2_requeue(
     /// The source and destination futexes.  Must be a 2-element array.
     waiters: *const [2]Futex2.WaitOne,
@@ -4182,9 +4186,19 @@ pub const Shut = enum(u32) {
     pub const RDWR: u32 = @intFromEnum(Shut.rdwr);
 };
 
-/// SYNC_FILE_RANGE_* flags
+/// flags for `sync_file_range(2)` syscall
+/// matches SYNC_FILE_RANGE_* in kernel
 pub const SyncFileRange = packed struct(u32) {
-    _: u32 = 0, // TODO: fill out
+    wait_before: bool = false,
+    write: bool = false,
+    wait_after: bool = false,
+    _: u29 = 0,
+
+    pub const write_and_wait: SyncFileRange = .{
+        .wait_before = true,
+        .write = true,
+        .wait_after = true,
+    };
 };
 
 /// Deprecated alias to Sock
@@ -7005,9 +7019,18 @@ pub const Rename = packed struct(u32) {
     _: u29 = 0,
 };
 
+/// By default (i.e, flags is .{}), the extended attribute will be created
+/// if it does not exist, or the value will be replaced if the attribute
+/// already exists. To modify this semantics, one of the fields in `SetXattr`
+/// can be specified in flags. Matches XATTR_* in kernel
 pub const SetXattr = packed struct(u32) {
-    _: u32 = 0, // TODO: add flags
+    /// set value, fail if attr already exists
+    create: bool = false,
+    /// set value, fail if attr does not exist
+    replace: bool = false,
+    _: u30 = 0,
 };
+
 pub const statx_timestamp = extern struct {
     sec: i64,
     nsec: u32,
@@ -8549,60 +8572,142 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const MADV = struct {
-    pub const NORMAL = 0;
-    pub const RANDOM = 1;
-    pub const SEQUENTIAL = 2;
-    pub const WILLNEED = 3;
-    pub const DONTNEED = 4;
-    pub const FREE = 8;
-    pub const REMOVE = 9;
-    pub const DONTFORK = 10;
-    pub const DOFORK = 11;
-    pub const MERGEABLE = 12;
-    pub const UNMERGEABLE = 13;
-    pub const HUGEPAGE = 14;
-    pub const NOHUGEPAGE = 15;
-    pub const DONTDUMP = 16;
-    pub const DODUMP = 17;
-    pub const WIPEONFORK = 18;
-    pub const KEEPONFORK = 19;
-    pub const COLD = 20;
-    pub const PAGEOUT = 21;
-    pub const HWPOISON = 100;
-    pub const SOFT_OFFLINE = 101;
+/// DEPRECATED alias for Madvise
+pub const MADV = Madvise;
+
+// COMMIT: update MADV_* flags and type as enum
+/// advice flags for `madvise`
+/// matches MADV_* in kernel
+pub const Madvise = enum(u32) {
+    /// no further special treatment
+    normal = 0,
+    /// expect random page references
+    random = 1,
+    /// expect sequential page references
+    sequential = 2,
+    /// will need these pages
+    willneed = 3,
+    /// don't need these pages
+    dontneed = 4,
+    /// free pages only if memory pressure
+    free = 8,
+    /// remove these pages & resources
+    remove = 9,
+    /// don't inherit across fork
+    dontfork = 10,
+    /// do inherit across fork
+    dofork = 11,
+    /// KSM may merge identical pages
+    mergeable = 12,
+    /// KSM may not merge identical pages
+    unmergeable = 13,
+    /// Worth backing with hugepages
+    hugepage = 14,
+    /// Not worth backing with hugepages
+    nohugepage = 15,
+    /// Explicity exclude from the core dump, overrides the coredump filter bits
+    dontdump = 16,
+    /// Clear the MADV_DONTDUMP flag
+    dodump = 17,
+    /// Zero memory on fork, child only
+    wipeonfork = 18,
+    /// Undo MADV_WIPEONFORK
+    keeponfork = 19,
+    /// deactivate these pages
+    cold = 20,
+    /// reclaim these pages
+    pageout = 21,
+    /// populate (prefault) page tables readable
+    populate_read = 22,
+    /// populate (prefault) page tables writable
+    populate_write = 23,
+    /// like DONTNEED, but drop locked pages too
+    dontneed_locked = 24,
+    /// Synchronous hugepage collapse
+    collapse = 25,
+    /// poison a page for testing
+    hwpoison = 100,
+    /// soft offline page for testing
+    soft_offline = 101,
+    /// fatal signal on access to range
+    guard_install = 102,
+    /// unguard range
+    guard_remove = 103,
+    _,
+
+    // DEPRECATED aliases for `Madvise`
+    pub const NORMAL: u32 = @intFromEnum(Madvise.normal);
+    pub const RANDOM: u32 = @intFromEnum(Madvise.random);
+    pub const SEQUENTIAL: u32 = @intFromEnum(Madvise.sequential);
+    pub const WILLNEED: u32 = @intFromEnum(Madvise.willneed);
+    pub const DONTNEED: u32 = @intFromEnum(Madvise.dontneed);
+    pub const FREE: u32 = @intFromEnum(Madvise.free);
+    pub const REMOVE: u32 = @intFromEnum(Madvise.remove);
+    pub const DONTFORK: u32 = @intFromEnum(Madvise.dontfork);
+    pub const DOFORK: u32 = @intFromEnum(Madvise.dofork);
+    pub const MERGEABLE: u32 = @intFromEnum(Madvise.mergeable);
+    pub const UNMERGEABLE: u32 = @intFromEnum(Madvise.unmergeable);
+    pub const HUGEPAGE: u32 = @intFromEnum(Madvise.hugepage);
+    pub const NOHUGEPAGE: u32 = @intFromEnum(Madvise.nohugepage);
+    pub const DONTDUMP: u32 = @intFromEnum(Madvise.dontdump);
+    pub const DODUMP: u32 = @intFromEnum(Madvise.dodump);
+    pub const WIPEONFORK: u32 = @intFromEnum(Madvise.wipeonfork);
+    pub const KEEPONFORK: u32 = @intFromEnum(Madvise.keeponfork);
+    pub const COLD: u32 = @intFromEnum(Madvise.cold);
+    pub const PAGEOUT: u32 = @intFromEnum(Madvise.pageout);
+    pub const HWPOISON: u32 = @intFromEnum(Madvise.hwpoison);
+    pub const SOFT_OFFLINE: u32 = @intFromEnum(Madvise.soft_offline);
 };
 
-pub const Madvice = enum(u32) {
-    _, // TODO: add options
-};
-pub const Fadvice = enum(u32) {
-    _, // TODO: add options
-};
+/// DEPRECATED alias to Fadvice
+pub const POSIX_FADV = Fadvise;
 
-pub const POSIX_FADV = switch (native_arch) {
-    .s390x => if (@typeInfo(usize).int.bits == 64) struct {
-        pub const NORMAL = 0;
-        pub const RANDOM = 1;
-        pub const SEQUENTIAL = 2;
-        pub const WILLNEED = 3;
-        pub const DONTNEED = 6;
-        pub const NOREUSE = 7;
-    } else struct {
-        pub const NORMAL = 0;
-        pub const RANDOM = 1;
-        pub const SEQUENTIAL = 2;
-        pub const WILLNEED = 3;
-        pub const DONTNEED = 4;
-        pub const NOREUSE = 5;
+/// advice flags for `posix_fadvise`
+/// matches POSIX_FADV_* in kernel
+pub const Fadvise = switch (native_arch) {
+    .s390x => if (@typeInfo(usize).int.bits == 64) enum(u32) {
+        /// No further special treatment
+        normal = 0,
+        /// Expect random page references
+        random = 1,
+        /// Expect sequential page references
+        sequential = 2,
+        /// Will need these pages
+        willneed = 3,
+        /// Don't need these pages
+        dontneed = 6,
+        /// Data will be accessed once
+        noreuse = 7,
+        _,
+
+        pub const NORMAL: u32 = @intFromEnum(Fadvise.normal);
+        pub const RANDOM: u32 = @intFromEnum(Fadvise.random);
+        pub const SEQUENTIAL: u32 = @intFromEnum(Fadvise.sequential);
+        pub const WILLNEED: u32 = @intFromEnum(Fadvise.willneed);
+        pub const DONTNEED: u32 = @intFromEnum(Fadvise.dontneed);
+        pub const NOREUSE: u32 = @intFromEnum(Fadvise.noreuse);
     },
-    else => struct {
-        pub const NORMAL = 0;
-        pub const RANDOM = 1;
-        pub const SEQUENTIAL = 2;
-        pub const WILLNEED = 3;
-        pub const DONTNEED = 4;
-        pub const NOREUSE = 5;
+    else => enum(u32) {
+        /// No further special treatment
+        normal = 0,
+        /// Expect random page references
+        random = 1,
+        /// Expect sequential page references
+        sequential = 2,
+        /// Will need these pages
+        willneed = 3,
+        /// Don't need these pages
+        dontneed = 4,
+        /// Data will be accessed once
+        noreuse = 5,
+        _,
+
+        pub const NORMAL: u32 = @intFromEnum(Fadvise.normal);
+        pub const RANDOM: u32 = @intFromEnum(Fadvise.random);
+        pub const SEQUENTIAL: u32 = @intFromEnum(Fadvise.sequential);
+        pub const WILLNEED: u32 = @intFromEnum(Fadvise.willneed);
+        pub const DONTNEED: u32 = @intFromEnum(Fadvise.dontneed);
+        pub const NOREUSE: u32 = @intFromEnum(Fadvise.noreuse);
     },
 };
 
