@@ -681,6 +681,13 @@ test orderZ {
     try testing.expect(orderZ(u8, "", "a") == .lt);
 }
 
+/// Returns true if a slice owns the memory for an element pointer
+pub fn sliceOwnsPtr(comptime T: type, slice: []const T, elem: *T) bool {
+    const above_base = @intFromPtr(elem) >= @intFromPtr(slice.ptr);
+    const below_limit = @intFromPtr(elem) < @intFromPtr(slice.ptr) + slice.len * @sizeOf(T);
+    return above_base and below_limit;
+}
+
 /// Returns true if lhs < rhs, false otherwise
 pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
     return order(T, lhs, rhs) == .lt;

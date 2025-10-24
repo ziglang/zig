@@ -10,8 +10,10 @@ const windows = std.os.windows;
 const Alignment = std.mem.Alignment;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
+pub const BumpAllocator = @import("heap/BumpAllocator.zig");
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
-pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
+/// Deprecated; to be removed after 0.16.0 is tagged.
+pub const FixedBufferAllocator = BumpAllocator;
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
 pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
@@ -451,7 +453,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             ra: usize,
         ) bool {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
+            if (mem.sliceOwnsPtr(u8, &self.buffer, @ptrCast(buf.ptr))) {
                 return FixedBufferAllocator.resize(&self.fixed_buffer_allocator, buf, alignment, new_len, ra);
             } else {
                 return self.fallback_allocator.rawResize(buf, alignment, new_len, ra);
@@ -466,7 +468,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             return_address: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(context));
-            if (self.fixed_buffer_allocator.ownsPtr(memory.ptr)) {
+            if (mem.sliceOwnsPtr(u8, &self.buffer, @ptrCast(memory.ptr))) {
                 return FixedBufferAllocator.remap(&self.fixed_buffer_allocator, memory, alignment, new_len, return_address);
             } else {
                 return self.fallback_allocator.rawRemap(memory, alignment, new_len, return_address);
@@ -480,7 +482,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             ra: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.fixed_buffer_allocator.ownsPtr(buf.ptr)) {
+            if (mem.sliceOwnsPtr(u8, &self.buffer, @ptrCast(buf.ptr))) {
                 return FixedBufferAllocator.free(&self.fixed_buffer_allocator, buf, alignment, ra);
             } else {
                 return self.fallback_allocator.rawFree(buf, alignment, ra);
@@ -1020,8 +1022,8 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
 test {
     _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
+    _ = BumpAllocator;
     _ = GeneralPurposeAllocator;
-    _ = FixedBufferAllocator;
     _ = ThreadSafeAllocator;
     _ = SbrkAllocator;
     if (builtin.target.cpu.arch.isWasm()) {
