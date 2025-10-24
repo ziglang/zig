@@ -403,10 +403,10 @@
 #define zig_trap() __asm__ volatile("j 0x2")
 #elif defined(zig_sparc)
 #define zig_trap() __asm__ volatile("illtrap")
-#elif defined(zig_x86_32) || defined(zig_x86_64)
-#define zig_trap() __asm__ volatile("ud2")
 #elif defined(zig_x86_16)
 #define zig_trap() __asm__ volatile("int $0x3")
+#elif defined(zig_x86)
+#define zig_trap() __asm__ volatile("ud2")
 #else
 #define zig_trap() zig_trap_unavailable
 #endif
@@ -4224,7 +4224,7 @@ static inline void zig_loongarch_cpucfg(uint32_t word, uint32_t* result) {
 #endif
 }
 
-#elif defined(zig_x86_32) || defined(zig_x86_64)
+#elif defined(zig_x86) && !defined(zig_x86_16)
 
 static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax, uint32_t* ebx, uint32_t* ecx, uint32_t* edx) {
 #if defined(zig_msvc)
