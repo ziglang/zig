@@ -204,6 +204,7 @@ pub const CallingConvention = union(enum(u8)) {
 
     // Calling conventions for the `x86_64` architecture.
     x86_64_sysv: CommonOptions,
+    x86_64_x32: CommonOptions,
     x86_64_win: CommonOptions,
     x86_64_regcall_v3_sysv: CommonOptions,
     x86_64_regcall_v4_win: CommonOptions,
@@ -228,6 +229,9 @@ pub const CallingConvention = union(enum(u8)) {
     aarch64_aapcs_win: CommonOptions,
     aarch64_vfabi: CommonOptions,
     aarch64_vfabi_sve: CommonOptions,
+
+    /// The standard `alpha` calling convention.
+    alpha_osf: CommonOptions,
 
     // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
     /// ARM Architecture Procedure Call Standard
@@ -275,7 +279,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
     wasm_mvp: CommonOptions,
 
-    /// The standard `arc` calling convention.
+    /// The standard `arc`/`arceb` calling convention.
     arc_sysv: CommonOptions,
     arc_interrupt: ArcInterruptOptions,
 
@@ -296,6 +300,12 @@ pub const CallingConvention = union(enum(u8)) {
     hexagon_sysv: CommonOptions,
     hexagon_sysv_hvx: CommonOptions,
 
+    /// The standard `hppa` calling convention.
+    hppa_elf: CommonOptions,
+
+    /// The standard `hppa64` calling convention.
+    hppa64_elf: CommonOptions,
+
     /// The standard `lanai` calling convention.
     lanai_sysv: CommonOptions,
 
@@ -311,8 +321,13 @@ pub const CallingConvention = union(enum(u8)) {
     m68k_rtd: CommonOptions,
     m68k_interrupt: CommonOptions,
 
+    /// The standard `microblaze`/`microblazeel` calling convention.
+    microblaze_std: CommonOptions,
+    microblaze_interrupt: MicroblazeInterruptOptions,
+
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
+    msp430_interrupt: CommonOptions,
 
     /// The standard `or1k` calling convention.
     or1k_sysv: CommonOptions,
@@ -324,6 +339,11 @@ pub const CallingConvention = union(enum(u8)) {
     s390x_sysv: CommonOptions,
     s390x_sysv_vx: CommonOptions,
 
+    // Calling conventions for the `sh`/`sheb` architecture.
+    sh_gnu: CommonOptions,
+    sh_renesas: CommonOptions,
+    sh_interrupt: ShInterruptOptions,
+
     /// The standard `ve` calling convention.
     ve_sysv: CommonOptions,
 
@@ -331,7 +351,7 @@ pub const CallingConvention = union(enum(u8)) {
     xcore_xs1: CommonOptions,
     xcore_xs2: CommonOptions,
 
-    // Calling conventions for the `xtensa` architecture.
+    // Calling conventions for the `xtensa`/`xtensaeb` architecture.
     xtensa_call0: CommonOptions,
     xtensa_windowed: CommonOptions,
 
@@ -403,6 +423,25 @@ pub const CallingConvention = union(enum(u8)) {
         };
     };
 
+    /// Options for the `microblaze_interrupt` calling convention.
+    pub const MicroblazeInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        type: InterruptType = .regular,
+
+        pub const InterruptType = enum(u2) {
+            /// User exception; return with `rtsd`.
+            user,
+            /// Regular interrupt; return with `rtid`.
+            regular,
+            /// Fast interrupt; return with `rtid`.
+            fast,
+            /// Software breakpoint; return with `rtbd`.
+            breakpoint,
+        };
+    };
+
     /// Options for the `mips_interrupt` and `mips64_interrupt` calling conventions.
     pub const MipsInterruptOptions = struct {
         /// The boundary the stack is aligned to when the function is called.
@@ -438,6 +477,25 @@ pub const CallingConvention = union(enum(u8)) {
         };
     };
 
+    /// Options for the `sh_interrupt` calling convention.
+    pub const ShInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        save: SaveBehavior = .full,
+
+        pub const SaveBehavior = enum(u3) {
+            /// Save only fpscr (if applicable).
+            fpscr,
+            /// Save only high-numbered registers, i.e. r0 through r7 are *not* saved.
+            high,
+            /// Save all registers normally.
+            full,
+            /// Save all registers using the CPU's fast register bank.
+            bank,
+        };
+    };
+
     /// Returns the array of `std.Target.Cpu.Arch` to which this `CallingConvention` applies.
     /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
     pub fn archs(cc: CallingConvention) []const std.Target.Cpu.Arch {
@@ -459,21 +517,6 @@ pub const CallingConvention = union(enum(u8)) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AddressSpace = enum(u5) {
-    /// The places where a user can specify an address space attribute
-    pub const Context = enum {
-        /// A function is specified to be placed in a certain address space.
-        function,
-        /// A (global) variable is specified to be placed in a certain address space.
-        /// In contrast to .constant, these values (and thus the address space they will be
-        /// placed in) are required to be mutable.
-        variable,
-        /// A (global) constant value is specified to be placed in a certain address space.
-        /// In contrast to .variable, values placed in this address space are not required to be mutable.
-        constant,
-        /// A pointer is ascripted to point into a certain address space.
-        pointer,
-    };
-
     // CPU address spaces.
     generic,
     gs,
@@ -860,6 +903,13 @@ pub const VaListAarch64 = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListAlpha = extern struct {
+    __base: *anyopaque,
+    __offset: c_int,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaListArm = extern struct {
     __ap: *anyopaque,
 };
@@ -893,6 +943,16 @@ pub const VaListS390x = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListSh = extern struct {
+    __va_next_o: *anyopaque,
+    __va_next_o_limit: *anyopaque,
+    __va_next_fp: *anyopaque,
+    __va_next_fp_limit: *anyopaque,
+    __va_next_stack: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaListX86_64 = extern struct {
     gp_offset: c_uint,
     fp_offset: c_uint,
@@ -920,14 +980,19 @@ pub const VaList = switch (builtin.cpu.arch) {
     .x86,
     => *u8,
     .arc,
+    .arceb,
     .avr,
     .bpfel,
     .bpfeb,
     .csky,
+    .hppa,
+    .hppa64,
     .lanai,
     .loongarch32,
     .loongarch64,
     .m68k,
+    .microblaze,
+    .microblazeel,
     .mips,
     .mipsel,
     .mips64,
@@ -952,6 +1017,7 @@ pub const VaList = switch (builtin.cpu.arch) {
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
     },
+    .alpha => VaListAlpha,
     .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
@@ -959,6 +1025,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         else => VaListPowerPc,
     },
     .s390x => VaListS390x,
+    .sh, .sheb => VaListSh, // This is wrong for `sh_renesas`: https://github.com/ziglang/zig/issues/24692#issuecomment-3150779829
     .x86_64 => switch (builtin.os.tag) {
         .uefi, .windows => switch (builtin.zig_backend) {
             else => *u8,
@@ -966,7 +1033,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         },
         else => VaListX86_64,
     },
-    .xtensa => VaListXtensa,
+    .xtensa, .xtensaeb => VaListXtensa,
     else => @compileError("VaList not supported for this target yet"),
 };
 
