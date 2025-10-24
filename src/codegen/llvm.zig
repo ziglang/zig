@@ -1432,8 +1432,7 @@ pub const Object = struct {
                             const param = wip.arg(llvm_arg_i);
                             llvm_arg_i += 1;
                             const field_ptr = try wip.gepStruct(llvm_ty, arg_ptr, field_i, "");
-                            const alignment =
-                                Builder.Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+                            const alignment = Type.ptrAbiAlignment(target).toLlvm();
                             _ = try wip.store(.normal, param, field_ptr, alignment);
                         }
 
@@ -5405,8 +5404,7 @@ pub const FuncGen = struct {
                 const llvm_ty = try o.builder.structType(.normal, llvm_types);
                 try llvm_args.ensureUnusedCapacity(it.types_len);
                 for (llvm_types, 0..) |field_ty, i| {
-                    const alignment =
-                        Builder.Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+                    const alignment = Type.ptrAbiAlignment(target).toLlvm();
                     const field_ptr = try self.wip.gepStruct(llvm_ty, arg_ptr, i, "");
                     const loaded = try self.wip.load(.normal, field_ty, field_ptr, alignment, "");
                     llvm_args.appendAssumeCapacity(loaded);
