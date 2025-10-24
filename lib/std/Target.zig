@@ -1094,7 +1094,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .avr => .AVR,
         .bpfeb, .bpfel => .BPF,
         .csky => .CSKY,
-        .hexagon => .QDSP6,
+        .ez80, .hexagon => .QDSP6,
         .hppa, .hppa64 => .PARISC,
         .kalimba => .CSR_KALIMBA,
         .lanai => .LANAI,
@@ -1118,7 +1118,6 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .xcore => .XCORE,
         .xtensa, .xtensaeb => .XTENSA,
 
-        .ez80,
         .nvptx,
         .nvptx64,
         .spirv32,

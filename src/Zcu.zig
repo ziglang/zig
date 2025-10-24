@@ -3836,7 +3836,6 @@ pub fn atomicPtrAlignment(
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
-        // TODO: Determine whether the eZ80 supports atomic ops
         .ez80,
         => 8,
 
