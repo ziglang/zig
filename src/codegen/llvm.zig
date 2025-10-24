@@ -108,9 +108,9 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
 
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
-        .ez80,
         .kalimba,
         .microblaze,
         .microblazeel,
@@ -487,9 +487,9 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
 
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
-        .ez80,
         .kalimba,
         .microblaze,
         .microblazeel,
@@ -11945,6 +11945,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .avr_gnu,
         .bpf_std,
         .csky_sysv,
+        .ez80_cet,
+        .ez80_tiflags,
         .hexagon_sysv,
         .hexagon_sysv_hvx,
         .hppa_elf,
@@ -11972,8 +11974,6 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
-        .ez80_cet,
-        .ez80_tiflags,
         => null,
     };
 }
@@ -13137,6 +13137,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         // LLVM does does not have a backend for these.
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
         .kalimba,
@@ -13148,7 +13149,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .sheb,
         .x86_16,
         .xtensaeb,
-        .ez80,
         => unreachable,
     }
 }
