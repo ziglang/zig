@@ -337,8 +337,6 @@ const AsyncClosure = struct {
     select_condition: ?*ResetEvent,
     context_alignment: std.mem.Alignment,
     result_offset: usize,
-    /// Whether the task has a return type with nonzero bits.
-    has_result: bool,
 
     const done_reset_event: *ResetEvent = @ptrFromInt(@alignOf(ResetEvent));
 
@@ -348,12 +346,8 @@ const AsyncClosure = struct {
         if (@cmpxchgStrong(std.Thread.Id, &closure.cancel_tid, 0, tid, .acq_rel, .acquire)) |cancel_tid| {
             assert(cancel_tid == Closure.canceling_tid);
             // Even though we already know the task is canceled, we must still
-            // run the closure in order to make the return value valid - that
-            // is, unless the result is zero bytes!
-            if (!ac.has_result) {
-                ac.reset_event.set();
-                return;
-            }
+            // run the closure in order to make the return value valid and in
+            // case there are side effects.
         }
         current_closure = closure;
         ac.func(ac.contextPointer(), ac.resultPointer());
@@ -389,7 +383,6 @@ const AsyncClosure = struct {
     }
 
     fn free(ac: *AsyncClosure, gpa: Allocator, result_len: usize) void {
-        if (!ac.has_result) assert(result_len == 0);
         const base: [*]align(@alignOf(AsyncClosure)) u8 = @ptrCast(ac);
         gpa.free(base[0 .. ac.result_offset + result_len]);
     }
@@ -432,7 +425,6 @@ fn async(
         .func = start,
         .context_alignment = context_alignment,
         .result_offset = result_offset,
-        .has_result = result.len != 0,
         .reset_event = .unset,
         .select_condition = null,
     };
@@ -503,7 +495,6 @@ fn concurrent(
         .func = start,
         .context_alignment = context_alignment,
         .result_offset = result_offset,
-        .has_result = result_len != 0,
         .reset_event = .unset,
         .select_condition = null,
     };
