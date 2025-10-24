@@ -10763,6 +10763,8 @@ pub const pthread_setname_np = switch (native_os) {
 };
 
 pub extern "c" fn pthread_getname_np(thread: pthread_t, name: [*:0]u8, len: usize) c_int;
+pub extern "c" fn pthread_kill(pthread_t, signal: c_int) c_int;
+
 pub const pthread_threadid_np = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => private.pthread_threadid_np,
     else => {},
