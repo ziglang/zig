@@ -11399,16 +11399,6 @@ pub const FuncGen = struct {
         const payload_llvm_ty = try o.lowerType(pt, payload_ty);
         const abi_size = payload_ty.abiSize(zcu);
 
-        // llvm bug workarounds:
-        const workaround_explicit_mask = o.target.cpu.arch == .powerpc and abi_size >= 4;
-        const workaround_disable_truncate = o.target.cpu.arch == .wasm32 and abi_size >= 4;
-
-        if (workaround_disable_truncate) {
-            // see https://github.com/llvm/llvm-project/issues/64222
-            // disable the truncation codepath for larger than 32bits value - with this heuristic, the backend passes the test suite.
-            return try fg.wip.load(access_kind, payload_llvm_ty, payload_ptr, payload_alignment, "");
-        }
-
         const load_llvm_ty = if (payload_ty.isAbiInt(zcu))
             try o.builder.intType(@intCast(abi_size * 8))
         else
@@ -11422,14 +11412,7 @@ pub const FuncGen = struct {
         else
             loaded;
 
-        const anded = if (workaround_explicit_mask and payload_llvm_ty != load_llvm_ty) blk: {
-            // this is rendundant with llvm.trunc. But without it, llvm17 emits invalid code for powerpc.
-            const mask_val = try o.builder.intValue(payload_llvm_ty, -1);
-            const zext_mask_val = try fg.wip.cast(.zext, mask_val, load_llvm_ty, "");
-            break :blk try fg.wip.bin(.@"and", shifted, zext_mask_val, "");
-        } else shifted;
-
-        return fg.wip.conv(.unneeded, anded, payload_llvm_ty, "");
+        return fg.wip.conv(.unneeded, shifted, payload_llvm_ty, "");
     }
 
     /// Load a by-ref type by constructing a new alloca and performing a memcpy.
