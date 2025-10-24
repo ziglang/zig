@@ -593,31 +593,11 @@ typedef   signed long long  int16_t;
 #define  INT16_MAX ( INT16_C(0x7FFF))
 #define UINT16_MAX ( INT16_C(0xFFFF))
 
-#if SCHAR_MIN == ~0x7FFFFF && SCHAR_MAX == 0x7FFFFF && UCHAR_MAX == 0xFFFFFF
-typedef unsigned      char uint24_t;
-typedef   signed      char  int24_t;
-#define  INT24_C(c) c
-#define UINT24_C(c) c##U
-#elif SHRT_MIN == ~0x7FFFFF && SHRT_MAX == 0x7FFFFF && USHRT_MAX == 0xFFFFFF
-typedef unsigned     short uint24_t;
-typedef   signed     short  int24_t;
-#define  INT24_C(c) c
-#define UINT24_C(c) c##U
-#elif INT_MIN == ~0x7FFFFF && INT_MAX == 0x7FFFFF && UINT_MAX == 0xFFFFFF
+#if defined(zig_ez80)
 typedef unsigned       int uint24_t;
 typedef   signed       int  int24_t;
 #define  INT24_C(c) c
 #define UINT24_C(c) c##U
-#elif LONG_MIN == ~0x7FFFFF && LONG_MAX == 0x7FFFFF && ULONG_MAX == 0xFFFFFF
-typedef unsigned      long uint24_t;
-typedef   signed      long  int24_t;
-#define  INT24_C(c) c##L
-#define UINT24_C(c) c##LU
-#elif LLONG_MIN == ~0x7FFFFF && LLONG_MAX == 0x7FFFFF && ULLONG_MAX == 0xFFFFFF
-typedef unsigned long long uint24_t;
-typedef   signed long long  int24_t;
-#define  INT24_C(c) c##LL
-#define UINT24_C(c) c##LLU
 #endif
 #define  INT24_MIN (~INT24_C(0x7FFF))
 #define  INT24_MAX ( INT24_C(0x7FFF))
@@ -659,32 +639,6 @@ typedef   signed   __int48  int48_t;
 #define  INT48_C(c) c
 /* no suffix */
 #define UINT48_C(c) ((uint48_t)(c))
-#elif SCHAR_MIN == ~0x7FFFFFFFFFFF && SCHAR_MAX == 0x7FFFFFFFFFFF && UCHAR_MAX == 0xFFFFFFFFFFFF
-typedef unsigned      char uint48_t;
-typedef   signed      char  int48_t;
-#define  INT32_C(c) c
-#define UINT32_C(c) c##U
-#elif SHRT_MIN == ~0x7FFFFFFFFFFF && SHRT_MAX == 0x7FFFFFFFFFFF && USHRT_MAX == 0xFFFFFFFFFFFF
-typedef unsigned     short uint48_t;
-typedef   signed     short  int48_t;
-#define  INT32_C(c) c
-#define UINT32_C(c) c##U
-#elif INT_MIN == ~0x7FFFFFFFFFFF && INT_MAX == 0x7FFFFFFFFFFF && UINT_MAX == 0xFFFFFFFFFFFFF
-typedef unsigned       int uint48_t;
-typedef   signed       int  int48_t;
-#define  INT32_C(c) c
-#define UINT32_C(c) c##U
-#elif LONG_MIN == ~0x7FFFFFFFFFFF && LONG_MAX == 0x7FFFFFFFFFFF && ULONG_MAX == 0xFFFFFFFFFFFF
-typedef unsigned      long uint48_t;
-typedef   signed      long  int48_t;
-#define  INT32_C(c) c##L
-#define UINT32_C(c) c##LU
-#elif LLONG_MIN == ~0x7FFFFFFFFFFF && LLONG_MAX == 0x7FFFFFFFFFFF && ULLONG_MAX == 0xFFFFFFFFFFFF
-typedef unsigned long long uint48_t;
-typedef   signed long long  int48_t;
-#define  INT32_C(c) c##LL
-#define UINT32_C(c) c##LLU
-#endif
 #endif
 #define  INT48_MIN (~INT48_C(0x7FFFFFFFFFFF))
 #define  INT48_MAX ( INT48_C(0x7FFFFFFFFFFF))
@@ -864,7 +818,7 @@ zig_int_helpers(16, unsigned long long)
 #else
 zig_int_helpers(16, uint16_t)
 #endif
-#if defined(uint24_t)
+#if defined(zig_ez80)
 #if UINT24_MAX <= UINT_MAX
 zig_int_helpers(24, unsigned int)
 #elif UINT24_MAX <= ULONG_MAX
@@ -884,7 +838,7 @@ zig_int_helpers(32, unsigned long long)
 #else
 zig_int_helpers(32, uint32_t)
 #endif
-#if defined(uint48_t)
+#if defined(zig_ez80)
 #if UINT24_MAX <= UINT_MAX
 zig_int_helpers(48, unsigned int)
 #elif UINT24_MAX <= ULONG_MAX
@@ -1013,7 +967,7 @@ static inline bool zig_addo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 #endif
 }
 
-#if defined(uint24_t)
+#if defined(zig_ez80)
 static inline bool zig_addo_u24(uint24_t *res, uint24_t lhs, uint24_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gcc)
     uint24_t full_res;
@@ -1043,7 +997,7 @@ static inline bool zig_addo_i24(int24_t *res, int24_t lhs, int24_t rhs, uint8_t 
 }
 #endif
 
-#if defined(uint48_t)
+#if defined(zig_ez80)
 static inline bool zig_addo_u48(uint48_t *res, uint48_t lhs, uint48_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gcc)
     uint48_t full_res;
@@ -1182,7 +1136,7 @@ static inline bool zig_subo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 #endif
 }
 
-#if defined(uint24_t)
+#if defined(zig_ez80)
 static inline bool zig_subo_u24(uint24_t *res, uint24_t lhs, uint24_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     uint24_t full_res;
@@ -1212,7 +1166,7 @@ static inline bool zig_subo_i24(int24_t *res, int24_t lhs, int24_t rhs, uint8_t 
 }
 #endif
 
-#if defined(uint48_t)
+#if defined(zig_ez80)
 static inline bool zig_subo_u48(uint48_t *res, uint48_t lhs, uint48_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     uint48_t full_res;
@@ -1410,11 +1364,11 @@ static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
     }
 zig_int_builtins(8)
 zig_int_builtins(16)
-if defined(uint24_t)
+if defined(zig_ez80)
 zig_int_builtins(24)
 #endif
 zig_int_builtins(32)
-if defined(uint48_t)
+if defined(zig_ez80)
 zig_int_builtins(48)
 #endif
 zig_int_builtins(64)
@@ -1425,7 +1379,7 @@ typedef unsigned int zig_Builtin8;
 #define zig_builtin16(name, val) __builtin_##name(val)
 typedef unsigned int zig_Builtin16;
 
-#if defined(uint24_t)
+#if defined(zig_ez80)
 /* TODO: clevor zig_builtin24 */
 #endif
 
