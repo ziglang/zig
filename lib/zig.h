@@ -1364,11 +1364,11 @@ static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
     }
 zig_int_builtins(8)
 zig_int_builtins(16)
-if defined(zig_ez80)
+#if defined(zig_ez80)
 zig_int_builtins(24)
 #endif
 zig_int_builtins(32)
-if defined(zig_ez80)
+#if defined(zig_ez80)
 zig_int_builtins(48)
 #endif
 zig_int_builtins(64)
