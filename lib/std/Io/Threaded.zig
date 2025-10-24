@@ -91,9 +91,9 @@ pub fn init(
     return t;
 }
 
-/// Statically initialize such that any call to the following functions will
-/// fail with `error.OutOfMemory`:
-/// * `Io.VTable.concurrent`
+/// Statically initialize such that calls to `Io.VTable.concurrent` will fail
+/// with `error.ConcurrencyUnavailable`.
+///
 /// When initialized this way, `deinit` is safe, but unnecessary to call.
 pub const init_single_threaded: Threaded = .{
     .allocator = .failing,
@@ -481,8 +481,8 @@ fn concurrent(
     context: []const u8,
     context_alignment: std.mem.Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-) error{OutOfMemory}!*Io.AnyFuture {
-    if (builtin.single_threaded) unreachable;
+) Io.ConcurrentError!*Io.AnyFuture {
+    if (builtin.single_threaded) return error.ConcurrencyUnavailable;
 
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const cpu_count = t.cpu_count catch 1;
@@ -490,7 +490,9 @@ fn concurrent(
     const context_offset = context_alignment.forward(@sizeOf(AsyncClosure));
     const result_offset = result_alignment.forward(context_offset + context.len);
     const n = result_offset + result_len;
-    const ac: *AsyncClosure = @ptrCast(@alignCast(try gpa.alignedAlloc(u8, .of(AsyncClosure), n)));
+    const ac_bytes = gpa.alignedAlloc(u8, .of(AsyncClosure), n) catch
+        return error.ConcurrencyUnavailable;
+    const ac: *AsyncClosure = @ptrCast(@alignCast(ac_bytes));
 
     ac.* = .{
         .closure = .{
@@ -515,7 +517,7 @@ fn concurrent(
     t.threads.ensureTotalCapacity(gpa, thread_capacity) catch {
         t.mutex.unlock();
         ac.free(gpa, result_len);
-        return error.OutOfMemory;
+        return error.ConcurrencyUnavailable;
     };
 
     t.run_queue.prepend(&ac.closure.node);
@@ -525,7 +527,7 @@ fn concurrent(
             assert(t.run_queue.popFirst() == &ac.closure.node);
             t.mutex.unlock();
             ac.free(gpa, result_len);
-            return error.OutOfMemory;
+            return error.ConcurrencyUnavailable;
         };
         t.threads.appendAssumeCapacity(thread);
     }
