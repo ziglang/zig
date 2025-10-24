@@ -933,14 +933,14 @@ fn concurrent(
     context: []const u8,
     context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-) error{OutOfMemory}!*Io.AnyFuture {
+) Io.ConcurrentError!*Io.AnyFuture {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     assert(result_alignment.compare(.lte, Fiber.max_result_align)); // TODO
     assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
     assert(result_len <= Fiber.max_result_size); // TODO
     assert(context.len <= Fiber.max_context_size); // TODO
 
-    const fiber = try Fiber.allocate(k);
+    const fiber = Fiber.allocate(k) catch return error.ConcurrencyUnavailable;
     std.log.debug("allocated {*}", .{fiber});
 
     const closure: *AsyncClosure = .fromFiber(fiber);

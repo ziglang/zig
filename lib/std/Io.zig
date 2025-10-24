@@ -552,6 +552,8 @@ test {
     _ = Reader;
     _ = Writer;
     _ = tty;
+    _ = Evented;
+    _ = Threaded;
     _ = @import("Io/test.zig");
 }
 
@@ -596,7 +598,7 @@ pub const VTable = struct {
         context: []const u8,
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-    ) error{OutOfMemory}!*AnyFuture,
+    ) ConcurrentError!*AnyFuture,
     /// This function is only called when `async` returns a non-null value.
     ///
     /// Thread-safe.
@@ -1557,6 +1559,12 @@ pub fn async(
     return future;
 }
 
+pub const ConcurrentError = error{
+    /// May occur due to a temporary condition such as resource exhaustion, or
+    /// to the Io implementation not supporting concurrency.
+    ConcurrencyUnavailable,
+};
+
 /// Calls `function` with `args`, such that the return value of the function is
 /// not guaranteed to be available until `await` is called, allowing the caller
 /// to progress while waiting for any `Io` operations.
@@ -1568,7 +1576,7 @@ pub fn concurrent(
     io: Io,
     function: anytype,
     args: std.meta.ArgsTuple(@TypeOf(function)),
-) error{OutOfMemory}!Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
+) ConcurrentError!Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
     const Result = @typeInfo(@TypeOf(function)).@"fn".return_type.?;
     const Args = @TypeOf(args);
     const TypeErased = struct {

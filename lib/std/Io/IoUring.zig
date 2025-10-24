@@ -866,7 +866,7 @@ fn concurrent(
     context: []const u8,
     context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-) error{OutOfMemory}!*std.Io.AnyFuture {
+) Io.ConcurrentError!*std.Io.AnyFuture {
     assert(result_alignment.compare(.lte, Fiber.max_result_align)); // TODO
     assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
     assert(result_len <= Fiber.max_result_size); // TODO
