@@ -370,6 +370,10 @@ fn addFromDirInner(
             const resolved_target = b.resolveTargetQuery(target_query);
             const target = &resolved_target.result;
             for (backends) |backend| {
+                if (backend == .selfhosted and target.cpu.arch == .wasm32) {
+                    // https://github.com/ziglang/zig/issues/25684
+                    continue;
+                }
                 if (backend == .selfhosted and
                     target.cpu.arch != .aarch64 and target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64 and target.cpu.arch != .spirv64)
                 {
