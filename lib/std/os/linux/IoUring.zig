@@ -1137,7 +1137,7 @@ pub fn fadvice(
     fd: linux.fd_t,
     offset: u64,
     len: u32,
-    advice: linux.Fadvice,
+    advice: linux.Fadvise,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_fadvice(fd, offset, len, advice);
@@ -1151,7 +1151,7 @@ pub fn madvice(
     self: *IoUring,
     user_data: u64,
     memory: []u8,
-    advice: linux.Fadvice,
+    advice: linux.Madvise,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_madvice(memory, advice);
@@ -1351,7 +1351,13 @@ pub fn provide_buffers(
     buffer_id: usize,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_provide_buffers(buffers, buffer_size, buffers_count, group_id, buffer_id);
+    sqe.prep_provide_buffers(
+        buffers,
+        buffer_size,
+        buffers_count,
+        group_id,
+        buffer_id,
+    );
     sqe.user_data = user_data;
     return sqe;
 }
@@ -1449,7 +1455,7 @@ pub fn sync_file_range(
     fd: linux.fd_t,
     len: u32,
     offset: u64,
-    flags: linux.SyncFileRange, // TODO: add flags
+    flags: linux.SyncFileRange,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_sync_file_range(fd, len, offset, flags);
@@ -2220,7 +2226,6 @@ pub fn getsockopt(
     );
 }
 
-// TODO: move buf_ring fns into BufferRing type
 /// Registers a shared buffer ring to be used with provided buffers. `entries`
 /// number of `io_uring_buf` structures is mem mapped and shared by kernel.
 ///
@@ -2967,7 +2972,7 @@ pub const Sqe = extern struct {
         fd: linux.fd_t,
         offset: u64,
         len: u32,
-        advice: linux.Fadvice,
+        advice: linux.Fadvise,
     ) void {
         sqe.prep_rw(.fadvise, fd, undefined, len, offset);
         sqe.rw_flags = @intFromEnum(advice);
@@ -2976,7 +2981,7 @@ pub const Sqe = extern struct {
     pub fn prep_madvice(
         sqe: *Sqe,
         memory: []u8,
-        advice: linux.Madvice,
+        advice: linux.Madvise,
     ) void {
         sqe.prep_rw(.madvise, -1, @intFromPtr(memory.ptr), memory.len, 0);
         sqe.rw_flags = @intFromEnum(advice);
@@ -3047,7 +3052,7 @@ pub const Sqe = extern struct {
         fd: linux.fd_t,
         len: u32,
         offset: u64,
-        flags: linux.SyncFileRange, // TODO: add flags
+        flags: linux.SyncFileRange,
     ) void {
         sqe.prep_rw(.sync_file_range, fd, undefined, len, offset);
         sqe.rw_flags = @bitCast(flags);
