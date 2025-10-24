@@ -20,30 +20,6 @@ pub extern const global_invocation_id: @Vector(3, u32) addrspace(.input);
 pub extern const vertex_index: u32 addrspace(.input);
 pub extern const instance_index: u32 addrspace(.input);
 
-/// Forms the main linkage for `input` and `output` address spaces.
-/// `ptr` must be a reference to variable or struct field.
-pub fn location(comptime ptr: anytype, comptime loc: u32) void {
-    asm volatile (
-        \\OpDecorate %ptr Location $loc
-        :
-        : [ptr] "" (ptr),
-          [loc] "c" (loc),
-    );
-}
-
-/// Forms the main linkage for `input` and `output` address spaces.
-/// `ptr` must be a reference to variable or struct field.
-pub fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) void {
-    asm volatile (
-        \\OpDecorate %ptr DescriptorSet $set
-        \\OpDecorate %ptr Binding $bind
-        :
-        : [ptr] "" (ptr),
-          [set] "c" (set),
-          [bind] "c" (bind),
-    );
-}
-
 pub const ExecutionMode = union(Tag) {
     /// Sets origin of the framebuffer to the upper-left corner
     origin_upper_left,
