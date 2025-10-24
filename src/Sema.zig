@@ -29153,7 +29153,7 @@ fn coerceExtra(
 
         // E!T to T
         if (inst_ty.zigTypeTag(zcu) == .error_union and
-            (try sema.coerceInMemoryAllowed(block, inst_ty.errorUnionPayload(zcu), dest_ty, false, target, dest_ty_src, inst_src, null)) == .ok)
+            (try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty.errorUnionPayload(zcu), false, target, dest_ty_src, inst_src, null)) == .ok)
         {
             try sema.errNote(inst_src, msg, "cannot convert error union to payload type", .{});
             try sema.errNote(inst_src, msg, "consider using 'try', 'catch', or 'if'", .{});
@@ -29161,7 +29161,7 @@ fn coerceExtra(
 
         // ?T to T
         if (inst_ty.zigTypeTag(zcu) == .optional and
-            (try sema.coerceInMemoryAllowed(block, inst_ty.optionalChild(zcu), dest_ty, false, target, dest_ty_src, inst_src, null)) == .ok)
+            (try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty.optionalChild(zcu), false, target, dest_ty_src, inst_src, null)) == .ok)
         {
             try sema.errNote(inst_src, msg, "cannot convert optional to payload type", .{});
             try sema.errNote(inst_src, msg, "consider using '.?', 'orelse', or 'if'", .{});
