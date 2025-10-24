@@ -5009,7 +5009,7 @@ fn lookupDns(
         } };
 
         while (true) {
-            var message_buffer: [max_messages]Io.net.IncomingMessage = undefined;
+            var message_buffer: [max_messages]Io.net.IncomingMessage = @splat(.init);
             const buf = answer_buffer[answer_buffer_i..];
             const recv_err, const recv_n = socket.receiveManyTimeout(t_io, &message_buffer, buf, .{}, timeout);
             for (message_buffer[0..recv_n]) |*received_message| {

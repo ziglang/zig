@@ -904,9 +904,17 @@ pub const IncomingMessage = struct {
     data: []u8,
     /// Supplied by caller before calling receive functions; mutated by receive
     /// functions.
-    control: []u8 = &.{},
+    control: []u8,
     /// Populated by receive functions.
     flags: Flags,
+
+    /// Useful for initializing before calling `receiveManyTimeout`.
+    pub const init: IncomingMessage = .{
+        .from = undefined,
+        .data = undefined,
+        .control = &.{},
+        .flags = undefined,
+    };
 
     pub const Flags = packed struct(u8) {
         /// indicates end-of-record; the data returned completed a record
@@ -1146,6 +1154,8 @@ pub const Socket = struct {
     pub fn receiveManyTimeout(
         s: *const Socket,
         io: Io,
+        /// Function assumes each element has initialized `control` field.
+        /// Initializing with `IncomingMessage.init` may be helpful.
         message_buffer: []IncomingMessage,
         data_buffer: []u8,
         flags: ReceiveFlags,
