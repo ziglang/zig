@@ -6512,7 +6512,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <ul>
         <li>If a call to {#syntax#}@import{#endsyntax#} is analyzed, the file being imported is analyzed.</li>
         <li>If a type (including a file) is analyzed, all {#syntax#}comptime{#endsyntax#} and {#syntax#}export{#endsyntax#} declarations within it are analyzed.</li>
-        <li>If a type (including a file) is analyzed, and the compilation is for a {#link|test|Zig Test#}, and the module the type is within is the root module of the compilation, then all {#syntax#}test{#endsyntax#} declarations within it are also analyzed.</li>
+        <li>If a type (including a file) is analyzed, and the compilation is for a {#link|test|Zig Test#}, and the type is within is the root module of the compilation, then all {#syntax#}test{#endsyntax#} declarations within it are also analyzed.</li>
         <li>If a reference to a named declaration (i.e. a usage of it) is analyzed, the declaration being referenced is analyzed. Declarations are order-independent, so this reference may be above or below the declaration being referenced, or even in another file entirely.</li>
       </ul>
       <p>
