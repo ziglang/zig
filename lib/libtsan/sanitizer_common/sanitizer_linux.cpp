@@ -266,7 +266,7 @@ ScopedBlockSignals::~ScopedBlockSignals() { SetSigProcMask(&saved_, nullptr); }
 uptr internal_mmap(void *addr, uptr length, int prot, int flags, int fd,
                    u64 offset) {
 #      if SANITIZER_FREEBSD || SANITIZER_LINUX_USES_64BIT_SYSCALLS
-  return internal_syscall(SYSCALL(mmap), (uptr)addr, length, prot, flags, fd,
+  return internal_syscall(SYS_mmap, (uptr)addr, length, prot, flags, fd,
                           offset);
 #      else
   // mmap2 specifies file offset in 4096-byte units.

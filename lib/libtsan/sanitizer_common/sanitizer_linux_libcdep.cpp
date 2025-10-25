@@ -62,6 +62,7 @@
 #  if SANITIZER_FREEBSD
 #    include <pthread_np.h>
 #    include <sys/auxv.h>
+#    include <sys/syscall.h>
 #    include <sys/sysctl.h>
 #    define pthread_getattr_np pthread_attr_get_np
 // The MAP_NORESERVE define has been removed in FreeBSD 11.x, and even before
@@ -107,7 +108,7 @@ int internal_sigaction(int signum, const void *act, void *oldact) {
   // library initialization order the table can be relocated after the call to
   // InitializeDeadlySignals() which then crashes when dereferencing the
   // uninitialized pointer in libc.
-  return internal_syscall(SYSCALL(sigaction), signum, (uptr)act, (uptr)oldact);
+  return internal_syscall((uptr)SYS_sigaction, signum, (uptr)act, (uptr)oldact);
 #  else
 #    if !SANITIZER_GO
   if (&real_sigaction)
