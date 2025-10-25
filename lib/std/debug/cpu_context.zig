@@ -5,7 +5,7 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
     root.debug.CpuContext
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
-    .arc => Arc,
+    .arc, .arceb => Arc,
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .csky => Csky,
     .hexagon => Hexagon,
@@ -36,7 +36,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
     const uc: *const signal_ucontext_t = @ptrCast(@alignCast(ctx_ptr));
 
     // Deal with some special cases first.
-    if (native_arch == .arc and native_os == .linux) {
+    if (native_arch.isArc() and native_os == .linux) {
         var native: Native = .{
             .r = [_]u32{ uc.mcontext.r31, uc.mcontext.r30, 0, uc.mcontext.r28 } ++
                 uc.mcontext.r27_26 ++
@@ -1492,6 +1492,21 @@ const X86_64 = struct {
 /// as unsigned everywhere even if that's not how they're declared in the C headers.
 const signal_ucontext_t = switch (native_os) {
     .linux => switch (native_arch) {
+        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/alpha/include/asm/ucontext.h
+        .alpha => extern struct {
+            _flags: u64,
+            _link: ?*signal_ucontext_t,
+            _osf_sigmask: u64,
+            _stack: std.os.linux.stack_t,
+            // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/alpha/include/uapi/asm/sigcontext.h
+            mcontext: extern struct {
+                _onstack: i64,
+                _mask: i64,
+                pc: u64,
+                _ps: i64,
+                r: [32]u64,
+            },
+        },
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm64/include/uapi/asm/ucontext.h
         .aarch64,
         .aarch64_be,
@@ -1553,6 +1568,7 @@ const signal_ucontext_t = switch (native_os) {
         },
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/include/uapi/asm-generic/ucontext.h
         .arc,
+        .arceb,
         .csky,
         .hexagon,
         .m68k,
@@ -1565,13 +1581,14 @@ const signal_ucontext_t = switch (native_os) {
         .x86,
         .x86_64,
         .xtensa,
+        .xtensaeb,
         => extern struct {
             _flags: usize,
             _link: ?*signal_ucontext_t,
             _stack: std.os.linux.stack_t,
             mcontext: switch (native_arch) {
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arc/include/uapi/asm/sigcontext.h
-                .arc => extern struct {
+                .arc, .arceb => extern struct {
                     _pad1: u32,
                     _bta: u32,
                     _lp: extern struct {
@@ -1616,11 +1633,31 @@ const signal_ucontext_t = switch (native_os) {
                     _ugp: u32,
                     pc: u32,
                 },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/parisc/include/uapi/asm/sigcontext.h
+                .hppa => extern struct {
+                    _flags: u32,
+                    _psw: u32,
+                    r1_19: [19]u32,
+                    r20: u32,
+                    r21: u32,
+                    r22: u32,
+                    r23_29: [7]u32,
+                    r30: u32,
+                    r31: u32,
+                    _fr: [32]f64,
+                    _iasq: [2]u32,
+                    iaoq: [2]u32,
+                },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/m68k/include/asm/ucontext.h
                 .m68k => extern struct {
                     _version: i32,
                     d: [8]u32,
                     a: [8]u32,
+                    pc: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/microblaze/include/uapi/asm/sigcontext.h
+                .microblaze, .microblazeel => extern struct {
+                    r: [32]u32,
                     pc: u32,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/mips/include/uapi/asm/sigcontext.h
@@ -1651,6 +1688,13 @@ const signal_ucontext_t = switch (native_os) {
                         addr: u64,
                     },
                     r: [16]u64,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/sh/include/uapi/asm/sigcontext.h
+                .sh, .sheb => extern struct {
+                    _oldmask: u32,
+                    r: [16]u32,
+                    pc: u32,
+                    pr: u32,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/x86/include/uapi/asm/sigcontext.h
                 .x86 => extern struct {
@@ -1691,7 +1735,7 @@ const signal_ucontext_t = switch (native_os) {
                     rip: u64,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/xtensa/include/uapi/asm/sigcontext.h
-                .xtensa => extern struct {
+                .xtensa, .xtensaeb => extern struct {
                     pc: u32,
                     _ps: u32,
                     _l: extern struct {
@@ -1948,6 +1992,7 @@ const signal_ucontext_t = switch (native_os) {
                 _err: i32,
                 eip: u32,
             },
+            // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/mcontext.h
             .x86_64 => extern struct {
                 r15: u64,
                 r14: u64,
@@ -1984,6 +2029,14 @@ const signal_ucontext_t = switch (native_os) {
                 x: [30]u64,
             },
         },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/alpha/include/signal.h
+        .alpha => extern struct {
+            _cookie: i64,
+            _mask: i64,
+            pc: u64,
+            _ps: i64,
+            r: [32]u64,
+        },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/arm/include/signal.h
         .arm => extern struct {
             _cookie: i32,
@@ -1994,6 +2047,22 @@ const signal_ucontext_t = switch (native_os) {
                 _svc_lr: u32,
                 pc: u32,
             },
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/hppa/include/signal.h
+        .hppa => extern struct {
+            _unused: u32,
+            _mask: i32,
+            _fp: u32,
+            iaoq: [2]u32,
+            _resv: [2]u32,
+            r22: u32,
+            r21: u32,
+            r30: u32,
+            r20: u32,
+            _sar: u32,
+            r1_19: [19]u32,
+            r23_29: [7]u32,
+            r31: u32,
         },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/mips64/include/signal.h
         .mips64, .mips64el => extern struct {
@@ -2034,6 +2103,18 @@ const signal_ucontext_t = switch (native_os) {
         },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sparc64/include/signal.h
         .sparc64 => @compileError("sparc64-openbsd ucontext_t missing"),
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sh/include/signal.h
+        .sh, .sheb => extern struct {
+            pc: u32,
+            _sr: i32,
+            _gbr: i32,
+            _macl: i32,
+            _mach: i32,
+            pr: u32,
+            r13_0: [14]u32,
+            r15: u32,
+            r14: u32,
+        },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/i386/include/signal.h
         .x86 => extern struct {
             mcontext: extern struct {
@@ -2100,6 +2181,12 @@ const signal_ucontext_t = switch (native_os) {
                 sp: u64,
                 pc: u64,
             },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/alpha/include/mcontext.h
+            .alpha => extern struct {
+                r: [32]u64,
+                pc: u64,
+            },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/arm/include/mcontext.h
             .arm, .armeb => extern struct {
                 r: [15]u32 align(8),
                 pc: u32,
@@ -2118,6 +2205,7 @@ const signal_ucontext_t = switch (native_os) {
                 _cause: i32,
                 pc: u32,
             },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/mips/include/mcontext.h
             .mips64, .mips64el => @compileError("https://github.com/ziglang/zig/issues/23765#issuecomment-2880386178"),
             // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/powerpc/include/mcontext.h
             .powerpc => extern struct {
@@ -2129,6 +2217,18 @@ const signal_ucontext_t = switch (native_os) {
             // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/sparc/include/mcontext.h
             .sparc => @compileError("sparc-netbsd mcontext_t missing"),
             .sparc64 => @compileError("sparc64-netbsd mcontext_t missing"),
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/sh3/include/mcontext.h
+            .sh, .sheb => extern struct {
+                _gbr: i32,
+                pc: u32,
+                _sr: i32,
+                _macl: i32,
+                _mach: i32,
+                pr: u32,
+                r14: u32,
+                r13_0: [14]u32,
+                r15: u32,
+            },
             // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/i386/include/mcontext.h
             .x86 => extern struct {
                 _gs: i32,

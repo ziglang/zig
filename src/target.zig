@@ -216,9 +216,18 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         => false,
 
         // No LLVM backend exists.
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .xtensaeb,
         => false,
     };
 }
@@ -549,31 +558,35 @@ pub fn addrSpaceCastIsValid(
     }
 }
 
-/// Under SPIR-V with Vulkan, pointers are not 'real' (physical), but rather 'logical'. Effectively,
-/// this means that all such pointers have to be resolvable to a location at compile time, and places
-/// a number of restrictions on usage of such pointers. For example, a logical pointer may not be
-/// part of a merge (result of a branch) and may not be stored in memory at all. This function returns
-/// for a particular architecture and address space wether such pointers are logical.
-pub fn arePointersLogical(target: *const std.Target, as: AddressSpace) bool {
+/// Returns whether pointer operations (arithmetic, indexing, etc.) should be blocked
+/// for the given address space on the target architecture.
+///
+/// Under SPIR-V with Vulkan
+/// (a) all physical pointers (.physical_storage_buffer, .global) always support pointer operations,
+/// (b) by default logical pointers (.constant, .input, .output, etc.) never support operations
+/// (c) some logical pointers (.storage_buffer, .shared) do support operations when
+///     the VariablePointers capability is enabled (which enables OpPtrAccessChain).
+pub fn shouldBlockPointerOps(target: *const std.Target, as: AddressSpace) bool {
     if (target.os.tag != .vulkan) return false;
 
     return switch (as) {
         // TODO: Vulkan doesn't support pointers in the generic address space, we
         // should remove this case but this requires a change in defaultAddressSpace().
-        // For now, at least disable them from being regarded as physical.
         .generic => true,
         // For now, all global pointers are represented using StorageBuffer or CrossWorkgroup,
         // so these are real pointers.
-        .global => false,
-        .physical_storage_buffer => false,
+        // Physical pointers always support operations
+        .global, .physical_storage_buffer => false,
+        // Logical pointers that support operations with VariablePointers capability
         .shared => !target.cpu.features.isEnabled(@intFromEnum(std.Target.spirv.Feature.variable_pointers)),
+        .storage_buffer => !target.cpu.features.isEnabled(@intFromEnum(std.Target.spirv.Feature.variable_pointers)),
+        // Logical pointers that never support operations
         .constant,
         .local,
         .input,
         .output,
         .uniform,
         .push_constant,
-        .storage_buffer,
         => true,
         else => unreachable,
     };
@@ -707,18 +720,26 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         .csky,
         .m68k,
         .msp430,
+        .sh,
+        .sheb,
         .s390x,
         .xcore,
         => .@"2",
-        .arc,
-        .arm,
-        .armeb,
         .aarch64,
         .aarch64_be,
+        .alpha,
+        .arc,
+        .arceb,
+        .arm,
+        .armeb,
         .hexagon,
+        .hppa,
+        .hppa64,
         .lanai,
         .loongarch32,
         .loongarch64,
+        .microblaze,
+        .microblazeel,
         .mips,
         .mipsel,
         .powerpc,
@@ -728,9 +749,10 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         .sparc,
         .sparc64,
         .xtensa,
+        .xtensaeb,
         => .@"4",
-        .bpfel,
         .bpfeb,
+        .bpfel,
         .mips64,
         .mips64el,
         => .@"8",

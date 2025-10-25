@@ -3557,6 +3557,14 @@ pub fn geteuid() uid_t {
     return system.geteuid();
 }
 
+pub fn getgid() gid_t {
+    return system.getgid();
+}
+
+pub fn getegid() gid_t {
+    return system.getegid();
+}
+
 /// Test whether a file descriptor refers to a terminal.
 pub fn isatty(handle: fd_t) bool {
     if (native_os == .windows) {

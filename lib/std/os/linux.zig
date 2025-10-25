@@ -116,7 +116,7 @@ pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (native_arch) {
-    .arc => syscalls.Arc,
+    .arc, .arceb => syscalls.Arc,
     .aarch64, .aarch64_be => syscalls.Arm64,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .csky => syscalls.CSky,
@@ -141,7 +141,7 @@ pub const SYS = switch (native_arch) {
         .gnux32, .muslx32 => syscalls.X32,
         else => syscalls.X64,
     },
-    .xtensa => syscalls.Xtensa,
+    .xtensa, .xtensaeb => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -3686,7 +3686,7 @@ pub const PROT = struct {
     pub const EXEC = 0x4;
     /// page may be used for atomic ops
     pub const SEM = switch (native_arch) {
-        .mips, .mipsel, .mips64, .mips64el, .xtensa => 0x10,
+        .mips, .mipsel, .mips64, .mips64el, .xtensa, .xtensaeb => 0x10,
         else => 0x8,
     };
     /// mprotect flag: extend change to start of growsdown vma
@@ -6161,6 +6161,7 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 
 pub const MINSIGSTKSZ = switch (native_arch) {
     .arc,
+    .arceb,
     .arm,
     .armeb,
     .csky,
@@ -6181,6 +6182,7 @@ pub const MINSIGSTKSZ = switch (native_arch) {
     .x86,
     .x86_64,
     .xtensa,
+    .xtensaeb,
     => 2048,
     .loongarch64,
     .sparc,
@@ -6196,6 +6198,7 @@ pub const MINSIGSTKSZ = switch (native_arch) {
 };
 pub const SIGSTKSZ = switch (native_arch) {
     .arc,
+    .arceb,
     .arm,
     .armeb,
     .csky,
@@ -6216,6 +6219,7 @@ pub const SIGSTKSZ = switch (native_arch) {
     .x86,
     .x86_64,
     .xtensa,
+    .xtensaeb,
     => 8192,
     .aarch64,
     .aarch64_be,
@@ -9740,6 +9744,7 @@ pub const AUDIT = struct {
             .armeb, .thumbeb => .ARMEB,
             .aarch64 => .AARCH64,
             .arc => .ARCV2,
+            .arceb => .ARCV2BE,
             .csky => .CSKY,
             .hexagon => .HEXAGON,
             .loongarch32 => .LOONGARCH32,

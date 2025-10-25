@@ -3836,61 +3836,17 @@ pub fn atomicPtrAlignment(
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
-        .avr,
-        .msp430,
-        => 16,
-
-        .arc,
-        .arm,
-        .armeb,
-        .hexagon,
-        .m68k,
-        .mips,
-        .mipsel,
-        .nvptx,
-        .or1k,
-        .powerpc,
-        .powerpcle,
-        .riscv32,
-        .riscv32be,
-        .sparc,
-        .thumb,
-        .thumbeb,
-        .x86,
-        .xcore,
-        .kalimba,
-        .lanai,
-        .wasm32,
-        .csky,
-        .spirv32,
-        .loongarch32,
-        .xtensa,
-        .propeller,
-        => 32,
-
-        .amdgcn,
-        .bpfel,
-        .bpfeb,
-        .mips64,
-        .mips64el,
-        .nvptx64,
-        .powerpc64,
-        .powerpc64le,
-        .riscv64,
-        .riscv64be,
-        .sparc64,
-        .s390x,
-        .wasm64,
-        .ve,
-        .spirv64,
-        .loongarch64,
-        => 64,
-
         .aarch64,
         .aarch64_be,
         => 128,
 
-        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64,
+        .mips64,
+        .mips64el,
+        => 64, // N32 should be 64, not 32.
+
+        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64, // x32 should be 64 or 128, not 32.
+
+        else => target.ptrBitWidth(),
     };
 
     if (ty.toIntern() == .bool_type) return .none;
@@ -4470,6 +4426,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .riscv32_ilp32_v,
                 .m68k_rtd,
                 .m68k_interrupt,
+                .msp430_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_aapcs_vfp,
@@ -4481,12 +4438,18 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .arm_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
+                .microblaze_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
                 .mips_interrupt,
                 .mips64_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .riscv32_interrupt,
                 .riscv64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .sh_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .x86_sysv,

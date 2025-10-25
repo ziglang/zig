@@ -106,9 +106,18 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .wasm64 => "wasm64",
         .ve => "ve",
 
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
 
@@ -473,9 +482,18 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
 }
@@ -11381,16 +11399,6 @@ pub const FuncGen = struct {
         const payload_llvm_ty = try o.lowerType(pt, payload_ty);
         const abi_size = payload_ty.abiSize(zcu);
 
-        // llvm bug workarounds:
-        const workaround_explicit_mask = o.target.cpu.arch == .powerpc and abi_size >= 4;
-        const workaround_disable_truncate = o.target.cpu.arch == .wasm32 and abi_size >= 4;
-
-        if (workaround_disable_truncate) {
-            // see https://github.com/llvm/llvm-project/issues/64222
-            // disable the truncation codepath for larger than 32bits value - with this heuristic, the backend passes the test suite.
-            return try fg.wip.load(access_kind, payload_llvm_ty, payload_ptr, payload_alignment, "");
-        }
-
         const load_llvm_ty = if (payload_ty.isAbiInt(zcu))
             try o.builder.intType(@intCast(abi_size * 8))
         else
@@ -11404,14 +11412,7 @@ pub const FuncGen = struct {
         else
             loaded;
 
-        const anded = if (workaround_explicit_mask and payload_llvm_ty != load_llvm_ty) blk: {
-            // this is rendundant with llvm.trunc. But without it, llvm17 emits invalid code for powerpc.
-            const mask_val = try o.builder.intValue(payload_llvm_ty, -1);
-            const zext_mask_val = try fg.wip.cast(.zext, mask_val, load_llvm_ty, "");
-            break :blk try fg.wip.bin(.@"and", shifted, zext_mask_val, "");
-        } else shifted;
-
-        return fg.wip.conv(.unneeded, anded, payload_llvm_ty, "");
+        return fg.wip.conv(.unneeded, shifted, payload_llvm_ty, "");
     }
 
     /// Load a by-ref type by constructing a new alloca and performing a memcpy.
@@ -11819,6 +11820,8 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: *const std.Targ
             std.builtin.CallingConvention.ArcInterruptOptions,
             std.builtin.CallingConvention.ArmInterruptOptions,
             std.builtin.CallingConvention.RiscvInterruptOptions,
+            std.builtin.CallingConvention.ShInterruptOptions,
+            std.builtin.CallingConvention.MicroblazeInterruptOptions,
             std.builtin.CallingConvention.MipsInterruptOptions,
             std.builtin.CallingConvention.CommonOptions,
             => .{ pl.incoming_stack_alignment, 0 },
@@ -11882,6 +11885,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .avr_interrupt => .avr_intrcc,
         .m68k_rtd => .m68k_rtdcc,
         .m68k_interrupt => .m68k_intrcc,
+        .msp430_interrupt => .msp430_intrcc,
         .amdgcn_kernel => .amdgpu_kernel,
         .amdgcn_cs => .amdgpu_cs,
         .nvptx_device => .ptx_device,
@@ -11901,9 +11905,13 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .x86_sysv,
         .x86_win,
         .x86_thiscall_mingw,
+        .x86_64_x32,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
+        .alpha_osf,
+        .microblaze_std,
+        .microblaze_interrupt,
         .mips64_n64,
         .mips64_n32,
         .mips_o32,
@@ -11926,6 +11934,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .csky_sysv,
         .hexagon_sysv,
         .hexagon_sysv_hvx,
+        .hppa_elf,
+        .hppa64_elf,
         .lanai_sysv,
         .loongarch64_lp64,
         .loongarch32_ilp32,
@@ -11936,6 +11946,9 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
+        .sh_gnu,
+        .sh_renesas,
+        .sh_interrupt,
         .ve_sysv,
         .xcore_xs1,
         .xcore_xs2,
@@ -13107,9 +13120,18 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM does does not have a backend for these.
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .xtensaeb,
         => unreachable,
     }
 }
