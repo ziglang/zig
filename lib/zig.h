@@ -1303,7 +1303,66 @@ static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
     return overflow;
 #endif
 }
-/* TODO: clevor zig_mulo_*24 */
+
+#if defined(zig_ez80)
+static inline bool zig_mulo_u24(uint24_t *res, uint24_t lhs, uint24_t rhs, uint8_t bits) {
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
+    uint24_t full_res;
+    bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
+    *res = zig_wrap_u24(full_res, bits);
+    return overflow || full_res < zig_minInt_u(24, bits) || full_res > zig_maxInt_u(24, bits);
+#else
+    uint32_t full_res;
+    bool overflow = zig_mulo_u32(&full_res, lhs, rhs, bits);
+    *res = (uint24_t)full_res;
+    return overflow;
+#endif
+}
+
+static inline bool zig_mulo_i24(int24_t *res, int24_t lhs, int24_t rhs, uint8_t bits) {
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
+    int24_t full_res;
+    bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
+    *res = zig_wrap_i24(full_res, bits);
+    return overflow || full_res < zig_minInt_i(24, bits) || full_res > zig_maxInt_i(24, bits);
+#else
+    int32_t full_res;
+    bool overflow = zig_mulo_i32(&full_res, lhs, rhs, bits);
+    *res = (int24_t)full_res;
+    return overflow;
+#endif
+}
+#endif
+
+#if defined(zig_ez80)
+static inline bool zig_mulo_u48(uint48_t *res, uint48_t lhs, uint48_t rhs, uint8_t bits) {
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
+    uint48_t full_res;
+    bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
+    *res = zig_wrap_u48(full_res, bits);
+    return overflow || full_res < zig_minInt_u(48, bits) || full_res > zig_maxInt_u(48, bits);
+#else
+    uint64_t full_res;
+    bool overflow = zig_mulo_u64(&full_res, lhs, rhs, bits);
+    *res = (uint48_t)full_res;
+    return overflow;
+#endif
+}
+
+static inline bool zig_mulo_i48(int48_t *res, int48_t lhs, int48_t rhs, uint8_t bits) {
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
+    int48_t full_res;
+    bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
+    *res = zig_wrap_i48(full_res, bits);
+    return overflow || full_res < zig_minInt_i(48, bits) || full_res > zig_maxInt_i(48, bits);
+#else
+    int64_t full_res;
+    bool overflow = zig_mulo_i64(&full_res, lhs, rhs, bits);
+    *res = (int48_t)full_res;
+    return overflow;
+#endif
+}
+#endif
 
 #define zig_int_builtins(w) \
     static inline bool zig_shlo_u##w(uint##w##_t *res, uint##w##_t lhs, uint8_t rhs, uint8_t bits) { \
@@ -1431,7 +1490,22 @@ static inline int16_t zig_byte_swap_i16(int16_t val, uint8_t bits) {
     return zig_wrap_i16((int16_t)zig_byte_swap_u16((uint16_t)val, bits), bits);
 }
 
-/* TODO: clevor zig_byte_swap_*24 */
+#if defined(zig_ez80)
+static inline uint16_t zig_byte_swap_u24(uint24_t val, uint8_t bits) {
+    uint24_t full_res;
+#if zig_has_builtin(bswap16) || defined(zig_gcc)
+    full_res = __builtin_bswap24(val);
+#else
+    full_res = (uint24_t)zig_byte_swap_u8((uint8_t)(val >>  0), 8) <<  16 |
+               (uint24_t)zig_byte_swap_u16((uint16_t)(val >>  8), 16) >>  0;
+#endif
+    return zig_wrap_u24(full_res >> (24 - bits), bits);
+}
+
+static inline int16_t zig_byte_swap_i24(int24_t val, uint8_t bits) {
+    return zig_wrap_i24((int24_t)zig_byte_swap_u24((uint24_t)val, bits), bits);
+}
+#endif
 
 static inline uint32_t zig_byte_swap_u32(uint32_t val, uint8_t bits) {
     uint32_t full_res;
@@ -1448,7 +1522,22 @@ static inline int32_t zig_byte_swap_i32(int32_t val, uint8_t bits) {
     return zig_wrap_i32((int32_t)zig_byte_swap_u32((uint32_t)val, bits), bits);
 }
 
-/* TODO: clevor zig_byte_swap_*48 */
+#if defined(zig_ez80)
+static inline uint32_t zig_byte_swap_u48(uint48_t val, uint8_t bits) {
+    uint48_t full_res;
+#if zig_has_builtin(bswap48) || defined(zig_gcc)
+    full_res = __builtin_bswap48(val);
+#else
+    full_res = (uint48_t)zig_byte_swap_u24((uint24_t)(val >>  0), 24) << 24 |
+               (uint48_t)zig_byte_swap_u24((uint24_t)(val >> 24), 24) >>  0;
+#endif
+    return zig_wrap_u48(full_res >> (48 - bits), bits);
+}
+
+static inline int32_t zig_byte_swap_i48(int48_t val, uint8_t bits) {
+    return zig_wrap_i48((int48_t)zig_byte_swap_u48((uint48_t)val, bits), bits);
+}
+#endif
 
 static inline uint64_t zig_byte_swap_u64(uint64_t val, uint8_t bits) {
     uint64_t full_res;
@@ -1498,7 +1587,22 @@ static inline int16_t zig_bit_reverse_i16(int16_t val, uint8_t bits) {
     return zig_wrap_i16((int16_t)zig_bit_reverse_u16((uint16_t)val, bits), bits);
 }
 
-/* TODO: clevor zig_byte_reverse_*24 */
+#if defined(zig_ez80)
+static inline uint24_t zig_bit_reverse_u24(uint24_t val, uint8_t bits) {
+    uint24_t full_res;
+#if zig_has_builtin(bitreverse24)
+    full_res = __builtin_bitreverse24(val);
+#else
+    full_res = (uint24_t)zig_bit_reverse_u8((uint8_t)(val >>  0), 8) <<  16 |
+               (uint24_t)zig_bit_reverse_u16((uint16_t)(val >>  8), 16) >>  0;
+#endif
+    return zig_wrap_u24(full_res >> (24 - bits), bits);
+}
+
+static inline int16_t zig_bit_reverse_i16(int16_t val, uint8_t bits) {
+    return zig_wrap_i16((int16_t)zig_bit_reverse_u16((uint16_t)val, bits), bits);
+}
+#endif
 
 static inline uint32_t zig_bit_reverse_u32(uint32_t val, uint8_t bits) {
     uint32_t full_res;
@@ -1515,7 +1619,22 @@ static inline int32_t zig_bit_reverse_i32(int32_t val, uint8_t bits) {
     return zig_wrap_i32((int32_t)zig_bit_reverse_u32((uint32_t)val, bits), bits);
 }
 
-/* TODO: clevor zig_byte_reverse_*48 */
+#if defined(zig_ez80)
+static inline uint32_t zig_bit_reverse_u48(uint48_t val, uint8_t bits) {
+    uint48_t full_res;
+#if zig_has_builtin(bitreverse32)
+    full_res = __builtin_bitreverse48(val);
+#else
+    full_res = (uint48_t)zig_bit_reverse_u24((uint24_t)(val >>  0), 24) << 24 |
+               (uint48_t)zig_bit_reverse_u24((uint24_t)(val >> 24), 24) >>  0;
+#endif
+    return zig_wrap_u32(full_res >> (48 - bits), bits);
+}
+
+static inline int32_t zig_bit_reverse_i48(int48_t val, uint8_t bits) {
+    return zig_wrap_i48((int48_t)zig_bit_reverse_u48((uint48_t)val, bits), bits);
+}
+#endif
 
 static inline uint64_t zig_bit_reverse_u64(uint64_t val, uint8_t bits) {
     uint64_t full_res;
@@ -4220,11 +4339,11 @@ typedef int zig_memory_order;
         return val; \
     }
 
+/* The eZ80 does not support atomics beyond 8 bits */
 zig_msvc_atomics( u8,  uint8_t,    char,  8, 8)
 zig_msvc_atomics( i8,   int8_t,    char,  8, 8)
 zig_msvc_atomics(u16, uint16_t,   short, 16, 16)
 zig_msvc_atomics(i16,  int16_t,   short, 16, 16)
-/* TODO: clevor zig_msvc_atomics(u24)? */
 zig_msvc_atomics(u32, uint32_t,    long,   , 32)
 zig_msvc_atomics(i32,  int32_t,    long,   , 32)
 
