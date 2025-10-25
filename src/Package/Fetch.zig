@@ -999,11 +999,111 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
         return;
     }
 
-    const http_client = f.job_queue.http_client;
+    if (ascii.startsWithIgnoreCase(uri.scheme, "git+")) {
+        var transport_uri = uri;
+        transport_uri.scheme = uri.scheme["git+".len..];
 
-    if (ascii.eqlIgnoreCase(uri.scheme, "http") or
+        var session: git.Session = undefined;
+
+        if (ascii.eqlIgnoreCase(transport_uri.scheme, "git")) {
+            var buffer: [std.Uri.host_name_max]u8 = undefined;
+            var socket = std.net.tcpConnectToHost(f.arena.allocator(), transport_uri.getHost(&buffer) catch @panic("handle this"), 9418) catch @panic("handle this");
+            const socket_buffer = reader_buffer;
+            var reader = socket.reader(socket_buffer);
+            var writer = socket.writer(&.{});
+
+            session = git.Session.init(arena, .{
+                .git = .{ .reader = &reader, .writer = &writer },
+            }, transport_uri, reader_buffer) catch |err| {
+                return f.fail(
+                    f.location_tok,
+                    try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
+                );
+            };
+        } else if (ascii.eqlIgnoreCase(transport_uri.scheme, "http") or ascii.eqlIgnoreCase(transport_uri.scheme, "https")) {
+            session = git.Session.init(arena, .{ .http = f.job_queue.http_client }, transport_uri, reader_buffer) catch |err| {
+                return f.fail(
+                    f.location_tok,
+                    try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
+                );
+            };
+        } else {
+            return f.fail(f.location_tok, try eb.printString("unsupported URL scheme: {s}", .{uri.scheme}));
+        }
+
+        const want_oid = want_oid: {
+            const want_ref =
+                if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
+            if (git.Oid.parseAny(want_ref)) |oid| break :want_oid oid else |_| {}
+
+            const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
+            const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
+
+            var ref_iterator: git.Session.RefIterator = undefined;
+            session.listRefs(&ref_iterator, .{
+                .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
+                .include_peeled = true,
+                .buffer = reader_buffer,
+            }) catch |err| return f.fail(f.location_tok, try eb.printString("unable to list refs: {t}", .{err}));
+            defer ref_iterator.deinit();
+            while (ref_iterator.next() catch |err| {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to iterate refs: {s}",
+                    .{@errorName(err)},
+                ));
+            }) |ref| {
+                if (std.mem.eql(u8, ref.name, want_ref) or
+                    std.mem.eql(u8, ref.name, want_ref_head) or
+                    std.mem.eql(u8, ref.name, want_ref_tag))
+                {
+                    // The server sends a flush-pkt that needs to be parsed.
+                    // However, we only need to parse it here because in the other codepaths we will fail anyways
+                    ref_iterator.end() catch |err| return f.fail(f.location_tok, try eb.printString("expected flush packet: {t}", .{err}));
+
+                    break :want_oid ref.peeled orelse ref.oid;
+                }
+            }
+            return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
+        };
+
+        if (f.use_latest_commit) {
+            f.latest_commit = want_oid;
+        } else if (uri.fragment == null) {
+            const notes_len = 1;
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.addString("url field is missing an explicit ref"),
+                .src_loc = try f.srcLoc(f.location_tok),
+                .notes_len = notes_len,
+            });
+            const notes_start = try eb.reserveNotes(notes_len);
+            eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
+                .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
+                    uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
+                    want_oid,
+                }),
+            }));
+            return error.FetchFailed;
+        }
+
+        var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
+        const hash = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
+
+        resource.* = .{ .git = .{
+            .session = session,
+            .fetch_stream = undefined,
+            .want_oid = want_oid,
+        } };
+        const fetch_stream = &resource.git.fetch_stream;
+        session.fetch(fetch_stream, hash, reader_buffer) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
+        };
+        errdefer fetch_stream.deinit(fetch_stream);
+
+        return;
+    } else if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
+        var http_client = f.job_queue.http_client;
         resource.* = .{ .http_request = .{
             .request = http_client.request(.GET, uri, .{}) catch |err|
                 return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err})),
@@ -1035,83 +1135,6 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
         ));
 
         resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
-        return;
-    }
-
-    if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or
-        ascii.eqlIgnoreCase(uri.scheme, "git+https"))
-    {
-        var transport_uri = uri;
-        transport_uri.scheme = uri.scheme["git+".len..];
-        var session = git.Session.init(arena, http_client, transport_uri, reader_buffer) catch |err| {
-            return f.fail(
-                f.location_tok,
-                try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
-            );
-        };
-
-        const want_oid = want_oid: {
-            const want_ref =
-                if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
-            if (git.Oid.parseAny(want_ref)) |oid| break :want_oid oid else |_| {}
-
-            const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
-            const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
-
-            var ref_iterator: git.Session.RefIterator = undefined;
-            session.listRefs(&ref_iterator, .{
-                .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
-                .include_peeled = true,
-                .buffer = reader_buffer,
-            }) catch |err| return f.fail(f.location_tok, try eb.printString("unable to list refs: {t}", .{err}));
-            defer ref_iterator.deinit();
-            while (ref_iterator.next() catch |err| {
-                return f.fail(f.location_tok, try eb.printString(
-                    "unable to iterate refs: {s}",
-                    .{@errorName(err)},
-                ));
-            }) |ref| {
-                if (std.mem.eql(u8, ref.name, want_ref) or
-                    std.mem.eql(u8, ref.name, want_ref_head) or
-                    std.mem.eql(u8, ref.name, want_ref_tag))
-                {
-                    break :want_oid ref.peeled orelse ref.oid;
-                }
-            }
-            return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
-        };
-        if (f.use_latest_commit) {
-            f.latest_commit = want_oid;
-        } else if (uri.fragment == null) {
-            const notes_len = 1;
-            try eb.addRootErrorMessage(.{
-                .msg = try eb.addString("url field is missing an explicit ref"),
-                .src_loc = try f.srcLoc(f.location_tok),
-                .notes_len = notes_len,
-            });
-            const notes_start = try eb.reserveNotes(notes_len);
-            eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
-                    uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
-                    want_oid,
-                }),
-            }));
-            return error.FetchFailed;
-        }
-
-        var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
-        resource.* = .{ .git = .{
-            .session = session,
-            .fetch_stream = undefined,
-            .want_oid = want_oid,
-        } };
-        const fetch_stream = &resource.git.fetch_stream;
-        session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
-        };
-        errdefer fetch_stream.deinit(fetch_stream);
-
         return;
     }
 
