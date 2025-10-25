@@ -1566,9 +1566,6 @@ pub fn connectProxied(
     };
 }
 
-/// Deprecated. Please use `RequestError` instead.
-pub const ConnectError = RequestError;
-
 /// Connect to `host:port` using the specified protocol. This will reuse a
 /// connection if one is already open.
 ///
