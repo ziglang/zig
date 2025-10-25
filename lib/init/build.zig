@@ -142,6 +142,18 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
+    // This creates a `docs` step. It will be visible in the `zig build --help`
+    // menu, and can be selected like this: `zig build docs`
+    // This will generate the package documentation from the doc comments.
+    const docs_step = b.step("docs", "Build the package documentation");
+    const docs_obj = b.addObject(.{ .name = "_NAME", .root_module = mod });
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = docs_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    docs_step.dependOn(&install_docs.step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means
