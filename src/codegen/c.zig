@@ -5772,16 +5772,27 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                     assert(name.len != 0);
 
                     const target = &f.object.dg.mod.resolved_target.result;
-                    if (target.cpu.arch.isMIPS() and name[0] == 'r') {
-                        // GCC uses "$N" for register names instead of "rN" used by Zig.
-                        var c_name_buf: [4]u8 = undefined;
-                        const c_name = (&c_name_buf)[0..name.len];
-                        @memcpy(c_name, name);
-                        c_name_buf[0] = '$';
+                    if (target.cpu.arch.isMIPS()) {
+                        if (name[0] == 'r') {
+                            // C uses "$N" for register names instead of "rN" used by Zig.
+                            var c_name_buf: [4]u8 = undefined;
+                            const c_name = (&c_name_buf)[0..name.len];
+                            @memcpy(c_name, name);
+                            c_name_buf[0] = '$';
 
-                        try w.print(" {f}", .{fmtStringLiteral(c_name, null)});
-                        (try w.writableArray(1))[0] = ',';
-                        continue;
+                            try w.print(" {f}", .{fmtStringLiteral(c_name, null)});
+                            (try w.writableArray(1))[0] = ',';
+                            continue;
+                        } else if (mem.startsWith(u8, name, "fcc") or name[0] == 'w' or name[0] == 'f') {
+                            // C requires a "$" prefix before register names.
+                            var c_name_buf: [6]u8 = undefined;
+                            c_name_buf[0] = '$';
+                            @memcpy((&c_name_buf)[1..][0..name.len], name);
+
+                            try w.print(" {f}", .{fmtStringLiteral((&c_name_buf)[0 .. 1 + name.len], null)});
+                            (try w.writableArray(1))[0] = ',';
+                            continue;
+                        }
                     }
 
                     try w.print(" {f}", .{fmtStringLiteral(name, null)});
