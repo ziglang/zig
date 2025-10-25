@@ -1099,97 +1099,196 @@ test hasMethod {
     try std.testing.expect(!hasMethod(U, "bar"));
 }
 
-/// True if every value of the type `T` has a unique bit pattern representing it.
-/// In other words, `T` has no unused bits and no padding.
+/// True if every value of the type `T` has a single unique byte pattern representing it.
+/// In other words, `T` has no padding and no insignificant bits.
 /// Result is always comptime-known.
-pub inline fn hasUniqueRepresentation(comptime T: type) bool {
+pub fn hasUniqueRepresentation(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        else => false, // TODO can we know if it's true for some of these types ?
-
-        .@"anyframe",
-        .@"enum",
+        // If the runtime size of an integer is exactly
+        // equal to its logical bits divided by 8,
+        // then there cannot be any padding bytes.
+        .int,
+        // Error sets are represented by an integer
+        // with a width determined by the error limit.
         .error_set,
-        .@"fn",
-        => true,
+        // For this case, we are considering
+        // NaN values to be distinct, as the
+        // payload and signal bit are significant.
+        // With this in mind, every logical bit in
+        // a float is significant, and thus they
+        // may be treated as integers.
+        .float,
+        => @sizeOf(T) * 8 == @bitSizeOf(T),
 
-        .bool => false,
+        // An enum is just a wrapper over its integer tag type
+        .@"enum" => |info| hasUniqueRepresentation(info.tag_type),
 
-        .int => |info| @sizeOf(T) * 8 == info.bits,
+        // Void (and void-equivalent types)
+        // only have one value, and they don't
+        // have padding bytes because they don't
+        // have bytes at all.
+        .void => true,
 
-        .pointer => |info| info.size != .slice,
+        // Known issue: pointers to comptime-only types
+        // should not return true, but detecting whether
+        // a type is comptime-onlt takes up an impractical
+        // amount of eval branch quota.
+        .pointer => |info| switch (info.size) {
+            // Raw pointers are always unique.
+            // TODO: detect comptime-only types while
+            // being reasonable with eval branch quota
+            .one, .many, .c => true,
+            .slice => false,
+        },
 
         .optional => |info| switch (@typeInfo(info.child)) {
-            .pointer => |ptr| !ptr.is_allowzero and switch (ptr.size) {
-                .slice, .c => false,
-                .one, .many => true,
+            .pointer => |ptr| switch (ptr.size) {
+                // An optional nonzero pointer is guaranteed to be
+                // represented by an actual pointer. Just make sure
+                // it's not a comptime-only pointer!
+                .one, .many => !ptr.is_allowzero,
+                // C pointers can be null, so the above does not apply
+                .c => false,
+                .slice => false,
             },
+
+            // ?noreturn is void-equivalent.
+            // The size check is just a sanity test.
+            .noreturn => @sizeOf(T) == 0,
+
+            // In practice, this is also true for
+            // optional error sets, but
+            // this is not guaranteed, and there
+            // is no practical way to check.
             else => false,
         },
 
-        .array => |info| hasUniqueRepresentation(info.child),
+        .@"struct" => |info| switch (info.layout) {
+            // For packed structs, we only need to check the backing integer
+            .@"packed" => hasUniqueRepresentation(info.backing_integer.?),
 
-        .@"struct" => |info| {
-            if (info.layout == .@"packed") return @sizeOf(T) * 8 == @bitSizeOf(T);
-
-            var sum_size = @as(usize, 0);
-
-            inline for (info.fields) |field| {
-                if (field.is_comptime) continue;
-                if (!hasUniqueRepresentation(field.type)) return false;
-                sum_size += @sizeOf(field.type);
-            }
-
-            return @sizeOf(T) == sum_size;
+            // For regular struct types, we need to check that
+            // every field has a unique representation,
+            // and that the size of the struct is
+            // equal to the sum of the sizes of the fields
+            .auto, .@"extern" => {
+                comptime var sum_size: usize = 0;
+                inline for (info.fields) |field| {
+                    if (field.is_comptime) continue;
+                    if (!hasUniqueRepresentation(field.type)) return false;
+                    sum_size += @sizeOf(field.type);
+                }
+                return @sizeOf(T) == sum_size;
+            },
         },
 
-        .vector => |info| hasUniqueRepresentation(info.child) and
-            @sizeOf(T) == @sizeOf(info.child) * info.len,
+        .@"union" => |info| {
+            const payload_size: usize = payload_size: {
+                if (info.tag_type) |UTag| {
+                    // For tagged unions, check that
+                    // that tag has a unique representation,
+                    // the fields all have unique
+                    // representations and the same size,
+                    // and that the union's size is the size
+                    // of the tag plus the size of the payload.
+                    if (hasUniqueRepresentation(UTag)) {
+                        break :payload_size @sizeOf(T) - @sizeOf(UTag);
+                    } else {
+                        return false;
+                    }
+                }
+
+                break :payload_size switch (info.fields.len) {
+                    // For empty unions, this should never be checked.
+                    0 => undefined,
+
+                    // For single-field untagged unions, check that
+                    // the union's size is equal to its payload.
+                    1 => @sizeOf(T),
+
+                    // For multi-field packed and extern unions,
+                    // it is ambiguous whether the unions's "value"
+                    // refers to its bit pattern or the field
+                    // it was initialized with.
+                    // For multi-field untagged auto unions,
+                    // since the active field isn't distinguishable
+                    // from the byte pattern, multiple values
+                    // are capable of having the same byte
+                    // representation, so we always return false.
+                    else => return false,
+                };
+            };
+
+            inline for (info.fields) |field| {
+                if (field.type == noreturn) {
+                    // "noreturn" fields occupy 0 bytes,
+                    // so they are acceptable as long as
+                    // the payload is expected to be 0 bytes.
+                    if (payload_size > 0) {
+                        return false;
+                    }
+                } else {
+                    if (@sizeOf(field.type) != payload_size) {
+                        return false;
+                    } else if (!hasUniqueRepresentation(field.type)) {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        },
+
+        // If an array has a sentinel, then it is ambiguous whether
+        // the sentinel is included in the "value."
+        .array => |info| info.len == 0 or hasUniqueRepresentation(info.child),
+
+        .vector => |info| info.len == 0 or switch (@typeInfo(info.child)) {
+            // For vectors of trivially packable types, iff the ABI bit size
+            // of T is equal to the logical bit size of all of the elements,
+            // then the elements must be packed together with no padding.
+            .int, .float, .bool => @sizeOf(T) * 8 == @bitSizeOf(info.child) * info.len,
+
+            // For vectors of types with a unique representation,
+            // we can apply the same logic but with byte sizes.
+            else => hasUniqueRepresentation(info.child) and
+                @sizeOf(T) == @sizeOf(info.child) * info.len,
+        },
+
+        // "true" may be represented by multiple different byte patterns.
+        // TODO: In some ABIs, a bool is always either 0 or 1,
+        // and other values are not allowed. If it is possible to check this,
+        // then this could enable some optimization.
+        .bool => false,
+
+        // Noreturn cannot have a unique representation
+        // because it cannot be represented in the first place.
+        .noreturn => false,
+
+        // In practice, this is often true,
+        // but there is no practical way to
+        // guarantee this.
+        .error_union => false,
+
+        // By definition of an opaque type, this is impossible to know
+        .@"opaque" => false,
+
+        // These types are comptime-only
+        .type,
+        .@"fn",
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        .null,
+        .undefined,
+        => false,
+
+        // Async types are not currently supported,
+        .frame, .@"anyframe" => unreachable,
     };
 }
 
-test hasUniqueRepresentation {
-    const TestStruct1 = struct {
-        a: u32,
-        b: u32,
-    };
-
-    try testing.expect(hasUniqueRepresentation(TestStruct1));
-
-    const TestStruct2 = struct {
-        a: u32,
-        b: u16,
-    };
-
-    try testing.expect(!hasUniqueRepresentation(TestStruct2));
-
-    const TestStruct3 = struct {
-        a: u32,
-        b: u32,
-    };
-
-    try testing.expect(hasUniqueRepresentation(TestStruct3));
-
-    const TestStruct4 = struct { a: []const u8 };
-
-    try testing.expect(!hasUniqueRepresentation(TestStruct4));
-
-    const TestStruct5 = struct { a: TestStruct4 };
-
-    try testing.expect(!hasUniqueRepresentation(TestStruct5));
-
-    const TestStruct6 = packed struct(u8) {
-        @"0": bool,
-        @"1": bool,
-        @"2": bool,
-        @"3": bool,
-        @"4": bool,
-        @"5": bool,
-        @"6": bool,
-        @"7": bool,
-    };
-
-    try testing.expect(hasUniqueRepresentation(TestStruct6));
-
+test "hasUniqueRepresentation unions" {
     const TestUnion2 = extern union {
         a: u32,
         b: u16,
@@ -1211,31 +1310,114 @@ test hasUniqueRepresentation {
 
     try testing.expect(!hasUniqueRepresentation(TestUnion4));
 
-    inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
+    const TestUnion5 = union(enum) {
+        a: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestUnion5));
+}
+
+test "hasUniqueRepresentation ints" {
+    inline for ([_]type{ i0, u8, i16, u32, i64, i128 }) |T| {
         try testing.expect(hasUniqueRepresentation(T));
     }
-    inline for ([_]type{ i1, u9, i17, u33, i24 }) |T| {
+
+    inline for ([_]type{ i1, u9, i17, u33 }) |T| {
         try testing.expect(!hasUniqueRepresentation(T));
     }
+}
 
-    try testing.expect(hasUniqueRepresentation(*u8));
-    try testing.expect(hasUniqueRepresentation(*const u8));
-    try testing.expect(hasUniqueRepresentation(?*u8));
-    try testing.expect(hasUniqueRepresentation(?*const u8));
+test "hasUniqueRepresentation structs" {
+    const TestStruct1 = struct {
+        a: u32,
+        b: u32,
+    };
 
-    try testing.expect(!hasUniqueRepresentation([]u8));
-    try testing.expect(!hasUniqueRepresentation([]const u8));
-    try testing.expect(!hasUniqueRepresentation(?[]u8));
-    try testing.expect(!hasUniqueRepresentation(?[]const u8));
+    try testing.expect(hasUniqueRepresentation(TestStruct1));
 
-    try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
-    try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
+    const TestStruct2 = struct {
+        a: u32,
+        b: u16,
+    };
 
+    try testing.expect(!hasUniqueRepresentation(TestStruct2));
+
+    const TestStruct3 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct3));
+
+    const TestStruct4 = packed struct(u8) {
+        @"0": bool,
+        @"1": bool,
+        @"2": bool,
+        @"3": bool,
+        @"4": bool,
+        @"5": bool,
+        @"6": bool,
+        @"7": bool,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct4));
+}
+
+test "hasUniqueRepresentation comptime fields" {
     const StructWithComptimeFields = struct {
-        comptime should_be_ignored: u64 = 42,
+        comptime should_be_ignored: u27 = 42,
         comptime should_also_be_ignored: [*:0]const u8 = "hope you're having a good day :)",
         field: u32,
     };
-
     try testing.expect(hasUniqueRepresentation(StructWithComptimeFields));
+}
+
+test "hasUniqueRepresentation pointers" {
+    try testing.expect(hasUniqueRepresentation(*u8));
+
+    try testing.expect(hasUniqueRepresentation(?*u8));
+    try testing.expect(hasUniqueRepresentation(*allowzero u8));
+    try testing.expect(hasUniqueRepresentation([*c]u8));
+
+    try testing.expect(!hasUniqueRepresentation(?*allowzero u8));
+    try testing.expect(!hasUniqueRepresentation(?[*c]u8));
+
+    try testing.expect(!hasUniqueRepresentation(*const type));
+    try testing.expect(hasUniqueRepresentation(*const fn () void));
+}
+
+test "hasUniqueRepresentation vectors" {
+    try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
+
+    if (@sizeOf(@Vector(3, u8)) == 3) {
+        try testing.expect(hasUniqueRepresentation(@Vector(3, u8)));
+    } else {
+        try testing.expect(!hasUniqueRepresentation(@Vector(3, u8)));
+    }
+
+    if (@sizeOf(@Vector(8, bool)) == 1) {
+        try testing.expect(hasUniqueRepresentation(@Vector(8, bool)));
+    } else {
+        try testing.expect(!hasUniqueRepresentation(@Vector(8, bool)));
+    }
+    try testing.expect(!hasUniqueRepresentation(@Vector(9, bool)));
+}
+
+test hasUniqueRepresentation {
+    try testing.expect(hasUniqueRepresentation(u32));
+    try testing.expect(!hasUniqueRepresentation(u18));
+
+    const StructWithNoPadding = extern struct {
+        a: u32,
+        b: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(StructWithNoPadding));
+
+    const StructWithPadding = extern struct {
+        a: u8 align(4),
+        b: u32,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(StructWithPadding));
 }
