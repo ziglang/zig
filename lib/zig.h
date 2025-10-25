@@ -1380,7 +1380,8 @@ typedef unsigned int zig_Builtin8;
 typedef unsigned int zig_Builtin16;
 
 #if defined(zig_ez80)
-/* TODO: clevor zig_builtin24 */
+#define zig_builtin24(name, val) __builtin_##name(val)
+typedef unsigned int zig_Builtin24;
 #endif
 
 #if INT_MIN <= INT32_MIN
@@ -1391,7 +1392,10 @@ typedef unsigned int zig_Builtin32;
 typedef unsigned long zig_Builtin32;
 #endif
 
-/* TODO: clevor zig_builtin48 */
+#if defined(zig_ez80)
+#define zig_builtin48(name, val) __builtin_##name(val)
+typedef unsigned long long zig_Builtin48;
+#endif
 
 #if INT_MIN <= INT64_MIN
 #define zig_builtin64(name, val) __builtin_##name(val)
@@ -1621,7 +1625,7 @@ zig_builtin_clz(24)
 #endif
 zig_builtin_clz(32)
 #if defined(zig_ez80)
-zig_builtin_clz(24)
+zig_builtin_clz(48)
 #endif
 zig_builtin_clz(64)
 
