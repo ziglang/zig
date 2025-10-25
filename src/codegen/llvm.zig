@@ -108,6 +108,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
 
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
         .kalimba,
@@ -245,6 +246,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .opengl,
         .plan9,
         .contiki,
+        .tios,
         .other,
         => "unknown",
     };
@@ -484,6 +486,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
 
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
         .kalimba,
@@ -1427,8 +1430,7 @@ pub const Object = struct {
                             const param = wip.arg(llvm_arg_i);
                             llvm_arg_i += 1;
                             const field_ptr = try wip.gepStruct(llvm_ty, arg_ptr, field_i, "");
-                            const alignment =
-                                Builder.Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+                            const alignment = Type.ptrAbiAlignment(target).toLlvm();
                             _ = try wip.store(.normal, param, field_ptr, alignment);
                         }
 
@@ -3094,9 +3096,13 @@ pub const Object = struct {
             .i8_type,
             .u16_type,
             .i16_type,
+            .u24_type,
+            .i24_type,
             .u29_type,
             .u32_type,
             .i32_type,
+            .u48_type,
+            .i48_type,
             .u64_type,
             .i64_type,
             .u80_type,
@@ -5396,8 +5402,7 @@ pub const FuncGen = struct {
                 const llvm_ty = try o.builder.structType(.normal, llvm_types);
                 try llvm_args.ensureUnusedCapacity(it.types_len);
                 for (llvm_types, 0..) |field_ty, i| {
-                    const alignment =
-                        Builder.Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+                    const alignment = Type.ptrAbiAlignment(target).toLlvm();
                     const field_ptr = try self.wip.gepStruct(llvm_ty, arg_ptr, i, "");
                     const loaded = try self.wip.load(.normal, field_ty, field_ptr, alignment, "");
                     llvm_args.appendAssumeCapacity(loaded);
@@ -11932,6 +11937,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .avr_gnu,
         .bpf_std,
         .csky_sysv,
+        .ez80_cet,
+        .ez80_tiflags,
         .hexagon_sysv,
         .hexagon_sysv_hvx,
         .hppa_elf,
@@ -13122,6 +13129,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         // LLVM does does not have a backend for these.
         .alpha,
         .arceb,
+        .ez80,
         .hppa,
         .hppa64,
         .kalimba,

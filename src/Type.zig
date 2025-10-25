@@ -1603,6 +1603,8 @@ fn abiSizeInnerOptional(
 }
 
 pub fn ptrAbiAlignment(target: *const Target) Alignment {
+    // ez80 has 24-bit pointers, and the alignment of pointers is 1.
+    if (target.cpu.arch == .ez80) return .fromByteUnits(1);
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
 
@@ -3626,9 +3628,13 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .i8_type,
         .u16_type,
         .i16_type,
+        .u24_type,
+        .i24_type,
         .u29_type,
         .u32_type,
         .i32_type,
+        .u48_type,
+        .i48_type,
         .u64_type,
         .i64_type,
         .u80_type,
@@ -4051,8 +4057,10 @@ pub fn isNullFromType(ty: Type, zcu: *const Zcu) ?bool {
 pub const @"u1": Type = .{ .ip_index = .u1_type };
 pub const @"u8": Type = .{ .ip_index = .u8_type };
 pub const @"u16": Type = .{ .ip_index = .u16_type };
+pub const @"u24": Type = .{ .ip_index = .u24_type };
 pub const @"u29": Type = .{ .ip_index = .u29_type };
 pub const @"u32": Type = .{ .ip_index = .u32_type };
+pub const @"u48": Type = .{ .ip_index = .u48_type };
 pub const @"u64": Type = .{ .ip_index = .u64_type };
 pub const @"u80": Type = .{ .ip_index = .u80_type };
 pub const @"u128": Type = .{ .ip_index = .u128_type };
@@ -4060,7 +4068,9 @@ pub const @"u256": Type = .{ .ip_index = .u256_type };
 
 pub const @"i8": Type = .{ .ip_index = .i8_type };
 pub const @"i16": Type = .{ .ip_index = .i16_type };
+pub const @"i24": Type = .{ .ip_index = .i24_type };
 pub const @"i32": Type = .{ .ip_index = .i32_type };
+pub const @"i48": Type = .{ .ip_index = .i48_type };
 pub const @"i64": Type = .{ .ip_index = .i64_type };
 pub const @"i128": Type = .{ .ip_index = .i128_type };
 

@@ -4597,9 +4597,13 @@ pub const Index = enum(u32) {
     i8_type,
     u16_type,
     i16_type,
+    u24_type,
+    i24_type,
     u29_type,
     u32_type,
     i32_type,
+    u48_type,
+    i48_type,
     u64_type,
     i64_type,
     u80_type,
@@ -5071,6 +5075,16 @@ pub const static_keys: [static_len]Key = .{
 
     .{ .int_type = .{
         .signedness = .unsigned,
+        .bits = 24,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .signed,
+        .bits = 24,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .unsigned,
         .bits = 29,
     } },
 
@@ -5082,6 +5096,16 @@ pub const static_keys: [static_len]Key = .{
     .{ .int_type = .{
         .signedness = .signed,
         .bits = 32,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .unsigned,
+        .bits = 48,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .signed,
+        .bits = 48,
     } },
 
     .{ .int_type = .{
@@ -11973,9 +11997,13 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .i8_type,
         .u16_type,
         .i16_type,
+        .u24_type,
+        .i24_type,
         .u29_type,
         .u32_type,
         .i32_type,
+        .u48_type,
+        .i48_type,
         .u64_type,
         .i64_type,
         .u80_type,
@@ -12310,9 +12338,13 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .i8_type,
         .u16_type,
         .i16_type,
+        .u24_type,
+        .i24_type,
         .u29_type,
         .u32_type,
         .i32_type,
+        .u48_type,
+        .i48_type,
         .u64_type,
         .i64_type,
         .u80_type,
