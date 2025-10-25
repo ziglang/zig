@@ -4778,10 +4778,7 @@ pub const PEB = extern struct {
         switch (@sizeOf(usize)) {
             4 => 0x22,
             8 => 0x3C,
-            else => if (builtin.target.os.tag == .windows)
-                @compileError("@sizeOf(usize) is neither 4 nor 8")
-            else
-                0, // avoid compile erros with std.Io.Writer on exotic targets
+            else => unreachable,
         }
     ]ULONG,
 
