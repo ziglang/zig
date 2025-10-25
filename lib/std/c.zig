@@ -2528,6 +2528,8 @@ pub const _SC = if (builtin.abi.isAndroid()) enum(c_int) {
     .solaris, .illumos => enum(c_int) {
         PAGESIZE = 11,
         NPROCESSORS_ONLN = 15,
+        SIGRT_MIN = 40,
+        SIGRT_MAX = 41,
     },
     // https://github.com/SerenityOS/serenity/blob/1dfc9e2df39dd23f1de92530677c845aae4345f2/Kernel/API/POSIX/unistd.h#L36-L52
     .serenity => enum(c_int) {
@@ -5775,6 +5777,20 @@ pub const MSG = switch (native_os) {
         pub const CMSG_CLOFORK = 0x2000;
         pub const FBLOCKING = 0x10000;
         pub const FNONBLOCKING = 0x20000;
+    },
+    .solaris, .illumos => struct {
+        pub const OOB = 0x0001;
+        pub const PEEK = 0x0002;
+        pub const DONTROUTE = 0x0004;
+        pub const EOR = 0x0008;
+        pub const CTRUNC = 0x0010;
+        pub const TRUNC = 0x0020;
+        pub const WAITALL = 0x0040;
+        pub const DONTWAIT = 0x0080;
+        pub const NOTIFICATION = 0x0100;
+        pub const NOSIGNAL = 0x0200;
+        pub const CMSG_CLOEXEC = 0x1000;
+        pub const CMSG_CLOFORK = 0x2000;
     },
     else => void,
 };
@@ -10298,7 +10314,7 @@ pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_
 
 pub const arc4random_buf = switch (native_os) {
     .linux => if (builtin.abi.isAndroid()) private.arc4random_buf else {},
-    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .serenity, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
+    .dragonfly, .netbsd, .freebsd, .solaris, .illumos, .openbsd, .serenity, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
     else => {},
 };
 pub const getentropy = switch (native_os) {
@@ -10475,6 +10491,7 @@ pub fn sigrtmin() u8 {
     return switch (native_os) {
         .freebsd => 65,
         .netbsd => 33,
+        .solaris, .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MIN))),
         else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin()))),
     };
 }
@@ -10484,6 +10501,7 @@ pub fn sigrtmax() u8 {
     return switch (native_os) {
         .freebsd => 126,
         .netbsd => 63,
+        .solaris, .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MAX))),
         else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax()))),
     };
 }
