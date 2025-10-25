@@ -1255,7 +1255,7 @@ pub fn rmdir(path: [*:0]const u8) usize {
     if (@hasField(SYS, "rmdir")) {
         return syscall1(.rmdir, @intFromPtr(path));
     } else {
-        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @as(u32, @bitCast(At{ .removedir_or_handle_fid = .{ .removedir = true } })));
+        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @as(u32, @bitCast(At{ .removedir = true })));
     }
 }
 
@@ -1335,7 +1335,7 @@ pub fn pipe(fd: *[2]i32) usize {
     }
 }
 
-pub fn pipe2(fd: *[2]i32, flags: Pipe2) usize {
+pub fn pipe2(fd: *[2]i32, flags: O) usize {
     return syscall2(.pipe2, @intFromPtr(fd), @as(u32, @bitCast(flags)));
 }
 
@@ -3793,7 +3793,6 @@ pub const Futex2 = struct {
     };
 
     /// flags for `futex2_wait` syscall
-    // COMMIT: add mpol and fix private field as its 128 not 32
     pub const Wait = packed struct(u32) {
         size: Size,
         numa: bool = false,
@@ -4511,7 +4510,6 @@ pub const Af = enum(u16) {
     pub const MAX: u16 = @intFromEnum(Af.max);
 };
 
-// COMMIT: add new Typed So enum
 /// SO_* type
 pub const So = if (is_mips) enum(u16) {
     debug = 1,
@@ -4803,7 +4801,6 @@ pub const So = if (is_mips) enum(u16) {
     pub const detach_bpf: So = .detach_filter;
 };
 
-// COMMIT: add SO constants
 /// Backwards-compatible SO_* constants
 pub const SO = struct {
     pub const DEBUG: u16 = @intFromEnum(So.debug);
@@ -5453,7 +5450,6 @@ pub const Msg = packed struct(u32) {
     /// sendpage() internal: page may carry plain text and require encryption
     sendpage_decrypted: bool = false,
     _22: u4 = 0,
-    // COMMIT: new flags
     /// Receive devmem skbs as cmsg
     sock_devmem: bool = false,
     /// Use user data in kernel path
@@ -6069,7 +6065,6 @@ pub const Epoll = if (is_mips) packed struct(u32) {
     rdnorm: bool = false,
     /// Priority data may be read
     rdband: bool = false,
-    // COMMIT: new flags
     /// Writing is now possible (normal data)
     wrnorm: bool = false,
     /// Priority data may be written
@@ -7057,7 +7052,6 @@ pub const utsname = extern struct {
 };
 pub const HOST_NAME_MAX = 64;
 
-// COMMIT: RenameFlags
 pub const Rename = packed struct(u32) {
     /// Don't overwrite target
     noreplace: bool = false,
@@ -7148,7 +7142,6 @@ pub const Statx = extern struct {
 
     __pad2: [14]u64,
 
-    // COMMIT: add new StatxMask fields
     // https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L203
     /// matches STATX_* in kernel
     pub const Mask = packed struct(u32) {
@@ -7206,7 +7199,6 @@ pub const Statx = extern struct {
         };
     };
 
-    // COMMIT: Statx as Packed Struct
     // https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L248
     /// matches STATX_ATTR_* in kernel
     pub const Attr = packed struct(u64) {
@@ -8630,7 +8622,6 @@ pub const rlimit = extern struct {
 /// DEPRECATED alias for Madvise
 pub const MADV = Madvise;
 
-// COMMIT: update MADV_* flags and type as enum
 /// advice flags for `madvise`
 /// matches MADV_* in kernel
 pub const Madvise = enum(u32) {
