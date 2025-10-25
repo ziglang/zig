@@ -1924,9 +1924,12 @@ pub fn isPtrLikeOptional(ty: Type, zcu: *const Zcu) bool {
     };
 }
 
-/// For *[N]T,  returns [N]T.
-/// For *T,     returns T.
-/// For [*]T,   returns T.
+/// For *[N]T,         returns [N]T.
+/// For *T,            returns T.
+/// For [*]T,          returns T.
+/// For @Vector(N, T), returns T.
+/// For [N]T,          returns T.
+/// For ?T,            returns T.
 pub fn childType(ty: Type, zcu: *const Zcu) Type {
     return childTypeIp(ty, &zcu.intern_pool);
 }

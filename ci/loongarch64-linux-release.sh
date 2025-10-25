@@ -50,7 +50,8 @@ stage3-release/bin/zig build test docs \
   -Dskip-non-native \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
+  --zig-lib-dir "$PWD/../lib" \
+  --test-timeout 4m
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

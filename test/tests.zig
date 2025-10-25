@@ -40,7 +40,7 @@ const test_targets = blk: {
     // getBaselineCpuFeatures calls populateDependencies which has a O(N ^ 2) algorithm
     // (where N is roughly 160, which technically makes it O(1), but it adds up to a
     // lot of branches)
-    @setEvalBranchQuota(50000);
+    @setEvalBranchQuota(60000);
     break :blk [_]TestTarget{
         // Native Targets
 
@@ -176,6 +176,7 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -388,8 +389,6 @@ const test_targets = blk: {
                 .arch_os_abi = "hexagon-linux-none",
                 .cpu_features = "baseline+long_calls",
             }) catch unreachable,
-            // https://github.com/llvm/llvm-project/pull/111217
-            .skip_modules = &.{"std"},
         },
         .{
             .target = std.Target.Query.parse(.{
@@ -397,21 +396,16 @@ const test_targets = blk: {
                 .cpu_features = "baseline+long_calls",
             }) catch unreachable,
             .link_libc = true,
-            // https://github.com/llvm/llvm-project/pull/111217
-            .skip_modules = &.{"std"},
         },
-        // Currently crashes in qemu-hexagon.
-        // .{
-        //     .target = std.Target.Query.parse(.{
-        //         .arch_os_abi = "hexagon-linux-musl",
-        //         .cpu_features = "baseline+long_calls",
-        //     }) catch unreachable,
-        //     .linkage = .dynamic,
-        //     .link_libc = true,
-        //     // https://github.com/llvm/llvm-project/pull/111217
-        //     .skip_modules = &.{"std"},
-        //     .extra_target = true,
-        // },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "hexagon-linux-musl",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .linkage = .dynamic,
+            .link_libc = true,
+            .extra_target = true,
+        },
 
         .{
             .target = .{
@@ -613,6 +607,7 @@ const test_targets = blk: {
                 .abi = .muslabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -639,6 +634,7 @@ const test_targets = blk: {
                 .abi = .gnuabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
 
         .{
@@ -673,6 +669,7 @@ const test_targets = blk: {
                 .abi = .muslabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -699,6 +696,7 @@ const test_targets = blk: {
                 .abi = .gnuabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
 
         .{
@@ -707,6 +705,7 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .eabi,
             },
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -722,6 +721,7 @@ const test_targets = blk: {
                 .abi = .musleabi,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -764,6 +764,7 @@ const test_targets = blk: {
             .link_libc = true,
             // https://github.com/ziglang/zig/issues/2256
             .skip_modules = &.{"std"},
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1135,6 +1136,7 @@ const test_targets = blk: {
                 .abi = .gnux32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1152,6 +1154,7 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1160,6 +1163,7 @@ const test_targets = blk: {
                 .abi = .muslx32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1315,6 +1319,7 @@ const test_targets = blk: {
                 .abi = .eabi,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1545,7 +1550,7 @@ const CAbiTarget = struct {
 };
 
 const c_abi_targets = blk: {
-    @setEvalBranchQuota(20000);
+    @setEvalBranchQuota(30000);
     break :blk [_]CAbiTarget{
         // Native Targets
 
@@ -1827,7 +1832,6 @@ const c_abi_targets = blk: {
                 .os_tag = .linux,
                 .abi = .muslx32,
             },
-            .use_llvm = true,
         },
 
         // WASI Targets

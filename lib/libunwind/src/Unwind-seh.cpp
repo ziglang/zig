@@ -174,7 +174,8 @@ _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
     }
     // FIXME: Indicate target frame in foreign case!
     // phase 2: the clean up phase
-    RtlUnwindEx(frame, (PVOID)disp->ControlPc, ms_exc, exc, ms_ctx, disp->HistoryTable);
+    RtlUnwindEx(frame, (PVOID)disp->ControlPc, ms_exc, exc, disp->ContextRecord,
+                disp->HistoryTable);
     _LIBUNWIND_ABORT("RtlUnwindEx() failed");
   case _URC_INSTALL_CONTEXT: {
     // If we were called by __libunwind_seh_personality(), indicate that
