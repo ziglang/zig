@@ -20,11 +20,11 @@ pub fn deinit(si: *SelfInfo, gpa: Allocator) void {
     module_name_arena.deinit();
 }
 
-pub fn getSymbol(si: *SelfInfo, gpa: Allocator, address: usize) Error!std.debug.Symbol {
+pub fn getSymbol(si: *SelfInfo, gpa: Allocator, io: Io, address: usize) Error!std.debug.Symbol {
     si.mutex.lock();
     defer si.mutex.unlock();
     const module = try si.findModule(gpa, address);
-    const di = try module.getDebugInfo(gpa);
+    const di = try module.getDebugInfo(gpa, io);
     return di.getSymbol(gpa, address - module.base_address);
 }
 pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]const u8 {
@@ -190,6 +190,7 @@ const Module = struct {
 
     const DebugInfo = struct {
         arena: std.heap.ArenaAllocator.State,
+        io: Io,
         coff_image_base: u64,
         mapped_file: ?MappedFile,
         dwarf: ?Dwarf,
@@ -209,9 +210,10 @@ const Module = struct {
         };
 
         fn deinit(di: *DebugInfo, gpa: Allocator) void {
+            const io = di.io;
             if (di.dwarf) |*dwarf| dwarf.deinit(gpa);
             if (di.pdb) |*pdb| {
-                pdb.file_reader.file.close();
+                pdb.file_reader.file.close(io);
                 pdb.deinit();
             }
             if (di.mapped_file) |*mf| mf.deinit();
@@ -277,11 +279,11 @@ const Module = struct {
         }
     };
 
-    fn getDebugInfo(module: *Module, gpa: Allocator) Error!*DebugInfo {
-        if (module.di == null) module.di = loadDebugInfo(module, gpa);
+    fn getDebugInfo(module: *Module, gpa: Allocator, io: Io) Error!*DebugInfo {
+        if (module.di == null) module.di = loadDebugInfo(module, gpa, io);
         return if (module.di.?) |*di| di else |err| err;
     }
-    fn loadDebugInfo(module: *const Module, gpa: Allocator) Error!DebugInfo {
+    fn loadDebugInfo(module: *const Module, gpa: Allocator, io: Io) Error!DebugInfo {
         const mapped_ptr: [*]const u8 = @ptrFromInt(module.base_address);
         const mapped = mapped_ptr[0..module.size];
         var coff_obj = coff.Coff.init(mapped, true) catch return error.InvalidDebugInfo;
@@ -295,17 +297,8 @@ const Module = struct {
         // a binary is produced with -gdwarf, since the section names are longer than 8 bytes.
         const mapped_file: ?DebugInfo.MappedFile = mapped: {
             if (!coff_obj.strtabRequired()) break :mapped null;
-            var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
-            name_buffer[0..4].* = .{ '\\', '?', '?', '\\' }; // openFileAbsoluteW requires the prefix to be present
-            const process_handle = windows.GetCurrentProcess();
-            const len = windows.kernel32.GetModuleFileNameExW(
-                process_handle,
-                module.handle,
-                name_buffer[4..],
-                windows.PATH_MAX_WIDE,
-            );
-            if (len == 0) return error.MissingDebugInfo;
-            const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+            const coff_file = Io.File.openSelfExe(io, .{}) catch |err| switch (err) {
+                error.Canceled => |e| return e,
                 error.Unexpected => |e| return e,
                 error.FileNotFound => return error.MissingDebugInfo,
 
@@ -314,8 +307,6 @@ const Module = struct {
                 error.NotDir,
                 error.SymLinkLoop,
                 error.NameTooLong,
-                error.InvalidUtf8,
-                error.InvalidWtf8,
                 error.BadPathName,
                 => return error.InvalidDebugInfo,
 
@@ -336,9 +327,15 @@ const Module = struct {
                 error.SystemFdQuotaExceeded,
                 error.FileLocksNotSupported,
                 error.FileBusy,
+                error.InputOutput,
+                error.NotSupported,
+                error.FileSystem,
+                error.NotLink,
+                error.UnrecognizedVolume,
+                error.UnknownName,
                 => return error.ReadFailed,
             };
-            errdefer coff_file.close();
+            errdefer coff_file.close(io);
             var section_handle: windows.HANDLE = undefined;
             const create_section_rc = windows.ntdll.NtCreateSection(
                 &section_handle,
@@ -355,6 +352,7 @@ const Module = struct {
             errdefer windows.CloseHandle(section_handle);
             var coff_len: usize = 0;
             var section_view_ptr: ?[*]const u8 = null;
+            const process_handle = windows.GetCurrentProcess();
             const map_section_rc = windows.ntdll.NtMapViewOfSection(
                 section_handle,
                 process_handle,
@@ -372,7 +370,7 @@ const Module = struct {
             const section_view = section_view_ptr.?[0..coff_len];
             coff_obj = coff.Coff.init(section_view, false) catch return error.InvalidDebugInfo;
             break :mapped .{
-                .file = coff_file,
+                .file = .adaptFromNewApi(coff_file),
                 .section_handle = section_handle,
                 .section_view = section_view,
             };
@@ -434,8 +432,8 @@ const Module = struct {
             };
             errdefer pdb_file.close();
 
-            const pdb_reader = try arena.create(std.fs.File.Reader);
-            pdb_reader.* = pdb_file.reader(try arena.alloc(u8, 4096));
+            const pdb_reader = try arena.create(Io.File.Reader);
+            pdb_reader.* = pdb_file.reader(io, try arena.alloc(u8, 4096));
 
             var pdb = Pdb.init(gpa, pdb_reader) catch |err| switch (err) {
                 error.OutOfMemory, error.ReadFailed, error.Unexpected => |e| return e,
@@ -473,7 +471,7 @@ const Module = struct {
             break :pdb pdb;
         };
         errdefer if (opt_pdb) |*pdb| {
-            pdb.file_reader.file.close();
+            pdb.file_reader.file.close(io);
             pdb.deinit();
         };
 
@@ -483,6 +481,7 @@ const Module = struct {
 
         return .{
             .arena = arena_instance.state,
+            .io = io,
             .coff_image_base = coff_image_base,
             .mapped_file = mapped_file,
             .dwarf = opt_dwarf,
@@ -544,6 +543,7 @@ fn findModule(si: *SelfInfo, gpa: Allocator, address: usize) error{ MissingDebug
 }
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
 const Pdb = std.debug.Pdb;

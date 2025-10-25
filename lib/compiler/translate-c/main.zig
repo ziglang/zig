@@ -18,6 +18,10 @@ pub fn main() u8 {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var args = process.argsAlloc(arena) catch {
         std.debug.print("ran out of memory allocating arguments\n", .{});
         if (fast_exit) process.exit(1);
@@ -42,7 +46,7 @@ pub fn main() u8 {
     };
     defer diagnostics.deinit();
 
-    var comp = aro.Compilation.initDefault(gpa, arena, &diagnostics, std.fs.cwd()) catch |err| switch (err) {
+    var comp = aro.Compilation.initDefault(gpa, arena, io, &diagnostics, std.fs.cwd()) catch |err| switch (err) {
         error.OutOfMemory => {
             std.debug.print("ran out of memory initializing C compilation\n", .{});
             if (fast_exit) process.exit(1);

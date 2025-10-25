@@ -313,7 +313,7 @@ pub fn isAbsoluteWindowsW(path_w: [*:0]const u16) bool {
     return isAbsoluteWindowsImpl(u16, mem.sliceTo(path_w, 0));
 }
 
-pub fn isAbsoluteWindowsWTF16(path: []const u16) bool {
+pub fn isAbsoluteWindowsWtf16(path: []const u16) bool {
     return isAbsoluteWindowsImpl(u16, path);
 }
 

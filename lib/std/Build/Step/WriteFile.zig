@@ -2,6 +2,7 @@
 //! the local cache which has a set of files that have either been generated
 //! during the build, or are copied from the source package.
 const std = @import("std");
+const Io = std.Io;
 const Step = std.Build.Step;
 const fs = std.fs;
 const ArrayList = std.ArrayList;
@@ -174,6 +175,7 @@ fn maybeUpdateName(write_file: *WriteFile) void {
 fn make(step: *Step, options: Step.MakeOptions) !void {
     _ = options;
     const b = step.owner;
+    const io = b.graph.io;
     const arena = b.allocator;
     const gpa = arena;
     const write_file: *WriteFile = @fieldParentPtr("step", step);
@@ -264,40 +266,27 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     };
     defer cache_dir.close();
 
-    const cwd = fs.cwd();
-
     for (write_file.files.items) |file| {
         if (fs.path.dirname(file.sub_path)) |dirname| {
             cache_dir.makePath(dirname) catch |err| {
-                return step.fail("unable to make path '{f}{s}{c}{s}': {s}", .{
-                    b.cache_root, cache_path, fs.path.sep, dirname, @errorName(err),
+                return step.fail("unable to make path '{f}{s}{c}{s}': {t}", .{
+                    b.cache_root, cache_path, fs.path.sep, dirname, err,
                 });
             };
         }
         switch (file.contents) {
             .bytes => |bytes| {
                 cache_dir.writeFile(.{ .sub_path = file.sub_path, .data = bytes }) catch |err| {
-                    return step.fail("unable to write file '{f}{s}{c}{s}': {s}", .{
-                        b.cache_root, cache_path, fs.path.sep, file.sub_path, @errorName(err),
+                    return step.fail("unable to write file '{f}{s}{c}{s}': {t}", .{
+                        b.cache_root, cache_path, fs.path.sep, file.sub_path, err,
                     });
                 };
             },
             .copy => |file_source| {
                 const source_path = file_source.getPath2(b, step);
-                const prev_status = fs.Dir.updateFile(
-                    cwd,
-                    source_path,
-                    cache_dir,
-                    file.sub_path,
-                    .{},
-                ) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{f}{s}{c}{s}': {s}", .{
-                        source_path,
-                        b.cache_root,
-                        cache_path,
-                        fs.path.sep,
-                        file.sub_path,
-                        @errorName(err),
+                const prev_status = Io.Dir.updateFile(.cwd(), io, source_path, cache_dir.adaptToNewApi(), file.sub_path, .{}) catch |err| {
+                    return step.fail("unable to update file from '{s}' to '{f}{s}{c}{s}': {t}", .{
+                        source_path, b.cache_root, cache_path, fs.path.sep, file.sub_path, err,
                     });
                 };
                 // At this point we already will mark the step as a cache miss.
@@ -331,10 +320,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             switch (entry.kind) {
                 .directory => try cache_dir.makePath(dest_path),
                 .file => {
-                    const prev_status = fs.Dir.updateFile(
-                        src_entry_path.root_dir.handle,
+                    const prev_status = Io.Dir.updateFile(
+                        src_entry_path.root_dir.handle.adaptToNewApi(),
+                        io,
                         src_entry_path.sub_path,
-                        cache_dir,
+                        cache_dir.adaptToNewApi(),
                         dest_path,
                         .{},
                     ) catch |err| {

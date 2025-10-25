@@ -32,6 +32,12 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(arena);
     if (args.len != 2) std.process.fatal("usage: convert-stack-trace path/to/test/output", .{});
 
+    const gpa = arena;
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var read_buf: [1024]u8 = undefined;
     var write_buf: [1024]u8 = undefined;
 
@@ -40,7 +46,7 @@ pub fn main() !void {
 
     const out_file: std.fs.File = .stdout();
 
-    var in_fr = in_file.reader(&read_buf);
+    var in_fr = in_file.reader(io, &read_buf);
     var out_fw = out_file.writer(&write_buf);
 
     const w = &out_fw.interface;

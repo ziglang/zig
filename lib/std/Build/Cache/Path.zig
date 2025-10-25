@@ -1,5 +1,7 @@
 const Path = @This();
+
 const std = @import("../../std.zig");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
@@ -119,7 +121,7 @@ pub fn atomicFile(
     return p.root_dir.handle.atomicFile(joined_path, options);
 }
 
-pub fn access(p: Path, sub_path: []const u8, flags: fs.File.OpenFlags) !void {
+pub fn access(p: Path, sub_path: []const u8, flags: Io.Dir.AccessOptions) !void {
     var buf: [fs.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
         break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
@@ -151,7 +153,7 @@ pub fn fmtEscapeString(path: Path) std.fmt.Alt(Path, formatEscapeString) {
     return .{ .data = path };
 }
 
-pub fn formatEscapeString(path: Path, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+pub fn formatEscapeString(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
         try std.zig.stringEscape(p, writer);
         if (path.sub_path.len > 0) try std.zig.stringEscape(fs.path.sep_str, writer);
@@ -167,7 +169,7 @@ pub fn fmtEscapeChar(path: Path) std.fmt.Alt(Path, formatEscapeChar) {
 }
 
 /// Deprecated, use double quoted escape to print paths.
-pub fn formatEscapeChar(path: Path, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+pub fn formatEscapeChar(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
         for (p) |byte| try std.zig.charEscape(byte, writer);
         if (path.sub_path.len > 0) try writer.writeByte(fs.path.sep);
@@ -177,7 +179,7 @@ pub fn formatEscapeChar(path: Path, writer: *std.Io.Writer) std.Io.Writer.Error!
     }
 }
 
-pub fn format(self: Path, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+pub fn format(self: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (std.fs.path.isAbsolute(self.sub_path)) {
         try writer.writeAll(self.sub_path);
         return;

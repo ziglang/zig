@@ -1,6 +1,12 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
+
+const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
+const WORD = std.os.windows.WORD;
+const DWORD = std.os.windows.DWORD;
+
 const Node = @import("ast.zig").Node;
 const lex = @import("lex.zig");
 const Parser = @import("parse.zig").Parser;
@@ -17,8 +23,6 @@ const res = @import("res.zig");
 const ico = @import("ico.zig");
 const ani = @import("ani.zig");
 const bmp = @import("bmp.zig");
-const WORD = std.os.windows.WORD;
-const DWORD = std.os.windows.DWORD;
 const utils = @import("utils.zig");
 const NameOrOrdinal = res.NameOrOrdinal;
 const SupportedCodePage = @import("code_pages.zig").SupportedCodePage;
@@ -28,7 +32,6 @@ const windows1252 = @import("windows1252.zig");
 const lang = @import("lang.zig");
 const code_pages = @import("code_pages.zig");
 const errors = @import("errors.zig");
-const native_endian = builtin.cpu.arch.endian();
 
 pub const CompileOptions = struct {
     cwd: std.fs.Dir,
@@ -77,7 +80,7 @@ pub const Dependencies = struct {
     }
 };
 
-pub fn compile(allocator: Allocator, source: []const u8, writer: *std.Io.Writer, options: CompileOptions) !void {
+pub fn compile(allocator: Allocator, io: Io, source: []const u8, writer: *std.Io.Writer, options: CompileOptions) !void {
     var lexer = lex.Lexer.init(source, .{
         .default_code_page = options.default_code_page,
         .source_mappings = options.source_mappings,
@@ -166,10 +169,11 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: *std.Io.Writer,
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var compiler = Compiler{
+    var compiler: Compiler = .{
         .source = source,
         .arena = arena,
         .allocator = allocator,
+        .io = io,
         .cwd = options.cwd,
         .diagnostics = options.diagnostics,
         .dependencies = options.dependencies,
@@ -191,6 +195,7 @@ pub const Compiler = struct {
     source: []const u8,
     arena: Allocator,
     allocator: Allocator,
+    io: Io,
     cwd: std.fs.Dir,
     state: State = .{},
     diagnostics: *Diagnostics,
@@ -409,7 +414,7 @@ pub const Compiler = struct {
             }
         }
 
-        var first_error: ?std.fs.File.OpenError = null;
+        var first_error: ?(std.fs.File.OpenError || std.fs.File.StatError) = null;
         for (self.search_dirs) |search_dir| {
             if (utils.openFileNotDir(search_dir.dir, path, .{})) |file| {
                 errdefer file.close();
@@ -496,6 +501,8 @@ pub const Compiler = struct {
     }
 
     pub fn writeResourceExternal(self: *Compiler, node: *Node.ResourceExternal, writer: *std.Io.Writer) !void {
+        const io = self.io;
+
         // Init header with data size zero for now, will need to fill it in later
         var header = try self.resourceHeader(node.id, node.type, .{});
         defer header.deinit(self.allocator);
@@ -582,7 +589,7 @@ pub const Compiler = struct {
         };
         defer file_handle.close();
         var file_buffer: [2048]u8 = undefined;
-        var file_reader = file_handle.reader(&file_buffer);
+        var file_reader = file_handle.reader(io, &file_buffer);
 
         if (maybe_predefined_type) |predefined_type| {
             switch (predefined_type) {

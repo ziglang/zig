@@ -28,6 +28,9 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
     break :b .init;
 };
 
+pub var io_instance: std.Io.Threaded = undefined;
+pub const io = io_instance.io();
+
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
@@ -1145,6 +1148,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
+                    const tty_config = std.Io.tty.detectConfig(.stderr());
                     print(
                         "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {f}",
                         .{
@@ -1154,7 +1158,10 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
                             failing_allocator_inst.freed_bytes,
                             failing_allocator_inst.allocations,
                             failing_allocator_inst.deallocations,
-                            failing_allocator_inst.getStackTrace(),
+                            std.debug.FormatStackTrace{
+                                .stack_trace = failing_allocator_inst.getStackTrace(),
+                                .tty_config = tty_config,
+                            },
                         },
                     );
                     return error.MemoryLeakDetected;

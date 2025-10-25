@@ -29,7 +29,6 @@ pub fn main() !void {
 }
 
 fn cmdObjCopy(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    _ = gpa;
     var i: usize = 0;
     var opt_out_fmt: ?std.Target.ObjectFormat = null;
     var opt_input: ?[]const u8 = null;
@@ -148,12 +147,16 @@ fn cmdObjCopy(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     const input = opt_input orelse fatal("expected input parameter", .{});
     const output = opt_output orelse fatal("expected output parameter", .{});
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     const input_file = fs.cwd().openFile(input, .{}) catch |err| fatal("failed to open {s}: {t}", .{ input, err });
     defer input_file.close();
 
     const stat = input_file.stat() catch |err| fatal("failed to stat {s}: {t}", .{ input, err });
 
-    var in: File.Reader = .initSize(input_file, &input_buffer, stat.size);
+    var in: File.Reader = .initSize(input_file.adaptToNewApi(), io, &input_buffer, stat.size);
 
     const elf_hdr = std.elf.Header.read(&in.interface) catch |err| switch (err) {
         error.ReadFailed => fatal("unable to read {s}: {t}", .{ input, in.err.? }),
@@ -218,7 +221,7 @@ fn cmdObjCopy(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     try out.end();
 
     if (listen) {
-        var stdin_reader = fs.File.stdin().reader(&stdin_buffer);
+        var stdin_reader = fs.File.stdin().reader(io, &stdin_buffer);
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         var server = try Server.init(.{
             .in = &stdin_reader.interface,

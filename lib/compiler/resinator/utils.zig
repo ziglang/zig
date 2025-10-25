@@ -26,7 +26,11 @@ pub const UncheckedSliceWriter = struct {
 /// Cross-platform 'std.fs.Dir.openFile' wrapper that will always return IsDir if
 /// a directory is attempted to be opened.
 /// TODO: Remove once https://github.com/ziglang/zig/issues/5732 is addressed.
-pub fn openFileNotDir(cwd: std.fs.Dir, path: []const u8, flags: std.fs.File.OpenFlags) std.fs.File.OpenError!std.fs.File {
+pub fn openFileNotDir(
+    cwd: std.fs.Dir,
+    path: []const u8,
+    flags: std.fs.File.OpenFlags,
+) (std.fs.File.OpenError || std.fs.File.StatError)!std.fs.File {
     const file = try cwd.openFile(path, flags);
     errdefer file.close();
     // https://github.com/ziglang/zig/issues/5732

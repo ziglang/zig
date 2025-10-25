@@ -28,7 +28,8 @@ pub fn deinit(si: *SelfInfo, gpa: Allocator) void {
     if (si.unwind_cache) |cache| gpa.free(cache);
 }
 
-pub fn getSymbol(si: *SelfInfo, gpa: Allocator, address: usize) Error!std.debug.Symbol {
+pub fn getSymbol(si: *SelfInfo, gpa: Allocator, io: Io, address: usize) Error!std.debug.Symbol {
+    _ = io;
     const module = try si.findModule(gpa, address, .exclusive);
     defer si.rwlock.unlock();
 
@@ -339,6 +340,7 @@ const Module = struct {
         var elf_file = load_result catch |err| switch (err) {
             error.OutOfMemory,
             error.Unexpected,
+            error.Canceled,
             => |e| return e,
 
             error.Overflow,
@@ -356,6 +358,7 @@ const Module = struct {
             error.LockedMemoryLimitExceeded,
             error.ProcessFdQuotaExceeded,
             error.SystemFdQuotaExceeded,
+            error.Streaming,
             => return error.ReadFailed,
         };
         errdefer elf_file.deinit(gpa);
@@ -490,6 +493,7 @@ const DlIterContext = struct {
 };
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
 const Error = std.debug.SelfInfoError;

@@ -977,7 +977,7 @@ test pipeToFileSystem {
     const data = @embedFile("tar/testdata/example.tar");
     var reader: std.Io.Reader = .fixed(data);
 
-    var tmp = testing.tmpDir(.{ .no_follow = true });
+    var tmp = testing.tmpDir(.{ .follow_symlinks = false });
     defer tmp.cleanup();
     const dir = tmp.dir;
 
@@ -1010,7 +1010,7 @@ test "pipeToFileSystem root_dir" {
 
     // with strip_components = 1
     {
-        var tmp = testing.tmpDir(.{ .no_follow = true });
+        var tmp = testing.tmpDir(.{ .follow_symlinks = false });
         defer tmp.cleanup();
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
@@ -1032,7 +1032,7 @@ test "pipeToFileSystem root_dir" {
     // with strip_components = 0
     {
         reader = .fixed(data);
-        var tmp = testing.tmpDir(.{ .no_follow = true });
+        var tmp = testing.tmpDir(.{ .follow_symlinks = false });
         defer tmp.cleanup();
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
@@ -1084,7 +1084,7 @@ test "pipeToFileSystem strip_components" {
     const data = @embedFile("tar/testdata/example.tar");
     var reader: std.Io.Reader = .fixed(data);
 
-    var tmp = testing.tmpDir(.{ .no_follow = true });
+    var tmp = testing.tmpDir(.{ .follow_symlinks = false });
     defer tmp.cleanup();
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
@@ -1145,7 +1145,7 @@ test "executable bit" {
     for ([_]PipeOptions.ModeMode{ .ignore, .executable_bit_only }) |opt| {
         var reader: std.Io.Reader = .fixed(data);
 
-        var tmp = testing.tmpDir(.{ .no_follow = true });
+        var tmp = testing.tmpDir(.{ .follow_symlinks = false });
         //defer tmp.cleanup();
 
         pipeToFileSystem(tmp.dir, &reader, .{

@@ -5,7 +5,7 @@ const Writer = @This();
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Limit = std.Io.Limit;
-const File = std.fs.File;
+const File = std.Io.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -2827,6 +2827,8 @@ pub const Allocating = struct {
 };
 
 test "discarding sendFile" {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2837,7 +2839,7 @@ test "discarding sendFile" {
     try file_writer.interface.writeByte('h');
     try file_writer.interface.flush();
 
-    var file_reader = file_writer.moveToReader();
+    var file_reader = file_writer.moveToReader(io);
     try file_reader.seekTo(0);
 
     var w_buffer: [256]u8 = undefined;
@@ -2847,6 +2849,8 @@ test "discarding sendFile" {
 }
 
 test "allocating sendFile" {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2857,7 +2861,7 @@ test "allocating sendFile" {
     try file_writer.interface.writeAll("abcd");
     try file_writer.interface.flush();
 
-    var file_reader = file_writer.moveToReader();
+    var file_reader = file_writer.moveToReader(io);
     try file_reader.seekTo(0);
     try file_reader.interface.fill(2);
 
@@ -2869,6 +2873,8 @@ test "allocating sendFile" {
 }
 
 test sendFileReading {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2879,7 +2885,7 @@ test sendFileReading {
     try file_writer.interface.writeAll("abcd");
     try file_writer.interface.flush();
 
-    var file_reader = file_writer.moveToReader();
+    var file_reader = file_writer.moveToReader(io);
     try file_reader.seekTo(0);
     try file_reader.interface.fill(2);
 

@@ -606,6 +606,8 @@ fn versionEqualOpt(a: ?SemanticVersion, b: ?SemanticVersion) bool {
 }
 
 test parse {
+    const io = std.testing.io;
+
     if (builtin.target.isGnuLibC()) {
         var query = try Query.parse(.{});
         query.setGnuLibCVersion(2, 1, 1);
@@ -648,7 +650,7 @@ test parse {
             .arch_os_abi = "x86_64-linux-gnu",
             .cpu_features = "x86_64-sse-sse2-avx-cx8",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.abi == .gnu);
@@ -673,7 +675,7 @@ test parse {
             .arch_os_abi = "arm-linux-musleabihf",
             .cpu_features = "generic+v8a",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.abi == .musleabihf);
@@ -690,7 +692,7 @@ test parse {
             .arch_os_abi = "aarch64-linux.3.10...4.4.1-gnu.2.27",
             .cpu_features = "generic+v8a",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.cpu.arch == .aarch64);
         try std.testing.expect(target.os.tag == .linux);
@@ -713,7 +715,7 @@ test parse {
         const query = try Query.parse(.{
             .arch_os_abi = "aarch64-linux.3.10...4.4.1-android.30",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.cpu.arch == .aarch64);
         try std.testing.expect(target.os.tag == .linux);
@@ -734,7 +736,7 @@ test parse {
         const query = try Query.parse(.{
             .arch_os_abi = "x86-windows.xp...win8-msvc",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.cpu.arch == .x86);
         try std.testing.expect(target.os.tag == .windows);

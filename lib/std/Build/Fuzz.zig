@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const Io = std.Io;
 const Build = std.Build;
 const Cache = Build.Cache;
 const Step = std.Build.Step;
@@ -14,6 +15,7 @@ const Fuzz = @This();
 const build_runner = @import("root");
 
 gpa: Allocator,
+io: Io,
 mode: Mode,
 
 /// Allocated into `gpa`.
@@ -75,6 +77,7 @@ const CoverageMap = struct {
 
 pub fn init(
     gpa: Allocator,
+    io: Io,
     thread_pool: *std.Thread.Pool,
     all_steps: []const *Build.Step,
     root_prog_node: std.Progress.Node,
@@ -111,6 +114,7 @@ pub fn init(
 
     return .{
         .gpa = gpa,
+        .io = io,
         .mode = mode,
         .run_steps = run_steps,
         .wait_group = .{},
@@ -484,6 +488,7 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
 
 pub fn waitAndPrintReport(fuzz: *Fuzz) void {
     assert(fuzz.mode == .limit);
+    const io = fuzz.io;
 
     fuzz.wait_group.wait();
     fuzz.wait_group.reset();
@@ -506,7 +511,7 @@ pub fn waitAndPrintReport(fuzz: *Fuzz) void {
 
         const fuzz_abi = std.Build.abi.fuzz;
         var rbuf: [0x1000]u8 = undefined;
-        var r = coverage_file.reader(&rbuf);
+        var r = coverage_file.reader(io, &rbuf);
 
         var header: fuzz_abi.SeenPcsHeader = undefined;
         r.interface.readSliceAll(std.mem.asBytes(&header)) catch |err| {
