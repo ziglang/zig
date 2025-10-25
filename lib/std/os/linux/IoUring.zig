@@ -927,12 +927,9 @@ pub fn bind(
     fd: linux.fd_t,
     addr: *const linux.sockaddr,
     addrlen: linux.socklen_t,
-    // liburing doesn't have this flag, hence 0 should be passed
-    // TODO: consider removing this and all flags like this
-    flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_bind(fd, addr, addrlen, flags);
+    sqe.prep_bind(fd, addr, addrlen);
     sqe.user_data = user_data;
     return sqe;
 }
@@ -945,12 +942,9 @@ pub fn listen(
     user_data: u64,
     fd: linux.fd_t,
     backlog: u32,
-    // liburing doesn't have this flag, hence 0 should be passed
-    // TODO: consider removing this and all flags like this
-    flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_listen(fd, backlog, flags);
+    sqe.prep_listen(fd, backlog);
     sqe.user_data = user_data;
     return sqe;
 }
@@ -1031,7 +1025,6 @@ pub fn openat(
     sqe.user_data = user_data;
     return sqe;
 }
-// COMMIT: ignore openat2* for now
 
 /// Queues an openat using direct (registered) file descriptors.
 ///
@@ -1133,7 +1126,6 @@ pub fn statx(
     return sqe;
 }
 
-// COMMIT: don't implement f/madvice64 for now I dought it is used by a lot of people in practice
 /// Queues (but does not submit) an SQE to perform an `posix_fadvise(2)`.
 /// Returns a pointer to the SQE.
 pub fn fadvice(
@@ -1350,7 +1342,7 @@ pub fn provide_buffers(
     user_data: u64,
     /// an array of `buffers_count` buffers of len `buffer_len` laid out as a
     /// contiguous slice of memory
-    buffers: [*]u8,
+    buffers: []u8,
     /// lenght of each buffer in `buffers`
     buffer_len: u32,
     /// count of buffer in `buffers`
@@ -2101,7 +2093,6 @@ pub fn register_sync_msg(self: *IoUring, sqe: *Sqe) !void {
     try handle_registration_result(res);
 }
 
-// COMMIT: fix register file alloc range taking @sizeOf(FileIndexRange) instead of zero in register syscall
 /// Registers range for fixed file allocations.
 /// Available since 6.0
 pub fn register_file_alloc_range(self: *IoUring, offset: u32, len: u32) !void {
@@ -2338,7 +2329,6 @@ pub const Cqe = extern struct {
         /// completions with a buffer passed back is automatically returned to
         /// the application.
         f_buf_more: bool = false,
-        // COMMIT: new flags
         /// IORING_CQE_F_SKIP If set, then the application/liburing must ignore
         /// this CQE. It's only purpose is to fill a gap in the ring, if a
         /// large CQE is attempted posted when the ring has just a single small
@@ -2464,7 +2454,6 @@ pub const Sqe = extern struct {
         /// starting buffer ID in cqe.flags as per usual for provided buffer
         /// usage. The buffers will be contiguous from the starting buffer ID.
         recvsend_bundle: bool = false,
-        // COMMIT: new flags
         /// IORING_SEND_VECTORIZED
         /// If set, SEND[_ZC] will take a pointer to a io_vec to allow
         /// vectorized send operations.
@@ -2475,7 +2464,6 @@ pub const Sqe = extern struct {
     /// accept flags stored in sqe.ioprio
     pub const Accept = packed struct(u16) {
         multishot: bool = false,
-        // COMMIT: new Flags
         dontwait: bool = false,
         poll_first: bool = false,
         _: u13 = 0,
@@ -2773,7 +2761,6 @@ pub const Sqe = extern struct {
         sqe.ioprio = .{ .send_recv = .{ .recv_multishot = true } };
     }
 
-    // COMMIT: fix send[|recv] flag param type
     pub fn prep_send(sqe: *Sqe, sockfd: linux.fd_t, buffer: []const u8, flags: linux.Msg) void {
         sqe.prep_rw(.send, sockfd, @intFromPtr(buffer.ptr), buffer.len, 0);
         sqe.rw_flags = @bitCast(flags);
@@ -3296,24 +3283,19 @@ pub const Sqe = extern struct {
         sqe.prep_rw(.files_update, -1, @intFromPtr(fds.ptr), fds.len, constants.FILE_INDEX_ALLOC);
     }
 
-    // Note: It is more appropriate to use a `[*]u8` than `[]u8` slice here
-    // because `[]u8` would free us of the extra `buffer_len` parameter but
-    // would require us to alway calculate the `buffer_len` in the function
-    // which is redundant since the `buffer_len` and `buffers_count`
-    // information are alway available for any 2 dimentional array type
-    // .ie [buffers_count][buffer_len]u8
     pub fn prep_provide_buffers(
         sqe: *Sqe,
-        buffers: [*]u8,
+        buffers: []u8,
         buffer_len: u32,
         buffers_count: u32,
         group_id: u32,
         buffer_id: u32,
     ) void {
+        assert(buffers.len == buffer_len * buffers_count);
         sqe.prep_rw(
             .provide_buffers,
             @intCast(buffers_count),
-            @intFromPtr(buffers),
+            @intFromPtr(buffers.ptr),
             buffer_len,
             buffer_id,
         );
@@ -3509,26 +3491,21 @@ pub const Sqe = extern struct {
         sqe.set_target_fixed_file(file_index);
     }
 
-    // TODO: maybe remove unused flag fields?
     pub fn prep_bind(
         sqe: *Sqe,
         fd: linux.fd_t,
         addr: *const linux.sockaddr,
         addrlen: linux.socklen_t,
-        flags: u32, // flags is unused and does't exist in io_uring's api
     ) void {
         sqe.prep_rw(.bind, fd, @intFromPtr(addr), 0, addrlen);
-        sqe.rw_flags = flags;
     }
 
     pub fn prep_listen(
         sqe: *Sqe,
         fd: linux.fd_t,
         backlog: u32,
-        flags: u32, // flags is unused and does't exist in io_uring's api
     ) void {
         sqe.prep_rw(.listen, fd, 0, backlog, 0);
-        sqe.rw_flags = flags;
     }
 
     pub fn prep_cmd_sock(
@@ -3944,10 +3921,6 @@ pub const Params = extern struct {
     cq_off: CqOffsets,
 };
 
-// COMMIT: remove deprecated io_uring_rsrc_update struct
-// deprecated, see struct io_uring_rsrc_update
-
-// COMMIT: add new io_uring_region_desc struct
 /// matches `io_uring_region_desc` in liburing
 pub const RegionDesc = extern struct {
     user_addr: u64,
@@ -3957,7 +3930,6 @@ pub const RegionDesc = extern struct {
     mmap_offset: u64,
     __resv: [4]u64,
 
-    // COMMIT: new constant
     /// initialise with user provided memory pointed by user_addr
     pub const Flags = packed struct(u32) {
         type_user: bool = false,
@@ -3965,7 +3937,6 @@ pub const RegionDesc = extern struct {
     };
 };
 
-// COMMIT: add new io_uring_mem_region_reg struct
 /// matches `io_uring_mem_region_reg` in liburing
 pub const MemRegionRegister = extern struct {
     /// struct io_uring_region_desc (RegionDesc in Zig)
@@ -4049,7 +4020,6 @@ pub const Probe = extern struct {
     }
 };
 
-// COMMIT: fix defination of io_uring_restriction
 // RegisterOp is actually u8
 /// matches `io_uring_restriction` in liburing
 pub const Restriction = extern struct {
@@ -4066,14 +4036,12 @@ pub const Restriction = extern struct {
     resv2: [3]u32,
 };
 
-// COMMIT: add new struct type
 /// matches `io_uring_clock_register` in liburing
 pub const ClockRegister = extern struct {
     clockid: u32,
     __resv: [3]u32,
 };
 
-// COMMIT: add new struct type
 /// matches `io_uring_clone_buffers` in liburing
 pub const CloneBuffers = extern struct {
     src_fd: u32,
@@ -4083,7 +4051,6 @@ pub const CloneBuffers = extern struct {
     nr: u32,
     pad: [3]u32,
 
-    // COMMIT: new flags
     pub const Flags = packed struct(u32) {
         register_src_registered: bool = false,
         register_dst_replace: bool = false,
@@ -4168,7 +4135,6 @@ pub const BufferRegister = extern struct {
     flags: Flags,
     resv: [3]u64,
 
-    // COMMIT: new IORING_REGISTER_PBUF_RING flags
     /// Flags for IORING_REGISTER_PBUF_RING.
     pub const Flags = packed struct(u16) {
         /// IOU_PBUF_RING_MMAP:
@@ -4210,7 +4176,6 @@ pub const Napi = extern struct {
     resv: u64,
 };
 
-// COMMIT: new struct type
 /// Argument for io_uring_enter(2) with IORING_GETEVENTS | IORING_ENTER_EXT_ARG_REG
 /// set, where the actual argument is an index into a previously registered
 /// fixed wait region described by the below structure.
@@ -4224,7 +4189,6 @@ pub const RegisterWait = extern struct {
     pad: [3]u32,
     pad2: [2]u64,
 
-    // COMMIT: new constant
     pub const Flags = packed struct(u32) {
         reg_wait_ts: bool = false,
         _: u31 = 0,
@@ -4241,7 +4205,6 @@ pub const GetEventsArg = extern struct {
     ts: u64,
 };
 
-// COMMIT: fix type definition of io_uring_sync_cancel_reg
 /// Argument for IORING_REGISTER_SYNC_CANCEL
 /// matches `io_uring_sync_cancel_reg` in liburing
 pub const SyncCancelRegister = extern struct {
@@ -4327,7 +4290,6 @@ pub const ZcrxIfqRegister = extern struct {
     __resv: [3]u64,
 };
 
-// COMMIT: move IoUring constants to Constants
 pub const constants = struct {
     /// io_uring block file commands, see IORING_OP_URING_CMD.
     /// It's a different number space from ioctl(), reuse the block's code 0x12.
@@ -4357,7 +4319,6 @@ pub const constants = struct {
     pub const OFF_SQ_RING = 0;
     pub const OFF_CQ_RING = 0x8000000;
     pub const OFF_SQES = 0x10000000;
-    // COMMIT: new magic constants
     pub const OFF_PBUF_RING = 0x80000000;
     pub const OFF_PBUF_SHIFT = 16;
     pub const OFF_MMAP_MASK = 0xf8000000;
@@ -4365,7 +4326,6 @@ pub const constants = struct {
     /// Skip updating fd indexes set to this value in the fd table
     pub const REGISTER_FILES_SKIP = -2;
 
-    // COMMIT: new TX Timestamp definition
     /// SOCKET_URING_OP_TX_TIMESTAMP definitions
     pub const TIMESTAMP_HW_SHIFT = 16;
     /// The cqe.flags bit from which the timestamp type is stored
@@ -4381,7 +4341,6 @@ pub const constants = struct {
     pub const REGISTER_USE_REGISTERED_RING = 1 << 31;
 };
 
-// COMMIT: move IoUring flags to Flags struct
 pub const uflags = struct {
     /// io_uring_setup() flags
     pub const Setup = packed struct(u32) {
@@ -4430,7 +4389,6 @@ pub const uflags = struct {
         registered_fd_only: bool = false,
         /// Removes indirection through the SQ index array.
         no_sqarray: bool = false,
-        // COMMIT: new setup flags
         /// Use hybrid poll in iopoll process
         hybrid_iopoll: bool = false,
         /// Allow both 16b and 32b CQEs. If a 32b CQE is posted, it will have
@@ -4466,8 +4424,7 @@ pub const uflags = struct {
         link_timeout_update: bool = false,
         /// Available since Linux 5.16
         timeout_etime_success: bool = false,
-        // COMMIT: new Timeout Flag
-        // TODO: add when it became available
+        /// Available since Linux 6.4
         timeout_multishot: bool = false,
         _8: u25 = 0,
     };
@@ -4487,7 +4444,6 @@ pub const uflags = struct {
         /// Multishot poll. Sets IORING_CQE_F_MORE if the poll handler will
         /// continue to report CQEs on behalf of the same SQE.
         add_multi: bool = false,
-        // TODO: verify this doc comment is valid for the 2 flags below
         /// IORING_POLL_UPDATE
         /// Update existing poll request, matching sqe.addr as the old user_data
         /// field.
@@ -4516,7 +4472,6 @@ pub const uflags = struct {
         /// IORING_ASYNC_CANCEL_FD_FIXED
         /// 'fd' passed in is a fixed descriptor
         cancel_fd_fixed: bool = false,
-        // COMMIT: new AsyncCancel Flags
         /// IORING_ASYNC_CANCEL_USERDATA
         /// Match on user_data, default for no other key
         cancel_userdata: bool = false,
@@ -4536,14 +4491,12 @@ pub const uflags = struct {
         _3: u30 = 0,
     };
 
-    // COMMIT: new flag
     /// IORING_OP_FIXED_FD_INSTALL flags (sqe.install_fd_flags or sqe.rw_flags in Zig Struct)
     pub const FixedFd = packed struct(u32) {
         /// IORING_FIXED_FD_NO_CLOEXEC Don't mark the fd as O_CLOEXEC
         no_cloexec: bool = false,
     };
 
-    /// COMMIT: new flags
     /// IORING_OP_NOP flags (sqe.nop_flags or sqe.rw_flags in Zig Struct)
     pub const Nop = packed struct(u32) {
         /// IORING_NOP_INJECT_RESULT Inject result from sqe.result
@@ -4695,7 +4648,6 @@ pub const RegisterOp = enum(u8) {
 
     register_mem_region,
 
-    // COMMIT: new register opcode
     // query various aspects of io_uring, see linux/io_uring/query.h
     register_query,
 
@@ -4716,7 +4668,6 @@ pub const SocketOp = enum(u16) {
     siocoutq,
     getsockopt,
     setsockopt,
-    // COMMIT: new socket op
     tx_timestamp,
     _,
 };
@@ -4745,7 +4696,6 @@ pub const MsgRingCmd = enum {
     send_fd,
 };
 
-// COMMIT: OP to IoUring
 /// matches `io_uring_op` in liburing
 pub const Op = enum(u8) {
     nop,
@@ -4807,8 +4757,6 @@ pub const Op = enum(u8) {
     bind,
     listen,
     recv_zc,
-    // COMMIT: new OPs
-    // TODO: to be implemented
     epoll_wait,
     readv_fixed,
     writev_fixed,
@@ -7525,7 +7473,7 @@ test "bind/listen/connect" {
         (try ring.setsockopt(2, listen_fd, .socket, .reuseaddr, mem.asBytes(&optval))).link_next();
         (try ring.setsockopt(3, listen_fd, .socket, .reuseport, mem.asBytes(&optval))).link_next();
         (try ring.bind(4, listen_fd, addrAny(&addr), @sizeOf(linux.sockaddr.in), 0)).link_next();
-        _ = try ring.listen(5, listen_fd, 1, 0);
+        _ = try ring.listen(5, listen_fd, 1);
         // Submit 4 operations
         try testing.expectEqual(4, try ring.submit());
         // Expect all to succeed
