@@ -1099,157 +1099,10 @@ test hasMethod {
     try std.testing.expect(!hasMethod(U, "bar"));
 }
 
-/// A helper for analyzing possibly-recursive types
-const RecursiveCheck = struct {
-    /// Structs and unions which
-    containers: []const type,
-
-    const start: RecursiveCheck = .{ .containers = &.{} };
-
-    /// Returns null if `T` has already been encountered.
-    /// Otherwise, returns a `RecursiveCheck` with
-    fn recurse(comptime check: RecursiveCheck, comptime T: type) ?RecursiveCheck {
-        return inline for (check.containers) |U| {
-            if (T == U) break null;
-        } else .{ .containers = check.containers ++ .{T} };
-    }
-
-    fn comptimeOnly(comptime check: RecursiveCheck, comptime T: type) bool {
-        return switch (@typeInfo(T)) {
-            .int,
-            .float,
-            .bool,
-            .void,
-            .@"opaque",
-            .error_set,
-            .noreturn,
-            => false,
-
-            .type,
-            .comptime_int,
-            .comptime_float,
-            .enum_literal,
-            .null,
-            .undefined,
-            .@"fn",
-            => true,
-
-            .optional => |optional| check.comptimeOnly(optional.child),
-            .array => |array| check.comptimeOnly(array.child),
-            .vector => |vector| check.comptimeOnly(vector.child),
-            .error_union => |error_union| check.comptimeOnly(error_union.payload),
-
-            // Enums may be tagged by comptime_int
-            .@"enum" => |@"enum"| check.comptimeOnly(@"enum".tag_type),
-
-            .@"struct" => |@"struct"| switch (@"struct".layout) {
-                // Packed and extern structs can never be comptime-only
-                .@"packed", .@"extern" => false,
-
-                // Auto structs may contain comptime types
-                .auto => if (check.recurse(T)) |struct_check| blk: {
-                    inline for (@"struct".fields) |field| {
-                        if (!field.is_comptime and struct_check.comptimeOnly(field.type)) {
-                            break :blk true;
-                        }
-                    }
-                    break :blk false;
-                } else false,
-            },
-
-            .@"union" => |@"union"| switch (@"union".layout) {
-                // Packed and extern unions cannot be comptime-only
-                .@"packed", .@"extern" => false,
-
-                // Auto unions may contain comptime-only fields
-                .auto => if (check.recurse(T)) |union_check| blk: {
-                    if (@"union".tag_type) |UTag| {
-                        if (union_check.comptimeOnly(UTag)) {
-                            break :blk true;
-                        }
-                    }
-                    inline for (@"union".fields) |field| {
-                        if (union_check.comptimeOnly(field.type)) {
-                            break :blk true;
-                        }
-                    }
-                },
-            },
-
-            .pointer => |pointer| switch (@typeInfo(pointer.child)) {
-                // Concrete runtime function pointers are not comptime-only
-                .@"fn" => |@"fn"| pointer.is_const and switch (@"fn".calling_convention) {
-                    // Inline function pointers are comptime only
-                    .@"inline" => true,
-
-                    // Zig calling conventions may be comptime only functions
-                    .auto, .async => !@"fn".is_generic and inline for (@"fn".params) |param| {
-                        if (check.comptimeOnly(param.type.?)) break true;
-                    } else check.comptimeOnly(@"fn".return_type.?),
-
-                    // External calling conventions are never comptime-only functions
-                    else => false,
-                },
-
-                // Aside from function pointers,
-                // pointers to comptime-only types
-                // are themselves comptime-only
-                else => check.comptimeOnly(pointer.child),
-            },
-
-            .frame, .@"anyframe" => unreachable,
-        };
-    }
-};
-
-/// Returns whether `T` can only be used in comptime.
-/// Result is always comptime-known.
-pub inline fn isComptimeOnly(comptime T: type) bool {
-    return comptime RecursiveCheck.start.comptimeOnly(T);
-}
-
-test isComptimeOnly {
-    try testing.expect(isComptimeOnly(type));
-    try testing.expect(isComptimeOnly(comptime_int));
-
-    try testing.expect(!isComptimeOnly(u8));
-    try testing.expect(!isComptimeOnly(f32));
-
-    try testing.expect(!isComptimeOnly(void));
-    try testing.expect(isComptimeOnly(@TypeOf(null)));
-
-    try testing.expect(isComptimeOnly(fn (u8, u32) f32));
-    try testing.expect(!isComptimeOnly(*const fn (u8, u32) f32));
-    try testing.expect(isComptimeOnly(*const fn (u8, u32) callconv(.@"inline") f32));
-
-    const RuntimeRecursiveType = std.SinglyLinkedList.Node;
-
-    try testing.expect(!isComptimeOnly(RuntimeRecursiveType));
-
-    const ComptimeRecursiveType = struct {
-        next: ?*@This(),
-        data: type,
-    };
-
-    try testing.expect(isComptimeOnly(ComptimeRecursiveType));
-
-    const Nested = []const struct {
-        a: u32,
-        b: f64,
-        c: ?anyerror!@Vector(8, *const [4]union(enum(comptime_int)) { a, b, c }),
-    };
-
-    try testing.expect(isComptimeOnly(Nested));
-
-    try testing.expect(!isComptimeOnly(std.Io.Writer));
-}
-
 /// True if every value of the type `T` has a single unique byte pattern representing it.
 /// In other words, `T` has no padding and no insignificant bits.
-/// May never return a false positive.
-/// May return a false negative for some types with no well defined layout.
 /// Result is always comptime-known.
-pub inline fn hasUniqueRepresentation(comptime T: type) bool {
+pub fn hasUniqueRepresentation(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         // If the runtime size of an integer is exactly
         // equal to its logical bits divided by 8,
@@ -1276,8 +1129,14 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
         // have bytes at all.
         .void => true,
 
-        .pointer => |info| !isComptimeOnly(T) and switch (info.size) {
-            // Raw pointers are always unique
+        // Known issue: pointers to comptime-only types
+        // should not return true, but detecting whether
+        // a type is comptime-onlt takes up an impractical
+        // amount of eval branch quota.
+        .pointer => |info| switch (info.size) {
+            // Raw pointers are always unique.
+            // TODO: detect comptime-only types while
+            // being reasonable with eval branch quota
             .one, .many, .c => true,
             // While there is no guarantee on the layout of
             // a slice type, we can still do something here.
@@ -1309,7 +1168,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
                 // An optional nonzero pointer is guaranteed to be
                 // represented by an actual pointer. Just make sure
                 // it's not a comptime-only pointer!
-                .one, .many => !ptr.is_allowzero and !isComptimeOnly(info.child),
+                .one, .many => !ptr.is_allowzero,
                 // C pointers can be null, so the above does not apply
                 .c => false,
                 // Our trick with slices from earlier does not apply
