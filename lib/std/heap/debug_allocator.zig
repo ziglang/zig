@@ -69,7 +69,7 @@
 //! versa.
 //!
 //! When a bucket is full, a new one is allocated, containing a pointer to the
-//! previous one. This singly-linked list is iterated during leak detection.
+//! previous one. This doubly-linked list is iterated during leak detection.
 //!
 //! Resizing and remapping work the same on small allocations: if the size
 //! class would not change, then the operation succeeds, and the address is
