@@ -1599,8 +1599,8 @@ static inline uint24_t zig_bit_reverse_u24(uint24_t val, uint8_t bits) {
     return zig_wrap_u24(full_res >> (24 - bits), bits);
 }
 
-static inline int16_t zig_bit_reverse_i16(int16_t val, uint8_t bits) {
-    return zig_wrap_i16((int16_t)zig_bit_reverse_u16((uint16_t)val, bits), bits);
+static inline int24_t zig_bit_reverse_i24(int24_t val, uint8_t bits) {
+    return zig_wrap_i24((int24_t)zig_bit_reverse_u24((uint24_t)val, bits), bits);
 }
 #endif
 
