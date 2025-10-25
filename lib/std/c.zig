@@ -2528,6 +2528,8 @@ pub const _SC = if (builtin.abi.isAndroid()) enum(c_int) {
     .solaris, .illumos => enum(c_int) {
         PAGESIZE = 11,
         NPROCESSORS_ONLN = 15,
+        SIGRT_MIN = 40,
+        SIGRT_MAX = 41,
     },
     // https://github.com/SerenityOS/serenity/blob/1dfc9e2df39dd23f1de92530677c845aae4345f2/Kernel/API/POSIX/unistd.h#L36-L52
     .serenity => enum(c_int) {
@@ -10489,6 +10491,7 @@ pub fn sigrtmin() u8 {
     return switch (native_os) {
         .freebsd => 65,
         .netbsd => 33,
+        .solaris, .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MIN))),
         else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin()))),
     };
 }
@@ -10498,6 +10501,7 @@ pub fn sigrtmax() u8 {
     return switch (native_os) {
         .freebsd => 126,
         .netbsd => 63,
+        .solaris, .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MAX))),
         else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax()))),
     };
 }
