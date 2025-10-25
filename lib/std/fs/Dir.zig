@@ -2817,18 +2817,23 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
             &stx,
         );
 
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
-            .ACCES => error.AccessDenied,
+        switch (linux.E.init(rc)) {
+            .SUCCESS => return Stat.fromLinux(stx),
+            .ACCES => return error.AccessDenied,
             .BADF => unreachable,
             .FAULT => unreachable,
             .INVAL => unreachable,
-            .LOOP => error.SymLinkLoop,
+            .LOOP => return error.SymLinkLoop,
             .NAMETOOLONG => unreachable, // Handled by posix.toPosixPath() above.
-            .NOENT, .NOTDIR => error.FileNotFound,
-            .NOMEM => error.SystemResources,
-            else => |err| posix.unexpectedErrno(err),
-        };
+            .NOENT, .NOTDIR => return error.FileNotFound,
+            .NOSYS => {
+                // riscv32 and loongarch have not implement fstatat and will not reach here
+                if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) unreachable;
+                // fallback to posix fstatat
+            },
+            .NOMEM => return error.SystemResources,
+            else => |err| return posix.unexpectedErrno(err),
+        }
     }
     const st = try posix.fstatat(self.fd, sub_path, 0);
     return Stat.fromPosix(st);

@@ -569,8 +569,8 @@ pub fn stat(self: File) StatError!Stat {
             &stx,
         );
 
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
+        switch (linux.E.init(rc)) {
+            .SUCCESS => return Stat.fromLinux(stx),
             .ACCES => unreachable,
             .BADF => unreachable,
             .FAULT => unreachable,
@@ -578,10 +578,15 @@ pub fn stat(self: File) StatError!Stat {
             .LOOP => unreachable,
             .NAMETOOLONG => unreachable,
             .NOENT => unreachable,
-            .NOMEM => error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOSYS => {
+                // riscv32 and loongarch have not implement fstatat and will not reach here
+                if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) unreachable;
+                // fallback to posix fstatat
+            },
             .NOTDIR => unreachable,
-            else => |err| posix.unexpectedErrno(err),
-        };
+            else => |err| return posix.unexpectedErrno(err),
+        }
     }
 
     const st = try posix.fstat(self.handle);
