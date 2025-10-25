@@ -9,25 +9,30 @@ const trace = @import("../tracy.zig").trace;
 const Module = @import("../Package/Module.zig");
 
 const libcxxabi_files = [_][]const u8{
-    "src/abort_message.cpp",
     "src/cxa_aux_runtime.cpp",
     "src/cxa_default_handlers.cpp",
     "src/cxa_demangle.cpp",
-    "src/cxa_exception.cpp",
     "src/cxa_exception_storage.cpp",
     "src/cxa_guard.cpp",
     "src/cxa_handlers.cpp",
-    "src/cxa_noexception.cpp",
-    "src/cxa_personality.cpp",
-    "src/cxa_thread_atexit.cpp",
     "src/cxa_vector.cpp",
     "src/cxa_virtual.cpp",
-    "src/fallback_malloc.cpp",
-    "src/private_typeinfo.cpp",
+
     "src/stdlib_exception.cpp",
-    "src/stdlib_new_delete.cpp",
     "src/stdlib_stdexcept.cpp",
     "src/stdlib_typeinfo.cpp",
+    "src/stdlib_new_delete.cpp",
+
+    "src/abort_message.cpp",
+    "src/fallback_malloc.cpp",
+    "src/private_typeinfo.cpp",
+
+    "src/cxa_exception.cpp",
+    "src/cxa_personality.cpp",
+
+    "src/cxa_noexception.cpp",
+
+    "src/cxa_thread_atexit.cpp",
 };
 
 const libcxx_base_files = [_][]const u8{
@@ -388,10 +393,12 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     var c_source_files = try std.array_list.Managed(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
-        if (!comp.config.any_non_single_threaded and std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
+        if (!comp.config.any_non_single_threaded and std.mem.eql(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
             continue;
         if (target.os.tag == .wasi and
             (std.mem.eql(u8, cxxabi_src, "src/cxa_exception.cpp") or std.mem.eql(u8, cxxabi_src, "src/cxa_personality.cpp")))
+            continue;
+        if (target.os.tag != .wasi and std.mem.eql(u8, cxxabi_src, "src/cxa_noexception.cpp"))
             continue;
 
         var cflags = std.array_list.Managed([]const u8).init(arena);
@@ -399,6 +406,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try addCxxArgs(comp, arena, &cflags);
 
         try cflags.append("-DNDEBUG");
+        try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
@@ -548,5 +556,4 @@ pub fn addCxxArgs(
             try cflags.append("-D_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION=0");
         }
     }
-    try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
 }

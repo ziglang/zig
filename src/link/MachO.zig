@@ -919,7 +919,16 @@ fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !v
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+
+    const abs_path = try std.fs.path.resolvePosix(gpa, &.{
+        comp.dirs.cwd,
+        path.root_dir.path orelse ".",
+        path.sub_path,
+    });
+    errdefer gpa.free(abs_path);
+
     const mtime: u64 = mtime: {
         const file = self.getFileHandle(handle);
         const stat = file.stat() catch break :mtime 0;
@@ -928,10 +937,7 @@ fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !v
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
         .offset = offset,
-        .path = .{
-            .root_dir = path.root_dir,
-            .sub_path = try gpa.dupe(u8, path.sub_path),
-        },
+        .path = abs_path,
         .file_handle = handle,
         .mtime = mtime,
         .index = index,
@@ -4149,9 +4155,9 @@ pub const SymtabCtx = struct {
 
 pub const null_sym = macho.nlist_64{
     .n_strx = 0,
-    .n_type = 0,
+    .n_type = @bitCast(@as(u8, 0)),
     .n_sect = 0,
-    .n_desc = 0,
+    .n_desc = @bitCast(@as(u16, 0)),
     .n_value = 0,
 };
 
@@ -5070,7 +5076,7 @@ pub fn getKernError(err: std.c.kern_return_t) KernE {
 pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(.{});
     }
     return error.Unexpected;
 }

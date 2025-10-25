@@ -10,6 +10,7 @@ pub const Options = struct {
     optimize_modes: []const std.builtin.OptimizeMode,
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    max_rss: usize,
 };
 
 const TestCase = struct {
@@ -100,6 +101,7 @@ pub fn addTarget(libc: *const Libc, target: std.Build.ResolvedTarget) void {
             const exe = libc.b.addExecutable(.{
                 .name = test_case.name,
                 .root_module = mod,
+                .max_rss = libc.options.max_rss,
             });
 
             const run = libc.b.addRunArtifact(exe);
@@ -108,6 +110,7 @@ pub fn addTarget(libc: *const Libc, target: std.Build.ResolvedTarget) void {
             run.expectStdErrEqual("");
             run.expectStdOutEqual("");
             run.expectExitCode(0);
+            run.step.max_rss = libc.options.max_rss;
 
             libc.root_step.dependOn(&run.step);
         }

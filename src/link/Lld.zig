@@ -505,7 +505,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (comp.emit_implib) |raw_emit_path| {
-            const path = try comp.resolveEmitPathFlush(arena, .temp, raw_emit_path);
+            const path = try comp.resolveEmitPathFlush(arena, .artifact, raw_emit_path);
             try argv.append(try allocPrint(arena, "-IMPLIB:{f}", .{path}));
         }
 

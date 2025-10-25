@@ -110,7 +110,9 @@ pub const Class = enum {
     }
 };
 
-pub fn classifyWindows(ty: Type, zcu: *Zcu, target: *const std.Target) Class {
+pub const Context = enum { ret, arg, other };
+
+pub fn classifyWindows(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Context) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
     // "There's a strict one-to-one correspondence between a function call's arguments
     // and the registers used for those arguments. Any argument that doesn't fit in 8
@@ -148,8 +150,9 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu, target: *const std.Target) Class {
         },
 
         .float => switch (ty.floatBits(target)) {
-            16, 32, 64, 128 => .sse,
+            16, 32, 64 => .sse,
             80 => .memory,
+            128 => if (ctx == .arg) .memory else .sse,
             else => unreachable,
         },
         .vector => .sse,
@@ -165,8 +168,6 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu, target: *const std.Target) Class {
         => unreachable,
     };
 }
-
-pub const Context = enum { ret, arg, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.

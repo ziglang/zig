@@ -5,6 +5,7 @@ pub fn build(b: *std.Build) void {
         "test-filter",
         "Skip tests that do not match any filter",
     ) orelse &[0][]const u8{};
+    const strip = b.option(bool, "strip", "Omit debug information");
 
     const compiler_rt_lib = b.addLibrary(.{
         .linkage = .static,
@@ -171,6 +172,7 @@ pub fn build(b: *std.Build) void {
             const test_mod = b.createModule(.{
                 .root_source_file = b.path(path),
                 .target = target,
+                .strip = strip,
             });
             const test_exe = b.addTest(.{
                 .name = std.fs.path.stem(path),

@@ -15,8 +15,10 @@ const dl = @import("../dynamic_library.zig");
 const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
 const native_endian = native_arch.endian();
+const is_loongarch = native_arch.isLoongArch();
 const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPowerPC();
+const is_riscv = native_arch.isRISCV();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -30,25 +32,29 @@ test {
 }
 
 const arch_bits = switch (native_arch) {
-    .x86 => @import("linux/x86.zig"),
-    .x86_64 => @import("linux/x86_64.zig"),
     .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
     .hexagon => @import("linux/hexagon.zig"),
-    .riscv32 => @import("linux/riscv32.zig"),
-    .riscv64 => @import("linux/riscv64.zig"),
-    .sparc64 => @import("linux/sparc64.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
     .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
-    .mips64, .mips64el => @import("linux/mips64.zig"),
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => @import("linux/mipsn32.zig"),
+        else => @import("linux/mips64.zig"),
+    },
+    .or1k => @import("linux/or1k.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
+    .riscv32 => @import("linux/riscv32.zig"),
+    .riscv64 => @import("linux/riscv64.zig"),
     .s390x => @import("linux/s390x.zig"),
-    else => struct {
-        pub const ucontext_t = void;
-        pub const getcontext = {};
+    .sparc64 => @import("linux/sparc64.zig"),
+    .x86 => @import("linux/x86.zig"),
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => @import("linux/x32.zig"),
+        else => @import("linux/x86_64.zig"),
     },
+    else => struct {},
 };
 
 const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
@@ -89,11 +95,7 @@ pub fn clone(
 }
 
 pub const ARCH = arch_bits.ARCH;
-pub const Elf_Symndx = arch_bits.Elf_Symndx;
-pub const F = arch_bits.F;
-pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
-pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
 pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
@@ -101,16 +103,11 @@ pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
-pub const mcontext_t = arch_bits.mcontext_t;
 pub const mode_t = arch_bits.mode_t;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
-pub const timeval = arch_bits.timeval;
-pub const timezone = arch_bits.timezone;
-pub const ucontext_t = arch_bits.ucontext_t;
 pub const user_desc = arch_bits.user_desc;
-pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
 pub const BPF = @import("linux/bpf.zig");
@@ -118,10 +115,10 @@ pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
-pub const SYS = switch (@import("builtin").cpu.arch) {
-    .arc => syscalls.Arc,
-    .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+pub const SYS = switch (native_arch) {
+    .arc, .arceb => syscalls.Arc,
     .aarch64, .aarch64_be => syscalls.Arm64,
+    .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
     .loongarch64 => syscalls.LoongArch64,
@@ -131,20 +128,20 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
         .gnuabin32, .muslabin32 => syscalls.MipsN32,
         else => syscalls.MipsN64,
     },
+    .or1k => syscalls.OpenRisc,
+    .powerpc, .powerpcle => syscalls.PowerPC,
+    .powerpc64, .powerpc64le => syscalls.PowerPC64,
     .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
     .s390x => syscalls.S390x,
     .sparc => syscalls.Sparc,
     .sparc64 => syscalls.Sparc64,
-    .powerpc, .powerpcle => syscalls.PowerPC,
-    .powerpc64, .powerpc64le => syscalls.PowerPC64,
     .x86 => syscalls.X86,
     .x86_64 => switch (builtin.abi) {
         .gnux32, .muslx32 => syscalls.X32,
         else => syscalls.X64,
     },
-    .xtensa => syscalls.Xtensa,
-    .or1k => syscalls.OpenRisc,
+    .xtensa, .xtensaeb => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -277,7 +274,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .hexagon, .m68k, .s390x => packed struct(u32) {
+    .hexagon, .m68k, .or1k, .s390x => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -448,7 +445,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _23: u9 = 0,
     },
-    .hexagon, .s390x => packed struct(u32) {
+    .hexagon, .or1k, .s390x => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -538,9 +535,10 @@ fn getauxvalImpl(index: usize) callconv(.c) usize {
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
 const require_aligned_register_pair =
-    builtin.cpu.arch.isPowerPC32() or
+    builtin.cpu.arch.isArm() or
+    builtin.cpu.arch == .hexagon or
     builtin.cpu.arch.isMIPS32() or
-    builtin.cpu.arch.isArm();
+    builtin.cpu.arch.isPowerPC32();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -645,7 +643,7 @@ pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
 
 pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
     return syscall4(
-        if (@hasField(SYS, "utimensat")) .utimensat else .utimensat_time64,
+        if (@hasField(SYS, "utimensat") and native_arch != .hexagon) .utimensat else .utimensat_time64,
         @as(usize, @bitCast(@as(isize, dirfd))),
         @intFromPtr(path),
         @intFromPtr(times),
@@ -693,7 +691,7 @@ pub const futex_param4 = extern union {
 /// defines which of the subsequent paramters are relevant.
 pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
     return syscall6(
-        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
         @as(u32, @bitCast(futex_op)),
         val,
@@ -707,7 +705,7 @@ pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout:
 /// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
 pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
     return syscall3(
-        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
         @as(u32, @bitCast(futex_op)),
         val,
@@ -718,7 +716,7 @@ pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
 /// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
 pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
     return syscall4(
-        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
         @as(u32, @bitCast(futex_op)),
         val,
@@ -970,6 +968,10 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(.umount2, @intFromPtr(special), flags);
 }
 
+pub fn pivot_root(new_root: [*:0]const u8, put_old: [*:0]const u8) usize {
+    return syscall2(.pivot_root, @intFromPtr(new_root), @intFromPtr(put_old));
+}
+
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
         return syscall6(
@@ -1098,7 +1100,7 @@ pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
 
 pub fn ppoll(fds: [*]pollfd, n: nfds_t, timeout: ?*timespec, sigmask: ?*const sigset_t) usize {
     return syscall5(
-        if (@hasField(SYS, "ppoll")) .ppoll else .ppoll_time64,
+        if (@hasField(SYS, "ppoll") and native_arch != .hexagon) .ppoll else .ppoll_time64,
         @intFromPtr(fds),
         n,
         @intFromPtr(timeout),
@@ -1604,6 +1606,70 @@ pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
     return syscall5(.waitid, @intFromEnum(id_type), @as(usize, @bitCast(@as(isize, id))), @intFromPtr(infop), flags, 0);
 }
 
+pub const F = struct {
+    pub const DUPFD = 0;
+    pub const GETFD = 1;
+    pub const SETFD = 2;
+    pub const GETFL = 3;
+    pub const SETFL = 4;
+
+    pub const GETLK = GET_SET_LK.GETLK;
+    pub const SETLK = GET_SET_LK.SETLK;
+    pub const SETLKW = GET_SET_LK.SETLKW;
+
+    const GET_SET_LK = if (@sizeOf(usize) == 64) extern struct {
+        pub const GETLK = if (is_mips) 14 else if (is_sparc) 7 else 5;
+        pub const SETLK = if (is_mips) 6 else if (is_sparc) 8 else 6;
+        pub const SETLKW = if (is_mips) 7 else if (is_sparc) 9 else 7;
+    } else extern struct {
+        // Ensure that 32-bit code uses the large-file variants (GETLK64, etc).
+
+        pub const GETLK = if (is_mips) 33 else 12;
+        pub const SETLK = if (is_mips) 34 else 13;
+        pub const SETLKW = if (is_mips) 35 else 14;
+    };
+
+    pub const SETOWN = if (is_mips) 24 else if (is_sparc) 6 else 8;
+    pub const GETOWN = if (is_mips) 23 else if (is_sparc) 5 else 9;
+
+    pub const SETSIG = 10;
+    pub const GETSIG = 11;
+
+    pub const SETOWN_EX = 15;
+    pub const GETOWN_EX = 16;
+
+    pub const GETOWNER_UIDS = 17;
+
+    pub const OFD_GETLK = 36;
+    pub const OFD_SETLK = 37;
+    pub const OFD_SETLKW = 38;
+
+    pub const RDLCK = if (is_sparc) 1 else 0;
+    pub const WRLCK = if (is_sparc) 2 else 1;
+    pub const UNLCK = if (is_sparc) 3 else 2;
+};
+
+pub const F_OWNER = enum(i32) {
+    TID = 0,
+    PID = 1,
+    PGRP = 2,
+    _,
+};
+
+pub const f_owner_ex = extern struct {
+    type: F_OWNER,
+    pid: pid_t,
+};
+
+pub const Flock = extern struct {
+    type: i16,
+    whence: i16,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    _unused: if (is_sparc) i16 else void,
+};
+
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
     if (@hasField(SYS, "fcntl64")) {
         return syscall3(.fcntl64, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
@@ -1615,6 +1681,8 @@ pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
 pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, operation))));
 }
+
+pub const Elf_Symndx = if (native_arch == .s390x) u64 else u32;
 
 // We must follow the C calling convention when we call into the VDSO
 const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.c) usize;
@@ -1632,7 +1700,7 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
         }
     }
     return syscall2(
-        if (@hasField(SYS, "clock_gettime")) .clock_gettime else .clock_gettime64,
+        if (@hasField(SYS, "clock_gettime") and native_arch != .hexagon) .clock_gettime else .clock_gettime64,
         @intFromEnum(clk_id),
         @intFromPtr(tp),
     );
@@ -1650,7 +1718,7 @@ fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
     return syscall2(
-        if (@hasField(SYS, "clock_getres")) .clock_getres else .clock_getres_time64,
+        if (@hasField(SYS, "clock_getres") and native_arch != .hexagon) .clock_getres else .clock_getres_time64,
         @as(usize, @bitCast(@as(isize, clk_id))),
         @intFromPtr(tp),
     );
@@ -1658,7 +1726,7 @@ pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
 
 pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(
-        if (@hasField(SYS, "clock_settime")) .clock_settime else .clock_settime64,
+        if (@hasField(SYS, "clock_settime") and native_arch != .hexagon) .clock_settime else .clock_settime64,
         @as(usize, @bitCast(@as(isize, clk_id))),
         @intFromPtr(tp),
     );
@@ -1666,7 +1734,7 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
 
 pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
     return syscall4(
-        if (@hasField(SYS, "clock_nanosleep")) .clock_nanosleep else .clock_nanosleep_time64,
+        if (@hasField(SYS, "clock_nanosleep") and native_arch != .hexagon) .clock_nanosleep else .clock_nanosleep_time64,
         @intFromEnum(clockid),
         @as(u32, @bitCast(flags)),
         @intFromPtr(request),
@@ -1868,15 +1936,23 @@ pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        // Zig needs to install our arch restorer function with any signal handler, so
-        // must copy the Sigaction struct
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
-        ksa = k_sigaction{
-            .handler = new.handler.handler,
-            .flags = new.flags | SA.RESTORER,
-            .mask = new.mask,
-            .restorer = @ptrCast(restorer_fn),
-        };
+        if (native_arch == .hexagon or is_loongarch or is_mips or native_arch == .or1k or is_riscv) {
+            ksa = .{
+                .handler = new.handler.handler,
+                .flags = new.flags,
+                .mask = new.mask,
+            };
+        } else {
+            // Zig needs to install our arch restorer function with any signal handler, so
+            // must copy the Sigaction struct
+            const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
+            ksa = .{
+                .handler = new.handler.handler,
+                .flags = new.flags | SA.RESTORER,
+                .mask = new.mask,
+                .restorer = @ptrCast(restorer_fn),
+            };
+        }
     }
 
     const ksa_arg = if (act != null) @intFromPtr(&ksa) else 0;
@@ -2068,7 +2144,7 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
 
 pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
     return syscall5(
-        if (@hasField(SYS, "recvmmsg")) .recvmmsg else .recvmmsg_time64,
+        if (@hasField(SYS, "recvmmsg") and native_arch != .hexagon) .recvmmsg else .recvmmsg_time64,
         @as(usize, @bitCast(@as(isize, fd))),
         @intFromPtr(msgvec),
         vlen,
@@ -2418,7 +2494,7 @@ pub const itimerspec = extern struct {
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
     return syscall2(
-        if (@hasField(SYS, "timerfd_gettime")) .timerfd_gettime else .timerfd_gettime64,
+        if (@hasField(SYS, "timerfd_gettime") and native_arch != .hexagon) .timerfd_gettime else .timerfd_gettime64,
         @bitCast(@as(isize, fd)),
         @intFromPtr(curr_value),
     );
@@ -2426,7 +2502,7 @@ pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
 
 pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
     return syscall4(
-        if (@hasField(SYS, "timerfd_settime")) .timerfd_settime else .timerfd_settime64,
+        if (@hasField(SYS, "timerfd_settime") and native_arch != .hexagon) .timerfd_settime else .timerfd_settime64,
         @bitCast(@as(isize, fd)),
         @as(u32, @bitCast(flags)),
         @intFromPtr(new_value),
@@ -2451,6 +2527,10 @@ pub fn setitimer(which: i32, new_value: *const itimerspec, old_value: ?*itimersp
 
 pub fn unshare(flags: usize) usize {
     return syscall1(.unshare, flags);
+}
+
+pub fn setns(fd: fd_t, flags: u32) usize {
+    return syscall2(.setns, fd, flags);
 }
 
 pub fn capget(hdrp: *cap_user_header_t, datap: *cap_user_data_t) usize {
@@ -2629,7 +2709,7 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime native_arch.isArm() or native_arch.isPowerPC32()) {
+    if (comptime native_arch.isArm() or native_arch == .hexagon or native_arch.isPowerPC32()) {
         // These architectures reorder the arguments so that a register is not skipped to align the
         // register number that `offset` is passed in.
 
@@ -3606,8 +3686,7 @@ pub const PROT = struct {
     pub const EXEC = 0x4;
     /// page may be used for atomic ops
     pub const SEM = switch (native_arch) {
-        // TODO: also xtensa
-        .mips, .mipsel, .mips64, .mips64el => 0x10,
+        .mips, .mipsel, .mips64, .mips64el, .xtensa, .xtensaeb => 0x10,
         else => 0x8,
     };
     /// mprotect flag: extend change to start of growsdown vma
@@ -3668,7 +3747,6 @@ pub const SA = if (is_mips) struct {
     pub const RESETHAND = 0x80000000;
     pub const ONSTACK = 0x08000000;
     pub const NODEFER = 0x40000000;
-    pub const RESTORER = 0x04000000;
 } else if (is_sparc) struct {
     pub const NOCLDSTOP = 0x8;
     pub const NOCLDWAIT = 0x100;
@@ -3678,6 +3756,14 @@ pub const SA = if (is_mips) struct {
     pub const ONSTACK = 0x1;
     pub const NODEFER = 0x20;
     pub const RESTORER = 0x04000000;
+} else if (native_arch == .hexagon or is_loongarch or native_arch == .or1k or is_riscv) struct {
+    pub const NOCLDSTOP = 1;
+    pub const NOCLDWAIT = 2;
+    pub const SIGINFO = 4;
+    pub const RESTART = 0x10000000;
+    pub const RESETHAND = 0x80000000;
+    pub const ONSTACK = 0x08000000;
+    pub const NODEFER = 0x40000000;
 } else struct {
     pub const NOCLDSTOP = 1;
     pub const NOCLDWAIT = 2;
@@ -5743,13 +5829,18 @@ const k_sigaction_funcs = struct {
     const restorer = *const fn () callconv(.c) void;
 };
 
-/// Kernel sigaction struct, as expected by the `rt_sigaction` syscall.  Includes restorer.
+/// Kernel sigaction struct, as expected by the `rt_sigaction` syscall.  Includes `restorer` on
+/// targets where userspace is responsible for hooking up `rt_sigreturn`.
 pub const k_sigaction = switch (native_arch) {
     .mips, .mipsel, .mips64, .mips64el => extern struct {
         flags: c_uint,
         handler: k_sigaction_funcs.handler,
         mask: sigset_t,
-        restorer: k_sigaction_funcs.restorer,
+    },
+    .hexagon, .loongarch32, .loongarch64, .or1k, .riscv32, .riscv64 => extern struct {
+        handler: k_sigaction_funcs.handler,
+        flags: c_ulong,
+        mask: sigset_t,
     },
     else => extern struct {
         handler: k_sigaction_funcs.handler,
@@ -6070,6 +6161,7 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 
 pub const MINSIGSTKSZ = switch (native_arch) {
     .arc,
+    .arceb,
     .arm,
     .armeb,
     .csky,
@@ -6079,6 +6171,7 @@ pub const MINSIGSTKSZ = switch (native_arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .or1k,
     .powerpc,
     .powerpcle,
     .riscv32,
@@ -6089,6 +6182,7 @@ pub const MINSIGSTKSZ = switch (native_arch) {
     .x86,
     .x86_64,
     .xtensa,
+    .xtensaeb,
     => 2048,
     .loongarch64,
     .sparc,
@@ -6104,6 +6198,7 @@ pub const MINSIGSTKSZ = switch (native_arch) {
 };
 pub const SIGSTKSZ = switch (native_arch) {
     .arc,
+    .arceb,
     .arm,
     .armeb,
     .csky,
@@ -6113,6 +6208,7 @@ pub const SIGSTKSZ = switch (native_arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .or1k,
     .powerpc,
     .powerpcle,
     .riscv32,
@@ -6123,6 +6219,7 @@ pub const SIGSTKSZ = switch (native_arch) {
     .x86,
     .x86_64,
     .xtensa,
+    .xtensaeb,
     => 8192,
     .aarch64,
     .aarch64_be,
@@ -8346,6 +8443,16 @@ pub const POSIX_FADV = switch (native_arch) {
     },
 };
 
+pub const timeval = extern struct {
+    sec: isize,
+    usec: i64,
+};
+
+pub const timezone = extern struct {
+    minuteswest: i32,
+    dsttime: i32,
+};
+
 /// The timespec struct used by the kernel.
 pub const kernel_timespec = extern struct {
     sec: i64,
@@ -8353,7 +8460,7 @@ pub const kernel_timespec = extern struct {
 };
 
 // https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
-pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
+pub const timespec = if (native_arch == .hexagon or native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };
@@ -9637,6 +9744,7 @@ pub const AUDIT = struct {
             .armeb, .thumbeb => .ARMEB,
             .aarch64 => .AARCH64,
             .arc => .ARCV2,
+            .arceb => .ARCV2BE,
             .csky => .CSKY,
             .hexagon => .HEXAGON,
             .loongarch32 => .LOONGARCH32,
@@ -9652,6 +9760,7 @@ pub const AUDIT = struct {
                 .gnuabin32, .muslabin32 => .MIPSEL64N32,
                 else => .MIPSEL64,
             },
+            .or1k => .OPENRISC,
             .powerpc => .PPC,
             .powerpc64 => .PPC64,
             .powerpc64le => .PPC64LE,

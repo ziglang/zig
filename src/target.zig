@@ -216,9 +216,18 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         => false,
 
         // No LLVM backend exists.
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .xtensaeb,
         => false,
     };
 }
@@ -233,7 +242,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 
 pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.CompilerBackend) bool {
     return switch (ofmt) {
-        .elf => switch (backend) {
+        .elf, .coff => switch (backend) {
             .stage2_x86_64 => true,
             else => false,
         },
@@ -375,11 +384,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
         else => {},
     }
     return switch (zigBackend(target, false)) {
-        .stage2_aarch64 => .yes,
-        .stage2_x86_64 => switch (target.ofmt) {
-            .elf, .macho => .yes,
-            else => .llvm_only,
-        },
+        .stage2_aarch64, .stage2_x86_64 => .yes,
         else => .llvm_only,
     };
 }
@@ -393,10 +398,7 @@ pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, 
     }
     return switch (zigBackend(target, false)) {
         .stage2_wasm => .llvm_lld_only,
-        .stage2_x86_64 => switch (target.ofmt) {
-            .elf, .macho => .yes,
-            else => .llvm_only,
-        },
+        .stage2_x86_64 => .yes,
         else => .llvm_only,
     };
 }
@@ -516,7 +518,7 @@ pub fn defaultUnwindTables(target: *const std.Target, libunwind: bool, libtsan: 
     if (target.os.tag.isDarwin()) return .async;
     if (libunwind) return .async;
     if (libtsan) return .async;
-    if (std.debug.Dwarf.abi.supportsUnwinding(target)) return .async;
+    if (std.debug.Dwarf.supportsUnwinding(target)) return .async;
     return .none;
 }
 
@@ -546,41 +548,45 @@ pub fn addrSpaceCastIsValid(
     to: AddressSpace,
 ) bool {
     switch (target.cpu.arch) {
-        .x86_64, .x86 => return target.cpu.supportsAddressSpace(from, null) and target.cpu.supportsAddressSpace(to, null),
+        .x86_64, .x86 => return target.supportsAddressSpace(from, null) and target.supportsAddressSpace(to, null),
         .nvptx64, .nvptx, .amdgcn => {
-            const to_generic = target.cpu.supportsAddressSpace(from, null) and to == .generic;
-            const from_generic = target.cpu.supportsAddressSpace(to, null) and from == .generic;
+            const to_generic = target.supportsAddressSpace(from, null) and to == .generic;
+            const from_generic = target.supportsAddressSpace(to, null) and from == .generic;
             return to_generic or from_generic;
         },
         else => return from == .generic and to == .generic,
     }
 }
 
-/// Under SPIR-V with Vulkan, pointers are not 'real' (physical), but rather 'logical'. Effectively,
-/// this means that all such pointers have to be resolvable to a location at compile time, and places
-/// a number of restrictions on usage of such pointers. For example, a logical pointer may not be
-/// part of a merge (result of a branch) and may not be stored in memory at all. This function returns
-/// for a particular architecture and address space wether such pointers are logical.
-pub fn arePointersLogical(target: *const std.Target, as: AddressSpace) bool {
+/// Returns whether pointer operations (arithmetic, indexing, etc.) should be blocked
+/// for the given address space on the target architecture.
+///
+/// Under SPIR-V with Vulkan
+/// (a) all physical pointers (.physical_storage_buffer, .global) always support pointer operations,
+/// (b) by default logical pointers (.constant, .input, .output, etc.) never support operations
+/// (c) some logical pointers (.storage_buffer, .shared) do support operations when
+///     the VariablePointers capability is enabled (which enables OpPtrAccessChain).
+pub fn shouldBlockPointerOps(target: *const std.Target, as: AddressSpace) bool {
     if (target.os.tag != .vulkan) return false;
 
     return switch (as) {
         // TODO: Vulkan doesn't support pointers in the generic address space, we
         // should remove this case but this requires a change in defaultAddressSpace().
-        // For now, at least disable them from being regarded as physical.
         .generic => true,
         // For now, all global pointers are represented using StorageBuffer or CrossWorkgroup,
         // so these are real pointers.
-        .global => false,
-        .physical_storage_buffer => false,
+        // Physical pointers always support operations
+        .global, .physical_storage_buffer => false,
+        // Logical pointers that support operations with VariablePointers capability
         .shared => !target.cpu.features.isEnabled(@intFromEnum(std.Target.spirv.Feature.variable_pointers)),
+        .storage_buffer => !target.cpu.features.isEnabled(@intFromEnum(std.Target.spirv.Feature.variable_pointers)),
+        // Logical pointers that never support operations
         .constant,
         .local,
         .input,
         .output,
         .uniform,
         .push_constant,
-        .storage_buffer,
         => true,
         else => unreachable,
     };
@@ -635,14 +641,6 @@ pub fn isDynamicAMDGCNFeature(target: *const std.Target, feature: std.Target.Cpu
 }
 
 pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
-    // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
-    // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
-    // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
-    // that. With this hack, `powerpc64-linux-none` will at least work.
-    //
-    // Once our self-hosted linker can handle both ABIs, this hack should go away.
-    if (target.cpu.arch == .powerpc64) return "elfv2";
-
     return switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => "aapcs",
         .loongarch64 => switch (target.abi) {
@@ -660,15 +658,7 @@ pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
             .gnuabin32, .muslabin32 => "n32",
             else => "n64",
         },
-        .powerpc64 => switch (target.os.tag) {
-            .freebsd => if (target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false)
-                "elfv2"
-            else
-                "elfv1",
-            .openbsd => "elfv2",
-            else => if (target.abi.isMusl()) "elfv2" else "elfv1",
-        },
-        .powerpc64le => "elfv2",
+        .powerpc64, .powerpc64le => "elfv2", // We do not support ELFv1.
         .riscv64, .riscv64be => if (target.cpu.has(.riscv, .e))
             "lp64e"
         else if (target.cpu.has(.riscv, .d))
@@ -730,18 +720,26 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         .csky,
         .m68k,
         .msp430,
+        .sh,
+        .sheb,
         .s390x,
         .xcore,
         => .@"2",
-        .arc,
-        .arm,
-        .armeb,
         .aarch64,
         .aarch64_be,
+        .alpha,
+        .arc,
+        .arceb,
+        .arm,
+        .armeb,
         .hexagon,
+        .hppa,
+        .hppa64,
         .lanai,
         .loongarch32,
         .loongarch64,
+        .microblaze,
+        .microblazeel,
         .mips,
         .mipsel,
         .powerpc,
@@ -751,9 +749,10 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         .sparc,
         .sparc64,
         .xtensa,
+        .xtensaeb,
         => .@"4",
-        .bpfel,
         .bpfeb,
+        .bpfel,
         .mips64,
         .mips64el,
         => .@"8",
@@ -796,10 +795,9 @@ pub fn supportsTailCall(target: *const std.Target, backend: std.builtin.Compiler
 }
 
 pub fn supportsThreads(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+    _ = target;
     return switch (backend) {
         .stage2_aarch64 => false,
-        .stage2_powerpc => true,
-        .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
     };
 }

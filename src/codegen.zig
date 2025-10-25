@@ -978,21 +978,8 @@ pub fn genNavRef(
             },
             .link_once => unreachable,
         }
-    } else if (lf.cast(.coff)) |coff_file| {
-        // TODO audit this
-        switch (linkage) {
-            .internal => {
-                const atom_index = try coff_file.getOrCreateAtomForNav(nav_index);
-                const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-                return .{ .sym_index = sym_index };
-            },
-            .strong, .weak => {
-                const global_index = try coff_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
-                try coff_file.need_got_table.put(zcu.gpa, global_index, {}); // needs GOT
-                return .{ .sym_index = global_index };
-            },
-            .link_once => unreachable,
-        }
+    } else if (lf.cast(.coff2)) |coff| {
+        return .{ .sym_index = @intFromEnum(try coff.navSymbol(zcu, nav_index)) };
     } else {
         const msg = try ErrorMsg.create(zcu.gpa, src_loc, "TODO genNavRef for target {}", .{target});
         return .{ .fail = msg };

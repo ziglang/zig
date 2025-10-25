@@ -56,8 +56,8 @@ metadata_map: std.AutoArrayHashMapUnmanaged(void, void),
 metadata_items: std.MultiArrayList(Metadata.Item),
 metadata_extra: std.ArrayListUnmanaged(u32),
 metadata_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
-metadata_forward_references: std.ArrayListUnmanaged(Metadata),
-metadata_named: std.AutoArrayHashMapUnmanaged(MetadataString, struct {
+metadata_forward_references: std.ArrayListUnmanaged(Metadata.Optional),
+metadata_named: std.AutoArrayHashMapUnmanaged(String, struct {
     len: u32,
     index: Metadata.Item.ExtraIndex,
 }),
@@ -265,19 +265,20 @@ pub const Type = enum(u32) {
     };
 
     pub const Simple = enum(u5) {
-        void = 2,
-        half = 10,
-        bfloat = 23,
-        float = 3,
-        double = 4,
-        fp128 = 14,
-        x86_fp80 = 13,
-        ppc_fp128 = 15,
-        x86_amx = 24,
-        x86_mmx = 17,
-        label = 5,
-        token = 22,
-        metadata = 16,
+        const Code = ir.ModuleBlock.TypeBlock.Code;
+        void = @intFromEnum(Code.VOID),
+        half = @intFromEnum(Code.HALF),
+        bfloat = @intFromEnum(Code.BFLOAT),
+        float = @intFromEnum(Code.FLOAT),
+        double = @intFromEnum(Code.DOUBLE),
+        fp128 = @intFromEnum(Code.FP128),
+        x86_fp80 = @intFromEnum(Code.X86_FP80),
+        ppc_fp128 = @intFromEnum(Code.PPC_FP128),
+        x86_amx = @intFromEnum(Code.X86_AMX),
+        x86_mmx = @intFromEnum(Code.X86_MMX),
+        label = @intFromEnum(Code.LABEL),
+        token = @intFromEnum(Code.TOKEN),
+        metadata = @intFromEnum(Code.METADATA),
     };
 
     pub const Function = struct {
@@ -1325,8 +1326,8 @@ pub const Attribute = union(Kind) {
                 .none => unreachable,
             }
         }
-        pub fn fmt(self: Index, builder: *const Builder, mode: FormatData.mode) std.fmt.Alt(FormatData, format) {
-            return .{ .data = .{ .attribute_index = self, .builder = builder, .mode = mode } };
+        pub fn fmt(self: Index, builder: *const Builder, flags: FormatData.Flags) std.fmt.Alt(FormatData, format) {
+            return .{ .data = .{ .attribute_index = self, .builder = builder, .flags = flags } };
         }
 
         fn toStorage(self: Index, builder: *const Builder) Storage {
@@ -2295,7 +2296,7 @@ pub const Global = struct {
     externally_initialized: ExternallyInitialized = .default,
     type: Type,
     partition: String = .none,
-    dbg: Metadata = .none,
+    dbg: Metadata.Optional = .none,
     kind: union(enum) {
         alias: Alias.Index,
         variable: Variable.Index,
@@ -2375,7 +2376,11 @@ pub const Global = struct {
         }
 
         pub fn setDebugMetadata(self: Index, dbg: Metadata, builder: *Builder) void {
-            self.ptr(builder).dbg = dbg;
+            self.ptr(builder).dbg = dbg.toOptional();
+        }
+
+        pub fn getDebugMetadata(self: Index, builder: *const Builder) Metadata.Optional {
+            return self.ptrConst(builder).dbg;
         }
 
         const FormatData = struct {
@@ -2605,6 +2610,10 @@ pub const Variable = struct {
 
         pub fn setGlobalVariableExpression(self: Index, expression: Metadata, builder: *Builder) void {
             self.ptrConst(builder).global.setDebugMetadata(expression, builder);
+        }
+
+        pub fn getGlobalVariableExpression(self: Index, builder: *Builder) Metadata.Optional {
+            return self.ptrConst(builder).global.getDebugMetadata(builder);
         }
     };
 };
@@ -4107,6 +4116,10 @@ pub const Function = struct {
         pub fn setSubprogram(self: Index, subprogram: Metadata, builder: *Builder) void {
             self.ptrConst(builder).global.setDebugMetadata(subprogram, builder);
         }
+
+        pub fn getSubprogram(self: Index, builder: *const Builder) Metadata.Optional {
+            return self.ptrConst(builder).global.getDebugMetadata(builder);
+        }
     };
 
     pub const Block = struct {
@@ -4869,13 +4882,20 @@ pub const Function = struct {
             then: Block.Index,
             @"else": Block.Index,
             weights: Weights,
+
             pub const Weights = enum(u32) {
-                // We can do this as metadata indices 0 and 1 are reserved.
-                none = 0,
-                unpredictable = 1,
-                /// These values should be converted to `Metadata` to be used
-                /// in a `prof` annotation providing branch weights.
+                none = @bitCast(Metadata.Optional.none),
+                unpredictable,
                 _,
+
+                pub fn fromMetadata(metadata: Metadata) Weights {
+                    assert(metadata.kind == .node);
+                    return @enumFromInt(metadata.index);
+                }
+
+                pub fn toMetadata(weights: Weights) Metadata {
+                    return .{ .index = @intCast(@intFromEnum(weights)), .kind = .node };
+                }
             };
         };
 
@@ -5130,19 +5150,19 @@ pub const DebugLocation = union(enum) {
     pub const Location = struct {
         line: u32,
         column: u32,
-        scope: Builder.Metadata,
-        inlined_at: Builder.Metadata,
+        scope: Builder.Metadata.Optional,
+        inlined_at: Builder.Metadata.Optional,
     };
 
-    pub fn toMetadata(self: DebugLocation, builder: *Builder) Allocator.Error!Metadata {
+    pub fn toMetadata(self: DebugLocation, builder: *Builder) Allocator.Error!Metadata.Optional {
         return switch (self) {
             .no_location => .none,
-            .location => |location| try builder.debugLocation(
+            .location => |location| (try builder.debugLocation(
                 location.line,
                 location.column,
-                location.scope,
-                location.inlined_at,
-            ),
+                location.scope.unwrap().?,
+                location.inlined_at.unwrap(),
+            )).toOptional(),
         };
     }
 };
@@ -5280,20 +5300,19 @@ pub const WipFunction = struct {
                 .cond = cond,
                 .then = then,
                 .@"else" = @"else",
-                .weights = switch (weights) {
+                .weights = weights: switch (weights) {
                     .none => .none,
                     .unpredictable => .unpredictable,
-                    .then_likely, .else_likely => w: {
+                    .then_likely, .else_likely => {
                         const branch_weights_str = try self.builder.metadataString("branch_weights");
                         const unlikely_const = try self.builder.metadataConstant(try self.builder.intConst(.i32, 1));
                         const likely_const = try self.builder.metadataConstant(try self.builder.intConst(.i32, 2000));
-                        const weight_vals: [2]Metadata = switch (weights) {
+                        const weight_vals: [3]Metadata = switch (weights) {
                             .none, .unpredictable => unreachable,
-                            .then_likely => .{ likely_const, unlikely_const },
-                            .else_likely => .{ unlikely_const, likely_const },
+                            .then_likely => .{ branch_weights_str.toMetadata(), likely_const, unlikely_const },
+                            .else_likely => .{ branch_weights_str.toMetadata(), unlikely_const, likely_const },
                         };
-                        const tuple = try self.builder.strTuple(branch_weights_str, &weight_vals);
-                        break :w @enumFromInt(@intFromEnum(tuple));
+                        break :weights .fromMetadata(try self.builder.metadataTuple(&weight_vals));
                     },
                 },
             }),
@@ -6197,20 +6216,18 @@ pub const WipFunction = struct {
         return instruction.toValue();
     }
 
-    pub fn debugValue(self: *WipFunction, value: Value) Allocator.Error!Metadata {
+    pub fn debugValue(self: *WipFunction, value: Value) Allocator.Error!Metadata.Optional {
         if (self.strip) return .none;
-        return switch (value.unwrap()) {
-            .instruction => |instr_index| blk: {
+        const metadata: Metadata = metadata: switch (value.unwrap()) {
+            .instruction => |instr_index| {
                 const gop = try self.debug_values.getOrPut(self.builder.gpa, instr_index);
-
-                const metadata: Metadata = @enumFromInt(Metadata.first_local_metadata + gop.index);
                 if (!gop.found_existing) gop.key_ptr.* = instr_index;
-
-                break :blk metadata;
+                break :metadata .{ .index = @intCast(gop.index), .kind = .local };
             },
             .constant => |constant| try self.builder.metadataConstant(constant),
             .metadata => |metadata| metadata,
         };
+        return metadata.toOptional();
     }
 
     pub fn finish(self: *WipFunction) Allocator.Error!void {
@@ -7820,7 +7837,7 @@ pub const Value = enum(u32) {
         else if (@intFromEnum(self) < first_metadata)
             .{ .constant = @enumFromInt(@intFromEnum(self) - first_constant) }
         else
-            .{ .metadata = @enumFromInt(@intFromEnum(self) - first_metadata) };
+            .{ .metadata = @bitCast(@intFromEnum(self) - first_metadata) };
     }
 
     pub fn typeOfWip(self: Value, wip: *const WipFunction) Type {
@@ -7873,50 +7890,110 @@ pub const Value = enum(u32) {
     }
 };
 
-pub const MetadataString = enum(u32) {
-    none = 0,
-    _,
+pub const Metadata = packed struct(u32) {
+    index: u29,
+    kind: Kind,
+    unused: enum(u1) { unused = 0 } = .unused,
 
-    pub fn slice(self: MetadataString, builder: *const Builder) []const u8 {
-        const index = @intFromEnum(self);
-        const start = builder.metadata_string_indices.items[index];
-        const end = builder.metadata_string_indices.items[index + 1];
-        return builder.metadata_string_bytes.items[start..end];
-    }
-
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: Adapter, key: []const u8) u32 {
-            return @truncate(std.hash.Wyhash.hash(0, key));
-        }
-        pub fn eql(ctx: Adapter, lhs_key: []const u8, _: void, rhs_index: usize) bool {
-            const rhs_metadata_string: MetadataString = @enumFromInt(rhs_index);
-            return std.mem.eql(u8, lhs_key, rhs_metadata_string.slice(ctx.builder));
-        }
+    pub const Kind = enum(u2) {
+        string,
+        node,
+        forward,
+        local,
     };
 
-    const FormatData = struct {
-        metadata_string: MetadataString,
-        builder: *const Builder,
+    pub const empty_tuple: Metadata = .{ .kind = .node, .index = 0 };
+
+    pub const Optional = packed struct(u32) {
+        index: u29,
+        kind: Metadata.Kind,
+        is_none: bool,
+
+        pub const none: Metadata.Optional = .{ .index = 0, .kind = .string, .is_none = true };
+        pub const empty_tuple: Metadata.Optional = Metadata.empty_tuple.toOptional();
+
+        pub fn wrap(metadata: ?Metadata) Metadata.Optional {
+            return (metadata orelse return .none).toOptional();
+        }
+        pub fn unwrap(metadata: Metadata.Optional) ?Metadata {
+            return if (metadata.is_none) null else .{ .index = metadata.index, .kind = metadata.kind };
+        }
+        pub fn toValue(metadata: Metadata.Optional) Value {
+            return if (metadata.unwrap()) |m| m.toValue() else .none;
+        }
+        pub fn toString(metadata: Metadata.Optional) Metadata.String.Optional {
+            return if (metadata.unwrap()) |m| m.toString().toOptional() else .none;
+        }
     };
-    fn format(data: FormatData, w: *Writer) Writer.Error!void {
-        try printEscapedString(data.metadata_string.slice(data.builder), .always_quote, w);
+    pub fn toOptional(metadata: Metadata) Metadata.Optional {
+        return .{ .index = metadata.index, .kind = metadata.kind, .is_none = false };
     }
-    fn fmt(self: MetadataString, builder: *const Builder) std.fmt.Alt(FormatData, format) {
-        return .{ .data = .{ .metadata_string = self, .builder = builder } };
+    pub fn toValue(metadata: Metadata) Value {
+        return @enumFromInt(Value.first_metadata + @as(u32, @bitCast(metadata)));
     }
-};
 
-pub const Metadata = enum(u32) {
-    none = 0,
-    empty_tuple = 1,
-    _,
+    pub const String = enum(u32) {
+        _,
 
-    const first_forward_reference = 1 << 29;
-    const first_local_metadata = 1 << 30;
+        pub const Optional = enum(u32) {
+            none = @bitCast(Metadata.Optional.none),
+            _,
+
+            pub fn wrap(metadata: ?Metadata.String) Metadata.String.Optional {
+                return (metadata orelse return .none).toOptional();
+            }
+            pub fn unwrap(metadata: Metadata.String.Optional) ?Metadata.String {
+                return switch (metadata) {
+                    .none => null,
+                    else => @enumFromInt(@intFromEnum(metadata)),
+                };
+            }
+            pub fn toMetadata(metadata: Metadata.String.Optional) Metadata.Optional {
+                return if (metadata.unwrap()) |m| m.toMetadata().toOptional() else .none;
+            }
+        };
+        pub fn toOptional(metadata: Metadata.String) Metadata.String.Optional {
+            return @enumFromInt(@intFromEnum(metadata));
+        }
+        pub fn toMetadata(metadata: Metadata.String) Metadata {
+            return .{ .index = @intCast(@intFromEnum(metadata)), .kind = .string };
+        }
+
+        pub fn slice(metadata: Metadata.String, builder: *const Builder) []const u8 {
+            const index = @intFromEnum(metadata);
+            const start = builder.metadata_string_indices.items[index];
+            const end = builder.metadata_string_indices.items[index + 1];
+            return builder.metadata_string_bytes.items[start..end];
+        }
+
+        const Adapter = struct {
+            builder: *const Builder,
+            pub fn hash(_: Adapter, key: []const u8) u32 {
+                return @truncate(std.hash.Wyhash.hash(0, key));
+            }
+            pub fn eql(ctx: Adapter, lhs_key: []const u8, _: void, rhs_index: usize) bool {
+                const rhs_metadata: Metadata.String = @enumFromInt(rhs_index);
+                return std.mem.eql(u8, lhs_key, rhs_metadata.slice(ctx.builder));
+            }
+        };
+
+        const FormatData = struct {
+            metadata: Metadata.String,
+            builder: *const Builder,
+        };
+        fn format(data: FormatData, w: *Writer) Writer.Error!void {
+            try printEscapedString(data.metadata.slice(data.builder), .always_quote, w);
+        }
+        fn fmt(self: Metadata.String, builder: *const Builder) std.fmt.Alt(FormatData, format) {
+            return .{ .data = .{ .metadata = self, .builder = builder } };
+        }
+    };
+    pub fn toString(metadata: Metadata) Metadata.String {
+        assert(metadata.kind == .string);
+        return @enumFromInt(metadata.index);
+    }
 
     pub const Tag = enum(u6) {
-        none,
         file,
         compile_unit,
         @"compile_unit optimized",
@@ -7947,8 +8024,6 @@ pub const Metadata = enum(u32) {
         enumerator_signed_negative,
         subrange,
         tuple,
-        str_tuple,
-        module_flag,
         expression,
         local_var,
         parameter,
@@ -7957,9 +8032,8 @@ pub const Metadata = enum(u32) {
         global_var_expression,
         constant,
 
-        pub fn isInline(tag: Tag) bool {
-            return switch (tag) {
-                .none,
+        pub fn isInline(metadata_tag: Metadata.Tag) bool {
+            return switch (metadata_tag) {
                 .expression,
                 .constant,
                 => true,
@@ -7993,8 +8067,6 @@ pub const Metadata = enum(u32) {
                 .enumerator_signed_negative,
                 .subrange,
                 .tuple,
-                .str_tuple,
-                .module_flag,
                 .local_var,
                 .parameter,
                 .global_var,
@@ -8005,20 +8077,31 @@ pub const Metadata = enum(u32) {
         }
     };
 
-    pub fn isInline(self: Metadata, builder: *const Builder) bool {
-        return builder.metadata_items.items(.tag)[@intFromEnum(self)].isInline();
+    pub fn tag(metadata: Metadata, builder: *const Builder) Tag {
+        assert(metadata.kind == .node);
+        return builder.metadata_items.items(.tag)[metadata.index];
     }
 
-    pub fn unwrap(self: Metadata, builder: *const Builder) Metadata {
-        var metadata = self;
-        while (@intFromEnum(metadata) >= Metadata.first_forward_reference and
-            @intFromEnum(metadata) < Metadata.first_local_metadata)
-        {
-            const index = @intFromEnum(metadata) - Metadata.first_forward_reference;
-            metadata = builder.metadata_forward_references.items[index];
-            assert(metadata != .none);
+    pub fn item(metadata: Metadata, builder: *const Builder) Item {
+        assert(metadata.kind == .node);
+        return builder.metadata_items.get(metadata.index);
+    }
+
+    pub fn isInline(metadata: Metadata, builder: *const Builder) bool {
+        return metadata.tag(builder).isInline();
+    }
+
+    pub fn unwrap(metadata: Metadata, builder: *const Builder) Metadata {
+        switch (metadata.kind) {
+            .string, .node, .local => return metadata,
+            .forward => {
+                const referenced = builder.metadata_forward_references.items[metadata.index].unwrap().?;
+                switch (referenced.kind) {
+                    .string, .node => return referenced,
+                    .forward, .local => unreachable,
+                }
+            },
         }
-        return metadata;
     }
 
     pub const Item = struct {
@@ -8086,8 +8169,8 @@ pub const Metadata = enum(u32) {
     };
 
     pub const File = struct {
-        filename: MetadataString,
-        directory: MetadataString,
+        filename: Metadata.String.Optional,
+        directory: Metadata.String.Optional,
     };
 
     pub const CompileUnit = struct {
@@ -8095,10 +8178,10 @@ pub const Metadata = enum(u32) {
             optimized: bool,
         };
 
-        file: Metadata,
-        producer: MetadataString,
-        enums: Metadata,
-        globals: Metadata,
+        file: Metadata.Optional,
+        producer: Metadata.String.Optional,
+        enums: Metadata.Optional,
+        globals: Metadata.Optional,
     };
 
     pub const Subprogram = struct {
@@ -8142,19 +8225,34 @@ pub const Metadata = enum(u32) {
             }
         };
 
-        file: Metadata,
-        name: MetadataString,
-        linkage_name: MetadataString,
+        file: Metadata.Optional,
+        name: Metadata.String.Optional,
+        linkage_name: Metadata.String.Optional,
         line: u32,
         scope_line: u32,
-        ty: Metadata,
+        ty: Metadata.Optional,
         di_flags: DIFlags,
-        compile_unit: Metadata,
+        compile_unit: Metadata.Optional,
     };
+    pub fn getSubprogram(metadata: Metadata, builder: *const Builder) Subprogram {
+        const metadata_item = metadata.item(builder);
+        switch (metadata_item.tag) {
+            else => unreachable,
+            .subprogram,
+            .@"subprogram local",
+            .@"subprogram definition",
+            .@"subprogram local definition",
+            .@"subprogram optimized",
+            .@"subprogram optimized local",
+            .@"subprogram optimized definition",
+            .@"subprogram optimized local definition",
+            => return builder.metadataExtraData(Metadata.Subprogram, metadata_item.data),
+        }
+    }
 
     pub const LexicalBlock = struct {
-        scope: Metadata,
-        file: Metadata,
+        scope: Metadata.Optional,
+        file: Metadata.Optional,
         line: u32,
         column: u32,
     };
@@ -8163,11 +8261,11 @@ pub const Metadata = enum(u32) {
         line: u32,
         column: u32,
         scope: Metadata,
-        inlined_at: Metadata,
+        inlined_at: Metadata.Optional,
     };
 
     pub const BasicType = struct {
-        name: MetadataString,
+        name: Metadata.String.Optional,
         size_in_bits_lo: u32,
         size_in_bits_hi: u32,
 
@@ -8177,16 +8275,16 @@ pub const Metadata = enum(u32) {
     };
 
     pub const CompositeType = struct {
-        name: MetadataString,
-        file: Metadata,
-        scope: Metadata,
+        name: Metadata.String.Optional,
+        file: Metadata.Optional,
+        scope: Metadata.Optional,
         line: u32,
-        underlying_type: Metadata,
+        underlying_type: Metadata.Optional,
         size_in_bits_lo: u32,
         size_in_bits_hi: u32,
         align_in_bits_lo: u32,
         align_in_bits_hi: u32,
-        fields_tuple: Metadata,
+        fields_tuple: Metadata.Optional,
 
         pub fn bitSize(self: CompositeType) u64 {
             return @as(u64, self.size_in_bits_hi) << 32 | self.size_in_bits_lo;
@@ -8197,11 +8295,11 @@ pub const Metadata = enum(u32) {
     };
 
     pub const DerivedType = struct {
-        name: MetadataString,
-        file: Metadata,
-        scope: Metadata,
+        name: Metadata.String.Optional,
+        file: Metadata.Optional,
+        scope: Metadata.Optional,
         line: u32,
-        underlying_type: Metadata,
+        underlying_type: Metadata.Optional,
         size_in_bits_lo: u32,
         size_in_bits_hi: u32,
         align_in_bits_lo: u32,
@@ -8221,19 +8319,19 @@ pub const Metadata = enum(u32) {
     };
 
     pub const SubroutineType = struct {
-        types_tuple: Metadata,
+        types_tuple: Metadata.Optional,
     };
 
     pub const Enumerator = struct {
-        name: MetadataString,
+        name: Metadata.String.Optional,
         bit_width: u32,
         limbs_index: u32,
         limbs_len: u32,
     };
 
     pub const Subrange = struct {
-        lower_bound: Metadata,
-        count: Metadata,
+        lower_bound: Metadata.Optional,
+        count: Metadata.Optional,
     };
 
     pub const Expression = struct {
@@ -8248,33 +8346,20 @@ pub const Metadata = enum(u32) {
         // elements: [elements_len]Metadata
     };
 
-    pub const StrTuple = struct {
-        str: MetadataString,
-        elements_len: u32,
-
-        // elements: [elements_len]Metadata
-    };
-
-    pub const ModuleFlag = struct {
-        behavior: Metadata,
-        name: MetadataString,
-        constant: Metadata,
-    };
-
     pub const LocalVar = struct {
-        name: MetadataString,
-        file: Metadata,
-        scope: Metadata,
+        name: Metadata.String.Optional,
+        file: Metadata.Optional,
+        scope: Metadata.Optional,
         line: u32,
-        ty: Metadata,
+        ty: Metadata.Optional,
     };
 
     pub const Parameter = struct {
-        name: MetadataString,
-        file: Metadata,
-        scope: Metadata,
+        name: Metadata.String.Optional,
+        file: Metadata.Optional,
+        scope: Metadata.Optional,
         line: u32,
-        ty: Metadata,
+        ty: Metadata.Optional,
         arg_no: u32,
     };
 
@@ -8283,23 +8368,19 @@ pub const Metadata = enum(u32) {
             local: bool,
         };
 
-        name: MetadataString,
-        linkage_name: MetadataString,
-        file: Metadata,
-        scope: Metadata,
+        name: Metadata.String.Optional,
+        linkage_name: Metadata.String.Optional,
+        file: Metadata.Optional,
+        scope: Metadata.Optional,
         line: u32,
-        ty: Metadata,
+        ty: Metadata.Optional,
         variable: Variable.Index,
     };
 
     pub const GlobalVarExpression = struct {
-        variable: Metadata,
-        expression: Metadata,
+        variable: Metadata.Optional,
+        expression: Metadata.Optional,
     };
-
-    pub fn toValue(self: Metadata) Value {
-        return @enumFromInt(Value.first_metadata + @intFromEnum(self));
-    }
 
     const Formatter = struct {
         builder: *Builder,
@@ -8325,7 +8406,7 @@ pub const Metadata = enum(u32) {
                 local_inline: Metadata,
                 local_index: u32,
 
-                string: MetadataString,
+                string: Metadata.String,
                 bool: bool,
                 u32: u32,
                 u64: u64,
@@ -8356,10 +8437,10 @@ pub const Metadata = enum(u32) {
                     defer data.formatter.need_comma = needed_comma;
                     data.formatter.need_comma = false;
 
-                    const item = builder.metadata_items.get(@intFromEnum(node));
-                    switch (item.tag) {
+                    const node_item = node.item(builder);
+                    switch (node_item.tag) {
                         .expression => {
-                            var extra = builder.metadataExtraDataTrail(Expression, item.data);
+                            var extra = builder.metadataExtraDataTrail(Expression, node_item.data);
                             const elements = extra.trail.next(extra.data.elements_len, u32, builder);
                             try w.writeAll("!DIExpression(");
                             for (elements) |element| try format(.{
@@ -8370,7 +8451,7 @@ pub const Metadata = enum(u32) {
                             try w.writeByte(')');
                         },
                         .constant => try Constant.format(.{
-                            .constant = @enumFromInt(item.data),
+                            .constant = @enumFromInt(node_item.data),
                             .builder = builder,
                             .flags = data.specialized orelse .{},
                         }, w),
@@ -8378,17 +8459,17 @@ pub const Metadata = enum(u32) {
                     }
                 },
                 .index => |node| try w.print("!{d}", .{node}),
-                inline .local_value, .local_metadata => |node, tag| try Value.format(.{
+                inline .local_value, .local_metadata => |node, node_tag| try Value.format(.{
                     .value = node.value,
                     .function = node.function,
                     .builder = builder,
-                    .flags = switch (tag) {
+                    .flags = switch (node_tag) {
                         .local_value => data.specialized orelse .{},
                         .local_metadata => .{ .percent = true },
                         else => unreachable,
                     },
                 }, w),
-                inline .local_inline, .local_index => |node, tag| {
+                inline .local_inline, .local_index => |node, node_tag| {
                     if (data.specialized) |flags| {
                         if (flags.onlyPercent()) {
                             try w.print("{f} ", .{Type.metadata.fmt(builder, .percent)});
@@ -8396,39 +8477,43 @@ pub const Metadata = enum(u32) {
                     }
                     try format(.{
                         .formatter = data.formatter,
-                        .node = @unionInit(FormatData.Node, @tagName(tag)["local_".len..], node),
+                        .node = @unionInit(FormatData.Node, @tagName(node_tag)["local_".len..], node),
                         .specialized = .{ .percent = true },
                     }, w);
                 },
-                .string => |node| try w.print("{s}{f}", .{
-                    @as([]const u8, if (is_specialized) "!" else ""), node.fmt(builder),
-                }),
+                .string => |s| {
+                    if (is_specialized) try w.writeByte('!');
+                    try w.print("{f}", .{s.fmt(builder)});
+                },
                 inline .bool, .u32, .u64 => |node| try w.print("{}", .{node}),
                 inline .di_flags, .sp_flags => |node| try w.print("{f}", .{node}),
                 .raw => |node| try w.writeAll(node),
             }
         }
         inline fn fmt(formatter: *Formatter, prefix: []const u8, node: anytype, special: ?FormatFlags) switch (@TypeOf(node)) {
-            Metadata => Allocator.Error,
+            Metadata, Metadata.Optional, ?Metadata => Allocator.Error,
             else => error{},
         }!std.fmt.Alt(FormatData, format) {
             const Node = @TypeOf(node);
-            const MaybeNode = switch (@typeInfo(Node)) {
-                .optional => Node,
-                .null => ?noreturn,
-                else => ?Node,
+            const MaybeNode = switch (Node) {
+                Metadata.Optional => ?Metadata,
+                Metadata.String.Optional => ?Metadata.String,
+                else => switch (@typeInfo(Node)) {
+                    .optional => Node,
+                    .null => ?noreturn,
+                    else => ?Node,
+                },
             };
             const Some = @typeInfo(MaybeNode).optional.child;
             return .{ .data = .{
                 .formatter = formatter,
                 .prefix = prefix,
-                .node = if (@as(MaybeNode, node)) |some| switch (@typeInfo(Some)) {
+                .node = if (@as(MaybeNode, switch (Node) {
+                    Metadata.Optional, Metadata.String.Optional => node.unwrap(),
+                    else => node,
+                })) |some| switch (@typeInfo(Some)) {
                     .@"enum" => |enum_info| switch (Some) {
-                        Metadata => switch (some) {
-                            .none => .none,
-                            else => try formatter.refUnwrapped(some.unwrap(formatter.builder)),
-                        },
-                        MetadataString => .{ .string = some },
+                        Metadata.String => .{ .string = some },
                         else => if (enum_info.is_exhaustive)
                             .{ .raw = @tagName(some) }
                         else
@@ -8438,15 +8523,23 @@ pub const Metadata = enum(u32) {
                     .bool => .{ .bool = some },
                     .@"struct" => switch (Some) {
                         DIFlags => .{ .di_flags = some },
+                        Metadata => switch (some.kind) {
+                            .string => .{ .string = some.toString() },
+                            .node, .forward => try formatter.refUnwrapped(some.unwrap(formatter.builder)),
+                            .local => unreachable,
+                        },
                         Subprogram.DISPFlags => .{ .sp_flags = some },
                         else => @compileError("unknown type to format: " ++ @typeName(Node)),
                     },
                     .int, .comptime_int => .{ .u64 = some },
                     .pointer => .{ .raw = some },
                     else => @compileError("unknown type to format: " ++ @typeName(Node)),
-                } else switch (@typeInfo(Node)) {
-                    .optional, .null => .none,
-                    else => unreachable,
+                } else switch (Node) {
+                    Metadata.Optional, Metadata.String.Optional => .none,
+                    else => switch (@typeInfo(Node)) {
+                        .optional, .null => .none,
+                        else => unreachable,
+                    },
                 },
                 .specialized = special,
             } };
@@ -8460,24 +8553,26 @@ pub const Metadata = enum(u32) {
             return .{ .data = .{
                 .formatter = formatter,
                 .prefix = prefix,
-                .node = switch (value.unwrap()) {
+                .node = node: switch (value.unwrap()) {
                     .instruction, .constant => .{ .local_value = .{
                         .value = value,
                         .function = function,
                     } },
-                    .metadata => |metadata| if (value == .none) .none else node: {
+                    .metadata => |metadata| if (value == .none) .none else {
                         const unwrapped = metadata.unwrap(formatter.builder);
-                        break :node if (@intFromEnum(unwrapped) >= first_local_metadata)
-                            .{ .local_metadata = .{
+                        break :node switch (unwrapped.kind) {
+                            .string, .node => switch (try formatter.refUnwrapped(unwrapped)) {
+                                .@"inline" => |node| .{ .local_inline = node },
+                                .index => |node| .{ .local_index = node },
+                                else => unreachable,
+                            },
+                            .forward => unreachable,
+                            .local => .{ .local_metadata = .{
                                 .value = function.ptrConst(formatter.builder).debug_values[
-                                    @intFromEnum(unwrapped) - first_local_metadata
+                                    unwrapped.index
                                 ].toValue(),
                                 .function = function,
-                            } }
-                        else switch (try formatter.refUnwrapped(unwrapped)) {
-                            .@"inline" => |node| .{ .local_inline = node },
-                            .index => |node| .{ .local_index = node },
-                            else => unreachable,
+                            } },
                         };
                     },
                 },
@@ -8485,16 +8580,12 @@ pub const Metadata = enum(u32) {
             } };
         }
         fn refUnwrapped(formatter: *Formatter, node: Metadata) Allocator.Error!FormatData.Node {
-            assert(node != .none);
-            assert(@intFromEnum(node) < first_forward_reference);
             const builder = formatter.builder;
             const unwrapped_metadata = node.unwrap(builder);
-            const tag = formatter.builder.metadata_items.items(.tag)[@intFromEnum(unwrapped_metadata)];
-            switch (tag) {
-                .none => unreachable,
+            switch (unwrapped_metadata.tag(builder)) {
                 .expression, .constant => return .{ .@"inline" = unwrapped_metadata },
-                else => {
-                    assert(!tag.isInline());
+                else => |metadata_tag| {
+                    assert(!metadata_tag.isInline());
                     const gop = try formatter.map.getOrPut(builder.gpa, .{ .metadata = unwrapped_metadata });
                     return .{ .index = @intCast(gop.index) };
                 },
@@ -8669,11 +8760,9 @@ pub fn init(options: Options) Allocator.Error!Builder {
     assert(try self.intConst(.i32, 1) == .@"1");
     assert(try self.noneConst(.token) == .none);
 
-    assert(try self.metadataNone() == .none);
-    assert(try self.metadataTuple(&.{}) == .empty_tuple);
+    assert(try self.metadataTuple(&.{}) == Metadata.empty_tuple);
 
     try self.metadata_string_indices.append(self.gpa, 0);
-    assert(try self.metadataString("") == .none);
 
     return self;
 }
@@ -9232,8 +9321,8 @@ pub fn halfConst(self: *Builder, val: f16) Allocator.Error!Constant {
     return self.halfConstAssumeCapacity(val);
 }
 
-pub fn halfValue(self: *Builder, ty: Type, value: f16) Allocator.Error!Value {
-    return (try self.halfConst(ty, value)).toValue();
+pub fn halfValue(self: *Builder, value: f16) Allocator.Error!Value {
+    return (try self.halfConst(value)).toValue();
 }
 
 pub fn bfloatConst(self: *Builder, val: f32) Allocator.Error!Constant {
@@ -9241,8 +9330,8 @@ pub fn bfloatConst(self: *Builder, val: f32) Allocator.Error!Constant {
     return self.bfloatConstAssumeCapacity(val);
 }
 
-pub fn bfloatValue(self: *Builder, ty: Type, value: f32) Allocator.Error!Value {
-    return (try self.bfloatConst(ty, value)).toValue();
+pub fn bfloatValue(self: *Builder, value: f32) Allocator.Error!Value {
+    return (try self.bfloatConst(value)).toValue();
 }
 
 pub fn floatConst(self: *Builder, val: f32) Allocator.Error!Constant {
@@ -9250,8 +9339,8 @@ pub fn floatConst(self: *Builder, val: f32) Allocator.Error!Constant {
     return self.floatConstAssumeCapacity(val);
 }
 
-pub fn floatValue(self: *Builder, ty: Type, value: f32) Allocator.Error!Value {
-    return (try self.floatConst(ty, value)).toValue();
+pub fn floatValue(self: *Builder, value: f32) Allocator.Error!Value {
+    return (try self.floatConst(value)).toValue();
 }
 
 pub fn doubleConst(self: *Builder, val: f64) Allocator.Error!Constant {
@@ -9259,8 +9348,8 @@ pub fn doubleConst(self: *Builder, val: f64) Allocator.Error!Constant {
     return self.doubleConstAssumeCapacity(val);
 }
 
-pub fn doubleValue(self: *Builder, ty: Type, value: f64) Allocator.Error!Value {
-    return (try self.doubleConst(ty, value)).toValue();
+pub fn doubleValue(self: *Builder, value: f64) Allocator.Error!Value {
+    return (try self.doubleConst(value)).toValue();
 }
 
 pub fn fp128Const(self: *Builder, val: f128) Allocator.Error!Constant {
@@ -9268,8 +9357,8 @@ pub fn fp128Const(self: *Builder, val: f128) Allocator.Error!Constant {
     return self.fp128ConstAssumeCapacity(val);
 }
 
-pub fn fp128Value(self: *Builder, ty: Type, value: f128) Allocator.Error!Value {
-    return (try self.fp128Const(ty, value)).toValue();
+pub fn fp128Value(self: *Builder, value: f128) Allocator.Error!Value {
+    return (try self.fp128Const(value)).toValue();
 }
 
 pub fn x86_fp80Const(self: *Builder, val: f80) Allocator.Error!Constant {
@@ -9277,8 +9366,8 @@ pub fn x86_fp80Const(self: *Builder, val: f80) Allocator.Error!Constant {
     return self.x86_fp80ConstAssumeCapacity(val);
 }
 
-pub fn x86_fp80Value(self: *Builder, ty: Type, value: f80) Allocator.Error!Value {
-    return (try self.x86_fp80Const(ty, value)).toValue();
+pub fn x86_fp80Value(self: *Builder, value: f80) Allocator.Error!Value {
+    return (try self.x86_fp80Const(value)).toValue();
 }
 
 pub fn ppc_fp128Const(self: *Builder, val: [2]f64) Allocator.Error!Constant {
@@ -9286,8 +9375,8 @@ pub fn ppc_fp128Const(self: *Builder, val: [2]f64) Allocator.Error!Constant {
     return self.ppc_fp128ConstAssumeCapacity(val);
 }
 
-pub fn ppc_fp128Value(self: *Builder, ty: Type, value: [2]f64) Allocator.Error!Value {
-    return (try self.ppc_fp128Const(ty, value)).toValue();
+pub fn ppc_fp128Value(self: *Builder, value: [2]f64) Allocator.Error!Value {
+    return (try self.ppc_fp128Const(value)).toValue();
 }
 
 pub fn nullConst(self: *Builder, ty: Type) Allocator.Error!Constant {
@@ -9870,7 +9959,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             .none => {},
                             .unpredictable => try w.writeAll("!unpredictable !{}"),
                             _ => try w.print("{f}", .{
-                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights))), null),
+                                try metadata_formatter.fmt("!prof ", extra.weights.toMetadata(), null),
                             }),
                         }
                     },
@@ -10153,7 +10242,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             .none => {},
                             .unpredictable => try w.writeAll("!unpredictable !{}"),
                             _ => try w.print("{f}", .{
-                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights))), null),
+                                try metadata_formatter.fmt("!prof ", extra.data.weights.toMetadata(), null),
                             }),
                         }
                     },
@@ -10193,7 +10282,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
             const elements: []const Metadata =
                 @ptrCast(self.metadata_extra.items[data.index..][0..data.len]);
             try w.writeByte('!');
-            try printEscapedString(name.slice(self), .quote_unless_valid_identifier, w);
+            try printEscapedString(name.slice(self).?, .quote_unless_valid_identifier, w);
             try w.writeAll(" = !{");
             metadata_formatter.need_comma = false;
             defer metadata_formatter.need_comma = undefined;
@@ -10223,11 +10312,11 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     }, w);
                     continue;
                 },
-                .metadata => |metadata| self.metadata_items.get(@intFromEnum(metadata)),
+                .metadata => |metadata| metadata.item(self),
             };
 
             switch (metadata_item.tag) {
-                .none, .expression, .constant => unreachable,
+                .expression, .constant => unreachable,
                 .file => {
                     const extra = self.metadataExtraData(Metadata.File, metadata_item.data);
                     try metadata_formatter.specialized(.@"!", .DIFile, .{
@@ -10330,10 +10419,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     const extra = self.metadataExtraData(Metadata.BasicType, metadata_item.data);
                     try metadata_formatter.specialized(.@"!", .DIBasicType, .{
                         .tag = null,
-                        .name = switch (extra.name) {
-                            .none => null,
-                            else => extra.name,
-                        },
+                        .name = extra.name,
                         .size = extra.bitSize(),
                         .@"align" = null,
                         .encoding = @as(enum {
@@ -10371,10 +10457,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             .composite_array_type, .composite_vector_type => .DW_TAG_array_type,
                             else => unreachable,
                         }),
-                        .name = switch (extra.name) {
-                            .none => null,
-                            else => extra.name,
-                        },
+                        .name = extra.name,
                         .scope = extra.scope,
                         .file = null,
                         .line = null,
@@ -10409,10 +10492,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             .derived_member_type => .DW_TAG_member,
                             else => unreachable,
                         }),
-                        .name = switch (extra.name) {
-                            .none => null,
-                            else => extra.name,
-                        },
+                        .name = extra.name,
                         .scope = extra.scope,
                         .file = null,
                         .line = null,
@@ -10504,25 +10584,6 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                         .element = try metadata_formatter.fmt("", element, .{ .percent = true }),
                     });
                     try w.writeAll("}\n");
-                },
-                .str_tuple => {
-                    var extra = self.metadataExtraDataTrail(Metadata.StrTuple, metadata_item.data);
-                    const elements = extra.trail.next(extra.data.elements_len, Metadata, self);
-                    try w.print("!{{{[str]f}", .{
-                        .str = try metadata_formatter.fmt("", extra.data.str, .{ .percent = true }),
-                    });
-                    for (elements) |element| try w.print("{[element]f}", .{
-                        .element = try metadata_formatter.fmt("", element, .{ .percent = true }),
-                    });
-                    try w.writeAll("}\n");
-                },
-                .module_flag => {
-                    const extra = self.metadataExtraData(Metadata.ModuleFlag, metadata_item.data);
-                    try w.print("!{{{[behavior]f}{[name]f}{[constant]f}}}\n", .{
-                        .behavior = try metadata_formatter.fmt("", extra.behavior, .{ .percent = true }),
-                        .name = try metadata_formatter.fmt("", extra.name, .{ .percent = true }),
-                        .constant = try metadata_formatter.fmt("", extra.constant, .{ .percent = true }),
-                    });
                 },
                 .local_var => {
                     const extra = self.metadataExtraData(Metadata.LocalVar, metadata_item.data);
@@ -11914,8 +11975,8 @@ fn addMetadataExtraAssumeCapacity(self: *Builder, extra: anytype) Metadata.Item.
         const value = @field(extra, field.name);
         self.metadata_extra.appendAssumeCapacity(switch (field.type) {
             u32 => value,
-            MetadataString, Metadata, Variable.Index, Value => @intFromEnum(value),
-            Metadata.DIFlags => @bitCast(value),
+            Metadata.String, Metadata.String.Optional, Variable.Index, Value => @intFromEnum(value),
+            Metadata, Metadata.Optional, Metadata.DIFlags => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
@@ -11953,8 +12014,8 @@ fn metadataExtraDataTrail(
     inline for (fields, self.metadata_extra.items[index..][0..fields.len]) |field, value|
         @field(result, field.name) = switch (field.type) {
             u32 => value,
-            MetadataString, Metadata, Variable.Index, Value => @enumFromInt(value),
-            Metadata.DIFlags => @bitCast(value),
+            Metadata.String, Metadata.String.Optional, Variable.Index, Value => @enumFromInt(value),
+            Metadata, Metadata.Optional, Metadata.DIFlags => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     return .{
@@ -11967,48 +12028,65 @@ fn metadataExtraData(self: *const Builder, comptime T: type, index: Metadata.Ite
     return self.metadataExtraDataTrail(T, index).data;
 }
 
-pub fn metadataString(self: *Builder, bytes: []const u8) Allocator.Error!MetadataString {
+pub fn metadataString(self: *Builder, bytes: []const u8) Allocator.Error!Metadata.String {
+    assert(bytes.len > 0);
     try self.metadata_string_bytes.ensureUnusedCapacity(self.gpa, bytes.len);
     try self.metadata_string_indices.ensureUnusedCapacity(self.gpa, 1);
     try self.metadata_string_map.ensureUnusedCapacity(self.gpa, 1);
 
     const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(
         bytes,
-        MetadataString.Adapter{ .builder = self },
+        Metadata.String.Adapter{ .builder = self },
     );
     if (!gop.found_existing) {
         self.metadata_string_bytes.appendSliceAssumeCapacity(bytes);
-        self.metadata_string_indices.appendAssumeCapacity(@intCast(self.metadata_string_bytes.items.len));
+        self.metadata_string_indices.appendAssumeCapacity(
+            @intCast(self.metadata_string_bytes.items.len),
+        );
     }
     return @enumFromInt(gop.index);
 }
 
-pub fn metadataStringFromStrtabString(self: *Builder, str: StrtabString) Allocator.Error!MetadataString {
-    if (str == .none or str == .empty) return MetadataString.none;
+pub fn metadataStringFromStrtabString(
+    self: *Builder,
+    str: StrtabString,
+) Allocator.Error!Metadata.String {
     return try self.metadataString(str.slice(self).?);
 }
 
-pub fn metadataStringFmt(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) Allocator.Error!MetadataString {
+pub fn metadataStringFmt(
+    self: *Builder,
+    comptime fmt_str: []const u8,
+    fmt_args: anytype,
+) Allocator.Error!Metadata.String {
     try self.metadata_string_map.ensureUnusedCapacity(self.gpa, 1);
-    try self.metadata_string_bytes.ensureUnusedCapacity(self.gpa, @intCast(std.fmt.count(fmt_str, fmt_args)));
+    try self.metadata_string_bytes.ensureUnusedCapacity(
+        self.gpa,
+        @intCast(std.fmt.count(fmt_str, fmt_args)),
+    );
     try self.metadata_string_indices.ensureUnusedCapacity(self.gpa, 1);
     return self.metadataStringFmtAssumeCapacity(fmt_str, fmt_args);
 }
 
-pub fn metadataStringFmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) MetadataString {
+pub fn metadataStringFmtAssumeCapacity(
+    self: *Builder,
+    comptime fmt_str: []const u8,
+    fmt_args: anytype,
+) Metadata.String {
     self.metadata_string_bytes.printAssumeCapacity(fmt_str, fmt_args);
     return self.trailingMetadataStringAssumeCapacity();
 }
 
-pub fn trailingMetadataString(self: *Builder) Allocator.Error!MetadataString {
+pub fn trailingMetadataString(self: *Builder) Allocator.Error!Metadata.String {
     try self.metadata_string_indices.ensureUnusedCapacity(self.gpa, 1);
     try self.metadata_string_map.ensureUnusedCapacity(self.gpa, 1);
     return self.trailingMetadataStringAssumeCapacity();
 }
 
-pub fn trailingMetadataStringAssumeCapacity(self: *Builder) MetadataString {
+pub fn trailingMetadataStringAssumeCapacity(self: *Builder) Metadata.String {
     const start = self.metadata_string_indices.getLast();
     const bytes: []const u8 = self.metadata_string_bytes.items[start..];
+    assert(bytes.len > 0);
     const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (gop.found_existing) {
         self.metadata_string_bytes.shrinkRetainingCapacity(start);
@@ -12018,21 +12096,16 @@ pub fn trailingMetadataStringAssumeCapacity(self: *Builder) MetadataString {
     return @enumFromInt(gop.index);
 }
 
-pub fn metadataNamed(self: *Builder, name: MetadataString, operands: []const Metadata) Allocator.Error!void {
+pub fn addNamedMetadata(self: *Builder, name: String, operands: []const Metadata) Allocator.Error!void {
     try self.metadata_extra.ensureUnusedCapacity(self.gpa, operands.len);
     try self.metadata_named.ensureUnusedCapacity(self.gpa, 1);
-    self.metadataNamedAssumeCapacity(name, operands);
-}
-
-fn metadataNone(self: *Builder) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, NoExtra, 0);
-    return self.metadataNoneAssumeCapacity();
+    self.addNamedMetadataAssumeCapacity(name, operands);
 }
 
 pub fn debugFile(
     self: *Builder,
-    filename: MetadataString,
-    directory: MetadataString,
+    filename: ?Metadata.String,
+    directory: ?Metadata.String,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.File, 0);
     return self.debugFileAssumeCapacity(filename, directory);
@@ -12040,10 +12113,10 @@ pub fn debugFile(
 
 pub fn debugCompileUnit(
     self: *Builder,
-    file: Metadata,
-    producer: MetadataString,
-    enums: Metadata,
-    globals: Metadata,
+    file: ?Metadata,
+    producer: ?Metadata.String,
+    enums: ?Metadata,
+    globals: ?Metadata,
     options: Metadata.CompileUnit.Options,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompileUnit, 0);
@@ -12052,14 +12125,14 @@ pub fn debugCompileUnit(
 
 pub fn debugSubprogram(
     self: *Builder,
-    file: Metadata,
-    name: MetadataString,
-    linkage_name: MetadataString,
+    file: ?Metadata,
+    name: ?Metadata.String,
+    linkage_name: ?Metadata.String,
     line: u32,
     scope_line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
     options: Metadata.Subprogram.Options,
-    compile_unit: Metadata,
+    compile_unit: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, 0);
     return self.debugSubprogramAssumeCapacity(
@@ -12074,32 +12147,60 @@ pub fn debugSubprogram(
     );
 }
 
-pub fn debugLexicalBlock(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Allocator.Error!Metadata {
+pub fn debugLexicalBlock(
+    self: *Builder,
+    scope: ?Metadata,
+    file: ?Metadata,
+    line: u32,
+    column: u32,
+) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.LexicalBlock, 0);
     return self.debugLexicalBlockAssumeCapacity(scope, file, line, column);
 }
 
-pub fn debugLocation(self: *Builder, line: u32, column: u32, scope: Metadata, inlined_at: Metadata) Allocator.Error!Metadata {
+pub fn debugLocation(
+    self: *Builder,
+    line: u32,
+    column: u32,
+    scope: Metadata,
+    inlined_at: ?Metadata,
+) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Location, 0);
     return self.debugLocationAssumeCapacity(line, column, scope, inlined_at);
 }
 
-pub fn debugBoolType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugBoolType(
+    self: *Builder,
+    name: ?Metadata.String,
+    size_in_bits: u64,
+) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
     return self.debugBoolTypeAssumeCapacity(name, size_in_bits);
 }
 
-pub fn debugUnsignedType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugUnsignedType(
+    self: *Builder,
+    name: ?Metadata.String,
+    size_in_bits: u64,
+) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
     return self.debugUnsignedTypeAssumeCapacity(name, size_in_bits);
 }
 
-pub fn debugSignedType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugSignedType(
+    self: *Builder,
+    name: ?Metadata.String,
+    size_in_bits: u64,
+) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
     return self.debugSignedTypeAssumeCapacity(name, size_in_bits);
 }
 
-pub fn debugFloatType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugFloatType(
+    self: *Builder,
+    name: ?Metadata.String,
+    size_in_bits: u64,
+) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
     return self.debugFloatTypeAssumeCapacity(name, size_in_bits);
 }
@@ -12111,14 +12212,14 @@ pub fn debugForwardReference(self: *Builder) Allocator.Error!Metadata {
 
 pub fn debugStructType(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugStructTypeAssumeCapacity(
@@ -12135,14 +12236,14 @@ pub fn debugStructType(
 
 pub fn debugUnionType(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugUnionTypeAssumeCapacity(
@@ -12159,14 +12260,14 @@ pub fn debugUnionType(
 
 pub fn debugEnumerationType(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugEnumerationTypeAssumeCapacity(
@@ -12183,14 +12284,14 @@ pub fn debugEnumerationType(
 
 pub fn debugArrayType(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugArrayTypeAssumeCapacity(
@@ -12207,14 +12308,14 @@ pub fn debugArrayType(
 
 pub fn debugVectorType(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugVectorTypeAssumeCapacity(
@@ -12231,11 +12332,11 @@ pub fn debugVectorType(
 
 pub fn debugPointerType(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
     offset_in_bits: u64,
@@ -12255,11 +12356,11 @@ pub fn debugPointerType(
 
 pub fn debugMemberType(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
     offset_in_bits: u64,
@@ -12277,17 +12378,14 @@ pub fn debugMemberType(
     );
 }
 
-pub fn debugSubroutineType(
-    self: *Builder,
-    types_tuple: Metadata,
-) Allocator.Error!Metadata {
+pub fn debugSubroutineType(self: *Builder, types_tuple: ?Metadata) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.SubroutineType, 0);
     return self.debugSubroutineTypeAssumeCapacity(types_tuple);
 }
 
 pub fn debugEnumerator(
     self: *Builder,
-    name: MetadataString,
+    name: ?Metadata.String,
     unsigned: bool,
     bit_width: u32,
     value: std.math.big.int.Const,
@@ -12300,55 +12398,37 @@ pub fn debugEnumerator(
 
 pub fn debugSubrange(
     self: *Builder,
-    lower_bound: Metadata,
-    count: Metadata,
+    lower_bound: ?Metadata,
+    count: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Subrange, 0);
     return self.debugSubrangeAssumeCapacity(lower_bound, count);
 }
 
-pub fn debugExpression(
-    self: *Builder,
-    elements: []const u32,
-) Allocator.Error!Metadata {
+pub fn debugExpression(self: *Builder, elements: []const u32) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Expression, elements.len);
     return self.debugExpressionAssumeCapacity(elements);
 }
 
-pub fn metadataTuple(
+pub fn metadataTuple(self: *Builder, elements: []const Metadata) Allocator.Error!Metadata {
+    return self.metadataTupleOptionals(@ptrCast(elements));
+}
+
+pub fn metadataTupleOptionals(
     self: *Builder,
-    elements: []const Metadata,
+    elements: []const Metadata.Optional,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Tuple, elements.len);
-    return self.metadataTupleAssumeCapacity(elements);
-}
-
-pub fn strTuple(
-    self: *Builder,
-    str: MetadataString,
-    elements: []const Metadata,
-) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.StrTuple, elements.len);
-    return self.strTupleAssumeCapacity(str, elements);
-}
-
-pub fn metadataModuleFlag(
-    self: *Builder,
-    behavior: Metadata,
-    name: MetadataString,
-    constant: Metadata,
-) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.ModuleFlag, 0);
-    return self.metadataModuleFlagAssumeCapacity(behavior, name, constant);
+    return self.metadataTupleOptionalsAssumeCapacity(elements);
 }
 
 pub fn debugLocalVar(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.LocalVar, 0);
     return self.debugLocalVarAssumeCapacity(name, file, scope, line, ty);
@@ -12356,11 +12436,11 @@ pub fn debugLocalVar(
 
 pub fn debugParameter(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
     arg_no: u32,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Parameter, 0);
@@ -12369,12 +12449,12 @@ pub fn debugParameter(
 
 pub fn debugGlobalVar(
     self: *Builder,
-    name: MetadataString,
-    linkage_name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    linkage_name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
     variable: Variable.Index,
     options: Metadata.GlobalVar.Options,
 ) Allocator.Error!Metadata {
@@ -12393,8 +12473,8 @@ pub fn debugGlobalVar(
 
 pub fn debugGlobalVarExpression(
     self: *Builder,
-    variable: Metadata,
-    expression: Metadata,
+    variable: ?Metadata,
+    expression: ?Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.GlobalVarExpression, 0);
     return self.debugGlobalVarExpressionAssumeCapacity(variable, expression);
@@ -12405,13 +12485,11 @@ pub fn metadataConstant(self: *Builder, value: Constant) Allocator.Error!Metadat
     return self.metadataConstantAssumeCapacity(value);
 }
 
-pub fn debugForwardReferenceSetType(self: *Builder, fwd_ref: Metadata, ty: Metadata) void {
-    assert(
-        @intFromEnum(fwd_ref) >= Metadata.first_forward_reference and
-            @intFromEnum(fwd_ref) <= Metadata.first_local_metadata,
-    );
-    const index = @intFromEnum(fwd_ref) - Metadata.first_forward_reference;
-    self.metadata_forward_references.items[index] = ty;
+pub fn resolveDebugForwardReference(self: *Builder, fwd_ref: Metadata, value: Metadata) void {
+    assert(fwd_ref.kind == .forward);
+    const resolved = &self.metadata_forward_references.items[fwd_ref.index];
+    assert(resolved.is_none);
+    resolved.* = value.toOptional();
 }
 
 fn metadataSimpleAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytype) Metadata {
@@ -12450,41 +12528,20 @@ fn metadataSimpleAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytyp
             .data = self.addMetadataExtraAssumeCapacity(value),
         });
     }
-    return @enumFromInt(gop.index);
+    return .{ .index = @intCast(gop.index), .kind = .node };
 }
 
 fn metadataDistinctAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytype) Metadata {
-    const Key = struct { tag: Metadata.Tag, index: Metadata };
-    const Adapter = struct {
-        pub fn hash(_: @This(), key: Key) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                std.hash.int(@intFromEnum(key.tag)),
-                std.mem.asBytes(&key.index),
-            ));
-        }
-
-        pub fn eql(_: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
-            return @intFromEnum(lhs_key.index) == rhs_index;
-        }
-    };
-
-    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
-        Key{ .tag = tag, .index = @enumFromInt(self.metadata_map.count()) },
-        Adapter{},
-    );
-
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.metadata_items.appendAssumeCapacity(.{
-            .tag = tag,
-            .data = self.addMetadataExtraAssumeCapacity(value),
-        });
-    }
-    return @enumFromInt(gop.index);
+    const index = self.metadata_items.len;
+    _ = self.metadata_map.entries.addOneAssumeCapacity();
+    self.metadata_items.appendAssumeCapacity(.{
+        .tag = tag,
+        .data = self.addMetadataExtraAssumeCapacity(value),
+    });
+    return .{ .index = @intCast(index), .kind = .node };
 }
 
-fn metadataNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
+fn addNamedMetadataAssumeCapacity(self: *Builder, name: String, operands: []const Metadata) void {
     assert(name != .none);
     const extra_index: u32 = @intCast(self.metadata_extra.items.len);
     self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(operands));
@@ -12496,119 +12553,127 @@ fn metadataNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: [
     };
 }
 
-pub fn metadataNoneAssumeCapacity(self: *Builder) Metadata {
-    return self.metadataSimpleAssumeCapacity(.none, .{});
-}
-
 fn debugFileAssumeCapacity(
     self: *Builder,
-    filename: MetadataString,
-    directory: MetadataString,
+    filename: ?Metadata.String,
+    directory: ?Metadata.String,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.file, Metadata.File{
-        .filename = filename,
-        .directory = directory,
+        .filename = .wrap(filename),
+        .directory = .wrap(directory),
     });
 }
 
 pub fn debugCompileUnitAssumeCapacity(
     self: *Builder,
-    file: Metadata,
-    producer: MetadataString,
-    enums: Metadata,
-    globals: Metadata,
+    file: ?Metadata,
+    producer: ?Metadata.String,
+    enums: ?Metadata,
+    globals: ?Metadata,
     options: Metadata.CompileUnit.Options,
 ) Metadata {
     assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(
         if (options.optimized) .@"compile_unit optimized" else .compile_unit,
         Metadata.CompileUnit{
-            .file = file,
-            .producer = producer,
-            .enums = enums,
-            .globals = globals,
+            .file = .wrap(file),
+            .producer = .wrap(producer),
+            .enums = .wrap(enums),
+            .globals = .wrap(globals),
         },
     );
 }
 
 fn debugSubprogramAssumeCapacity(
     self: *Builder,
-    file: Metadata,
-    name: MetadataString,
-    linkage_name: MetadataString,
+    file: ?Metadata,
+    name: ?Metadata.String,
+    linkage_name: ?Metadata.String,
     line: u32,
     scope_line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
     options: Metadata.Subprogram.Options,
-    compile_unit: Metadata,
+    compile_unit: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     const tag: Metadata.Tag = @enumFromInt(@intFromEnum(Metadata.Tag.subprogram) +
         @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2)));
     return self.metadataDistinctAssumeCapacity(tag, Metadata.Subprogram{
-        .file = file,
-        .name = name,
-        .linkage_name = linkage_name,
+        .file = .wrap(file),
+        .name = .wrap(name),
+        .linkage_name = .wrap(linkage_name),
         .line = line,
         .scope_line = scope_line,
-        .ty = ty,
+        .ty = .wrap(ty),
         .di_flags = options.di_flags,
-        .compile_unit = compile_unit,
+        .compile_unit = .wrap(compile_unit),
     });
 }
 
-fn debugLexicalBlockAssumeCapacity(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Metadata {
+fn debugLexicalBlockAssumeCapacity(
+    self: *Builder,
+    scope: ?Metadata,
+    file: ?Metadata,
+    line: u32,
+    column: u32,
+) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.lexical_block, Metadata.LexicalBlock{
-        .scope = scope,
-        .file = file,
+        .scope = .wrap(scope),
+        .file = .wrap(file),
         .line = line,
         .column = column,
     });
 }
 
-fn debugLocationAssumeCapacity(self: *Builder, line: u32, column: u32, scope: Metadata, inlined_at: Metadata) Metadata {
+fn debugLocationAssumeCapacity(
+    self: *Builder,
+    line: u32,
+    column: u32,
+    scope: Metadata,
+    inlined_at: ?Metadata,
+) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.location, Metadata.Location{
         .line = line,
         .column = column,
         .scope = scope,
-        .inlined_at = inlined_at,
+        .inlined_at = .wrap(inlined_at),
     });
 }
 
-fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+fn debugBoolTypeAssumeCapacity(self: *Builder, name: ?Metadata.String, size_in_bits: u64) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.basic_bool_type, Metadata.BasicType{
-        .name = name,
+        .name = .wrap(name),
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
     });
 }
 
-fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: ?Metadata.String, size_in_bits: u64) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.basic_unsigned_type, Metadata.BasicType{
-        .name = name,
+        .name = .wrap(name),
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
     });
 }
 
-fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+fn debugSignedTypeAssumeCapacity(self: *Builder, name: ?Metadata.String, size_in_bits: u64) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.basic_signed_type, Metadata.BasicType{
-        .name = name,
+        .name = .wrap(name),
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
     });
 }
 
-fn debugFloatTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+fn debugFloatTypeAssumeCapacity(self: *Builder, name: ?Metadata.String, size_in_bits: u64) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.basic_float_type, Metadata.BasicType{
-        .name = name,
+        .name = .wrap(name),
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
     });
@@ -12616,21 +12681,21 @@ fn debugFloatTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bi
 
 fn debugForwardReferenceAssumeCapacity(self: *Builder) Metadata {
     assert(!self.strip);
-    const index = Metadata.first_forward_reference + self.metadata_forward_references.items.len;
+    const index = self.metadata_forward_references.items.len;
     self.metadata_forward_references.appendAssumeCapacity(.none);
-    return @enumFromInt(index);
+    return .{ .index = @intCast(index), .kind = .forward };
 }
 
 fn debugStructTypeAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12648,14 +12713,14 @@ fn debugStructTypeAssumeCapacity(
 
 fn debugUnionTypeAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12673,14 +12738,14 @@ fn debugUnionTypeAssumeCapacity(
 
 fn debugEnumerationTypeAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12698,14 +12763,14 @@ fn debugEnumerationTypeAssumeCapacity(
 
 fn debugArrayTypeAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12723,14 +12788,14 @@ fn debugArrayTypeAssumeCapacity(
 
 fn debugVectorTypeAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12749,48 +12814,48 @@ fn debugVectorTypeAssumeCapacity(
 fn debugCompositeTypeAssumeCapacity(
     self: *Builder,
     tag: Metadata.Tag,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
-    fields_tuple: Metadata,
+    fields_tuple: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(tag, Metadata.CompositeType{
-        .name = name,
-        .file = file,
-        .scope = scope,
+        .name = .wrap(name),
+        .file = .wrap(file),
+        .scope = .wrap(scope),
         .line = line,
-        .underlying_type = underlying_type,
+        .underlying_type = .wrap(underlying_type),
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
         .align_in_bits_lo = @truncate(align_in_bits),
         .align_in_bits_hi = @truncate(align_in_bits >> 32),
-        .fields_tuple = fields_tuple,
+        .fields_tuple = .wrap(fields_tuple),
     });
 }
 
 fn debugPointerTypeAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
     offset_in_bits: u64,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.derived_pointer_type, Metadata.DerivedType{
-        .name = name,
-        .file = file,
-        .scope = scope,
+        .name = .wrap(name),
+        .file = .wrap(file),
+        .scope = .wrap(scope),
         .line = line,
-        .underlying_type = underlying_type,
+        .underlying_type = .wrap(underlying_type),
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
         .align_in_bits_lo = @truncate(align_in_bits),
@@ -12802,22 +12867,22 @@ fn debugPointerTypeAssumeCapacity(
 
 fn debugMemberTypeAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    underlying_type: Metadata,
+    underlying_type: ?Metadata,
     size_in_bits: u64,
     align_in_bits: u64,
     offset_in_bits: u64,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.derived_member_type, Metadata.DerivedType{
-        .name = name,
-        .file = file,
-        .scope = scope,
+        .name = .wrap(name),
+        .file = .wrap(file),
+        .scope = .wrap(scope),
         .line = line,
-        .underlying_type = underlying_type,
+        .underlying_type = .wrap(underlying_type),
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
         .align_in_bits_lo = @truncate(align_in_bits),
@@ -12827,19 +12892,16 @@ fn debugMemberTypeAssumeCapacity(
     });
 }
 
-fn debugSubroutineTypeAssumeCapacity(
-    self: *Builder,
-    types_tuple: Metadata,
-) Metadata {
+fn debugSubroutineTypeAssumeCapacity(self: *Builder, types_tuple: ?Metadata) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.subroutine_type, Metadata.SubroutineType{
-        .types_tuple = types_tuple,
+        .types_tuple = .wrap(types_tuple),
     });
 }
 
 fn debugEnumeratorAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
+    name: ?Metadata.String,
     unsigned: bool,
     bit_width: u32,
     value: std.math.big.int.Const,
@@ -12847,7 +12909,7 @@ fn debugEnumeratorAssumeCapacity(
     assert(!self.strip);
     const Key = struct {
         tag: Metadata.Tag,
-        name: MetadataString,
+        name: Metadata.String.Optional,
         bit_width: u32,
         value: std.math.big.int.Const,
     };
@@ -12886,15 +12948,12 @@ fn debugEnumeratorAssumeCapacity(
 
     assert(!(tag == .enumerator_unsigned and !value.positive));
 
-    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
-        Key{
-            .tag = tag,
-            .name = name,
-            .bit_width = bit_width,
-            .value = value,
-        },
-        Adapter{ .builder = self },
-    );
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(Key{
+        .tag = tag,
+        .name = .wrap(name),
+        .bit_width = bit_width,
+        .value = value,
+    }, Adapter{ .builder = self });
 
     if (!gop.found_existing) {
         gop.key_ptr.* = {};
@@ -12902,7 +12961,7 @@ fn debugEnumeratorAssumeCapacity(
         self.metadata_items.appendAssumeCapacity(.{
             .tag = tag,
             .data = self.addMetadataExtraAssumeCapacity(Metadata.Enumerator{
-                .name = name,
+                .name = .wrap(name),
                 .bit_width = bit_width,
                 .limbs_index = @intCast(self.metadata_limbs.items.len),
                 .limbs_len = @intCast(value.limbs.len),
@@ -12910,25 +12969,18 @@ fn debugEnumeratorAssumeCapacity(
         });
         self.metadata_limbs.appendSliceAssumeCapacity(value.limbs);
     }
-    return @enumFromInt(gop.index);
+    return .{ .index = @intCast(gop.index), .kind = .node };
 }
 
-fn debugSubrangeAssumeCapacity(
-    self: *Builder,
-    lower_bound: Metadata,
-    count: Metadata,
-) Metadata {
+fn debugSubrangeAssumeCapacity(self: *Builder, lower_bound: ?Metadata, count: ?Metadata) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.subrange, Metadata.Subrange{
-        .lower_bound = lower_bound,
-        .count = count,
+        .lower_bound = .wrap(lower_bound),
+        .count = .wrap(count),
     });
 }
 
-fn debugExpressionAssumeCapacity(
-    self: *Builder,
-    elements: []const u32,
-) Metadata {
+fn debugExpressionAssumeCapacity(self: *Builder, elements: []const u32) Metadata {
     assert(!self.strip);
     const Key = struct {
         elements: []const u32,
@@ -12936,13 +12988,15 @@ fn debugExpressionAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = comptime std.hash.Wyhash.init(std.hash.int(@intFromEnum(Metadata.Tag.expression)));
+            var hasher =
+                comptime std.hash.Wyhash.init(std.hash.int(@intFromEnum(Metadata.Tag.expression)));
             hasher.update(std.mem.sliceAsBytes(key.elements));
             return @truncate(hasher.final());
         }
 
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
-            if (Metadata.Tag.expression != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            if (Metadata.Tag.expression != ctx.builder.metadata_items.items(.tag)[rhs_index])
+                return false;
             const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
             var rhs_extra = ctx.builder.metadataExtraDataTrail(Metadata.Expression, rhs_data);
             return std.mem.eql(
@@ -12969,15 +13023,12 @@ fn debugExpressionAssumeCapacity(
         });
         self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(elements));
     }
-    return @enumFromInt(gop.index);
+    return .{ .index = @intCast(gop.index), .kind = .node };
 }
 
-fn metadataTupleAssumeCapacity(
-    self: *Builder,
-    elements: []const Metadata,
-) Metadata {
+fn metadataTupleOptionalsAssumeCapacity(self: *Builder, elements: []const Metadata.Optional) Metadata {
     const Key = struct {
-        elements: []const Metadata,
+        elements: []const Metadata.Optional,
     };
     const Adapter = struct {
         builder: *const Builder,
@@ -12992,9 +13043,9 @@ fn metadataTupleAssumeCapacity(
             const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
             var rhs_extra = ctx.builder.metadataExtraDataTrail(Metadata.Tuple, rhs_data);
             return std.mem.eql(
-                Metadata,
+                Metadata.Optional,
                 lhs_key.elements,
-                rhs_extra.trail.next(rhs_extra.data.elements_len, Metadata, ctx.builder),
+                rhs_extra.trail.next(rhs_extra.data.elements_len, Metadata.Optional, ctx.builder),
             );
         }
     };
@@ -13015,117 +13066,55 @@ fn metadataTupleAssumeCapacity(
         });
         self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(elements));
     }
-    return @enumFromInt(gop.index);
-}
-
-fn strTupleAssumeCapacity(
-    self: *Builder,
-    str: MetadataString,
-    elements: []const Metadata,
-) Metadata {
-    const Key = struct {
-        str: MetadataString,
-        elements: []const Metadata,
-    };
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = comptime std.hash.Wyhash.init(std.hash.int(@intFromEnum(Metadata.Tag.tuple)));
-            hasher.update(std.mem.sliceAsBytes(key.elements));
-            return @truncate(hasher.final());
-        }
-
-        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
-            if (.str_tuple != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
-            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
-            var rhs_extra = ctx.builder.metadataExtraDataTrail(Metadata.StrTuple, rhs_data);
-            return rhs_extra.data.str == lhs_key.str and std.mem.eql(
-                Metadata,
-                lhs_key.elements,
-                rhs_extra.trail.next(rhs_extra.data.elements_len, Metadata, ctx.builder),
-            );
-        }
-    };
-
-    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
-        Key{ .str = str, .elements = elements },
-        Adapter{ .builder = self },
-    );
-
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.metadata_items.appendAssumeCapacity(.{
-            .tag = .str_tuple,
-            .data = self.addMetadataExtraAssumeCapacity(Metadata.StrTuple{
-                .str = str,
-                .elements_len = @intCast(elements.len),
-            }),
-        });
-        self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(elements));
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn metadataModuleFlagAssumeCapacity(
-    self: *Builder,
-    behavior: Metadata,
-    name: MetadataString,
-    constant: Metadata,
-) Metadata {
-    return self.metadataSimpleAssumeCapacity(.module_flag, Metadata.ModuleFlag{
-        .behavior = behavior,
-        .name = name,
-        .constant = constant,
-    });
+    return .{ .index = @intCast(gop.index), .kind = .node };
 }
 
 fn debugLocalVarAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.local_var, Metadata.LocalVar{
-        .name = name,
-        .file = file,
-        .scope = scope,
+        .name = .wrap(name),
+        .file = .wrap(file),
+        .scope = .wrap(scope),
         .line = line,
-        .ty = ty,
+        .ty = .wrap(ty),
     });
 }
 
 fn debugParameterAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
     arg_no: u32,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.parameter, Metadata.Parameter{
-        .name = name,
-        .file = file,
-        .scope = scope,
+        .name = .wrap(name),
+        .file = .wrap(file),
+        .scope = .wrap(scope),
         .line = line,
-        .ty = ty,
+        .ty = .wrap(ty),
         .arg_no = arg_no,
     });
 }
 
 fn debugGlobalVarAssumeCapacity(
     self: *Builder,
-    name: MetadataString,
-    linkage_name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
+    name: ?Metadata.String,
+    linkage_name: ?Metadata.String,
+    file: ?Metadata,
+    scope: ?Metadata,
     line: u32,
-    ty: Metadata,
+    ty: ?Metadata,
     variable: Variable.Index,
     options: Metadata.GlobalVar.Options,
 ) Metadata {
@@ -13133,12 +13122,12 @@ fn debugGlobalVarAssumeCapacity(
     return self.metadataDistinctAssumeCapacity(
         if (options.local) .@"global_var local" else .global_var,
         Metadata.GlobalVar{
-            .name = name,
-            .linkage_name = linkage_name,
-            .file = file,
-            .scope = scope,
+            .name = .wrap(name),
+            .linkage_name = .wrap(linkage_name),
+            .file = .wrap(file),
+            .scope = .wrap(scope),
             .line = line,
-            .ty = ty,
+            .ty = .wrap(ty),
             .variable = variable,
         },
     );
@@ -13146,13 +13135,13 @@ fn debugGlobalVarAssumeCapacity(
 
 fn debugGlobalVarExpressionAssumeCapacity(
     self: *Builder,
-    variable: Metadata,
-    expression: Metadata,
+    variable: ?Metadata,
+    expression: ?Metadata,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.global_var_expression, Metadata.GlobalVarExpression{
-        .variable = variable,
-        .expression = expression,
+        .variable = .wrap(variable),
+        .expression = .wrap(expression),
     });
 }
 
@@ -13185,7 +13174,7 @@ fn metadataConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
             .data = @intFromEnum(constant),
         });
     }
-    return @enumFromInt(gop.index);
+    return .{ .index = @intCast(gop.index), .kind = .node };
 }
 
 pub const Producer = struct {
@@ -13209,8 +13198,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
     // IDENTIFICATION_BLOCK
     {
-        const Identification = ir.Identification;
-        var identification_block = try bitcode.enterTopBlock(Identification);
+        const IdentificationBlock = ir.IdentificationBlock;
+        var identification_block = try bitcode.enterTopBlock(IdentificationBlock);
 
         const producer_str = try std.fmt.allocPrint(self.gpa, "{s} {d}.{d}.{d}", .{
             producer.name,
@@ -13220,42 +13209,42 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
         });
         defer self.gpa.free(producer_str);
 
-        try identification_block.writeAbbrev(Identification.Version{ .string = producer_str });
-        try identification_block.writeAbbrev(Identification.Epoch{ .epoch = 0 });
+        try identification_block.writeAbbrev(IdentificationBlock.Version{ .string = producer_str });
+        try identification_block.writeAbbrev(IdentificationBlock.Epoch{ .epoch = 0 });
 
         try identification_block.end();
     }
 
     // MODULE_BLOCK
     {
-        const Module = ir.Module;
-        var module_block = try bitcode.enterTopBlock(Module);
+        const ModuleBlock = ir.ModuleBlock;
+        var module_block = try bitcode.enterTopBlock(ModuleBlock);
 
-        try module_block.writeAbbrev(Module.Version{});
+        try module_block.writeAbbrev(ModuleBlock.Version{});
 
         if (self.target_triple.slice(self)) |triple| {
-            try module_block.writeAbbrev(Module.String{
+            try module_block.writeAbbrev(ModuleBlock.String{
                 .code = 2,
                 .string = triple,
             });
         }
 
         if (self.data_layout.slice(self)) |data_layout| {
-            try module_block.writeAbbrev(Module.String{
+            try module_block.writeAbbrev(ModuleBlock.String{
                 .code = 3,
                 .string = data_layout,
             });
         }
 
         if (self.source_filename.slice(self)) |source_filename| {
-            try module_block.writeAbbrev(Module.String{
+            try module_block.writeAbbrev(ModuleBlock.String{
                 .code = 16,
                 .string = source_filename,
             });
         }
 
         if (self.module_asm.items.len != 0) {
-            try module_block.writeAbbrev(Module.String{
+            try module_block.writeAbbrev(ModuleBlock.String{
                 .code = 4,
                 .string = self.module_asm.items,
             });
@@ -13263,16 +13252,17 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // TYPE_BLOCK
         {
-            var type_block = try module_block.enterSubBlock(ir.Type, true);
+            const TypeBlock = ir.ModuleBlock.TypeBlock;
+            var type_block = try module_block.enterSubBlock(TypeBlock, true);
 
-            try type_block.writeAbbrev(ir.Type.NumEntry{ .num = @intCast(self.type_items.items.len) });
+            try type_block.writeAbbrev(TypeBlock.NumEntry{ .num = @intCast(self.type_items.items.len) });
 
             for (self.type_items.items, 0..) |item, i| {
                 const ty: Type = @enumFromInt(i);
 
                 switch (item.tag) {
-                    .simple => try type_block.writeAbbrev(ir.Type.Simple{ .code = @truncate(item.data) }),
-                    .integer => try type_block.writeAbbrev(ir.Type.Integer{ .width = item.data }),
+                    .simple => try type_block.writeAbbrev(TypeBlock.Simple{ .code = @enumFromInt(item.data) }),
+                    .integer => try type_block.writeAbbrev(TypeBlock.Integer{ .width = item.data }),
                     .structure,
                     .packed_structure,
                     => |kind| {
@@ -13282,19 +13272,19 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             else => unreachable,
                         };
                         var extra = self.typeExtraDataTrail(Type.Structure, item.data);
-                        try type_block.writeAbbrev(ir.Type.StructAnon{
+                        try type_block.writeAbbrev(TypeBlock.StructAnon{
                             .is_packed = is_packed,
                             .types = extra.trail.next(extra.data.fields_len, Type, self),
                         });
                     },
                     .named_structure => {
                         const extra = self.typeExtraData(Type.NamedStructure, item.data);
-                        try type_block.writeAbbrev(ir.Type.StructName{
+                        try type_block.writeAbbrev(TypeBlock.StructName{
                             .string = extra.id.slice(self).?,
                         });
 
                         switch (extra.body) {
-                            .none => try type_block.writeAbbrev(ir.Type.Opaque{}),
+                            .none => try type_block.writeAbbrev(TypeBlock.Opaque{}),
                             else => {
                                 const real_struct = self.type_items.items[@intFromEnum(extra.body)];
                                 const is_packed: bool = switch (real_struct.tag) {
@@ -13304,7 +13294,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                                 };
 
                                 var real_extra = self.typeExtraDataTrail(Type.Structure, real_struct.data);
-                                try type_block.writeAbbrev(ir.Type.StructNamed{
+                                try type_block.writeAbbrev(TypeBlock.StructNamed{
                                     .is_packed = is_packed,
                                     .types = real_extra.trail.next(real_extra.data.fields_len, Type, self),
                                 });
@@ -13313,29 +13303,29 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     },
                     .array,
                     .small_array,
-                    => try type_block.writeAbbrev(ir.Type.Array{
+                    => try type_block.writeAbbrev(TypeBlock.Array{
                         .len = ty.aggregateLen(self),
                         .child = ty.childType(self),
                     }),
                     .vector,
                     .scalable_vector,
-                    => try type_block.writeAbbrev(ir.Type.Vector{
+                    => try type_block.writeAbbrev(TypeBlock.Vector{
                         .len = ty.aggregateLen(self),
                         .child = ty.childType(self),
                     }),
-                    .pointer => try type_block.writeAbbrev(ir.Type.Pointer{
+                    .pointer => try type_block.writeAbbrev(TypeBlock.Pointer{
                         .addr_space = ty.pointerAddrSpace(self),
                     }),
                     .target => {
                         var extra = self.typeExtraDataTrail(Type.Target, item.data);
-                        try type_block.writeAbbrev(ir.Type.StructName{
+                        try type_block.writeAbbrev(TypeBlock.StructName{
                             .string = extra.data.name.slice(self).?,
                         });
 
                         const types = extra.trail.next(extra.data.types_len, Type, self);
                         const ints = extra.trail.next(extra.data.ints_len, u32, self);
 
-                        try type_block.writeAbbrev(ir.Type.Target{
+                        try type_block.writeAbbrev(TypeBlock.Target{
                             .num_types = extra.data.types_len,
                             .types = types,
                             .ints = ints,
@@ -13348,7 +13338,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             else => unreachable,
                         };
                         var extra = self.typeExtraDataTrail(Type.Function, item.data);
-                        try type_block.writeAbbrev(ir.Type.Function{
+                        try type_block.writeAbbrev(TypeBlock.Function{
                             .is_vararg = is_vararg,
                             .return_type = extra.data.ret,
                             .param_types = extra.trail.next(extra.data.params_len, Type, self),
@@ -13368,9 +13358,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // PARAMATTR_GROUP_BLOCK
         {
-            const ParamattrGroup = ir.ParamattrGroup;
+            const ParamattrGroupBlock = ir.ModuleBlock.ParamattrGroupBlock;
 
-            var paramattr_group_block = try module_block.enterSubBlock(ParamattrGroup, true);
+            var paramattr_group_block = try module_block.enterSubBlock(ParamattrGroupBlock, true);
 
             for (self.function_attributes_set.keys()) |func_attributes| {
                 for (func_attributes.slice(self), 0..) |attributes, i| {
@@ -13572,8 +13562,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // PARAMATTR_BLOCK
         {
-            const Paramattr = ir.Paramattr;
-            var paramattr_block = try module_block.enterSubBlock(Paramattr, true);
+            const ParamattrBlock = ir.ModuleBlock.ParamattrBlock;
+            var paramattr_block = try module_block.enterSubBlock(ParamattrBlock, true);
 
             for (self.function_attributes_set.keys()) |func_attributes| {
                 const func_attributes_slice = func_attributes.slice(self);
@@ -13590,7 +13580,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     record.appendAssumeCapacity(@intCast(group_index));
                 }
 
-                try paramattr_block.writeAbbrev(Paramattr.Entry{ .group_indices = record.items });
+                try paramattr_block.writeAbbrev(ParamattrBlock.Entry{ .group_indices = record.items });
             }
 
             try paramattr_block.end();
@@ -13624,38 +13614,35 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
         }
 
         const ConstantAdapter = struct {
-            const ConstantAdapter = @This();
             builder: *const Builder,
             globals: *const std.AutoArrayHashMapUnmanaged(Global.Index, void),
 
-            pub fn get(adapter: @This(), param: anytype, comptime field_name: []const u8) @TypeOf(param) {
-                _ = field_name;
+            pub fn get(adapter: @This(), param: anytype) switch (@TypeOf(param)) {
+                Constant => u32,
+                else => |Param| Param,
+            } {
                 return switch (@TypeOf(param)) {
-                    Constant => @enumFromInt(adapter.getConstantIndex(param)),
+                    Constant => adapter.getConstantIndex(param),
                     else => param,
                 };
             }
 
-            pub fn getConstantIndex(adapter: ConstantAdapter, constant: Constant) u32 {
+            pub fn getConstantIndex(adapter: @This(), constant: Constant) u32 {
                 return switch (constant.unwrap()) {
                     .constant => |c| c + adapter.numGlobals(),
                     .global => |global| @intCast(adapter.globals.getIndex(global.unwrap(adapter.builder)).?),
                 };
             }
 
-            pub fn numConstants(adapter: ConstantAdapter) u32 {
+            pub fn numConstants(adapter: @This()) u32 {
                 return @intCast(adapter.globals.count() + adapter.builder.constant_items.len);
             }
 
-            pub fn numGlobals(adapter: ConstantAdapter) u32 {
+            pub fn numGlobals(adapter: @This()) u32 {
                 return @intCast(adapter.globals.count());
             }
         };
-
-        const constant_adapter = ConstantAdapter{
-            .builder = self,
-            .globals = &globals,
-        };
+        const constant_adapter: ConstantAdapter = .{ .builder = self, .globals = &globals };
 
         // Globals
         {
@@ -13670,7 +13657,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     if (variable.section == .none) break :blk 0;
                     const gop = section_map.getOrPutAssumeCapacity(variable.section);
                     if (!gop.found_existing) {
-                        try module_block.writeAbbrev(Module.String{
+                        try module_block.writeAbbrev(ModuleBlock.String{
                             .code = 5,
                             .string = variable.section.slice(self).?,
                         });
@@ -13686,7 +13673,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 const strtab = variable.global.strtab(self);
 
                 const global = variable.global.ptrConst(self);
-                try module_block.writeAbbrev(Module.Variable{
+                try module_block.writeAbbrev(ModuleBlock.Variable{
                     .strtab_offset = strtab.offset,
                     .strtab_size = strtab.size,
                     .type_index = global.type,
@@ -13717,7 +13704,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     if (func.section == .none) break :blk 0;
                     const gop = section_map.getOrPutAssumeCapacity(func.section);
                     if (!gop.found_existing) {
-                        try module_block.writeAbbrev(Module.String{
+                        try module_block.writeAbbrev(ModuleBlock.String{
                             .code = 5,
                             .string = func.section.slice(self).?,
                         });
@@ -13733,7 +13720,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 const strtab = func.global.strtab(self);
 
                 const global = func.global.ptrConst(self);
-                try module_block.writeAbbrev(Module.Function{
+                try module_block.writeAbbrev(ModuleBlock.Function{
                     .strtab_offset = strtab.offset,
                     .strtab_size = strtab.size,
                     .type_index = global.type,
@@ -13757,7 +13744,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 const strtab = alias.global.strtab(self);
 
                 const global = alias.global.ptrConst(self);
-                try module_block.writeAbbrev(Module.Alias{
+                try module_block.writeAbbrev(ModuleBlock.Alias{
                     .strtab_offset = strtab.offset,
                     .strtab_size = strtab.size,
                     .type_index = global.type,
@@ -13775,8 +13762,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // CONSTANTS_BLOCK
         {
-            const Constants = ir.Constants;
-            var constants_block = try module_block.enterSubBlock(Constants, true);
+            const ConstantsBlock = ir.ModuleBlock.ConstantsBlock;
+            var constants_block = try module_block.enterSubBlock(ConstantsBlock, true);
 
             var current_type: Type = .none;
             const tags = self.constant_items.items(.tag);
@@ -13786,7 +13773,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 const constant: Constant = @enumFromInt(index);
                 const constant_type = constant.typeOf(self);
                 if (constant_type != current_type) {
-                    try constants_block.writeAbbrev(Constants.SetType{ .type_id = constant_type });
+                    try constants_block.writeAbbrev(ConstantsBlock.SetType{ .type_id = constant_type });
                     current_type = constant_type;
                 }
                 const data = datas[index];
@@ -13794,9 +13781,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     .null,
                     .zeroinitializer,
                     .none,
-                    => try constants_block.writeAbbrev(Constants.Null{}),
-                    .undef => try constants_block.writeAbbrev(Constants.Undef{}),
-                    .poison => try constants_block.writeAbbrev(Constants.Poison{}),
+                    => try constants_block.writeAbbrev(ConstantsBlock.Null{}),
+                    .undef => try constants_block.writeAbbrev(ConstantsBlock.Undef{}),
+                    .poison => try constants_block.writeAbbrev(ConstantsBlock.Poison{}),
                     .positive_integer,
                     .negative_integer,
                     => |tag| {
@@ -13832,7 +13819,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             try constants_block.writeUnabbrev(5, record.items);
                             continue;
                         };
-                        try constants_block.writeAbbrev(Constants.Integer{
+                        try constants_block.writeAbbrev(ConstantsBlock.Integer{
                             .value = @bitCast(if (val >= 0)
                                 val << 1 | 0
                             else
@@ -13841,17 +13828,17 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     },
                     .half,
                     .bfloat,
-                    => try constants_block.writeAbbrev(Constants.Half{ .value = @truncate(data) }),
-                    .float => try constants_block.writeAbbrev(Constants.Float{ .value = data }),
+                    => try constants_block.writeAbbrev(ConstantsBlock.Half{ .value = @truncate(data) }),
+                    .float => try constants_block.writeAbbrev(ConstantsBlock.Float{ .value = data }),
                     .double => {
                         const extra = self.constantExtraData(Constant.Double, data);
-                        try constants_block.writeAbbrev(Constants.Double{
+                        try constants_block.writeAbbrev(ConstantsBlock.Double{
                             .value = (@as(u64, extra.hi) << 32) | extra.lo,
                         });
                     },
                     .x86_fp80 => {
                         const extra = self.constantExtraData(Constant.Fp80, data);
-                        try constants_block.writeAbbrev(Constants.Fp80{
+                        try constants_block.writeAbbrev(ConstantsBlock.Fp80{
                             .hi = @as(u64, extra.hi) << 48 | @as(u64, extra.lo_hi) << 16 |
                                 extra.lo_lo >> 16,
                             .lo = @truncate(extra.lo_lo),
@@ -13861,7 +13848,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     .ppc_fp128,
                     => {
                         const extra = self.constantExtraData(Constant.Fp128, data);
-                        try constants_block.writeAbbrev(Constants.Fp128{
+                        try constants_block.writeAbbrev(ConstantsBlock.Fp128{
                             .lo = @as(u64, extra.lo_hi) << 32 | @as(u64, extra.lo_lo),
                             .hi = @as(u64, extra.hi_hi) << 32 | @as(u64, extra.hi_lo),
                         });
@@ -13876,35 +13863,35 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                         const values = extra.trail.next(len, Constant, self);
 
                         try constants_block.writeAbbrevAdapted(
-                            Constants.Aggregate{ .values = values },
+                            ConstantsBlock.Aggregate{ .values = values },
                             constant_adapter,
                         );
                     },
                     .splat => {
-                        const ConstantsWriter = @TypeOf(constants_block);
+                        const ConstantsBlockWriter = @TypeOf(constants_block);
                         const extra = self.constantExtraData(Constant.Splat, data);
                         const vector_len = extra.type.vectorLen(self);
                         const c = constant_adapter.getConstantIndex(extra.value);
 
                         try bitcode.writeBits(
-                            ConstantsWriter.abbrevId(Constants.Aggregate),
-                            ConstantsWriter.abbrev_len,
+                            ConstantsBlockWriter.abbrevId(ConstantsBlock.Aggregate),
+                            ConstantsBlockWriter.abbrev_len,
                         );
-                        try bitcode.writeVBR(vector_len, 6);
+                        try bitcode.writeVbr(vector_len, 6);
                         for (0..vector_len) |_| {
-                            try bitcode.writeBits(c, Constants.Aggregate.ops[1].array_fixed);
+                            try bitcode.writeBits(c, ConstantsBlock.Aggregate.ops[1].array_fixed);
                         }
                     },
                     .string => {
                         const str: String = @enumFromInt(data);
                         if (str == .none) {
-                            try constants_block.writeAbbrev(Constants.Null{});
+                            try constants_block.writeAbbrev(ConstantsBlock.Null{});
                         } else {
                             const slice = str.slice(self).?;
                             if (slice.len > 0 and slice[slice.len - 1] == 0)
-                                try constants_block.writeAbbrev(Constants.CString{ .string = slice[0 .. slice.len - 1] })
+                                try constants_block.writeAbbrev(ConstantsBlock.CString{ .string = slice[0 .. slice.len - 1] })
                             else
-                                try constants_block.writeAbbrev(Constants.String{ .string = slice });
+                                try constants_block.writeAbbrev(ConstantsBlock.String{ .string = slice });
                         }
                     },
                     .bitcast,
@@ -13914,7 +13901,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     .trunc,
                     => |tag| {
                         const extra = self.constantExtraData(Constant.Cast, data);
-                        try constants_block.writeAbbrevAdapted(Constants.Cast{
+                        try constants_block.writeAbbrevAdapted(ConstantsBlock.Cast{
                             .type_index = extra.type,
                             .val = extra.val,
                             .opcode = tag.toCastOpcode(),
@@ -13930,7 +13917,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     .xor,
                     => |tag| {
                         const extra = self.constantExtraData(Constant.Binary, data);
-                        try constants_block.writeAbbrevAdapted(Constants.Binary{
+                        try constants_block.writeAbbrevAdapted(ConstantsBlock.Binary{
                             .opcode = tag.toBinaryOpcode(),
                             .lhs = extra.lhs,
                             .rhs = extra.rhs,
@@ -14014,7 +14001,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     },
                     .blockaddress => {
                         const extra = self.constantExtraData(Constant.BlockAddress, data);
-                        try constants_block.writeAbbrev(Constants.BlockAddress{
+                        try constants_block.writeAbbrev(ConstantsBlock.BlockAddress{
                             .type_id = extra.function.typeOf(self),
                             .function = constant_adapter.getConstantIndex(extra.function.toConst(self)),
                             .block = @intFromEnum(extra.block),
@@ -14024,10 +14011,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     .no_cfi,
                     => |tag| {
                         const function: Function.Index = @enumFromInt(data);
-                        try constants_block.writeAbbrev(Constants.DsoLocalEquivalentOrNoCfi{
+                        try constants_block.writeAbbrev(ConstantsBlock.DsoLocalEquivalentOrNoCfi{
                             .code = switch (tag) {
-                                .dso_local_equivalent => 27,
-                                .no_cfi => 29,
+                                .dso_local_equivalent => .DSO_LOCAL_EQUIVALENT,
+                                .no_cfi => .NO_CFI_VALUE,
                                 else => unreachable,
                             },
                             .type_id = function.typeOf(self),
@@ -14042,7 +14029,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // METADATA_KIND_BLOCK
         {
-            const MetadataKindBlock = ir.MetadataKindBlock;
+            const MetadataKindBlock = ir.ModuleBlock.MetadataKindBlock;
             var metadata_kind_block = try module_block.enterSubBlock(MetadataKindBlock, true);
 
             inline for (@typeInfo(ir.FixedMetadataKind).@"enum".fields) |field| {
@@ -14059,95 +14046,85 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
         }
 
         const MetadataAdapter = struct {
-            builder: *const Builder,
             constant_adapter: ConstantAdapter,
 
-            pub fn init(
-                builder: *const Builder,
-                const_adapter: ConstantAdapter,
-            ) @This() {
-                return .{
-                    .builder = builder,
-                    .constant_adapter = const_adapter,
-                };
-            }
-
-            pub fn get(adapter: @This(), value: anytype, comptime field_name: []const u8) @TypeOf(value) {
-                _ = field_name;
-                const Ty = @TypeOf(value);
-                return switch (Ty) {
-                    Metadata => @enumFromInt(adapter.getMetadataIndex(value)),
-                    MetadataString => @enumFromInt(adapter.getMetadataStringIndex(value)),
-                    Constant => @enumFromInt(adapter.constant_adapter.getConstantIndex(value)),
-                    else => value,
+            pub fn get(adapter: @This(), param: anytype) switch (@TypeOf(param)) {
+                Metadata, Metadata.Optional, Metadata.String, Metadata.String.Optional, Constant => u32,
+                else => |Result| Result,
+            } {
+                return switch (@TypeOf(param)) {
+                    Metadata => adapter.getMetadataIndex(param),
+                    Metadata.Optional => adapter.getOptionalMetadataIndex(param),
+                    Metadata.String => adapter.getMetadataIndex(param.toMetadata()),
+                    Metadata.String.Optional => adapter.getOptionalMetadataIndex(param.toMetadata()),
+                    Constant => adapter.constant_adapter.getConstantIndex(param),
+                    else => param,
                 };
             }
 
             pub fn getMetadataIndex(adapter: @This(), metadata: Metadata) u32 {
-                if (metadata == .none) return 0;
-                return @intCast(adapter.builder.metadata_string_map.count() +
-                    @intFromEnum(metadata.unwrap(adapter.builder)) - 1);
+                const builder = adapter.constant_adapter.builder;
+                const unwrapped_metadata = metadata.unwrap(builder);
+                return switch (unwrapped_metadata.kind) {
+                    .string => unwrapped_metadata.index,
+                    .node => @intCast(builder.metadata_string_map.count() + unwrapped_metadata.index),
+                    .forward, .local => unreachable,
+                };
             }
 
-            pub fn getMetadataStringIndex(_: @This(), metadata_string: MetadataString) u32 {
-                return @intFromEnum(metadata_string);
+            pub fn getOptionalMetadataIndex(adapter: @This(), metadata: Metadata.Optional) u32 {
+                return if (metadata.unwrap()) |m| 1 + adapter.getMetadataIndex(m) else 0;
             }
         };
-
-        const metadata_adapter = MetadataAdapter.init(self, constant_adapter);
+        const metadata_adapter: MetadataAdapter = .{ .constant_adapter = constant_adapter };
 
         // METADATA_BLOCK
         {
-            const MetadataBlock = ir.MetadataBlock;
+            const MetadataBlock = ir.ModuleBlock.MetadataBlock;
             var metadata_block = try module_block.enterSubBlock(MetadataBlock, true);
 
             const MetadataBlockWriter = @TypeOf(metadata_block);
 
-            // Emit all MetadataStrings
-            if (self.metadata_string_map.count() > 1) {
-                const strings_offset, const strings_size = blk: {
-                    var strings_offset: u32 = 0;
-                    var strings_size: u32 = 0;
-                    for (1..self.metadata_string_map.count()) |metadata_string_index| {
-                        const metadata_string: MetadataString = @enumFromInt(metadata_string_index);
-                        const slice = metadata_string.slice(self);
-                        strings_offset += bitcode.bitsVBR(@as(u32, @intCast(slice.len)), 6);
-                        strings_size += @intCast(slice.len * 8);
-                    }
-                    break :blk .{
-                        std.mem.alignForward(u32, strings_offset, 32) / 8,
-                        std.mem.alignForward(u32, strings_size, 32) / 8,
-                    };
+            // Emit all Metadata.Strings
+            const strings_len: u32 = @intCast(self.metadata_string_map.count());
+            if (strings_len > 0) {
+                const string_bytes_offset = string_bytes_offset: {
+                    var string_bytes_bit_offset: u32 = 0;
+                    for (
+                        self.metadata_string_indices.items[0..strings_len],
+                        self.metadata_string_indices.items[1..],
+                    ) |start, end| string_bytes_bit_offset += BitcodeWriter.bitsVbr(end - start, 6);
+                    break :string_bytes_offset @divExact(
+                        std.mem.alignForward(u32, string_bytes_bit_offset, 32),
+                        8,
+                    );
                 };
+                const string_bytes_len =
+                    std.mem.alignForward(u32, @intCast(self.metadata_string_bytes.items.len), 4);
 
                 try bitcode.writeBits(
                     comptime MetadataBlockWriter.abbrevId(MetadataBlock.Strings),
                     MetadataBlockWriter.abbrev_len,
                 );
 
-                try bitcode.writeVBR(@as(u32, @intCast(self.metadata_string_map.count() - 1)), 6);
-                try bitcode.writeVBR(strings_offset, 6);
+                try bitcode.writeVbr(strings_len, 6);
+                try bitcode.writeVbr(string_bytes_offset, 6);
 
-                try bitcode.writeVBR(strings_size + strings_offset, 6);
+                try bitcode.writeVbr(string_bytes_offset + string_bytes_len, 6);
 
                 try bitcode.alignTo32();
 
-                for (1..self.metadata_string_map.count()) |metadata_string_index| {
-                    const metadata_string: MetadataString = @enumFromInt(metadata_string_index);
-                    const slice = metadata_string.slice(self);
-                    try bitcode.writeVBR(@as(u32, @intCast(slice.len)), 6);
-                }
+                for (
+                    self.metadata_string_indices.items[0..strings_len],
+                    self.metadata_string_indices.items[1..],
+                ) |start, end| try bitcode.writeVbr(end - start, 6);
 
                 try bitcode.writeBlob(self.metadata_string_bytes.items);
             }
 
-            for (
-                self.metadata_items.items(.tag)[1..],
-                self.metadata_items.items(.data)[1..],
-            ) |tag, data| {
+            for (self.metadata_items.items(.tag), self.metadata_items.items(.data)) |tag, data| {
                 record.clearRetainingCapacity();
                 switch (tag) {
-                    .none => unreachable,
                     .file => {
                         const extra = self.metadataExtraData(Metadata.File, data);
 
@@ -14209,13 +14186,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     },
                     .location => {
                         const extra = self.metadataExtraData(Metadata.Location, data);
-                        assert(extra.scope != .none);
-                        try metadata_block.writeAbbrev(MetadataBlock.Location{
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Location{
                             .line = extra.line,
                             .column = extra.column,
-                            .scope = metadata_adapter.getMetadataIndex(extra.scope) - 1,
-                            .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(extra.inlined_at)),
-                        });
+                            .scope = extra.scope,
+                            .inlined_at = extra.inlined_at,
+                        }, metadata_adapter);
                     },
                     .basic_bool_type,
                     .basic_unsigned_type,
@@ -14325,7 +14301,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                                 @bitCast(flags),
                             ));
                             record.appendAssumeCapacity(extra.bit_width);
-                            record.appendAssumeCapacity(metadata_adapter.getMetadataStringIndex(extra.name));
+                            record.appendAssumeCapacity(metadata_adapter.getOptionalMetadataIndex(extra.name.toMetadata()));
                             const limbs = record.addManyAsSliceAssumeCapacity(limbs_len);
                             bigint.writeTwosComplement(std.mem.sliceAsBytes(limbs), .little);
                             for (limbs) |*limb| {
@@ -14335,7 +14311,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                                 else
                                     -%val << 1 | 1);
                             }
-                            try metadata_block.writeUnabbrev(@intFromEnum(MetadataBlock.Enumerator.id), record.items);
+                            try metadata_block.writeUnabbrev(@intFromEnum(MetadataBlock.Code.ENUMERATOR), record.items);
                             continue;
                         };
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Enumerator{
@@ -14350,7 +14326,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     },
                     .subrange => {
                         const extra = self.metadataExtraData(Metadata.Subrange, data);
-
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Subrange{
                             .count = extra.count,
                             .lower_bound = extra.lower_bound,
@@ -14358,47 +14333,18 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                     },
                     .expression => {
                         var extra = self.metadataExtraDataTrail(Metadata.Expression, data);
-
                         const elements = extra.trail.next(extra.data.elements_len, u32, self);
-
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Expression{
                             .elements = elements,
                         }, metadata_adapter);
                     },
                     .tuple => {
                         var extra = self.metadataExtraDataTrail(Metadata.Tuple, data);
-
-                        const elements = extra.trail.next(extra.data.elements_len, Metadata, self);
-
+                        const elements =
+                            extra.trail.next(extra.data.elements_len, Metadata.Optional, self);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Node{
                             .elements = elements,
                         }, metadata_adapter);
-                    },
-                    .str_tuple => {
-                        var extra = self.metadataExtraDataTrail(Metadata.StrTuple, data);
-
-                        const elements = extra.trail.next(extra.data.elements_len, Metadata, self);
-
-                        const all_elems = try self.gpa.alloc(Metadata, elements.len + 1);
-                        defer self.gpa.free(all_elems);
-                        all_elems[0] = @enumFromInt(metadata_adapter.getMetadataStringIndex(extra.data.str));
-                        for (elements, all_elems[1..]) |elem, *out_elem| {
-                            out_elem.* = @enumFromInt(metadata_adapter.getMetadataIndex(elem));
-                        }
-
-                        try metadata_block.writeAbbrev(MetadataBlock.Node{
-                            .elements = all_elems,
-                        });
-                    },
-                    .module_flag => {
-                        const extra = self.metadataExtraData(Metadata.ModuleFlag, data);
-                        try metadata_block.writeAbbrev(MetadataBlock.Node{
-                            .elements = &.{
-                                @enumFromInt(metadata_adapter.getMetadataIndex(extra.behavior)),
-                                @enumFromInt(metadata_adapter.getMetadataStringIndex(extra.name)),
-                                @enumFromInt(metadata_adapter.getMetadataIndex(extra.constant)),
-                            },
-                        });
                     },
                     .local_var => {
                         const extra = self.metadataExtraData(Metadata.LocalVar, data);
@@ -14454,37 +14400,28 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
             // Write named metadata
             for (self.metadata_named.keys(), self.metadata_named.values()) |name, operands| {
-                const slice = name.slice(self);
-                try metadata_block.writeAbbrev(MetadataBlock.Name{
-                    .name = slice,
-                });
-
-                const elements = self.metadata_extra.items[operands.index..][0..operands.len];
-                for (elements) |*e| {
-                    e.* = metadata_adapter.getMetadataIndex(@enumFromInt(e.*)) - 1;
-                }
-
-                try metadata_block.writeAbbrev(MetadataBlock.NamedNode{
-                    .elements = @ptrCast(elements),
-                });
+                try metadata_block.writeAbbrev(MetadataBlock.Name{ .name = name.slice(self).? });
+                try metadata_block.writeAbbrevAdapted(MetadataBlock.NamedNode{
+                    .elements = @ptrCast(self.metadata_extra.items[operands.index..][0..operands.len]),
+                }, metadata_adapter);
             }
 
             // Write global attached metadata
             {
-                for (globals.keys()) |global| {
-                    const global_ptr = global.ptrConst(self);
-                    if (global_ptr.dbg == .none) continue;
+                for (globals.keys()) |global_index| {
+                    const global = global_index.ptrConst(self);
+                    if (global.dbg.unwrap()) |dbg| {
+                        switch (global.kind) {
+                            .function => |f| if (f.ptrConst(self).instructions.len != 0) continue,
+                            else => {},
+                        }
 
-                    switch (global_ptr.kind) {
-                        .function => |f| if (f.ptrConst(self).instructions.len != 0) continue,
-                        else => {},
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.GlobalDeclAttachment{
+                            .value = global_index.toConst(),
+                            .kind = .dbg,
+                            .metadata = dbg,
+                        }, metadata_adapter);
                     }
-
-                    try metadata_block.writeAbbrev(MetadataBlock.GlobalDeclAttachment{
-                        .value = @enumFromInt(constant_adapter.getConstantIndex(global.toConst())),
-                        .kind = .dbg,
-                        .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(global_ptr.dbg) - 1),
-                    });
                 }
             }
 
@@ -14493,10 +14430,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // OPERAND_BUNDLE_TAGS_BLOCK
         {
-            const OperandBundleTags = ir.OperandBundleTags;
-            var operand_bundle_tags_block = try module_block.enterSubBlock(OperandBundleTags, true);
+            const OperandBundleTagsBlock = ir.ModuleBlock.OperandBundleTagsBlock;
+            var operand_bundle_tags_block = try module_block.enterSubBlock(OperandBundleTagsBlock, true);
 
-            try operand_bundle_tags_block.writeAbbrev(OperandBundleTags.OperandBundleTag{
+            try operand_bundle_tags_block.writeAbbrev(OperandBundleTagsBlock.OperandBundleTag{
                 .tag = "cold",
             });
 
@@ -14505,26 +14442,34 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
         // Block info
         {
-            const BlockInfo = ir.BlockInfo;
-            var block_info_block = try module_block.enterSubBlock(BlockInfo, true);
+            const BlockInfoBlock = ir.BlockInfoBlock;
+            var block_info_block = try module_block.enterSubBlock(BlockInfoBlock, true);
 
-            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.FunctionBlock.id});
-            inline for (ir.FunctionBlock.abbrevs) |abbrev| {
+            try block_info_block.writeUnabbrev(BlockInfoBlock.set_block_id, &.{
+                @intFromEnum(ir.ModuleBlock.FunctionBlock.id),
+            });
+            inline for (ir.ModuleBlock.FunctionBlock.abbrevs) |abbrev| {
                 try block_info_block.defineAbbrev(&abbrev.ops);
             }
 
-            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.FunctionValueSymbolTable.id});
-            inline for (ir.FunctionValueSymbolTable.abbrevs) |abbrev| {
+            try block_info_block.writeUnabbrev(BlockInfoBlock.set_block_id, &.{
+                @intFromEnum(ir.ModuleBlock.FunctionBlock.ValueSymtabBlock.id),
+            });
+            inline for (ir.ModuleBlock.FunctionBlock.ValueSymtabBlock.abbrevs) |abbrev| {
                 try block_info_block.defineAbbrev(&abbrev.ops);
             }
 
-            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.FunctionMetadataBlock.id});
-            inline for (ir.FunctionMetadataBlock.abbrevs) |abbrev| {
+            try block_info_block.writeUnabbrev(BlockInfoBlock.set_block_id, &.{
+                @intFromEnum(ir.ModuleBlock.FunctionBlock.MetadataBlock.id),
+            });
+            inline for (ir.ModuleBlock.FunctionBlock.MetadataBlock.abbrevs) |abbrev| {
                 try block_info_block.defineAbbrev(&abbrev.ops);
             }
 
-            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.MetadataAttachmentBlock.id});
-            inline for (ir.MetadataAttachmentBlock.abbrevs) |abbrev| {
+            try block_info_block.writeUnabbrev(BlockInfoBlock.set_block_id, &.{
+                @intFromEnum(ir.ModuleBlock.FunctionBlock.MetadataAttachmentBlock.id),
+            });
+            inline for (ir.ModuleBlock.FunctionBlock.MetadataAttachmentBlock.abbrevs) |abbrev| {
                 try block_info_block.defineAbbrev(&abbrev.ops);
             }
 
@@ -14534,38 +14479,40 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
         // FUNCTION_BLOCKS
         {
             const FunctionAdapter = struct {
-                constant_adapter: ConstantAdapter,
                 metadata_adapter: MetadataAdapter,
                 func: *const Function,
                 instruction_index: Function.Instruction.Index,
 
-                pub fn get(adapter: @This(), value: anytype, comptime field_name: []const u8) @TypeOf(value) {
-                    _ = field_name;
-                    const Ty = @TypeOf(value);
-                    return switch (Ty) {
-                        Value => @enumFromInt(adapter.getOffsetValueIndex(value)),
-                        Constant => @enumFromInt(adapter.getOffsetConstantIndex(value)),
-                        FunctionAttributes => @enumFromInt(switch (value) {
+                pub fn get(adapter: @This(), param: anytype) switch (@TypeOf(param)) {
+                    Value, Constant, FunctionAttributes => u32,
+                    else => |Result| Result,
+                } {
+                    return switch (@TypeOf(param)) {
+                        Value => adapter.getOffsetValueIndex(param),
+                        Constant => adapter.getOffsetConstantIndex(param),
+                        FunctionAttributes => switch (param) {
                             .none => 0,
-                            else => 1 + adapter.constant_adapter.builder.function_attributes_set.getIndex(value).?,
-                        }),
-                        else => value,
+                            else => @intCast(1 + adapter.metadata_adapter.constant_adapter.builder
+                                .function_attributes_set.getIndex(param).?),
+                        },
+                        else => param,
                     };
                 }
 
                 pub fn getValueIndex(adapter: @This(), value: Value) u32 {
                     return @intCast(switch (value.unwrap()) {
                         .instruction => |instruction| instruction.valueIndex(adapter.func) + adapter.firstInstr(),
-                        .constant => |constant| adapter.constant_adapter.getConstantIndex(constant),
+                        .constant => |constant| adapter.metadata_adapter.constant_adapter.getConstantIndex(constant),
                         .metadata => |metadata| {
-                            const real_metadata = metadata.unwrap(adapter.metadata_adapter.builder);
-                            if (@intFromEnum(real_metadata) < Metadata.first_local_metadata)
-                                return adapter.metadata_adapter.getMetadataIndex(real_metadata) - 1;
-
-                            return @intCast(@intFromEnum(metadata) -
-                                Metadata.first_local_metadata +
-                                adapter.metadata_adapter.builder.metadata_string_map.count() - 1 +
-                                adapter.metadata_adapter.builder.metadata_map.count() - 1);
+                            const builder = adapter.metadata_adapter.constant_adapter.builder;
+                            const unwrapped_metadata = metadata.unwrap(builder);
+                            return switch (unwrapped_metadata.kind) {
+                                .string, .node => adapter.metadata_adapter.getMetadataIndex(unwrapped_metadata),
+                                .forward => unreachable,
+                                .local => @intCast(builder.metadata_string_map.count() +
+                                    builder.metadata_map.count() +
+                                    unwrapped_metadata.index),
+                            };
                         },
                     });
                 }
@@ -14589,12 +14536,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 }
 
                 fn firstInstr(adapter: @This()) u32 {
-                    return adapter.constant_adapter.numConstants();
+                    return adapter.metadata_adapter.constant_adapter.numConstants();
                 }
             };
 
             for (self.functions.items, 0..) |func, func_index| {
-                const FunctionBlock = ir.FunctionBlock;
+                const FunctionBlock = ir.ModuleBlock.FunctionBlock;
                 if (func.global.getReplacement(self) != .none) continue;
 
                 if (func.instructions.len == 0) continue;
@@ -14604,7 +14551,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 try function_block.writeAbbrev(FunctionBlock.DeclareBlocks{ .num_blocks = func.blocks.len });
 
                 var adapter: FunctionAdapter = .{
-                    .constant_adapter = constant_adapter,
                     .metadata_adapter = metadata_adapter,
                     .func = &func,
                     .instruction_index = @enumFromInt(0),
@@ -14612,7 +14558,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
                 // Emit function level metadata block
                 if (!func.strip and func.debug_values.len > 0) {
-                    const MetadataBlock = ir.FunctionMetadataBlock;
+                    const MetadataBlock = ir.ModuleBlock.FunctionBlock.MetadataBlock;
                     var metadata_block = try function_block.enterSubBlock(MetadataBlock, false);
 
                     for (func.debug_values) |value| {
@@ -15048,7 +14994,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             const vals = extra.trail.next(extra.data.cases_len, Constant, &func);
                             const blocks = extra.trail.next(extra.data.cases_len, Function.Block.Index, &func);
                             for (vals, blocks) |val, block| {
-                                record.appendAssumeCapacity(adapter.constant_adapter.getConstantIndex(val));
+                                record.appendAssumeCapacity(adapter.metadata_adapter.constant_adapter.getConstantIndex(val));
                                 record.appendAssumeCapacity(@intFromEnum(block));
                             }
 
@@ -15135,12 +15081,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             switch (debug_location) {
                                 .no_location => has_location = false,
                                 .location => |location| {
-                                    try function_block.writeAbbrev(FunctionBlock.DebugLoc{
+                                    try function_block.writeAbbrevAdapted(FunctionBlock.DebugLoc{
                                         .line = location.line,
                                         .column = location.column,
-                                        .scope = @enumFromInt(metadata_adapter.getMetadataIndex(location.scope)),
-                                        .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(location.inlined_at)),
-                                    });
+                                        .scope = location.scope,
+                                        .inlined_at = location.inlined_at,
+                                    }, metadata_adapter);
                                     has_location = true;
                                 },
                             }
@@ -15152,16 +15098,16 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
                 // VALUE_SYMTAB
                 if (!func.strip) {
-                    const ValueSymbolTable = ir.FunctionValueSymbolTable;
+                    const ValueSymtabBlock = ir.ModuleBlock.FunctionBlock.ValueSymtabBlock;
 
-                    var value_symtab_block = try function_block.enterSubBlock(ValueSymbolTable, false);
+                    var value_symtab_block = try function_block.enterSubBlock(ValueSymtabBlock, false);
 
                     for (func.blocks, 0..) |block, block_index| {
                         const name = block.instruction.name(&func);
 
                         if (name == .none or name == .empty) continue;
 
-                        try value_symtab_block.writeAbbrev(ValueSymbolTable.BlockEntry{
+                        try value_symtab_block.writeAbbrev(ValueSymtabBlock.BlockEntry{
                             .value_id = @intCast(block_index),
                             .string = name.slice(self).?,
                         });
@@ -15174,17 +15120,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
                 // METADATA_ATTACHMENT_BLOCK
                 {
-                    const MetadataAttachmentBlock = ir.MetadataAttachmentBlock;
+                    const MetadataAttachmentBlock = ir.ModuleBlock.FunctionBlock.MetadataAttachmentBlock;
                     var metadata_attach_block = try function_block.enterSubBlock(MetadataAttachmentBlock, false);
 
-                    dbg: {
-                        if (func.strip) break :dbg;
-                        const dbg = func.global.ptrConst(self).dbg;
-                        if (dbg == .none) break :dbg;
-                        try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentGlobalSingle{
+                    if (func.global.ptrConst(self).dbg.unwrap()) |dbg| {
+                        try metadata_attach_block.writeAbbrevAdapted(MetadataAttachmentBlock.AttachmentGlobalSingle{
                             .kind = .dbg,
-                            .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(dbg) - 1),
-                        });
+                            .metadata = dbg,
+                        }, metadata_adapter);
                     }
 
                     var instr_index: u32 = 0;
@@ -15201,16 +15144,16 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                             };
                             switch (weights) {
                                 .none => {},
-                                .unpredictable => try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentInstructionSingle{
+                                .unpredictable => try metadata_attach_block.writeAbbrevAdapted(MetadataAttachmentBlock.AttachmentInstructionSingle{
                                     .inst = instr_index,
                                     .kind = .unpredictable,
-                                    .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(.empty_tuple) - 1),
-                                }),
-                                _ => try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentInstructionSingle{
+                                    .metadata = .empty_tuple,
+                                }, metadata_adapter),
+                                _ => try metadata_attach_block.writeAbbrevAdapted(MetadataAttachmentBlock.AttachmentInstructionSingle{
                                     .inst = instr_index,
                                     .kind = .prof,
-                                    .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(@enumFromInt(@intFromEnum(weights))) - 1),
-                                }),
+                                    .metadata = weights.toMetadata(),
+                                }, metadata_adapter),
                             }
                             instr_index += 1;
                         },
@@ -15228,7 +15171,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
     // STRTAB_BLOCK
     {
-        const Strtab = ir.Strtab;
+        const Strtab = ir.StrtabBlock;
         var strtab_block = try bitcode.enterTopBlock(Strtab);
 
         try strtab_block.writeAbbrev(Strtab.Blob{ .blob = self.strtab_string_bytes.items });

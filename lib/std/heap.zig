@@ -78,13 +78,15 @@ pub fn defaultQueryPageSize() usize {
     };
     var size = global.cached_result.load(.unordered);
     if (size > 0) return size;
-    size = switch (builtin.os.tag) {
-        .linux => if (builtin.link_libc) @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE))) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
+    size = size: switch (builtin.os.tag) {
+        .linux => if (builtin.link_libc)
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
+        else
+            std.os.linux.getauxval(std.elf.AT_PAGESZ),
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
-            if (task_port == std.c.TASK.NULL)
-                break :blk 0;
+            if (task_port == std.c.TASK.NULL) break :size 0;
             var info_count = std.c.TASK.VM.INFO_COUNT;
             var vm_info: std.c.task_vm_info_data_t = undefined;
             vm_info.page_size = 0;
@@ -94,21 +96,28 @@ pub fn defaultQueryPageSize() usize {
                 @as(std.c.task_info_t, @ptrCast(&vm_info)),
                 &info_count,
             );
-            assert(vm_info.page_size != 0);
-            break :blk @intCast(vm_info.page_size);
+            break :size @intCast(vm_info.page_size);
         },
-        .windows => blk: {
-            var info: std.os.windows.SYSTEM_INFO = undefined;
-            std.os.windows.kernel32.GetSystemInfo(&info);
-            break :blk info.dwPageSize;
+        .windows => {
+            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            switch (windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            )) {
+                .SUCCESS => break :size sbi.PageSize,
+                else => break :size 0,
+            }
         },
         else => if (builtin.link_libc)
-            @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
         else if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
             @compileError("unsupported target: freestanding/other")
         else
             @compileError("pageSize on " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " is not supported without linking libc, using the default implementation"),
     };
+    if (size == 0) size = page_size_max;
 
     assert(size >= page_size_min);
     assert(size <= page_size_max);
@@ -727,11 +736,14 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     },
     .netbsd => switch (builtin.cpu.arch) {
         // NetBSD/sys/arch/*
+        .alpha => 8 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 4 << 10,
+        .hppa => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 4 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .riscv32, .riscv64 => 4 << 10,
@@ -745,11 +757,14 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     },
     .openbsd => switch (builtin.cpu.arch) {
         // OpenBSD/sys/arch/*
+        .alpha => 8 << 10,
+        .hppa => 4 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
         .mips64, .mips64el => 4 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv64 => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc64 => 8 << 10,
         else => null,
     },
@@ -815,21 +830,26 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     .emscripten => 64 << 10,
     .linux => switch (builtin.cpu.arch) {
         // Linux/arch/*/Kconfig
-        .arc => 4 << 10,
+        .alpha => 8 << 10,
+        .arc, .arceb => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 4 << 10,
         .csky => 4 << 10,
         .hexagon => 4 << 10,
+        .hppa => 4 << 10,
         .loongarch32, .loongarch64 => 4 << 10,
         .m68k => 4 << 10,
+        .microblaze, .microblazeel => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .or1k => 8 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv32, .riscv64 => 4 << 10,
         .s390x => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
+        .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
     .freestanding, .other => switch (builtin.cpu.arch) {
@@ -875,11 +895,14 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     },
     .netbsd => switch (builtin.cpu.arch) {
         // NetBSD/sys/arch/*
+        .alpha => 8 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 64 << 10,
+        .hppa => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 16 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 16 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc => 8 << 10,
         .sparc64 => 8 << 10,
         .riscv32, .riscv64 => 4 << 10,
@@ -892,11 +915,14 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     },
     .openbsd => switch (builtin.cpu.arch) {
         // OpenBSD/sys/arch/*
+        .alpha => 8 << 10,
+        .hppa => 4 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
         .mips64, .mips64el => 16 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv64 => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc64 => 8 << 10,
         else => null,
     },
@@ -962,21 +988,26 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     .emscripten => 64 << 10,
     .linux => switch (builtin.cpu.arch) {
         // Linux/arch/*/Kconfig
-        .arc => 16 << 10,
+        .alpha => 8 << 10,
+        .arc, .arceb => 16 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 64 << 10,
         .csky => 4 << 10,
         .hexagon => 256 << 10,
+        .hppa => 64 << 10,
         .loongarch32, .loongarch64 => 64 << 10,
         .m68k => 8 << 10,
+        .microblaze, .microblazeel => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 64 << 10,
+        .or1k => 8 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 256 << 10,
         .riscv32, .riscv64 => 4 << 10,
         .s390x => 4 << 10,
+        .sh, .sheb => 64 << 10,
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
+        .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
     .freestanding => switch (builtin.cpu.arch) {

@@ -40,6 +40,8 @@
 #elif defined(__mips__)
 #define zig_mips32
 #define zig_mips
+#elif defined(__or1k__)
+#define zig_or1k
 #elif defined(__powerpc64__)
 #define zig_powerpc64
 #define zig_powerpc
@@ -390,6 +392,8 @@
 #define zig_trap() __asm__ volatile(".word 0x0")
 #elif defined(zig_mips)
 #define zig_trap() __asm__ volatile(".word 0x3d")
+#elif defined(zig_or1k)
+#define zig_trap() __asm__ volatile("l.cust8")
 #elif defined(zig_riscv)
 #define zig_trap() __asm__ volatile("unimp")
 #elif defined(zig_s390x)
@@ -422,6 +426,8 @@
 #define zig_breakpoint() __asm__ volatile("break 0x0")
 #elif defined(zig_mips)
 #define zig_breakpoint() __asm__ volatile("break")
+#elif defined(zig_or1k)
+#define zig_breakpoint() __asm__ volatile("l.trap 0x0")
 #elif defined(zig_powerpc)
 #define zig_breakpoint() __asm__ volatile("trap")
 #elif defined(zig_riscv)
@@ -1510,8 +1516,16 @@ static inline zig_u128 zig_shl_u128(zig_u128 lhs, uint8_t rhs) {
 }
 
 static inline zig_i128 zig_shr_i128(zig_i128 lhs, uint8_t rhs) {
+    // This works around a GCC miscompilation, but it has the side benefit of
+    // emitting better code. It is behind the `#if` because it depends on
+    // arithmetic right shift, which is implementation-defined in C, but should
+    // be guaranteed on any GCC-compatible compiler.
+#if defined(zig_gnuc)
+    return lhs >> rhs;
+#else
     zig_i128 sign_mask = lhs < zig_make_i128(0, 0) ? -zig_make_i128(0, 1) : zig_make_i128(0, 0);
     return ((lhs ^ sign_mask) >> rhs) ^ sign_mask;
+#endif
 }
 
 static inline zig_i128 zig_shl_i128(zig_i128 lhs, uint8_t rhs) {

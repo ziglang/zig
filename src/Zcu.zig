@@ -1115,8 +1115,8 @@ pub const File = struct {
     pub fn internFullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
-        const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-        var w: Writer = .fixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
+        const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(gpa);
+        var w: Writer = .fixed((try string_bytes.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
         file.renderFullyQualifiedName(&w) catch unreachable;
         assert(w.end == w.buffer.len);
         return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(w.end), .no_embedded_nulls);
@@ -2023,7 +2023,7 @@ pub const SrcLoc = struct {
             },
             .tuple_field_type, .tuple_field_init => |field_info| {
                 const tree = try src_loc.file_scope.getTree(zcu);
-                const node = src_loc.base_node;
+                const node = field_info.tuple_decl_node_offset.toAbsolute(src_loc.base_node);
                 var buf: [2]Ast.Node.Index = undefined;
                 const container_decl = tree.fullContainerDecl(&buf, node) orelse
                     return tree.nodeToSpan(node);
@@ -3836,61 +3836,17 @@ pub fn atomicPtrAlignment(
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
-        .avr,
-        .msp430,
-        => 16,
-
-        .arc,
-        .arm,
-        .armeb,
-        .hexagon,
-        .m68k,
-        .mips,
-        .mipsel,
-        .nvptx,
-        .or1k,
-        .powerpc,
-        .powerpcle,
-        .riscv32,
-        .riscv32be,
-        .sparc,
-        .thumb,
-        .thumbeb,
-        .x86,
-        .xcore,
-        .kalimba,
-        .lanai,
-        .wasm32,
-        .csky,
-        .spirv32,
-        .loongarch32,
-        .xtensa,
-        .propeller,
-        => 32,
-
-        .amdgcn,
-        .bpfel,
-        .bpfeb,
-        .mips64,
-        .mips64el,
-        .nvptx64,
-        .powerpc64,
-        .powerpc64le,
-        .riscv64,
-        .riscv64be,
-        .sparc64,
-        .s390x,
-        .wasm64,
-        .ve,
-        .spirv64,
-        .loongarch64,
-        => 64,
-
         .aarch64,
         .aarch64_be,
         => 128,
 
-        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64,
+        .mips64,
+        .mips64el,
+        => 64, // N32 should be 64, not 32.
+
+        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64, // x32 should be 64 or 128, not 32.
+
+        else => target.ptrBitWidth(),
     };
 
     if (ty.toIntern() == .bool_type) return .none;
@@ -4470,12 +4426,19 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .riscv32_ilp32_v,
                 .m68k_rtd,
                 .m68k_interrupt,
+                .msp430_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_aapcs_vfp,
                 => |opts| opts.incoming_stack_alignment == null,
 
+                .arc_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
                 .arm_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .microblaze_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .mips_interrupt,
@@ -4484,6 +4447,9 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
 
                 .riscv32_interrupt,
                 .riscv64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .sh_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .x86_sysv,
