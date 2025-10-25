@@ -386,6 +386,11 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     // However, the "mode" flags can be used as overrides, so if the user explicitly
     // sets one of them, that takes precedence.
     switch (query_cpu_arch) {
+        .x86_16 => {
+            cpu.features.addFeature(
+                @intFromEnum(Target.x86.Feature.@"16bit_mode"),
+            );
+        },
         .x86 => {
             if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
