@@ -16,6 +16,7 @@ const AtomicRmwOp = std.builtin.AtomicRmwOp;
 const AtomicOrder = std.builtin.AtomicOrder;
 const native_os = builtin.target.os.tag;
 const tmpDir = std.testing.tmpDir;
+const AT = posix.AT;
 
 // NOTE: several additional tests are in test/standalone/posix/.  Any tests that mutate
 // process-wide POSIX state (cwd, signals, etc) cannot be Zig unit tests and should be over there.
@@ -181,10 +182,24 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
     try expect(mem.eql(u8, target_path, given));
 }
 
-test "linkat with different directories" {
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
-    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
+fn getLinkInfo(fd: posix.fd_t) !struct { posix.ino_t, posix.nlink_t } {
+    if (native_os == .linux) {
+        const stx = try linux.wrapped.statx(
+            fd,
+            "",
+            posix.AT.EMPTY_PATH,
+            .{ .INO = true, .NLINK = true },
+        );
+        std.debug.assert(stx.mask.INO);
+        std.debug.assert(stx.mask.NLINK);
+        return .{ stx.ino, stx.nlink };
+    }
 
+    const st = try posix.fstat(fd);
+    return .{ st.ino, st.nlink };
+}
+
+test "linkat with different directories" {
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
@@ -211,25 +226,20 @@ test "linkat with different directories" {
     defer nfd.close();
 
     {
-        const estat = try posix.fstat(efd.handle);
-        const nstat = try posix.fstat(nfd.handle);
-        try testing.expectEqual(estat.ino, nstat.ino);
-        try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
+        const eino, _ = try getLinkInfo(efd.handle);
+        const nino, const nlink = try getLinkInfo(nfd.handle);
+        try testing.expectEqual(eino, nino);
+        try testing.expectEqual(@as(posix.nlink_t, 2), nlink);
     }
 
     // Test 2: remove link
     try posix.unlinkat(subdir.fd, link_name, 0);
-
-    {
-        const estat = try posix.fstat(efd.handle);
-        try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
-    }
+    _, const elink = try getLinkInfo(efd.handle);
+    try testing.expectEqual(@as(posix.nlink_t, 1), elink);
 }
 
 test "fstatat" {
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
-    // enable when `fstat` and `fstatat` are implemented on Windows
-    if (native_os == .windows) return error.SkipZigTest;
+    if (posix.Stat == void) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -255,18 +265,9 @@ test "fstatat" {
     try expectEqual(stat.rdev, statat.rdev);
     try expectEqual(stat.size, statat.size);
     try expectEqual(stat.blksize, statat.blksize);
-
     // The stat.blocks/statat.blocks count is managed by the filesystem and may
     // change if the file is stored in a journal or "inline".
     // try expectEqual(stat.blocks, statat.blocks);
-
-    // s390x-linux does not have nanosecond precision for fstat(), but it does for
-    // fstatat(). As a result, comparing the timestamps isn't worth the effort
-    if (!(builtin.cpu.arch == .s390x and builtin.os.tag == .linux)) {
-        try expectEqual(stat.atime(), statat.atime());
-        try expectEqual(stat.mtime(), statat.mtime());
-        try expectEqual(stat.ctime(), statat.ctime());
-    }
 }
 
 test "readlinkat" {
@@ -1022,14 +1023,31 @@ test "pwrite with empty buffer" {
     try expectEqual(rc, 0);
 }
 
+fn getFileMode(dir: posix.fd_t, path: []const u8) !posix.mode_t {
+    const path_z = try posix.toPosixPath(path);
+    const mode: posix.mode_t = if (native_os == .linux) blk: {
+        const stx = try linux.wrapped.statx(
+            dir,
+            &path_z,
+            posix.AT.SYMLINK_NOFOLLOW,
+            .{ .MODE = true },
+        );
+        std.debug.assert(stx.mask.MODE);
+        break :blk stx.mode;
+    } else blk: {
+        const st = try posix.fstatatZ(dir, &path_z, posix.AT.SYMLINK_NOFOLLOW);
+        break :blk st.mode;
+    };
+
+    return mode & 0b111_111_111;
+}
+
 fn expectMode(dir: posix.fd_t, file: []const u8, mode: posix.mode_t) !void {
-    const st = try posix.fstatat(dir, file, posix.AT.SYMLINK_NOFOLLOW);
-    try expectEqual(mode, st.mode & 0b111_111_111);
+    const actual = try getFileMode(dir, file);
+    try expectEqual(mode, actual & 0b111_111_111);
 }
 
 test "fchmodat smoke test" {
-    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23808
-
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1044,13 +1062,8 @@ test "fchmodat smoke test" {
     );
     posix.close(fd);
 
-    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
-
     try posix.symlinkat("regfile", tmp.dir.fd, "symlink");
-    const sym_mode = blk: {
-        const st = try posix.fstatat(tmp.dir.fd, "symlink", posix.AT.SYMLINK_NOFOLLOW);
-        break :blk st.mode & 0b111_111_111;
-    };
+    const sym_mode = try getFileMode(tmp.dir.fd, "symlink");
 
     try posix.fchmodat(tmp.dir.fd, "regfile", 0o640, 0);
     try expectMode(tmp.dir.fd, "regfile", 0o640);

@@ -2805,32 +2805,26 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
         return Stat.fromWasi(st);
     }
-    if (native_os == .linux) {
-        const sub_path_c = try posix.toPosixPath(sub_path);
-        var stx = std.mem.zeroes(linux.Statx);
 
-        const rc = linux.statx(
-            self.fd,
-            &sub_path_c,
-            linux.AT.NO_AUTOMOUNT,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
-            &stx,
-        );
+    const sub_path_z = try posix.toPosixPath(sub_path);
+    if (native_os == .linux) return if (linux.wrapped.statx(
+        self.fd,
+        &sub_path_z,
+        linux.AT.NO_AUTOMOUNT,
+        .{ .TYPE = true, .MODE = true, .ATIME = true, .MTIME = true, .CTIME = true },
+    )) |stx| blk: {
+        assert(stx.mask.TYPE);
+        assert(stx.mask.MODE);
+        assert(stx.mask.ATIME);
+        assert(stx.mask.MTIME);
+        assert(stx.mask.CTIME);
+        break :blk Stat.fromLinux(stx);
+    } else |err| switch (err) {
+        error.NameTooLong => unreachable, // Handled by toPosixPath above.
+        else => |e| e,
+    };
 
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
-            .ACCES => error.AccessDenied,
-            .BADF => unreachable,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .LOOP => error.SymLinkLoop,
-            .NAMETOOLONG => unreachable, // Handled by posix.toPosixPath() above.
-            .NOENT, .NOTDIR => error.FileNotFound,
-            .NOMEM => error.SystemResources,
-            else => |err| posix.unexpectedErrno(err),
-        };
-    }
-    const st = try posix.fstatat(self.fd, sub_path, 0);
+    const st = try posix.fstatatZ(self.fd, &sub_path_z, 0);
     return Stat.fromPosix(st);
 }
 
