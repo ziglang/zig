@@ -424,25 +424,32 @@ pub fn splice(
     off_in: u64,
     fd_out: linux.fd_t,
     off_out: u64,
-    len: usize,
+    len: u32,
+    flags: uflags.Splice,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_splice(fd_in, off_in, fd_out, off_out, len);
+    sqe.prep_splice(
+        fd_in,
+        off_in,
+        fd_out,
+        off_out,
+        len,
+        flags,
+    );
     sqe.user_data = user_data;
     return sqe;
 }
 
-// COMMIT: ignored flags for splice and tee lets see if they become important
-// in the future
 pub fn tee(
     self: *IoUring,
     user_data: u64,
     fd_in: linux.fd_t,
     fd_out: linux.fd_t,
-    len: usize,
+    len: u32,
+    flags: uflags.Splice,
 ) !*Sqe {
     const sqe = try self.get_sqe();
-    sqe.prep_tee(fd_in, fd_out, len);
+    sqe.prep_tee(fd_in, fd_out, len, flags);
     sqe.user_data = user_data;
     return sqe;
 }
@@ -759,8 +766,6 @@ pub fn timeout_update(
 /// Queues (but does not submit) an SQE to perform an `accept4(2)` on a socket.
 /// Returns a pointer to the SQE.
 /// Available since 5.5
-// TODO: can't we make the sockaddr and socklen_t combo in our api better?
-// Investigate this
 pub fn accept(
     self: *IoUring,
     user_data: u64,
@@ -939,7 +944,7 @@ pub fn listen(
     self: *IoUring,
     user_data: u64,
     fd: linux.fd_t,
-    backlog: usize,
+    backlog: u32,
     // liburing doesn't have this flag, hence 0 should be passed
     // TODO: consider removing this and all flags like this
     flags: u32,
@@ -1339,21 +1344,24 @@ pub fn recv_multishot(
 /// buffer_selection.
 ///
 /// The kernel expects a contiguous block of memory of size (buffers_count *
-/// buffer_size).
-// TODO: why not use a slice with `buffers_count`
+/// buffer_len).
 pub fn provide_buffers(
     self: *IoUring,
     user_data: u64,
+    /// an array of `buffers_count` buffers of len `buffer_len` laid out as a
+    /// contiguous slice of memory
     buffers: [*]u8,
-    buffer_size: usize,
-    buffers_count: usize,
-    group_id: usize,
-    buffer_id: usize,
+    /// lenght of each buffer in `buffers`
+    buffer_len: u32,
+    /// count of buffer in `buffers`
+    buffers_count: u32,
+    group_id: u32,
+    buffer_id: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_provide_buffers(
         buffers,
-        buffer_size,
+        buffer_len,
         buffers_count,
         group_id,
         buffer_id,
@@ -1367,8 +1375,8 @@ pub fn provide_buffers(
 pub fn remove_buffers(
     self: *IoUring,
     user_data: u64,
-    buffers_count: usize,
-    group_id: usize,
+    buffers_count: u32,
+    group_id: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
     sqe.prep_remove_buffers(buffers_count, group_id);
@@ -2550,26 +2558,54 @@ pub const Sqe = extern struct {
         sqe.prep_rw(.writev, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
     }
 
-    pub fn prep_write_fixed(sqe: *Sqe, fd: linux.fd_t, buffer: []const u8, offset: u64, buffer_index: u16) void {
+    pub fn prep_write_fixed(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        buffer: []const u8,
+        offset: u64,
+        buffer_index: u16,
+    ) void {
         sqe.prep_rw(.write_fixed, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
         sqe.buf_index = buffer_index;
     }
 
-    pub fn prep_writev_fixed(sqe: *Sqe, fd: linux.fd_t, iovecs: []const posix.iovec_const, offset: u64, buffer_index: u16) void {
+    pub fn prep_writev_fixed(
+        sqe: *Sqe,
+        fd: linux.fd_t,
+        iovecs: []const posix.iovec_const,
+        offset: u64,
+        buffer_index: u16,
+    ) void {
         sqe.prep_rw(.write_fixed, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
         sqe.buf_index = buffer_index;
     }
 
-    pub fn prep_splice(sqe: *Sqe, fd_in: linux.fd_t, off_in: u64, fd_out: linux.fd_t, off_out: u64, len: usize) void {
+    pub fn prep_splice(
+        sqe: *Sqe,
+        fd_in: linux.fd_t,
+        off_in: u64,
+        fd_out: linux.fd_t,
+        off_out: u64,
+        len: u32,
+        flags: uflags.Splice,
+    ) void {
         sqe.prep_rw(.splice, fd_out, undefined, len, off_out);
         sqe.addr = off_in;
         sqe.splice_fd_in = fd_in;
+        sqe.rw_flags = @bitCast(flags);
     }
 
-    pub fn prep_tee(sqe: *Sqe, fd_in: linux.fd_t, fd_out: linux.fd_t, len: usize) void {
+    pub fn prep_tee(
+        sqe: *Sqe,
+        fd_in: linux.fd_t,
+        fd_out: linux.fd_t,
+        len: u32,
+        flags: uflags.Splice,
+    ) void {
         sqe.prep_rw(.tee, fd_out, undefined, len, 0);
         sqe.addr = undefined;
         sqe.splice_fd_in = fd_in;
+        sqe.rw_flags = @bitCast(flags);
     }
 
     pub fn prep_read(sqe: *Sqe, fd: linux.fd_t, buffer: []u8, offset: u64) void {
@@ -3260,24 +3296,34 @@ pub const Sqe = extern struct {
         sqe.prep_rw(.files_update, -1, @intFromPtr(fds.ptr), fds.len, constants.FILE_INDEX_ALLOC);
     }
 
-    // TODO: why can't slice be used here ?
+    // Note: It is more appropriate to use a `[*]u8` than `[]u8` slice here
+    // because `[]u8` would free us of the extra `buffer_len` parameter but
+    // would require us to alway calculate the `buffer_len` in the function
+    // which is redundant since the `buffer_len` and `buffers_count`
+    // information are alway available for any 2 dimentional array type
+    // .ie [buffers_count][buffer_len]u8
     pub fn prep_provide_buffers(
         sqe: *Sqe,
         buffers: [*]u8,
-        buffer_len: usize,
-        num: usize,
-        group_id: usize,
-        buffer_id: usize,
+        buffer_len: u32,
+        buffers_count: u32,
+        group_id: u32,
+        buffer_id: u32,
     ) void {
-        const ptr = @intFromPtr(buffers);
-        sqe.prep_rw(.provide_buffers, @intCast(num), ptr, buffer_len, buffer_id);
+        sqe.prep_rw(
+            .provide_buffers,
+            @intCast(buffers_count),
+            @intFromPtr(buffers),
+            buffer_len,
+            buffer_id,
+        );
         sqe.buf_index = @intCast(group_id);
     }
 
     pub fn prep_remove_buffers(
         sqe: *Sqe,
-        num: usize,
-        group_id: usize,
+        num: u32,
+        group_id: u32,
     ) void {
         sqe.prep_rw(.remove_buffers, @intCast(num), 0, 0, 0);
         sqe.buf_index = @intCast(group_id);
@@ -3478,7 +3524,7 @@ pub const Sqe = extern struct {
     pub fn prep_listen(
         sqe: *Sqe,
         fd: linux.fd_t,
-        backlog: usize,
+        backlog: u32,
         flags: u32, // flags is unused and does't exist in io_uring's api
     ) void {
         sqe.prep_rw(.listen, fd, 0, backlog, 0);
@@ -5044,13 +5090,13 @@ test "splice/read" {
     const fds = try posix.pipe();
     const pipe_offset: u64 = math.maxInt(u64);
 
-    const sqe_splice_to_pipe = try ring.splice(0x11111111, fd_src, 0, fds[1], pipe_offset, buffer_write.len);
+    const sqe_splice_to_pipe = try ring.splice(0x11111111, fd_src, 0, fds[1], pipe_offset, buffer_write.len, .{});
     try testing.expectEqual(Op.splice, sqe_splice_to_pipe.opcode);
     try testing.expectEqual(0, sqe_splice_to_pipe.addr);
     try testing.expectEqual(pipe_offset, sqe_splice_to_pipe.off);
     sqe_splice_to_pipe.link_next();
 
-    const sqe_splice_from_pipe = try ring.splice(0x22222222, fds[0], pipe_offset, fd_dst, 10, buffer_write.len);
+    const sqe_splice_from_pipe = try ring.splice(0x22222222, fds[0], pipe_offset, fd_dst, 10, buffer_write.len, .{});
     try testing.expectEqual(Op.splice, sqe_splice_from_pipe.opcode);
     try testing.expectEqual(pipe_offset, sqe_splice_from_pipe.addr);
     try testing.expectEqual(10, sqe_splice_from_pipe.off);
