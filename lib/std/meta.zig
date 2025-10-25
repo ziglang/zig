@@ -1147,13 +1147,13 @@ const RecursiveCheck = struct {
                 .@"packed", .@"extern" => false,
 
                 // Auto structs may contain comptime types
-                .auto => if (check.recurse(T)) |struct_check| {
+                .auto => if (check.recurse(T)) |struct_check| blk: {
                     inline for (@"struct".fields) |field| {
                         if (!field.is_comptime and struct_check.comptimeOnly(field.type)) {
-                            return true;
+                            break :blk true;
                         }
                     }
-                    return false;
+                    break :blk false;
                 } else false,
             },
 
@@ -1162,15 +1162,15 @@ const RecursiveCheck = struct {
                 .@"packed", .@"extern" => false,
 
                 // Auto unions may contain comptime-only fields
-                .auto => if (check.recurse(T)) |union_check| {
+                .auto => if (check.recurse(T)) |union_check| blk: {
                     if (@"union".tag_type) |UTag| {
                         if (union_check.comptimeOnly(UTag)) {
-                            return true;
+                            break :blk true;
                         }
                     }
                     inline for (@"union".fields) |field| {
                         if (union_check.comptimeOnly(field.type)) {
-                            return true;
+                            break :blk true;
                         }
                     }
                 },
@@ -1281,9 +1281,9 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
             .one, .many, .c => true,
             // While there is no guarantee on the layout of
             // a slice type, we can still do something here.
-            // Informationally, slices are equivalent to two
-            // raw pointers, one representing the start of the
-            // slice and one representing the end. This makes it
+            // Informationally, slices are equivalent to o
+            // raw pointers, one representing the ptr field
+            // and one representing the len field. This makes it
             // theoretically impossible for a slice to be smaller than
             // the sum of the logical sizes of these pointers.
             // In turn, if the size of the slice is exactly equal to
@@ -1299,7 +1299,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
                     new_info.size = .many;
                     break :manyptr @Type(.{ .pointer = new_info });
                 };
-                const expected_size = @bitSizeOf(ManyPtr) * 2;
+                const expected_size = @bitSizeOf(ManyPtr) + @bitSizeOf(usize);
                 break :slice_check @sizeOf(T) * 8 == expected_size;
             },
         },
@@ -1341,10 +1341,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
                 comptime var sum_size: usize = 0;
                 inline for (info.fields) |field| {
                     if (field.is_comptime) continue;
-                    if (!hasUniqueRepresentation(field.type)) {
-                        @compileLog(T, field.type);
-                        return false;
-                    }
+                    if (!hasUniqueRepresentation(field.type)) return false;
                     sum_size += @sizeOf(field.type);
                 }
                 return @sizeOf(T) == sum_size;
@@ -1408,7 +1405,8 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
             return true;
         },
 
-        // If an array is of length zero, then it is void-equivalent
+        // If an array has a sentinel, then it is ambiguous whether
+        // the sentinel is included in the "value."
         .array => |info| info.len == 0 or hasUniqueRepresentation(info.child),
 
         .vector => |info| info.len == 0 or switch (@typeInfo(info.child)) {
