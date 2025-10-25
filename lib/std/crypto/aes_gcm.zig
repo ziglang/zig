@@ -8,15 +8,16 @@ const mem = std.mem;
 const modes = crypto.core.modes;
 const AuthenticationError = crypto.errors.AuthenticationError;
 
-pub const Aes128Gcm = AesGcm(crypto.core.aes.Aes128);
-pub const Aes256Gcm = AesGcm(crypto.core.aes.Aes256);
+pub const Aes128Gcm = AesGcm(crypto.core.aes.Aes128, 12);
+pub const Aes256Gcm = AesGcm(crypto.core.aes.Aes256, 12);
 
-fn AesGcm(comptime Aes: anytype) type {
+fn AesGcm(comptime Aes: anytype, comptime n: usize) type {
     debug.assert(Aes.block.block_length == 16);
+    debug.assert(n > 0 and n <= 16);
 
     return struct {
         pub const tag_length = 16;
-        pub const nonce_length = 12;
+        pub const nonce_length = n;
         pub const key_length = Aes.key_bits / 8;
 
         const zeros = [_]u8{0} ** 16;
@@ -37,8 +38,18 @@ fn AesGcm(comptime Aes: anytype) type {
 
             var t: [16]u8 = undefined;
             var j: [16]u8 = undefined;
-            j[0..nonce_length].* = npub;
-            mem.writeInt(u32, j[nonce_length..][0..4], 1, .big);
+            if (nonce_length == 12) {
+                j[0..nonce_length].* = npub;
+                mem.writeInt(u32, j[nonce_length..][0..4], 1, .big);
+            } else {
+                var hash = Ghash.init(&h);
+                hash.update(&npub);
+                hash.pad();
+                var block = zeros;
+                mem.writeInt(u64, block[8..][0..8], nonce_length * 8, .big);
+                hash.update(&block);
+                hash.final(&j);
+            }
             aes.encrypt(&t, &j);
 
             const block_count = (math.divCeil(usize, ad.len, Ghash.block_length) catch unreachable) + (math.divCeil(usize, c.len, Ghash.block_length) catch unreachable) + 1;
@@ -46,7 +57,11 @@ fn AesGcm(comptime Aes: anytype) type {
             mac.update(ad);
             mac.pad();
 
-            mem.writeInt(u32, j[nonce_length..][0..4], 2, .big);
+            if (nonce_length == 12) {
+                mem.writeInt(u32, j[nonce_length..][0..4], 2, .big);
+            } else {
+                mem.writeInt(u128, &j, mem.readInt(u128, &j, .big) +% 1, .big);
+            }
             modes.ctr(@TypeOf(aes), aes, c, m, j, .big);
             mac.update(c[0..m.len][0..]);
             mac.pad();
@@ -79,8 +94,18 @@ fn AesGcm(comptime Aes: anytype) type {
 
             var t: [16]u8 = undefined;
             var j: [16]u8 = undefined;
-            j[0..nonce_length].* = npub;
-            mem.writeInt(u32, j[nonce_length..][0..4], 1, .big);
+            if (nonce_length == 12) {
+                j[0..nonce_length].* = npub;
+                mem.writeInt(u32, j[nonce_length..][0..4], 1, .big);
+            } else {
+                var hash = Ghash.init(&h);
+                hash.update(&npub);
+                hash.pad();
+                var block = zeros;
+                mem.writeInt(u64, block[8..][0..8], nonce_length * 8, .big);
+                hash.update(&block);
+                hash.final(&j);
+            }
             aes.encrypt(&t, &j);
 
             const block_count = (math.divCeil(usize, ad.len, Ghash.block_length) catch unreachable) + (math.divCeil(usize, c.len, Ghash.block_length) catch unreachable) + 1;
@@ -108,7 +133,11 @@ fn AesGcm(comptime Aes: anytype) type {
                 return error.AuthenticationFailed;
             }
 
-            mem.writeInt(u32, j[nonce_length..][0..4], 2, .big);
+            if (nonce_length == 12) {
+                mem.writeInt(u32, j[nonce_length..][0..4], 2, .big);
+            } else {
+                mem.writeInt(u128, &j, mem.readInt(u128, &j, .big) +% 1, .big);
+            }
             modes.ctr(@TypeOf(aes), aes, m, c, j, .big);
         }
     };
@@ -173,4 +202,66 @@ test "Aes256Gcm - Message and associated data" {
 
     try htest.assertEqual("5ca1642d90009fea33d01f78cf6eefaf01", &c);
     try htest.assertEqual("64accec679d444e2373bd9f6796c0d2c", &tag);
+}
+
+test "Aes256Gcm - 16 byte nonce - Empty message and no associated data" {
+    const BlockCipher = AesGcm(crypto.core.aes.Aes256, 16);
+    const key: [BlockCipher.key_length]u8 = [_]u8{0x69} ** BlockCipher.key_length;
+    const nonce: [BlockCipher.nonce_length]u8 = [_]u8{0x42} ** BlockCipher.nonce_length;
+    const ad = "";
+    const m = "";
+    var c: [m.len]u8 = undefined;
+    var tag: [BlockCipher.tag_length]u8 = undefined;
+
+    BlockCipher.encrypt(&c, &tag, m, ad, nonce, key);
+    try htest.assertEqual("0cba9113141050fd38faa8bd1b74ba1f", &tag);
+}
+
+test "Aes256Gcm - 16 byte nonce - Associated data only" {
+    const BlockCipher = AesGcm(crypto.core.aes.Aes256, 16);
+    const key: [BlockCipher.key_length]u8 = [_]u8{0x69} ** BlockCipher.key_length;
+    const nonce: [BlockCipher.nonce_length]u8 = [_]u8{0x42} ** BlockCipher.nonce_length;
+    const ad = "Test with associated data";
+    const m = "";
+    var c: [m.len]u8 = undefined;
+    var tag: [BlockCipher.tag_length]u8 = undefined;
+
+    BlockCipher.encrypt(&c, &tag, m, ad, nonce, key);
+    try htest.assertEqual("41fbb66777a0465e6901ced495b829c1", &tag);
+}
+
+test "Aes256Gcm - 16 byte nonce - Message only" {
+    const BlockCipher = AesGcm(crypto.core.aes.Aes256, 16);
+    const key: [BlockCipher.key_length]u8 = [_]u8{0x69} ** BlockCipher.key_length;
+    const nonce: [BlockCipher.nonce_length]u8 = [_]u8{0x42} ** BlockCipher.nonce_length;
+    const m = "Test with message only";
+    const ad = "";
+    var c: [m.len]u8 = undefined;
+    var m2: [m.len]u8 = undefined;
+    var tag: [BlockCipher.tag_length]u8 = undefined;
+
+    BlockCipher.encrypt(&c, &tag, m, ad, nonce, key);
+    try BlockCipher.decrypt(&m2, &c, tag, ad, nonce, key);
+    try testing.expectEqualSlices(u8, m[0..], m2[0..]);
+
+    try htest.assertEqual("68ace2c30b073499f8f00509c1509e1ca2758f5901f8", &c);
+    try htest.assertEqual("3ac733739b7c1670ad313259508bfc5c", &tag);
+}
+
+test "Aes256Gcm - 16 byte nonce - Message and associated data" {
+    const BlockCipher = AesGcm(crypto.core.aes.Aes256, 16);
+    const key: [BlockCipher.key_length]u8 = [_]u8{0x69} ** BlockCipher.key_length;
+    const nonce: [BlockCipher.nonce_length]u8 = [_]u8{0x42} ** BlockCipher.nonce_length;
+    const m = "Test with message";
+    const ad = "Test with associated data";
+    var c: [m.len]u8 = undefined;
+    var m2: [m.len]u8 = undefined;
+    var tag: [BlockCipher.tag_length]u8 = undefined;
+
+    BlockCipher.encrypt(&c, &tag, m, ad, nonce, key);
+    try BlockCipher.decrypt(&m2, &c, tag, ad, nonce, key);
+    try testing.expectEqualSlices(u8, m[0..], m2[0..]);
+
+    try htest.assertEqual("68ace2c30b073499f8f00509c1509e1ca2", &c);
+    try htest.assertEqual("29ff8976e03000f97326d0813f8fb0f5", &tag);
 }
