@@ -1493,7 +1493,7 @@ static inline int16_t zig_byte_swap_i16(int16_t val, uint8_t bits) {
 #if defined(zig_ez80)
 static inline uint16_t zig_byte_swap_u24(uint24_t val, uint8_t bits) {
     uint24_t full_res;
-#if zig_has_builtin(bswap16) || defined(zig_gcc)
+#if zig_has_builtin(bswap24) || defined(zig_gcc)
     full_res = __builtin_bswap24(val);
 #else
     full_res = (uint24_t)zig_byte_swap_u8((uint8_t)(val >>  0), 8) <<  16 |
@@ -1599,7 +1599,7 @@ static inline uint24_t zig_bit_reverse_u24(uint24_t val, uint8_t bits) {
     return zig_wrap_u24(full_res >> (24 - bits), bits);
 }
 
-static inline int16_t zig_bit_reverse_i16(int16_t val, uint8_t bits) {
+static inline int16_t zig_bit_reverse_i24(int16_t val, uint8_t bits) {
     return zig_wrap_i16((int16_t)zig_bit_reverse_u16((uint16_t)val, bits), bits);
 }
 #endif
@@ -1622,7 +1622,7 @@ static inline int32_t zig_bit_reverse_i32(int32_t val, uint8_t bits) {
 #if defined(zig_ez80)
 static inline uint32_t zig_bit_reverse_u48(uint48_t val, uint8_t bits) {
     uint48_t full_res;
-#if zig_has_builtin(bitreverse32)
+#if zig_has_builtin(bitreverse48)
     full_res = __builtin_bitreverse48(val);
 #else
     full_res = (uint48_t)zig_bit_reverse_u24((uint24_t)(val >>  0), 24) << 24 |
