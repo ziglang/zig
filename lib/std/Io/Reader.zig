@@ -200,11 +200,17 @@ pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
     r.seek = 0;
     r.end = 0;
     var d: Writer.Discarding = .init(r.buffer);
-    const n = r.stream(&d.writer, limit) catch |err| switch (err) {
+    var n = r.stream(&d.writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => return error.EndOfStream,
     };
+    // If `stream` wrote to `r.buffer` without going through the writer,
+    // we need to discard as much of the buffered data as possible.
+    const remaining = @intFromEnum(limit) - n;
+    const buffered_n_to_discard = @min(remaining, r.end - r.seek);
+    n += buffered_n_to_discard;
+    r.seek += buffered_n_to_discard;
     assert(n <= @intFromEnum(limit));
     return n;
 }
@@ -1718,6 +1724,18 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
     _ = r;
     _ = limit;
     return error.ReadFailed;
+}
+
+test "discardAll that has to call discard multiple times on an indirect reader" {
+    var fr: Reader = .fixed("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    var indirect_buffer: [3]u8 = undefined;
+    var tri: std.testing.ReaderIndirect = .init(&fr, &indirect_buffer);
+    const r = &tri.interface;
+
+    try r.discardAll(10);
+    var remaining_buf: [16]u8 = undefined;
+    try r.readSliceAll(&remaining_buf);
+    try std.testing.expectEqualStrings(fr.buffer[10..], remaining_buf[0..]);
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {
