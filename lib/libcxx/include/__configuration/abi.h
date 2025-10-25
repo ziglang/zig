@@ -30,8 +30,20 @@
 #elif _LIBCPP_ABI_FORCE_MICROSOFT
 #  define _LIBCPP_ABI_MICROSOFT
 #else
+// Windows uses the Microsoft ABI
 #  if defined(_WIN32) && defined(_MSC_VER)
 #    define _LIBCPP_ABI_MICROSOFT
+
+// 32-bit ARM uses the Itanium ABI with a few differences (array cookies, etc),
+// and so does 64-bit ARM on Apple platforms.
+#  elif defined(__arm__) || (defined(__APPLE__) && defined(__aarch64__))
+#    define _LIBCPP_ABI_ITANIUM_WITH_ARM_DIFFERENCES
+
+// Non-Apple 64-bit ARM uses the vanilla Itanium ABI
+#  elif defined(__aarch64__)
+#    define _LIBCPP_ABI_ITANIUM
+
+// We assume that other architectures also use the vanilla Itanium ABI too
 #  else
 #    define _LIBCPP_ABI_ITANIUM
 #  endif

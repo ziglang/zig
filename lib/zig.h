@@ -40,6 +40,8 @@
 #elif defined(__mips__)
 #define zig_mips32
 #define zig_mips
+#elif defined(__or1k__)
+#define zig_or1k
 #elif defined(__powerpc64__)
 #define zig_powerpc64
 #define zig_powerpc
@@ -390,6 +392,8 @@
 #define zig_trap() __asm__ volatile(".word 0x0")
 #elif defined(zig_mips)
 #define zig_trap() __asm__ volatile(".word 0x3d")
+#elif defined(zig_or1k)
+#define zig_trap() __asm__ volatile("l.cust8")
 #elif defined(zig_riscv)
 #define zig_trap() __asm__ volatile("unimp")
 #elif defined(zig_s390x)
@@ -422,6 +426,8 @@
 #define zig_breakpoint() __asm__ volatile("break 0x0")
 #elif defined(zig_mips)
 #define zig_breakpoint() __asm__ volatile("break")
+#elif defined(zig_or1k)
+#define zig_breakpoint() __asm__ volatile("l.trap 0x0")
 #elif defined(zig_powerpc)
 #define zig_breakpoint() __asm__ volatile("trap")
 #elif defined(zig_riscv)

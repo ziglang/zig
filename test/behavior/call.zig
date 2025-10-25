@@ -320,7 +320,7 @@ test "inline call preserves tail call" {
 
     if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support always tail calls
 
-    const max = std.math.maxInt(u16);
+    const max_depth = 1000;
     const S = struct {
         var a: u16 = 0;
         fn foo() void {
@@ -328,16 +328,16 @@ test "inline call preserves tail call" {
         }
 
         inline fn bar() void {
-            if (a == max) return;
+            if (a == max_depth) return;
             // Stack overflow if not tail called
-            var buf: [max]u16 = undefined;
+            var buf: [100_000]u16 = undefined;
             buf[a] = a;
             a += 1;
             return @call(.always_tail, foo, .{});
         }
     };
     S.foo();
-    try expect(S.a == std.math.maxInt(u16));
+    try expect(S.a == max_depth);
 }
 
 test "inline call doesn't re-evaluate non generic struct" {

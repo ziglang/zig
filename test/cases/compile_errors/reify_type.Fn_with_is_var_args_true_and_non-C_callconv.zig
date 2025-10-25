@@ -15,4 +15,4 @@ comptime {
 // target=x86_64-linux
 //
 // :1:13: error: variadic function does not support 'auto' calling convention
-// :1:13: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
+// :1:13: note: supported calling conventions: 'x86_64_sysv', 'x86_64_x32', 'x86_64_win'

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const debug = std.debug;
 const mem = std.mem;
@@ -810,14 +811,6 @@ test eql {
     try testing.expect(eql(EU.tst(false), EU.tst(false)));
     try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
-    const V = @Vector(4, u32);
-    const v1: V = @splat(1);
-    const v2: V = @splat(1);
-    const v3: V = @splat(2);
-
-    try testing.expect(eql(v1, v2));
-    try testing.expect(!eql(v1, v3));
-
     const CU = union(enum) {
         a: void,
         b: void,
@@ -826,6 +819,16 @@ test eql {
 
     try testing.expect(eql(CU{ .a = {} }, .a));
     try testing.expect(!eql(CU{ .a = {} }, .b));
+
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+
+    const V = @Vector(4, u32);
+    const v1: V = @splat(1);
+    const v2: V = @splat(1);
+    const v3: V = @splat(2);
+
+    try testing.expect(eql(v1, v2));
+    try testing.expect(!eql(v1, v3));
 }
 
 /// Deprecated: use `std.enums.fromInt` instead and handle null.

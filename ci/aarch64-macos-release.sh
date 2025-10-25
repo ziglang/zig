@@ -46,7 +46,8 @@ stage3-release/bin/zig build test docs \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   -Dskip-non-native \
-  --search-prefix "$PREFIX"
+  --search-prefix "$PREFIX" \
+  --test-timeout 2m
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

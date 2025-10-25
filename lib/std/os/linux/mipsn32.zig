@@ -89,15 +89,9 @@ pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
         : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
-// NOTE: The o32 calling convention requires the callee to reserve 16 bytes for
-// the first four arguments even though they're passed in $a0-$a3.
-
 pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u32) u32 {
     return asm volatile (
-        \\ subu $sp, $sp, 24
-        \\ sw %[arg5], 16($sp)
         \\ syscall
-        \\ addu $sp, $sp, 24
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
         \\ subu $v0, $zero, $v0
@@ -108,7 +102,7 @@ pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u
           [arg2] "{$5}" (arg2),
           [arg3] "{$6}" (arg3),
           [arg4] "{$7}" (arg4),
-          [arg5] "r" (arg5),
+          [arg5] "{$8}" (arg5),
         : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
@@ -122,11 +116,7 @@ pub fn syscall6(
     arg6: u32,
 ) u32 {
     return asm volatile (
-        \\ subu $sp, $sp, 24
-        \\ sw %[arg5], 16($sp)
-        \\ sw %[arg6], 20($sp)
         \\ syscall
-        \\ addu $sp, $sp, 24
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 1f
         \\ subu $v0, $zero, $v0
@@ -137,65 +127,30 @@ pub fn syscall6(
           [arg2] "{$5}" (arg2),
           [arg3] "{$6}" (arg3),
           [arg4] "{$7}" (arg4),
-          [arg5] "r" (arg5),
-          [arg6] "r" (arg6),
-        : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
-}
-
-pub fn syscall7(
-    number: SYS,
-    arg1: u32,
-    arg2: u32,
-    arg3: u32,
-    arg4: u32,
-    arg5: u32,
-    arg6: u32,
-    arg7: u32,
-) u32 {
-    return asm volatile (
-        \\ subu $sp, $sp, 32
-        \\ sw %[arg5], 16($sp)
-        \\ sw %[arg6], 20($sp)
-        \\ sw %[arg7], 24($sp)
-        \\ syscall
-        \\ addu $sp, $sp, 32
-        \\ beq $a3, $zero, 1f
-        \\ blez $v0, 1f
-        \\ subu $v0, $zero, $v0
-        \\1:
-        : [ret] "={$2}" (-> u32),
-        : [number] "{$2}" (@intFromEnum(number)),
-          [arg1] "{$4}" (arg1),
-          [arg2] "{$5}" (arg2),
-          [arg3] "{$6}" (arg3),
-          [arg4] "{$7}" (arg4),
-          [arg5] "r" (arg5),
-          [arg6] "r" (arg6),
-          [arg7] "r" (arg7),
+          [arg5] "{$8}" (arg5),
+          [arg6] "{$9}" (arg6),
         : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn clone() callconv(.naked) u32 {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
-    //         a0,   a1,    a2,    a3,  +0,   +4,  +8
+    //         a0,   a1,    a2,    a3,  a4,   a5,  a6
     //
     // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
-    //         v0         a0,    a1,    a2,   a3,  +0
+    //         v0         a0,    a1,    a2,   a3,  a4
     asm volatile (
         \\ # Save function pointer and argument pointer on new thread stack
-        \\ and $a1, $a1, -8
+        \\ and $a1, $a1, -16
         \\ subu $a1, $a1, 16
         \\ sw $a0, 0($a1)
         \\ sw $a3, 4($a1)
         \\
         \\ # Shuffle (fn,sp,fl,arg,ptid,tls,ctid) to (fl,sp,ptid,tls,ctid)
         \\ move $a0, $a2
-        \\ lw $a2, 16($sp)
-        \\ lw $a3, 20($sp)
-        \\ lw $t1, 24($sp)
-        \\ subu $sp, $sp, 16
-        \\ sw $t1, 16($sp)
-        \\ li $v0, 4120 # SYS_clone
+        \\ move $a2, $a4
+        \\ move $a3, $a5
+        \\ move $a4, $a6
+        \\ li $v0, 6055 # SYS_clone
         \\ syscall
         \\ beq $a3, $zero, 1f
         \\ blez $v0, 2f
@@ -204,7 +159,6 @@ pub fn clone() callconv(.naked) u32 {
         \\1:
         \\ beq $v0, $zero, 3f
         \\2:
-        \\ addu $sp, $sp, 16
         \\ jr $ra
         \\3:
     );
@@ -215,12 +169,12 @@ pub fn clone() callconv(.naked) u32 {
         \\ move $fp, $zero
         \\ move $ra, $zero
         \\
-        \\ lw $t9, 0($sp)
-        \\ lw $a0, 4($sp)
+        \\ ld $t9, 0($sp)
+        \\ ld $a0, 4($sp)
         \\ jalr $t9
         \\
         \\ move $a0, $v0
-        \\ li $v0, 4001 # SYS_exit
+        \\ li $v0, 6058 # SYS_exit
         \\ syscall
     );
 }
@@ -239,7 +193,7 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-// The `stat64` definition used by the Linux kernel.
+// The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {
     dev: dev_t,
     __pad0: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
@@ -249,24 +203,36 @@ pub const Stat = extern struct {
     uid: std.os.linux.uid_t,
     gid: std.os.linux.gid_t,
     rdev: dev_t,
-    __pad1: [2]u32,
+    __pad1: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     size: off_t,
-    atim: std.os.linux.timespec,
-    mtim: std.os.linux.timespec,
-    ctim: std.os.linux.timespec,
+    atim: u32,
+    atim_nsec: u32,
+    mtim: u32,
+    mtim_nsec: u32,
+    ctim: u32,
+    ctim_nsec: u32,
     blksize: blksize_t,
     __pad3: u32,
     blocks: blkcnt_t,
 
     pub fn atime(self: @This()) std.os.linux.timespec {
-        return self.atim;
+        return .{
+            .sec = self.atim,
+            .nsec = self.atim_nsec,
+        };
     }
 
     pub fn mtime(self: @This()) std.os.linux.timespec {
-        return self.mtim;
+        return .{
+            .sec = self.mtim,
+            .nsec = self.mtim_nsec,
+        };
     }
 
     pub fn ctime(self: @This()) std.os.linux.timespec {
-        return self.ctim;
+        return .{
+            .sec = self.ctim,
+            .nsec = self.ctim_nsec,
+        };
     }
 };
