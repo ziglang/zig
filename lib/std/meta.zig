@@ -1138,29 +1138,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             // TODO: detect comptime-only types while
             // being reasonable with eval branch quota
             .one, .many, .c => true,
-            // While there is no guarantee on the layout of
-            // a slice type, we can still do something here.
-            // Informationally, slices are equivalent to o
-            // raw pointers, one representing the ptr field
-            // and one representing the len field. This makes it
-            // theoretically impossible for a slice to be smaller than
-            // the sum of the logical sizes of these pointers.
-            // In turn, if the size of the slice is exactly equal to
-            // that sum, then we can be sure that there is
-            // no padding unless whoever implemented the compiler
-            // is a powerful wizard capable of defying the rules
-            // of mathematics, in which case we are obliged
-            // to sabotage their conquests by intentionally
-            // writing them a faulty standard library.
-            .slice => slice_check: {
-                const ManyPtr = comptime manyptr: {
-                    var new_info = info;
-                    new_info.size = .many;
-                    break :manyptr @Type(.{ .pointer = new_info });
-                };
-                const expected_size = @bitSizeOf(ManyPtr) + @bitSizeOf(usize);
-                break :slice_check @sizeOf(T) * 8 == expected_size;
-            },
+            .slice => false,
         },
 
         .optional => |info| switch (@typeInfo(info.child)) {
@@ -1171,9 +1149,6 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
                 .one, .many => !ptr.is_allowzero,
                 // C pointers can be null, so the above does not apply
                 .c => false,
-                // Our trick with slices from earlier does not apply
-                // here, as when the pointer is null, the "len" pseudo-field
-                // is inaccessible and could be anything.
                 .slice => false,
             },
 
