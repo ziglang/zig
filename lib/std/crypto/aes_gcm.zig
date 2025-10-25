@@ -10,6 +10,12 @@ const AuthenticationError = crypto.errors.AuthenticationError;
 
 pub const Aes128Gcm = AesGcm(crypto.core.aes.Aes128, 12);
 pub const Aes256Gcm = AesGcm(crypto.core.aes.Aes256, 12);
+pub fn Aes128GcmNonceLength(comptime n: usize) type {
+    return AesGcm(crypto.core.aes.Aes128, n);
+}
+pub fn Aes256GcmNonceLength(comptime n: usize) type {
+    return AesGcm(crypto.core.aes.Aes256, n);
+}
 
 fn AesGcm(comptime Aes: anytype, comptime n: usize) type {
     debug.assert(Aes.block.block_length == 16);

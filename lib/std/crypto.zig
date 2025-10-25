@@ -29,6 +29,8 @@ pub const aead = struct {
     pub const aes_gcm = struct {
         pub const Aes128Gcm = @import("crypto/aes_gcm.zig").Aes128Gcm;
         pub const Aes256Gcm = @import("crypto/aes_gcm.zig").Aes256Gcm;
+        pub const Aes256GcmNonceLength = @import("crypto/aes_gcm.zig").Aes128GcmNonceLength;
+        pub const Aes128GcmNonceLength = @import("crypto/aes_gcm.zig").Aes256GcmNonceLength;
     };
 
     pub const aes_gcm_siv = struct {
@@ -273,6 +275,8 @@ test {
 
     _ = aead.aes_gcm.Aes128Gcm;
     _ = aead.aes_gcm.Aes256Gcm;
+    _ = aead.aes_gcm.Aes128GcmNonceLength(16);
+    _ = aead.aes_gcm.Aes256GcmNonceLength(16);
 
     _ = aead.aes_gcm_siv.Aes128GcmSiv;
     _ = aead.aes_gcm_siv.Aes256GcmSiv;
