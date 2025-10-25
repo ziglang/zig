@@ -2403,6 +2403,36 @@ test "set executable bit based on file content" {
     // -rwxrwxr-x 1    17 Apr   script_with_shebang_without_exec_bit
 }
 
+test "retry delay override works and resets after use" {
+    var retry = Retry{ .cur_retries = 1 };
+
+    // test simple case
+    try std.testing.expectEqual(3000, retry.calcRetryDelayMs());
+
+    // test override works and gets reset to `null`
+    retry.retry_delay_override_ms = 500;
+    try std.testing.expectEqual(500, retry.calcRetryDelayMs());
+    try std.testing.expectEqual(null, retry.retry_delay_override_ms);
+}
+
+test "retries the correct number of times" {
+    // non spurious error
+    var retry = Retry{ .retry_delay_override_ms = 1 };
+    try std.testing.expectError(error.NonSpurious, retry.callWithRetries(@TypeOf(testFnToCallWithRetries), testFnToCallWithRetries, .{ &retry, false }));
+    try std.testing.expectEqual(0, retry.cur_retries);
+
+    // spurious error
+    retry = Retry{ .retry_delay_override_ms = 1 };
+    try std.testing.expectError(error.MaybeSpurious, retry.callWithRetries(@TypeOf(testFnToCallWithRetries), testFnToCallWithRetries, .{ &retry, true }));
+    try std.testing.expectEqual(retry.max_retries, retry.cur_retries);
+}
+
+fn testFnToCallWithRetries(r: *Retry, is_spurious_error: bool) !void {
+    // set to 1 ms so the unit test doesn't take forever
+    r.retry_delay_override_ms = 1;
+    return if (is_spurious_error) error.MaybeSpurious else error.NonSpurious;
+}
+
 fn saveEmbedFile(comptime tarball_name: []const u8, dir: fs.Dir) !void {
     //const tarball_name = "duplicate_paths_excluded.tar.gz";
     const tarball_content = @embedFile("Fetch/testdata/" ++ tarball_name);
