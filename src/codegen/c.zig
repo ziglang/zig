@@ -5768,21 +5768,25 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         switch (aggregate.storage) {
             .elems => |elems| for (elems, 0..) |elem, i| switch (elem) {
                 .bool_true => {
-                    const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
-                    assert(name.len != 0);
+                    const field_name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                    assert(field_name.len != 0);
 
                     const target = &f.object.dg.mod.resolved_target.result;
-                    if (target.cpu.arch.isMIPS() and name[0] == 'r') {
-                        // GCC uses "$N" for register names instead of "rN" used by Zig.
-                        var c_name_buf: [4]u8 = undefined;
-                        const c_name = (&c_name_buf)[0..name.len];
-                        @memcpy(c_name, name);
-                        c_name_buf[0] = '$';
-
-                        try w.print(" {f}", .{fmtStringLiteral(c_name, null)});
-                        (try w.writableArray(1))[0] = ',';
-                        continue;
-                    }
+                    var c_name_buf: [16]u8 = undefined;
+                    const name =
+                        if ((target.cpu.arch.isMIPS() or target.cpu.arch == .alpha) and field_name[0] == 'r') name: {
+                            // Convert "rN" to "$N"
+                            const c_name = (&c_name_buf)[0..field_name.len];
+                            @memcpy(c_name, field_name);
+                            c_name_buf[0] = '$';
+                            break :name c_name;
+                        } else if ((target.cpu.arch.isMIPS() and (mem.startsWith(u8, field_name, "fcc") or field_name[0] == 'w')) or
+                        ((target.cpu.arch.isMIPS() or target.cpu.arch == .alpha) and field_name[0] == 'f')) name: {
+                            // "$" prefix for FCC, W and F registers
+                            c_name_buf[0] = '$';
+                            @memcpy((&c_name_buf)[1..][0..field_name.len], field_name);
+                            break :name (&c_name_buf)[0 .. 1 + field_name.len];
+                        } else field_name;
 
                     try w.print(" {f}", .{fmtStringLiteral(name, null)});
                     (try w.writableArray(1))[0] = ',';
