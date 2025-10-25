@@ -40,7 +40,7 @@ const test_targets = blk: {
     // getBaselineCpuFeatures calls populateDependencies which has a O(N ^ 2) algorithm
     // (where N is roughly 160, which technically makes it O(1), but it adds up to a
     // lot of branches)
-    @setEvalBranchQuota(50000);
+    @setEvalBranchQuota(60000);
     break :blk [_]TestTarget{
         // Native Targets
 
@@ -397,16 +397,15 @@ const test_targets = blk: {
             }) catch unreachable,
             .link_libc = true,
         },
-        // Currently crashes in qemu-hexagon.
-        // .{
-        //     .target = std.Target.Query.parse(.{
-        //         .arch_os_abi = "hexagon-linux-musl",
-        //         .cpu_features = "baseline+long_calls",
-        //     }) catch unreachable,
-        //     .linkage = .dynamic,
-        //     .link_libc = true,
-        //     .extra_target = true,
-        // },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "hexagon-linux-musl",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .linkage = .dynamic,
+            .link_libc = true,
+            .extra_target = true,
+        },
 
         .{
             .target = .{
@@ -1551,7 +1550,7 @@ const CAbiTarget = struct {
 };
 
 const c_abi_targets = blk: {
-    @setEvalBranchQuota(20000);
+    @setEvalBranchQuota(30000);
     break :blk [_]CAbiTarget{
         // Native Targets
 
