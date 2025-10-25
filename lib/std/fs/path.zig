@@ -413,7 +413,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
                 return relative_path;
             }
 
-            var it = mem.tokenizeScalar(u8, path, this_sep);
+            var it = mem.tokenizeAny(u8, path, "/\\");
             _ = (it.next() orelse return relative_path);
             _ = (it.next() orelse return relative_path);
             return WindowsPath{
@@ -438,6 +438,12 @@ test windowsParsePath {
         try testing.expect(parsed.is_abs);
         try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
         try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a\\b"));
+    }
+    {
+        const parsed = windowsParsePath("\\\\a/b");
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a/b"));
     }
     {
         const parsed = windowsParsePath("\\\\a\\");
@@ -492,11 +498,8 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             return ascii.toUpper(p1[0]) == ascii.toUpper(p2[0]);
         },
         WindowsPath.Kind.NetworkShare => {
-            const sep1 = p1[0];
-            const sep2 = p2[0];
-
-            var it1 = mem.tokenizeScalar(u8, p1, sep1);
-            var it2 = mem.tokenizeScalar(u8, p2, sep2);
+            var it1 = mem.tokenizeAny(u8, p1, "/\\");
+            var it2 = mem.tokenizeAny(u8, p2, "/\\");
 
             return windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?) and windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?);
         },
@@ -795,6 +798,7 @@ test resolveWindows {
     try testResolveWindows(&[_][]const u8{ "c:/ignore", "c:/some/file" }, "C:\\some\\file");
     try testResolveWindows(&[_][]const u8{ "d:/ignore", "d:some/dir//" }, "D:\\ignore\\some\\dir");
     try testResolveWindows(&[_][]const u8{ "//server/share", "..", "relative\\" }, "\\\\server\\share\\relative");
+    try testResolveWindows(&[_][]const u8{ "\\\\server/share", "..", "relative\\" }, "\\\\server\\share\\relative");
     try testResolveWindows(&[_][]const u8{ "c:/", "//" }, "C:\\");
     try testResolveWindows(&[_][]const u8{ "c:/", "//dir" }, "C:\\dir");
     try testResolveWindows(&[_][]const u8{ "c:/", "//server/share" }, "\\\\server\\share\\");
