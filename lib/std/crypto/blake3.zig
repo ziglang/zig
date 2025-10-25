@@ -681,41 +681,41 @@ fn leftSubtreeLen(input_len: usize) usize {
     return @intCast(roundDownToPowerOf2(full_chunks) * chunk_length);
 }
 
-const ChunkBatchContext = struct {
+const ChunkBatch = struct {
     input: []const u8,
     start_chunk: usize,
     end_chunk: usize,
     cvs: [][8]u32,
     key: [8]u32,
     flags: Flags,
-};
 
-fn processChunkBatch(ctx: ChunkBatchContext) void {
-    var cv_buffer: [max_simd_degree * Blake3.digest_length]u8 = undefined;
-    var chunk_idx = ctx.start_chunk;
+    fn process(ctx: ChunkBatch) void {
+        var cv_buffer: [max_simd_degree * Blake3.digest_length]u8 = undefined;
+        var chunk_idx = ctx.start_chunk;
 
-    while (chunk_idx < ctx.end_chunk) {
-        const remaining = ctx.end_chunk - chunk_idx;
-        const batch_size = @min(remaining, max_simd_degree);
-        const offset = chunk_idx * chunk_length;
-        const batch_len = @as(usize, batch_size) * chunk_length;
+        while (chunk_idx < ctx.end_chunk) {
+            const remaining = ctx.end_chunk - chunk_idx;
+            const batch_size = @min(remaining, max_simd_degree);
+            const offset = chunk_idx * chunk_length;
+            const batch_len = @as(usize, batch_size) * chunk_length;
 
-        const num_cvs = compressChunksParallel(
-            ctx.input[offset..][0..batch_len],
-            ctx.key,
-            chunk_idx,
-            ctx.flags,
-            &cv_buffer,
-        );
+            const num_cvs = compressChunksParallel(
+                ctx.input[offset..][0..batch_len],
+                ctx.key,
+                chunk_idx,
+                ctx.flags,
+                &cv_buffer,
+            );
 
-        for (0..num_cvs) |i| {
-            const cv_bytes = cv_buffer[i * Blake3.digest_length ..][0..Blake3.digest_length];
-            ctx.cvs[chunk_idx + i] = loadCvWords(cv_bytes.*);
+            for (0..num_cvs) |i| {
+                const cv_bytes = cv_buffer[i * Blake3.digest_length ..][0..Blake3.digest_length];
+                ctx.cvs[chunk_idx + i] = loadCvWords(cv_bytes.*);
+            }
+
+            chunk_idx += batch_size;
         }
-
-        chunk_idx += batch_size;
     }
-}
+};
 
 const ParentBatchContext = struct {
     input_cvs: [][8]u32,
@@ -982,7 +982,7 @@ pub const Blake3 = struct {
             const start_chunk = worker_id * chunks_per_worker;
             if (start_chunk >= num_full_chunks) break;
 
-            pool.spawnWg(&wait_group, processChunkBatch, .{ChunkBatchContext{
+            pool.spawnWg(&wait_group, ChunkBatch.process, .{ChunkBatch{
                 .input = b,
                 .start_chunk = start_chunk,
                 .end_chunk = @min(start_chunk + chunks_per_worker, num_full_chunks),
