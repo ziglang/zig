@@ -459,6 +459,8 @@
     .{ .loope,  .d, .{ .rel8 }, .{ 0xe1 }, 0, .none, .none },
     .{ .loopne, .d, .{ .rel8 }, .{ 0xe0 }, 0, .none, .none },
 
+    .{ .lret, .z, .{}, .{ 0xcb }, 0, .none, .none },
+
     .{ .lsl, .rm, .{ .r16, .rm16    }, .{ 0x0f, 0x03 }, 0, .none, .none },
     .{ .lsl, .rm, .{ .r32, .r32_m16 }, .{ 0x0f, 0x03 }, 0, .none, .none },
     .{ .lsl, .rm, .{ .r64, .r32_m16 }, .{ 0x0f, 0x03 }, 0, .none, .none },
