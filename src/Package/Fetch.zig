@@ -1228,9 +1228,10 @@ fn parseRetryAfter(response: *const std.http.Client.Response) !?u32 {
 
     const now = @as(u64, @intCast(std.time.timestamp()));
 
-    // If Retry-After is before now, no delay is needed
+    // If Retry-After is before now or equal to now, we want some kind of delay,
+    // so we will disregard the "Retry-After" header by returning `null`.
     if (datetime_epoch.secs <= now) {
-        return 0;
+        return null;
     }
 
     return @as(u32, @intCast(datetime_epoch.secs - now));
