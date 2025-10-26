@@ -3909,8 +3909,7 @@ fn netSendOne(
                     .ENETRESET => return error.ConnectionResetByPeer,
                     .ENETUNREACH => return error.NetworkUnreachable,
                     .ENOTCONN => return error.SocketUnconnected,
-                    .ESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
-                    .NOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    .ESHUTDOWN => |err| return wsaErrorBug(err),
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -4275,12 +4274,100 @@ fn netWriteWindows(
     splat: usize,
 ) net.Stream.Writer.Error!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    _ = t;
-    _ = handle;
-    _ = header;
-    _ = data;
-    _ = splat;
-    @panic("TODO implement netWriteWindows");
+    comptime assert(native_os == .windows);
+
+    var iovecs: [max_iovecs_len]ws2_32.WSABUF = undefined;
+    var len: u32 = 0;
+    addWsaBuf(&iovecs, &len, header);
+    for (data[0 .. data.len - 1]) |bytes| addWsaBuf(&iovecs, &len, bytes);
+    const pattern = data[data.len - 1];
+    if (iovecs.len - len != 0) switch (splat) {
+        0 => {},
+        1 => addWsaBuf(&iovecs, &len, pattern),
+        else => switch (pattern.len) {
+            0 => {},
+            1 => {
+                var backup_buffer: [64]u8 = undefined;
+                const splat_buffer = &backup_buffer;
+                const memset_len = @min(splat_buffer.len, splat);
+                const buf = splat_buffer[0..memset_len];
+                @memset(buf, pattern[0]);
+                addWsaBuf(&iovecs, &len, buf);
+                var remaining_splat = splat - buf.len;
+                while (remaining_splat > splat_buffer.len and len < iovecs.len) {
+                    addWsaBuf(&iovecs, &len, splat_buffer);
+                    remaining_splat -= splat_buffer.len;
+                }
+                addWsaBuf(&iovecs, &len, splat_buffer[0..remaining_splat]);
+            },
+            else => for (0..@min(splat, iovecs.len - len)) |_| {
+                addWsaBuf(&iovecs, &len, pattern);
+            },
+        },
+    };
+
+    while (true) {
+        try t.checkCancel();
+
+        var n: u32 = undefined;
+        var overlapped: windows.OVERLAPPED = std.mem.zeroes(windows.OVERLAPPED);
+        const rc = ws2_32.WSASend(handle, &iovecs, len, &n, 0, &overlapped, null);
+        if (rc != ws2_32.SOCKET_ERROR) return n;
+        const wsa_error: ws2_32.WinsockError = switch (ws2_32.WSAGetLastError()) {
+            .IO_PENDING => e: {
+                var result_flags: u32 = undefined;
+                const overlapped_rc = ws2_32.WSAGetOverlappedResult(
+                    handle,
+                    &overlapped,
+                    &n,
+                    windows.TRUE,
+                    &result_flags,
+                );
+                if (overlapped_rc == windows.FALSE) {
+                    break :e ws2_32.WSAGetLastError();
+                } else {
+                    return n;
+                }
+            },
+            else => |err| err,
+        };
+        switch (wsa_error) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED, .OPERATION_ABORTED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+
+            .ECONNABORTED => return error.ConnectionResetByPeer,
+            .ECONNRESET => return error.ConnectionResetByPeer,
+            .EINVAL => return error.SocketUnconnected,
+            .ENETDOWN => return error.NetworkDown,
+            .ENETRESET => return error.ConnectionResetByPeer,
+            .ENOBUFS => return error.SystemResources,
+            .ENOTCONN => return error.SocketUnconnected,
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EOPNOTSUPP => |err| return wsaErrorBug(err),
+            .ESHUTDOWN => |err| return wsaErrorBug(err),
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+}
+
+fn addWsaBuf(v: []ws2_32.WSABUF, i: *u32, bytes: []const u8) void {
+    const cap = std.math.maxInt(u32);
+    var remaining = bytes;
+    while (remaining.len > cap) {
+        if (v.len - i.* == 0) return;
+        v[i.*] = .{ .buf = @constCast(remaining.ptr), .len = cap };
+        i.* += 1;
+        remaining = remaining[cap..];
+    } else {
+        @branchHint(.likely);
+        if (v.len - i.* == 0) return;
+        v[i.*] = .{ .buf = @constCast(remaining.ptr), .len = @intCast(remaining.len) };
+        i.* += 1;
+    }
 }
 
 fn netWriteUnavailable(
