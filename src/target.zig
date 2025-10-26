@@ -129,13 +129,13 @@ pub fn hasValgrindSupport(target: *const std.Target, backend: std.builtin.Compil
             else => false,
         },
         .x86 => switch (target.os.tag) {
-            .linux, .freebsd, .solaris, .illumos => true,
+            .linux, .freebsd, .illumos => true,
             .windows => !ofmt_c_msvc,
             else => false,
         },
         .x86_64 => switch (target.os.tag) {
             .linux => target.abi != .gnux32 and target.abi != .muslx32,
-            .freebsd, .solaris, .illumos => true,
+            .freebsd, .illumos => true,
             .windows => !ofmt_c_msvc,
             else => false,
         },
@@ -257,7 +257,7 @@ pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.C
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
     if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
-        if (target.os.tag.isSolarish()) {
+        if (target.os.tag == .illumos) {
             // https://github.com/ziglang/zig/issues/25699
             return false;
         }
@@ -428,8 +428,7 @@ pub fn libcFullLinkFlags(target: *const std.Target) []const []const u8 {
     // c compilers such as gcc or clang use.
     const result: []const []const u8 = switch (target.os.tag) {
         .dragonfly, .freebsd, .netbsd, .openbsd => &.{ "-lm", "-lpthread", "-lc", "-lutil" },
-        // Solaris releases after 10 merged the threading libraries into libc.
-        .solaris, .illumos => &.{ "-lm", "-lsocket", "-lnsl", "-lc" },
+        .illumos => &.{ "-lm", "-lsocket", "-lnsl", "-lc" },
         .haiku => &.{ "-lm", "-lroot", "-lpthread", "-lc", "-lnetwork" },
         .linux => switch (target.abi) {
             .android, .androideabi, .ohos, .ohoseabi => &.{ "-lm", "-lc", "-ldl" },

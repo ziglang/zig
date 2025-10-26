@@ -761,7 +761,7 @@ fn maybeIgnoreSigpipe() void {
     const have_sigpipe_support = switch (builtin.os.tag) {
         .linux,
         .plan9,
-        .solaris,
+        .illumos,
         .netbsd,
         .openbsd,
         .haiku,

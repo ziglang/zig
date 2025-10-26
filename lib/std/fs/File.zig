@@ -444,7 +444,7 @@ pub const Stat = struct {
                     posix.S.IFSOCK => break :k .unix_domain_socket,
                     else => {},
                 }
-                if (builtin.os.tag.isSolarish()) switch (m) {
+                if (builtin.os.tag == .illumos) switch (m) {
                     posix.S.IFDOOR => break :k .door,
                     posix.S.IFPORT => break :k .event_port,
                     else => {},

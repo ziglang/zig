@@ -41,7 +41,7 @@ pub fn addCase(self: *ErrorTrace, case: Case) void {
 fn shouldTestNonLlvm(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.ofmt) {
-            .elf => !target.os.tag.isBSD() and !target.os.tag.isSolarish(),
+            .elf => !target.os.tag.isBSD() and target.os.tag != .illumos,
             else => false,
         },
         else => false,

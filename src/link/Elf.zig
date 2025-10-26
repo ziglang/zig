@@ -1561,7 +1561,7 @@ pub fn writeElfHeader(self: *Elf) !void {
         else => switch (target.os.tag) {
             .freebsd, .ps4 => .FREEBSD,
             .hermit => .STANDALONE,
-            .illumos, .solaris => .SOLARIS,
+            .illumos => .SOLARIS,
             .openbsd => .OPENBSD,
             else => .NONE,
         },
