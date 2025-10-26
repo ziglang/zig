@@ -1963,6 +1963,9 @@ const signal_ucontext_t = switch (native_os) {
                 _trapno: i64,
                 _err: i64,
                 rip: u64,
+                _cs: i64,
+                _rflags: i64,
+                rsp: u64,
             },
         },
         else => unreachable,
@@ -1994,7 +1997,7 @@ const signal_ucontext_t = switch (native_os) {
             },
             // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/mcontext.h
             .x86_64 => extern struct {
-                r15: u64,
+                r15: u64 align(16),
                 r14: u64,
                 r13: u64,
                 r12: u64,
@@ -2012,6 +2015,9 @@ const signal_ucontext_t = switch (native_os) {
                 _trapno: i64,
                 _err: i64,
                 rip: u64,
+                _cs: i64,
+                _rflags: i64,
+                rsp: u64,
             },
             else => unreachable,
         },
