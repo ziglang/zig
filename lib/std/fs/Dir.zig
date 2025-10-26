@@ -39,7 +39,7 @@ const IteratorError = error{
 } || posix.UnexpectedError;
 
 pub const Iterator = switch (native_os) {
-    .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
+    .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .illumos => struct {
         dir: Dir,
         seek: i64,
         buf: [1024]u8 align(@alignOf(posix.system.dirent)),
@@ -57,7 +57,7 @@ pub const Iterator = switch (native_os) {
             switch (native_os) {
                 .macos, .ios => return self.nextDarwin(),
                 .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
-                .solaris, .illumos => return self.nextSolaris(),
+                .illumos => return self.nextIllumos(),
                 else => @compileError("unimplemented"),
             }
         }
@@ -116,7 +116,7 @@ pub const Iterator = switch (native_os) {
             }
         }
 
-        fn nextSolaris(self: *Self) !?Entry {
+        fn nextIllumos(self: *Self) !?Entry {
             start_over: while (true) {
                 if (self.index >= self.end_index) {
                     if (self.first_iter) {
@@ -144,7 +144,7 @@ pub const Iterator = switch (native_os) {
                 if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
                     continue :start_over;
 
-                // Solaris dirent doesn't expose type, so we have to call stat to get it.
+                // illumos dirent doesn't expose type, so we have to call stat to get it.
                 const stat_info = posix.fstatat(
                     self.dir.fd,
                     name,
@@ -619,7 +619,6 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
         .netbsd,
         .dragonfly,
         .openbsd,
-        .solaris,
         .illumos,
         => return Iterator{
             .dir = self,
@@ -1770,7 +1769,7 @@ pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
         error.AccessDenied, error.PermissionDenied => |e| switch (native_os) {
             // non-Linux POSIX systems return permission errors when trying to delete a
             // directory, so we need to handle that case specifically and translate the error
-            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
+            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .illumos => {
                 // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                 const fstat = posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW) catch return e;
                 const is_dir = fstat.mode & posix.S.IFMT == posix.S.IFDIR;

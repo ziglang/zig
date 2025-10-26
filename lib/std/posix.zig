@@ -6035,7 +6035,7 @@ pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     switch (errno(system.sigaction(sig, act, oact))) {
         .SUCCESS => return,
         // EINVAL means the signal is either invalid or some signal that cannot have its action
-        // changed. For POSIX, this means SIGKILL/SIGSTOP. For e.g. Solaris, this also includes the
+        // changed. For POSIX, this means SIGKILL/SIGSTOP. For e.g. illumos, this also includes the
         // non-standard SIGWAITING, SIGCANCEL, and SIGLWP. Either way, programmer error.
         .INVAL => unreachable,
         else => unreachable,
@@ -7414,7 +7414,6 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, data: usize) PtraceError!vo
         .wasi,
         .emscripten,
         .haiku,
-        .solaris,
         .illumos,
         .plan9,
         => @compileError("ptrace unsupported by target OS"),

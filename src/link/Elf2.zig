@@ -417,7 +417,7 @@ fn create(
         else => .NONE,
         .freestanding, .other => .STANDALONE,
         .netbsd => .NETBSD,
-        .solaris => .SOLARIS,
+        .illumos => .SOLARIS,
         .aix => .AIX,
         .freebsd => .FREEBSD,
         .cuda => .CUDA,
