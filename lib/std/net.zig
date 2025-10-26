@@ -1484,7 +1484,7 @@ fn linuxLookupNameFromDnsSearch(
 ) !void {
     var rc: ResolvConf = undefined;
     rc.init(gpa) catch return error.ResolveConfParseFailed;
-    defer rc.deinit();
+    defer rc.deinit(gpa);
 
     // Count dots, suppress search when >=ndots or name ends in
     // a dot, which is an explicit request for global scope.
@@ -1587,40 +1587,38 @@ fn linuxLookupNameFromDns(
 }
 
 const ResolvConf = struct {
-    gpa: Allocator,
     attempts: u32,
     ndots: u32,
     timeout: u32,
     search: ArrayList(u8),
-    /// TODO there are actually only allowed to be maximum 3 nameservers, no need
-    /// for an array list.
-    ns: ArrayList(LookupAddr),
+    ns_buffer: [3]LookupAddr,
+    ns_len: u2,
 
     /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
     /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
     fn init(rc: *ResolvConf, gpa: Allocator) !void {
         rc.* = .{
-            .gpa = gpa,
-            .ns = .empty,
+            .ns_buffer = undefined,
+            .ns_len = 0,
             .search = .empty,
             .ndots = 1,
             .timeout = 5,
             .attempts = 2,
         };
-        errdefer rc.deinit();
+        errdefer rc.deinit(gpa);
 
         const file = fs.openFileAbsoluteZ("/etc/resolv.conf", .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
             error.AccessDenied,
-            => return linuxLookupNameFromNumericUnspec(gpa, &rc.ns, "127.0.0.1", 53),
+            => return linuxLookupNameFromNumericUnspec(&rc.ns_buffer, &rc.ns_len, "127.0.0.1", 53),
             else => |e| return e,
         };
         defer file.close();
 
         var line_buf: [512]u8 = undefined;
         var file_reader = file.reader(&line_buf);
-        return parse(rc, &file_reader.interface) catch |err| switch (err) {
+        return parse(rc, gpa, &file_reader.interface) catch |err| switch (err) {
             error.ReadFailed => return file_reader.err.?,
             else => |e| return e,
         };
@@ -1629,8 +1627,7 @@ const ResolvConf = struct {
     const Directive = enum { options, nameserver, domain, search };
     const Option = enum { ndots, attempts, timeout };
 
-    fn parse(rc: *ResolvConf, reader: *Io.Reader) !void {
-        const gpa = rc.gpa;
+    fn parse(rc: *ResolvConf, gpa: Allocator, reader: *Io.Reader) !void {
         while (reader.takeSentinel('\n')) |line_with_comment| {
             const line = line: {
                 var split = mem.splitScalar(u8, line_with_comment, '#');
@@ -1656,7 +1653,7 @@ const ResolvConf = struct {
                 },
                 .nameserver => {
                     const ip_txt = line_it.next() orelse continue;
-                    try linuxLookupNameFromNumericUnspec(gpa, &rc.ns, ip_txt, 53);
+                    try linuxLookupNameFromNumericUnspec(&rc.ns_buffer, &rc.ns_len, ip_txt, 53);
                 },
                 .domain, .search => {
                     rc.search.items.len = 0;
@@ -1668,8 +1665,8 @@ const ResolvConf = struct {
             else => |e| return e,
         }
 
-        if (rc.ns.items.len == 0) {
-            return linuxLookupNameFromNumericUnspec(gpa, &rc.ns, "127.0.0.1", 53);
+        if (rc.ns_len == 0) {
+            return linuxLookupNameFromNumericUnspec(&rc.ns_buffer, &rc.ns_len, "127.0.0.1", 53);
         }
     }
 
@@ -1679,19 +1676,15 @@ const ResolvConf = struct {
         answers: [][]u8,
         answer_bufs: []const []u8,
     ) !void {
-        const gpa = rc.gpa;
         const timeout = 1000 * rc.timeout;
         const attempts = rc.attempts;
 
         var sl: posix.socklen_t = @sizeOf(posix.sockaddr.in);
         var family: posix.sa_family_t = posix.AF.INET;
 
-        var ns_list: ArrayList(Address) = .empty;
-        defer ns_list.deinit(gpa);
+        var ns_addr_buffer: [3]Address = undefined;
 
-        try ns_list.resize(gpa, rc.ns.items.len);
-
-        for (ns_list.items, rc.ns.items) |*ns, iplit| {
+        for (ns_addr_buffer[0..rc.ns_len], rc.ns_buffer[0..rc.ns_len]) |*ns, iplit| {
             ns.* = iplit.addr;
             assert(ns.getPort() == 53);
             if (iplit.addr.any.family != posix.AF.INET) {
@@ -1725,7 +1718,7 @@ const ResolvConf = struct {
                 std.os.linux.IPV6.V6ONLY,
                 &mem.toBytes(@as(c_int, 0)),
             );
-            for (ns_list.items) |*ns| {
+            for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
                 if (ns.any.family != posix.AF.INET) continue;
                 mem.writeInt(u32, ns.in6.sa.addr[12..], ns.in.sa.addr, native_endian);
                 ns.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
@@ -1761,7 +1754,7 @@ const ResolvConf = struct {
                 var i: usize = 0;
                 while (i < queries.len) : (i += 1) {
                     if (answers[i].len == 0) {
-                        for (ns_list.items) |*ns| {
+                        for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
                             _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
                         }
                     }
@@ -1783,7 +1776,7 @@ const ResolvConf = struct {
                 if (rlen < 4) continue;
 
                 // Ignore replies from addresses we didn't send to
-                const ns = for (ns_list.items) |*ns| {
+                const ns = for (ns_addr_buffer[0..rc.ns_len]) |*ns| {
                     if (ns.eql(sa)) break ns;
                 } else continue;
 
@@ -1822,22 +1815,24 @@ const ResolvConf = struct {
         }
     }
 
-    fn deinit(rc: *ResolvConf) void {
-        const gpa = rc.gpa;
-        rc.ns.deinit(gpa);
+    fn deinit(rc: *ResolvConf, gpa: Allocator) void {
         rc.search.deinit(gpa);
         rc.* = undefined;
     }
 };
 
 fn linuxLookupNameFromNumericUnspec(
-    gpa: Allocator,
-    addrs: *ArrayList(LookupAddr),
+    addrs: *[3]LookupAddr,
+    addrs_len: *u2,
     name: []const u8,
     port: u16,
 ) !void {
-    const addr = try Address.resolveIp(name, port);
-    try addrs.append(gpa, .{ .addr = addr });
+    // Ignore new nameserver entries past the third one
+    if (addrs_len.* == addrs.len) return;
+
+    const address = try Address.resolveIp(name, port);
+    addrs[addrs_len.*] = .{ .addr = address };
+    addrs_len.* += 1;
 }
 
 fn dnsParse(
