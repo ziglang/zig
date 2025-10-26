@@ -1997,7 +1997,7 @@ const signal_ucontext_t = switch (native_os) {
             },
             // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/mcontext.h
             .x86_64 => extern struct {
-                r15: u64,
+                r15: u64 align(16),
                 r14: u64,
                 r13: u64,
                 r12: u64,
