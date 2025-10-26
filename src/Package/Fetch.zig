@@ -2457,10 +2457,59 @@ test "retries the correct number of times" {
     }
 }
 
+test "parse Retry-After header" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const alloc = arena.allocator();
+    defer arena.deinit();
+    {
+        var iter = try mockRetryAfterHeaderFactory(alloc, "6");
+        const result = try parseRetryAfter(std.testing.io, &iter);
+        try std.testing.expectEqual(6, result.?);
+    }
+    {
+        var iter = try mockRetryAfterHeaderFactory(alloc, "12345");
+        const result = try parseRetryAfter(std.testing.io, &iter);
+        try std.testing.expectEqual(12345, result.?);
+    }
+    {
+        // anything in the past should return `null`
+        var iter = try mockRetryAfterHeaderFactory(alloc, "Wed, 21 Oct 1970 07:28:00 GMT");
+        const result = try parseRetryAfter(std.testing.io, &iter);
+        try std.testing.expectEqual(null, result);
+    }
+    {
+        // anything in the future should return `null` (this will fail in 100 years)
+        const future_time = "Sun, 21 Oct 2125 16:19:10 GMT";
+        const future_epoc_seconds = 4916737150;
+        const now = try std.Io.Clock.now(.real, std.testing.io);
+        const seconds_from_now = future_epoc_seconds - @divFloor(now.nanoseconds, std.time.ns_per_s);
+        var iter = try mockRetryAfterHeaderFactory(alloc, future_time);
+        const result = try parseRetryAfter(std.testing.io, &iter);
+        // The time between us calling `std.time.timestamp()` here in this test and when it's called in the
+        // `parseRetryAfter` function could be significant enough that they don't match. So we want approx values here.
+        try std.testing.expect(result.? > seconds_from_now - 5);
+        try std.testing.expect(result.? - 5 < seconds_from_now);
+    }
+    {
+        // returns error on invalid header
+        var iter = try mockRetryAfterHeaderFactory(alloc, "Not a timestamp");
+        try std.testing.expectError(error.InvalidHeaderValueLength, parseRetryAfter(std.testing.io, &iter));
+    }
+    {
+        // returns null on missing header
+        var iter = std.http.HeaderIterator.init("HTTP/1.1 599 NOT-OK\r\n\r\n");
+        try std.testing.expectEqual(null, try parseRetryAfter(std.testing.io, &iter));
+    }
+}
+
 fn testFnToCallWithRetries(r: *Retry, is_spurious_error: bool) !void {
     // set to 1 ms so the unit test doesn't take forever
     r.retry_delay_override_ms = 1;
     return if (is_spurious_error) BadHttpStatus.MaybeSpurious else BadHttpStatus.NonSpurious;
+}
+
+fn mockRetryAfterHeaderFactory(alloc: std.mem.Allocator, time: []const u8) !std.http.HeaderIterator {
+    return std.http.HeaderIterator.init(try std.fmt.allocPrint(alloc, "HTTP/1.1 599 NOT-OK\r\nRetry-After:{s}\r\n", .{time}));
 }
 
 fn saveEmbedFile(comptime tarball_name: []const u8, dir: fs.Dir) !void {
