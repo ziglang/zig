@@ -249,55 +249,6 @@ pub const OptionalHeader = extern struct {
 
 pub const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
 
-pub const DirectoryEntry = enum(u16) {
-    /// Export Directory
-    EXPORT = 0,
-
-    /// Import Directory
-    IMPORT = 1,
-
-    /// Resource Directory
-    RESOURCE = 2,
-
-    /// Exception Directory
-    EXCEPTION = 3,
-
-    /// Security Directory
-    SECURITY = 4,
-
-    /// Base Relocation Table
-    BASERELOC = 5,
-
-    /// Debug Directory
-    DEBUG = 6,
-
-    /// Architecture Specific Data
-    ARCHITECTURE = 7,
-
-    /// RVA of GP
-    GLOBALPTR = 8,
-
-    /// TLS Directory
-    TLS = 9,
-
-    /// Load Configuration Directory
-    LOAD_CONFIG = 10,
-
-    /// Bound Import Directory in headers
-    BOUND_IMPORT = 11,
-
-    /// Import Address Table
-    IAT = 12,
-
-    /// Delay Load Import Descriptors
-    DELAY_IMPORT = 13,
-
-    /// COM Runtime descriptor
-    COM_DESCRIPTOR = 14,
-
-    _,
-};
-
 pub const ImageDataDirectory = extern struct {
     virtual_address: u32,
     size: u32,
@@ -528,13 +479,11 @@ pub const SectionHeader = extern struct {
 
     /// Applicable only to section headers in COFF objects.
     pub fn getAlignment(self: SectionHeader) ?u16 {
-        if (self.flags.ALIGN == 0) return null;
-        return std.math.powi(u16, 2, self.flags.ALIGN - 1) catch unreachable;
+        return self.flags.ALIGN.toByteUnits();
     }
 
     pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
-        assert(new_alignment > 0 and new_alignment <= 8192);
-        self.flags.ALIGN = @intCast(std.math.log2(new_alignment));
+        self.flags.ALIGN = .fromByteUnits(new_alignment);
     }
 
     pub fn isCode(self: SectionHeader) bool {
@@ -651,6 +600,16 @@ pub const SectionHeader = extern struct {
             @"4096BYTES" = 13,
             @"8192BYTES" = 14,
             _,
+
+            pub fn toByteUnits(a: Align) ?u16 {
+                if (a == .NONE) return null;
+                return @as(u16, 1) << (@intFromEnum(a) - 1);
+            }
+
+            pub fn fromByteUnits(n: u16) Align {
+                std.debug.assert(std.math.isPowerOfTwo(n));
+                return @enumFromInt(@ctz(n) + 1);
+            }
         };
     };
 };
@@ -925,6 +884,10 @@ pub const WeakExternalDefinition = struct {
     flag: WeakExternalFlag,
 
     unused: [10]u8,
+
+    pub fn sizeOf() usize {
+        return 18;
+    }
 };
 
 // https://github.com/tpn/winsdk-10/blob/master/Include/10.0.16299.0/km/ntimage.h
@@ -1042,9 +1005,9 @@ pub const Coff = struct {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
-        if (@intFromEnum(DirectoryEntry.DEBUG) >= data_dirs.len) return null;
+        if (@intFromEnum(IMAGE.DIRECTORY_ENTRY.DEBUG) >= data_dirs.len) return null;
 
-        const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
+        const debug_dir = data_dirs[@intFromEnum(IMAGE.DIRECTORY_ENTRY.DEBUG)];
         var reader: std.Io.Reader = .fixed(self.data);
 
         if (self.is_loaded) {
@@ -1338,14 +1301,16 @@ pub const Strtab = struct {
 };
 
 pub const ImportHeader = extern struct {
-    sig1: IMAGE.FILE.MACHINE,
-    sig2: u16,
+    /// Must be IMAGE_FILE_MACHINE_UNKNOWN
+    sig1: IMAGE.FILE.MACHINE = .UNKNOWN,
+    /// Must be 0xFFFF
+    sig2: u16 = 0xFFFF,
     version: u16,
     machine: IMAGE.FILE.MACHINE,
     time_date_stamp: u32,
     size_of_data: u32,
     hint: u16,
-    types: packed struct(u32) {
+    types: packed struct(u16) {
         type: ImportType,
         name_type: ImportNameType,
         reserved: u11,
@@ -1386,6 +1351,44 @@ pub const Relocation = extern struct {
 };
 
 pub const IMAGE = struct {
+    pub const DIRECTORY_ENTRY = enum(u32) {
+        /// Export Directory
+        EXPORT = 0,
+        /// Import Directory
+        IMPORT = 1,
+        /// Resource Directory
+        RESOURCE = 2,
+        /// Exception Directory
+        EXCEPTION = 3,
+        /// Security Directory
+        SECURITY = 4,
+        /// Base Relocation Table
+        BASERELOC = 5,
+        /// Debug Directory
+        DEBUG = 6,
+        /// Architecture Specific Data
+        ARCHITECTURE = 7,
+        /// RVA of GP
+        GLOBALPTR = 8,
+        /// TLS Directory
+        TLS = 9,
+        /// Load Configuration Directory
+        LOAD_CONFIG = 10,
+        /// Bound Import Directory in headers
+        BOUND_IMPORT = 11,
+        /// Import Address Table
+        IAT = 12,
+        /// Delay Load Import Descriptors
+        DELAY_IMPORT = 13,
+        /// COM Runtime descriptor
+        COM_DESCRIPTOR = 14,
+        /// must be zero
+        RESERVED = 15,
+        _,
+
+        pub const len = @typeInfo(IMAGE.DIRECTORY_ENTRY).@"enum".fields.len;
+    };
+
     pub const FILE = struct {
         /// Machine Types
         /// The Machine field has one of the following values, which specify the CPU type.

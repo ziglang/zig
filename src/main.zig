@@ -4075,7 +4075,7 @@ fn serve(
     while (true) {
         const hdr = try server.receiveMessage();
 
-        // Lock the debug server while hanling the message.
+        // Lock the debug server while handling the message.
         if (comp.debugIncremental()) ids.mutex.lock();
         defer if (comp.debugIncremental()) ids.mutex.unlock();
 
@@ -4092,7 +4092,11 @@ fn serve(
                     var output: Compilation.CImportResult = undefined;
                     try cmdTranslateC(comp, arena, &output, file_system_inputs, main_progress_node);
                     defer output.deinit(gpa);
-                    try server.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+
+                    if (file_system_inputs.items.len != 0) {
+                        try server.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+                    }
+
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
                     } else {
@@ -4100,6 +4104,7 @@ fn serve(
                             .flags = .{ .cache_hit = output.cache_hit },
                         });
                     }
+
                     continue;
                 }
 
@@ -4515,48 +4520,75 @@ fn cmdTranslateC(
     prog_node: std.Progress.Node,
 ) !void {
     dev.check(.translate_c_command);
-    _ = file_system_inputs;
-    _ = fancy_output;
 
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
-    var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
-    defer zig_cache_tmp_dir.close();
+    const translated_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{comp.root_name});
 
-    const ext = Compilation.classifyFileExt(c_source_file.src_path);
-    const out_dep_path: ?[]const u8 = blk: {
-        if (comp.disable_c_depfile) break :blk null;
-        const c_src_basename = fs.path.basename(c_source_file.src_path);
-        const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
-        const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
-        break :blk out_dep_path;
+    var man: Cache.Manifest = comp.obtainCObjectCacheManifest(comp.root_mod);
+    man.want_shared_lock = false;
+    defer man.deinit();
+
+    man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
+    man.hash.add(comp.config.c_frontend);
+    Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
+        fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
 
-    var argv = std.array_list.Managed([]const u8).init(arena);
-    try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
-    try argv.append(c_source_file.src_path);
-    if (comp.verbose_cc) Compilation.dump_argv(argv.items);
+    const result: Compilation.CImportResult = if (try man.hit()) .{
+        .digest = man.finalBin(),
+        .cache_hit = true,
+        .errors = std.zig.ErrorBundle.empty,
+    } else result: {
+        const result = try comp.translateC(
+            arena,
+            &man,
+            Compilation.classifyFileExt(c_source_file.src_path),
+            .{ .path = c_source_file.src_path },
+            translated_basename,
+            comp.root_mod,
+            prog_node,
+        );
 
-    try translateC(comp.gpa, arena, argv.items, prog_node, null);
+        if (result.errors.errorMessageCount() != 0) {
+            if (fancy_output) |p| {
+                if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+                p.* = result;
+                return;
+            } else {
+                const color: Color = .auto;
+                result.errors.renderToStdErr(color.renderOptions());
+                process.exit(1);
+            }
+        }
 
-    if (out_dep_path) |dep_file_path| {
-        const dep_basename = fs.path.basename(dep_file_path);
-        // Add the files depended on to the cache system.
-        //man.addDepFilePost(zig_cache_tmp_dir, dep_basename) catch |err| switch (err) {
-        //    error.FileNotFound => {
-        //        // Clang didn't emit the dep file; nothing to add to the manifest.
-        //        break :add_deps;
-        //    },
-        //    else => |e| return e,
-        //};
-        // Just to save disk space, we delete the file because it is never needed again.
-        zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-            warn("failed to delete '{s}': {t}", .{ dep_file_path, err });
+        man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
+        break :result result;
+    };
+
+    if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+    if (fancy_output) |p| {
+        p.* = result;
+    } else {
+        const hex_digest = Cache.binToHex(result.digest);
+        const out_zig_path = try fs.path.join(arena, &.{ "o", &hex_digest, translated_basename });
+        const zig_file = comp.dirs.local_cache.handle.openFile(out_zig_path, .{}) catch |err| {
+            const path = comp.dirs.local_cache.path orelse ".";
+            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{
+                path,
+                fs.path.sep_str,
+                out_zig_path,
+                @errorName(err),
+            });
         };
+        defer zig_file.close();
+        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+        var file_reader = zig_file.reader(&.{});
+        _ = try stdout_writer.interface.sendFileAll(&file_reader, .unlimited);
+        try stdout_writer.interface.flush();
+        return cleanExit();
     }
-
-    return cleanExit();
 }
 
 pub fn translateC(

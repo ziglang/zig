@@ -250,7 +250,7 @@ pub const GetNameError = error{
     Unexpected,
 } || posix.PrctlError || posix.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
@@ -1191,12 +1191,22 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
-                .x86_64 => asm volatile (
-                    \\  movq $11, %%rax # SYS_munmap
-                    \\  syscall
-                    \\  movq $60, %%rax # SYS_exit
-                    \\  movq $1, %%rdi
-                    \\  syscall
+                .x86_64 => asm volatile (switch (target.abi) {
+                        .gnux32, .muslx32 =>
+                        \\  movl $0x4000000b, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $0x4000003c, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                        else =>
+                        \\  movl $11, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $60, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                    }
                     :
                     : [ptr] "{rdi}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{rsi}" (self.mapped.len),
@@ -1225,6 +1235,18 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
+                .alpha => asm volatile (
+                    \\ ldi $0, 73 # SYS_munmap
+                    \\ mov %[ptr], $16
+                    \\ mov %[len], $17
+                    \\ callsys
+                    \\ ldi $0, 1 # SYS_exit
+                    \\ ldi $16, 0
+                    \\ callsys
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
                     \\  r0 = %[ptr]
@@ -1237,31 +1259,91 @@ const LinuxThreadImpl = struct {
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
+                .hppa => asm volatile (
+                    \\ ldi 91, %%r20 /* SYS_munmap */
+                    \\ copy %[ptr], %%r26
+                    \\ copy %[len], %%r25
+                    \\ ble 0x100(%%sr2, %%r0)
+                    \\ ldi 1, %%r20 /* SYS_exit */
+                    \\ ldi 0, %%r26
+                    \\ ble 0x100(%%sr2, %%r0)
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
+                .m68k => asm volatile (
+                    \\ move.l #91, %%d0 // SYS_munmap
+                    \\ move.l %[ptr], %%d1
+                    \\ move.l %[len], %%d2
+                    \\ trap #0
+                    \\ move.l #1, %%d0 // SYS_exit
+                    \\ move.l #0, %%d1
+                    \\ trap #0
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
+                .microblaze, .microblazeel => asm volatile (
+                    \\ ori r12, r0, 91 # SYS_munmap
+                    \\ ori r5, %[ptr], 0
+                    \\ ori r6, %[len], 0
+                    \\ brki r14, 0x8
+                    \\ ori r12, r0, 1 # SYS_exit
+                    \\ or r5, r0, r0
+                    \\ brki r14, 0x8
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 // We set `sp` to the address of the current function as a workaround for a Linux
                 // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
                 // 7928eb0370d1133d0d8cd2f5ddfca19c309079d5.
                 .mips, .mipsel => asm volatile (
-                    \\  move $sp, $25
-                    \\  li $2, 4091 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 4001 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                    \\ move $sp, $t9
+                    \\ li $v0, 4091 # SYS_munmap
+                    \\ move $a0, %[ptr]
+                    \\ move $a1, %[len]
+                    \\ syscall
+                    \\ li $v0, 4001 # SYS_exit
+                    \\ li $a0, 0
+                    \\ syscall
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
                     : .{ .memory = true }),
-                .mips64, .mips64el => asm volatile (
-                    \\  li $2, 5011 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 5058 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                .mips64, .mips64el => asm volatile (switch (target.abi) {
+                        .gnuabin32, .muslabin32 =>
+                        \\ li $v0, 6011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 6058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                        else =>
+                        \\ li $v0, 5011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 5058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                    }
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
+                .or1k => asm volatile (
+                    \\ l.ori r11, r0, 215 # SYS_munmap
+                    \\ l.ori r3, %[ptr]
+                    \\ l.ori r4, %[len]
+                    \\ l.sys 1
+                    \\ l.ori r11, r0, 93 # SYS_exit
+                    \\ l.ori r3, r0, r0
+                    \\ l.sys 1
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
@@ -1297,6 +1379,28 @@ const LinuxThreadImpl = struct {
                     \\  svc 91 # SYS_munmap
                     \\  lghi %%r2, 0
                     \\  svc 1 # SYS_exit
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
+                .sh, .sheb => asm volatile (
+                    \\ mov #91, r3 ! SYS_munmap
+                    \\ mov %[ptr], r4
+                    \\ mov %[len], r5
+                    \\ trapa #31
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ mov #1, r3 ! SYS_exit
+                    \\ mov #0, r4
+                    \\ trapa #31
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
@@ -1660,11 +1764,6 @@ test "Thread.getCurrentId" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
-
-    if (builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) {
-        // https://github.com/ziglang/zig/issues/24061
-        return error.SkipZigTest;
-    }
 
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});

@@ -1,8 +1,9 @@
 /// Non-zero for fat object files or archives
 offset: u64,
-/// Archive files cannot contain subdirectories, so only the basename is needed
-/// for output. However, the full path is kept for error reporting.
-path: Path,
+/// If `in_archive` is not `null`, this is the basename of the object in the archive. Otherwise,
+/// this is a fully-resolved absolute path, because that is the path we need to embed in stabs to
+/// ensure the output does not depend on its cwd.
+path: []u8,
 file_handle: File.HandleIndex,
 mtime: u64,
 index: File.Index,
@@ -41,8 +42,8 @@ output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    if (self.in_archive) |*ar| allocator.free(ar.path.sub_path);
-    allocator.free(self.path.sub_path);
+    if (self.in_archive) |*ar| allocator.free(ar.path);
+    allocator.free(self.path);
     for (self.sections.items(.relocs), self.sections.items(.subsections)) |*relocs, *sub| {
         relocs.deinit(allocator);
         sub.deinit(allocator);
@@ -1703,7 +1704,7 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
 pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
     // Header
     const size = try macho_file.cast(usize, self.output_ar_state.size);
-    const basename = std.fs.path.basename(self.path.sub_path);
+    const basename = std.fs.path.basename(self.path);
     try Archive.writeHeader(basename, size, ar_format, writer);
     // Data
     const file = macho_file.getFileHandle(self.file_handle);
@@ -1756,12 +1757,7 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
         self.calcStabsSize(macho_file);
 }
 
-fn pathLen(path: Path) usize {
-    // +1 for the path separator
-    return (if (path.root_dir.path) |p| p.len + @intFromBool(path.sub_path.len != 0) else 0) + path.sub_path.len;
-}
-
-pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
+fn calcStabsSize(self: *Object, macho_file: *MachO) void {
     if (self.compile_unit) |cu| {
         const comp_dir = cu.getCompDir(self.*);
         const tu_name = cu.getTuName(self.*);
@@ -1771,9 +1767,11 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
         self.output_symtab_ctx.strsize += @as(u32, @intCast(tu_name.len + 1)); // tu_name
 
         if (self.in_archive) |ar| {
-            self.output_symtab_ctx.strsize += @intCast(pathLen(ar.path) + 1 + self.path.basename().len + 1 + 1);
+            // "/path/to/archive.a(object.o)\x00"
+            self.output_symtab_ctx.strsize += @intCast(ar.path.len + self.path.len + 3);
         } else {
-            self.output_symtab_ctx.strsize += @intCast(pathLen(self.path) + 1);
+            // "/path/to/object.o\x00"
+            self.output_symtab_ctx.strsize += @intCast(self.path.len + 1);
         }
 
         for (self.symbols.items, 0..) |sym, i| {
@@ -2018,7 +2016,7 @@ pub fn writeSymtab(self: Object, macho_file: *MachO, ctx: anytype) void {
         self.writeStabs(n_strx, macho_file, ctx);
 }
 
-pub fn writeStabs(self: Object, stroff: u32, macho_file: *MachO, ctx: anytype) void {
+fn writeStabs(self: Object, stroff: u32, macho_file: *MachO, ctx: anytype) void {
     const writeFuncStab = struct {
         inline fn writeFuncStab(
             n_strx: u32,
@@ -2103,38 +2101,20 @@ pub fn writeStabs(self: Object, stroff: u32, macho_file: *MachO, ctx: anytype) v
         };
         index += 1;
         if (self.in_archive) |ar| {
-            if (ar.path.root_dir.path) |p| {
-                @memcpy(ctx.strtab.items[n_strx..][0..p.len], p);
-                n_strx += @intCast(p.len);
-                if (ar.path.sub_path.len != 0) {
-                    ctx.strtab.items[n_strx] = '/';
-                    n_strx += 1;
-                }
-            }
-            @memcpy(ctx.strtab.items[n_strx..][0..ar.path.sub_path.len], ar.path.sub_path);
-            n_strx += @intCast(ar.path.sub_path.len);
-            ctx.strtab.items[n_strx] = '(';
+            // "/path/to/archive.a(object.o)\x00"
+            @memcpy(ctx.strtab.items[n_strx..][0..ar.path.len], ar.path);
+            n_strx += @intCast(ar.path.len);
+            ctx.strtab.items[n_strx..][0] = '(';
             n_strx += 1;
-            const basename = self.path.basename();
-            @memcpy(ctx.strtab.items[n_strx..][0..basename.len], basename);
-            n_strx += @intCast(basename.len);
-            ctx.strtab.items[n_strx] = ')';
-            n_strx += 1;
-            ctx.strtab.items[n_strx] = 0;
-            n_strx += 1;
+            @memcpy(ctx.strtab.items[n_strx..][0..self.path.len], self.path);
+            n_strx += @intCast(self.path.len);
+            ctx.strtab.items[n_strx..][0..2].* = ")\x00".*;
+            n_strx += 2;
         } else {
-            if (self.path.root_dir.path) |p| {
-                @memcpy(ctx.strtab.items[n_strx..][0..p.len], p);
-                n_strx += @intCast(p.len);
-                if (self.path.sub_path.len != 0) {
-                    ctx.strtab.items[n_strx] = '/';
-                    n_strx += 1;
-                }
-            }
-            @memcpy(ctx.strtab.items[n_strx..][0..self.path.sub_path.len], self.path.sub_path);
-            n_strx += @intCast(self.path.sub_path.len);
-            ctx.strtab.items[n_strx] = 0;
-            n_strx += 1;
+            // "/path/to/object.o\x00"
+            @memcpy(ctx.strtab.items[n_strx..][0..self.path.len], self.path);
+            ctx.strtab.items[n_strx..][self.path.len] = 0;
+            n_strx += @intCast(self.path.len + 1);
         }
 
         for (self.symbols.items, 0..) |sym, i| {
@@ -2621,11 +2601,9 @@ pub fn fmtPath(self: Object) std.fmt.Alt(Object, formatPath) {
 
 fn formatPath(object: Object, w: *Writer) Writer.Error!void {
     if (object.in_archive) |ar| {
-        try w.print("{f}({s})", .{
-            ar.path, object.path.basename(),
-        });
+        try w.print("{s}({s})", .{ ar.path, object.path });
     } else {
-        try w.print("{f}", .{object.path});
+        try w.writeAll(object.path);
     }
 }
 
@@ -2716,7 +2694,9 @@ const CompileUnit = struct {
 };
 
 const InArchive = struct {
-    path: Path,
+    /// This is a fully-resolved absolute path, because that is the path we need to embed in stabs
+    /// to ensure the output does not depend on its cwd.
+    path: []u8,
     size: u32,
 };
 
@@ -3094,7 +3074,6 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const Path = std.Build.Cache.Path;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 

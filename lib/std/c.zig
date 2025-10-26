@@ -1841,110 +1841,6 @@ pub const PROT = switch (native_os) {
     else => void,
 };
 
-pub const REG = switch (native_os) {
-    .linux => linux.REG,
-    .emscripten => emscripten.REG,
-    .freebsd => switch (builtin.cpu.arch) {
-        .aarch64 => struct {
-            pub const FP = 29;
-            pub const SP = 31;
-            pub const PC = 32;
-        },
-        .arm => struct {
-            pub const FP = 11;
-            pub const SP = 13;
-            pub const PC = 15;
-        },
-        .x86_64 => struct {
-            pub const RBP = 12;
-            pub const RIP = 21;
-            pub const RSP = 24;
-        },
-        else => struct {},
-    },
-    .solaris, .illumos => struct {
-        pub const R15 = 0;
-        pub const R14 = 1;
-        pub const R13 = 2;
-        pub const R12 = 3;
-        pub const R11 = 4;
-        pub const R10 = 5;
-        pub const R9 = 6;
-        pub const R8 = 7;
-        pub const RDI = 8;
-        pub const RSI = 9;
-        pub const RBP = 10;
-        pub const RBX = 11;
-        pub const RDX = 12;
-        pub const RCX = 13;
-        pub const RAX = 14;
-        pub const RIP = 17;
-        pub const RSP = 20;
-    },
-    .netbsd => switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be => struct {
-            pub const FP = 29;
-            pub const SP = 31;
-            pub const PC = 32;
-        },
-        .arm, .armeb => struct {
-            pub const FP = 11;
-            pub const SP = 13;
-            pub const PC = 15;
-        },
-        .x86 => struct {
-            pub const GS = 0;
-            pub const FS = 1;
-            pub const ES = 2;
-            pub const DS = 3;
-            pub const EDI = 4;
-            pub const ESI = 5;
-            pub const EBP = 6;
-            pub const ESP = 7;
-            pub const EBX = 8;
-            pub const EDX = 9;
-            pub const ECX = 10;
-            pub const EAX = 11;
-            pub const TRAPNO = 12;
-            pub const ERR = 13;
-            pub const EIP = 14;
-            pub const CS = 15;
-            pub const EFL = 16;
-            pub const UESP = 17;
-            pub const SS = 18;
-        },
-        .x86_64 => struct {
-            pub const RDI = 0;
-            pub const RSI = 1;
-            pub const RDX = 2;
-            pub const RCX = 3;
-            pub const R8 = 4;
-            pub const R9 = 5;
-            pub const R10 = 6;
-            pub const R11 = 7;
-            pub const R12 = 8;
-            pub const R13 = 9;
-            pub const R14 = 10;
-            pub const R15 = 11;
-            pub const RBP = 12;
-            pub const RBX = 13;
-            pub const RAX = 14;
-            pub const GS = 15;
-            pub const FS = 16;
-            pub const ES = 17;
-            pub const DS = 18;
-            pub const TRAPNO = 19;
-            pub const ERR = 20;
-            pub const RIP = 21;
-            pub const CS = 22;
-            pub const RFLAGS = 23;
-            pub const RSP = 24;
-            pub const SS = 25;
-        },
-        else => struct {},
-    },
-    else => struct {},
-};
 pub const RLIM = switch (native_os) {
     .linux => linux.RLIM,
     .emscripten => emscripten.RLIM,
@@ -2632,6 +2528,8 @@ pub const _SC = if (builtin.abi.isAndroid()) enum(c_int) {
     .solaris, .illumos => enum(c_int) {
         PAGESIZE = 11,
         NPROCESSORS_ONLN = 15,
+        SIGRT_MIN = 40,
+        SIGRT_MAX = 41,
     },
     // https://github.com/SerenityOS/serenity/blob/1dfc9e2df39dd23f1de92530677c845aae4345f2/Kernel/API/POSIX/unistd.h#L36-L52
     .serenity => enum(c_int) {
@@ -4553,7 +4451,7 @@ pub const rusage = switch (native_os) {
 pub const siginfo_t = switch (native_os) {
     .linux => linux.siginfo_t,
     .emscripten => emscripten.siginfo_t,
-    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         signo: c_int,
         errno: c_int,
         code: c_int,
@@ -5879,6 +5777,20 @@ pub const MSG = switch (native_os) {
         pub const CMSG_CLOFORK = 0x2000;
         pub const FBLOCKING = 0x10000;
         pub const FNONBLOCKING = 0x20000;
+    },
+    .solaris, .illumos => struct {
+        pub const OOB = 0x0001;
+        pub const PEEK = 0x0002;
+        pub const DONTROUTE = 0x0004;
+        pub const EOR = 0x0008;
+        pub const CTRUNC = 0x0010;
+        pub const TRUNC = 0x0020;
+        pub const WAITALL = 0x0040;
+        pub const DONTWAIT = 0x0080;
+        pub const NOTIFICATION = 0x0100;
+        pub const NOSIGNAL = 0x0200;
+        pub const CMSG_CLOEXEC = 0x1000;
+        pub const CMSG_CLOFORK = 0x2000;
     },
     else => void,
 };
@@ -10402,7 +10314,7 @@ pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_
 
 pub const arc4random_buf = switch (native_os) {
     .linux => if (builtin.abi.isAndroid()) private.arc4random_buf else {},
-    .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .serenity, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
+    .dragonfly, .netbsd, .freebsd, .solaris, .illumos, .openbsd, .serenity, .macos, .ios, .tvos, .watchos, .visionos => private.arc4random_buf,
     else => {},
 };
 pub const getentropy = switch (native_os) {
@@ -10579,6 +10491,7 @@ pub fn sigrtmin() u8 {
     return switch (native_os) {
         .freebsd => 65,
         .netbsd => 33,
+        .solaris, .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MIN))),
         else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin()))),
     };
 }
@@ -10588,6 +10501,7 @@ pub fn sigrtmax() u8 {
     return switch (native_os) {
         .freebsd => 126,
         .netbsd => 63,
+        .solaris, .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MAX))),
         else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax()))),
     };
 }
@@ -10817,7 +10731,9 @@ pub extern "c" fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) c_int;
 pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
 pub extern "c" fn getuid() uid_t;
+pub extern "c" fn getgid() gid_t;
 pub extern "c" fn geteuid() uid_t;
+pub extern "c" fn getegid() gid_t;
 pub extern "c" fn getresuid(ruid: *uid_t, euid: *uid_t, suid: *uid_t) c_int;
 pub extern "c" fn getresgid(rgid: *gid_t, egid: *gid_t, sgid: *gid_t) c_int;
 
@@ -11084,7 +11000,6 @@ pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
 pub const ctid_t = solaris.ctid_t;
 pub const file_obj = solaris.file_obj;
-pub const fpregset_t = solaris.fpregset_t;
 pub const id_t = solaris.id_t;
 pub const lif_ifinfo_req = solaris.lif_ifinfo_req;
 pub const lif_nd_req = solaris.lif_nd_req;

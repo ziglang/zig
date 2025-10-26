@@ -81,44 +81,89 @@ pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]cons
 }
 
 pub const can_unwind: bool = s: {
+    // The DWARF code can't deal with ILP32 ABIs yet: https://github.com/ziglang/zig/issues/25447
+    switch (builtin.target.abi) {
+        .gnuabin32,
+        .muslabin32,
+        .gnux32,
+        .muslx32,
+        => break :s false,
+        else => {},
+    }
+
     // Notably, we are yet to support unwinding on ARM. There, unwinding is not done through
     // `.eh_frame`, but instead with the `.ARM.exidx` section, which has a different format.
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
+        // Not supported yet: arm
+        .haiku => &.{
+            .aarch64,
+            .m68k,
+            .riscv64,
+            .x86,
+            .x86_64,
+        },
+        // Not supported yet: arm/armeb/thumb/thumbeb, xtensa/xtensaeb
         .linux => &.{
             .aarch64,
             .aarch64_be,
+            .arc,
+            .csky,
             .loongarch64,
+            .m68k,
+            .mips,
+            .mipsel,
+            .mips64,
+            .mips64el,
+            .or1k,
             .riscv32,
             .riscv64,
             .s390x,
             .x86,
             .x86_64,
         },
+        .serenity => &.{
+            .aarch64,
+            .x86_64,
+            .riscv64,
+        },
+
+        .dragonfly => &.{
+            .x86_64,
+        },
+        // Not supported yet: arm
+        .freebsd => &.{
+            .aarch64,
+            .riscv64,
+            .x86_64,
+        },
+        // Not supported yet: arm/armeb, mips64/mips64el
         .netbsd => &.{
             .aarch64,
             .aarch64_be,
+            .m68k,
+            .mips,
+            .mipsel,
             .x86,
             .x86_64,
         },
-        .freebsd => &.{
-            .x86_64,
-            .aarch64,
-        },
+        // Not supported yet: arm
         .openbsd => &.{
+            .aarch64,
+            .mips64,
+            .mips64el,
+            .riscv64,
+            .x86,
+            .x86_64,
+        },
+
+        .illumos => &.{
+            .x86,
             .x86_64,
         },
         .solaris => &.{
             .x86_64,
         },
-        .illumos => &.{
-            .x86,
-            .x86_64,
-        },
-        .serenity => &.{
-            .x86_64,
-            .aarch64,
-            .riscv64,
-        },
+
         else => unreachable,
     };
     for (archs) |a| {
