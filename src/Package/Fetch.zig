@@ -1133,7 +1133,8 @@ fn initHttpResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer:
     const status = response.head.status;
 
     if (@intFromEnum(status) >= 500 or status == .too_many_requests or status == .not_found) {
-        if (parseRetryAfter(response) catch null) |delay_sec| {
+        var iter = response.head.iterateHeaders();
+        if (parseRetryAfter(&iter) catch null) |delay_sec| {
             // Set max by dividing and multiplying again, because Retry-After
             // header value needs to be u32, and could be obsurdly large, and
             // we do not want to multiply that large number by 1000 in case of
@@ -1162,9 +1163,8 @@ fn initHttpResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer:
 ///
 /// For more information, see the MDN documentation:
 /// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After
-fn parseRetryAfter(response: *const std.http.Client.Response) !?u32 {
-    var iter = response.head.iterateHeaders();
-    const retry_after: []const u8 = while (iter.next()) |header| {
+fn parseRetryAfter(header_iter: *std.http.HeaderIterator) !?u32 {
+    const retry_after: []const u8 = while (header_iter.next()) |header| {
         if (ascii.eqlIgnoreCase(header.name, "retry-after")) {
             break header.value;
         }
@@ -2428,10 +2428,58 @@ test "retries the correct number of times" {
     try std.testing.expectEqual(retry.max_retries, retry.cur_retries);
 }
 
+test "parse Retry-After header" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const alloc = arena.allocator();
+    defer arena.deinit();
+    {
+        var iter = try mockRetryAfterHeaderFactory(alloc, "6");
+        const result = try parseRetryAfter(&iter);
+        try std.testing.expectEqual(6, result.?);
+    }
+    {
+        var iter = try mockRetryAfterHeaderFactory(alloc, "12345");
+        const result = try parseRetryAfter(&iter);
+        try std.testing.expectEqual(12345, result.?);
+    }
+    {
+        // anything in the past should return `null`
+        var iter = try mockRetryAfterHeaderFactory(alloc, "Wed, 21 Oct 1970 07:28:00 GMT");
+        const result = try parseRetryAfter(&iter);
+        try std.testing.expectEqual(null, result);
+    }
+    {
+        // anything in the future should return `null` (this will fail in 100 years)
+        const future_time = "Wed, 21 Oct 2125 16:19:10 GMT";
+        const future_epoc_seconds = 4916737150;
+        const seconds_from_now = future_epoc_seconds - std.time.timestamp();
+        var iter = try mockRetryAfterHeaderFactory(alloc, future_time);
+        const result = try parseRetryAfter(&iter);
+        // The time between us calling `std.time.timestamp()` here in this test and when it's called in the
+        // `parseRetryAfter` function could be significant enough that they don't match. So we want approx values here.
+        try std.testing.expect(result.? + 5 > seconds_from_now);
+        try std.testing.expect(result.? - 5 < seconds_from_now);
+    }
+    {
+        // returns error on invalid header
+        var iter = try mockRetryAfterHeaderFactory(alloc, "Not a timestamp");
+        try std.testing.expectError(error.InvalidHeaderValueLength, parseRetryAfter(&iter));
+    }
+    {
+        // returns null on missing header
+        var iter = std.http.HeaderIterator.init("HTTP/1.1 599 NOT-OK\r\n\r\n");
+        try std.testing.expectEqual(null, try parseRetryAfter(&iter));
+    }
+}
+
 fn testFnToCallWithRetries(r: *Retry, is_spurious_error: bool) !void {
     // set to 1 ms so the unit test doesn't take forever
     r.retry_delay_override_ms = 1;
     return if (is_spurious_error) error.MaybeSpurious else error.NonSpurious;
+}
+
+fn mockRetryAfterHeaderFactory(alloc: std.mem.Allocator, time: []const u8) !std.http.HeaderIterator {
+    return std.http.HeaderIterator.init(try std.fmt.allocPrint(alloc, "HTTP/1.1 599 NOT-OK\r\nRetry-After:{s}\r\n", .{time}));
 }
 
 fn saveEmbedFile(comptime tarball_name: []const u8, dir: fs.Dir) !void {
