@@ -489,9 +489,11 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             return true;
         },
         WindowsPath.Kind.Drive => {
+            if (p1.len == 0 or p2.len == 0) return false;
             return ascii.toUpper(p1[0]) == ascii.toUpper(p2[0]);
         },
         WindowsPath.Kind.NetworkShare => {
+            if (p1.len == 0 or p2.len == 0) return false;
             const sep1 = p1[0];
             const sep2 = p2[0];
 
@@ -565,6 +567,8 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
                 } else {
                     continue;
                 }
+            } else if (drive_kind != WindowsPath.Kind.None) {
+                correct_disk_designator = true;
             }
             if (!correct_disk_designator) {
                 continue;
@@ -581,13 +585,13 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
     defer result.deinit();
 
     const disk_designator_len: usize = l: {
-        if (!have_abs_path) break :l 0;
         switch (drive_kind) {
             .Drive => {
                 try result.appendSlice(disk_designator);
                 break :l disk_designator.len;
             },
             .NetworkShare => {
+                if (!have_abs_path) break :l 0;
                 var it = mem.tokenizeAny(u8, paths[first_index], "/\\");
                 const server_name = it.next().?;
                 const other_name = it.next().?;
@@ -601,6 +605,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
                 break :l result.items.len;
             },
             .None => {
+                if (!have_abs_path) break :l 0;
                 break :l 1;
             },
         }
@@ -614,8 +619,9 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
 
         if (parsed.kind != .None) {
             if (parsed.kind == drive_kind) {
-                const dd = result.items[0..disk_designator_len];
-                correct_disk_designator = compareDiskDesignators(drive_kind, dd, parsed.disk_designator);
+                // const dd = result.items[0..disk_designator_len];
+                // correct_disk_designator = compareDiskDesignators(drive_kind, dd, parsed.disk_designator);
+                correct_disk_designator = compareDiskDesignators(drive_kind, disk_designator, parsed.disk_designator);
             } else {
                 continue;
             }
@@ -643,7 +649,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
                     result.items.len -= 1;
                     if (end_with_sep or result.items.len == 0) break;
                 }
-            } else if (!have_abs_path and result.items.len == 0) {
+            } else if (!have_abs_path and result.items.len == disk_designator_len) {
                 try result.appendSlice(component);
             } else {
                 try result.ensureUnusedCapacity(1 + component.len);
@@ -804,6 +810,8 @@ test resolveWindows {
 
     // Keep relative paths relative.
     try testResolveWindows(&[_][]const u8{"a/b"}, "a\\b");
+    // Drive-relative path as first argument.
+    try testResolveWindows(&[_][]const u8{ "c:foo", "bar" }, "C:foo\\bar");
 }
 
 test resolvePosix {
