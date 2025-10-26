@@ -619,8 +619,6 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
 
         if (parsed.kind != .None) {
             if (parsed.kind == drive_kind) {
-                // const dd = result.items[0..disk_designator_len];
-                // correct_disk_designator = compareDiskDesignators(drive_kind, dd, parsed.disk_designator);
                 correct_disk_designator = compareDiskDesignators(drive_kind, disk_designator, parsed.disk_designator);
             } else {
                 continue;
@@ -812,6 +810,13 @@ test resolveWindows {
     try testResolveWindows(&[_][]const u8{"a/b"}, "a\\b");
     // Drive-relative path as first argument.
     try testResolveWindows(&[_][]const u8{ "c:foo", "bar" }, "C:foo\\bar");
+
+    try testResolveWindows(&[_][]const u8{ "c:foo", "c:\\bar" }, "C:\\bar");
+    try testResolveWindows(&[_][]const u8{ "c:/foo", "\\bar" }, "C:\\bar");
+    try testResolveWindows(&[_][]const u8{ "c:foo", "\\bar" }, "C:\\bar");
+    try testResolveWindows(&[_][]const u8{ "c:relative", "\\server", "relative" }, "C:\\server\\relative");
+    try testResolveWindows(&[_][]const u8{ "relative", "c:/absolute", "relative" }, "C:\\absolute\\relative");
+    try testResolveWindows(&[_][]const u8{ "relative", "c:/absolute", "//server" }, "C:\\absolute\\server");
 }
 
 test resolvePosix {
