@@ -6864,8 +6864,11 @@ fn addCommonCCArgs(
                 },
             }
 
-            // Homebrew targets without LLVM support; use communities's preferred macros.
             switch (target.os.tag) {
+                // LLVM doesn't distinguish between Solaris and illumos, but the illumos GCC fork
+                // defines this macro.
+                .illumos => try argv.append("__illumos__"),
+                // Homebrew targets without LLVM support; use communities's preferred macros.
                 .@"3ds" => try argv.append("-D__3DS__"),
                 .vita => try argv.append("-D__vita__"),
                 else => {},
