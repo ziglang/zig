@@ -1539,7 +1539,6 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
         .netbsd,
         .openbsd,
         .haiku,
-        .solaris,
         .illumos,
         .serenity,
         => posixGetUserInfo(name),

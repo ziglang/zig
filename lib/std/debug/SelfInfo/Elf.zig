@@ -160,9 +160,6 @@ pub const can_unwind: bool = s: {
             .x86,
             .x86_64,
         },
-        .solaris => &.{
-            .x86_64,
-        },
 
         else => unreachable,
     };

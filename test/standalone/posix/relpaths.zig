@@ -50,7 +50,7 @@ fn test_symlink(a: std.mem.Allocator, tmp: std.testing.TmpDir) !void {
 
 fn test_link(tmp: std.testing.TmpDir) !void {
     switch (builtin.target.os.tag) {
-        .linux, .solaris, .illumos => {},
+        .linux, .illumos => {},
         else => return,
     }
 
