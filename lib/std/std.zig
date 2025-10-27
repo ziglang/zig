@@ -144,7 +144,6 @@ pub const Options = struct {
 
     crypto_fork_safety: bool = true,
 
-    keep_sig_poll: bool = false,
     keep_sig_io: bool = false,
 
     /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option

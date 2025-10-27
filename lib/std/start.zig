@@ -771,9 +771,6 @@ fn maybeIgnoreSignals() void {
     if (@hasField(posix.SIG, "IO") and !std.options.keep_sig_io)
         posix.sigaction(.IO, &act, null);
 
-    if (@hasField(posix.SIG, "POLL") and !std.options.keep_sig_poll)
-        posix.sigaction(.POLL, &act, null);
-
     if (@hasField(posix.SIG, "PIPE") and !std.options.keep_sig_pipe)
         posix.sigaction(.PIPE, &act, null);
 }
