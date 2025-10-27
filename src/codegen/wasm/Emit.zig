@@ -188,8 +188,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 .fromInterned(fn_info.return_type),
                 target,
             ).?;
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call_indirect));
             if (is_obj) {
+                code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call_indirect));
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .type_index = func_ty_index },
@@ -198,7 +198,19 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                const index: Wasm.Flush.FuncTypeIndex = .fromTypeIndex(func_ty_index, &wasm.flush_buffer);
+                const index: Wasm.Flush.FuncTypeIndex = @enumFromInt(wasm.flush_buffer.func_types.getIndex(func_ty_index) orelse {
+                    // In this case we tried to call a function pointer for
+                    // which the type signature does not match any function
+                    // body or function import in the entire wasm executable.
+                    //
+                    // Since there is no way to create a reference to a
+                    // function without it being in the function table or
+                    // import table, this instruction is unreachable.
+                    code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.@"unreachable"));
+                    inst += 1;
+                    continue :loop tags[inst];
+                });
+                code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call_indirect));
                 writeUleb128(code, @intFromEnum(index));
             }
             writeUleb128(code, @as(u32, 0)); // table index
