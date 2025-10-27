@@ -19168,8 +19168,8 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         if (inst_data.size != .one) {
             return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
         }
-    } else if (inst_data.size == .many and elem_ty.zigTypeTag(zcu) == .@"opaque") {
-        return sema.fail(block, elem_ty_src, "unknown-length pointer to opaque not allowed", .{});
+    } else if (inst_data.size != .one and elem_ty.zigTypeTag(zcu) == .@"opaque") {
+        return sema.fail(block, elem_ty_src, "indexable pointer to opaque type '{f}' not allowed", .{elem_ty.fmt(pt)});
     } else if (inst_data.size == .c) {
         if (!try sema.validateExternType(elem_ty, .other)) {
             const msg = msg: {
@@ -19182,9 +19182,6 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
-        }
-        if (elem_ty.zigTypeTag(zcu) == .@"opaque") {
-            return sema.fail(block, elem_ty_src, "C pointers cannot point to opaque types", .{});
         }
     }
 
@@ -20674,8 +20671,8 @@ fn zirReify(
                 if (ptr_size != .one) {
                     return sema.fail(block, src, "function pointers must be single pointers", .{});
                 }
-            } else if (ptr_size == .many and elem_ty.zigTypeTag(zcu) == .@"opaque") {
-                return sema.fail(block, src, "unknown-length pointer to opaque not allowed", .{});
+            } else if (ptr_size != .one and elem_ty.zigTypeTag(zcu) == .@"opaque") {
+                return sema.fail(block, src, "indexable pointer to opaque type '{f}' not allowed", .{elem_ty.fmt(pt)});
             } else if (ptr_size == .c) {
                 if (!try sema.validateExternType(elem_ty, .other)) {
                     const msg = msg: {
@@ -20688,9 +20685,6 @@ fn zirReify(
                         break :msg msg;
                     };
                     return sema.failWithOwnedErrorMsg(block, msg);
-                }
-                if (elem_ty.zigTypeTag(zcu) == .@"opaque") {
-                    return sema.fail(block, src, "C pointers cannot point to opaque types", .{});
                 }
             }
 
