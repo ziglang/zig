@@ -358,6 +358,7 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
     const major = version_components.first();
     const minor = version_components.next() orelse return error.InvalidVersion;
     const patch = version_components.next() orelse "0";
+    if (version_components.next() != null) return error.InvalidVersion;
 
     return .{
         .major = try parseVersionComponentFn(major),
