@@ -1040,11 +1040,14 @@ pub const Group = struct {
 
     /// Blocks until all tasks of the group finish.
     ///
-    /// Idempotent. Not threadsafe.
+    /// On success, further calls to `wait`, `waitUncancelable`, and `cancel`
+    /// do nothing.
+    ///
+    /// Not threadsafe.
     pub fn wait(g: *Group, io: Io) Cancelable!void {
         const token = g.token orelse return;
+        try io.vtable.groupWait(io.userdata, g, token);
         g.token = null;
-        return io.vtable.groupWait(io.userdata, g, token);
     }
 
     /// Equivalent to `wait` except uninterruptible.
