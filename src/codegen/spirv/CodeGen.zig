@@ -6145,7 +6145,7 @@ fn airWorkGroupSize(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     if (cg.liveness.isUnused(inst)) return null;
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const dimension = pl_op.payload;
-    return try cg.builtin3D(.u32, .workgroup_id, dimension, 0);
+    return try cg.builtin3D(.u32, .workgroup_size, dimension, 0);
 }
 
 fn airWorkGroupId(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
