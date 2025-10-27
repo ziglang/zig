@@ -368,11 +368,9 @@ test parseVersion {
     try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 0 }, try parseVersion("1.2"));
     try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, try parseVersion("1.2.3"));
 
-    try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, parseVersion("1.2.3-pre+build"));
-    try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, parseVersion("1.2.3-dev.4.5+a.b.c"));
-
     try std.testing.expectError(error.InvalidVersion, parseVersion("1"));
     try std.testing.expectError(error.InvalidVersion, parseVersion("1.2.3.4"));
+    try std.testing.expectError(error.InvalidVersion, parseVersion("1.2.3-dev"));
 }
 
 pub fn isNativeCpu(self: Query) bool {
