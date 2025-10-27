@@ -86,10 +86,8 @@ test "IPv6 address parse failures" {
 test "invalid but parseable IPv6 scope ids" {
     const io = testing.io;
 
-    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin() and builtin.os.tag != .windows) {
-        // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
-        // TODO Make this test pass on other operating systems.
-        return error.SkipZigTest;
+    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
+        return error.SkipZigTest; // TODO
     }
 
     try testing.expectError(error.InterfaceNotFound, net.IpAddress.resolveIp6(io, "ff01::fb%123s45678901234", 0));
