@@ -269,6 +269,7 @@ pub fn connectMany(
     var lookup_buffer: [32]HostName.LookupResult = undefined;
     var lookup_queue: Io.Queue(LookupResult) = .init(&lookup_buffer);
     var group: Io.Group = .init;
+    defer group.cancel(io);
 
     group.async(io, lookup, .{ host_name, io, &lookup_queue, .{
         .port = port,
