@@ -604,7 +604,7 @@ pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
         @compileError("32 arguments max are supported per format call");
     }
 
-    @setEvalBranchQuota(fmt.len * 1000);
+    @setEvalBranchQuota(@as(comptime_int, fmt.len) * 1000); // NOTE: We're upcasting as 16-bit usize overflows.
     comptime var arg_state: std.fmt.ArgState = .{ .args_len = fields_info.len };
     comptime var i = 0;
     comptime var literal: []const u8 = "";
