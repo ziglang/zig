@@ -223,6 +223,13 @@ pub const CallingConvention = union(enum(u8)) {
     x86_vectorcall: CommonOptions,
     x86_interrupt: CommonOptions,
 
+    // Calling conventions for the `x86_16` architecture.
+
+    x86_16_cdecl: CommonOptions,
+    x86_16_stdcall: CommonOptions,
+    x86_16_regparmcall: CommonOptions,
+    x86_16_interrupt: CommonOptions,
+
     // Calling conventions for the `aarch64` and `aarch64_be` architectures.
     aarch64_aapcs: CommonOptions,
     aarch64_aapcs_darwin: CommonOptions,
@@ -522,6 +529,10 @@ pub const AddressSpace = enum(u5) {
     gs,
     fs,
     ss,
+
+    // x86_16 extra address spaces.
+    /// Allows addressing the entire address space by storing both segment and offset.
+    far,
 
     // GPU address spaces.
     global,
