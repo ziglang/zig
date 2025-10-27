@@ -5047,7 +5047,7 @@ fn statFromLinux(stx: *const std.os.linux.Statx) Io.File.Stat {
     };
 }
 
-fn statFromPosix(st: *const std.posix.Stat) Io.File.Stat {
+fn statFromPosix(st: *const posix.Stat) Io.File.Stat {
     const atime = st.atime();
     const mtime = st.mtime();
     const ctime = st.ctime();
@@ -5056,20 +5056,20 @@ fn statFromPosix(st: *const std.posix.Stat) Io.File.Stat {
         .size = @bitCast(st.size),
         .mode = st.mode,
         .kind = k: {
-            const m = st.mode & std.posix.S.IFMT;
+            const m = st.mode & posix.S.IFMT;
             switch (m) {
-                std.posix.S.IFBLK => break :k .block_device,
-                std.posix.S.IFCHR => break :k .character_device,
-                std.posix.S.IFDIR => break :k .directory,
-                std.posix.S.IFIFO => break :k .named_pipe,
-                std.posix.S.IFLNK => break :k .sym_link,
-                std.posix.S.IFREG => break :k .file,
-                std.posix.S.IFSOCK => break :k .unix_domain_socket,
+                posix.S.IFBLK => break :k .block_device,
+                posix.S.IFCHR => break :k .character_device,
+                posix.S.IFDIR => break :k .directory,
+                posix.S.IFIFO => break :k .named_pipe,
+                posix.S.IFLNK => break :k .sym_link,
+                posix.S.IFREG => break :k .file,
+                posix.S.IFSOCK => break :k .unix_domain_socket,
                 else => {},
             }
             if (native_os == .illumos) switch (m) {
-                std.posix.S.IFDOOR => break :k .door,
-                std.posix.S.IFPORT => break :k .event_port,
+                posix.S.IFDOOR => break :k .door,
+                posix.S.IFPORT => break :k .event_port,
                 else => {},
             };
 
@@ -5101,11 +5101,11 @@ fn statFromWasi(st: *const std.os.wasi.filestat_t) Io.File.Stat {
     };
 }
 
-fn timestampFromPosix(timespec: *const std.posix.timespec) Io.Timestamp {
+fn timestampFromPosix(timespec: *const posix.timespec) Io.Timestamp {
     return .{ .nanoseconds = @intCast(@as(i128, timespec.sec) * std.time.ns_per_s + timespec.nsec) };
 }
 
-fn timestampToPosix(nanoseconds: i96) std.posix.timespec {
+fn timestampToPosix(nanoseconds: i96) posix.timespec {
     return .{
         .sec = @intCast(@divFloor(nanoseconds, std.time.ns_per_s)),
         .nsec = @intCast(@mod(nanoseconds, std.time.ns_per_s)),
@@ -5503,44 +5503,7 @@ const darwin_supports_ulock_wait2 = builtin.os.version_range.semver.min.major >=
 fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Cancelable!void {
     @branchHint(.cold);
 
-    if (native_os == .linux) {
-        const linux = std.os.linux;
-        try t.checkCancel();
-        const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
-        if (is_debug) switch (linux.E.init(rc)) {
-            .SUCCESS => {}, // notified by `wake()`
-            .INTR => {}, // gives caller a chance to check cancellation
-            .AGAIN => {}, // ptr.* != expect
-            .INVAL => {}, // possibly timeout overflow
-            .TIMEDOUT => unreachable,
-            .FAULT => unreachable, // ptr was invalid
-            else => unreachable,
-        };
-    } else if (native_os.isDarwin()) {
-        const c = std.c;
-        const flags: c.UL = .{
-            .op = .COMPARE_AND_WAIT,
-            .NO_ERRNO = true,
-        };
-        try t.checkCancel();
-        const status = if (darwin_supports_ulock_wait2)
-            c.__ulock_wait2(flags, ptr, expect, 0, 0)
-        else
-            c.__ulock_wait(flags, ptr, expect, 0);
-
-        if (status >= 0) return;
-
-        if (is_debug) switch (@as(c.E, @enumFromInt(-status))) {
-            // Wait was interrupted by the OS or other spurious signalling.
-            .INTR => {},
-            // Address of the futex was paged out. This is unlikely, but possible in theory, and
-            // pthread/libdispatch on darwin bother to handle it. In this case we'll return
-            // without waiting, but the caller should retry anyway.
-            .FAULT => {},
-            .TIMEDOUT => unreachable,
-            else => unreachable,
-        };
-    } else if (builtin.cpu.arch.isWasm()) {
+    if (builtin.cpu.arch.isWasm()) {
         comptime assert(builtin.cpu.has(.wasm, .atomics));
         try t.checkCancel();
         const timeout: i64 = -1;
@@ -5562,57 +5525,74 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
             2 => assert(!is_debug), // timeout
             else => assert(!is_debug),
         }
-    } else if (is_windows) {
-        try t.checkCancel();
-        switch (windows.ntdll.RtlWaitOnAddress(ptr, &expect, @sizeOf(@TypeOf(expect)), null)) {
-            .SUCCESS => {},
-            .CANCELLED => return error.Canceled,
-            else => recoverableOsBugDetected(),
-        }
-    } else {
-        @compileError("TODO");
+    } else switch (native_os) {
+        .linux => {
+            const linux = std.os.linux;
+            try t.checkCancel();
+            const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
+            if (is_debug) switch (linux.E.init(rc)) {
+                .SUCCESS => {}, // notified by `wake()`
+                .INTR => {}, // gives caller a chance to check cancellation
+                .AGAIN => {}, // ptr.* != expect
+                .INVAL => {}, // possibly timeout overflow
+                .TIMEDOUT => unreachable,
+                .FAULT => unreachable, // ptr was invalid
+                else => unreachable,
+            };
+        },
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+            const c = std.c;
+            const flags: c.UL = .{
+                .op = .COMPARE_AND_WAIT,
+                .NO_ERRNO = true,
+            };
+            try t.checkCancel();
+            const status = if (darwin_supports_ulock_wait2)
+                c.__ulock_wait2(flags, ptr, expect, 0, 0)
+            else
+                c.__ulock_wait(flags, ptr, expect, 0);
+
+            if (status >= 0) return;
+
+            if (is_debug) switch (@as(c.E, @enumFromInt(-status))) {
+                .INTR => {}, // spurious wake
+                // Address of the futex was paged out. This is unlikely, but possible in theory, and
+                // pthread/libdispatch on darwin bother to handle it. In this case we'll return
+                // without waiting, but the caller should retry anyway.
+                .FAULT => {},
+                .TIMEDOUT => unreachable,
+                else => unreachable,
+            };
+        },
+        .windows => {
+            try t.checkCancel();
+            switch (windows.ntdll.RtlWaitOnAddress(ptr, &expect, @sizeOf(@TypeOf(expect)), null)) {
+                .SUCCESS => {},
+                .CANCELLED => return error.Canceled,
+                else => recoverableOsBugDetected(),
+            }
+        },
+        .freebsd => {
+            const flags = @intFromEnum(std.c.UMTX_OP.WAIT_UINT_PRIVATE);
+            try t.checkCancel();
+            const rc = std.c._umtx_op(@intFromPtr(&ptr.raw), flags, @as(c_ulong, expect), 0, 0);
+            if (is_debug) switch (posix.errno(rc)) {
+                .SUCCESS => {},
+                .FAULT => unreachable, // one of the args points to invalid memory
+                .INVAL => unreachable, // arguments should be correct
+                .TIMEDOUT => unreachable, // no timeout provided
+                .INTR => {}, // spurious wake
+                else => unreachable,
+            };
+        },
+        else => @compileError("unimplemented: futexWait"),
     }
 }
 
 pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) void {
     @branchHint(.cold);
 
-    if (native_os == .linux) {
-        const linux = std.os.linux;
-        const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
-        if (is_debug) switch (linux.E.init(rc)) {
-            .SUCCESS => {}, // notified by `wake()`
-            .INTR => {}, // gives caller a chance to check cancellation
-            .AGAIN => {}, // ptr.* != expect
-            .INVAL => {}, // possibly timeout overflow
-            .TIMEDOUT => unreachable,
-            .FAULT => unreachable, // ptr was invalid
-            else => unreachable,
-        };
-    } else if (native_os.isDarwin()) {
-        const c = std.c;
-        const flags: c.UL = .{
-            .op = .COMPARE_AND_WAIT,
-            .NO_ERRNO = true,
-        };
-        const status = if (darwin_supports_ulock_wait2)
-            c.__ulock_wait2(flags, ptr, expect, 0, 0)
-        else
-            c.__ulock_wait(flags, ptr, expect, 0);
-
-        if (status >= 0) return;
-
-        if (is_debug) switch (@as(c.E, @enumFromInt(-status))) {
-            // Wait was interrupted by the OS or other spurious signalling.
-            .INTR => {},
-            // Address of the futex was paged out. This is unlikely, but possible in theory, and
-            // pthread/libdispatch on darwin bother to handle it. In this case we'll return
-            // without waiting, but the caller should retry anyway.
-            .FAULT => {},
-            .TIMEDOUT => unreachable,
-            else => unreachable,
-        };
-    } else if (builtin.cpu.arch.isWasm()) {
+    if (builtin.cpu.arch.isWasm()) {
         comptime assert(builtin.cpu.has(.wasm, .atomics));
         const timeout: i64 = -1;
         const signed_expect: i32 = @bitCast(expect);
@@ -5630,16 +5610,66 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
         switch (result) {
             0 => {}, // ok
             1 => {}, // expected != loaded
-            2 => assert(!is_debug), // timeout
-            else => assert(!is_debug),
-        }
-    } else if (is_windows) {
-        switch (windows.ntdll.RtlWaitOnAddress(ptr, &expect, @sizeOf(@TypeOf(expect)), null)) {
-            .SUCCESS, .CANCELLED => {},
+            2 => recoverableOsBugDetected(), // timeout
             else => recoverableOsBugDetected(),
         }
-    } else {
-        @compileError("TODO");
+    } else switch (native_os) {
+        .linux => {
+            const linux = std.os.linux;
+            const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
+            switch (linux.E.init(rc)) {
+                .SUCCESS => {}, // notified by `wake()`
+                .INTR => {}, // gives caller a chance to check cancellation
+                .AGAIN => {}, // ptr.* != expect
+                .INVAL => {}, // possibly timeout overflow
+                .TIMEDOUT => recoverableOsBugDetected(),
+                .FAULT => recoverableOsBugDetected(), // ptr was invalid
+                else => recoverableOsBugDetected(),
+            }
+        },
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+            const c = std.c;
+            const flags: c.UL = .{
+                .op = .COMPARE_AND_WAIT,
+                .NO_ERRNO = true,
+            };
+            const status = if (darwin_supports_ulock_wait2)
+                c.__ulock_wait2(flags, ptr, expect, 0, 0)
+            else
+                c.__ulock_wait(flags, ptr, expect, 0);
+
+            if (status >= 0) return;
+
+            switch (@as(c.E, @enumFromInt(-status))) {
+                // Wait was interrupted by the OS or other spurious signalling.
+                .INTR => {},
+                // Address of the futex was paged out. This is unlikely, but possible in theory, and
+                // pthread/libdispatch on darwin bother to handle it. In this case we'll return
+                // without waiting, but the caller should retry anyway.
+                .FAULT => {},
+                .TIMEDOUT => recoverableOsBugDetected(),
+                else => recoverableOsBugDetected(),
+            }
+        },
+        .windows => {
+            switch (windows.ntdll.RtlWaitOnAddress(ptr, &expect, @sizeOf(@TypeOf(expect)), null)) {
+                .SUCCESS, .CANCELLED => {},
+                else => recoverableOsBugDetected(),
+            }
+        },
+        .freebsd => {
+            const flags = @intFromEnum(std.c.UMTX_OP.WAIT_UINT_PRIVATE);
+            const rc = std.c._umtx_op(@intFromPtr(&ptr.raw), flags, @as(c_ulong, expect), 0, 0);
+            switch (posix.errno(rc)) {
+                .SUCCESS => {},
+                .INTR => {}, // spurious wake
+                .FAULT => recoverableOsBugDetected(), // one of the args points to invalid memory
+                .INVAL => recoverableOsBugDetected(), // arguments should be correct
+                .TIMEDOUT => recoverableOsBugDetected(), // no timeout provided
+                else => recoverableOsBugDetected(),
+            }
+        },
+        else => @compileError("unimplemented: futexWaitUncancelable"),
     }
 }
 
@@ -5668,38 +5698,7 @@ pub fn futexWaitDurationUncancelable(ptr: *const std.atomic.Value(u32), expect: 
 pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
     @branchHint(.cold);
 
-    if (native_os == .linux) {
-        const linux = std.os.linux;
-        const rc = linux.futex_3arg(
-            &ptr.raw,
-            .{ .cmd = .WAKE, .private = true },
-            @min(max_waiters, std.math.maxInt(i32)),
-        );
-        if (is_debug) switch (linux.E.init(rc)) {
-            .SUCCESS => {}, // successful wake up
-            .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
-            .FAULT => {}, // pointer became invalid while doing the wake
-            else => unreachable,
-        };
-    } else if (native_os.isDarwin()) {
-        const c = std.c;
-        const flags: c.UL = .{
-            .op = .COMPARE_AND_WAIT,
-            .NO_ERRNO = true,
-            .WAKE_ALL = max_waiters > 1,
-        };
-        while (true) {
-            const status = c.__ulock_wake(flags, ptr, 0);
-            if (status >= 0) return;
-            switch (@as(c.E, @enumFromInt(-status))) {
-                .INTR, .CANCELED => continue, // spurious wake()
-                .FAULT => assert(!is_debug), // __ulock_wake doesn't generate EFAULT according to darwin pthread_cond_t
-                .NOENT => return, // nothing was woken up
-                .ALREADY => assert(!is_debug), // only for UL.Op.WAKE_THREAD
-                else => assert(!is_debug),
-            }
-        }
-    } else if (builtin.cpu.arch.isWasm()) {
+    if (builtin.cpu.arch.isWasm()) {
         comptime assert(builtin.cpu.has(.wasm, .atomics));
         assert(max_waiters != 0);
         const woken_count = asm volatile (
@@ -5712,14 +5711,63 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
               [waiters] "r" (max_waiters),
         );
         _ = woken_count; // can be 0 when linker flag 'shared-memory' is not enabled
-    } else if (is_windows) {
-        assert(max_waiters != 0);
-        switch (max_waiters) {
-            1 => windows.ntdll.RtlWakeAddressSingle(ptr),
-            else => windows.ntdll.RtlWakeAddressAll(ptr),
-        }
-    } else {
-        @compileError("TODO");
+    } else switch (native_os) {
+        .linux => {
+            const linux = std.os.linux;
+            const rc = linux.futex_3arg(
+                &ptr.raw,
+                .{ .cmd = .WAKE, .private = true },
+                @min(max_waiters, std.math.maxInt(i32)),
+            );
+            if (is_debug) switch (linux.E.init(rc)) {
+                .SUCCESS => {}, // successful wake up
+                .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
+                .FAULT => {}, // pointer became invalid while doing the wake
+                else => unreachable, // deadlock due to operating system bug
+            };
+        },
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+            const c = std.c;
+            const flags: c.UL = .{
+                .op = .COMPARE_AND_WAIT,
+                .NO_ERRNO = true,
+                .WAKE_ALL = max_waiters > 1,
+            };
+            while (true) {
+                const status = c.__ulock_wake(flags, ptr, 0);
+                if (status >= 0) return;
+                switch (@as(c.E, @enumFromInt(-status))) {
+                    .INTR, .CANCELED => continue, // spurious wake()
+                    .FAULT => unreachable, // __ulock_wake doesn't generate EFAULT according to darwin pthread_cond_t
+                    .NOENT => return, // nothing was woken up
+                    .ALREADY => unreachable, // only for UL.Op.WAKE_THREAD
+                    else => unreachable, // deadlock due to operating system bug
+                }
+            }
+        },
+        .windows => {
+            assert(max_waiters != 0);
+            switch (max_waiters) {
+                1 => windows.ntdll.RtlWakeAddressSingle(ptr),
+                else => windows.ntdll.RtlWakeAddressAll(ptr),
+            }
+        },
+        .freebsd => {
+            const rc = std.c._umtx_op(
+                @intFromPtr(&ptr.raw),
+                @intFromEnum(std.c.UMTX_OP.WAKE_PRIVATE),
+                @as(c_ulong, max_waiters),
+                0, // there is no timeout struct
+                0, // there is no timeout struct pointer
+            );
+            switch (posix.errno(rc)) {
+                .SUCCESS => {},
+                .FAULT => {}, // it's ok if the ptr doesn't point to valid memory
+                .INVAL => unreachable, // arguments should be correct
+                else => unreachable, // deadlock due to operating system bug
+            }
+        },
+        else => @compileError("unimplemented: futexWake"),
     }
 }
 
