@@ -5006,6 +5006,9 @@ fn clockToPosix(clock: Io.Clock) posix.clockid_t {
         },
         .boot => switch (native_os) {
             .macos, .ios, .watchos, .tvos => posix.CLOCK.MONOTONIC_RAW,
+            // On freebsd derivatives, use MONOTONIC_FAST as currently there's
+            // no precision tradeoff.
+            .freebsd, .dragonfly => posix.CLOCK.MONOTONIC_FAST,
             else => posix.CLOCK.BOOTTIME,
         },
         .cpu_process => posix.CLOCK.PROCESS_CPUTIME_ID,
