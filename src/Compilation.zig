@@ -5384,7 +5384,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
                 //.simd128,
                 // .tail_call, not supported by Safari
             }),
-        }) catch unreachable,
+        }, undefined) catch unreachable,
 
         .is_native_os = false,
         .is_native_abi = false,

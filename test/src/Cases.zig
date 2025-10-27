@@ -455,8 +455,8 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     options: CaseTestOptions,
 ) void {
-    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
-        std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
+    const host = b.resolveTargetQuery(.{}).result;
+
     const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.cases.items) |case| {
@@ -972,10 +972,10 @@ const TestManifest = struct {
     }
 };
 
-fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
+fn resolveTargetQuery(ctx: *Cases, query: std.Target.Query) std.Build.ResolvedTarget {
     return .{
         .query = query,
-        .target = std.zig.system.resolveTargetQuery(query) catch
+        .target = std.zig.system.resolveTargetQuery(query, ctx.arena) catch
             @panic("unable to resolve target query"),
     };
 }

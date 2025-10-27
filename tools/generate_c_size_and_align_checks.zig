@@ -40,7 +40,11 @@ pub fn main() !void {
     }
 
     const query = try std.Target.Query.parse(.{ .arch_os_abi = args[1] });
-    const target = try std.zig.system.resolveTargetQuery(query);
+
+    var target_buffer: [128]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&target_buffer);
+
+    const target = try std.zig.system.resolveTargetQuery(query, fba.allocator());
 
     var buffer: [2000]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);

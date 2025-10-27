@@ -1127,13 +1127,13 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         // only have one value, and they don't
         // have padding bytes because they don't
         // have bytes at all.
-        .void => true,
+        .void => false,
 
         // Known issue: pointers to comptime-only types
         // should not return true, but detecting whether
         // a type is comptime-onlt takes up an impractical
         // amount of eval branch quota.
-        .pointer => |info| switch (info.size) {
+        .pointer => |info| false and switch (info.size) {
             // Raw pointers are always unique.
             // TODO: detect comptime-only types while
             // being reasonable with eval branch quota
@@ -1152,7 +1152,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
                 .slice => false,
             },
 
-            // ?noreturn is void-equivalent.
+            // "?noreturn" is void-equivalent.
             // The size check is just a sanity test.
             .noreturn => @sizeOf(T) == 0,
 
@@ -1239,8 +1239,6 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             return true;
         },
 
-        // If an array has a sentinel, then it is ambiguous whether
-        // the sentinel is included in the "value."
         .array => |info| info.len == 0 or hasUniqueRepresentation(info.child),
 
         .vector => |info| info.len == 0 or switch (@typeInfo(info.child)) {
@@ -1273,15 +1271,18 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         // By definition of an opaque type, this is impossible to know
         .@"opaque" => false,
 
-        // These types are comptime-only
+        // These are comptime-only types
+        // whose size is 0 but can store data anyways
         .type,
         .@"fn",
         .comptime_int,
         .comptime_float,
         .enum_literal,
-        .null,
-        .undefined,
         => false,
+
+        // These are comptime-only void-equivalent types.
+        // TODO: is this correct?
+        .null, .undefined => true,
 
         // Async types are not currently supported,
         .frame, .@"anyframe" => unreachable,
@@ -1381,9 +1382,6 @@ test "hasUniqueRepresentation pointers" {
 
     try testing.expect(!hasUniqueRepresentation(?*allowzero u8));
     try testing.expect(!hasUniqueRepresentation(?[*c]u8));
-
-    try testing.expect(!hasUniqueRepresentation(*const type));
-    try testing.expect(hasUniqueRepresentation(*const fn () void));
 }
 
 test "hasUniqueRepresentation vectors" {

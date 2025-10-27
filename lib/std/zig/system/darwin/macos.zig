@@ -8,7 +8,7 @@ const Target = std.Target;
 
 /// Detect macOS version.
 /// `target_os` is not modified in case of error.
-pub fn detect(target_os: *Target.Os) !void {
+pub fn detect(target_os: *Target.Os, arena: mem.Allocator) !void {
     // Drop use of osproductversion sysctl because:
     //   1. only available 10.13.4 High Sierra and later
     //   2. when used from a binary built against < SDK 11.0 it returns 10.16 and masks Big Sur 11.x version
@@ -58,6 +58,14 @@ pub fn detect(target_os: *Target.Os) !void {
             if (parseSystemVersion(bytes)) |ver| {
                 // never return non-canonical `10.(16+)`
                 if (!(ver.major == 10 and ver.minor >= 16)) {
+                    // take ownership of "pre" and "build" fields if present
+                    var owned_ver = ver;
+                    if (owned_ver.pre) |pre| {
+                        owned_ver.pre = try arena.dupe(u8, pre);
+                    }
+                    if (owned_ver.build) |build| {
+                        owned_ver.build = try arena.dupe(u8, build);
+                    }
                     target_os.version_range.semver.min = ver;
                     target_os.version_range.semver.max = ver;
                     return;

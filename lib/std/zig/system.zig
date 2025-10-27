@@ -199,14 +199,16 @@ pub const DetectError = error{
     OSVersionDetectionFail,
     Unexpected,
     ProcessNotFound,
-};
+} || mem.Allocator.Error;
 
 /// Given a `Target.Query`, which specifies in detail which parts of the
 /// target should be detected natively, which should be standard or default,
 /// and which are provided explicitly, this function resolves the native
 /// components by detecting the native system, and then resolves
 /// standard/default parts relative to that.
-pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
+/// Only allocates memory when `query.os_tag == null`. When this is not the case,
+/// it is safe to pass in `undefined` for arena.
+pub fn resolveTargetQuery(query: Target.Query, arena: mem.Allocator) DetectError!Target {
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
     const query_cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
@@ -221,8 +223,15 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
                 if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.linux.range.min = ver;
-                    os.version_range.linux.range.max = ver;
+                    var owned_ver = ver;
+                    if (owned_ver.pre) |pre| {
+                        owned_ver.pre = try arena.dupe(u8, pre);
+                    }
+                    if (owned_ver.build) |build| {
+                        owned_ver.build = try arena.dupe(u8, build);
+                    }
+                    os.version_range.linux.range.min = owned_ver;
+                    os.version_range.linux.range.max = owned_ver;
                 } else |err| switch (err) {
                     error.Overflow => {},
                     error.InvalidVersion => {},
@@ -232,8 +241,15 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.semver.min = ver;
-                    os.version_range.semver.max = ver;
+                    var owned_ver = ver;
+                    if (owned_ver.pre) |pre| {
+                        owned_ver.pre = try arena.dupe(pre);
+                    }
+                    if (owned_ver.build) |build| {
+                        owned_ver.build = try arena.dupe(build);
+                    }
+                    os.version_range.semver.min = owned_ver;
+                    os.version_range.semver.max = owned_ver;
                 } else |err| switch (err) {
                     error.Overflow => {},
                     error.InvalidVersion => {},
@@ -326,6 +342,8 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 len += 1;
 
                 if (std.SemanticVersion.parse(buf[0..len])) |ver| {
+                    assert(ver.build == null);
+                    assert(ver.pre == null);
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |_| {

@@ -2,7 +2,7 @@ pub const Adler32 = @import("hash/Adler32.zig");
 
 const auto_hash = @import("hash/auto_hash.zig");
 pub const autoHash = auto_hash.autoHash;
-pub const autoHashStrat = auto_hash.hash;
+pub const autoHashStrat = auto_hash.autoHashStrat;
 pub const Strategy = auto_hash.HashStrategy;
 
 // pub for polynomials + generic crc32 construction

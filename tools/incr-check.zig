@@ -86,7 +86,7 @@ pub fn main() !void {
     else
         null;
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try std.zig.system.resolveTargetQuery(.{}, arena);
 
     const debug_log_verbose = debug_zcu or debug_dwarf or debug_link;
 
@@ -683,7 +683,7 @@ const Case = struct {
                         },
                     }) catch fatal("line {d}: invalid target query '{s}'", .{ line_n, query });
 
-                    const resolved = try std.zig.system.resolveTargetQuery(parsed_query);
+                    const resolved = try std.zig.system.resolveTargetQuery(parsed_query, arena);
 
                     try targets.append(arena, .{
                         .query = query,

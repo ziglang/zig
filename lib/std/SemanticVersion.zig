@@ -150,6 +150,20 @@ fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
     };
 }
 
+pub fn hash(self: Version, hasher: anytype) void {
+    std.hash.autoHash(hasher, [3]usize{
+        self.major,
+        self.minor,
+        self.patch,
+    });
+    if (self.pre) |pre| {
+        hasher.update(pre);
+    }
+    if (self.build) |build| {
+        hasher.update(build);
+    }
+}
+
 pub fn format(self: Version, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
     if (self.pre) |pre| try w.print("-{s}", .{pre});
@@ -294,7 +308,9 @@ test "zig_version" {
     // An approximate Zig build that predates this test.
     const older_version: Version = .{ .major = 0, .minor = 8, .patch = 0, .pre = "dev.874" };
 
+    // The version of Zig used to compile this test.
+    const current_version: Version = @import("builtin").zig_version;
+
     // Simulated compatibility check using Zig version.
-    const compatible = comptime @import("builtin").zig_version.order(older_version) == .gt;
-    if (!compatible) @compileError("zig_version test failed");
+    try comptime expect(current_version.order(older_version) == .gt);
 }

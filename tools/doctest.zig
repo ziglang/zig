@@ -123,7 +123,7 @@ fn printOutput(
     var env_map = try process.getEnvMap(arena);
     try env_map.put("CLICOLOR_FORCE", "1");
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try std.zig.system.resolveTargetQuery(.{}, arena);
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
     const print = std.debug.print;
 
@@ -238,7 +238,7 @@ fn printOutput(
             const target_query = try std.Target.Query.parse(.{
                 .arch_os_abi = code.target_str orelse "native",
             });
-            const target = try std.zig.system.resolveTargetQuery(target_query);
+            const target = try std.zig.system.resolveTargetQuery(target_query, arena);
 
             const path_to_exe = try std.fmt.allocPrint(arena, "./{s}{s}", .{
                 code_name, target.exeFileExt(),
@@ -318,6 +318,7 @@ fn printOutput(
                 });
                 const target = try std.zig.system.resolveTargetQuery(
                     target_query,
+                    arena,
                 );
                 switch (getExternalExecutor(&host, &target, .{
                     .link_libc = code.link_libc,

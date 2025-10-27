@@ -532,21 +532,23 @@ const Arg = struct {
 test Options {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+    var arena_inst = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_inst.deinit();
+
+    const arena = arena_inst.allocator();
 
     var graph: std.Build.Graph = .{
-        .arena = arena.allocator(),
+        .arena = arena,
         .cache = .{
-            .gpa = arena.allocator(),
+            .gpa = arena,
             .manifest_dir = std.fs.cwd(),
         },
         .zig_exe = "test",
-        .env_map = std.process.EnvMap.init(arena.allocator()),
+        .env_map = std.process.EnvMap.init(arena),
         .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
         .host = .{
             .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(.{}),
+            .result = try std.zig.system.resolveTargetQuery(.{}, arena),
         },
         .zig_lib_directory = std.Build.Cache.Directory.cwd(),
         .time_report = false,
@@ -679,5 +681,5 @@ test Options {
         \\
     , options.contents.items);
 
-    _ = try std.zig.Ast.parse(arena.allocator(), try options.contents.toOwnedSliceSentinel(arena.allocator(), 0), .zig);
+    _ = try std.zig.Ast.parse(arena, try options.contents.toOwnedSliceSentinel(arena, 0), .zig);
 }

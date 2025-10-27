@@ -730,6 +730,35 @@ pub const Os = struct {
             => |field| @field(os.version_range, @tagName(field)).isAtLeast(ver),
         };
     }
+
+    pub fn hash(os: Os, hasher: anytype) void {
+        std.hash.autoHash(hasher, os.tag);
+        sw: switch (os.versionRange()) {
+            .none => {},
+
+            .windows => |windows_range| std.hash.autoHash(hasher, windows_range),
+
+            .linux => |android_glibc_semvers| {
+                std.hash.autoHash(hasher, android_glibc_semvers.android);
+                continue :sw .{
+                    .hurd = .{
+                        .range = android_glibc_semvers.range,
+                        .glibc = android_glibc_semvers.glibc,
+                    },
+                };
+            },
+
+            .hurd => |glibc_semvers| {
+                glibc_semvers.glibc.hash(hasher);
+                continue :sw .{ .semver = glibc_semvers.range };
+            },
+
+            .semver => |semvers| {
+                semvers.min.hash(hasher);
+                semvers.max.hash(hasher);
+            },
+        }
+    }
 };
 
 pub const aarch64 = @import("Target/aarch64.zig");
@@ -3718,6 +3747,17 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv32, .spirv64 => .spirv_device,
     };
+}
+
+pub fn hash(target: *const Target, hasher: anytype) void {
+    target.os.hash(hasher);
+
+    hasher.update(target.dynamic_linker.get() orelse &.{});
+
+    std.hash.autoHashStrat(hasher, target.cpu, .shallow);
+
+    std.hash.autoHash(hasher, target.abi);
+    std.hash.autoHash(hasher, target.ofmt);
 }
 
 const Target = @This();
