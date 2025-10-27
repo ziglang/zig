@@ -1603,7 +1603,8 @@ fn abiSizeInnerOptional(
 }
 
 pub fn ptrAbiAlignment(target: *const Target) Alignment {
-    // ez80 has 24-bit pointers, and the alignment of pointers is 1.
+    // The eZ80 has 24-bit pointers, which aren't exact powers of two, tripping
+    // the assert. The alignment of eZ80 pointers is 1, so we bypass the check.
     if (target.cpu.arch == .ez80) return .fromByteUnits(1);
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
