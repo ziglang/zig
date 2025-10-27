@@ -339,6 +339,7 @@ pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
 /// Similar to `SemanticVersion.parse`, but with following changes:
 /// * Leading zeroes are allowed.
 /// * Supports only 2 or 3 version components (major, minor, [patch]). If 3-rd component is omitted, it will be 0.
+/// * Prerelease and build components are ignored
 pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticVersion {
     const parseVersionComponentFn = (struct {
         fn parseVersionComponentInner(component: []const u8) error{ InvalidVersion, Overflow }!usize {
@@ -348,11 +349,16 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
             };
         }
     }).parseVersionComponentInner;
-    var version_components = mem.splitScalar(u8, ver, '.');
+
+    const end = mem.findAny(u8, ver, "+-");
+    const ver_stripped = ver[0 .. end orelse ver.len];
+
+    var version_components = mem.splitScalar(u8, ver_stripped, '.');
+
     const major = version_components.first();
     const minor = version_components.next() orelse return error.InvalidVersion;
     const patch = version_components.next() orelse "0";
-    if (version_components.next() != null) return error.InvalidVersion;
+
     return .{
         .major = try parseVersionComponentFn(major),
         .minor = try parseVersionComponentFn(minor),
@@ -361,9 +367,13 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
 }
 
 test parseVersion {
-    try std.testing.expectError(error.InvalidVersion, parseVersion("1"));
     try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 0 }, try parseVersion("1.2"));
     try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, try parseVersion("1.2.3"));
+
+    try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, parseVersion("1.2.3-pre+build"));
+    try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, parseVersion("1.2.3-dev.4.5+a.b.c"));
+
+    try std.testing.expectError(error.InvalidVersion, parseVersion("1"));
     try std.testing.expectError(error.InvalidVersion, parseVersion("1.2.3.4"));
 }
 
