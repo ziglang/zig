@@ -543,6 +543,34 @@ fn detectNativeCpuAndFeatures(io: Io, cpu_arch: Target.Cpu.Arch, os: Target.Os, 
     return null;
 }
 
+pub const AbiAndDynamicLinkerFromFileError = error{
+    Canceled,
+    AccessDenied,
+    Unexpected,
+    Unseekable,
+    ReadFailed,
+    EndOfStream,
+    NameTooLong,
+    StaticElfFile,
+    InvalidElfFile,
+    StreamTooLong,
+    Timeout,
+    SymLinkLoop,
+    SystemResources,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    ProcessNotFound,
+    IsDir,
+    WouldBlock,
+    InputOutput,
+    BrokenPipe,
+    ConnectionResetByPeer,
+    NotOpenForReading,
+    SocketUnconnected,
+    LockViolation,
+    FileSystem,
+};
+
 fn abiAndDynamicLinkerFromFile(
     file_reader: *Io.File.Reader,
     header: *const elf.Header,
@@ -550,7 +578,7 @@ fn abiAndDynamicLinkerFromFile(
     os: Target.Os,
     ld_info_list: []const LdInfo,
     query: Target.Query,
-) !Target {
+) AbiAndDynamicLinkerFromFileError!Target {
     const io = file_reader.io;
     var result: Target = .{
         .cpu = cpu,
