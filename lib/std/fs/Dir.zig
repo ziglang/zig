@@ -2015,6 +2015,68 @@ pub fn atomicSymLink(
 
 pub const ReadLinkError = posix.ReadLinkError;
 
+/// Same as `Dir.statFile`, but if the path points to a symbolic link,
+/// it will stat the link rather than the file it points to.
+/// Note: if the target is a regular file, this function has the same
+/// behaviour that `Dir.statFile`
+pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
+    if (native_os == .windows) {
+        const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+        return self.statLinkW(path_w.span());
+    }
+    const sub_path_c = try posix.toPosixPath(sub_path);
+    return self.statLinkZ(&sub_path_c);
+}
+
+/// Same as `Dir.statLink`
+pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
+    if (native_os == .windows) {
+        const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
+        return self.statLinkW(path_w.span());
+    }
+    if (native_os == .linux) {
+        var stx = std.mem.zeroes(linux.Statx);
+
+        const rc = linux.statx(
+            self.fd,
+            sub_path_c,
+            linux.AT.NO_AUTOMOUNT | linux.AT.SYMLINK_NOFOLLOW,
+            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            &stx,
+        );
+
+        return switch (linux.E.init(rc)) {
+            .SUCCESS => Stat.fromLinux(stx),
+            .ACCES => error.AccessDenied,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .LOOP => error.SymLinkLoop,
+            .NAMETOOLONG => error.NameTooLong,
+            .NOENT, .NOTDIR => error.FileNotFound,
+            .NOMEM => error.SystemResources,
+            else => |err| posix.unexpectedErrno(err),
+        };
+    }
+    const st = try posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW);
+    return Stat.fromPosix(st);
+}
+
+/// Windows only. Same as `Dir.statLink`
+pub fn statLinkW(self: Dir, sub_path_w: []const u16) StatFileError!Stat {
+    const file = File{
+        .handle = try windows.OpenFile(sub_path_w, .{
+            .dir = self.fd,
+            .access_mask = windows.GENERIC_READ,
+            .creation = windows.FILE_OPEN,
+            .follow_symlinks = false,
+            .filter = .any,
+        }),
+    };
+    defer file.close();
+    return file.stat();
+}
+
 /// Read value of a symbolic link.
 /// The return value is a slice of `buffer`, from index `0`.
 /// Asserts that the path parameter has no null bytes.
@@ -2797,9 +2859,9 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
-        var file = try self.openFile(sub_path, .{});
+        const file = try self.openFile(sub_path, .{});
         defer file.close();
-        return file.stat();
+        return try file.stat();
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
