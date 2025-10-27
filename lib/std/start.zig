@@ -784,9 +784,19 @@ fn maybeIgnoreSignals() void {
         .mask = posix.sigemptyset(),
         .flags = 0,
     };
-    if (!std.options.keep_sigpoll) posix.sigaction(posix.SIG.POLL, &act, null);
-    if (@hasField(posix.SIG, "IO") and posix.SIG.IO != posix.SIG.POLL and !std.options.keep_sigio) posix.sigaction(posix.SIG.IO, &act, null);
-    if (!std.options.keep_sigpipe) posix.sigaction(posix.SIG.PIPE, &act, null);
+
+    if (@hasField(posix.SIG, "POLL") and !std.options.keep_sigpoll)
+        posix.sigaction(posix.SIG.POLL, &act, null);
+
+    if (@hasField(posix.SIG, "IO") and
+        (!@hasField(posix.SIG, "POLL") or posix.SIG.IO != posix.SIG.POLL) and
+        !std.options.keep_sigio)
+    {
+        posix.sigaction(posix.SIG.IO, &act, null);
+    }
+
+    if (@hasField(posix.SIG, "PIPE") and !std.options.keep_sigpipe)
+        posix.sigaction(posix.SIG.PIPE, &act, null);
 }
 
 fn noopSigHandler(_: i32) callconv(.c) void {}
