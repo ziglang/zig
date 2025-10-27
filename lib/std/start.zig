@@ -758,45 +758,24 @@ pub fn call_wWinMain() std.os.windows.INT {
 }
 
 fn maybeIgnoreSignals() void {
-    switch (builtin.os.tag) {
-        .linux,
-        .plan9,
-        .illumos,
-        .netbsd,
-        .openbsd,
-        .haiku,
-        .macos,
-        .ios,
-        .watchos,
-        .tvos,
-        .visionos,
-        .dragonfly,
-        .freebsd,
-        .serenity,
-        => {},
-        else => return,
-    }
     const posix = std.posix;
+    if (posix.Sigaction == void) return;
     const act: posix.Sigaction = .{
-        // Set handler to a noop function instead of `SIG.IGN` to prevent
+        // Set handler to a noop function instead of `IGN` to prevent
         // leaking signal disposition to a child process.
         .handler = .{ .handler = noopSigHandler },
         .mask = posix.sigemptyset(),
         .flags = 0,
     };
 
-    if (@hasField(posix.SIG, "POLL") and !std.options.keep_sigpoll)
-        posix.sigaction(posix.SIG.POLL, &act, null);
+    if (@hasField(posix.SIG, "IO") and !std.options.keep_sig_io)
+        posix.sigaction(.IO, &act, null);
 
-    if (@hasField(posix.SIG, "IO") and
-        (!@hasField(posix.SIG, "POLL") or posix.SIG.IO != posix.SIG.POLL) and
-        !std.options.keep_sigio)
-    {
-        posix.sigaction(posix.SIG.IO, &act, null);
-    }
+    if (@hasField(posix.SIG, "POLL") and !std.options.keep_sig_poll)
+        posix.sigaction(.POLL, &act, null);
 
-    if (@hasField(posix.SIG, "PIPE") and !std.options.keep_sigpipe)
-        posix.sigaction(posix.SIG.PIPE, &act, null);
+    if (@hasField(posix.SIG, "PIPE") and !std.options.keep_sig_pipe)
+        posix.sigaction(.PIPE, &act, null);
 }
 
-fn noopSigHandler(_: i32) callconv(.c) void {}
+fn noopSigHandler(_: std.posix.SIG) callconv(.c) void {}

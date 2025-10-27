@@ -493,7 +493,7 @@ pub fn start(options: Options) Node {
                     .mask = posix.sigemptyset(),
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
-                posix.sigaction(posix.SIG.WINCH, &act, null);
+                posix.sigaction(.WINCH, &act, null);
             }
 
             if (switch (global_progress.terminal_mode) {
@@ -1535,10 +1535,10 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+fn handleSigWinch(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
-    assert(sig == posix.SIG.WINCH);
+    assert(sig == .WINCH);
     global_progress.redraw_event.set();
 }
 

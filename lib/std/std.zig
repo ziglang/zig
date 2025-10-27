@@ -144,8 +144,8 @@ pub const Options = struct {
 
     crypto_fork_safety: bool = true,
 
-    keep_sigpoll: bool = false,
-    keep_sigio: bool = false,
+    keep_sig_poll: bool = false,
+    keep_sig_io: bool = false,
 
     /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
     /// to `true` to prevent that.
@@ -158,7 +158,7 @@ pub const Options = struct {
     /// cases it's unclear why the process was terminated.  By capturing SIGPIPE instead, functions that
     /// write to broken pipes will return the EPIPE error (error.BrokenPipe) and the program can handle
     /// it like any other error.
-    keep_sigpipe: bool = false,
+    keep_sig_pipe: bool = false,
 
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.

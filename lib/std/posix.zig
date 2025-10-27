@@ -708,7 +708,7 @@ pub fn abort() noreturn {
         // for user-defined signal handlers that want to restore some state in
         // some program sections and crash in others.
         // So, the user-installed SIGABRT handler is run, if present.
-        raise(SIG.ABRT) catch {};
+        raise(.ABRT) catch {};
 
         // Disable all signal handlers.
         const filledset = linux.sigfillset();
@@ -728,17 +728,17 @@ pub fn abort() noreturn {
             .mask = sigemptyset(),
             .flags = 0,
         };
-        sigaction(SIG.ABRT, &sigact, null);
+        sigaction(.ABRT, &sigact, null);
 
-        _ = linux.tkill(linux.gettid(), SIG.ABRT);
+        _ = linux.tkill(linux.gettid(), .ABRT);
 
         var sigabrtmask = sigemptyset();
-        sigaddset(&sigabrtmask, SIG.ABRT);
+        sigaddset(&sigabrtmask, .ABRT);
         sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
 
         // Beyond this point should be unreachable.
         @as(*allowzero volatile u8, @ptrFromInt(0)).* = 0;
-        raise(SIG.KILL) catch {};
+        raise(.KILL) catch {};
         exit(127); // Pid 1 might not be signalled in some containers.
     }
     switch (native_os) {
@@ -749,7 +749,7 @@ pub fn abort() noreturn {
 
 pub const RaiseError = UnexpectedError;
 
-pub fn raise(sig: u8) RaiseError!void {
+pub fn raise(sig: SIG) RaiseError!void {
     if (builtin.link_libc) {
         switch (errno(system.raise(sig))) {
             .SUCCESS => return,
@@ -777,7 +777,7 @@ pub fn raise(sig: u8) RaiseError!void {
 
 pub const KillError = error{ ProcessNotFound, PermissionDenied } || UnexpectedError;
 
-pub fn kill(pid: pid_t, sig: u8) KillError!void {
+pub fn kill(pid: pid_t, sig: SIG) KillError!void {
     switch (errno(system.kill(pid, sig))) {
         .SUCCESS => return,
         .INVAL => unreachable, // invalid signal
@@ -5235,7 +5235,7 @@ pub fn sigemptyset() sigset_t {
     return system.sigemptyset();
 }
 
-pub fn sigaddset(set: *sigset_t, sig: u8) void {
+pub fn sigaddset(set: *sigset_t, sig: SIG) void {
     if (builtin.link_libc) {
         switch (errno(system.sigaddset(set, sig))) {
             .SUCCESS => return,
@@ -5245,7 +5245,7 @@ pub fn sigaddset(set: *sigset_t, sig: u8) void {
     system.sigaddset(set, sig);
 }
 
-pub fn sigdelset(set: *sigset_t, sig: u8) void {
+pub fn sigdelset(set: *sigset_t, sig: SIG) void {
     if (builtin.link_libc) {
         switch (errno(system.sigdelset(set, sig))) {
             .SUCCESS => return,
@@ -5255,7 +5255,7 @@ pub fn sigdelset(set: *sigset_t, sig: u8) void {
     system.sigdelset(set, sig);
 }
 
-pub fn sigismember(set: *const sigset_t, sig: u8) bool {
+pub fn sigismember(set: *const sigset_t, sig: SIG) bool {
     if (builtin.link_libc) {
         const rc = system.sigismember(set, sig);
         switch (errno(rc)) {
@@ -5267,7 +5267,7 @@ pub fn sigismember(set: *const sigset_t, sig: u8) bool {
 }
 
 /// Examine and change a signal action.
-pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) void {
+pub fn sigaction(sig: SIG, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) void {
     switch (errno(system.sigaction(sig, act, oact))) {
         .SUCCESS => return,
         // EINVAL means the signal is either invalid or some signal that cannot have its action

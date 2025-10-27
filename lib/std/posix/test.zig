@@ -536,14 +536,15 @@ test "sigset empty/full" {
 
     var set: posix.sigset_t = posix.sigemptyset();
     for (1..posix.NSIG) |i| {
-        try expectEqual(false, posix.sigismember(&set, @truncate(i)));
+        const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+        try expectEqual(false, posix.sigismember(&set, sig));
     }
 
     // The C library can reserve some (unnamed) signals, so can't check the full
     // NSIG set is defined, but just test a couple:
     set = posix.sigfillset();
-    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.CHLD)));
-    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.INT)));
+    try expectEqual(true, posix.sigismember(&set, .CHLD));
+    try expectEqual(true, posix.sigismember(&set, .INT));
 }
 
 // Some signals (i.e., 32 - 34 on glibc/musl) are not allowed to be added to a
@@ -564,25 +565,30 @@ test "sigset add/del" {
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
     for (1..posix.NSIG) |i| {
-        try expectEqual(false, posix.sigismember(&sigset, @truncate(i)));
+        const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+        try expectEqual(false, posix.sigismember(&sigset, sig));
     }
     for (1..posix.NSIG) |i| {
         if (!reserved_signo(i)) {
-            posix.sigaddset(&sigset, @truncate(i));
+            const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+            posix.sigaddset(&sigset, sig);
         }
     }
     for (1..posix.NSIG) |i| {
         if (!reserved_signo(i)) {
-            try expectEqual(true, posix.sigismember(&sigset, @truncate(i)));
+            const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+            try expectEqual(true, posix.sigismember(&sigset, sig));
         }
     }
     for (1..posix.NSIG) |i| {
         if (!reserved_signo(i)) {
-            posix.sigdelset(&sigset, @truncate(i));
+            const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+            posix.sigdelset(&sigset, sig);
         }
     }
     for (1..posix.NSIG) |i| {
-        try expectEqual(false, posix.sigismember(&sigset, @truncate(i)));
+        const sig = std.meta.intToEnum(posix.SIG, i) catch continue;
+        try expectEqual(false, posix.sigismember(&sigset, sig));
     }
 }
 

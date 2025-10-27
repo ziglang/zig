@@ -17,12 +17,12 @@ fn test_sigaction() !void {
         return; // https://github.com/ziglang/zig/issues/15381
     }
 
-    const test_signo = std.posix.SIG.URG; // URG only because it is ignored by default in debuggers
+    const test_signo: std.posix.SIG = .URG; // URG only because it is ignored by default in debuggers
 
     const S = struct {
         var handler_called_count: u32 = 0;
 
-        fn handler(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+        fn handler(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
             const info_sig = switch (native_os) {
@@ -80,20 +80,18 @@ fn test_sigaction() !void {
 }
 
 fn test_sigset_bits() !void {
-    const NO_SIG: i32 = 0;
-
     const S = struct {
-        var expected_sig: i32 = undefined;
-        var seen_sig: i32 = NO_SIG;
+        var expected_sig: std.posix.SIG = undefined;
+        var seen_sig: ?std.posix.SIG = null;
 
-        fn handler(sig: i32, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+        fn handler(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
             _ = ctx_ptr;
 
             const info_sig = switch (native_os) {
                 .netbsd => info.info.signo,
                 else => info.signo,
             };
-            if (seen_sig == NO_SIG and sig == expected_sig and sig == info_sig) {
+            if (seen_sig == null and sig == expected_sig and sig == info_sig) {
                 seen_sig = sig;
             }
         }
@@ -107,11 +105,9 @@ fn test_sigset_bits() !void {
     // big-endian), try sending a blocked signal to make sure the mask matches the
     // signal.  (Send URG and CHLD because they're ignored by default in the
     // debugger, vs. USR1 or other named signals)
-    inline for ([_]i32{ std.posix.SIG.URG, std.posix.SIG.CHLD, 62, 94, 126 }) |test_signo| {
-        if (test_signo >= std.posix.NSIG) continue;
-
+    inline for ([_]std.posix.SIG{ .URG, .CHLD }) |test_signo| {
         S.expected_sig = test_signo;
-        S.seen_sig = NO_SIG;
+        S.seen_sig = null;
 
         const sa: std.posix.Sigaction = .{
             .handler = .{ .sigaction = &S.handler },
@@ -135,14 +131,14 @@ fn test_sigset_bits() !void {
         switch (std.posix.errno(rc)) {
             .SUCCESS => {
                 // See that the signal is blocked, then unblocked
-                try std.testing.expectEqual(NO_SIG, S.seen_sig);
+                try std.testing.expectEqual(null, S.seen_sig);
                 std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &block_one, null);
                 try std.testing.expectEqual(test_signo, S.seen_sig);
             },
             .INVAL => {
                 // Signal won't get delviered.  Just clean up.
                 std.posix.sigprocmask(std.posix.SIG.UNBLOCK, &block_one, null);
-                try std.testing.expectEqual(NO_SIG, S.seen_sig);
+                try std.testing.expectEqual(null, S.seen_sig);
             },
             else => |errno| return std.posix.unexpectedErrno(errno),
         }

@@ -622,7 +622,7 @@ pub fn fork() usize {
     } else if (@hasField(SYS, "fork")) {
         return syscall0(.fork);
     } else {
-        return syscall2(.clone, SIG.CHLD, 0);
+        return syscall2(.clone, @intFromEnum(SIG.CHLD), 0);
     }
 }
 
@@ -1532,16 +1532,16 @@ pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
     return syscall3(.getrandom, @intFromPtr(buf), count, flags);
 }
 
-pub fn kill(pid: pid_t, sig: i32) usize {
-    return syscall2(.kill, @as(usize, @bitCast(@as(isize, pid))), @as(usize, @bitCast(@as(isize, sig))));
+pub fn kill(pid: pid_t, sig: SIG) usize {
+    return syscall2(.kill, @as(usize, @bitCast(@as(isize, pid))), @intFromEnum(sig));
 }
 
-pub fn tkill(tid: pid_t, sig: i32) usize {
-    return syscall2(.tkill, @as(usize, @bitCast(@as(isize, tid))), @as(usize, @bitCast(@as(isize, sig))));
+pub fn tkill(tid: pid_t, sig: SIG) usize {
+    return syscall2(.tkill, @as(usize, @bitCast(@as(isize, tid))), @intFromEnum(sig));
 }
 
-pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
-    return syscall3(.tgkill, @as(usize, @bitCast(@as(isize, tgid))), @as(usize, @bitCast(@as(isize, tid))), @as(usize, @bitCast(@as(isize, sig))));
+pub fn tgkill(tgid: pid_t, tid: pid_t, sig: SIG) usize {
+    return syscall3(.tgkill, @as(usize, @bitCast(@as(isize, tgid))), @as(usize, @bitCast(@as(isize, tid))), @intFromEnum(sig));
 }
 
 pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) usize {
@@ -1923,11 +1923,11 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
     return syscall4(.rt_sigprocmask, flags, @intFromPtr(set), @intFromPtr(oldset), NSIG / 8);
 }
 
-pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
-    assert(sig > 0);
-    assert(sig < NSIG);
-    assert(sig != SIG.KILL);
-    assert(sig != SIG.STOP);
+pub fn sigaction(sig: SIG, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
+    assert(@intFromEnum(sig) > 0);
+    assert(@intFromEnum(sig) < NSIG);
+    assert(sig != .KILL);
+    assert(sig != .STOP);
 
     var ksa: k_sigaction = undefined;
     var oldksa: k_sigaction = undefined;
@@ -1958,8 +1958,8 @@ pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
     const result = switch (native_arch) {
         // The sparc version of rt_sigaction needs the restorer function to be passed as an argument too.
-        .sparc, .sparc64 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @intFromPtr(ksa.restorer), mask_size),
-        else => syscall4(.rt_sigaction, sig, ksa_arg, oldksa_arg, mask_size),
+        .sparc, .sparc64 => syscall5(.rt_sigaction, @intFromEnum(sig), ksa_arg, oldksa_arg, @intFromPtr(ksa.restorer), mask_size),
+        else => syscall4(.rt_sigaction, @intFromEnum(sig), ksa_arg, oldksa_arg, mask_size),
     };
     if (E.init(result) != .SUCCESS) return result;
 
@@ -2009,27 +2009,27 @@ pub fn sigfillset() sigset_t {
     return [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
 }
 
-fn sigset_bit_index(sig: usize) struct { word: usize, mask: SigsetElement } {
-    assert(sig > 0);
-    assert(sig < NSIG);
-    const bit = sig - 1;
+fn sigset_bit_index(sig: SIG) struct { word: usize, mask: SigsetElement } {
+    assert(@intFromEnum(sig) > 0);
+    assert(@intFromEnum(sig) < NSIG);
+    const bit = @intFromEnum(sig) - 1;
     return .{
         .word = bit / @bitSizeOf(SigsetElement),
         .mask = @as(SigsetElement, 1) << @truncate(bit % @bitSizeOf(SigsetElement)),
     };
 }
 
-pub fn sigaddset(set: *sigset_t, sig: usize) void {
+pub fn sigaddset(set: *sigset_t, sig: SIG) void {
     const index = sigset_bit_index(sig);
     (set.*)[index.word] |= index.mask;
 }
 
-pub fn sigdelset(set: *sigset_t, sig: usize) void {
+pub fn sigdelset(set: *sigset_t, sig: SIG) void {
     const index = sigset_bit_index(sig);
     (set.*)[index.word] ^= index.mask;
 }
 
-pub fn sigismember(set: *const sigset_t, sig: usize) bool {
+pub fn sigismember(set: *const sigset_t, sig: SIG) bool {
     const index = sigset_bit_index(sig);
     return ((set.*)[index.word] & index.mask) != 0;
 }
@@ -2635,11 +2635,11 @@ pub fn pidfd_getfd(pidfd: fd_t, targetfd: fd_t, flags: u32) usize {
     );
 }
 
-pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) usize {
+pub fn pidfd_send_signal(pidfd: fd_t, sig: SIG, info: ?*siginfo_t, flags: u32) usize {
     return syscall4(
         .pidfd_send_signal,
         @as(usize, @bitCast(@as(isize, pidfd))),
-        @as(usize, @bitCast(@as(isize, sig))),
+        @intFromEnum(sig),
         @intFromPtr(info),
         flags,
     );
@@ -3736,136 +3736,138 @@ pub const SA = if (is_mips) struct {
     pub const RESTORER = 0x04000000;
 };
 
-pub const SIG = if (is_mips) struct {
+pub const SIG = if (is_mips) enum(u32) {
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
-    // https://github.com/torvalds/linux/blob/ca91b9500108d4cf083a635c2e11c884d5dd20ea/arch/mips/include/uapi/asm/signal.h#L25
-    pub const HUP = 1;
-    pub const INT = 2;
-    pub const QUIT = 3;
-    pub const ILL = 4;
-    pub const TRAP = 5;
-    pub const ABRT = 6;
-    pub const IOT = ABRT;
-    pub const EMT = 7;
-    pub const FPE = 8;
-    pub const KILL = 9;
-    pub const BUS = 10;
-    pub const SEGV = 11;
-    pub const SYS = 12;
-    pub const PIPE = 13;
-    pub const ALRM = 14;
-    pub const TERM = 15;
-    pub const USR1 = 16;
-    pub const USR2 = 17;
-    pub const CHLD = 18;
-    pub const PWR = 19;
-    pub const WINCH = 20;
-    pub const URG = 21;
-    pub const IO = 22;
-    pub const POLL = IO;
-    pub const STOP = 23;
-    pub const TSTP = 24;
-    pub const CONT = 25;
-    pub const TTIN = 26;
-    pub const TTOU = 27;
-    pub const VTALRM = 28;
-    pub const PROF = 29;
-    pub const XCPU = 30;
-    pub const XFZ = 31;
-
     pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
     pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
     pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
-} else if (is_sparc) struct {
+
+    pub const IOT: SIG = .ABRT;
+    pub const POLL: SIG = .IO;
+
+    // /arch/mips/include/uapi/asm/signal.h#L25
+    HUP = 1,
+    INT = 2,
+    QUIT = 3,
+    ILL = 4,
+    TRAP = 5,
+    ABRT = 6,
+    EMT = 7,
+    FPE = 8,
+    KILL = 9,
+    BUS = 10,
+    SEGV = 11,
+    SYS = 12,
+    PIPE = 13,
+    ALRM = 14,
+    TERM = 15,
+    USR1 = 16,
+    USR2 = 17,
+    CHLD = 18,
+    PWR = 19,
+    WINCH = 20,
+    URG = 21,
+    IO = 22,
+    STOP = 23,
+    TSTP = 24,
+    CONT = 25,
+    TTIN = 26,
+    TTOU = 27,
+    VTALRM = 28,
+    PROF = 29,
+    XCPU = 30,
+    XFZ = 31,
+} else if (is_sparc) enum(u32) {
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
     pub const SETMASK = 4;
 
-    pub const HUP = 1;
-    pub const INT = 2;
-    pub const QUIT = 3;
-    pub const ILL = 4;
-    pub const TRAP = 5;
-    pub const ABRT = 6;
-    pub const EMT = 7;
-    pub const FPE = 8;
-    pub const KILL = 9;
-    pub const BUS = 10;
-    pub const SEGV = 11;
-    pub const SYS = 12;
-    pub const PIPE = 13;
-    pub const ALRM = 14;
-    pub const TERM = 15;
-    pub const URG = 16;
-    pub const STOP = 17;
-    pub const TSTP = 18;
-    pub const CONT = 19;
-    pub const CHLD = 20;
-    pub const TTIN = 21;
-    pub const TTOU = 22;
-    pub const POLL = 23;
-    pub const XCPU = 24;
-    pub const XFSZ = 25;
-    pub const VTALRM = 26;
-    pub const PROF = 27;
-    pub const WINCH = 28;
-    pub const LOST = 29;
-    pub const USR1 = 30;
-    pub const USR2 = 31;
-    pub const IOT = ABRT;
-    pub const CLD = CHLD;
-    pub const PWR = LOST;
-    pub const IO = SIG.POLL;
-
     pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
     pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
     pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
-} else struct {
+
+    pub const IOT: SIG = .ABRT;
+    pub const CLD: SIG = .CHLD;
+    pub const PWR: SIG = .LOST;
+    pub const POLL: SIG = .IO;
+
+    HUP = 1,
+    INT = 2,
+    QUIT = 3,
+    ILL = 4,
+    TRAP = 5,
+    ABRT = 6,
+    EMT = 7,
+    FPE = 8,
+    KILL = 9,
+    BUS = 10,
+    SEGV = 11,
+    SYS = 12,
+    PIPE = 13,
+    ALRM = 14,
+    TERM = 15,
+    URG = 16,
+    STOP = 17,
+    TSTP = 18,
+    CONT = 19,
+    CHLD = 20,
+    TTIN = 21,
+    TTOU = 22,
+    IO = 23,
+    XCPU = 24,
+    XFSZ = 25,
+    VTALRM = 26,
+    PROF = 27,
+    WINCH = 28,
+    LOST = 29,
+    USR1 = 30,
+    USR2 = 31,
+} else enum(u32) {
     pub const BLOCK = 0;
     pub const UNBLOCK = 1;
     pub const SETMASK = 2;
 
-    pub const HUP = 1;
-    pub const INT = 2;
-    pub const QUIT = 3;
-    pub const ILL = 4;
-    pub const TRAP = 5;
-    pub const ABRT = 6;
-    pub const IOT = ABRT;
-    pub const BUS = 7;
-    pub const FPE = 8;
-    pub const KILL = 9;
-    pub const USR1 = 10;
-    pub const SEGV = 11;
-    pub const USR2 = 12;
-    pub const PIPE = 13;
-    pub const ALRM = 14;
-    pub const TERM = 15;
-    pub const STKFLT = 16;
-    pub const CHLD = 17;
-    pub const CONT = 18;
-    pub const STOP = 19;
-    pub const TSTP = 20;
-    pub const TTIN = 21;
-    pub const TTOU = 22;
-    pub const URG = 23;
-    pub const XCPU = 24;
-    pub const XFSZ = 25;
-    pub const VTALRM = 26;
-    pub const PROF = 27;
-    pub const WINCH = 28;
-    pub const IO = 29;
-    pub const POLL = 29;
-    pub const PWR = 30;
-    pub const SYS = 31;
-    pub const UNUSED = SIG.SYS;
-
     pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
     pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
     pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+
+    pub const POLL: SIG = .IO;
+    pub const IOT: SIG = .ABRT;
+
+    HUP = 1,
+    INT = 2,
+    QUIT = 3,
+    ILL = 4,
+    TRAP = 5,
+    ABRT = 6,
+    BUS = 7,
+    FPE = 8,
+    KILL = 9,
+    USR1 = 10,
+    SEGV = 11,
+    USR2 = 12,
+    PIPE = 13,
+    ALRM = 14,
+    TERM = 15,
+    STKFLT = 16,
+    CHLD = 17,
+    CONT = 18,
+    STOP = 19,
+    TSTP = 20,
+    TTIN = 21,
+    TTOU = 22,
+    URG = 23,
+    XCPU = 24,
+    XFSZ = 25,
+    VTALRM = 26,
+    PROF = 27,
+    WINCH = 28,
+    IO = 29,
+    PWR = 30,
+    SYS = 31,
 };
 
 pub const kernel_rwf = u32;
@@ -5786,7 +5788,7 @@ pub const TFD = switch (native_arch) {
 };
 
 const k_sigaction_funcs = struct {
-    const handler = ?*align(1) const fn (i32) callconv(.c) void;
+    const handler = ?*align(1) const fn (SIG) callconv(.c) void;
     const restorer = *const fn () callconv(.c) void;
 };
 
@@ -5817,8 +5819,8 @@ pub const k_sigaction = switch (native_arch) {
 ///
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+    pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+    pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -6260,14 +6262,14 @@ const siginfo_fields_union = extern union {
 
 pub const siginfo_t = if (is_mips)
     extern struct {
-        signo: i32,
+        signo: SIG,
         code: i32,
         errno: i32,
         fields: siginfo_fields_union,
     }
 else
     extern struct {
-        signo: i32,
+        signo: SIG,
         errno: i32,
         code: i32,
         fields: siginfo_fields_union,

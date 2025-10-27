@@ -1409,10 +1409,10 @@ pub fn maybeEnableSegfaultHandler() void {
 var windows_segfault_handle: ?windows.HANDLE = null;
 
 pub fn updateSegfaultHandler(act: ?*const posix.Sigaction) void {
-    posix.sigaction(posix.SIG.SEGV, act, null);
-    posix.sigaction(posix.SIG.ILL, act, null);
-    posix.sigaction(posix.SIG.BUS, act, null);
-    posix.sigaction(posix.SIG.FPE, act, null);
+    posix.sigaction(.SEGV, act, null);
+    posix.sigaction(.ILL, act, null);
+    posix.sigaction(.BUS, act, null);
+    posix.sigaction(.FPE, act, null);
 }
 
 /// Attaches a global handler for several signals which, when triggered, prints output to stderr
@@ -1457,7 +1457,7 @@ fn resetSegfaultHandler() void {
     updateSegfaultHandler(&act);
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
+fn handleSegfaultPosix(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
     if (use_trap_panic) @trap();
     const addr: ?usize, const name: []const u8 = info: {
         if (native_os == .linux and native_arch == .x86_64) {
@@ -1469,7 +1469,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
             // for example when reading/writing model-specific registers
             // by executing `rdmsr` or `wrmsr` in user-space (unprivileged mode).
             const SI_KERNEL = 0x80;
-            if (sig == posix.SIG.SEGV and info.code == SI_KERNEL) {
+            if (sig == .SEGV and info.code == SI_KERNEL) {
                 break :info .{ null, "General protection exception" };
             }
         }
@@ -1496,10 +1496,10 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
             else => comptime unreachable,
         };
         const name = switch (sig) {
-            posix.SIG.SEGV => "Segmentation fault",
-            posix.SIG.ILL => "Illegal instruction",
-            posix.SIG.BUS => "Bus error",
-            posix.SIG.FPE => "Arithmetic exception",
+            .SEGV => "Segmentation fault",
+            .ILL => "Illegal instruction",
+            .BUS => "Bus error",
+            .FPE => "Arithmetic exception",
             else => unreachable,
         };
         break :info .{ addr, name };

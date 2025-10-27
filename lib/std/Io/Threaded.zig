@@ -75,10 +75,10 @@ const Closure = struct {
             .none, .canceling => {},
             else => |tid| {
                 if (std.Thread.use_pthreads) {
-                    const rc = std.c.pthread_kill(tid.toThreadId(), posix.SIG.IO);
+                    const rc = std.c.pthread_kill(tid.toThreadId(), .IO);
                     if (is_debug) assert(rc == 0);
                 } else if (native_os == .linux) {
-                    _ = std.os.linux.tgkill(std.os.linux.getpid(), @bitCast(tid.toThreadId()), posix.SIG.IO);
+                    _ = std.os.linux.tgkill(std.os.linux.getpid(), @bitCast(tid.toThreadId()), .IO);
                 }
             },
         }
