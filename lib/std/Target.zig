@@ -27,6 +27,7 @@ pub const Os = struct {
         aix,
         haiku,
         hurd,
+        illumos,
         linux,
         plan9,
         rtems,
@@ -44,9 +45,6 @@ pub const Os = struct {
         tvos,
         visionos,
         watchos,
-
-        illumos,
-        solaris,
 
         windows,
         uefi,
@@ -96,10 +94,6 @@ pub const Os = struct {
                 .freebsd, .openbsd, .netbsd, .dragonfly => true,
                 else => false,
             };
-        }
-
-        pub inline fn isSolarish(tag: Tag) bool {
-            return tag == .solaris or tag == .illumos;
         }
 
         pub fn exeFileExt(tag: Tag, arch: Cpu.Arch) [:0]const u8 {
@@ -163,10 +157,9 @@ pub const Os = struct {
                 .managarm,
 
                 .haiku,
+                .illumos,
                 .plan9,
                 .serenity,
-
-                .illumos,
 
                 .ps3,
                 .ps4,
@@ -196,8 +189,6 @@ pub const Os = struct {
                 .tvos,
                 .visionos,
                 .watchos,
-
-                .solaris,
 
                 .uefi,
 
@@ -395,10 +386,9 @@ pub const Os = struct {
                 .managarm,
 
                 .haiku,
+                .illumos,
                 .plan9,
                 .serenity,
-
-                .illumos,
 
                 .ps3,
                 .ps4,
@@ -594,13 +584,6 @@ pub const Os = struct {
                     .semver = .{
                         .min = .{ .major = 8, .minor = 0, .patch = 0 },
                         .max = .{ .major = 11, .minor = 6, .patch = 0 },
-                    },
-                },
-
-                .solaris => .{
-                    .semver = .{
-                        .min = .{ .major = 11, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
                     },
                 },
 
@@ -930,6 +913,7 @@ pub const Abi = enum {
             .contiki,
             .fuchsia,
             .hermit,
+            .illumos,
             .managarm,
             .plan9,
             .serenity,
@@ -937,8 +921,6 @@ pub const Abi = enum {
             .dragonfly,
             .driverkit,
             .macos,
-            .illumos,
-            .solaris,
             .ps3,
             .ps4,
             .ps5,
@@ -2043,10 +2025,6 @@ pub const Cpu = struct {
                     else => &s390x.cpu.arch8,
                 },
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
-                .sparc64 => switch (os.tag) {
-                    .solaris => &sparc.cpu.ultrasparc3,
-                    else => generic(arch),
-                },
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
                     .driverkit => &x86.cpu.nehalem,
@@ -2175,6 +2153,7 @@ pub inline fn isWasiLibC(target: *const Target) bool {
 pub fn requiresLibC(target: *const Target) bool {
     return switch (target.os.tag) {
         .aix,
+        .illumos,
         .driverkit,
         .macos,
         .ios,
@@ -2184,8 +2163,6 @@ pub fn requiresLibC(target: *const Target) bool {
         .dragonfly,
         .openbsd,
         .haiku,
-        .solaris,
-        .illumos,
         .serenity,
         => true,
 
@@ -2332,6 +2309,7 @@ pub const DynamicLinker = struct {
             .fuchsia,
 
             .haiku,
+            .illumos,
             .serenity,
 
             .dragonfly,
@@ -2345,9 +2323,6 @@ pub const DynamicLinker = struct {
             .tvos,
             .visionos,
             .watchos,
-
-            .illumos,
-            .solaris,
             => .arch_os,
             .hurd,
             .linux,
@@ -2436,6 +2411,14 @@ pub const DynamicLinker = struct {
                     else => return none,
                 }}),
 
+                else => none,
+            },
+
+            .illumos,
+            => switch (cpu.arch) {
+                .x86,
+                .x86_64,
+                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
                 else => none,
             },
 
@@ -2752,22 +2735,6 @@ pub const DynamicLinker = struct {
                 .aarch64,
                 .x86_64,
                 => init("/usr/lib/dyld"),
-                else => none,
-            },
-
-            .illumos,
-            => switch (cpu.arch) {
-                .x86,
-                .x86_64,
-                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
-                else => none,
-            },
-
-            .solaris,
-            => switch (cpu.arch) {
-                .sparc64,
-                .x86_64,
-                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
                 else => none,
             },
 
@@ -3134,6 +3101,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .aix,
         .haiku,
         .hurd,
+        .illumos,
         .linux,
         .plan9,
         .rtems,
@@ -3144,9 +3112,6 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .dragonfly,
         .netbsd,
         .openbsd,
-
-        .illumos,
-        .solaris,
 
         .wasi,
         .emscripten,
@@ -3713,7 +3678,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .sh, .sheb => .{ .sh_gnu = .{} },
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
-        .xtensa, .xtensaeb => .{ .xtensa_windowed = .{} },
+        .xtensa, .xtensaeb => .{ .xtensa_call0 = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv32, .spirv64 => .spirv_device,

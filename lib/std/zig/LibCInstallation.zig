@@ -198,7 +198,7 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         try self.findNativeIncludeDirPosix(args);
         try self.findNativeGccDirHaiku(args);
         self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
-    } else if (builtin.target.os.tag.isSolarish()) {
+    } else if (builtin.target.os.tag == .illumos) {
         // There is only one libc, and its headers/libraries are always in the same spot.
         self.include_dir = try args.allocator.dupeZ(u8, "/usr/include");
         self.sys_include_dir = try args.allocator.dupeZ(u8, "/usr/include");
@@ -935,7 +935,7 @@ pub const CrtBasenames = struct {
                     .crtn = "crtn.o",
                 },
             },
-            .solaris, .illumos => switch (mode) {
+            .illumos => switch (mode) {
                 .dynamic_lib => .{
                     .crti = "crti.o",
                     .crtn = "crtn.o",

@@ -252,7 +252,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
         target.abi.isAndroid() or
         target.os.tag.isBSD() or
         target.os.tag == .fuchsia or
-        target.os.tag == .solaris or
+        target.os.tag == .illumos or
         target.os.tag == .haiku or
         target.cpu.arch == .hexagon)
     {
@@ -281,7 +281,7 @@ pub fn hasFloat128(target: std.Target) bool {
         .haiku,
         .linux,
         .openbsd,
-        .solaris,
+        .illumos,
         => target.cpu.arch.isX86(),
         else => false,
     };
@@ -654,8 +654,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ps3 => "lv2",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
-        .solaris => "solaris",
-        .illumos => "illumos",
+        .illumos => "solaris",
         .windows => "windows",
         .zos => "zos",
         .haiku => "haiku",
@@ -755,7 +754,7 @@ pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
         .dragonfly,
         .netbsd,
         .freebsd,
-        .solaris,
+        .illumos,
 
         .cuda,
         .amdhsa,
@@ -838,7 +837,7 @@ pub fn isPICdefault(target: std.Target) DefaultPIStatus {
         .openbsd,
         .netbsd,
         .freebsd,
-        .solaris,
+        .illumos,
         .hurd,
         => {
             return switch (target.cpu.arch) {
@@ -897,7 +896,7 @@ pub fn isPICDefaultForced(target: std.Target) DefaultPIStatus {
         .openbsd,
         .netbsd,
         .freebsd,
-        .solaris,
+        .illumos,
         .cuda,
         .ps4,
         .ps5,

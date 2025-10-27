@@ -961,7 +961,6 @@ const Powerpc = extern struct {
         // * System V Application Binary Interface - PowerPC Processor Supplement §3-46
         // * Power Architecture 32-bit Application Binary Interface Supplement 1.0 - Linux & Embedded §3.4
         // * 64-bit ELF V2 ABI Specification - Power Architecture Revision 1.5 §2.4
-        // * ??? AIX?
         //
         // Are we having fun yet?
 
@@ -1935,40 +1934,6 @@ const signal_ucontext_t = switch (native_os) {
             },
             else => unreachable,
         },
-    },
-    // This needs to be audited by someone with access to the Solaris headers.
-    .solaris => switch (native_arch) {
-        .sparc64 => @compileError("sparc64-solaris ucontext_t missing"),
-        .x86_64 => extern struct {
-            _flags: u64,
-            _link: ?*signal_ucontext_t,
-            _sigmask: std.c.sigset_t,
-            _stack: std.c.stack_t,
-            mcontext: extern struct {
-                r15: u64,
-                r14: u64,
-                r13: u64,
-                r12: u64,
-                r11: u64,
-                r10: u64,
-                r9: u64,
-                r8: u64,
-                rdi: u64,
-                rsi: u64,
-                rbp: u64,
-                rbx: u64,
-                rdx: u64,
-                rcx: u64,
-                rax: u64,
-                _trapno: i64,
-                _err: i64,
-                rip: u64,
-                _cs: i64,
-                _rflags: i64,
-                rsp: u64,
-            },
-        },
-        else => unreachable,
     },
     // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/ucontext.h
     .illumos => extern struct {
