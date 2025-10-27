@@ -1462,16 +1462,85 @@ test parseHosts {
     try std.testing.expectFmt("127.0.0.2:1234", "{f}", .{addrs.items[0].addr});
 }
 
+/// Validates a hostname according to [RFC 1123](https://www.rfc-editor.org/rfc/rfc1123)
 pub fn isValidHostName(hostname: []const u8) bool {
-    if (hostname.len >= 254) return false;
-    if (!std.unicode.utf8ValidateSlice(hostname)) return false;
-    for (hostname) |byte| {
-        if (!std.ascii.isAscii(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
-            continue;
+    if (hostname.len == 0) return false;
+    if (hostname[0] == '.') return false;
+
+    // Ignore trailing dot (FQDN). It doesn't count toward our length.
+    const end = if (hostname[hostname.len - 1] == '.') end: {
+        if (hostname.len == 1) return false;
+        break :end hostname.len - 1;
+    } else hostname.len;
+
+    // The accepted maximum length of a hostname is 253 characters for the
+    // fully qualified domain name (FQDN), including labels and dots.
+    if (end > 253) return false;
+
+    // Hostnames are divided into dot-separated "labels", which:
+    //
+    // - Start with a letter or digit
+    // - Can contain letters, digits, or hyphens
+    // - Must end with a letter or digit
+    // - Have a minimum of 1 character and a maximum of 63
+    var label_start: usize = 0;
+    var label_len: usize = 0;
+    for (hostname[0..end], 0..) |c, i| {
+        switch (c) {
+            '.' => {
+                if (label_len == 0 or label_len > 63) return false;
+                if (!std.ascii.isAlphanumeric(hostname[label_start])) return false;
+                if (!std.ascii.isAlphanumeric(hostname[i - 1])) return false;
+
+                label_start = i + 1;
+                label_len = 0;
+            },
+            '-' => {
+                label_len += 1;
+            },
+            else => {
+                if (!std.ascii.isAlphanumeric(c)) return false;
+                label_len += 1;
+            },
         }
-        return false;
     }
+
+    // Validate the final label
+    if (label_len == 0 or label_len > 63) return false;
+    if (!std.ascii.isAlphanumeric(hostname[label_start])) return false;
+    if (!std.ascii.isAlphanumeric(hostname[end - 1])) return false;
+
     return true;
+}
+
+test isValidHostName {
+    // Valid hostnames
+    try std.testing.expect(isValidHostName("example"));
+    try std.testing.expect(isValidHostName("example.com"));
+    try std.testing.expect(isValidHostName("www.example.com"));
+    try std.testing.expect(isValidHostName("sub.domain.example.com"));
+    try std.testing.expect(isValidHostName("example.com."));
+    try std.testing.expect(isValidHostName("host-name.example.com."));
+    try std.testing.expect(isValidHostName("123.example.com."));
+    try std.testing.expect(isValidHostName("a-b.com"));
+    try std.testing.expect(isValidHostName("a.b.c.d.e.f.g"));
+    try std.testing.expect(isValidHostName("127.0.0.1")); // Also a valid hostname
+    try std.testing.expect(isValidHostName("a" ** 63 ++ ".com")); // Label exactly 63 chars (valid)
+    try std.testing.expect(isValidHostName("a." ** 126 ++ "a")); // Total length 253 (valid)
+
+    // Invalid hostnames
+    try std.testing.expect(!isValidHostName(""));
+    try std.testing.expect(!isValidHostName(".example.com"));
+    try std.testing.expect(!isValidHostName("example.com.."));
+    try std.testing.expect(!isValidHostName("host..domain"));
+    try std.testing.expect(!isValidHostName("-hostname"));
+    try std.testing.expect(!isValidHostName("hostname-"));
+    try std.testing.expect(!isValidHostName("a.-.b"));
+    try std.testing.expect(!isValidHostName("host_name.com"));
+    try std.testing.expect(!isValidHostName("."));
+    try std.testing.expect(!isValidHostName(".."));
+    try std.testing.expect(!isValidHostName("a" ** 64 ++ ".com")); // Label length 64 (too long)
+    try std.testing.expect(!isValidHostName("a." ** 126 ++ "ab")); // Total length 254 (too long)
 }
 
 fn linuxLookupNameFromDnsSearch(
