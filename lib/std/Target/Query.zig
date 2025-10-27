@@ -339,7 +339,7 @@ pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
 /// Similar to `SemanticVersion.parse`, but with following changes:
 /// * Leading zeroes are allowed.
 /// * Supports only 2 or 3 version components (major, minor, [patch]). If 3-rd component is omitted, it will be 0.
-/// * Prerelease and build components are ignored
+/// * Prerelease and build components are disallowed.
 pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticVersion {
     const parseVersionComponentFn = (struct {
         fn parseVersionComponentInner(component: []const u8) error{ InvalidVersion, Overflow }!usize {
@@ -350,10 +350,7 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
         }
     }).parseVersionComponentInner;
 
-    const end = mem.findAny(u8, ver, "+-");
-    const ver_stripped = ver[0 .. end orelse ver.len];
-
-    var version_components = mem.splitScalar(u8, ver_stripped, '.');
+    var version_components = mem.splitScalar(u8, ver, '.');
 
     const major = version_components.first();
     const minor = version_components.next() orelse return error.InvalidVersion;

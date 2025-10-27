@@ -215,16 +215,17 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     var os = query_os_tag.defaultVersionRange(query_cpu_arch, query_abi);
     if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
-            .linux, .solaris, .illumos => {
+            .linux, .illumos => {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
-                // `Target.Query.parseVersion` will attempt to find some meaningful interpretation.
-                if (Target.Query.parseVersion(release)) |ver| {
-                    assert(ver.pre == null);
-                    assert(ver.build == null);
-                    os.version_range.linux.range.min = ver;
-                    os.version_range.linux.range.max = ver;
+                // `Version.parse` will attempt to find some meaningful interpretation.
+                if (std.SemanticVersion.parse(release)) |ver| {
+                    var stripped = ver;
+                    stripped.pre = null;
+                    stripped.build = null;
+                    os.version_range.linux.range.min = stripped;
+                    os.version_range.linux.range.max = stripped;
                 } else |err| switch (err) {
                     error.Overflow => {},
                     error.InvalidVersion => {},
