@@ -560,8 +560,14 @@ test {
 const Io = @This();
 
 pub const Evented = switch (builtin.os.tag) {
-    .linux => @import("Io/IoUring.zig"),
-    .dragonfly, .freebsd, .netbsd, .openbsd, .macos, .ios, .tvos, .visionos, .watchos => @import("Io/Kqueue.zig"),
+    .linux => switch (builtin.cpu.arch) {
+        .x86_64, .aarch64 => @import("Io/IoUring.zig"),
+        else => void, // context-switching code not implemented yet
+    },
+    .dragonfly, .freebsd, .netbsd, .openbsd, .macos, .ios, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+        .x86_64, .aarch64 => @import("Io/Kqueue.zig"),
+        else => void, // context-switching code not implemented yet
+    },
     else => void,
 };
 pub const Threaded = @import("Io/Threaded.zig");
