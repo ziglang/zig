@@ -2044,26 +2044,97 @@ fn dirOpenFileWindows(
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const sub_path_w_array = try windows.sliceToPrefixedFileW(dir.handle, sub_path);
     const sub_path_w = sub_path_w_array.span();
-    return dirOpenFileWindowsInner(t, dir, sub_path_w, flags);
+    const dir_handle = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else dir.handle;
+    return dirOpenFileWindowsInner(t, dir_handle, sub_path_w, flags);
 }
 
 fn dirOpenFileWindowsInner(
     t: *Threaded,
-    dir: Io.Dir,
+    dir_handle: ?windows.HANDLE,
     sub_path_w: [:0]const u16,
     flags: Io.File.OpenFlags,
 ) Io.File.OpenError!Io.File {
-    try t.checkCancel();
+    if (std.mem.eql(u16, sub_path_w, &.{'.'})) return error.IsDir;
+    if (std.mem.eql(u16, sub_path_w, &.{ '.', '.' })) return error.IsDir;
+    const path_len_bytes = std.math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
+
     const w = windows;
-    const handle = try w.OpenFile(sub_path_w, .{
-        .dir = dir.handle,
-        .access_mask = w.SYNCHRONIZE |
-            (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
-            (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
-        .creation = w.FILE_OPEN,
-    });
-    errdefer w.CloseHandle(handle);
+
+    var nt_name: w.UNICODE_STRING = .{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @constCast(sub_path_w.ptr),
+    };
+    var attr: w.OBJECT_ATTRIBUTES = .{
+        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+        .RootDirectory = dir_handle,
+        .Attributes = 0,
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
     var io_status_block: w.IO_STATUS_BLOCK = undefined;
+    const blocking_flag: w.ULONG = w.FILE_SYNCHRONOUS_IO_NONALERT;
+    const file_or_dir_flag: w.ULONG = w.FILE_NON_DIRECTORY_FILE;
+    // If we're not following symlinks, we need to ensure we don't pass in any
+    // synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
+    const create_file_flags: w.ULONG = file_or_dir_flag |
+        if (flags.follow_symlinks) blocking_flag else w.FILE_OPEN_REPARSE_POINT;
+
+    const handle = while (true) {
+        try t.checkCancel();
+
+        var result: w.HANDLE = undefined;
+        const rc = w.ntdll.NtCreateFile(
+            &result,
+            w.SYNCHRONIZE |
+                (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
+                (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
+            &attr,
+            &io_status_block,
+            null,
+            w.FILE_ATTRIBUTE_NORMAL,
+            w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+            w.FILE_OPEN,
+            create_file_flags,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => break result,
+            .OBJECT_NAME_INVALID => return error.BadPathName,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
+            .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .INVALID_PARAMETER => |err| return w.statusBug(err),
+            .SHARING_VIOLATION => return error.AccessDenied,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .PIPE_NOT_AVAILABLE => return error.NoDevice,
+            .OBJECT_PATH_SYNTAX_BAD => |err| return w.statusBug(err),
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            .FILE_IS_A_DIRECTORY => return error.IsDir,
+            .NOT_A_DIRECTORY => return error.NotDir,
+            .USER_MAPPED_FILE => return error.AccessDenied,
+            .INVALID_HANDLE => |err| return w.statusBug(err),
+            .DELETE_PENDING => {
+                // This error means that there *was* a file in this location on
+                // the file system, but it was deleted. However, the OS is not
+                // finished with the deletion operation, and so this CreateFile
+                // call has failed. There is not really a sane way to handle
+                // this other than retrying the creation after the OS finishes
+                // the deletion.
+                _ = w.kernel32.SleepEx(1, w.FALSE);
+                continue;
+            },
+            .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
+            else => return w.unexpectedStatus(rc),
+        }
+    };
+    errdefer w.CloseHandle(handle);
+
     const range_off: w.LARGE_INTEGER = 0;
     const range_len: w.LARGE_INTEGER = 1;
     const exclusive = switch (flags.lock) {
@@ -2691,20 +2762,19 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
 
 fn openSelfExe(userdata: ?*anyopaque, flags: Io.File.OpenFlags) Io.File.OpenSelfExeError!Io.File {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    if (native_os == .linux or native_os == .serenity) {
-        return dirOpenFilePosix(t, .{ .handle = posix.AT.FDCWD }, "/proc/self/exe", flags);
+    switch (native_os) {
+        .linux, .serenity => return dirOpenFilePosix(t, .{ .handle = posix.AT.FDCWD }, "/proc/self/exe", flags),
+        .windows => {
+            // If ImagePathName is a symlink, then it will contain the path of the symlink,
+            // not the path that the symlink points to. However, because we are opening
+            // the file, we can let the openFileW call follow the symlink for us.
+            const image_path_unicode_string = &windows.peb().ProcessParameters.ImagePathName;
+            const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
+            const prefixed_path_w = try windows.wToPrefixedFileW(null, image_path_name);
+            return dirOpenFileWindowsInner(t, null, prefixed_path_w.span(), flags);
+        },
+        else => @panic("TODO implement openSelfExe"),
     }
-    if (is_windows) {
-        // If ImagePathName is a symlink, then it will contain the path of the symlink,
-        // not the path that the symlink points to. However, because we are opening
-        // the file, we can let the openFileW call follow the symlink for us.
-        const image_path_unicode_string = &windows.peb().ProcessParameters.ImagePathName;
-        const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
-        const cwd_handle = std.os.windows.peb().ProcessParameters.CurrentDirectory.Handle;
-
-        return dirOpenFileWindowsInner(t, .{ .handle = cwd_handle }, image_path_name, flags);
-    }
-    @panic("TODO implement openSelfExe");
 }
 
 fn fileWritePositional(
@@ -2823,7 +2893,8 @@ fn sleepWindows(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
             break :ms std.math.maxInt(windows.DWORD);
         break :ms std.math.lossyCast(windows.DWORD, d.raw.toMilliseconds());
     };
-    windows.kernel32.Sleep(ms);
+    // TODO: alertable true with checkCancel in a loop plus deadline
+    _ = windows.kernel32.SleepEx(ms, windows.FALSE);
 }
 
 fn sleepWasi(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
