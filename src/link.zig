@@ -1,19 +1,22 @@
-const std = @import("std");
-const build_options = @import("build_options");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
+
+const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
 const log = std.log.scoped(.link);
-const trace = @import("tracy.zig").trace;
-const wasi_libc = @import("libs/wasi_libc.zig");
-
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
+
+const trace = @import("tracy.zig").trace;
+const wasi_libc = @import("libs/wasi_libc.zig");
+
 const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
@@ -572,6 +575,7 @@ pub const File = struct {
         dev.check(.make_writable);
         const comp = base.comp;
         const gpa = comp.gpa;
+        const io = comp.io;
         switch (base.tag) {
             .lld => assert(base.file == null),
             .elf, .macho, .wasm, .goff, .xcoff => {
@@ -616,22 +620,9 @@ pub const File = struct {
                     &coff.mf
                 else
                     unreachable;
-                var attempt: u5 = 0;
-                mf.file = while (true) break base.emit.root_dir.handle.openFile(base.emit.sub_path, .{
+                mf.file = .adaptFromNewApi(try Io.Dir.openFile(base.emit.root_dir.handle.adaptToNewApi(), io, base.emit.sub_path, .{
                     .mode = .read_write,
-                }) catch |err| switch (err) {
-                    error.AccessDenied => switch (builtin.os.tag) {
-                        .windows => {
-                            if (attempt == 13) return error.AccessDenied;
-                            // give the kernel a chance to finish closing the executable handle
-                            std.os.windows.kernel32.Sleep(@as(u32, 1) << attempt >> 1);
-                            attempt += 1;
-                            continue;
-                        },
-                        else => return error.AccessDenied,
-                    },
-                    else => |e| return e,
-                };
+                }));
                 base.file = mf.file;
                 try mf.ensureTotalCapacity(@intCast(mf.nodes.items[0].location().resolve(mf)[1]));
             },

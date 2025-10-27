@@ -2081,6 +2081,10 @@ fn dirOpenFileWindowsInner(
     const create_file_flags: w.ULONG = file_or_dir_flag |
         if (flags.follow_symlinks) blocking_flag else w.FILE_OPEN_REPARSE_POINT;
 
+    // There are multiple kernel bugs being worked around with retries.
+    const max_attempts = 13;
+    var attempt: u5 = 0;
+
     const handle = while (true) {
         try t.checkCancel();
 
@@ -2110,7 +2114,17 @@ fn dirOpenFileWindowsInner(
             .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => |err| return w.statusBug(err),
             .SHARING_VIOLATION => return error.AccessDenied,
-            .ACCESS_DENIED => return error.AccessDenied,
+            .ACCESS_DENIED => {
+                // This occurs if the file attempting to be opened is a running
+                // executable. However, there's a kernel bug: the error may be
+                // incorrectly returned for an indeterminate amount of time
+                // after an executable file is closed. Here we work around the
+                // kernel bug with retry attempts.
+                if (attempt - max_attempts == 0) return error.AccessDenied;
+                _ = w.kernel32.SleepEx((@as(u32, 1) << attempt) >> 1, w.TRUE);
+                attempt += 1;
+                continue;
+            },
             .PIPE_BUSY => return error.PipeBusy,
             .PIPE_NOT_AVAILABLE => return error.NoDevice,
             .OBJECT_PATH_SYNTAX_BAD => |err| return w.statusBug(err),
@@ -2123,10 +2137,11 @@ fn dirOpenFileWindowsInner(
                 // This error means that there *was* a file in this location on
                 // the file system, but it was deleted. However, the OS is not
                 // finished with the deletion operation, and so this CreateFile
-                // call has failed. There is not really a sane way to handle
-                // this other than retrying the creation after the OS finishes
-                // the deletion.
-                _ = w.kernel32.SleepEx(1, w.FALSE);
+                // call has failed. Here, we simulate the kernel bug being
+                // fixed by sleeping and retrying until the error goes away.
+                if (attempt - max_attempts == 0) return error.AccessDenied;
+                _ = w.kernel32.SleepEx((@as(u32, 1) << attempt) >> 1, w.TRUE);
+                attempt += 1;
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
