@@ -5,6 +5,7 @@ const native_os = builtin.os.tag;
 const is_windows = native_os == .windows;
 const windows = std.os.windows;
 const ws2_32 = std.os.windows.ws2_32;
+const is_debug = builtin.mode == .Debug;
 
 const std = @import("../std.zig");
 const Io = std.Io;
@@ -72,11 +73,13 @@ const Closure = struct {
     fn requestCancel(closure: *Closure) void {
         switch (@atomicRmw(CancelId, &closure.cancel_tid, .Xchg, .canceling, .acq_rel)) {
             .none, .canceling => {},
-            else => |tid| switch (native_os) {
-                .linux => _ = std.os.linux.tgkill(std.os.linux.getpid(), @bitCast(tid.toThreadId()), posix.SIG.IO),
-                else => if (std.Thread.use_pthreads) {
-                    assert(std.c.pthread_kill(tid.toThreadId(), posix.SIG.IO) == 0);
-                },
+            else => |tid| {
+                if (std.Thread.use_pthreads) {
+                    const rc = std.c.pthread_kill(tid.toThreadId(), posix.SIG.IO);
+                    if (is_debug) assert(rc == 0);
+                } else if (native_os == .linux) {
+                    _ = std.os.linux.tgkill(std.os.linux.getpid(), @bitCast(tid.toThreadId()), posix.SIG.IO);
+                }
             },
         }
     }
@@ -4883,17 +4886,13 @@ fn address6ToPosix(a: *const net.Ip6Address) posix.sockaddr.in6 {
 }
 
 pub fn errnoBug(err: posix.E) Io.UnexpectedError {
-    switch (builtin.mode) {
-        .Debug => std.debug.panic("programmer bug caused syscall error: {t}", .{err}),
-        else => return error.Unexpected,
-    }
+    if (is_debug) std.debug.panic("programmer bug caused syscall error: {t}", .{err});
+    return error.Unexpected;
 }
 
 fn wsaErrorBug(err: ws2_32.WinsockError) Io.UnexpectedError {
-    switch (builtin.mode) {
-        .Debug => std.debug.panic("programmer bug caused syscall error: {t}", .{err}),
-        else => return error.Unexpected,
-    }
+    if (is_debug) std.debug.panic("programmer bug caused syscall error: {t}", .{err});
+    return error.Unexpected;
 }
 
 pub fn posixSocketMode(mode: net.Socket.Mode) u32 {
@@ -4911,7 +4910,7 @@ pub fn posixProtocol(protocol: ?net.Protocol) u32 {
 }
 
 fn recoverableOsBugDetected() void {
-    if (builtin.mode == .Debug) unreachable;
+    if (is_debug) unreachable;
 }
 
 fn clockToPosix(clock: Io.Clock) posix.clockid_t {
@@ -5424,7 +5423,7 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
         const linux = std.os.linux;
         try t.checkCancel();
         const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
-        if (builtin.mode == .Debug) switch (linux.E.init(rc)) {
+        if (is_debug) switch (linux.E.init(rc)) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // gives caller a chance to check cancellation
             .AGAIN => {}, // ptr.* != expect
@@ -5447,7 +5446,7 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
 
         if (status >= 0) return;
 
-        if (builtin.mode == .Debug) switch (@as(c.E, @enumFromInt(-status))) {
+        if (is_debug) switch (@as(c.E, @enumFromInt(-status))) {
             // Wait was interrupted by the OS or other spurious signalling.
             .INTR => {},
             // Address of the futex was paged out. This is unlikely, but possible in theory, and
@@ -5473,7 +5472,6 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
               [expected] "r" (signed_expect),
               [timeout] "r" (timeout),
         );
-        const is_debug = builtin.mode == .Debug;
         switch (result) {
             0 => {}, // ok
             1 => {}, // expected != loaded
@@ -5498,7 +5496,7 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
     if (native_os == .linux) {
         const linux = std.os.linux;
         const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
-        if (builtin.mode == .Debug) switch (linux.E.init(rc)) {
+        if (is_debug) switch (linux.E.init(rc)) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // gives caller a chance to check cancellation
             .AGAIN => {}, // ptr.* != expect
@@ -5520,7 +5518,7 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
 
         if (status >= 0) return;
 
-        if (builtin.mode == .Debug) switch (@as(c.E, @enumFromInt(-status))) {
+        if (is_debug) switch (@as(c.E, @enumFromInt(-status))) {
             // Wait was interrupted by the OS or other spurious signalling.
             .INTR => {},
             // Address of the futex was paged out. This is unlikely, but possible in theory, and
@@ -5545,7 +5543,6 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
               [expected] "r" (signed_expect),
               [timeout] "r" (timeout),
         );
-        const is_debug = builtin.mode == .Debug;
         switch (result) {
             0 => {}, // ok
             1 => {}, // expected != loaded
@@ -5569,7 +5566,7 @@ pub fn futexWaitDurationUncancelable(ptr: *const std.atomic.Value(u32), expect: 
         const linux = std.os.linux;
         var ts = timestampToPosix(timeout.toNanoseconds());
         const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, &ts);
-        if (builtin.mode == .Debug) switch (linux.E.init(rc)) {
+        if (is_debug) switch (linux.E.init(rc)) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // gives caller a chance to check cancellation
             .AGAIN => {}, // ptr.* != expect
@@ -5594,7 +5591,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
             .{ .cmd = .WAKE, .private = true },
             @min(max_waiters, std.math.maxInt(i32)),
         );
-        if (builtin.mode == .Debug) switch (linux.E.init(rc)) {
+        if (is_debug) switch (linux.E.init(rc)) {
             .SUCCESS => {}, // successful wake up
             .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
             .FAULT => {}, // pointer became invalid while doing the wake
@@ -5607,7 +5604,6 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
             .NO_ERRNO = true,
             .WAKE_ALL = max_waiters > 1,
         };
-        const is_debug = builtin.mode == .Debug;
         while (true) {
             const status = c.__ulock_wake(flags, ptr, 0);
             if (status >= 0) return;
@@ -5756,7 +5752,7 @@ pub const ResetEvent = enum(u32) {
 
 fn closeSocketWindows(s: ws2_32.SOCKET) void {
     const rc = ws2_32.closesocket(s);
-    if (builtin.mode == .Debug) switch (rc) {
+    if (is_debug) switch (rc) {
         0 => {},
         ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
             else => recoverableOsBugDetected(),
