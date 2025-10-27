@@ -3331,6 +3331,12 @@ pub const ReadLinkError = error{
     UnsupportedReparsePointType,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    /// On Windows, antivirus software is enabled by default. It can be
+    /// disabled, but Windows Update sometimes ignores the user's preference
+    /// and re-enables it. When enabled, antivirus software on Windows
+    /// intercepts file system operations and makes them significantly slower
+    /// in addition to possibly failing with this error code.
+    AntivirusInterference,
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
@@ -3345,26 +3351,51 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .wasi and !builtin.link_libc) {
         return readlinkat(AT.FDCWD, file_path, out_buffer);
     } else if (native_os == .windows) {
-        const file_path_w = try windows.sliceToPrefixedFileW(null, file_path);
-        return readlinkW(file_path_w.span(), out_buffer);
+        var file_path_w = try windows.sliceToPrefixedFileW(null, file_path);
+        const result_w = try readlinkW2(file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     } else {
         const file_path_c = try toPosixPath(file_path);
         return readlinkZ(&file_path_c, out_buffer);
     }
 }
 
-/// Windows-only. Same as `readlink` except `file_path` is WTF16 LE encoded.
+/// Deprecated; use `readlinkW2`
+///
+/// Windows-only. Same as `readlink` except `file_path` is WTF-16 LE encoded, NT-prefixed.
 /// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
     return windows.ReadLink(fs.cwd().fd, file_path, out_buffer);
 }
 
+/// Windows-only. Same as `readlink` except `file_path` is WTF-16 LE encoded, NT-prefixed.
+/// The result is encoded as WTF-16 LE.
+///
+/// `file_path` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+///
+/// See also `readlinkZ`.
+pub fn readlinkW2(file_path: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
+    return windows.ReadLink2(fs.cwd().fd, file_path, out_buffer);
+}
+
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
-        return readlinkW(file_path_w.span(), out_buffer);
+        var file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
+        const result_w = try readlinkW2(file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     } else if (native_os == .wasi and !builtin.link_libc) {
         return readlink(mem.sliceTo(file_path, 0), out_buffer);
     }
@@ -3402,8 +3433,14 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLink
         return readlinkatWasi(dirfd, file_path, out_buffer);
     }
     if (native_os == .windows) {
-        const file_path_w = try windows.sliceToPrefixedFileW(dirfd, file_path);
-        return readlinkatW(dirfd, file_path_w.span(), out_buffer);
+        var file_path_w = try windows.sliceToPrefixedFileW(dirfd, file_path);
+        const result_w = try readlinkatW2(dirfd, file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     }
     const file_path_c = try toPosixPath(file_path);
     return readlinkatZ(dirfd, &file_path_c, out_buffer);
@@ -3430,6 +3467,8 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
     }
 }
 
+/// Deprecated; use `readlinkatW2`.
+///
 /// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 LE encoded.
 /// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// See also `readlinkat`.
@@ -3437,12 +3476,29 @@ pub fn readlinkatW(dirfd: fd_t, file_path: []const u16, out_buffer: []u8) ReadLi
     return windows.ReadLink(dirfd, file_path, out_buffer);
 }
 
+/// Windows-only. Same as `readlinkat` except `file_path` WTF16 LE encoded, NT-prefixed.
+/// The result is encoded as WTF-16 LE.
+///
+/// `file_path` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+///
+/// See also `readlinkat`.
+pub fn readlinkatW2(dirfd: fd_t, file_path: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
+    return windows.ReadLink2(dirfd, file_path, out_buffer);
+}
+
 /// Same as `readlinkat` except `file_path` is null-terminated.
 /// See also `readlinkat`.
 pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(dirfd, file_path);
-        return readlinkatW(dirfd, file_path_w.span(), out_buffer);
+        var file_path_w = try windows.cStrToPrefixedFileW(dirfd, file_path);
+        const result_w = try readlinkatW2(dirfd, file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     } else if (native_os == .wasi and !builtin.link_libc) {
         return readlinkat(dirfd, mem.sliceTo(file_path, 0), out_buffer);
     }
