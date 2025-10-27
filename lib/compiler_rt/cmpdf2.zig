@@ -172,7 +172,7 @@ fn call__aeabi_cdcmpxx(comptime func: __aeabi_cdcmpxx, a: f64, b: f64) CPSR {
     const A: u64 = @bitCast(a);
     const B: u64 = @bitCast(b);
 
-    const le = builtin.cpu.arch.endian() == .little;
+    const le = comptime builtin.cpu.arch.endian() == .little;
     const a_lo: u32 = if (le) @truncate(A) else @truncate(A >> 32);
     const a_hi: u32 = if (le) @truncate(A >> 32) else @truncate(A);
     const b_lo: u32 = if (le) @truncate(B) else @truncate(B >> 32);
