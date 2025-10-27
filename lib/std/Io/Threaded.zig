@@ -566,10 +566,8 @@ const GroupClosure = struct {
         const reset_event: *ResetEvent = @ptrCast(&group.context);
         if (@cmpxchgStrong(CancelId, &closure.cancel_tid, .none, tid, .acq_rel, .acquire)) |cancel_tid| {
             assert(cancel_tid == .canceling);
-            // We already know the task is canceled before running the callback. Since all closures
-            // in a Group have void return type, we can return early.
-            syncFinish(group_state, reset_event);
-            return;
+            // Even though we already know the task is canceled, we must still
+            // run the closure in case there are side effects.
         }
         current_closure = closure;
         gc.func(group, gc.contextPointer());
