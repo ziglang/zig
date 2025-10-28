@@ -859,7 +859,6 @@ pub fn io(k: *Kqueue) Io {
 
             .groupAsync = groupAsync,
             .groupWait = groupWait,
-            .groupWaitUncancelable = groupWaitUncancelable,
             .groupCancel = groupCancel,
 
             .mutexLock = mutexLock,
@@ -1027,15 +1026,7 @@ fn groupAsync(
     @panic("TODO");
 }
 
-fn groupWait(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) Io.Cancelable!void {
-    const k: *Kqueue = @ptrCast(@alignCast(userdata));
-    _ = k;
-    _ = group;
-    _ = token;
-    @panic("TODO");
-}
-
-fn groupWaitUncancelable(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) void {
+fn groupWait(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) void {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
     _ = group;

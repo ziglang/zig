@@ -280,9 +280,8 @@ pub fn connectMany(
         .address => |address| group.async(io, enqueueConnection, .{ address, io, results, options }),
         .canonical_name => continue,
         .end => |lookup_result| {
-            results.putOneUncancelable(io, .{
-                .end = if (group.wait(io)) lookup_result else |err| err,
-            });
+            group.wait(io);
+            results.putOneUncancelable(io, .{ .end = lookup_result });
             return;
         },
     } else |err| switch (err) {

@@ -653,8 +653,7 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (*Group, context: *const anyopaque) void,
     ) void,
-    groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) Cancelable!void,
-    groupWaitUncancelable: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
+    groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
     groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
 
     /// Blocks until one of the futures from the list has a result ready, such
@@ -1038,29 +1037,18 @@ pub const Group = struct {
         io.vtable.groupAsync(io.userdata, g, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
     }
 
-    /// Blocks until all tasks of the group finish.
-    ///
-    /// On success, further calls to `wait`, `waitUncancelable`, and `cancel`
-    /// do nothing.
-    ///
-    /// Not threadsafe.
-    pub fn wait(g: *Group, io: Io) Cancelable!void {
-        const token = g.token orelse return;
-        try io.vtable.groupWait(io.userdata, g, token);
-        g.token = null;
-    }
-
-    /// Equivalent to `wait` except uninterruptible.
+    /// Blocks until all tasks of the group finish. During this time,
+    /// cancellation requests propagate to all members of the group.
     ///
     /// Idempotent. Not threadsafe.
-    pub fn waitUncancelable(g: *Group, io: Io) void {
+    pub fn wait(g: *Group, io: Io) void {
         const token = g.token orelse return;
         g.token = null;
-        io.vtable.groupWaitUncancelable(io.userdata, g, token);
+        io.vtable.groupWait(io.userdata, g, token);
     }
 
-    /// Equivalent to `wait` but requests cancellation on all tasks owned by
-    /// the group.
+    /// Equivalent to `wait` but immediately requests cancellation on all
+    /// members of the group.
     ///
     /// Idempotent. Not threadsafe.
     pub fn cancel(g: *Group, io: Io) void {
