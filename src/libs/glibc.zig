@@ -785,7 +785,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 return @truncate(hasher.final());
             }
 
-            pub fn eql(_: @This(), lhs: Version, rhs: Version) bool {
+            pub fn eql(_: @This(), lhs: Version, rhs: Version, _: usize) bool {
                 return std.meta.eql(lhs, rhs);
             }
         };
@@ -804,7 +804,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         //
         // If we don't handle this, we end up writing the default `lgammal` symbol for version 2.33
         // twice, which causes a "duplicate symbol" assembler error.
-        var versions_written: std.ArrayHashMapUnmanaged(Version, void, VersionHashContext, true) = .empty;
+        const VersionSet = std.ArrayHashMapUnmanaged(Version, void, VersionHashContext, true);
+        var versions_written: VersionSet = .empty;
 
         var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
