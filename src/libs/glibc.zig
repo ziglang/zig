@@ -882,7 +882,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
 
-                    if (versions_written.getOrPutAssumeCapacity(arena, ver).found_existing) continue;
+                    if (versions_written.getOrPutAssumeCapacity(ver).found_existing) continue;
 
                     // Default symbol version definition vs normal symbol version definition
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
@@ -1059,7 +1059,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
 
-                    if (versions_written.getOrPutAssumeCapacity(arena, ver).found_existing) continue;
+                    if (versions_written.getOrPutAssumeCapacity(ver).found_existing) continue;
 
                     // Default symbol version definition vs normal symbol version definition
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
