@@ -798,6 +798,7 @@ fn checkCancel(t: *Threaded) error{Canceled}!void {
 
 fn mutexLock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) Io.Cancelable!void {
     if (builtin.single_threaded) unreachable; // Interface should have prevented this.
+    if (native_os == .netbsd) @panic("TODO");
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     if (prev_state == .contended) {
         try futexWait(t, @ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
@@ -809,6 +810,7 @@ fn mutexLock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex
 
 fn mutexLockUncancelable(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) void {
     if (builtin.single_threaded) unreachable; // Interface should have prevented this.
+    if (native_os == .netbsd) @panic("TODO");
     _ = userdata;
     if (prev_state == .contended) {
         futexWaitUncancelable(@ptrCast(&mutex.state), @intFromEnum(Io.Mutex.State.contended));
@@ -820,6 +822,7 @@ fn mutexLockUncancelable(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mute
 
 fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) void {
     if (builtin.single_threaded) unreachable; // Interface should have prevented this.
+    if (native_os == .netbsd) @panic("TODO");
     _ = userdata;
     _ = prev_state;
     if (@atomicRmw(Io.Mutex.State, &mutex.state, .Xchg, .unlocked, .release) == .contended) {
@@ -829,6 +832,7 @@ fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mut
 
 fn conditionWaitUncancelable(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) void {
     if (builtin.single_threaded) unreachable; // Deadlock.
+    if (native_os == .netbsd) @panic("TODO");
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const t_io = ioBasic(t);
     comptime assert(@TypeOf(cond.state) == u64);
@@ -860,6 +864,7 @@ fn conditionWaitUncancelable(userdata: ?*anyopaque, cond: *Io.Condition, mutex: 
 
 fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) Io.Cancelable!void {
     if (builtin.single_threaded) unreachable; // Deadlock.
+    if (native_os == .netbsd) @panic("TODO");
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const t_io = ioBasic(t);
     comptime assert(@TypeOf(cond.state) == u64);
@@ -960,6 +965,7 @@ fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.
             // - T2: UPDATE(&state, signal) + FUTEX_WAKE(&epoch)
             // - T1: s & signals == 0 -> FUTEX_WAIT(&epoch, e) (missed both epoch change and state change)
             _ = cond_epoch.fetchAdd(1, .release);
+            if (native_os == .netbsd) @panic("TODO");
             futexWake(cond_epoch, to_wake);
             return;
         };
