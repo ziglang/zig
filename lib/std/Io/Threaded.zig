@@ -4635,13 +4635,17 @@ fn netLookupFallible(
         var port_buffer_wide: [8]u16 = undefined;
         const port = std.fmt.bufPrint(&port_buffer, "{d}", .{options.port}) catch
             unreachable; // `port_buffer` is big enough for decimal u16.
-        for (port, port_buffer[0..port.len]) |byte, *wide| wide.* = byte;
+        for (port, port_buffer_wide[0..port.len]) |byte, *wide|
+            wide.* = std.mem.nativeToLittle(u16, byte);
         port_buffer_wide[port.len] = 0;
         const port_w = port_buffer_wide[0..port.len :0];
 
         const hints: ws2_32.ADDRINFOEXW = .{
             .flags = .{ .NUMERICSERV = true },
-            .family = posix.AF.UNSPEC,
+            .family = if (options.family) |f| switch (f) {
+                .ip4 => posix.AF.INET,
+                .ip6 => posix.AF.INET6,
+            } else posix.AF.UNSPEC,
             .socktype = posix.SOCK.STREAM,
             .protocol = posix.IPPROTO.TCP,
             .canonname = null,
