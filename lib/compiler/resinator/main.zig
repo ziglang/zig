@@ -617,7 +617,7 @@ fn getIncludePaths(
                     .cpu_arch = includes_arch,
                     .abi = .msvc,
                 };
-                const target = std.zig.resolveTargetQueryOrFatal(target_query);
+                const target = std.zig.resolveTargetQueryOrFatal(io, target_query);
                 const is_native_abi = target_query.isNativeAbi();
                 const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, &target, is_native_abi, true, null) catch {
                     if (includes == .any) {
