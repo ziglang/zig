@@ -1526,7 +1526,7 @@ pub const UserInfo = struct {
     gid: posix.gid_t,
 };
 
-/// POSIX function which gets a uid from username.
+/// POSIX function which gets a uid and gid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (native_os) {
         .linux,
@@ -1546,9 +1546,27 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
     };
 }
 
-/// TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
-/// like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
+/// POSIX function to fetch uid and gid from username.
+///
+/// Uses the `getpwnam` when linking against libc, otherwise reads from `/etc/passwd`.
 pub fn posixGetUserInfo(name: []const u8) !UserInfo {
+    // Prefer getpwnam when linking against libc, as it looks not only in /etc/passwd,
+    // but also in other sources like NIS, LDAP, Directory Services on MacOS, etc.
+    // See https://man7.org/linux/man-pages/man3/getpwnam.3.html
+    if (builtin.link_libc and std.c.passwd != void) {
+        // Make \0 terminated string.
+        // 256 is a safe buffer size to cover all modern systems.
+        var name_buf: [256]u8 = undefined;
+        const name_z = try std.fmt.bufPrintZ(&name_buf, "{s}", .{name});
+
+        const passwd = std.c.getpwnam(name_z) orelse return error.UserNotFound;
+
+        return UserInfo{
+            .uid = passwd.uid,
+            .gid = passwd.gid,
+        };
+    }
+
     const file = try std.fs.openFileAbsolute("/etc/passwd", .{});
     defer file.close();
     var buffer: [4096]u8 = undefined;
@@ -1653,6 +1671,19 @@ fn posixGetUserInfoPasswdStream(name: []const u8, reader: *std.Io.Reader) !UserI
         },
     }
     comptime unreachable;
+}
+
+test posixGetUserInfo {
+    if (native_os != .linux and native_os != .macos and !native_os.isBSD()) return error.SkipZigTest;
+    if (!builtin.link_libc) return error.SkipZigTest;
+
+    const nobody = try posixGetUserInfo("nobody");
+    try testing.expect(nobody.uid != 0);
+    try testing.expect(nobody.gid != 0);
+
+    // Test with a non-existing user.
+    const err = posixGetUserInfo("non_existing_user");
+    try testing.expectError(error.UserNotFound, err);
 }
 
 pub fn getBaseAddress() usize {
