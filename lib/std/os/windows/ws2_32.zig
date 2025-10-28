@@ -2138,6 +2138,7 @@ pub extern "ws2_32" fn GetAddrInfoExW(
     timeout: ?*timeval,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPLOOKUPSERVICE_COMPLETION_ROUTINE,
+    lpNameHandle: ?*HANDLE,
 ) callconv(.winapi) i32;
 
 pub extern "ws2_32" fn GetAddrInfoExCancel(

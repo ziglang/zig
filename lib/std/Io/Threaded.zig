@@ -4662,13 +4662,14 @@ fn netLookupFallible(
             .provider = null,
             .next = null,
         };
+        const cancel_handle: ?*windows.HANDLE = null;
         var res: *ws2_32.ADDRINFOEXW = undefined;
         const timeout: ?*ws2_32.timeval = null;
         while (true) {
             try t.checkCancel(); // TODO make requestCancel call GetAddrInfoExCancel
             // TODO make this append to the queue eagerly rather than blocking until
             // the whole thing finishes
-            const rc: ws2_32.WinsockError = @enumFromInt(ws2_32.GetAddrInfoExW(name_w, port_w, .DNS, null, &hints, &res, timeout, null, null));
+            const rc: ws2_32.WinsockError = @enumFromInt(ws2_32.GetAddrInfoExW(name_w, port_w, .DNS, null, &hints, &res, timeout, null, null, cancel_handle));
             switch (rc) {
                 @as(ws2_32.WinsockError, @enumFromInt(0)) => break,
                 .EINTR => continue,
@@ -5732,17 +5733,16 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
     } else switch (native_os) {
         .linux => {
             const linux = std.os.linux;
-            const rc = linux.futex_3arg(
+            switch (linux.E.init(linux.futex_3arg(
                 &ptr.raw,
                 .{ .cmd = .WAKE, .private = true },
                 @min(max_waiters, std.math.maxInt(i32)),
-            );
-            if (is_debug) switch (linux.E.init(rc)) {
-                .SUCCESS => {}, // successful wake up
-                .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
-                .FAULT => {}, // pointer became invalid while doing the wake
-                else => unreachable, // deadlock due to operating system bug
-            };
+            ))) {
+                .SUCCESS => return, // successful wake up
+                .INVAL => return, // invalid futex_wait() on ptr done elsewhere
+                .FAULT => return, // pointer became invalid while doing the wake
+                else => return recoverableOsBugDetected(), // deadlock due to operating system bug
+            }
         },
         .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             const c = std.c;
