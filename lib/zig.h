@@ -4339,7 +4339,6 @@ typedef int zig_memory_order;
         return val; \
     }
 
-/* The eZ80 does not support atomics beyond 8 bits */
 zig_msvc_atomics( u8,  uint8_t,    char,  8, 8)
 zig_msvc_atomics( i8,   int8_t,    char,  8, 8)
 zig_msvc_atomics(u16, uint16_t,   short, 16, 16)
