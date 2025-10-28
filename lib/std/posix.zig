@@ -814,7 +814,7 @@ pub fn exit(status: u8) noreturn {
     system.exit(status);
 }
 
-pub const ReadError = std.Io.File.ReadStreamingError;
+pub const ReadError = std.Io.File.Reader.Error;
 
 /// Returns the number of bytes that were read, which can be less than
 /// buf.len. If 0 bytes were read, that means EOF.

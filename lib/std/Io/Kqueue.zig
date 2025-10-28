@@ -1226,7 +1226,7 @@ fn fileWritePositional(userdata: ?*anyopaque, file: File, buffer: [][]const u8, 
     _ = offset;
     @panic("TODO");
 }
-fn fileReadStreaming(userdata: ?*anyopaque, file: File, data: [][]u8) File.ReadStreamingError!usize {
+fn fileReadStreaming(userdata: ?*anyopaque, file: File, data: [][]u8) File.Reader.Error!usize {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
     _ = file;

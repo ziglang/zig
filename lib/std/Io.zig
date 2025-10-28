@@ -684,7 +684,7 @@ pub const VTable = struct {
     fileWriteStreaming: *const fn (?*anyopaque, File, buffer: [][]const u8) File.WriteStreamingError!usize,
     fileWritePositional: *const fn (?*anyopaque, File, buffer: [][]const u8, offset: u64) File.WritePositionalError!usize,
     /// Returns 0 on end of stream.
-    fileReadStreaming: *const fn (?*anyopaque, File, data: [][]u8) File.ReadStreamingError!usize,
+    fileReadStreaming: *const fn (?*anyopaque, File, data: [][]u8) File.Reader.Error!usize,
     /// Returns 0 on end of stream.
     fileReadPositional: *const fn (?*anyopaque, File, data: [][]u8, offset: u64) File.ReadPositionalError!usize,
     fileSeekBy: *const fn (?*anyopaque, File, relative_offset: i64) File.SeekError!void,

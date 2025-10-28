@@ -213,29 +213,7 @@ pub fn openSelfExe(io: Io, flags: OpenFlags) OpenSelfExeError!File {
     return io.vtable.openSelfExe(io.userdata, flags);
 }
 
-pub const ReadStreamingError = error{
-    InputOutput,
-    SystemResources,
-    IsDir,
-    BrokenPipe,
-    ConnectionResetByPeer,
-    Timeout,
-    NotOpenForReading,
-    SocketUnconnected,
-    /// This error occurs when no global event loop is configured,
-    /// and reading from the file descriptor would block.
-    WouldBlock,
-    /// In WASI, this error occurs when the file descriptor does
-    /// not hold the required rights to read from it.
-    AccessDenied,
-    /// This error occurs in Linux if the process to be read from
-    /// no longer exists.
-    ProcessNotFound,
-    /// Unable to read file due to lock.
-    LockViolation,
-} || Io.Cancelable || Io.UnexpectedError;
-
-pub const ReadPositionalError = ReadStreamingError || error{Unseekable};
+pub const ReadPositionalError = Reader.Error || error{Unseekable};
 
 pub fn readPositional(file: File, io: Io, buffer: []u8, offset: u64) ReadPositionalError!usize {
     return io.vtable.fileReadPositional(io.userdata, file, buffer, offset);
@@ -301,7 +279,29 @@ pub const Reader = struct {
     seek_err: ?Reader.SeekError = null,
     interface: Io.Reader,
 
-    pub const Error = std.posix.ReadError || Io.Cancelable;
+    pub const Error = error{
+        InputOutput,
+        SystemResources,
+        IsDir,
+        BrokenPipe,
+        ConnectionResetByPeer,
+        Timeout,
+        /// In WASI, EBADF is mapped to this error because it is returned when
+        /// trying to read a directory file descriptor as if it were a file.
+        NotOpenForReading,
+        SocketUnconnected,
+        /// This error occurs when no global event loop is configured,
+        /// and reading from the file descriptor would block.
+        WouldBlock,
+        /// In WASI, this error occurs when the file descriptor does
+        /// not hold the required rights to read from it.
+        AccessDenied,
+        /// This error occurs in Linux if the process to be read from
+        /// no longer exists.
+        ProcessNotFound,
+        /// Unable to read file due to lock.
+        LockViolation,
+    } || Io.Cancelable || Io.UnexpectedError;
 
     pub const SizeError = std.os.windows.GetFileSizeError || StatError || error{
         /// Occurs if, for example, the file handle is a network socket and therefore does not have a size.

@@ -1219,14 +1219,17 @@ fn dirMakeOpenPathWasi(
     userdata: ?*anyopaque,
     dir: Io.Dir,
     sub_path: []const u8,
-    mode: Io.Dir.OpenOptions,
+    options: Io.Dir.OpenOptions,
 ) Io.Dir.MakeOpenPathError!Io.Dir {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    _ = t;
-    _ = dir;
-    _ = sub_path;
-    _ = mode;
-    @panic("TODO implement dirMakeOpenPathWasi");
+    const t_io = ioBasic(t);
+    return dirOpenDirWasi(t, dir, sub_path, options) catch |err| switch (err) {
+        error.FileNotFound => {
+            try dir.makePath(t_io, sub_path);
+            return dirOpenDirWasi(t, dir, sub_path, options);
+        },
+        else => |e| return e,
+    };
 }
 
 fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
@@ -2498,7 +2501,7 @@ const fileReadStreaming = switch (native_os) {
     else => fileReadStreamingPosix,
 };
 
-fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
+fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.Reader.Error!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
 
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
@@ -2523,7 +2526,7 @@ fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io
 
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .BADF => return error.NotOpenForReading, // File operation on directory.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
@@ -2561,7 +2564,7 @@ fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io
     }
 }
 
-fn fileReadStreamingWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
+fn fileReadStreamingWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.Reader.Error!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
 
     const DWORD = windows.DWORD;
@@ -2617,7 +2620,7 @@ fn fileReadPositionalPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8, o
             .INVAL => |err| return errnoBug(err),
             .FAULT => |err| return errnoBug(err),
             .AGAIN => |err| return errnoBug(err),
-            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .BADF => return error.NotOpenForReading, // File operation on directory.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
