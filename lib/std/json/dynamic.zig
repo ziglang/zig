@@ -10,14 +10,11 @@ const ParseError = @import("./static.zig").ParseError;
 
 const isNumberFormattedLikeAnInteger = @import("Scanner.zig").isNumberFormattedLikeAnInteger;
 
-pub const ObjectMapUnmanaged = std.StringArrayHashMapUnmanaged(Value);
-pub const ArrayUnmanaged = std.ArrayList(Value);
+pub const ObjectMap = std.StringArrayHashMapUnmanaged(Value);
+pub const Array = std.ArrayList(Value);
 
 pub const ObjectMapManaged = StringArrayHashMap(Value);
 pub const ArrayManaged = std.array_list.Managed(Value);
-
-pub const ObjectMap = ObjectMapManaged;
-pub const Array = ArrayManaged;
 
 /// Represents any JSON value, potentially containing other JSON values.
 /// A .float value may be an approximation of the original value.
@@ -30,8 +27,8 @@ pub const Value = union(enum) {
     float: f64,
     number_string: []const u8,
     string: []const u8,
-    array: ArrayUnmanaged,
-    object: ObjectMapUnmanaged,
+    array: Array,
+    object: ObjectMap,
 
     array_managed: *ArrayManaged,
     object_managed: *ObjectMapManaged,
@@ -124,7 +121,7 @@ pub const Value = union(enum) {
 
                 .object_begin => {
                     switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
-                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMapUnmanaged.empty }, options) orelse continue,
+                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.empty }, options) orelse continue,
                         .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
                                 Value{ .object = .empty },

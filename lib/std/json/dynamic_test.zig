@@ -225,10 +225,10 @@ test "Value.jsonStringify" {
         .{ .integer = 2 },
         .{ .number_string = "3" },
     };
-    var obj = ObjectMap.init(testing.allocator);
-    defer obj.deinit();
-    try obj.putNoClobber("a", .{ .string = "b" });
-    var arr = Array.fromOwnedSlice(undefined, &vals);
+    const allocator = testing.allocator;
+    var obj = ObjectMap.empty;
+    defer obj.deinit(allocator);
+    try obj.putNoClobber(allocator, "a", .{ .string = "b" });
     const array = [_]Value{
         .null,
         .{ .bool = true },
@@ -236,8 +236,8 @@ test "Value.jsonStringify" {
         .{ .number_string = "43" },
         .{ .float = 42 },
         .{ .string = "weeee" },
-        .{ .array_managed = &arr },
-        .{ .object_managed = &obj },
+        .{ .array = Array.fromOwnedSlice(&vals) },
+        .{ .object = obj },
     };
     var buffer: [0x1000]u8 = undefined;
     var fixed_writer: Writer = .fixed(&buffer);
