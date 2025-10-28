@@ -2557,19 +2557,21 @@ fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io
 
 fn fileReadStreamingWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    try t.checkCancel();
 
     const DWORD = windows.DWORD;
     var index: usize = 0;
     while (data[index].len == 0) index += 1;
-
     const buffer = data[index];
     const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
-    var n: DWORD = undefined;
-    if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, null) == 0) {
+
+    while (true) {
+        try t.checkCancel();
+        var n: DWORD = undefined;
+        if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, null) != 0)
+            return n;
         switch (windows.GetLastError()) {
             .IO_PENDING => |err| return windows.errorBug(err),
-            .OPERATION_ABORTED => return error.Canceled,
+            .OPERATION_ABORTED => continue,
             .BROKEN_PIPE => return 0,
             .HANDLE_EOF => return 0,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
@@ -2579,7 +2581,6 @@ fn fileReadStreamingWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8) 
             else => |err| return windows.unexpectedError(err),
         }
     }
-    return n;
 }
 
 fn fileReadPositionalPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
@@ -2661,33 +2662,34 @@ const fileReadPositional = switch (native_os) {
 
 fn fileReadPositionalWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    try t.checkCancel();
 
     const DWORD = windows.DWORD;
-    const OVERLAPPED = windows.OVERLAPPED;
 
     var index: usize = 0;
     while (data[index].len == 0) index += 1;
-
     const buffer = data[index];
     const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
-    var n: DWORD = undefined;
-    var overlapped: OVERLAPPED = .{
+
+    var overlapped: windows.OVERLAPPED = .{
         .Internal = 0,
         .InternalHigh = 0,
         .DUMMYUNIONNAME = .{
             .DUMMYSTRUCTNAME = .{
-                .Offset = @as(u32, @truncate(offset)),
-                .OffsetHigh = @as(u32, @truncate(offset >> 32)),
+                .Offset = @truncate(offset),
+                .OffsetHigh = @truncate(offset >> 32),
             },
         },
         .hEvent = null,
     };
 
-    if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, &overlapped) == 0) {
+    while (true) {
+        try t.checkCancel();
+        var n: DWORD = undefined;
+        if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, &overlapped) != 0)
+            return n;
         switch (windows.GetLastError()) {
             .IO_PENDING => |err| return windows.errorBug(err),
-            .OPERATION_ABORTED => return error.Canceled,
+            .OPERATION_ABORTED => continue,
             .BROKEN_PIPE => return 0,
             .HANDLE_EOF => return 0,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
@@ -2697,8 +2699,6 @@ fn fileReadPositionalWindows(userdata: ?*anyopaque, file: Io.File, data: [][]u8,
             else => |err| return windows.unexpectedError(err),
         }
     }
-
-    return n;
 }
 
 fn fileSeekBy(userdata: ?*anyopaque, file: Io.File, offset: i64) Io.File.SeekError!void {

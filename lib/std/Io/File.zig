@@ -395,10 +395,6 @@ pub const Reader = struct {
     pub fn getSize(r: *Reader) SizeError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
-            if (std.posix.Stat == void) {
-                r.size_err = error.Streaming;
-                return error.Streaming;
-            }
             if (stat(r.file, r.io)) |st| {
                 if (st.kind == .file) {
                     r.size = st.size;
