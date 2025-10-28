@@ -117,6 +117,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .propeller,
         .sh,
         .sheb,
+        .x86_16,
         .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
@@ -493,6 +494,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .propeller,
         .sh,
         .sheb,
+        .x86_16,
         .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
@@ -11902,6 +11904,10 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
 
         // All the calling conventions which LLVM does not have a general representation for.
         // Note that these are often still supported through the `cCallingConvention` path above via `ccc`.
+        .x86_16_cdecl,
+        .x86_16_stdcall,
+        .x86_16_regparmcall,
+        .x86_16_interrupt,
         .x86_sysv,
         .x86_win,
         .x86_thiscall_mingw,
@@ -13131,6 +13137,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .propeller,
         .sh,
         .sheb,
+        .x86_16,
         .xtensaeb,
         => unreachable,
     }

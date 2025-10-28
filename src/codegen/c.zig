@@ -8055,9 +8055,11 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
     return switch (cc) {
         .auto, .naked => null,
 
+        .x86_16_cdecl => "cdecl",
+        .x86_16_regparmcall => "regparmcall",
         .x86_64_sysv, .x86_sysv => "sysv_abi",
         .x86_64_win, .x86_win => "ms_abi",
-        .x86_stdcall => "stdcall",
+        .x86_16_stdcall, .x86_stdcall => "stdcall",
         .x86_fastcall => "fastcall",
         .x86_thiscall => "thiscall",
 
@@ -8127,6 +8129,7 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .csky_interrupt,
         .m68k_interrupt,
         .msp430_interrupt,
+        .x86_16_interrupt,
         .x86_interrupt,
         .x86_64_interrupt,
         => "interrupt",
