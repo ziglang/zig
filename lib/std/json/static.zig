@@ -606,19 +606,27 @@ pub fn innerParseFromValue(
 
             if (unionInfo.tag_type == null) @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
 
-            if (source != .object) return error.UnexpectedToken;
-            if (source.object.count() != 1) return error.UnexpectedToken;
+            const obj = switch (source) {
+                .object => |inner| inner,
+                .object_managed => |inner| inner.unmanaged,
+                else => return error.UnexpectedToken,
+            };
+            if (obj.count() != 1) return error.UnexpectedToken;
 
-            var it = source.object.iterator();
+            var it = obj.iterator();
             const kv = it.next().?;
             const field_name = kv.key_ptr.*;
 
             inline for (unionInfo.fields) |u_field| {
                 if (std.mem.eql(u8, u_field.name, field_name)) {
                     if (u_field.type == void) {
+                        const count = switch (kv.value_ptr.*) {
+                            .object => |inner| inner.count(),
+                            .object_managed => |inner| inner.count(),
+                            else => return error.UnexpectedToken,
+                        };
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
-                        if (kv.value_ptr.* != .object) return error.UnexpectedToken;
-                        if (kv.value_ptr.*.object.count() != 0) return error.UnexpectedToken;
+                        if (count != 0) return error.UnexpectedToken;
                         return @unionInit(T, u_field.name, {});
                     }
                     // Recurse.
@@ -631,11 +639,15 @@ pub fn innerParseFromValue(
 
         .@"struct" => |structInfo| {
             if (structInfo.is_tuple) {
-                if (source != .array) return error.UnexpectedToken;
-                if (source.array.items.len != structInfo.fields.len) return error.UnexpectedToken;
+                const items = switch (source) {
+                    .array => |inner| inner.items,
+                    .array_managed => |inner| inner.items,
+                    else => return error.UnexpectedToken,
+                };
+                if (items.len != structInfo.fields.len) return error.UnexpectedToken;
 
                 var r: T = undefined;
-                inline for (0..structInfo.fields.len, source.array.items) |i, item| {
+                inline for (0..structInfo.fields.len, items) |i, item| {
                     r[i] = try innerParseFromValue(structInfo.fields[i].type, allocator, item, options);
                 }
 
@@ -646,12 +658,15 @@ pub fn innerParseFromValue(
                 return T.jsonParseFromValue(allocator, source, options);
             }
 
-            if (source != .object) return error.UnexpectedToken;
+            var it = switch (source) {
+                .object => |inner| inner.iterator(),
+                .object_managed => |inner| inner.iterator(),
+                else => return error.UnexpectedToken,
+            };
 
             var r: T = undefined;
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
 
-            var it = source.object.iterator();
             while (it.next()) |kv| {
                 const field_name = kv.key_ptr.*;
 
