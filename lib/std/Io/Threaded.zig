@@ -1226,7 +1226,7 @@ fn dirMakeOpenPathWasi(
     _ = dir;
     _ = sub_path;
     _ = mode;
-    @panic("TODO implement dirMakeOpenPathWindows");
+    @panic("TODO implement dirMakeOpenPathWasi");
 }
 
 fn dirStat(userdata: ?*anyopaque, dir: Io.Dir) Io.Dir.StatError!Io.Dir.Stat {
