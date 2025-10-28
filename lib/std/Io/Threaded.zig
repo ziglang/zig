@@ -2120,18 +2120,18 @@ pub fn dirOpenFileWtf16(
             .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
             .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => |err| return w.statusBug(err),
-            .SHARING_VIOLATION => return error.AccessDenied,
-            .ACCESS_DENIED => {
+            .SHARING_VIOLATION => {
                 // This occurs if the file attempting to be opened is a running
                 // executable. However, there's a kernel bug: the error may be
                 // incorrectly returned for an indeterminate amount of time
                 // after an executable file is closed. Here we work around the
                 // kernel bug with retry attempts.
-                if (attempt - max_attempts == 0) return error.AccessDenied;
+                if (attempt - max_attempts == 0) return error.SharingViolation;
                 _ = w.kernel32.SleepEx((@as(u32, 1) << attempt) >> 1, w.TRUE);
                 attempt += 1;
                 continue;
             },
+            .ACCESS_DENIED => return error.AccessDenied,
             .PIPE_BUSY => return error.PipeBusy,
             .PIPE_NOT_AVAILABLE => return error.NoDevice,
             .OBJECT_PATH_SYNTAX_BAD => |err| return w.statusBug(err),
@@ -2146,7 +2146,7 @@ pub fn dirOpenFileWtf16(
                 // finished with the deletion operation, and so this CreateFile
                 // call has failed. Here, we simulate the kernel bug being
                 // fixed by sleeping and retrying until the error goes away.
-                if (attempt - max_attempts == 0) return error.AccessDenied;
+                if (attempt - max_attempts == 0) return error.SharingViolation;
                 _ = w.kernel32.SleepEx((@as(u32, 1) << attempt) >> 1, w.TRUE);
                 attempt += 1;
                 continue;

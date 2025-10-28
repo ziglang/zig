@@ -221,13 +221,13 @@ pub fn readPositional(file: File, io: Io, buffer: []u8, offset: u64) ReadPositio
 
 pub const WriteStreamingError = error{} || Io.UnexpectedError || Io.Cancelable;
 
-pub fn write(file: File, io: Io, buffer: []const u8) WriteStreamingError!usize {
-    return @errorCast(file.pwrite(io, buffer, -1));
+pub fn writeStreaming(file: File, io: Io, buffer: [][]const u8) WriteStreamingError!usize {
+    return file.fileWriteStreaming(io, buffer);
 }
 
 pub const WritePositionalError = WriteStreamingError || error{Unseekable};
 
-pub fn writePositional(file: File, io: Io, buffer: []const u8, offset: u64) WritePositionalError!usize {
+pub fn writePositional(file: File, io: Io, buffer: [][]const u8, offset: u64) WritePositionalError!usize {
     return io.vtable.fileWritePositional(io.userdata, file, buffer, offset);
 }
 
