@@ -778,6 +778,18 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;
 
+        const VersionHashContext = struct {
+            pub fn hash(_: @This(), version: Version) u32 {
+                var hasher: std.hash.Wyhash = .init(0);
+                std.hash.autoStrat(&hasher, version, .deep);
+                return @truncate(hasher.final());
+            }
+
+            pub fn eql(_: @This(), lhs: Version, rhs: Version) bool {
+                return std.meta.eql(lhs, rhs);
+            }
+        };
+
         // There can be situations where there are multiple inclusions for the same symbol with
         // partially overlapping versions, due to different target lists. For example:
         //
@@ -792,7 +804,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         //
         // If we don't handle this, we end up writing the default `lgammal` symbol for version 2.33
         // twice, which causes a "duplicate symbol" assembler error.
-        var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
+        var versions_written: std.ArrayHashMapUnmanaged(Version, void, VersionHashContext, true) = .empty;
 
         var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
@@ -856,7 +868,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
 
             versions_written.clearRetainingCapacity();
-            try versions_written.ensureTotalCapacity(versions_len);
+            try versions_written.ensureTotalCapacity(arena, versions_len);
 
             {
                 var ver_buf_i: u8 = 0;
@@ -870,7 +882,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
 
-                    if (versions_written.getOrPutAssumeCapacity(ver).found_existing) continue;
+                    if (versions_written.getOrPutAssumeCapacity(arena, ver).found_existing) continue;
 
                     // Default symbol version definition vs normal symbol version definition
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
@@ -1032,7 +1044,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
 
             versions_written.clearRetainingCapacity();
-            try versions_written.ensureTotalCapacity(versions_len);
+            try versions_written.ensureTotalCapacity(arena, versions_len);
 
             {
                 var ver_buf_i: u8 = 0;
@@ -1047,7 +1059,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
 
-                    if (versions_written.getOrPutAssumeCapacity(ver).found_existing) continue;
+                    if (versions_written.getOrPutAssumeCapacity(arena, ver).found_existing) continue;
 
                     // Default symbol version definition vs normal symbol version definition
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
