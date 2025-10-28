@@ -1587,11 +1587,15 @@ fn spawnChildAndCollect(
         run.step.test_results = res.test_results;
         if (res.test_metadata) |tm| {
             run.cached_test_metadata = tm.toCachedTestMetadata();
-            if (options.web_server) |ws| ws.updateTimeReportRunTest(
-                run,
-                &run.cached_test_metadata.?,
-                tm.ns_per_test,
-            );
+            if (options.web_server) |ws| {
+                if (b.graph.time_report) {
+                    ws.updateTimeReportRunTest(
+                        run,
+                        &run.cached_test_metadata.?,
+                        tm.ns_per_test,
+                    );
+                }
+            }
         }
         return null;
     } else {
