@@ -99,7 +99,7 @@ pub fn detect(arena: Allocator, native_target: *const std.Target) !NativePaths {
         return self;
     }
 
-    if (builtin.os.tag.isSolarish()) {
+    if (builtin.os.tag == .illumos) {
         try self.addLibDir("/usr/lib/64");
         try self.addLibDir("/usr/local/lib/64");
         try self.addLibDir("/lib/64");

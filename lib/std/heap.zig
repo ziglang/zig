@@ -155,7 +155,7 @@ const CAllocator = struct {
     else {};
 
     pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
+        .dragonfly, .netbsd, .freebsd, .illumos, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
         else => false,
     };
 
@@ -768,7 +768,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
         .sparc64 => 8 << 10,
         else => null,
     },
-    .solaris, .illumos => switch (builtin.cpu.arch) {
+    .illumos => switch (builtin.cpu.arch) {
         // src/uts/*/sys/machparam.h
         .x86, .x86_64 => 4 << 10,
         .sparc, .sparc64 => 8 << 10,
@@ -926,7 +926,7 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
         .sparc64 => 8 << 10,
         else => null,
     },
-    .solaris, .illumos => switch (builtin.cpu.arch) {
+    .illumos => switch (builtin.cpu.arch) {
         // src/uts/*/sys/machparam.h
         .x86, .x86_64 => 4 << 10,
         .sparc, .sparc64 => 8 << 10,

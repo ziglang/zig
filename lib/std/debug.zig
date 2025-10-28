@@ -1368,7 +1368,6 @@ pub const have_segfault_handling_support = switch (native_os) {
     .watchos,
 
     .illumos,
-    .solaris,
 
     .windows,
     => true,
@@ -1471,7 +1470,6 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
             .openbsd,
             => @intFromPtr(info.data.fault.addr),
             .illumos,
-            .solaris,
             => @intFromPtr(info.reason.fault.addr),
             else => comptime unreachable,
         };

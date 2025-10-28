@@ -1547,7 +1547,7 @@ fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) 
 const have_sigwinch = switch (builtin.os.tag) {
     .linux,
     .plan9,
-    .solaris,
+    .illumos,
     .netbsd,
     .openbsd,
     .haiku,
