@@ -2052,10 +2052,10 @@ fn dirOpenFileWindows(
     const sub_path_w_array = try windows.sliceToPrefixedFileW(dir.handle, sub_path);
     const sub_path_w = sub_path_w_array.span();
     const dir_handle = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else dir.handle;
-    return dirOpenFileWindowsInner(t, dir_handle, sub_path_w, flags);
+    return dirOpenFileWtf16(t, dir_handle, sub_path_w, flags);
 }
 
-fn dirOpenFileWindowsInner(
+pub fn dirOpenFileWtf16(
     t: *Threaded,
     dir_handle: ?windows.HANDLE,
     sub_path_w: [:0]const u16,
@@ -2800,7 +2800,7 @@ fn openSelfExe(userdata: ?*anyopaque, flags: Io.File.OpenFlags) Io.File.OpenSelf
             const image_path_unicode_string = &windows.peb().ProcessParameters.ImagePathName;
             const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
             const prefixed_path_w = try windows.wToPrefixedFileW(null, image_path_name);
-            return dirOpenFileWindowsInner(t, null, prefixed_path_w.span(), flags);
+            return dirOpenFileWtf16(t, null, prefixed_path_w.span(), flags);
         },
         else => @panic("TODO implement openSelfExe"),
     }
