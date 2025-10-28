@@ -186,7 +186,7 @@ test "linkat with different directories" {
     if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
 
     switch (native_os) {
-        .wasi, .linux, .solaris, .illumos => {},
+        .wasi, .linux, .illumos => {},
         else => return error.SkipZigTest,
     }
 
@@ -558,7 +558,7 @@ test "fcntl" {
 
 test "signalfd" {
     switch (native_os) {
-        .linux, .solaris, .illumos => {},
+        .linux, .illumos => {},
         else => return error.SkipZigTest,
     }
     _ = &posix.signalfd;
@@ -577,7 +577,7 @@ test "sync" {
 
 test "fsync" {
     switch (native_os) {
-        .linux, .windows, .solaris, .illumos => {},
+        .linux, .windows, .illumos => {},
         else => return error.SkipZigTest,
     }
 
@@ -708,7 +708,7 @@ test "sigset add/del" {
 
 test "dup & dup2" {
     switch (native_os) {
-        .linux, .solaris, .illumos => {},
+        .linux, .illumos => {},
         else => return error.SkipZigTest,
     }
 

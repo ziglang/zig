@@ -391,8 +391,8 @@ fn getUnwindLibKind(tc: *const Toolchain) !UnwindLibKind {
     }
 }
 
-fn getAsNeededOption(is_solaris: bool, needed: bool) []const u8 {
-    if (is_solaris) {
+fn getAsNeededOption(is_illumos: bool, needed: bool) []const u8 {
+    if (is_illumos) {
         return if (needed) "-zignore" else "-zrecord";
     } else {
         return if (needed) "--as-needed" else "--no-as-needed";
@@ -412,7 +412,7 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
 
     try argv.ensureUnusedCapacity(tc.driver.comp.gpa, 3);
     if (as_needed) {
-        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .solaris, true));
+        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .illumos, true));
     }
     switch (unw) {
         .none => return,
@@ -435,7 +435,7 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
     }
 
     if (as_needed) {
-        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .solaris, false));
+        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .illumos, false));
     }
 }
 
