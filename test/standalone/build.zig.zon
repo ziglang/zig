@@ -126,6 +126,9 @@
         .windows_bat_args = .{
             .path = "windows_bat_args",
         },
+        .windows_paths = .{
+            .path = "windows_paths",
+        },
         .self_exe_symlink = .{
             .path = "self_exe_symlink",
         },

@@ -1154,7 +1154,7 @@ fn dirMakeOpenPathWindows(
         w.SYNCHRONIZE | w.FILE_TRAVERSE |
         (if (options.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
 
-    var it = try std.fs.path.componentIterator(sub_path);
+    var it = std.fs.path.componentIterator(sub_path);
     // If there are no components in the path, then create a dummy component with the full path.
     var component: std.fs.path.NativeComponentIterator.Component = it.last() orelse .{
         .name = "",

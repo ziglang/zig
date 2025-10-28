@@ -167,7 +167,7 @@ pub fn setPaths(fse: *FsEvents, gpa: Allocator, steps: []const *std.Build.Step) 
         }.lessThan);
         need_dirs.clearRetainingCapacity();
         for (old_dirs) |dir_path| {
-            var it: std.fs.path.ComponentIterator(.posix, u8) = try .init(dir_path);
+            var it: std.fs.path.ComponentIterator(.posix, u8) = .init(dir_path);
             while (it.next()) |component| {
                 if (need_dirs.contains(component.path)) {
                     // this path is '/foo/bar/qux', but '/foo' or '/foo/bar' was already added
