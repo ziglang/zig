@@ -600,6 +600,7 @@ pub const Packet = union(enum) {
             .data => |data| reader.toss(data.len),
             else => {},
         }
+
         return packet;
     }
 
@@ -646,11 +647,21 @@ pub const Packet = union(enum) {
     }
 };
 
+pub const Transport = union(enum) {
+    http: *std.http.Client,
+    git: struct {
+        reader: *std.net.Stream.Reader,
+        writer: *std.net.Stream.Writer,
+    },
+    // This is a placeholder: git also supports using ssh as a transport
+    ssh: u8,
+};
+
 /// A client session for the Git protocol, currently limited to an HTTP(S)
 /// transport. Only protocol version 2 is supported, as documented in
 /// [protocol-v2](https://git-scm.com/docs/protocol-v2).
 pub const Session = struct {
-    transport: *std.http.Client,
+    transport: Transport,
     location: Location,
     supports_agent: bool,
     supports_shallow: bool,
@@ -664,7 +675,7 @@ pub const Session = struct {
     /// server for optimal transport.
     pub fn init(
         arena: Allocator,
-        transport: *std.http.Client,
+        transport: Transport,
         uri: std.Uri,
         /// Asserted to be at least `Packet.max_data_length`
         response_buffer: []u8,
@@ -739,49 +750,70 @@ pub const Session = struct {
     fn getCapabilities(session: *Session, it: *CapabilityIterator, response_buffer: []u8) !void {
         const arena = session.arena;
         assert(response_buffer.len >= Packet.max_data_length);
-        var info_refs_uri = session.location.uri;
-        {
-            const session_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
-                std.fmt.alt(session.location.uri.path, .formatPath),
-            });
-            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(arena, &.{
-                "/", session_uri_path, "info/refs",
-            }) };
-        }
-        info_refs_uri.query = .{ .percent_encoded = "service=git-upload-pack" };
-        info_refs_uri.fragment = null;
 
-        const max_redirects = 3;
         it.* = .{
-            .request = try session.transport.request(.GET, info_refs_uri, .{
-                .redirect_behavior = .init(max_redirects),
-                .extra_headers = &.{
-                    .{ .name = "Git-Protocol", .value = "version=2" },
-                },
-            }),
             .reader = undefined,
             .decompress = undefined,
         };
-        errdefer it.deinit();
-        const request = &it.request;
-        try request.sendBodiless();
 
-        var redirect_buffer: [1024]u8 = undefined;
-        var response = try request.receiveHead(&redirect_buffer);
-        if (response.head.status != .ok) return error.ProtocolError;
-        const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
-        if (any_redirects_occurred) {
-            const request_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
-                std.fmt.alt(request.uri.path, .formatPath),
-            });
-            if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
-            var new_uri = request.uri;
-            new_uri.path = .{ .percent_encoded = request_uri_path[0 .. request_uri_path.len - "/info/refs".len] };
-            session.location = try .init(arena, new_uri);
+        switch (session.transport) {
+            .http => |client| {
+                var info_refs_uri = session.location.uri;
+                {
+                    const session_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
+                        std.fmt.alt(session.location.uri.path, .formatPath),
+                    });
+                    info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(arena, &.{
+                        "/", session_uri_path, "info/refs",
+                    }) };
+                }
+                info_refs_uri.query = .{ .percent_encoded = "service=git-upload-pack" };
+                info_refs_uri.fragment = null;
+
+                const max_redirects = 3;
+                it.* = .{
+                    .request = try client.request(.GET, info_refs_uri, .{
+                        .redirect_behavior = .init(max_redirects),
+                        .extra_headers = &.{
+                            .{ .name = "Git-Protocol", .value = "version=2" },
+                        },
+                    }),
+                    .reader = undefined,
+                    .decompress = undefined,
+                };
+
+                errdefer it.deinit();
+                const request = &it.request.?;
+                try request.sendBodiless();
+
+                var redirect_buffer: [1024]u8 = undefined;
+                var response = try request.receiveHead(&redirect_buffer);
+                if (response.head.status != .ok) return error.ProtocolError;
+                const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
+                if (any_redirects_occurred) {
+                    const request_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
+                        std.fmt.alt(request.uri.path, .formatPath),
+                    });
+                    if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
+                    var new_uri = request.uri;
+                    new_uri.path = .{ .percent_encoded = request_uri_path[0 .. request_uri_path.len - "/info/refs".len] };
+                    session.location = try .init(arena, new_uri);
+                }
+
+                const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+                it.reader = response.readerDecompressing(response_buffer, &it.decompress, decompress_buffer);
+            },
+            .git => |socket| {
+                const path = session.location.uri.path.percent_encoded;
+                errdefer it.deinit();
+                const host = session.location.uri.host.?.percent_encoded;
+
+                const payload = try std.fmt.allocPrint(session.arena, "git-upload-pack {s}{c}host={s}{c}{c}version=2{c}", .{ path, 0x0, host, 0x0, 0x0, 0x0 });
+                try Packet.write(.{ .data = payload }, &socket.writer.interface);
+                it.reader = socket.reader.interface();
+            },
+            else => @panic("ssh transport not yet implemented"),
         }
-
-        const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
-        it.reader = response.readerDecompressing(response_buffer, &it.decompress, decompress_buffer);
         var state: enum { response_start, response_content } = .response_start;
         while (true) {
             // Some Git servers (at least GitHub) include an additional
@@ -811,7 +843,7 @@ pub const Session = struct {
     }
 
     const CapabilityIterator = struct {
-        request: std.http.Client.Request,
+        request: ?std.http.Client.Request = null,
         reader: *std.Io.Reader,
         decompress: std.http.Decompress,
 
@@ -828,7 +860,9 @@ pub const Session = struct {
         };
 
         fn deinit(it: *CapabilityIterator) void {
-            it.request.deinit();
+            if (it.request) |*req| {
+                @constCast(req).deinit();
+            }
             it.* = undefined;
         }
 
@@ -893,31 +927,46 @@ pub const Session = struct {
         }
         try Packet.write(.flush, &body);
 
-        it.* = .{
-            .request = try session.transport.request(.POST, upload_pack_uri, .{
-                .redirect_behavior = .unhandled,
-                .extra_headers = &.{
-                    .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
-                    .{ .name = "Git-Protocol", .value = "version=2" },
-                },
-            }),
-            .reader = undefined,
-            .format = session.object_format,
-            .decompress = undefined,
-        };
-        const request = &it.request;
-        errdefer request.deinit();
-        try request.sendBodyComplete(body.buffered());
+        switch (session.transport) {
+            .http => |client| {
+                it.* = .{
+                    .request = try client.request(.POST, upload_pack_uri, .{
+                        .redirect_behavior = .unhandled,
+                        .extra_headers = &.{
+                            .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
+                            .{ .name = "Git-Protocol", .value = "version=2" },
+                        },
+                    }),
+                    .reader = undefined,
+                    .format = session.object_format,
+                    .decompress = undefined,
+                };
 
-        var response = try request.receiveHead(options.buffer);
-        if (response.head.status != .ok) return error.ProtocolError;
-        const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
-        it.reader = response.readerDecompressing(options.buffer, &it.decompress, decompress_buffer);
+                var request = &it.request.?;
+                try request.sendBodyComplete(body.buffered());
+
+                var response = try request.receiveHead(options.buffer);
+                if (response.head.status != .ok) return error.ProtocolError;
+                const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+                it.reader = response.readerDecompressing(options.buffer, &it.decompress, decompress_buffer);
+            },
+            .git => |stream| {
+                it.* = .{
+                    .request = null,
+                    .reader = stream.reader.interface(),
+                    .format = session.object_format,
+                    .decompress = undefined,
+                };
+
+                _ = try stream.writer.interface.write(body.buffered());
+            },
+            else => @panic("ssh not implemented yet"),
+        }
     }
 
     pub const RefIterator = struct {
+        request: ?std.http.Client.Request,
         format: Oid.Format,
-        request: std.http.Client.Request,
         reader: *std.Io.Reader,
         decompress: std.http.Decompress,
 
@@ -929,7 +978,9 @@ pub const Session = struct {
         };
 
         pub fn deinit(iterator: *RefIterator) void {
-            iterator.request.deinit();
+            if (iterator.request) |*req| {
+                @constCast(req).deinit();
+            }
             iterator.* = undefined;
         }
 
@@ -963,6 +1014,10 @@ pub const Session = struct {
                 else => return error.UnexpectedPacket,
             }
         }
+
+        pub fn end(it: *RefIterator) !void {
+            while (try Packet.read(it.reader) != .flush) {}
+        }
     };
 
     /// Fetches the given refs from the server. A shallow fetch (depth 1) is
@@ -970,12 +1025,14 @@ pub const Session = struct {
     pub fn fetch(
         session: Session,
         fs: *FetchStream,
-        wants: []const []const u8,
+        want: []const u8,
         /// Asserted to be at least `Packet.max_data_length`.
         response_buffer: []u8,
     ) !void {
         const arena = session.arena;
         assert(response_buffer.len >= Packet.max_data_length);
+        const packet_buffer = try arena.alloc(u8, Packet.max_data_length);
+        defer arena.free(packet_buffer);
         var upload_pack_uri = session.location.uri;
         {
             const session_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
@@ -986,54 +1043,74 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body: std.Io.Writer = .fixed(response_buffer);
-        try Packet.write(.{ .data = "command=fetch\n" }, &body);
+        var body: std.Io.Writer = .fixed(packet_buffer);
+        try Packet.write(.{ .data = "command=fetch" }, &body);
         if (session.supports_agent) {
             try Packet.write(.{ .data = agent_capability }, &body);
         }
         {
-            const object_format_packet = try std.fmt.allocPrint(arena, "object-format={s}\n", .{@tagName(session.object_format)});
+            const object_format_packet = try std.fmt.allocPrint(arena, "object-format={s}", .{@tagName(session.object_format)});
             try Packet.write(.{ .data = object_format_packet }, &body);
         }
         try Packet.write(.delimiter, &body);
-        // Our packfile parser supports the OFS_DELTA object type
-        try Packet.write(.{ .data = "ofs-delta\n" }, &body);
+        try Packet.write(.{ .data = "thin-pack" }, &body);
         // We do not currently convey server progress information to the user
-        try Packet.write(.{ .data = "no-progress\n" }, &body);
+        try Packet.write(.{ .data = "no-progress" }, &body);
+        try Packet.write(.{ .data = "include-tag" }, &body);
+        // Our packfile parser supports the OFS_DELTA object type
+        try Packet.write(.{ .data = "ofs-delta" }, &body);
         if (session.supports_shallow) {
-            try Packet.write(.{ .data = "deepen 1\n" }, &body);
+            try Packet.write(.{ .data = "deepen 1" }, &body);
         }
-        for (wants) |want| {
-            var buf: [Packet.max_data_length]u8 = undefined;
-            const arg = std.fmt.bufPrint(&buf, "want {s}\n", .{want}) catch unreachable;
-            try Packet.write(.{ .data = arg }, &body);
-        }
+
+        var buf: [Packet.max_data_length]u8 = undefined;
+        const arg = std.fmt.bufPrint(&buf, "want {s}\n", .{want}) catch unreachable;
+        try Packet.write(.{ .data = arg }, &body);
         try Packet.write(.{ .data = "done\n" }, &body);
         try Packet.write(.flush, &body);
 
-        fs.* = .{
-            .request = try session.transport.request(.POST, upload_pack_uri, .{
-                .redirect_behavior = .not_allowed,
-                .extra_headers = &.{
-                    .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
-                    .{ .name = "Git-Protocol", .value = "version=2" },
-                },
-            }),
-            .input = undefined,
-            .reader = undefined,
-            .remaining_len = undefined,
-            .decompress = undefined,
-        };
-        const request = &fs.request;
-        errdefer request.deinit();
+        var reader: *std.Io.Reader = undefined;
 
-        try request.sendBodyComplete(body.buffered());
+        switch (session.transport) {
+            .http => |client| {
+                fs.* = .{
+                    .request = try client.request(.POST, upload_pack_uri, .{
+                        .redirect_behavior = .not_allowed,
+                        .extra_headers = &.{
+                            .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
+                            .{ .name = "Git-Protocol", .value = "version=2" },
+                        },
+                    }),
+                    .input = undefined,
+                    .reader = undefined,
+                    .remaining_len = undefined,
+                    .decompress = undefined,
+                };
+                const request = &fs.request.?;
 
-        var response = try request.receiveHead(&.{});
-        if (response.head.status != .ok) return error.ProtocolError;
+                try request.sendBodyComplete(body.buffered());
 
-        const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
-        const reader = response.readerDecompressing(response_buffer, &fs.decompress, decompress_buffer);
+                var response = try request.receiveHead(&.{});
+                if (response.head.status != .ok) return error.ProtocolError;
+
+                const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+                reader = response.readerDecompressing(response_buffer, &fs.decompress, decompress_buffer);
+            },
+            .git => |stream| {
+                fs.* = .{
+                    .request = null,
+                    .reader = undefined,
+                    .input = undefined,
+                    .remaining_len = undefined,
+                    .decompress = undefined,
+                };
+
+                _ = try stream.writer.interface.writeAll(body.buffered());
+                reader = stream.reader.interface();
+            },
+            .ssh => @panic("ssh not implemented yet"),
+        }
+
         // We are not interested in any of the sections of the returned fetch
         // data other than the packfile section, since we aren't doing anything
         // complex like ref negotiation (this is a fresh clone).
@@ -1067,7 +1144,7 @@ pub const Session = struct {
     }
 
     pub const FetchStream = struct {
-        request: std.http.Client.Request,
+        request: ?std.http.Client.Request,
         input: *std.Io.Reader,
         reader: std.Io.Reader,
         err: ?Error = null,
@@ -1075,7 +1152,9 @@ pub const Session = struct {
         decompress: std.http.Decompress,
 
         pub fn deinit(fs: *FetchStream) void {
-            fs.request.deinit();
+            if (fs.request) |*req| {
+                req.deinit();
+            }
         }
 
         pub const Error = error{
@@ -1099,22 +1178,24 @@ pub const Session = struct {
             const input = fs.input;
             if (fs.remaining_len == 0) {
                 while (true) {
-                    switch (Packet.peek(input) catch |err| {
+                    peek: switch (Packet.peek(input) catch |err| {
                         fs.err = err;
                         return error.ReadFailed;
                     }) {
                         .flush => return error.EndOfStream,
-                        .data => |data| if (data.len > 1) switch (@as(StreamCode, @enumFromInt(data[0]))) {
-                            .pack_data => {
-                                input.toss(1);
-                                fs.remaining_len = data.len - 1;
-                                break;
-                            },
-                            .fatal_error => {
-                                fs.err = error.ProtocolError;
-                                return error.ReadFailed;
-                            },
-                            else => {},
+                        .data => |data| {
+                            break :peek if (data.len > 1) switch (@as(StreamCode, @enumFromInt(data[0]))) {
+                                .pack_data => {
+                                    input.toss(1);
+                                    fs.remaining_len = data.len - 1;
+                                    break;
+                                },
+                                .fatal_error => {
+                                    fs.err = error.ProtocolError;
+                                    return error.ReadFailed;
+                                },
+                                else => {},
+                            };
                         },
                         else => {
                             fs.err = error.UnexpectedPacket;
