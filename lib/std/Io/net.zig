@@ -879,6 +879,7 @@ pub const UnixAddress = struct {
         NotDir,
         ReadOnlyFileSystem,
         WouldBlock,
+        NetworkDown,
     } || Io.Cancelable || Io.UnexpectedError;
 
     pub fn connect(ua: *const UnixAddress, io: Io) ConnectError!Stream {

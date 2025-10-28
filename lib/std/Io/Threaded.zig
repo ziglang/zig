@@ -3172,10 +3172,62 @@ fn netListenUnixWindows(
 ) net.UnixAddress.ListenError!net.Socket.Handle {
     if (!net.has_unix_sockets) return error.AddressFamilyUnsupported;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    try t.checkCancel();
-    _ = address;
-    _ = options;
-    @panic("TODO implement netListenUnixWindows");
+
+    const socket_handle = openSocketWsa(t, posix.AF.UNIX, .{ .mode = .stream }) catch |err| switch (err) {
+        error.ProtocolUnsupportedByAddressFamily => return error.AddressFamilyUnsupported,
+        else => |e| return e,
+    };
+    errdefer closeSocketWindows(socket_handle);
+
+    var storage: WsaAddress = undefined;
+    const addr_len = addressUnixToWsa(address, &storage);
+
+    while (true) {
+        try t.checkCancel();
+        const rc = ws2_32.bind(socket_handle, &storage.any, addr_len);
+        if (rc != ws2_32.SOCKET_ERROR) break;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED, .OPERATION_ABORTED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .EADDRINUSE => return error.AddressInUse,
+            .EADDRNOTAVAIL => return error.AddressUnavailable,
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EFAULT => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            .ENOBUFS => return error.SystemResources,
+            .ENETDOWN => return error.NetworkDown,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
+    while (true) {
+        try t.checkCancel();
+        const rc = ws2_32.listen(socket_handle, options.kernel_backlog);
+        if (rc != ws2_32.SOCKET_ERROR) break;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED, .OPERATION_ABORTED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+            .ENETDOWN => return error.NetworkDown,
+            .EADDRINUSE => return error.AddressInUse,
+            .EISCONN => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            .EMFILE, .ENOBUFS => return error.SystemResources,
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EOPNOTSUPP => |err| return wsaErrorBug(err),
+            .EINPROGRESS => |err| return wsaErrorBug(err),
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
+    return socket_handle;
 }
 
 fn netListenUnixUnavailable(
@@ -3493,9 +3545,37 @@ fn netConnectUnixWindows(
 ) net.UnixAddress.ConnectError!net.Socket.Handle {
     if (!net.has_unix_sockets) return error.AddressFamilyUnsupported;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    try t.checkCancel();
-    _ = address;
-    @panic("TODO implement netConnectUnixWindows");
+
+    const socket_handle = try openSocketWsa(t, posix.AF.UNIX, .{ .mode = .stream });
+    errdefer closeSocketWindows(socket_handle);
+    var storage: WsaAddress = undefined;
+    const addr_len = addressUnixToWsa(address, &storage);
+
+    while (true) {
+        const rc = ws2_32.connect(socket_handle, &storage.any, addr_len);
+        if (rc != ws2_32.SOCKET_ERROR) break;
+        switch (ws2_32.WSAGetLastError()) {
+            .EINTR => continue,
+            .ECANCELLED, .E_CANCELLED, .OPERATION_ABORTED => return error.Canceled,
+            .NOTINITIALISED => {
+                try initializeWsa(t);
+                continue;
+            },
+
+            .ECONNREFUSED => return error.FileNotFound,
+            .EFAULT => |err| return wsaErrorBug(err),
+            .EINVAL => |err| return wsaErrorBug(err),
+            .EISCONN => |err| return wsaErrorBug(err),
+            .ENOTSOCK => |err| return wsaErrorBug(err),
+            .EWOULDBLOCK => return error.WouldBlock,
+            .EACCES => return error.AccessDenied,
+            .ENOBUFS => return error.SystemResources,
+            .EAFNOSUPPORT => return error.AddressFamilyUnsupported,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
+    return socket_handle;
 }
 
 fn netConnectUnixUnavailable(
@@ -4929,6 +5009,13 @@ fn addressToWsa(a: *const IpAddress, storage: *WsaAddress) i32 {
 }
 
 fn addressUnixToPosix(a: *const net.UnixAddress, storage: *UnixAddress) posix.socklen_t {
+    @memcpy(storage.un.path[0..a.path.len], a.path);
+    storage.un.family = posix.AF.UNIX;
+    storage.un.path[a.path.len] = 0;
+    return @sizeOf(posix.sockaddr.un);
+}
+
+fn addressUnixToWsa(a: *const net.UnixAddress, storage: *WsaAddress) i32 {
     @memcpy(storage.un.path[0..a.path.len], a.path);
     storage.un.family = posix.AF.UNIX;
     storage.un.path[a.path.len] = 0;
