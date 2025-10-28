@@ -4634,25 +4634,28 @@ pub const TEB = extern struct {
 };
 
 comptime {
-    // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
-    // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
-    assert(@offsetOf(TEB, "NtTib") == 0x00);
-    if (@sizeOf(usize) == 4) {
-        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
-        assert(@offsetOf(TEB, "ClientId") == 0x20);
-        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
-        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
-        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
-        assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
-        assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
-    } else if (@sizeOf(usize) == 8) {
-        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
-        assert(@offsetOf(TEB, "ClientId") == 0x40);
-        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
-        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
-        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
-        assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
-        assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
+    // XXX: Without this check we cannot use `std.Io.Writer` on 16-bit platforms. `std.fmt.bufPrint` will hit the unreachable in `PEB.GdiHandleBuffer` without this guard.
+    if (builtin.os.tag == .windows) {
+        // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
+        // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
+        assert(@offsetOf(TEB, "NtTib") == 0x00);
+        if (@sizeOf(usize) == 4) {
+            assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
+            assert(@offsetOf(TEB, "ClientId") == 0x20);
+            assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
+            assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
+            assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+            assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
+            assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
+        } else if (@sizeOf(usize) == 8) {
+            assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
+            assert(@offsetOf(TEB, "ClientId") == 0x40);
+            assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
+            assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
+            assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+            assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
+            assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
+        }
     }
 }
 

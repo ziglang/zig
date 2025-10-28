@@ -227,6 +227,7 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .propeller,
         .sh,
         .sheb,
+        .x86_16,
         .xtensaeb,
         => false,
     };

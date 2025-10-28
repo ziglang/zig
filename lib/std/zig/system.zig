@@ -215,25 +215,17 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     var os = query_os_tag.defaultVersionRange(query_cpu_arch, query_abi);
     if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
-            .linux => {
+            .linux, .illumos => {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
                 if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.linux.range.min = ver;
-                    os.version_range.linux.range.max = ver;
-                } else |err| switch (err) {
-                    error.Overflow => {},
-                    error.InvalidVersion => {},
-                }
-            },
-            .illumos => {
-                const uts = posix.uname();
-                const release = mem.sliceTo(&uts.release, 0);
-                if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.semver.min = ver;
-                    os.version_range.semver.max = ver;
+                    var stripped = ver;
+                    stripped.pre = null;
+                    stripped.build = null;
+                    os.version_range.linux.range.min = stripped;
+                    os.version_range.linux.range.max = stripped;
                 } else |err| switch (err) {
                     error.Overflow => {},
                     error.InvalidVersion => {},
@@ -307,10 +299,9 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                     posix.CTL.KERN,
                     posix.KERN.OSRELEASE,
                 };
-                var buf: [64]u8 = undefined;
+                var buf: [64:0]u8 = undefined;
                 // consider that sysctl result includes null-termination
-                // reserve 1 byte to ensure we never overflow when appending ".0"
-                var len: usize = buf.len - 1;
+                var len: usize = buf.len + 1;
 
                 posix.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
                     error.NameTooLong => unreachable, // constant, known good value
@@ -320,12 +311,9 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                     error.Unexpected => return error.OSVersionDetectionFail,
                 };
 
-                // append ".0" to satisfy semver
-                buf[len - 1] = '.';
-                buf[len] = '0';
-                len += 1;
-
-                if (std.SemanticVersion.parse(buf[0..len])) |ver| {
+                if (Target.Query.parseVersion(buf[0..len :0])) |ver| {
+                    assert(ver.build == null);
+                    assert(ver.pre == null);
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |_| {
@@ -386,6 +374,11 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     // However, the "mode" flags can be used as overrides, so if the user explicitly
     // sets one of them, that takes precedence.
     switch (query_cpu_arch) {
+        .x86_16 => {
+            cpu.features.addFeature(
+                @intFromEnum(Target.x86.Feature.@"16bit_mode"),
+            );
+        },
         .x86 => {
             if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
