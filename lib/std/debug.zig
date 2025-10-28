@@ -272,7 +272,7 @@ pub fn unlockStdErr() void {
     std.Progress.unlockStdErr();
 }
 
-/// Allows the caller to freely write to stderr until `unlockStdErr` is called.
+/// Allows the caller to freely write to stderr until `unlockStderrWriter` is called.
 ///
 /// During the lock, any `std.Progress` information is cleared from the terminal.
 ///
@@ -282,8 +282,16 @@ pub fn unlockStdErr() void {
 ///
 /// The returned `Writer` does not need to be manually flushed: flushing is performed automatically
 /// when the matching `unlockStderrWriter` call occurs.
-pub fn lockStderrWriter(buffer: []u8) *Writer {
-    return std.Progress.lockStderrWriter(buffer);
+pub fn lockStderrWriter(buffer: []u8) struct { *Writer, tty.Config } {
+    const global = struct {
+        var conf: ?tty.Config = null;
+    };
+    const w = std.Progress.lockStderrWriter(buffer);
+    // The stderr lock also locks access to `global.conf`.
+    if (global.conf == null) {
+        global.conf = .detect(.stderr());
+    }
+    return .{ w, global.conf.? };
 }
 
 pub fn unlockStderrWriter() void {
@@ -297,7 +305,7 @@ pub fn unlockStderrWriter() void {
 /// function returns.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
     var buffer: [64]u8 = undefined;
-    const bw = lockStderrWriter(&buffer);
+    const bw, _ = lockStderrWriter(&buffer);
     defer unlockStderrWriter();
     nosuspend bw.print(fmt, args) catch return;
 }
@@ -314,9 +322,8 @@ pub inline fn getSelfDebugInfo() !*SelfInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dumpHex(bytes: []const u8) void {
-    const bw = lockStderrWriter(&.{});
+    const bw, const ttyconf = lockStderrWriter(&.{});
     defer unlockStderrWriter();
-    const ttyconf = tty.detectConfig(.stderr());
     dumpHexFallible(bw, ttyconf, bytes) catch {};
 }
 
@@ -538,9 +545,7 @@ pub fn defaultPanic(
             _ = panicking.fetchAdd(1, .seq_cst);
 
             trace: {
-                const tty_config = tty.detectConfig(.stderr());
-
-                const stderr = lockStderrWriter(&.{});
+                const stderr, const tty_config = lockStderrWriter(&.{});
                 defer unlockStderrWriter();
 
                 if (builtin.single_threaded) {
@@ -743,8 +748,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Wri
 }
 /// A thin wrapper around `writeCurrentStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
-    const tty_config = tty.detectConfig(.stderr());
-    const stderr = lockStderrWriter(&.{});
+    const stderr, const tty_config = lockStderrWriter(&.{});
     defer unlockStderrWriter();
     writeCurrentStackTrace(.{
         .first_address = a: {
@@ -809,8 +813,7 @@ pub fn writeStackTrace(st: *const StackTrace, writer: *Writer, tty_config: tty.C
 }
 /// A thin wrapper around `writeStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpStackTrace(st: *const StackTrace) void {
-    const tty_config = tty.detectConfig(.stderr());
-    const stderr = lockStderrWriter(&.{});
+    const stderr, const tty_config = lockStderrWriter(&.{});
     defer unlockStderrWriter();
     writeStackTrace(st, stderr, tty_config) catch |err| switch (err) {
         error.WriteFailed => {},
@@ -1552,9 +1555,7 @@ pub fn defaultHandleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContex
             _ = panicking.fetchAdd(1, .seq_cst);
 
             trace: {
-                const tty_config = tty.detectConfig(.stderr());
-
-                const stderr = lockStderrWriter(&.{});
+                const stderr, const tty_config = lockStderrWriter(&.{});
                 defer unlockStderrWriter();
 
                 if (addr) |a| {
@@ -1612,7 +1613,7 @@ test "manage resources correctly" {
         &di,
         &discarding.writer,
         S.showMyTrace(),
-        tty.detectConfig(.stderr()),
+        .no_color,
     );
 }
 
@@ -1674,8 +1675,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = tty.detectConfig(.stderr());
-            const stderr = lockStderrWriter(&.{});
+            const stderr, const tty_config = lockStderrWriter(&.{});
             defer unlockStderrWriter();
             const end = @min(t.index, size);
             for (t.addrs[0..end], 0..) |frames_array, i| {

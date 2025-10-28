@@ -28,13 +28,11 @@ pub fn main() !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const stderr = std.fs.File.stderr();
-    const stderr_config = std.Io.tty.detectConfig(stderr);
-
     const args = try std.process.argsAlloc(arena);
 
     if (args.len < 2) {
-        try renderErrorMessage(std.debug.lockStderrWriter(&.{}), stderr_config, .err, "expected zig lib dir as first argument", .{});
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        try renderErrorMessage(w, ttyconf, .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
     const zig_lib_dir = args[1];
@@ -56,9 +54,7 @@ pub fn main() !void {
                 .in = undefined, // won't be receiving messages
             },
         },
-        false => .{
-            .tty = stderr_config,
-        },
+        false => .stderr,
     };
 
     var options = options: {
@@ -75,12 +71,14 @@ pub fn main() !void {
 
         if (!zig_integration) {
             // print any warnings/notes
-            cli_diagnostics.renderToStdErr(cli_args, stderr_config);
+            cli_diagnostics.renderToStdErr(cli_args);
             // If there was something printed, then add an extra newline separator
             // so that there is a clear separation between the cli diagnostics and whatever
             // gets printed after
             if (cli_diagnostics.errors.items.len > 0) {
-                try stderr.writeAll("\n");
+                const stderr, _ = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try stderr.writeByte('\n');
             }
         }
         break :options options;
@@ -130,17 +128,18 @@ pub fn main() !void {
             const aro_arena = aro_arena_state.allocator();
 
             var stderr_buf: [512]u8 = undefined;
-            var stderr_writer = stderr.writer(&stderr_buf);
-            var diagnostics: aro.Diagnostics = switch (zig_integration) {
-                false => .{ .output = .{ .to_writer = .{
-                    .writer = &stderr_writer.interface,
-                    .color = stderr_config,
-                } } },
-                true => .{ .output = .{ .to_list = .{
-                    .arena = .init(gpa),
-                } } },
-            };
-            defer diagnostics.deinit();
+            var diagnostics: aro.Diagnostics = .{ .output = output: {
+                if (zig_integration) break :output .{ .to_list = .{ .arena = .init(gpa) } };
+                const w, const ttyconf = std.debug.lockStderrWriter(&stderr_buf);
+                break :output .{ .to_writer = .{
+                    .writer = w,
+                    .color = ttyconf,
+                } };
+            } };
+            defer {
+                diagnostics.deinit();
+                if (!zig_integration) std.debug.unlockStderrWriter();
+            }
 
             var comp = aro.Compilation.init(aro_arena, aro_arena, io, &diagnostics, std.fs.cwd());
             defer comp.deinit();
@@ -307,7 +306,7 @@ pub fn main() !void {
 
                 // print any warnings/notes
                 if (!zig_integration) {
-                    diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
+                    diagnostics.renderToStdErr(std.fs.cwd(), final_input, mapping_results.mappings);
                 }
 
                 // write the depfile
@@ -660,7 +659,7 @@ const SourceMappings = @import("source_mapping.zig").SourceMappings;
 
 const ErrorHandler = union(enum) {
     server: std.zig.Server,
-    tty: std.Io.tty.Config,
+    stderr,
 
     pub fn emitCliDiagnostics(
         self: *ErrorHandler,
@@ -675,9 +674,7 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
-                diagnostics.renderToStdErr(args, self.tty);
-            },
+            .stderr => diagnostics.renderToStdErr(args),
         }
     }
 
@@ -698,11 +695,11 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
+            .stderr => {
                 // aro errors have already been emitted
-                const stderr = std.debug.lockStderrWriter(&.{});
+                const stderr, const ttyconf = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
-                try renderErrorMessage(stderr, self.tty, .err, "{s}", .{fail_msg});
+                try renderErrorMessage(stderr, ttyconf, .err, "{s}", .{fail_msg});
             },
         }
     }
@@ -722,9 +719,7 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
-                diagnostics.renderToStdErr(cwd, source, self.tty, mappings);
-            },
+            .stderr => diagnostics.renderToStdErr(cwd, source, mappings),
         }
     }
 
@@ -745,10 +740,10 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
-                const stderr = std.debug.lockStderrWriter(&.{});
+            .stderr => {
+                const stderr, const ttyconf = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
-                try renderErrorMessage(stderr, self.tty, msg_type, format, args);
+                try renderErrorMessage(stderr, ttyconf, msg_type, format, args);
             },
         }
     }

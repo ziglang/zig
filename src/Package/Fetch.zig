@@ -2043,7 +2043,7 @@ const UnpackResult = struct {
         defer errors.deinit(gpa);
         var aw: Io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try errors.renderToWriter(.{}, &aw.writer, .no_color);
         try std.testing.expectEqualStrings(
             \\error: unable to unpack
             \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
@@ -2360,7 +2360,7 @@ const TestFetchBuilder = struct {
         }
         var aw: Io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try errors.renderToWriter(.{}, &aw.writer, .no_color);
         try std.testing.expectEqualStrings(msg, aw.written());
     }
 };

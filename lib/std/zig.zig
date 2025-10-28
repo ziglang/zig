@@ -53,17 +53,18 @@ pub const Color = enum {
     /// Assume stderr is a terminal.
     on,
 
-    pub fn get_tty_conf(color: Color) Io.tty.Config {
+    pub fn getTtyConf(color: Color, detected: Io.tty.Config) Io.tty.Config {
         return switch (color) {
-            .auto => Io.tty.detectConfig(std.fs.File.stderr()),
+            .auto => detected,
             .on => .escape_codes,
             .off => .no_color,
         };
     }
-
-    pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        return .{
-            .ttyconf = get_tty_conf(color),
+    pub fn detectTtyConf(color: Color) Io.tty.Config {
+        return switch (color) {
+            .auto => .detect(.stderr()),
+            .on => .escape_codes,
+            .off => .no_color,
         };
     }
 };
@@ -606,7 +607,7 @@ pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(color.renderOptions());
+    error_bundle.renderToStdErr(.{}, color);
 }
 
 pub fn putAstErrorsIntoBundle(

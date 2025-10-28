@@ -11188,7 +11188,7 @@ fn initValueAdvanced(
 }
 pub fn dumpValues(isel: *Select, which: enum { only_referenced, all }) void {
     errdefer |err| @panic(@errorName(err));
-    const stderr = std.debug.lockStderrWriter(&.{});
+    const stderr, _ = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
 
     const zcu = isel.pt.zcu;
