@@ -770,7 +770,9 @@ fn testBasicWriteStream(w: *Stringify) !void {
 }
 
 fn getJsonObject(allocator: std.mem.Allocator) !std.json.Value {
-    var v: std.json.Value = .{ .object_managed = std.json.ObjectMap.init(allocator) };
+    const obj = try allocator.create(std.json.ObjectMap);
+    obj.* = std.json.ObjectMap.init(allocator);
+    var v: std.json.Value = .{ .object_managed = obj };
     try v.object_managed.put("one", std.json.Value{ .integer = @as(i64, @intCast(1)) });
     try v.object_managed.put("two", std.json.Value{ .float = 2.0 });
     return v;

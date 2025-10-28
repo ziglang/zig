@@ -32,8 +32,9 @@ pub const Value = union(enum) {
     string: []const u8,
     array: ArrayUnmanaged,
     object: ObjectMapUnmanaged,
-    array_managed: ArrayManaged,
-    object_managed: ObjectMapManaged,
+
+    array_managed: *ArrayManaged,
+    object_managed: *ObjectMapManaged,
 
     pub fn parseFromNumberSlice(s: []const u8) Value {
         if (!isNumberFormattedLikeAnInteger(s)) {
