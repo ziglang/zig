@@ -1,12 +1,14 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const native_abi = builtin.abi;
+const native_arch = builtin.cpu.arch;
+const native_os = builtin.os.tag;
+const native_endian = builtin.cpu.arch.endian();
+
+const std = @import("std");
 const c = @This();
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 const page_size = std.heap.page_size_min;
-const native_abi = builtin.abi;
-const native_arch = builtin.cpu.arch;
-const native_os = builtin.os.tag;
 const linux = std.os.linux;
 const emscripten = std.os.emscripten;
 const wasi = std.os.wasi;
@@ -4118,9 +4120,13 @@ const posix_msghdr = extern struct {
     name: ?*sockaddr,
     namelen: socklen_t,
     iov: [*]iovec,
+    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
     iovlen: u32,
+    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
     control: ?*anyopaque,
+    pad2: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
     controllen: socklen_t,
+    pad3: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
     flags: u32,
 };
 
@@ -4148,9 +4154,13 @@ const posix_msghdr_const = extern struct {
     name: ?*const sockaddr,
     namelen: socklen_t,
     iov: [*]const iovec_const,
+    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
     iovlen: u32,
+    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
     control: ?*const anyopaque,
+    pad2: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
     controllen: socklen_t,
+    pad3: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
     flags: u32,
 };
 
@@ -4193,7 +4203,9 @@ pub const cmsghdr = switch (native_os) {
 };
 
 const posix_cmsghdr = extern struct {
+    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
     len: socklen_t,
+    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
     level: c_int,
     type: c_int,
 };
