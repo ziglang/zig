@@ -2253,6 +2253,7 @@ const dirOpenDir = switch (native_os) {
     else => dirOpenDirPosix,
 };
 
+/// This function is also used for WASI when libc is linked.
 fn dirOpenDirPosix(
     userdata: ?*anyopaque,
     dir: Io.Dir,
@@ -2551,7 +2552,10 @@ fn fileReadStreamingPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
-            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .BADF => |err| {
+                if (native_os == .wasi) return error.NotOpenForReading; // File operation on directory.
+                return errnoBug(err); // File descriptor used after closed.
+            },
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
@@ -2648,7 +2652,10 @@ fn fileReadPositionalPosix(userdata: ?*anyopaque, file: Io.File, data: [][]u8, o
             .FAULT => |err| return errnoBug(err),
             .SRCH => return error.ProcessNotFound,
             .AGAIN => return error.WouldBlock,
-            .BADF => |err| return errnoBug(err), // File descriptor used after closed.
+            .BADF => |err| {
+                if (native_os == .wasi) return error.NotOpenForReading; // File operation on directory.
+                return errnoBug(err); // File descriptor used after closed.
+            },
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
