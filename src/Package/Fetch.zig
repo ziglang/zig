@@ -90,6 +90,8 @@ latest_commit: ?git.Oid,
 /// the root source file.
 module: ?*Package.Module,
 
+retry: Retry = .{},
+
 pub const LazyStatus = enum {
     /// Not lazy.
     eager,
@@ -321,6 +323,91 @@ pub const RunError = error{
     /// `error_bundle` field.
     FetchFailed,
 };
+
+pub const Retry = struct {
+    /// The number of failed attempts that have been done so far.
+    ///
+    /// Starts at 0, and increases by one each time an attempt fails.
+    cur_retries: u16 = 0,
+    /// The maximum number of times the operation should be retried.
+    ///
+    /// 0 means it should never retry.
+    max_retries: u16 = 3,
+    /// Normally, the retry delay is calculated with jitter, but some instances
+    /// may require an override. When this value is used, it is set back to
+    /// `null`.
+    retry_delay_override_ms: ?u32 = null,
+    /// Hard cap of how many milliseconds to wait between retries.
+    const MAX_RETRY_SLEEP_MS: u32 = 10 * 1000;
+    /// Minimum time a jittered retry delay could be
+    const MIN_RETRY_JITTER_MS: u32 = 500;
+    /// Maximum time a jittered retry delay could be
+    const MAX_RETRY_JITTER_MS: u32 = 1500;
+
+    fn calcRetryDelayMs(r: *Retry) u32 {
+        if (r.retry_delay_override_ms) |delay| {
+            r.retry_delay_override_ms = null;
+            return delay;
+        }
+        if (r.cur_retries == 0) {
+            var prng = std.Random.DefaultPrng.init(@as(u64, @bitCast(std.time.microTimestamp())));
+            const rand = prng.random();
+            return rand.intRangeAtMost(u32, MIN_RETRY_JITTER_MS, MAX_RETRY_JITTER_MS);
+        }
+        return @min(r.cur_retries * 3 * 1000, MAX_RETRY_SLEEP_MS);
+    }
+
+    fn callWithRetries(
+        r: *Retry,
+        comptime FunctionType: type,
+        callback: FunctionType,
+        args: anytype,
+    ) @typeInfo(FunctionType).@"fn".return_type.? {
+        while (true) {
+            return @call(.auto, callback, args) catch |err| {
+                if (maybeSpurious(err) and r.cur_retries < r.max_retries) {
+                    std.Thread.sleep(std.time.ns_per_ms * @as(u64, r.calcRetryDelayMs()));
+                    r.cur_retries += 1;
+                    continue;
+                }
+                return err;
+            };
+        }
+    }
+};
+
+const BadHttpStatus = error{
+    MaybeSpurious,
+    NonSpurious,
+};
+
+fn maybeSpurious(err: anyerror) bool {
+    return switch (err) {
+        // tcp errors
+        std.http.Client.ConnectTcpError.ConnectionTimedOut,
+        std.http.Client.ConnectTcpError.ConnectionResetByPeer,
+        std.http.Client.ConnectTcpError.ConnectionRefused,
+        std.http.Client.ConnectTcpError.NetworkUnreachable,
+        std.http.Client.ConnectTcpError.AddressInUse,
+        std.http.Client.ConnectTcpError.TemporaryNameServerFailure,
+        std.http.Client.ConnectTcpError.SystemResources,
+
+        // io errors
+        std.http.Client.Request.ReceiveHeadError.WriteFailed,
+        std.http.Client.Request.ReceiveHeadError.ReadFailed,
+
+        // http errors
+        std.http.Client.Request.ReceiveHeadError.HttpRequestTruncated,
+        std.http.Client.Request.ReceiveHeadError.HttpConnectionClosing,
+        std.http.Client.Request.ReceiveHeadError.HttpChunkTruncated,
+        std.http.Client.Request.ReceiveHeadError.HttpChunkInvalid,
+        BadHttpStatus.MaybeSpurious,
+
+        Allocator.Error.OutOfMemory,
+        => true,
+        else => false,
+    };
+}
 
 pub fn run(f: *Fetch) RunError!void {
     const eb = &f.error_bundle;
@@ -985,10 +1072,10 @@ const FileType = enum {
 const init_resource_buffer_size = git.Packet.max_data_length;
 
 fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) RunError!void {
-    const arena = f.arena.allocator();
     const eb = &f.error_bundle;
 
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
+        const arena = f.arena.allocator();
         const path = try uri.path.toRawMaybeAlloc(arena);
         const file = f.parent_package_root.openFile(path, .{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString("unable to open '{f}{s}': {t}", .{
@@ -999,123 +1086,227 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
         return;
     }
 
-    const http_client = f.job_queue.http_client;
-
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
-        resource.* = .{ .http_request = .{
-            .request = http_client.request(.GET, uri, .{}) catch |err|
-                return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err})),
-            .response = undefined,
-            .transfer_buffer = reader_buffer,
-            .decompress_buffer = &.{},
-            .decompress = undefined,
-        } };
-        const request = &resource.http_request.request;
-        errdefer request.deinit();
-
-        request.sendBodiless() catch |err|
-            return f.fail(f.location_tok, try eb.printString("HTTP request failed: {t}", .{err}));
-
-        var redirect_buffer: [1024]u8 = undefined;
-        const response = &resource.http_request.response;
-        response.* = request.receiveHead(&redirect_buffer) catch |err| switch (err) {
-            error.ReadFailed => {
-                return f.fail(f.location_tok, try eb.printString("HTTP response read failure: {t}", .{
-                    request.connection.?.getReadError().?,
-                }));
-            },
-            else => |e| return f.fail(f.location_tok, try eb.printString("invalid HTTP response: {t}", .{e})),
+        f.retry.callWithRetries(@TypeOf(initHttpResource), initHttpResource, .{ f, uri, resource, reader_buffer }) catch |err| {
+            const status = resource.http_request.response.head.status;
+            return f.fail(f.location_tok, switch (err) {
+                BadHttpStatus.MaybeSpurious, BadHttpStatus.NonSpurious => try eb.printString("Failed with bad HTTP status code: {d} -> {}", .{ status, status }),
+                else => try eb.printString("Failed to fetch HTTP resource {s}: {t}", .{ uri.path.percent_encoded, err }),
+            });
         };
-
-        if (response.head.status != .ok) return f.fail(f.location_tok, try eb.printString(
-            "bad HTTP response code: '{d} {s}'",
-            .{ response.head.status, response.head.status.phrase() orelse "" },
-        ));
-
-        resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
         return;
     }
 
     if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or
         ascii.eqlIgnoreCase(uri.scheme, "git+https"))
     {
-        var transport_uri = uri;
-        transport_uri.scheme = uri.scheme["git+".len..];
-        var session = git.Session.init(arena, http_client, transport_uri, reader_buffer) catch |err| {
-            return f.fail(
-                f.location_tok,
-                try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
-            );
+        f.retry.callWithRetries(@TypeOf(initGitResource), initGitResource, .{ f, uri, resource, reader_buffer }) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("Failed to fetch git resource {s}: {t}", .{ uri.path.percent_encoded, err }));
         };
-
-        const want_oid = want_oid: {
-            const want_ref =
-                if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
-            if (git.Oid.parseAny(want_ref)) |oid| break :want_oid oid else |_| {}
-
-            const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
-            const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
-
-            var ref_iterator: git.Session.RefIterator = undefined;
-            session.listRefs(&ref_iterator, .{
-                .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
-                .include_peeled = true,
-                .buffer = reader_buffer,
-            }) catch |err| return f.fail(f.location_tok, try eb.printString("unable to list refs: {t}", .{err}));
-            defer ref_iterator.deinit();
-            while (ref_iterator.next() catch |err| {
-                return f.fail(f.location_tok, try eb.printString(
-                    "unable to iterate refs: {s}",
-                    .{@errorName(err)},
-                ));
-            }) |ref| {
-                if (std.mem.eql(u8, ref.name, want_ref) or
-                    std.mem.eql(u8, ref.name, want_ref_head) or
-                    std.mem.eql(u8, ref.name, want_ref_tag))
-                {
-                    break :want_oid ref.peeled orelse ref.oid;
-                }
-            }
-            return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
-        };
-        if (f.use_latest_commit) {
-            f.latest_commit = want_oid;
-        } else if (uri.fragment == null) {
-            const notes_len = 1;
-            try eb.addRootErrorMessage(.{
-                .msg = try eb.addString("url field is missing an explicit ref"),
-                .src_loc = try f.srcLoc(f.location_tok),
-                .notes_len = notes_len,
-            });
-            const notes_start = try eb.reserveNotes(notes_len);
-            eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
-                    uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
-                    want_oid,
-                }),
-            }));
-            return error.FetchFailed;
-        }
-
-        var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
-        resource.* = .{ .git = .{
-            .session = session,
-            .fetch_stream = undefined,
-            .want_oid = want_oid,
-        } };
-        const fetch_stream = &resource.git.fetch_stream;
-        session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
-        };
-        errdefer fetch_stream.deinit(fetch_stream);
-
         return;
     }
 
     return f.fail(f.location_tok, try eb.printString("unsupported URL scheme: {s}", .{uri.scheme}));
+}
+
+fn initHttpResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) !void {
+    const arena = f.arena.allocator();
+    const http_client = f.job_queue.http_client;
+
+    resource.* = .{ .http_request = .{
+        .request = try http_client.request(.GET, uri, .{}),
+        .response = undefined,
+        .transfer_buffer = reader_buffer,
+        .decompress_buffer = &.{},
+        .decompress = undefined,
+    } };
+    const request = &resource.http_request.request;
+    errdefer request.deinit();
+
+    try request.sendBodiless();
+
+    var redirect_buffer: [1024]u8 = undefined;
+    const response = &resource.http_request.response;
+    response.* = try request.receiveHead(&redirect_buffer);
+    const status = response.head.status;
+
+    if (@intFromEnum(status) >= 500 or status == .too_many_requests or status == .not_found) {
+        var iter = response.head.iterateHeaders();
+        if (parseRetryAfter(&iter) catch null) |delay_sec| {
+            // Set max by dividing and multiplying again, because Retry-After
+            // header value needs to be u32, and could be obsurdly large, and
+            // we do not want to multiply that large number by 1000 in case of
+            // overflow. So we cap it first, then convert to milliseconds.
+            f.retry.retry_delay_override_ms = @min(delay_sec, Retry.MAX_RETRY_SLEEP_MS / 1000) * @as(u32, 1000);
+        }
+        return BadHttpStatus.MaybeSpurious;
+    } else if (status != .ok) {
+        return BadHttpStatus.NonSpurious;
+    }
+
+    resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+}
+
+/// Iterate through response headers to find Retry-After header, and parse the
+/// value to return a value that represents how many seconds from now to wait
+/// until a retry may be attempted.
+///
+/// If the header does not exist, `null` is returned. If the header value is
+/// invalid, an error is returned to indicate that parsing failed.
+///
+/// Note that the implementation of this method in Cargo only respects this
+/// header for 503 and 429 status codes, but the specification on MDN does not
+/// restrict this header's usage to only those two status codes, so we won't
+/// either.
+///
+/// For more information, see the MDN documentation:
+/// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After
+fn parseRetryAfter(header_iter: *std.http.HeaderIterator) !?u32 {
+    const retry_after: []const u8 = while (header_iter.next()) |header| {
+        if (ascii.eqlIgnoreCase(header.name, "retry-after")) {
+            break header.value;
+        }
+    } else {
+        return null;
+    };
+
+    // Option 1: The value is a positive integer indicating number of seconds
+    // to wait before retrying.
+    if (std.fmt.parseInt(u32, retry_after, 10) catch null) |value| {
+        return value;
+    }
+
+    // Option 2: The value is a timestamp that we need to parse, then use with
+    // current time to calculate how many seconds to wait before retrying.
+    //
+    // Parsing based on this specification:
+    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Date
+    const RETRY_AFTER_LEN: usize = 29;
+    if (retry_after.len != RETRY_AFTER_LEN) {
+        return error.InvalidHeaderValueLength;
+    }
+
+    // Much more memory compact than an array of string slices, because
+    // pointers are large. Also 12 strings means 11 more `\0` bytes than we
+    // actually need.
+    const months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+
+    const epoch = std.time.epoch;
+
+    const year = try std.fmt.parseInt(epoch.Year, retry_after[12..16], 10);
+    const month: epoch.Month = for (0..12) |i| {
+        const month = months[i * 3 .. (i * 3) + 3];
+        if (std.mem.eql(u8, month, retry_after[8..11])) {
+            break @enumFromInt(i + 1);
+        }
+    } else {
+        return error.CannotFindMonth;
+    };
+    const day = try std.fmt.parseInt(epoch.Day, retry_after[5..7], 10);
+    const hour = try std.fmt.parseInt(epoch.Hour, retry_after[17..19], 10);
+    const minute = try std.fmt.parseInt(epoch.Minute, retry_after[20..22], 10);
+    const second = try std.fmt.parseInt(epoch.Second, retry_after[23..25], 10);
+
+    const datetime = epoch.Datetime{
+        .year = year,
+        .month = month,
+        .day = day,
+        .hour = hour,
+        .minute = minute,
+        .second = second,
+    };
+    const datetime_epoch = try datetime.asEpochSeconds();
+    const timestamp = std.time.timestamp();
+
+    // We cannot support Retry-After if our system time is before epoch, but
+    // it is technically not an error, so return `null`.
+    if (timestamp < 0) {
+        return null;
+    }
+
+    const now = @as(u64, @intCast(std.time.timestamp()));
+
+    // If Retry-After is before now or equal to now, we want some kind of delay,
+    // so we will disregard the "Retry-After" header by returning `null`.
+    if (datetime_epoch.secs <= now) {
+        return null;
+    }
+
+    return @as(u32, @intCast(datetime_epoch.secs - now));
+}
+
+fn initGitResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) !void {
+    const eb = &f.error_bundle;
+
+    const arena = f.arena.allocator();
+    const http_client = f.job_queue.http_client;
+
+    var transport_uri = uri;
+    transport_uri.scheme = uri.scheme["git+".len..];
+    var session = try git.Session.init(arena, http_client, transport_uri, reader_buffer);
+
+    const want_oid = want_oid: {
+        const want_ref =
+            if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
+        if (git.Oid.parseAny(want_ref)) |oid| break :want_oid oid else |_| {}
+
+        const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
+        const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
+
+        var ref_iterator: git.Session.RefIterator = undefined;
+        session.listRefs(&ref_iterator, .{
+            .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
+            .include_peeled = true,
+            .buffer = reader_buffer,
+        }) catch |err| return f.fail(f.location_tok, try eb.printString("unable to list refs: {t}", .{err}));
+        defer ref_iterator.deinit();
+        while (ref_iterator.next() catch |err| {
+            return f.fail(f.location_tok, try eb.printString(
+                "unable to iterate refs: {s}",
+                .{@errorName(err)},
+            ));
+        }) |ref| {
+            if (std.mem.eql(u8, ref.name, want_ref) or
+                std.mem.eql(u8, ref.name, want_ref_head) or
+                std.mem.eql(u8, ref.name, want_ref_tag))
+            {
+                break :want_oid ref.peeled orelse ref.oid;
+            }
+        }
+        return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
+    };
+    if (f.use_latest_commit) {
+        f.latest_commit = want_oid;
+    } else if (uri.fragment == null) {
+        const notes_len = 1;
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.addString("url field is missing an explicit ref"),
+            .src_loc = try f.srcLoc(f.location_tok),
+            .notes_len = notes_len,
+        });
+        const notes_start = try eb.reserveNotes(notes_len);
+        eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
+            .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
+                uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
+                want_oid,
+            }),
+        }));
+        return error.FetchFailed;
+    }
+
+    var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
+    _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
+    resource.* = .{ .git = .{
+        .session = session,
+        .fetch_stream = undefined,
+        .want_oid = want_oid,
+    } };
+    const fetch_stream = &resource.git.fetch_stream;
+    try session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer);
+    errdefer fetch_stream.deinit(fetch_stream);
+    return;
 }
 
 fn unpackResource(
@@ -2211,6 +2402,84 @@ test "set executable bit based on file content" {
     // -rwxrwxr-x 1    17 Apr   script
     // -rw-rw-r-- 1     7 Apr   script_without_shebang
     // -rwxrwxr-x 1    17 Apr   script_with_shebang_without_exec_bit
+}
+
+test "retry delay override works and resets after use" {
+    var retry = Retry{ .cur_retries = 1 };
+
+    // test simple case
+    try std.testing.expectEqual(3000, retry.calcRetryDelayMs());
+
+    // test override works and gets reset to `null`
+    retry.retry_delay_override_ms = 500;
+    try std.testing.expectEqual(500, retry.calcRetryDelayMs());
+    try std.testing.expectEqual(null, retry.retry_delay_override_ms);
+}
+
+test "retries the correct number of times" {
+    // non spurious error
+    var retry = Retry{ .retry_delay_override_ms = 1 };
+    try std.testing.expectError(error.NonSpurious, retry.callWithRetries(@TypeOf(testFnToCallWithRetries), testFnToCallWithRetries, .{ &retry, false }));
+    try std.testing.expectEqual(0, retry.cur_retries);
+
+    // spurious error
+    retry = Retry{ .retry_delay_override_ms = 1 };
+    try std.testing.expectError(error.MaybeSpurious, retry.callWithRetries(@TypeOf(testFnToCallWithRetries), testFnToCallWithRetries, .{ &retry, true }));
+    try std.testing.expectEqual(retry.max_retries, retry.cur_retries);
+}
+
+test "parse Retry-After header" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const alloc = arena.allocator();
+    defer arena.deinit();
+    {
+        var iter = try mockRetryAfterHeaderFactory(alloc, "6");
+        const result = try parseRetryAfter(&iter);
+        try std.testing.expectEqual(6, result.?);
+    }
+    {
+        var iter = try mockRetryAfterHeaderFactory(alloc, "12345");
+        const result = try parseRetryAfter(&iter);
+        try std.testing.expectEqual(12345, result.?);
+    }
+    {
+        // anything in the past should return `null`
+        var iter = try mockRetryAfterHeaderFactory(alloc, "Wed, 21 Oct 1970 07:28:00 GMT");
+        const result = try parseRetryAfter(&iter);
+        try std.testing.expectEqual(null, result);
+    }
+    {
+        // anything in the future should return `null` (this will fail in 100 years)
+        const future_time = "Wed, 21 Oct 2125 16:19:10 GMT";
+        const future_epoc_seconds = 4916737150;
+        const seconds_from_now = future_epoc_seconds - std.time.timestamp();
+        var iter = try mockRetryAfterHeaderFactory(alloc, future_time);
+        const result = try parseRetryAfter(&iter);
+        // The time between us calling `std.time.timestamp()` here in this test and when it's called in the
+        // `parseRetryAfter` function could be significant enough that they don't match. So we want approx values here.
+        try std.testing.expect(result.? + 5 > seconds_from_now);
+        try std.testing.expect(result.? - 5 < seconds_from_now);
+    }
+    {
+        // returns error on invalid header
+        var iter = try mockRetryAfterHeaderFactory(alloc, "Not a timestamp");
+        try std.testing.expectError(error.InvalidHeaderValueLength, parseRetryAfter(&iter));
+    }
+    {
+        // returns null on missing header
+        var iter = std.http.HeaderIterator.init("HTTP/1.1 599 NOT-OK\r\n\r\n");
+        try std.testing.expectEqual(null, try parseRetryAfter(&iter));
+    }
+}
+
+fn testFnToCallWithRetries(r: *Retry, is_spurious_error: bool) !void {
+    // set to 1 ms so the unit test doesn't take forever
+    r.retry_delay_override_ms = 1;
+    return if (is_spurious_error) error.MaybeSpurious else error.NonSpurious;
+}
+
+fn mockRetryAfterHeaderFactory(alloc: std.mem.Allocator, time: []const u8) !std.http.HeaderIterator {
+    return std.http.HeaderIterator.init(try std.fmt.allocPrint(alloc, "HTTP/1.1 599 NOT-OK\r\nRetry-After:{s}\r\n", .{time}));
 }
 
 fn saveEmbedFile(comptime tarball_name: []const u8, dir: fs.Dir) !void {

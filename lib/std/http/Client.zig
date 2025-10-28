@@ -1063,7 +1063,7 @@ pub const Request = struct {
         try w.writeAll("\r\n");
     }
 
-    pub const ReceiveHeadError = http.Reader.HeadError || ConnectError || error{
+    pub const ReceiveHeadError = http.Reader.HeadError || RequestError || error{
         /// Server sent headers that did not conform to the HTTP protocol.
         ///
         /// To find out more detailed diagnostics, `http.Reader.head_buffer` can be
@@ -1394,6 +1394,8 @@ pub const ConnectTcpError = Allocator.Error || error{
     HostLacksNetworkAddresses,
     UnexpectedConnectFailure,
     TlsInitializationFailed,
+    AddressInUse,
+    SystemResources,
 };
 
 /// Reuses a `Connection` if one matching `host` and `port` is already open.
@@ -1440,6 +1442,8 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
         error.NameServerFailure => return error.NameServerFailure,
         error.UnknownHostName => return error.UnknownHostName,
         error.HostLacksNetworkAddresses => return error.HostLacksNetworkAddresses,
+        error.AddressInUse => return error.AddressInUse,
+        error.SystemResources => return error.SystemResources,
         else => return error.UnexpectedConnectFailure,
     };
     errdefer stream.close();
@@ -1562,8 +1566,6 @@ pub fn connectProxied(
     };
 }
 
-pub const ConnectError = ConnectTcpError || RequestError;
-
 /// Connect to `host:port` using the specified protocol. This will reuse a
 /// connection if one is already open.
 ///
@@ -1576,7 +1578,7 @@ pub fn connect(
     host: []const u8,
     port: u16,
     protocol: Protocol,
-) ConnectError!*Connection {
+) ConnectTcpError!*Connection {
     const proxy = switch (protocol) {
         .plain => client.http_proxy,
         .tls => client.https_proxy,
