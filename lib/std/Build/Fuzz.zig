@@ -302,7 +302,7 @@ pub fn sendUpdate(
                 @ptrCast(coverage_map.source_locations),
                 coverage_map.coverage.string_bytes.items,
             };
-            try socket.writeMessageVec(&iovecs, .binary);
+            try socket.writeFrameVec(&iovecs, .binary);
         }
 
         const header: abi.CoverageUpdateHeader = .{
@@ -313,7 +313,7 @@ pub fn sendUpdate(
             @ptrCast(&header),
             @ptrCast(seen_pcs),
         };
-        try socket.writeMessageVec(&iovecs, .binary);
+        try socket.writeFrameVec(&iovecs, .binary);
 
         prev.unique_runs = unique_runs;
     }
@@ -324,7 +324,7 @@ pub fn sendUpdate(
             @ptrCast(&header),
             @ptrCast(coverage_map.entry_points.items),
         };
-        try socket.writeMessageVec(&iovecs, .binary);
+        try socket.writeFrameVec(&iovecs, .binary);
 
         prev.entry_points = coverage_map.entry_points.items.len;
     }
