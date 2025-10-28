@@ -234,10 +234,8 @@ pub const Type = enum(u32) {
     i1,
     i8,
     i16,
-    i24,
     i29,
     i32,
-    i48,
     i64,
     i80,
     i128,
@@ -370,7 +368,7 @@ pub const Type = enum(u32) {
 
     pub fn isInteger(self: Type, builder: *const Builder) bool {
         return switch (self) {
-            .i1, .i8, .i16, .i24, .i29, .i32, .i48, .i64, .i80, .i128 => true,
+            .i1, .i8, .i16, .i29, .i32, .i64, .i80, .i128 => true,
             else => switch (self.tag(builder)) {
                 .integer => true,
                 else => false,
@@ -480,10 +478,8 @@ pub const Type = enum(u32) {
             .i1 => 1,
             .i8 => 8,
             .half, .bfloat, .i16 => 16,
-            .i24 => 24,
             .i29 => 29,
             .float, .i32 => 32,
-            .i48 => 48,
             .double, .i64, .x86_mmx => 64,
             .x86_fp80, .i80 => 80,
             .fp128, .ppc_fp128, .i128 => 128,
@@ -879,10 +875,8 @@ pub const Type = enum(u32) {
             .i1,
             .i8,
             .i16,
-            .i24,
             .i29,
             .i32,
-            .i48,
             .i64,
             .i80,
             .i128,
@@ -8744,7 +8738,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
             );
             assert(result.new and result.type == @field(Type, simple_field.name));
         }
-        inline for (.{ 1, 8, 16, 24, 29, 32, 48, 64, 80, 128 }) |bits|
+        inline for (.{ 1, 8, 16, 29, 32, 64, 80, 128 }) |bits|
             assert(self.intTypeAssumeCapacity(bits) ==
                 @field(Type, std.fmt.comptimePrint("i{d}", .{bits})));
         inline for (.{ 0, 4 }) |addr_space_index| {
