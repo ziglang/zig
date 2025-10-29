@@ -420,6 +420,7 @@ fn create(
         .illumos => .SOLARIS,
         .aix => .AIX,
         .freebsd, .ps4 => .FREEBSD,
+        .openbsd => .OPENBSD,
         .cuda => .CUDA,
         .amdhsa => .AMDGPU_HSA,
         .amdpal => .AMDGPU_PAL,
