@@ -1,4 +1,8 @@
+const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
+
 const std = @import("std");
+const Io = std.Io;
 const DefaultPrng = std.Random.DefaultPrng;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -6,7 +10,6 @@ const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
-const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const tmpDir = std.testing.tmpDir;
 
@@ -122,4 +125,47 @@ test "updateTimes" {
     const stat_new = try file.stat();
     try expect(stat_new.atime.nanoseconds < stat_old.atime.nanoseconds);
     try expect(stat_new.mtime.nanoseconds < stat_old.mtime.nanoseconds);
+}
+
+test "Group" {
+    const io = std.testing.io;
+
+    var group: Io.Group = .init;
+    var results: [2]usize = undefined;
+
+    group.async(io, count, .{ 1, 10, &results[0] });
+    group.async(io, count, .{ 20, 30, &results[1] });
+
+    group.wait(io);
+
+    try std.testing.expectEqualSlices(usize, &.{ 45, 245 }, &results);
+}
+
+fn count(a: usize, b: usize, result: *usize) void {
+    var sum: usize = 0;
+    for (a..b) |i| {
+        sum += i;
+    }
+    result.* = sum;
+}
+
+test "Group cancellation" {
+    const io = std.testing.io;
+
+    var group: Io.Group = .init;
+    var results: [2]usize = undefined;
+
+    group.async(io, sleep, .{ io, &results[0] });
+    group.async(io, sleep, .{ io, &results[1] });
+
+    group.cancel(io);
+
+    try std.testing.expectEqualSlices(usize, &.{ 1, 1 }, &results);
+}
+
+fn sleep(io: Io, result: *usize) void {
+    // TODO when cancellation race bug is fixed, make this timeout much longer so that
+    // it causes the unit test to be failed if not cancelled.
+    io.sleep(.fromMilliseconds(1), .awake) catch {};
+    result.* = 1;
 }

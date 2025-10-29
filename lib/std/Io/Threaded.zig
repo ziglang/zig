@@ -6114,3 +6114,7 @@ fn initializeWsa(t: *Threaded) error{NetworkDown}!void {
     }
     return error.NetworkDown;
 }
+
+test {
+    _ = @import("Threaded/test.zig");
+}
