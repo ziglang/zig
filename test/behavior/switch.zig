@@ -576,7 +576,6 @@ test "switch with null and T peer types and inferred result location type" {
 }
 
 test "switch prongs with cases with identical payload types" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -824,7 +823,6 @@ test "comptime inline switch" {
 }
 
 test "switch capture peer type resolution" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const U = union(enum) {
