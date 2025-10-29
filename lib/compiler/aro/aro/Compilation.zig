@@ -337,7 +337,7 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
         .netbsd => try define(w, "__NetBSD__"),
         .openbsd => try define(w, "__OpenBSD__"),
         .dragonfly => try define(w, "__DragonFly__"),
-        .solaris => try defineStd(w, "sun", is_gnu),
+        .illumos => try defineStd(w, "sun", is_gnu),
         .macos,
         .tvos,
         .ios,
@@ -361,8 +361,7 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
         .linux,
         .haiku,
         .hurd,
-        .solaris,
-        .aix,
+        .illumos,
         .emscripten,
         .ps4,
         .ps5,
@@ -618,7 +617,7 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
             try defineStd(w, "sparc", is_gnu);
             try define(w, "__sparc_v9__");
             try define(w, "__arch64__");
-            if (comp.target.os.tag != .solaris) {
+            if (comp.target.os.tag != .illumos) {
                 try define(w, "__sparc64__");
                 try define(w, "__sparc_v9__");
                 try define(w, "__sparcv9__");
@@ -626,7 +625,7 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
         },
         .sparc => {
             try defineStd(w, "sparc", is_gnu);
-            if (comp.target.os.tag == .solaris) {
+            if (comp.target.os.tag == .illumos) {
                 try define(w, "__sparcv8");
             }
         },
@@ -1003,13 +1002,6 @@ fn writeBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefinesMode
             try w.writeAll(
                 \\#define __STDC_NO_THREADS__ 1
                 \\#define __STDC_NO_COMPLEX__ 1
-                \\
-            );
-        },
-        .aix => {
-            try w.writeAll(
-                \\#define __STDC_NO_THREADS__ 1
-                \\#define __STDC_NO_ATOMICS__ 1
                 \\
             );
         },

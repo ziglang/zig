@@ -80,7 +80,6 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .tvos,
         .visionos,
         .linux,
-        .solaris,
         .illumos,
         .freebsd,
         .serenity,
@@ -147,7 +146,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             };
             return target;
         },
-        .solaris, .illumos => {
+        .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
             const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/path/{d}", .{fd}, 0) catch unreachable;
 

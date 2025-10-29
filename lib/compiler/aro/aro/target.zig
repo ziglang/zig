@@ -252,7 +252,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
         target.abi.isAndroid() or
         target.os.tag.isBSD() or
         target.os.tag == .fuchsia or
-        target.os.tag == .solaris or
+        target.os.tag == .illumos or
         target.os.tag == .haiku or
         target.cpu.arch == .hexagon)
     {
@@ -281,7 +281,7 @@ pub fn hasFloat128(target: std.Target) bool {
         .haiku,
         .linux,
         .openbsd,
-        .solaris,
+        .illumos,
         => target.cpu.arch.isX86(),
         else => false,
     };
@@ -403,7 +403,6 @@ pub fn builtinEnabled(target: std.Target, enabled_for: TargetSet) bool {
 }
 
 pub fn defaultFpEvalMethod(target: std.Target) LangOpts.FPEvalMethod {
-    if (target.os.tag == .aix) return .double;
     switch (target.cpu.arch) {
         .x86, .x86_64 => {
             if (target.ptrBitWidth() == 32 and target.os.tag == .netbsd) {
@@ -654,13 +653,10 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ps3 => "lv2",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
-        .solaris => "solaris",
-        .illumos => "illumos",
+        .illumos => "solaris",
         .windows => "windows",
-        .zos => "zos",
         .haiku => "haiku",
         .rtems => "rtems",
-        .aix => "aix",
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
@@ -742,7 +738,6 @@ pub const DefaultPIStatus = enum { yes, no, depends_on_linker };
 
 pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
     return switch (target.os.tag) {
-        .aix,
         .haiku,
 
         .macos,
@@ -755,7 +750,7 @@ pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
         .dragonfly,
         .netbsd,
         .freebsd,
-        .solaris,
+        .illumos,
 
         .cuda,
         .amdhsa,
@@ -766,7 +761,6 @@ pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
         .ps5,
 
         .hurd,
-        .zos,
         => .no,
 
         .openbsd,
@@ -811,7 +805,6 @@ pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
 
 pub fn isPICdefault(target: std.Target) DefaultPIStatus {
     return switch (target.os.tag) {
-        .aix,
         .haiku,
 
         .macos,
@@ -831,14 +824,13 @@ pub fn isPICdefault(target: std.Target) DefaultPIStatus {
 
         .fuchsia,
         .cuda,
-        .zos,
         => .no,
 
         .dragonfly,
         .openbsd,
         .netbsd,
         .freebsd,
-        .solaris,
+        .illumos,
         .hurd,
         => {
             return switch (target.cpu.arch) {
@@ -890,21 +882,20 @@ pub fn isPICdefault(target: std.Target) DefaultPIStatus {
 
 pub fn isPICDefaultForced(target: std.Target) DefaultPIStatus {
     return switch (target.os.tag) {
-        .aix, .amdhsa, .amdpal, .mesa3d => .yes,
+        .amdhsa, .amdpal, .mesa3d => .yes,
 
         .haiku,
         .dragonfly,
         .openbsd,
         .netbsd,
         .freebsd,
-        .solaris,
+        .illumos,
         .cuda,
         .ps4,
         .ps5,
         .hurd,
         .linux,
         .fuchsia,
-        .zos,
         => .no,
 
         .windows => {

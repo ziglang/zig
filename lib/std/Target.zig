@@ -24,14 +24,13 @@ pub const Os = struct {
         hermit,
         managarm,
 
-        aix,
         haiku,
         hurd,
+        illumos,
         linux,
         plan9,
         rtems,
         serenity,
-        zos,
 
         dragonfly,
         freebsd,
@@ -44,9 +43,6 @@ pub const Os = struct {
         tvos,
         visionos,
         watchos,
-
-        illumos,
-        solaris,
 
         windows,
         uefi,
@@ -96,10 +92,6 @@ pub const Os = struct {
                 .freebsd, .openbsd, .netbsd, .dragonfly => true,
                 else => false,
             };
-        }
-
-        pub inline fn isSolarish(tag: Tag) bool {
-            return tag == .solaris or tag == .illumos;
         }
 
         pub fn exeFileExt(tag: Tag, arch: Cpu.Arch) [:0]const u8 {
@@ -163,10 +155,9 @@ pub const Os = struct {
                 .managarm,
 
                 .haiku,
+                .illumos,
                 .plan9,
                 .serenity,
-
-                .illumos,
 
                 .ps3,
                 .ps4,
@@ -181,9 +172,7 @@ pub const Os = struct {
                 .fuchsia,
                 .hermit,
 
-                .aix,
                 .rtems,
-                .zos,
 
                 .dragonfly,
                 .freebsd,
@@ -196,8 +185,6 @@ pub const Os = struct {
                 .tvos,
                 .visionos,
                 .watchos,
-
-                .solaris,
 
                 .uefi,
 
@@ -395,10 +382,9 @@ pub const Os = struct {
                 .managarm,
 
                 .haiku,
+                .illumos,
                 .plan9,
                 .serenity,
-
-                .illumos,
 
                 .ps3,
                 .ps4,
@@ -428,12 +414,6 @@ pub const Os = struct {
                     },
                 },
 
-                .aix => .{
-                    .semver = .{
-                        .min = .{ .major = 7, .minor = 2, .patch = 5 },
-                        .max = .{ .major = 7, .minor = 3, .patch = 3 },
-                    },
-                },
                 .hurd => .{
                     .hurd = .{
                         .range = .{
@@ -502,12 +482,6 @@ pub const Os = struct {
                     .semver = .{
                         .min = .{ .major = 5, .minor = 1, .patch = 0 },
                         .max = .{ .major = 6, .minor = 1, .patch = 0 },
-                    },
-                },
-                .zos => .{
-                    .semver = .{
-                        .min = .{ .major = 2, .minor = 5, .patch = 0 },
-                        .max = .{ .major = 3, .minor = 1, .patch = 0 },
                     },
                 },
 
@@ -594,13 +568,6 @@ pub const Os = struct {
                     .semver = .{
                         .min = .{ .major = 8, .minor = 0, .patch = 0 },
                         .max = .{ .major = 11, .minor = 6, .patch = 0 },
-                    },
-                },
-
-                .solaris => .{
-                    .semver = .{
-                        .min = .{ .major = 11, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
                     },
                 },
 
@@ -842,7 +809,6 @@ pub const Abi = enum {
                 => .eabi,
                 else => .none,
             },
-            .aix => if (arch == .powerpc) .eabihf else .none,
             .haiku => switch (arch) {
                 .arm,
                 .powerpc,
@@ -930,15 +896,13 @@ pub const Abi = enum {
             .contiki,
             .fuchsia,
             .hermit,
+            .illumos,
             .managarm,
             .plan9,
             .serenity,
-            .zos,
             .dragonfly,
             .driverkit,
             .macos,
-            .illumos,
-            .solaris,
             .ps3,
             .ps4,
             .ps5,
@@ -1024,8 +988,6 @@ pub const ObjectFormat = enum {
     coff,
     /// The Executable and Linkable Format used by many Unixes.
     elf,
-    /// The Generalized Object File Format used by z/OS.
-    goff,
     /// The Intel HEX format for storing binary code in ASCII text.
     hex,
     /// The Mach object format used by macOS and other Apple platforms.
@@ -1038,8 +1000,6 @@ pub const ObjectFormat = enum {
     spirv,
     /// The WebAssembly binary format.
     wasm,
-    /// The eXtended Common Object File Format used by AIX.
-    xcoff,
 
     // LLVM tags deliberately omitted:
     // - dxcontainer
@@ -1048,7 +1008,7 @@ pub const ObjectFormat = enum {
         return switch (of) {
             .c => ".c",
             .coff => ".obj",
-            .elf, .goff, .macho, .wasm, .xcoff => ".o",
+            .elf, .macho, .wasm => ".o",
             .hex => ".ihex",
             .plan9 => arch.plan9Ext(),
             .raw => ".bin",
@@ -1058,11 +1018,9 @@ pub const ObjectFormat = enum {
 
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
-            .aix => .xcoff,
             .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
-            .zos => .goff,
             else => switch (arch) {
                 .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
@@ -1101,7 +1059,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .sparc => if (target.cpu.has(.sparc, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .ve => .VE,
-        .x86 => .@"386",
+        .x86_16, .x86 => .@"386",
         .x86_64 => .X86_64,
         .xcore => .XCORE,
         .xtensa, .xtensaeb => .XTENSA,
@@ -1172,6 +1130,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .ve,
         .wasm32,
         .wasm64,
+        .x86_16,
         .xcore,
         .xtensa,
         .xtensaeb,
@@ -1394,6 +1353,7 @@ pub const Cpu = struct {
         ve,
         wasm32,
         wasm64,
+        x86_16,
         x86,
         x86_64,
         xcore,
@@ -1485,7 +1445,7 @@ pub const Cpu = struct {
                 .spirv32, .spirv64 => .spirv,
                 .ve => .ve,
                 .wasm32, .wasm64 => .wasm,
-                .x86, .x86_64 => .x86,
+                .x86_16, .x86, .x86_64 => .x86,
                 .xcore => .xcore,
                 .xtensa, .xtensaeb => .xtensa,
             };
@@ -1493,7 +1453,7 @@ pub const Cpu = struct {
 
         pub inline fn isX86(arch: Arch) bool {
             return switch (arch) {
-                .x86, .x86_64 => true,
+                .x86_16, .x86, .x86_64 => true,
                 else => false,
             };
         }
@@ -1687,6 +1647,7 @@ pub const Cpu = struct {
                 .ve,
                 .wasm32,
                 .wasm64,
+                .x86_16,
                 .x86,
                 .x86_64,
                 .xcore,
@@ -1806,6 +1767,12 @@ pub const Cpu = struct {
                 .x86_vectorcall,
                 .x86_interrupt,
                 => &.{.x86},
+
+                .x86_16_cdecl,
+                .x86_16_stdcall,
+                .x86_16_regparmcall,
+                .x86_16_interrupt,
+                => &.{.x86_16},
 
                 .aarch64_aapcs,
                 .aarch64_aapcs_darwin,
@@ -1989,6 +1956,7 @@ pub const Cpu = struct {
                 .riscv64, .riscv64be => &riscv.cpu.generic_rv64,
                 .sparc64 => &sparc.cpu.v9, // SPARC can only be 64-bit from v9 and up.
                 .wasm32, .wasm64 => &wasm.cpu.mvp,
+                .x86_16 => &x86.cpu.i86,
                 .x86 => &x86.cpu.i386,
                 .x86_64 => &x86.cpu.x86_64,
                 inline else => |a| &@field(Target, @tagName(a.family())).cpu.generic,
@@ -2038,15 +2006,8 @@ pub const Cpu = struct {
                 .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
                 .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
                 // gcc/clang do not have a generic s390x model.
-                .s390x => switch (os.tag) {
-                    .zos => &s390x.cpu.arch10,
-                    else => &s390x.cpu.arch8,
-                },
+                .s390x => &s390x.cpu.arch8,
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
-                .sparc64 => switch (os.tag) {
-                    .solaris => &sparc.cpu.ultrasparc3,
-                    else => generic(arch),
-                },
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
                     .driverkit => &x86.cpu.nehalem,
@@ -2174,7 +2135,7 @@ pub inline fn isWasiLibC(target: *const Target) bool {
 /// syscall interface, for example.
 pub fn requiresLibC(target: *const Target) bool {
     return switch (target.os.tag) {
-        .aix,
+        .illumos,
         .driverkit,
         .macos,
         .ios,
@@ -2184,8 +2145,6 @@ pub fn requiresLibC(target: *const Target) bool {
         .dragonfly,
         .openbsd,
         .haiku,
-        .solaris,
-        .illumos,
         .serenity,
         => true,
 
@@ -2202,7 +2161,6 @@ pub fn requiresLibC(target: *const Target) bool {
         .fuchsia,
         .managarm,
         .ps3,
-        .zos,
         .rtems,
         .cuda,
         .nvcl,
@@ -2260,7 +2218,10 @@ pub fn supportsAddressSpace(
 
     return switch (address_space) {
         .generic => true,
-        .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
+        .fs, .gs, .ss => (arch == .x86_64 or arch == .x86 or arch == .x86_16) and (context == null or context == .pointer),
+        // Technically x86 can use segmentation...
+        .far => (arch == .x86_16),
+
         .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
         .cog, .hub => arch == .propeller,
         .lut => arch == .propeller and std.Target.propeller.featureSetHas(target.cpu.features, .p2),
@@ -2332,6 +2293,7 @@ pub const DynamicLinker = struct {
             .fuchsia,
 
             .haiku,
+            .illumos,
             .serenity,
 
             .dragonfly,
@@ -2345,9 +2307,6 @@ pub const DynamicLinker = struct {
             .tvos,
             .visionos,
             .watchos,
-
-            .illumos,
-            .solaris,
             => .arch_os,
             .hurd,
             .linux,
@@ -2359,10 +2318,8 @@ pub const DynamicLinker = struct {
             .hermit,
             .managarm, // Needs to be double-checked.
 
-            .aix,
             .plan9,
             .rtems,
-            .zos,
 
             .uefi,
             .windows,
@@ -2436,6 +2393,14 @@ pub const DynamicLinker = struct {
                     else => return none,
                 }}),
 
+                else => none,
+            },
+
+            .illumos,
+            => switch (cpu.arch) {
+                .x86,
+                .x86_64,
+                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
                 else => none,
             },
 
@@ -2755,22 +2720,6 @@ pub const DynamicLinker = struct {
                 else => none,
             },
 
-            .illumos,
-            => switch (cpu.arch) {
-                .x86,
-                .x86_64,
-                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
-                else => none,
-            },
-
-            .solaris,
-            => switch (cpu.arch) {
-                .sparc64,
-                .x86_64,
-                => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, .none) == 64) "64/" else ""}),
-                else => none,
-            },
-
             // Operating systems in this list have been verified as not having a standard
             // dynamic linker path.
             .freestanding,
@@ -2779,10 +2728,8 @@ pub const DynamicLinker = struct {
             .contiki,
             .hermit,
 
-            .aix,
             .plan9,
             .rtems,
-            .zos,
 
             .uefi,
             .windows,
@@ -2833,6 +2780,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
     return switch (cpu_arch) {
         .avr,
         .msp430,
+        .x86_16,
         => 16,
 
         .arc,
@@ -2935,7 +2883,7 @@ pub fn stackAlignment(target: *const Target) u16 {
         // can't handle that level of nuance yet.
         .powerpc64,
         .powerpc64le,
-        => if (target.os.tag == .linux or target.os.tag == .aix) return 16,
+        => if (target.os.tag == .linux) return 16,
         .riscv32,
         .riscv32be,
         .riscv64,
@@ -3046,7 +2994,7 @@ pub fn cTypeByteSize(t: *const Target, c_type: CType) u16 {
 pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
     switch (target.os.tag) {
         .freestanding, .other => switch (target.cpu.arch) {
-            .msp430 => switch (c_type) {
+            .msp430, .x86_16 => switch (c_type) {
                 .char => return 8,
                 .short, .ushort, .int, .uint => return 16,
                 .float, .long, .ulong => return 32,
@@ -3131,22 +3079,18 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .fuchsia,
         .hermit,
 
-        .aix,
         .haiku,
         .hurd,
+        .illumos,
         .linux,
         .plan9,
         .rtems,
         .serenity,
-        .zos,
 
         .freebsd,
         .dragonfly,
         .netbsd,
         .openbsd,
-
-        .illumos,
-        .solaris,
 
         .wasi,
         .emscripten,
@@ -3196,7 +3140,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                         .muslx32,
                         => return 64,
                         else => switch (target.os.tag) {
-                            .aix, .freebsd, .netbsd, .openbsd => return 64,
+                            .freebsd, .netbsd, .openbsd => return 64,
                             else => return 128,
                         },
                     },
@@ -3212,7 +3156,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                         .muslx32,
                         => return 64,
                         else => switch (target.os.tag) {
-                            .aix, .freebsd, .openbsd => return 64,
+                            .freebsd, .openbsd => return 64,
                             else => return 128,
                         },
                     },
@@ -3382,13 +3326,6 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .int, .uint, .long, .ulong => return 2,
             else => {},
         },
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
-            .aix => switch (c_type) {
-                .double, .longdouble => return 4,
-                else => {},
-            },
-            else => {},
-        },
         .wasm32, .wasm64 => switch (target.os.tag) {
             .emscripten => switch (c_type) {
                 .longdouble => return 8,
@@ -3404,6 +3341,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
         std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
             .msp430,
+            .x86_16,
             => 2,
 
             .arc,
@@ -3511,7 +3449,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
     return @min(
         std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
-            .msp430 => 2,
+            .x86_16, .msp430 => 2,
 
             .arc,
             .arceb,
@@ -3583,7 +3521,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
     return switch (target.cpu.arch) {
         .avr => 1,
 
-        .msp430 => 2,
+        .msp430, .x86_16 => 2,
 
         .arc,
         .arceb,
@@ -3660,6 +3598,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             .windows, .uefi => .{ .x86_win = .{} },
             else => .{ .x86_sysv = .{} },
         },
+        .x86_16 => .{ .x86_16_cdecl = .{} },
         .aarch64, .aarch64_be => if (target.os.tag.isDarwin())
             .{ .aarch64_aapcs_darwin = .{} }
         else switch (target.os.tag) {
@@ -3685,10 +3624,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         else
             .{ .powerpc64_elf = .{} },
         .powerpc64le => .{ .powerpc64_elf_v2 = .{} },
-        .powerpc, .powerpcle => switch (target.os.tag) {
-            .aix => .{ .powerpc_aix = .{} },
-            else => .{ .powerpc_sysv = .{} },
-        },
+        .powerpc, .powerpcle => .{ .powerpc_sysv = .{} },
         .wasm32, .wasm64 => .{ .wasm_mvp = .{} },
         .arc, .arceb => .{ .arc_sysv = .{} },
         .avr => .avr_gnu,
@@ -3713,7 +3649,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .sh, .sheb => .{ .sh_gnu = .{} },
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
-        .xtensa, .xtensaeb => .{ .xtensa_windowed = .{} },
+        .xtensa, .xtensaeb => .{ .xtensa_call0 = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
         .spirv32, .spirv64 => .spirv_device,

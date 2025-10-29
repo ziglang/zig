@@ -46,7 +46,7 @@ fn addCaseTarget(
 ) void {
     const both_backends = switch (target.result.cpu.arch) {
         .x86_64 => switch (target.result.ofmt) {
-            .elf => !target.result.os.tag.isBSD() and !target.result.os.tag.isSolarish(),
+            .elf => !target.result.os.tag.isBSD() and target.result.os.tag != .illumos,
             else => false,
         },
         else => false,

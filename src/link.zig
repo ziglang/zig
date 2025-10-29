@@ -574,9 +574,9 @@ pub const File = struct {
         const gpa = comp.gpa;
         switch (base.tag) {
             .lld => assert(base.file == null),
-            .elf, .macho, .wasm, .goff, .xcoff => {
+            .elf, .macho, .wasm => {
                 if (base.file != null) return;
-                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
+                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -681,8 +681,8 @@ pub const File = struct {
                     }
                 }
             },
-            .macho, .wasm, .goff, .xcoff => if (base.file) |f| {
-                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
+            .macho, .wasm => if (base.file) |f| {
+                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker });
                 f.close();
                 base.file = null;
 
@@ -825,7 +825,6 @@ pub const File = struct {
         switch (base.tag) {
             .lld => unreachable,
             .spirv => {},
-            .goff, .xcoff => {},
             .plan9 => unreachable,
             .elf2, .coff2 => {},
             inline else => |tag| {
@@ -973,7 +972,6 @@ pub const File = struct {
             .c => unreachable,
             .spirv => unreachable,
             .wasm => unreachable,
-            .goff, .xcoff => unreachable,
             .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -996,7 +994,6 @@ pub const File = struct {
             .c => unreachable,
             .spirv => unreachable,
             .wasm => unreachable,
-            .goff, .xcoff => unreachable,
             .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -1013,7 +1010,6 @@ pub const File = struct {
             .c => unreachable,
             .spirv => unreachable,
             .wasm => unreachable,
-            .goff, .xcoff => unreachable,
             .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -1034,8 +1030,6 @@ pub const File = struct {
             .plan9 => unreachable,
 
             .spirv,
-            .goff,
-            .xcoff,
             => {},
 
             inline else => |tag| {
@@ -1171,8 +1165,6 @@ pub const File = struct {
         wasm,
         spirv,
         plan9,
-        goff,
-        xcoff,
         lld,
 
         pub fn Type(comptime tag: Tag) type {
@@ -1184,8 +1176,6 @@ pub const File = struct {
                 .c => C,
                 .wasm => Wasm,
                 .spirv => SpirV,
-                .goff => Goff,
-                .xcoff => Xcoff,
                 .lld => Lld,
                 .plan9 => comptime unreachable,
             };
@@ -1200,8 +1190,6 @@ pub const File = struct {
                 .plan9 => .plan9,
                 .c => .c,
                 .spirv => .spirv,
-                .goff => .goff,
-                .xcoff => .xcoff,
                 .hex => @panic("TODO implement hex object format"),
                 .raw => @panic("TODO implement raw object format"),
             };
@@ -1284,8 +1272,6 @@ pub const File = struct {
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
-    pub const Goff = @import("link/Goff.zig");
-    pub const Xcoff = @import("link/Xcoff.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
 };
 

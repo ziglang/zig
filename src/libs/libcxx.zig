@@ -79,9 +79,6 @@ const libcxx_base_files = [_][]const u8{
     "src/stdexcept.cpp",
     "src/string.cpp",
     "src/strstream.cpp",
-    "src/support/ibm/mbsnrtowcs.cpp",
-    "src/support/ibm/wcsnrtombs.cpp",
-    "src/support/ibm/xlocale_zos.cpp",
     "src/support/win32/locale_win32.cpp",
     "src/support/win32/support.cpp",
     "src/system_error.cpp",
@@ -203,8 +200,6 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/win32/") and target.os.tag != .windows)
             continue;
-        if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
-            continue;
 
         var cflags = std.array_list.Managed([]const u8).init(arena);
 
@@ -223,11 +218,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
 
-        if (target.os.tag == .zos) {
-            try cflags.append("-fno-aligned-allocation");
-        } else {
-            try cflags.append("-faligned-allocation");
-        }
+        try cflags.append("-faligned-allocation");
 
         try cflags.append("-nostdinc++");
         try cflags.append("-std=c++23");

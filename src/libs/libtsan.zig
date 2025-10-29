@@ -480,7 +480,6 @@ const sanitizer_symbolizer_sources = [_][]const u8{
 };
 
 const interception_sources = [_][]const u8{
-    "interception_aix.cpp",
     "interception_linux.cpp",
     "interception_mac.cpp",
     "interception_win.cpp",
