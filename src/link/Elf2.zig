@@ -1268,62 +1268,29 @@ pub fn loadInput(elf: *Elf, input: link.Input) (std.fs.File.Reader.SizeError ||
     switch (input) {
         else => {},
         .object => |object| {
-            var fsr: FileSliceReader = .init(object.file.reader(io, &.{}));
-            fsr.reset(try fsr.file.getSize(), &buf);
-            elf.loadObject(object.path, null, &fsr) catch |err| switch (err) {
-                error.ReadFailed => return fsr.file.err.?,
+            var fr = object.file.reader(io, &buf);
+            elf.loadObject(object.path, null, &fr, .{
+                .offset = fr.logicalPos(),
+                .size = try fr.getSize(),
+            }) catch |err| switch (err) {
+                error.ReadFailed => return fr.err.?,
                 else => |e| return e,
             };
         },
         .archive => |archive| {
-            var fsr: FileSliceReader = .init(archive.file.reader(io, &buf));
-            elf.loadArchive(archive.path, &fsr) catch |err| switch (err) {
-                error.ReadFailed => return fsr.file.err.?,
+            var fr = archive.file.reader(io, &buf);
+            elf.loadArchive(archive.path, &fr) catch |err| switch (err) {
+                error.ReadFailed => return fr.err.?,
                 else => |e| return e,
             };
         },
     }
 }
-const FileSliceReader = struct {
-    file: std.Io.File.Reader,
-    file_location: MappedFile.Node.FileLocation,
-    reader: std.Io.Reader.Limited,
-
-    pub fn init(file: std.Io.File.Reader) FileSliceReader {
-        return .{ .file = file, .file_location = undefined, .reader = undefined };
-    }
-
-    pub fn reset(fsr: *FileSliceReader, size: u64, buffer: []u8) void {
-        fsr.file_location = .{
-            .offset = fsr.file.logicalPos(),
-            .size = size,
-        };
-        fsr.reader = .init(&fsr.file.interface, .limited(@intCast(size)), buffer);
-    }
-
-    pub fn pos(fsr: *const FileSliceReader) u64 {
-        return fsr.file.logicalPos() - fsr.file_location.offset;
-    }
-
-    pub fn logicalPos(fsr: *const FileSliceReader) u64 {
-        return fsr.pos() - fsr.reader.interface.bufferedLen();
-    }
-
-    pub fn seekTo(fsr: *FileSliceReader, offset: u64) std.Io.File.Reader.SeekError!void {
-        if (offset > fsr.file_location.size) return error.EndOfStream;
-        const logical_pos = fsr.logicalPos();
-        if (offset < logical_pos or offset >= fsr.pos()) {
-            fsr.reader.interface.tossBuffered();
-            try fsr.file.seekTo(fsr.file_location.offset + offset);
-            fsr.reader.remaining = .limited(@intCast(fsr.file_location.size - offset));
-        } else fsr.reader.interface.toss(@intCast(offset - logical_pos));
-    }
-};
-fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fsr: *FileSliceReader) !void {
+fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fr: *std.Io.File.Reader) !void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
-    const r = &fsr.file.interface;
+    const r = &fr.interface;
 
     log.debug("loadArchive({f})", .{path.fmtEscapeString()});
     if (!std.mem.eql(u8, try r.take(std.elf.ARMAG.len), std.elf.ARMAG))
@@ -1333,6 +1300,7 @@ fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fsr: *FileSliceReader) !vo
     while (r.takeStruct(std.elf.ar_hdr, native_endian)) |header| {
         if (!std.mem.eql(u8, &header.ar_fmag, std.elf.ARFMAG))
             return diags.failParse(path, "bad file magic", .{});
+        const offset = fr.logicalPos();
         const size = header.size() catch
             return diags.failParse(path, "bad member size", .{});
         if (std.mem.eql(u8, &header.ar_name, std.elf.STRNAME)) {
@@ -1361,15 +1329,11 @@ fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fsr: *FileSliceReader) !vo
                 error.Overflow => return diags.failParse(path, "bad member name offset", .{}),
             };
             if (!std.mem.endsWith(u8, member, ".o")) break :load_object;
-            var buf: [4096]u8 = undefined;
-            fsr.reset(size, &buf);
-            try elf.loadObject(path, member, fsr);
-            try fsr.seekTo(size);
-            continue;
+            try elf.loadObject(path, member, fr, .{ .offset = offset, .size = size });
         }
-        try r.discardAll(size);
+        try fr.seekTo(std.mem.alignForward(u64, offset + size, 2));
     } else |err| switch (err) {
-        error.EndOfStream => if (!fsr.file.atEnd()) return error.EndOfStream,
+        error.EndOfStream => if (!fr.atEnd()) return error.EndOfStream,
         else => |e| return e,
     }
 }
@@ -1379,11 +1343,17 @@ fn fmtMemberString(member: ?[]const u8) std.fmt.Alt(?[]const u8, memberStringEsc
 fn memberStringEscape(member: ?[]const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("({f})", .{std.zig.fmtString(member orelse return)});
 }
-fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *FileSliceReader) !void {
+fn loadObject(
+    elf: *Elf,
+    path: std.Build.Cache.Path,
+    member: ?[]const u8,
+    fr: *std.Io.File.Reader,
+    fl: MappedFile.Node.FileLocation,
+) !void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
-    const r = &fsr.reader.interface;
+    const r = &fr.interface;
 
     const ii: Node.InputIndex = @enumFromInt(elf.inputs.items.len);
     log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtMemberString(member) });
@@ -1411,11 +1381,13 @@ fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *
             if (ehdr.machine != elf.ehdrField(.machine))
                 return diags.failParse(path, "bad machine", .{});
             if (ehdr.shoff == 0 or ehdr.shnum <= 1) return;
+            if (ehdr.shoff + ehdr.shentsize * ehdr.shnum > fl.size)
+                return diags.failParse(path, "bad section header offset/size", .{});
             if (ehdr.shentsize < @sizeOf(ElfN.Shdr))
                 return diags.failParse(path, "unsupported shentsize", .{});
             const sections = try gpa.alloc(struct { shdr: ElfN.Shdr, si: Symbol.Index }, ehdr.shnum);
             defer gpa.free(sections);
-            try fsr.seekTo(ehdr.shoff);
+            try fr.seekTo(fl.offset + ehdr.shoff);
             for (sections) |*section| {
                 section.* = .{
                     .shdr = try r.peekStruct(ElfN.Shdr, target_endian),
@@ -1424,7 +1396,7 @@ fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *
                 try r.discardAll(ehdr.shentsize);
                 switch (section.shdr.type) {
                     std.elf.SHT_NULL, std.elf.SHT_NOBITS => {},
-                    else => if (section.shdr.offset + section.shdr.size > fsr.file_location.size)
+                    else => if (section.shdr.offset + section.shdr.size > fl.size)
                         return diags.failParse(path, "bad section offset/size", .{}),
                 }
             }
@@ -1436,7 +1408,7 @@ fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *
                     return diags.failParse(path, "invalid shstrtab type", .{});
                 const shstrtab = try gpa.alloc(u8, @intCast(shdr.size));
                 errdefer gpa.free(shstrtab);
-                try fsr.seekTo(shdr.offset);
+                try fr.seekTo(fl.offset + shdr.offset);
                 try r.readSliceAll(shstrtab);
                 break :shstrtab shstrtab;
             };
@@ -1470,7 +1442,7 @@ fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *
                         .ii = ii,
                         .si = section.si,
                         .file_location = .{
-                            .offset = fsr.file_location.offset + section.shdr.offset,
+                            .offset = fl.offset + section.shdr.offset,
                             .size = section.shdr.size,
                         },
                     };
@@ -1492,7 +1464,7 @@ fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *
                             return diags.failParse(path, "invalid strtab type", .{});
                         const strtab = try gpa.alloc(u8, @intCast(shdr.size));
                         errdefer gpa.free(strtab);
-                        try fsr.seekTo(shdr.offset);
+                        try fr.seekTo(fl.offset + shdr.offset);
                         try r.readSliceAll(strtab);
                         break :strtab strtab;
                     };
@@ -1507,12 +1479,11 @@ fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *
                         .{ symtab.shdr.size, symtab.shdr.entsize },
                     );
                     symmap.clearRetainingCapacity();
-                    try symmap.resize(gpa, symnum);
+                    try symmap.resize(gpa, std.math.sub(u32, symnum, 1) catch continue);
                     try elf.symtab.ensureUnusedCapacity(gpa, symnum);
                     try elf.globals.ensureUnusedCapacity(gpa, symnum);
-                    try fsr.seekTo(symtab.shdr.offset + symtab.shdr.entsize);
-                    symmap.items[0] = .null;
-                    for (symmap.items[1..]) |*si| {
+                    try fr.seekTo(fl.offset + symtab.shdr.offset + symtab.shdr.entsize);
+                    for (symmap.items) |*si| {
                         si.* = .null;
                         const input_sym = try r.peekStruct(ElfN.Sym, target_endian);
                         try r.discardAll64(symtab.shdr.entsize);
@@ -1594,12 +1565,12 @@ fn loadObject(elf: *Elf, path: std.Build.Cache.Path, member: ?[]const u8, fsr: *
                                 .{ rels.shdr.size, rels.shdr.entsize },
                             );
                             try elf.relocs.ensureUnusedCapacity(gpa, relnum);
-                            try fsr.seekTo(rels.shdr.offset);
+                            try fr.seekTo(fl.offset + rels.shdr.offset);
                             for (0..relnum) |_| {
                                 const rel = try r.peekStruct(Rel, target_endian);
                                 try r.discardAll64(rels.shdr.entsize);
                                 if (rel.info.sym >= symnum) continue;
-                                const target_si = symmap.items[rel.info.sym];
+                                const target_si = symmap.items[rel.info.sym - 1];
                                 if (target_si == .null) continue;
                                 elf.addRelocAssumeCapacity(
                                     loc_sec.si,
