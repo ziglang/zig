@@ -7257,7 +7257,10 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                             .nav = ty_nav.nav,
                             .reloc = .{ .label = @intCast(isel.instructions.items.len) },
                         });
-                        try isel.emit(.add(ptr_ra.x(), ptr_ra.x(), .{ .immediate = 0 }));
+                        if (ip.getNav(ty_nav.nav).getExtern(ip)) |_|
+                            try isel.emit(.ldr(ptr_ra.x(), .{ .unsigned_offset = .{ .base = ptr_ra.x(), .offset = 0 } }))
+                        else
+                            try isel.emit(.add(ptr_ra.x(), ptr_ra.x(), .{ .immediate = 0 }));
                         try isel.nav_relocs.append(gpa, .{
                             .nav = ty_nav.nav,
                             .reloc = .{ .label = @intCast(isel.instructions.items.len) },
@@ -10971,7 +10974,10 @@ pub const Value = struct {
                                                         .addend = ptr.byte_offset,
                                                     },
                                                 });
-                                                try isel.emit(.add(mat.ra.x(), mat.ra.x(), .{ .immediate = 0 }));
+                                                if (ip.getNav(nav).getExtern(ip)) |_|
+                                                    try isel.emit(.ldr(mat.ra.x(), .{ .unsigned_offset = .{ .base = mat.ra.x(), .offset = 0 } }))
+                                                else
+                                                    try isel.emit(.add(mat.ra.x(), mat.ra.x(), .{ .immediate = 0 }));
                                                 try isel.nav_relocs.append(zcu.gpa, .{
                                                     .nav = nav,
                                                     .reloc = .{
