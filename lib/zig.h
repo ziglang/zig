@@ -411,7 +411,7 @@
 #elif defined(zig_x86)
 #define zig_trap() __asm__ volatile("ud2")
 #elif defined(zig_z80)
-#define zig_trap() __asm__ volatile("db $DD, $DD")
+#define zig_trap() __asm__ volatile("rst 00h")
 #else
 #define zig_trap() zig_trap_unavailable
 #endif
