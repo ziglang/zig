@@ -216,6 +216,7 @@ pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)
 fn getProgramPath(tc: *const Toolchain, name: []const u8, buf: []u8) []const u8 {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
+    const fib_initial_state = fib.savestate();
 
     var tool_specific_buf: [64]u8 = undefined;
     var possible_name_buf: [2][]const u8 = undefined;
@@ -223,7 +224,7 @@ fn getProgramPath(tc: *const Toolchain, name: []const u8, buf: []u8) []const u8 
 
     for (possible_names) |tool_name| {
         for (tc.program_paths.items) |program_path| {
-            defer fib.reset();
+            defer fib.restore(fib_initial_state);
 
             const candidate = std.fs.path.join(fib.allocator(), &.{ program_path, tool_name }) catch continue;
 

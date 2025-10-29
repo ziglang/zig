@@ -116,6 +116,7 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
     const comp = zcu.comp;
 
     var fba: std.heap.FixedBufferAllocator = .init(crash_heap);
+    const fba_initial_state = fba.savestate();
 
     const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
         const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
@@ -146,7 +147,7 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
 
     var parent = anal.parent;
     while (parent) |curr| {
-        fba.reset();
+        fba.restore(fba_initial_state);
         const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
         try stderr.print("  in {f}\n", .{cur_block_file.path.fmt(comp)});
         _, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {

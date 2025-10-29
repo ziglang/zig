@@ -39,6 +39,7 @@ pub fn main() void {
         return mainSimple() catch @panic("test failure\n");
     }
 
+    const fba_initial_state = fba.savestate();
     const args = std.process.argsAlloc(fba.allocator()) catch
         @panic("unable to parse command line args");
 
@@ -63,7 +64,7 @@ pub fn main() void {
         fuzz_abi.fuzzer_init(.fromSlice(cache_dir));
     }
 
-    fba.reset();
+    fba.restore(fba_initial_state);
 
     if (listen) {
         return mainServer() catch @panic("internal test runner failure");
