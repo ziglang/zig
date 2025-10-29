@@ -782,10 +782,10 @@ pub const Object = struct {
     pub const EmitOptions = struct {
         pre_ir_path: ?[]const u8,
         pre_bc_path: ?[]const u8,
-        bin_path: ?[*:0]const u8,
-        asm_path: ?[*:0]const u8,
-        post_ir_path: ?[*:0]const u8,
-        post_bc_path: ?[*:0]const u8,
+        bin_path: ?[:0]const u8,
+        asm_path: ?[:0]const u8,
+        post_ir_path: ?[:0]const u8,
+        post_bc_path: ?[]const u8,
 
         is_debug: bool,
         is_small: bool,
@@ -989,7 +989,7 @@ pub const Object = struct {
                 options.post_ir_path == null and options.post_bc_path == null) return;
 
             if (options.post_bc_path) |path| {
-                var file = std.fs.cwd().createFileZ(path, .{}) catch |err|
+                var file = std.fs.cwd().createFile(path, .{}) catch |err|
                     return diags.fail("failed to create '{s}': {s}", .{ path, @errorName(err) });
                 defer file.close();
 
@@ -1098,8 +1098,8 @@ pub const Object = struct {
             // though it's clearly not ready and produces multiple miscompilations in our std tests.
             .allow_machine_outliner = !comp.root_mod.resolved_target.result.cpu.arch.isRISCV(),
             .asm_filename = null,
-            .bin_filename = options.bin_path,
-            .llvm_ir_filename = options.post_ir_path,
+            .bin_filename = if (options.bin_path) |x| x.ptr else null,
+            .llvm_ir_filename = if (options.post_ir_path) |x| x.ptr else null,
             .bitcode_filename = null,
 
             // `.coverage` value is only used when `.sancov` is enabled.
@@ -1146,7 +1146,7 @@ pub const Object = struct {
             lowered_options.time_report_out = &time_report_c_str;
         }
 
-        lowered_options.asm_filename = options.asm_path;
+        lowered_options.asm_filename = if (options.asm_path) |x| x.ptr else null;
         if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
             defer llvm.disposeMessage(error_message);
             return diags.fail("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{

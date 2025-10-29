@@ -37,19 +37,6 @@ pub const subsystem: ?std.Target.SubSystem = blk: {
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
-
-    pub fn format(st: *const StackTrace, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        // TODO: why on earth are we using stderr's ttyconfig?
-        // If we want colored output, we should just make a formatter out of `writeStackTrace`.
-        const tty_config = std.Io.tty.detectConfig(.stderr());
-        try writer.writeAll("\n");
-        try std.debug.writeStackTrace(st, writer, tty_config);
-    }
 };
 
 /// This data structure is used by the Zig language code generation and

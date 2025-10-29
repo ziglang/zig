@@ -1,12 +1,14 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const native_abi = builtin.abi;
+const native_arch = builtin.cpu.arch;
+const native_os = builtin.os.tag;
+const native_endian = builtin.cpu.arch.endian();
+
+const std = @import("std");
 const c = @This();
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 const page_size = std.heap.page_size_min;
-const native_abi = builtin.abi;
-const native_arch = builtin.cpu.arch;
-const native_os = builtin.os.tag;
 const linux = std.os.linux;
 const emscripten = std.os.emscripten;
 const wasi = std.os.wasi;
@@ -2587,25 +2589,24 @@ pub const SHUT = switch (native_os) {
 
 /// Signal types
 pub const SIG = switch (native_os) {
-    .linux => linux.SIG,
-    .emscripten => emscripten.SIG,
-    .windows => struct {
+    .linux, .emscripten => linux.SIG,
+    .windows => enum(u32) {
         /// interrupt
-        pub const INT = 2;
+        INT = 2,
         /// illegal instruction - invalid function image
-        pub const ILL = 4;
+        ILL = 4,
         /// floating point exception
-        pub const FPE = 8;
+        FPE = 8,
         /// segment violation
-        pub const SEGV = 11;
+        SEGV = 11,
         /// Software termination signal from kill
-        pub const TERM = 15;
+        TERM = 15,
         /// Ctrl-Break sequence
-        pub const BREAK = 21;
+        BREAK = 21,
         /// abnormal termination triggered by abort call
-        pub const ABRT = 22;
+        ABRT = 22,
         /// SIGABRT compatible with other platforms, same as SIGABRT
-        pub const ABRT_COMPAT = 6;
+        ABRT_COMPAT = 6,
 
         // Signal action codes
         /// default signal action
@@ -2621,7 +2622,7 @@ pub const SIG = switch (native_os) {
         /// Signal error value (returned by signal call on error)
         pub const ERR = -1;
     },
-    .macos, .ios, .tvos, .watchos, .visionos => struct {
+    .macos, .ios, .tvos, .watchos, .visionos => enum(u32) {
         pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
         pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
         pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
@@ -2633,113 +2634,74 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         /// set specified signal set
         pub const SETMASK = 3;
+
+        pub const IOT: SIG = .ABRT;
+        pub const POLL: SIG = .EMT;
+
         /// hangup
-        pub const HUP = 1;
+        HUP = 1,
         /// interrupt
-        pub const INT = 2;
+        INT = 2,
         /// quit
-        pub const QUIT = 3;
+        QUIT = 3,
         /// illegal instruction (not reset when caught)
-        pub const ILL = 4;
+        ILL = 4,
         /// trace trap (not reset when caught)
-        pub const TRAP = 5;
+        TRAP = 5,
         /// abort()
-        pub const ABRT = 6;
-        /// pollable event ([XSR] generated, not supported)
-        pub const POLL = 7;
-        /// compatibility
-        pub const IOT = ABRT;
+        ABRT = 6,
         /// EMT instruction
-        pub const EMT = 7;
+        EMT = 7,
         /// floating point exception
-        pub const FPE = 8;
+        FPE = 8,
         /// kill (cannot be caught or ignored)
-        pub const KILL = 9;
+        KILL = 9,
         /// bus error
-        pub const BUS = 10;
+        BUS = 10,
         /// segmentation violation
-        pub const SEGV = 11;
+        SEGV = 11,
         /// bad argument to system call
-        pub const SYS = 12;
+        SYS = 12,
         /// write on a pipe with no one to read it
-        pub const PIPE = 13;
+        PIPE = 13,
         /// alarm clock
-        pub const ALRM = 14;
+        ALRM = 14,
         /// software termination signal from kill
-        pub const TERM = 15;
+        TERM = 15,
         /// urgent condition on IO channel
-        pub const URG = 16;
+        URG = 16,
         /// sendable stop signal not from tty
-        pub const STOP = 17;
+        STOP = 17,
         /// stop signal from tty
-        pub const TSTP = 18;
+        TSTP = 18,
         /// continue a stopped process
-        pub const CONT = 19;
+        CONT = 19,
         /// to parent on child stop or exit
-        pub const CHLD = 20;
+        CHLD = 20,
         /// to readers pgrp upon background tty read
-        pub const TTIN = 21;
+        TTIN = 21,
         /// like TTIN for output if (tp->t_local&LTOSTOP)
-        pub const TTOU = 22;
+        TTOU = 22,
         /// input/output possible signal
-        pub const IO = 23;
+        IO = 23,
         /// exceeded CPU time limit
-        pub const XCPU = 24;
+        XCPU = 24,
         /// exceeded file size limit
-        pub const XFSZ = 25;
+        XFSZ = 25,
         /// virtual time alarm
-        pub const VTALRM = 26;
+        VTALRM = 26,
         /// profiling time alarm
-        pub const PROF = 27;
+        PROF = 27,
         /// window size changes
-        pub const WINCH = 28;
+        WINCH = 28,
         /// information request
-        pub const INFO = 29;
+        INFO = 29,
         /// user defined signal 1
-        pub const USR1 = 30;
+        USR1 = 30,
         /// user defined signal 2
-        pub const USR2 = 31;
+        USR2 = 31,
     },
-    .freebsd => struct {
-        pub const HUP = 1;
-        pub const INT = 2;
-        pub const QUIT = 3;
-        pub const ILL = 4;
-        pub const TRAP = 5;
-        pub const ABRT = 6;
-        pub const IOT = ABRT;
-        pub const EMT = 7;
-        pub const FPE = 8;
-        pub const KILL = 9;
-        pub const BUS = 10;
-        pub const SEGV = 11;
-        pub const SYS = 12;
-        pub const PIPE = 13;
-        pub const ALRM = 14;
-        pub const TERM = 15;
-        pub const URG = 16;
-        pub const STOP = 17;
-        pub const TSTP = 18;
-        pub const CONT = 19;
-        pub const CHLD = 20;
-        pub const TTIN = 21;
-        pub const TTOU = 22;
-        pub const IO = 23;
-        pub const XCPU = 24;
-        pub const XFSZ = 25;
-        pub const VTALRM = 26;
-        pub const PROF = 27;
-        pub const WINCH = 28;
-        pub const INFO = 29;
-        pub const USR1 = 30;
-        pub const USR2 = 31;
-        pub const THR = 32;
-        pub const LWP = THR;
-        pub const LIBRT = 33;
-
-        pub const RTMIN = 65;
-        pub const RTMAX = 126;
-
+    .freebsd => enum(u32) {
         pub const BLOCK = 1;
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
@@ -2763,8 +2725,48 @@ pub const SIG = switch (native_os) {
         pub inline fn VALID(sig: usize) usize {
             return sig <= MAXSIG and sig > 0;
         }
+
+        pub const IOT: SIG = .ABRT;
+        pub const LWP: SIG = .THR;
+
+        pub const RTMIN = 65;
+        pub const RTMAX = 126;
+
+        HUP = 1,
+        INT = 2,
+        QUIT = 3,
+        ILL = 4,
+        TRAP = 5,
+        ABRT = 6,
+        EMT = 7,
+        FPE = 8,
+        KILL = 9,
+        BUS = 10,
+        SEGV = 11,
+        SYS = 12,
+        PIPE = 13,
+        ALRM = 14,
+        TERM = 15,
+        URG = 16,
+        STOP = 17,
+        TSTP = 18,
+        CONT = 19,
+        CHLD = 20,
+        TTIN = 21,
+        TTOU = 22,
+        IO = 23,
+        XCPU = 24,
+        XFSZ = 25,
+        VTALRM = 26,
+        PROF = 27,
+        WINCH = 28,
+        INFO = 29,
+        USR1 = 30,
+        USR2 = 31,
+        THR = 32,
+        LIBRT = 33,
     },
-    .illumos => struct {
+    .illumos => enum(u32) {
         pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
         pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
         pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
@@ -2773,54 +2775,9 @@ pub const SIG = switch (native_os) {
         pub const WORDS = 4;
         pub const MAXSIG = 75;
 
-        pub const SIG_BLOCK = 1;
-        pub const SIG_UNBLOCK = 2;
-        pub const SIG_SETMASK = 3;
-
-        pub const HUP = 1;
-        pub const INT = 2;
-        pub const QUIT = 3;
-        pub const ILL = 4;
-        pub const TRAP = 5;
-        pub const IOT = 6;
-        pub const ABRT = 6;
-        pub const EMT = 7;
-        pub const FPE = 8;
-        pub const KILL = 9;
-        pub const BUS = 10;
-        pub const SEGV = 11;
-        pub const SYS = 12;
-        pub const PIPE = 13;
-        pub const ALRM = 14;
-        pub const TERM = 15;
-        pub const USR1 = 16;
-        pub const USR2 = 17;
-        pub const CLD = 18;
-        pub const CHLD = 18;
-        pub const PWR = 19;
-        pub const WINCH = 20;
-        pub const URG = 21;
-        pub const POLL = 22;
-        pub const IO = .POLL;
-        pub const STOP = 23;
-        pub const TSTP = 24;
-        pub const CONT = 25;
-        pub const TTIN = 26;
-        pub const TTOU = 27;
-        pub const VTALRM = 28;
-        pub const PROF = 29;
-        pub const XCPU = 30;
-        pub const XFSZ = 31;
-        pub const WAITING = 32;
-        pub const LWP = 33;
-        pub const FREEZE = 34;
-        pub const THAW = 35;
-        pub const CANCEL = 36;
-        pub const LOST = 37;
-        pub const XRES = 38;
-        pub const JVM1 = 39;
-        pub const JVM2 = 40;
-        pub const INFO = 41;
+        pub const BLOCK = 1;
+        pub const UNBLOCK = 2;
+        pub const SETMASK = 3;
 
         pub const RTMIN = 42;
         pub const RTMAX = 74;
@@ -2837,8 +2794,54 @@ pub const SIG = switch (native_os) {
         pub inline fn VALID(sig: usize) usize {
             return sig <= MAXSIG and sig > 0;
         }
+
+        pub const POLL: SIG = .IO;
+
+        HUP = 1,
+        INT = 2,
+        QUIT = 3,
+        ILL = 4,
+        TRAP = 5,
+        IOT = 6,
+        ABRT = 6,
+        EMT = 7,
+        FPE = 8,
+        KILL = 9,
+        BUS = 10,
+        SEGV = 11,
+        SYS = 12,
+        PIPE = 13,
+        ALRM = 14,
+        TERM = 15,
+        USR1 = 16,
+        USR2 = 17,
+        CLD = 18,
+        CHLD = 18,
+        PWR = 19,
+        WINCH = 20,
+        URG = 21,
+        IO = 22,
+        STOP = 23,
+        TSTP = 24,
+        CONT = 25,
+        TTIN = 26,
+        TTOU = 27,
+        VTALRM = 28,
+        PROF = 29,
+        XCPU = 30,
+        XFSZ = 31,
+        WAITING = 32,
+        LWP = 33,
+        FREEZE = 34,
+        THAW = 35,
+        CANCEL = 36,
+        LOST = 37,
+        XRES = 38,
+        JVM1 = 39,
+        JVM2 = 40,
+        INFO = 41,
     },
-    .netbsd => struct {
+    .netbsd => enum(u32) {
         pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
         pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
         pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
@@ -2849,40 +2852,6 @@ pub const SIG = switch (native_os) {
         pub const BLOCK = 1;
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
-
-        pub const HUP = 1;
-        pub const INT = 2;
-        pub const QUIT = 3;
-        pub const ILL = 4;
-        pub const TRAP = 5;
-        pub const ABRT = 6;
-        pub const IOT = ABRT;
-        pub const EMT = 7;
-        pub const FPE = 8;
-        pub const KILL = 9;
-        pub const BUS = 10;
-        pub const SEGV = 11;
-        pub const SYS = 12;
-        pub const PIPE = 13;
-        pub const ALRM = 14;
-        pub const TERM = 15;
-        pub const URG = 16;
-        pub const STOP = 17;
-        pub const TSTP = 18;
-        pub const CONT = 19;
-        pub const CHLD = 20;
-        pub const TTIN = 21;
-        pub const TTOU = 22;
-        pub const IO = 23;
-        pub const XCPU = 24;
-        pub const XFSZ = 25;
-        pub const VTALRM = 26;
-        pub const PROF = 27;
-        pub const WINCH = 28;
-        pub const INFO = 29;
-        pub const USR1 = 30;
-        pub const USR2 = 31;
-        pub const PWR = 32;
 
         pub const RTMIN = 33;
         pub const RTMAX = 63;
@@ -2899,8 +2868,43 @@ pub const SIG = switch (native_os) {
         pub inline fn VALID(sig: usize) usize {
             return sig <= MAXSIG and sig > 0;
         }
+
+        pub const IOT: SIG = .ABRT;
+
+        HUP = 1,
+        INT = 2,
+        QUIT = 3,
+        ILL = 4,
+        TRAP = 5,
+        ABRT = 6,
+        EMT = 7,
+        FPE = 8,
+        KILL = 9,
+        BUS = 10,
+        SEGV = 11,
+        SYS = 12,
+        PIPE = 13,
+        ALRM = 14,
+        TERM = 15,
+        URG = 16,
+        STOP = 17,
+        TSTP = 18,
+        CONT = 19,
+        CHLD = 20,
+        TTIN = 21,
+        TTOU = 22,
+        IO = 23,
+        XCPU = 24,
+        XFSZ = 25,
+        VTALRM = 26,
+        PROF = 27,
+        WINCH = 28,
+        INFO = 29,
+        USR1 = 30,
+        USR2 = 31,
+        PWR = 32,
     },
-    .dragonfly => struct {
+    .dragonfly => enum(u32) {
         pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
         pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
         pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
@@ -2909,137 +2913,140 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
 
-        pub const IOT = ABRT;
-        pub const HUP = 1;
-        pub const INT = 2;
-        pub const QUIT = 3;
-        pub const ILL = 4;
-        pub const TRAP = 5;
-        pub const ABRT = 6;
-        pub const EMT = 7;
-        pub const FPE = 8;
-        pub const KILL = 9;
-        pub const BUS = 10;
-        pub const SEGV = 11;
-        pub const SYS = 12;
-        pub const PIPE = 13;
-        pub const ALRM = 14;
-        pub const TERM = 15;
-        pub const URG = 16;
-        pub const STOP = 17;
-        pub const TSTP = 18;
-        pub const CONT = 19;
-        pub const CHLD = 20;
-        pub const TTIN = 21;
-        pub const TTOU = 22;
-        pub const IO = 23;
-        pub const XCPU = 24;
-        pub const XFSZ = 25;
-        pub const VTALRM = 26;
-        pub const PROF = 27;
-        pub const WINCH = 28;
-        pub const INFO = 29;
-        pub const USR1 = 30;
-        pub const USR2 = 31;
-        pub const THR = 32;
-        pub const CKPT = 33;
-        pub const CKPTEXIT = 34;
-
         pub const WORDS = 4;
+
+        pub const IOT: SIG = .ABRT;
+
+        HUP = 1,
+        INT = 2,
+        QUIT = 3,
+        ILL = 4,
+        TRAP = 5,
+        ABRT = 6,
+        EMT = 7,
+        FPE = 8,
+        KILL = 9,
+        BUS = 10,
+        SEGV = 11,
+        SYS = 12,
+        PIPE = 13,
+        ALRM = 14,
+        TERM = 15,
+        URG = 16,
+        STOP = 17,
+        TSTP = 18,
+        CONT = 19,
+        CHLD = 20,
+        TTIN = 21,
+        TTOU = 22,
+        IO = 23,
+        XCPU = 24,
+        XFSZ = 25,
+        VTALRM = 26,
+        PROF = 27,
+        WINCH = 28,
+        INFO = 29,
+        USR1 = 30,
+        USR2 = 31,
+        THR = 32,
+        CKPT = 33,
+        CKPTEXIT = 34,
     },
-    .haiku => struct {
+    .haiku => enum(u32) {
         pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
         pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
         pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
 
         pub const HOLD: ?Sigaction.handler_fn = @ptrFromInt(3);
 
-        pub const HUP = 1;
-        pub const INT = 2;
-        pub const QUIT = 3;
-        pub const ILL = 4;
-        pub const CHLD = 5;
-        pub const ABRT = 6;
-        pub const IOT = ABRT;
-        pub const PIPE = 7;
-        pub const FPE = 8;
-        pub const KILL = 9;
-        pub const STOP = 10;
-        pub const SEGV = 11;
-        pub const CONT = 12;
-        pub const TSTP = 13;
-        pub const ALRM = 14;
-        pub const TERM = 15;
-        pub const TTIN = 16;
-        pub const TTOU = 17;
-        pub const USR1 = 18;
-        pub const USR2 = 19;
-        pub const WINCH = 20;
-        pub const KILLTHR = 21;
-        pub const TRAP = 22;
-        pub const POLL = 23;
-        pub const PROF = 24;
-        pub const SYS = 25;
-        pub const URG = 26;
-        pub const VTALRM = 27;
-        pub const XCPU = 28;
-        pub const XFSZ = 29;
-        pub const BUS = 30;
-        pub const RESERVED1 = 31;
-        pub const RESERVED2 = 32;
-
         pub const BLOCK = 1;
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
+
+        pub const IOT: SIG = .ABRT;
+
+        HUP = 1,
+        INT = 2,
+        QUIT = 3,
+        ILL = 4,
+        CHLD = 5,
+        ABRT = 6,
+        PIPE = 7,
+        FPE = 8,
+        KILL = 9,
+        STOP = 10,
+        SEGV = 11,
+        CONT = 12,
+        TSTP = 13,
+        ALRM = 14,
+        TERM = 15,
+        TTIN = 16,
+        TTOU = 17,
+        USR1 = 18,
+        USR2 = 19,
+        WINCH = 20,
+        KILLTHR = 21,
+        TRAP = 22,
+        POLL = 23,
+        PROF = 24,
+        SYS = 25,
+        URG = 26,
+        VTALRM = 27,
+        XCPU = 28,
+        XFSZ = 29,
+        BUS = 30,
+        RESERVED1 = 31,
+        RESERVED2 = 32,
     },
-    .openbsd => struct {
+    .openbsd => enum(u32) {
         pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
         pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
         pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
         pub const CATCH: ?Sigaction.handler_fn = @ptrFromInt(2);
         pub const HOLD: ?Sigaction.handler_fn = @ptrFromInt(3);
 
-        pub const HUP = 1;
-        pub const INT = 2;
-        pub const QUIT = 3;
-        pub const ILL = 4;
-        pub const TRAP = 5;
-        pub const ABRT = 6;
-        pub const IOT = ABRT;
-        pub const EMT = 7;
-        pub const FPE = 8;
-        pub const KILL = 9;
-        pub const BUS = 10;
-        pub const SEGV = 11;
-        pub const SYS = 12;
-        pub const PIPE = 13;
-        pub const ALRM = 14;
-        pub const TERM = 15;
-        pub const URG = 16;
-        pub const STOP = 17;
-        pub const TSTP = 18;
-        pub const CONT = 19;
-        pub const CHLD = 20;
-        pub const TTIN = 21;
-        pub const TTOU = 22;
-        pub const IO = 23;
-        pub const XCPU = 24;
-        pub const XFSZ = 25;
-        pub const VTALRM = 26;
-        pub const PROF = 27;
-        pub const WINCH = 28;
-        pub const INFO = 29;
-        pub const USR1 = 30;
-        pub const USR2 = 31;
-        pub const PWR = 32;
-
         pub const BLOCK = 1;
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
+
+        pub const IOT: SIG = .ABRT;
+
+        HUP = 1,
+        INT = 2,
+        QUIT = 3,
+        ILL = 4,
+        TRAP = 5,
+        ABRT = 6,
+        EMT = 7,
+        FPE = 8,
+        KILL = 9,
+        BUS = 10,
+        SEGV = 11,
+        SYS = 12,
+        PIPE = 13,
+        ALRM = 14,
+        TERM = 15,
+        URG = 16,
+        STOP = 17,
+        TSTP = 18,
+        CONT = 19,
+        CHLD = 20,
+        TTIN = 21,
+        TTOU = 22,
+        IO = 23,
+        XCPU = 24,
+        XFSZ = 25,
+        VTALRM = 26,
+        PROF = 27,
+        WINCH = 28,
+        INFO = 29,
+        USR1 = 30,
+        USR2 = 31,
+        PWR = 32,
     },
     // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal.h
     // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal_numbers.h
-    .serenity => struct {
+    .serenity => enum(u32) {
         pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
         pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
         pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
@@ -3048,39 +3055,39 @@ pub const SIG = switch (native_os) {
         pub const UNBLOCK = 2;
         pub const SETMASK = 3;
 
-        pub const INVAL = 0;
-        pub const HUP = 1;
-        pub const INT = 2;
-        pub const QUIT = 3;
-        pub const ILL = 4;
-        pub const TRAP = 5;
-        pub const ABRT = 6;
-        pub const BUS = 7;
-        pub const FPE = 8;
-        pub const KILL = 9;
-        pub const USR1 = 10;
-        pub const SEGV = 11;
-        pub const USR2 = 12;
-        pub const PIPE = 13;
-        pub const ALRM = 14;
-        pub const TERM = 15;
-        pub const STKFLT = 16;
-        pub const CHLD = 17;
-        pub const CONT = 18;
-        pub const STOP = 19;
-        pub const TSTP = 20;
-        pub const TTIN = 21;
-        pub const TTOU = 22;
-        pub const URG = 23;
-        pub const XCPU = 24;
-        pub const XFSZ = 25;
-        pub const VTALRM = 26;
-        pub const PROF = 27;
-        pub const WINCH = 28;
-        pub const IO = 29;
-        pub const INFO = 30;
-        pub const SYS = 31;
-        pub const CANCEL = 32;
+        INVAL = 0,
+        HUP = 1,
+        INT = 2,
+        QUIT = 3,
+        ILL = 4,
+        TRAP = 5,
+        ABRT = 6,
+        BUS = 7,
+        FPE = 8,
+        KILL = 9,
+        USR1 = 10,
+        SEGV = 11,
+        USR2 = 12,
+        PIPE = 13,
+        ALRM = 14,
+        TERM = 15,
+        STKFLT = 16,
+        CHLD = 17,
+        CONT = 18,
+        STOP = 19,
+        TSTP = 20,
+        TTIN = 21,
+        TTOU = 22,
+        URG = 23,
+        XCPU = 24,
+        XFSZ = 25,
+        VTALRM = 26,
+        PROF = 27,
+        WINCH = 28,
+        IO = 29,
+        INFO = 30,
+        SYS = 31,
+        CANCEL = 32,
     },
     else => void,
 };
@@ -3117,8 +3124,8 @@ pub const SYS = switch (native_os) {
 
 /// A common format for the Sigaction struct across a variety of Linux flavors.
 const common_linux_Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+    pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+    pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -3139,8 +3146,8 @@ pub const Sigaction = switch (native_os) {
         => if (builtin.target.abi.isMusl())
             common_linux_Sigaction
         else if (builtin.target.ptrBitWidth() == 64) extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+            pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+            pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             flags: c_uint,
             handler: extern union {
@@ -3150,8 +3157,8 @@ pub const Sigaction = switch (native_os) {
             mask: sigset_t,
             restorer: ?*const fn () callconv(.c) void = null,
         } else extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+            pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+            pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             flags: c_uint,
             handler: extern union {
@@ -3163,8 +3170,8 @@ pub const Sigaction = switch (native_os) {
             __resv: [1]c_int = .{0},
         },
         .s390x => if (builtin.abi == .gnu) extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+            pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+            pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             handler: extern union {
                 handler: ?handler_fn,
@@ -3179,8 +3186,8 @@ pub const Sigaction = switch (native_os) {
     },
     .emscripten => emscripten.Sigaction,
     .netbsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+        pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         handler: extern union {
             handler: ?handler_fn,
@@ -3190,8 +3197,8 @@ pub const Sigaction = switch (native_os) {
         flags: c_uint,
     },
     .dragonfly, .freebsd => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+        pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -3204,8 +3211,8 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
     },
     .illumos => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+        pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal options
         flags: c_uint,
@@ -3218,8 +3225,8 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
     },
     .haiku => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+        pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -3237,8 +3244,8 @@ pub const Sigaction = switch (native_os) {
         userdata: *allowzero anyopaque = undefined,
     },
     .openbsd => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+        pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -3252,8 +3259,8 @@ pub const Sigaction = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L39-L46
     .serenity => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+        pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+        pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         handler: extern union {
             handler: ?handler_fn,
@@ -4087,8 +4094,9 @@ pub const linger = switch (native_os) {
     },
     else => void,
 };
+
 pub const msghdr = switch (native_os) {
-    .linux => linux.msghdr,
+    .linux => if (@bitSizeOf(usize) > @bitSizeOf(i32) and builtin.abi.isMusl()) posix_msghdr else linux.msghdr,
     .openbsd,
     .emscripten,
     .dragonfly,
@@ -4102,36 +4110,28 @@ pub const msghdr = switch (native_os) {
     .tvos,
     .visionos,
     .watchos,
-    => extern struct {
-        /// optional address
-        name: ?*sockaddr,
-        /// size of address
-        namelen: socklen_t,
-        /// scatter/gather array
-        iov: [*]iovec,
-        /// # elements in iov
-        iovlen: i32,
-        /// ancillary data
-        control: ?*anyopaque,
-        /// ancillary data buffer len
-        controllen: socklen_t,
-        /// flags on received message
-        flags: i32,
-    },
-    // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L74-L82
-    .serenity => extern struct {
-        name: ?*anyopaque,
-        namelen: socklen_t,
-        iov: [*]iovec,
-        iovlen: c_int,
-        control: ?*anyopaque,
-        controllen: socklen_t,
-        flags: c_int,
-    },
+    .serenity, // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L74-L82
+    => posix_msghdr,
     else => void,
 };
+
+/// https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/sys_socket.h.html
+const posix_msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    iovlen: u32,
+    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    control: ?*anyopaque,
+    pad2: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    controllen: socklen_t,
+    pad3: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    flags: u32,
+};
+
 pub const msghdr_const = switch (native_os) {
-    .linux => linux.msghdr_const,
+    .linux => if (@bitSizeOf(usize) > @bitSizeOf(i32) and builtin.abi.isMusl()) posix_msghdr_const else linux.msghdr_const,
     .openbsd,
     .emscripten,
     .dragonfly,
@@ -4145,36 +4145,37 @@ pub const msghdr_const = switch (native_os) {
     .tvos,
     .visionos,
     .watchos,
-    => extern struct {
-        /// optional address
-        name: ?*const sockaddr,
-        /// size of address
-        namelen: socklen_t,
-        /// scatter/gather array
-        iov: [*]const iovec_const,
-        /// # elements in iov
-        iovlen: u32,
-        /// ancillary data
-        control: ?*const anyopaque,
-        /// ancillary data buffer len
-        controllen: socklen_t,
-        /// flags on received message
-        flags: i32,
-    },
-    .serenity => extern struct {
-        name: ?*const anyopaque,
-        namelen: socklen_t,
-        iov: [*]const iovec_const,
-        iovlen: c_uint,
-        control: ?*const anyopaque,
-        controllen: socklen_t,
-        flags: c_int,
-    },
+    .serenity,
+    => posix_msghdr_const,
     else => void,
 };
+
+const posix_msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]const iovec_const,
+    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    iovlen: u32,
+    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    control: ?*const anyopaque,
+    pad2: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    controllen: socklen_t,
+    pad3: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    flags: u32,
+};
+
+pub const mmsghdr = switch (native_os) {
+    .linux => linux.mmsghdr,
+    else => extern struct {
+        hdr: msghdr,
+        len: u32,
+    },
+};
+
 pub const cmsghdr = switch (native_os) {
+    .linux => if (@bitSizeOf(usize) > @bitSizeOf(i32) and builtin.abi.isMusl()) posix_cmsghdr else linux.cmsghdr,
     // https://github.com/emscripten-core/emscripten/blob/96371ed7888fc78c040179f4d4faa82a6a07a116/system/lib/libc/musl/include/sys/socket.h#L44
-    .linux, .emscripten => linux.cmsghdr,
+    .emscripten => linux.cmsghdr,
     // https://github.com/freebsd/freebsd-src/blob/b197d2abcb6895d78bc9df8404e374397aa44748/sys/sys/socket.h#L492
     .freebsd,
     // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/107c0518337ba90e7fa49e74845d8d44320c9a6d/sys/sys/socket.h#L452
@@ -4196,13 +4197,19 @@ pub const cmsghdr = switch (native_os) {
     .tvos,
     .visionos,
     .watchos,
-    => extern struct {
-        len: socklen_t,
-        level: c_int,
-        type: c_int,
-    },
+    => posix_cmsghdr,
+
     else => void,
 };
+
+const posix_cmsghdr = extern struct {
+    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    len: socklen_t,
+    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    level: c_int,
+    type: c_int,
+};
+
 pub const nfds_t = switch (native_os) {
     .linux => linux.nfds_t,
     .emscripten => emscripten.nfds_t,
@@ -4443,7 +4450,7 @@ pub const siginfo_t = switch (native_os) {
     .linux => linux.siginfo_t,
     .emscripten => emscripten.siginfo_t,
     .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        signo: c_int,
+        signo: SIG,
         errno: c_int,
         code: c_int,
         pid: pid_t,
@@ -4459,7 +4466,7 @@ pub const siginfo_t = switch (native_os) {
     },
     .freebsd => extern struct {
         // Signal number.
-        signo: c_int,
+        signo: SIG,
         // Errno association.
         errno: c_int,
         /// Signal code.
@@ -4502,7 +4509,7 @@ pub const siginfo_t = switch (native_os) {
         },
     },
     .illumos => extern struct {
-        signo: c_int,
+        signo: SIG,
         code: c_int,
         errno: c_int,
         // 64bit architectures insert 4bytes of padding here, this is done by
@@ -4559,7 +4566,7 @@ pub const siginfo_t = switch (native_os) {
         info: netbsd._ksiginfo,
     },
     .dragonfly => extern struct {
-        signo: c_int,
+        signo: SIG,
         errno: c_int,
         code: c_int,
         pid: c_int,
@@ -4571,7 +4578,7 @@ pub const siginfo_t = switch (native_os) {
         __spare__: [7]c_int,
     },
     .haiku => extern struct {
-        signo: i32,
+        signo: SIG,
         code: i32,
         errno: i32,
 
@@ -4580,7 +4587,7 @@ pub const siginfo_t = switch (native_os) {
         addr: *allowzero anyopaque,
     },
     .openbsd => extern struct {
-        signo: c_int,
+        signo: SIG,
         code: c_int,
         errno: c_int,
         data: extern union {
@@ -4615,7 +4622,7 @@ pub const siginfo_t = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L27-L37
     .serenity => extern struct {
-        signo: c_int,
+        signo: SIG,
         code: c_int,
         errno: c_int,
         pid: pid_t,
@@ -6865,7 +6872,7 @@ pub const IFNAMESIZE = switch (native_os) {
     // https://github.com/SerenityOS/serenity/blob/9882848e0bf783dfc8e8a6d887a848d70d9c58f4/Kernel/API/POSIX/net/if.h#L50
     .openbsd, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => 16,
     .illumos => 32,
-    else => void,
+    else => {},
 };
 
 pub const stack_t = switch (native_os) {
@@ -10591,7 +10598,7 @@ pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: whence_t) off_t;
 pub extern "c" fn open(path: [*:0]const u8, oflag: O, ...) c_int;
 pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: O, ...) c_int;
 pub extern "c" fn ftruncate(fd: c_int, length: off_t) c_int;
-pub extern "c" fn raise(sig: c_int) c_int;
+pub extern "c" fn raise(sig: SIG) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn readv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint) isize;
 pub extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: off_t) isize;
@@ -10683,6 +10690,7 @@ pub extern "c" fn sendto(
     addrlen: socklen_t,
 ) isize;
 pub extern "c" fn sendmsg(sockfd: fd_t, msg: *const msghdr_const, flags: u32) isize;
+pub extern "c" fn sendmmsg(sockfd: fd_t, msgvec: [*]mmsghdr, n: c_uint, flags: u32) c_int;
 
 pub extern "c" fn recv(
     sockfd: fd_t,
@@ -10708,7 +10716,7 @@ pub const recvmsg = switch (native_os) {
     else => private.recvmsg,
 };
 
-pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
+pub extern "c" fn kill(pid: pid_t, sig: SIG) c_int;
 
 pub extern "c" fn setuid(uid: uid_t) c_int;
 pub extern "c" fn setgid(gid: gid_t) c_int;
@@ -10772,6 +10780,8 @@ pub const pthread_setname_np = switch (native_os) {
 };
 
 pub extern "c" fn pthread_getname_np(thread: pthread_t, name: [*:0]u8, len: usize) c_int;
+pub extern "c" fn pthread_kill(pthread_t, signal: SIG) c_int;
+
 pub const pthread_threadid_np = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => private.pthread_threadid_np,
     else => {},
@@ -10876,13 +10886,13 @@ pub extern "c" fn dn_expand(
     length: c_int,
 ) c_int;
 
-pub const PTHREAD_MUTEX_INITIALIZER = pthread_mutex_t{};
+pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = .{};
 pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) E;
 pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) E;
 pub extern "c" fn pthread_mutex_trylock(mutex: *pthread_mutex_t) E;
 pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) E;
 
-pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
+pub const PTHREAD_COND_INITIALIZER: pthread_cond_t = .{};
 pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) E;
 pub extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t, noalias abstime: *const timespec) E;
 pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) E;
@@ -11363,12 +11373,12 @@ const private = struct {
     extern "c" fn recvmsg(sockfd: fd_t, msg: *msghdr, flags: u32) isize;
     extern "c" fn sched_yield() c_int;
     extern "c" fn sendfile(out_fd: fd_t, in_fd: fd_t, offset: ?*off_t, count: usize) isize;
-    extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-    extern "c" fn sigdelset(set: ?*sigset_t, signo: c_int) c_int;
-    extern "c" fn sigaddset(set: ?*sigset_t, signo: c_int) c_int;
+    extern "c" fn sigaction(sig: SIG, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
+    extern "c" fn sigdelset(set: ?*sigset_t, signo: SIG) c_int;
+    extern "c" fn sigaddset(set: ?*sigset_t, signo: SIG) c_int;
     extern "c" fn sigfillset(set: ?*sigset_t) c_int;
     extern "c" fn sigemptyset(set: ?*sigset_t) c_int;
-    extern "c" fn sigismember(set: ?*const sigset_t, signo: c_int) c_int;
+    extern "c" fn sigismember(set: ?*const sigset_t, signo: SIG) c_int;
     extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
@@ -11420,7 +11430,7 @@ const private = struct {
     extern "c" fn __libc_thr_yield() c_int;
     extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-    extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
+    extern "c" fn __sigaction14(sig: SIG, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
     extern "c" fn __sigemptyset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigfillset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;

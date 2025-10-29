@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 
@@ -10,6 +11,12 @@ pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
+
+    const gpa = arena;
+
+    var threaded: Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     var opt_zig_exe: ?[]const u8 = null;
     var opt_input_file_name: ?[]const u8 = null;
@@ -53,7 +60,7 @@ pub fn main() !void {
     const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
 
     const input_file_bytes = try std.fs.cwd().readFileAlloc(input_file_name, arena, .limited(std.math.maxInt(u32)));
-    const case = try Case.parse(arena, input_file_bytes);
+    const case = try Case.parse(arena, io, input_file_bytes);
 
     // Check now: if there are any targets using the `cbe` backend, we need the lib dir.
     if (opt_lib_dir == null) {
@@ -86,22 +93,21 @@ pub fn main() !void {
     else
         null;
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try std.zig.system.resolveTargetQuery(io, .{});
 
     const debug_log_verbose = debug_zcu or debug_dwarf or debug_link;
 
     for (case.targets) |target| {
         const target_prog_node = node: {
             var name_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-            const name = std.fmt.bufPrint(&name_buf, "{s}-{s}", .{ target.query, @tagName(target.backend) }) catch &name_buf;
+            const name = std.fmt.bufPrint(&name_buf, "{s}-{t}", .{ target.query, target.backend }) catch &name_buf;
             break :node prog_node.start(name, case.updates.len);
         };
         defer target_prog_node.end();
 
         if (debug_log_verbose) {
-            std.log.scoped(.status).info("target: '{s}-{s}'", .{ target.query, @tagName(target.backend) });
+            std.log.scoped(.status).info("target: '{s}-{t}'", .{ target.query, target.backend });
         }
-
         var child_args: std.ArrayListUnmanaged([]const u8) = .empty;
         try child_args.appendSlice(arena, &.{
             resolved_zig_exe,
@@ -114,8 +120,10 @@ pub fn main() !void {
             ".local-cache",
             "--global-cache-dir",
             ".global-cache",
-            "--listen=-",
         });
+        if (target.resolved.os.tag == .windows) try child_args.append(arena, "-lws2_32");
+        try child_args.append(arena, "--listen=-");
+
         if (opt_resolved_lib_dir) |resolved_lib_dir| {
             try child_args.appendSlice(arena, &.{ "--zig-lib-dir", resolved_lib_dir });
         }
@@ -167,8 +175,12 @@ pub fn main() !void {
                 target.query,
                 "-I",
                 opt_resolved_lib_dir.?, // verified earlier
-                "-o",
             });
+
+            if (target.resolved.os.tag == .windows)
+                try cc_child_args.append(arena, "-lws2_32");
+
+            try cc_child_args.append(arena, "-o");
         }
 
         var eval: Eval = .{
@@ -186,7 +198,7 @@ pub fn main() !void {
 
         try child.spawn();
 
-        var poller = std.Io.poll(arena, Eval.StreamEnum, .{
+        var poller = Io.poll(arena, Eval.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         });
@@ -226,7 +238,7 @@ const Eval = struct {
     cc_child_args: *std.ArrayListUnmanaged([]const u8),
 
     const StreamEnum = enum { stdout, stderr };
-    const Poller = std.Io.Poller(StreamEnum);
+    const Poller = Io.Poller(StreamEnum);
 
     /// Currently this function assumes the previous updates have already been written.
     fn write(eval: *Eval, update: Case.Update) void {
@@ -647,7 +659,7 @@ const Case = struct {
         msg: []const u8,
     };
 
-    fn parse(arena: Allocator, bytes: []const u8) !Case {
+    fn parse(arena: Allocator, io: Io, bytes: []const u8) !Case {
         const fatal = std.process.fatal;
 
         var targets: std.ArrayListUnmanaged(Target) = .empty;
@@ -683,7 +695,7 @@ const Case = struct {
                         },
                     }) catch fatal("line {d}: invalid target query '{s}'", .{ line_n, query });
 
-                    const resolved = try std.zig.system.resolveTargetQuery(parsed_query);
+                    const resolved = try std.zig.system.resolveTargetQuery(io, parsed_query);
 
                     try targets.append(arena, .{
                         .query = query,

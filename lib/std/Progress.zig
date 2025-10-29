@@ -392,7 +392,7 @@ var global_progress: Progress = .{
     .terminal = undefined,
     .terminal_mode = .off,
     .update_thread = null,
-    .redraw_event = .{},
+    .redraw_event = .unset,
     .refresh_rate_ns = undefined,
     .initial_delay_ns = undefined,
     .rows = 0,
@@ -493,7 +493,7 @@ pub fn start(options: Options) Node {
                     .mask = posix.sigemptyset(),
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
-                posix.sigaction(posix.SIG.WINCH, &act, null);
+                posix.sigaction(.WINCH, &act, null);
             }
 
             if (switch (global_progress.terminal_mode) {
@@ -523,9 +523,7 @@ pub fn setStatus(new_status: Status) void {
 
 /// Returns whether a resize is needed to learn the terminal size.
 fn wait(timeout_ns: u64) bool {
-    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_|
-        true
-    else |err| switch (err) {
+    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_| true else |err| switch (err) {
         error.Timeout => false,
     };
     global_progress.redraw_event.reset();
@@ -1537,10 +1535,10 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+fn handleSigWinch(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
-    assert(sig == posix.SIG.WINCH);
+    assert(sig == .WINCH);
     global_progress.redraw_event.set();
 }
 

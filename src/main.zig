@@ -1,5 +1,8 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
+const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
@@ -10,7 +13,6 @@ const Color = std.zig.Color;
 const warn = std.log.warn;
 const ThreadPool = std.Thread.Pool;
 const cleanExit = std.process.cleanExit;
-const native_os = builtin.os.tag;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
@@ -245,26 +247,30 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
+    var threaded: Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     const cmd = args[1];
     const cmd_args = args[2..];
     if (mem.eql(u8, cmd, "build-exe")) {
         dev.check(.build_exe_command);
-        return buildOutputType(gpa, arena, args, .{ .build = .Exe });
+        return buildOutputType(gpa, arena, io, args, .{ .build = .Exe });
     } else if (mem.eql(u8, cmd, "build-lib")) {
         dev.check(.build_lib_command);
-        return buildOutputType(gpa, arena, args, .{ .build = .Lib });
+        return buildOutputType(gpa, arena, io, args, .{ .build = .Lib });
     } else if (mem.eql(u8, cmd, "build-obj")) {
         dev.check(.build_obj_command);
-        return buildOutputType(gpa, arena, args, .{ .build = .Obj });
+        return buildOutputType(gpa, arena, io, args, .{ .build = .Obj });
     } else if (mem.eql(u8, cmd, "test")) {
         dev.check(.test_command);
-        return buildOutputType(gpa, arena, args, .zig_test);
+        return buildOutputType(gpa, arena, io, args, .zig_test);
     } else if (mem.eql(u8, cmd, "test-obj")) {
         dev.check(.test_command);
-        return buildOutputType(gpa, arena, args, .zig_test_obj);
+        return buildOutputType(gpa, arena, io, args, .zig_test_obj);
     } else if (mem.eql(u8, cmd, "run")) {
         dev.check(.run_command);
-        return buildOutputType(gpa, arena, args, .run);
+        return buildOutputType(gpa, arena, io, args, .run);
     } else if (mem.eql(u8, cmd, "dlltool") or
         mem.eql(u8, cmd, "ranlib") or
         mem.eql(u8, cmd, "lib") or
@@ -274,7 +280,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return process.exit(try llvmArMain(arena, args));
     } else if (mem.eql(u8, cmd, "build")) {
         dev.check(.build_command);
-        return cmdBuild(gpa, arena, cmd_args);
+        return cmdBuild(gpa, arena, io, cmd_args);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
@@ -288,16 +294,16 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return process.exit(try lldMain(arena, args, true));
     } else if (mem.eql(u8, cmd, "cc")) {
         dev.check(.cc_command);
-        return buildOutputType(gpa, arena, args, .cc);
+        return buildOutputType(gpa, arena, io, args, .cc);
     } else if (mem.eql(u8, cmd, "c++")) {
         dev.check(.cc_command);
-        return buildOutputType(gpa, arena, args, .cpp);
+        return buildOutputType(gpa, arena, io, args, .cpp);
     } else if (mem.eql(u8, cmd, "translate-c")) {
         dev.check(.translate_c_command);
-        return buildOutputType(gpa, arena, args, .translate_c);
+        return buildOutputType(gpa, arena, io, args, .translate_c);
     } else if (mem.eql(u8, cmd, "rc")) {
         const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
-        return jitCmd(gpa, arena, cmd_args, .{
+        return jitCmd(gpa, arena, io, cmd_args, .{
             .cmd_name = "resinator",
             .root_src_path = "resinator/main.zig",
             .depend_on_aro = true,
@@ -306,22 +312,22 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         });
     } else if (mem.eql(u8, cmd, "fmt")) {
         dev.check(.fmt_command);
-        return @import("fmt.zig").run(gpa, arena, cmd_args);
+        return @import("fmt.zig").run(gpa, arena, io, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
-        return jitCmd(gpa, arena, cmd_args, .{
+        return jitCmd(gpa, arena, io, cmd_args, .{
             .cmd_name = "objcopy",
             .root_src_path = "objcopy.zig",
         });
     } else if (mem.eql(u8, cmd, "fetch")) {
-        return cmdFetch(gpa, arena, cmd_args);
+        return cmdFetch(gpa, arena, io, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
-        return jitCmd(gpa, arena, cmd_args, .{
+        return jitCmd(gpa, arena, io, cmd_args, .{
             .cmd_name = "libc",
             .root_src_path = "libc.zig",
             .prepend_zig_lib_dir_path = true,
         });
     } else if (mem.eql(u8, cmd, "std")) {
-        return jitCmd(gpa, arena, cmd_args, .{
+        return jitCmd(gpa, arena, io, cmd_args, .{
             .cmd_name = "std",
             .root_src_path = "std-docs.zig",
             .prepend_zig_lib_dir_path = true,
@@ -332,7 +338,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
         dev.check(.targets_command);
-        const host = std.zig.resolveTargetQueryOrFatal(.{});
+        const host = std.zig.resolveTargetQueryOrFatal(io, .{});
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         try @import("print_targets.zig").cmdTargets(arena, cmd_args, &stdout_writer.interface, &host);
         return stdout_writer.interface.flush();
@@ -342,16 +348,18 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return;
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
+        const host = std.zig.resolveTargetQueryOrFatal(io, .{});
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         try @import("print_env.zig").cmdEnv(
             arena,
             &stdout_writer.interface,
             args,
             if (native_os == .wasi) wasi_preopens,
+            &host,
         );
         return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "reduce")) {
-        return jitCmd(gpa, arena, cmd_args, .{
+        return jitCmd(gpa, arena, io, cmd_args, .{
             .cmd_name = "reduce",
             .root_src_path = "reduce.zig",
         });
@@ -362,13 +370,13 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         dev.check(.help_command);
         return fs.File.stdout().writeAll(usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
-        return cmdAstCheck(arena, cmd_args);
+        return cmdAstCheck(arena, io, cmd_args);
     } else if (mem.eql(u8, cmd, "detect-cpu")) {
-        return cmdDetectCpu(cmd_args);
+        return cmdDetectCpu(io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
-        return cmdChangelist(arena, cmd_args);
+        return cmdChangelist(arena, io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
-        return cmdDumpZir(arena, cmd_args);
+        return cmdDumpZir(arena, io, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "llvm-ints")) {
         return cmdDumpLlvmInts(gpa, arena, cmd_args);
     } else {
@@ -735,7 +743,7 @@ const ArgMode = union(enum) {
 const Listen = union(enum) {
     none,
     stdio: if (dev.env.supports(.stdio_listen)) void else noreturn,
-    ip4: if (dev.env.supports(.network_listen)) std.net.Ip4Address else noreturn,
+    ip4: if (dev.env.supports(.network_listen)) Io.net.Ip4Address else noreturn,
 };
 
 const ArgsIterator = struct {
@@ -792,6 +800,7 @@ const CliModule = struct {
 fn buildOutputType(
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     all_args: []const []const u8,
     arg_mode: ArgMode,
 ) !void {
@@ -1328,7 +1337,7 @@ fn buildOutputType(
                             const host, const port_text = mem.cutScalar(u8, next_arg, ':') orelse .{ next_arg, "14735" };
                             const port = std.fmt.parseInt(u16, port_text, 10) catch |err|
                                 fatal("invalid port number: '{s}': {s}", .{ port_text, @errorName(err) });
-                            listen = .{ .ip4 = std.net.Ip4Address.parse(host, port) catch |err|
+                            listen = .{ .ip4 = Io.net.Ip4Address.parse(host, port) catch |err|
                                 fatal("invalid host: '{s}': {s}", .{ host, @errorName(err) }) };
                         }
                     } else if (mem.eql(u8, arg, "--listen=-")) {
@@ -3017,7 +3026,7 @@ fn buildOutputType(
     create_module.opts.emit_bin = emit_bin != .no;
     create_module.opts.any_c_source_files = create_module.c_source_files.items.len != 0;
 
-    const main_mod = try createModule(gpa, arena, &create_module, 0, null, color);
+    const main_mod = try createModule(gpa, arena, io, &create_module, 0, null, color);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {
         if (cli_mod.resolved == null)
             fatal("module '{s}' declared but not used", .{key});
@@ -3311,7 +3320,7 @@ fn buildOutputType(
         var file_writer = f.writer(&.{});
         var buffer: [1000]u8 = undefined;
         var hasher = file_writer.interface.hashed(Cache.Hasher.init("0123456789abcdef"), &buffer);
-        var stdin_reader = fs.File.stdin().readerStreaming(&.{});
+        var stdin_reader = fs.File.stdin().readerStreaming(io, &.{});
         _ = hasher.writer.sendFileAll(&stdin_reader, .unlimited) catch |err| switch (err) {
             error.WriteFailed => fatal("failed to write {s}: {t}", .{ dump_path, file_writer.err.? }),
             else => fatal("failed to pipe stdin to {s}: {t}", .{ dump_path, err }),
@@ -3367,7 +3376,7 @@ fn buildOutputType(
     try create_module.rpath_list.appendSlice(arena, rpath_dedup.keys());
 
     var create_diag: Compilation.CreateDiagnostic = undefined;
-    const comp = Compilation.create(gpa, arena, &create_diag, .{
+    const comp = Compilation.create(gpa, arena, io, &create_diag, .{
         .dirs = dirs,
         .thread_pool = &thread_pool,
         .self_exe_path = switch (native_os) {
@@ -3542,7 +3551,7 @@ fn buildOutputType(
     switch (listen) {
         .none => {},
         .stdio => {
-            var stdin_reader = fs.File.stdin().reader(&stdin_buffer);
+            var stdin_reader = fs.File.stdin().reader(io, &stdin_buffer);
             var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
             try serve(
                 comp,
@@ -3557,22 +3566,22 @@ fn buildOutputType(
             return cleanExit();
         },
         .ip4 => |ip4_addr| {
-            const addr: std.net.Address = .{ .in = ip4_addr };
+            const addr: Io.net.IpAddress = .{ .ip4 = ip4_addr };
 
-            var server = try addr.listen(.{
+            var server = try addr.listen(io, .{
                 .reuse_address = true,
             });
-            defer server.deinit();
+            defer server.deinit(io);
 
-            const conn = try server.accept();
-            defer conn.stream.close();
+            var stream = try server.accept(io);
+            defer stream.close(io);
 
-            var input = conn.stream.reader(&stdin_buffer);
-            var output = conn.stream.writer(&stdout_buffer);
+            var input = stream.reader(io, &stdin_buffer);
+            var output = stream.writer(io, &stdout_buffer);
 
             try serve(
                 comp,
-                input.interface(),
+                &input.interface,
                 &output.interface,
                 test_exec_args.items,
                 self_exe_path,
@@ -3646,6 +3655,7 @@ fn buildOutputType(
             comp,
             gpa,
             arena,
+            io,
             test_exec_args.items,
             self_exe_path,
             arg_mode,
@@ -3704,6 +3714,7 @@ const CreateModule = struct {
 fn createModule(
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     create_module: *CreateModule,
     index: usize,
     parent: ?*Package.Module,
@@ -3777,7 +3788,7 @@ fn createModule(
         }
 
         const target_query = std.zig.parseTargetQueryOrReportFatalError(arena, target_parse_options);
-        const target = std.zig.resolveTargetQueryOrFatal(target_query);
+        const target = std.zig.resolveTargetQueryOrFatal(io, target_query);
         break :t .{
             .result = target,
             .is_native_os = target_query.isNativeOs(),
@@ -4022,7 +4033,7 @@ fn createModule(
     for (cli_mod.deps) |dep| {
         const dep_index = create_module.modules.getIndex(dep.value) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
-        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, color);
+        const dep_mod = try createModule(gpa, arena, io, create_module, dep_index, mod, color);
         try mod.deps.put(arena, dep.key, dep_mod);
     }
 
@@ -4039,8 +4050,8 @@ fn saveState(comp: *Compilation, incremental: bool) void {
 
 fn serve(
     comp: *Compilation,
-    in: *std.Io.Reader,
-    out: *std.Io.Writer,
+    in: *Io.Reader,
+    out: *Io.Writer,
     test_exec_args: []const ?[]const u8,
     self_exe_path: ?[]const u8,
     arg_mode: ArgMode,
@@ -4126,6 +4137,7 @@ fn serve(
                 //    comp,
                 //    gpa,
                 //    arena,
+                //    io,
                 //    test_exec_args,
                 //    self_exe_path.?,
                 //    arg_mode,
@@ -4280,6 +4292,7 @@ fn runOrTest(
     comp: *Compilation,
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     test_exec_args: []const ?[]const u8,
     self_exe_path: []const u8,
     arg_mode: ArgMode,
@@ -4334,7 +4347,7 @@ fn runOrTest(
         std.debug.lockStdErr();
         const err = process.execve(gpa, argv.items, &env_map);
         std.debug.unlockStdErr();
-        try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
+        try warnAboutForeignBinaries(io, arena, arg_mode, target, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (process.can_spawn) {
@@ -4355,7 +4368,7 @@ fn runOrTest(
             break :t child.spawnAndWait();
         };
         const term = term_result catch |err| {
-            try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
+            try warnAboutForeignBinaries(io, arena, arg_mode, target, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
@@ -4521,6 +4534,8 @@ fn cmdTranslateC(
 ) !void {
     dev.check(.translate_c_command);
 
+    const io = comp.io;
+
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -4584,7 +4599,7 @@ fn cmdTranslateC(
         };
         defer zig_file.close();
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
-        var file_reader = zig_file.reader(&.{});
+        var file_reader = zig_file.reader(io, &.{});
         _ = try stdout_writer.interface.sendFileAll(&file_reader, .unlimited);
         try stdout_writer.interface.flush();
         return cleanExit();
@@ -4594,11 +4609,12 @@ fn cmdTranslateC(
 pub fn translateC(
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     capture: ?*[]u8,
 ) !void {
-    try jitCmd(gpa, arena, argv, .{
+    try jitCmd(gpa, arena, io, argv, .{
         .cmd_name = "translate-c",
         .root_src_path = "translate-c/main.zig",
         .depend_on_aro = true,
@@ -4755,7 +4771,7 @@ test sanitizeExampleName {
     try std.testing.expectEqualStrings("test_project", try sanitizeExampleName(arena, "test project"));
 }
 
-fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !void {
     dev.check(.build_command);
 
     var build_file: ?[]const u8 = null;
@@ -4983,7 +4999,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .arch_os_abi = triple,
                 });
                 break :t .{
-                    .result = std.zig.resolveTargetQueryOrFatal(target_query),
+                    .result = std.zig.resolveTargetQueryOrFatal(io, target_query),
                     .is_native_os = false,
                     .is_native_abi = false,
                     .is_explicit_dynamic_linker = false,
@@ -4991,7 +5007,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
         }
         break :t .{
-            .result = std.zig.resolveTargetQueryOrFatal(.{}),
+            .result = std.zig.resolveTargetQueryOrFatal(io, .{}),
             .is_native_os = true,
             .is_native_abi = true,
             .is_explicit_dynamic_linker = false,
@@ -5046,8 +5062,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
     var http_client: if (dev.env.supports(.fetch_command)) std.http.Client else struct {
         allocator: Allocator,
+        io: Io,
         fn deinit(_: @This()) void {}
-    } = .{ .allocator = gpa };
+    } = .{ .allocator = gpa, .io = io };
     defer http_client.deinit();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
@@ -5139,6 +5156,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
                 var fetch: Package.Fetch = .{
                     .arena = std.heap.ArenaAllocator.init(gpa),
+                    .io = io,
                     .location = .{ .relative_path = phantom_package_root },
                     .location_tok = 0,
                     .hash_tok = .none,
@@ -5261,7 +5279,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             try root_mod.deps.put(arena, "@build", build_mod);
 
             var create_diag: Compilation.CreateDiagnostic = undefined;
-            const comp = Compilation.create(gpa, arena, &create_diag, .{
+            const comp = Compilation.create(gpa, arena, io, &create_diag, .{
                 .libc_installation = libc_installation,
                 .dirs = dirs,
                 .root_name = "build",
@@ -5400,6 +5418,7 @@ const JitCmdOptions = struct {
 fn jitCmd(
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     args: []const []const u8,
     options: JitCmdOptions,
 ) !void {
@@ -5412,7 +5431,7 @@ fn jitCmd(
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
-        .result = std.zig.resolveTargetQueryOrFatal(target_query),
+        .result = std.zig.resolveTargetQueryOrFatal(io, target_query),
         .is_native_os = true,
         .is_native_abi = true,
         .is_explicit_dynamic_linker = false,
@@ -5504,7 +5523,7 @@ fn jitCmd(
         }
 
         var create_diag: Compilation.CreateDiagnostic = undefined;
-        const comp = Compilation.create(gpa, arena, &create_diag, .{
+        const comp = Compilation.create(gpa, arena, io, &create_diag, .{
             .dirs = dirs,
             .root_name = options.cmd_name,
             .config = config,
@@ -5584,7 +5603,7 @@ fn jitCmd(
     try child.spawn();
 
     if (options.capture) |ptr| {
-        var stdout_reader = child.stdout.?.readerStreaming(&.{});
+        var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
         ptr.* = try stdout_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
     }
 
@@ -6039,10 +6058,7 @@ const usage_ast_check =
     \\
 ;
 
-fn cmdAstCheck(
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8) !void {
     dev.check(.ast_check_command);
 
     const Zir = std.zig.Zir;
@@ -6090,7 +6106,7 @@ fn cmdAstCheck(
             };
         } else fs.File.stdin();
         defer if (zig_source_path != null) f.close();
-        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        var file_reader: fs.File.Reader = f.reader(io, &stdin_buffer);
         break :s std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err| {
             fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
         };
@@ -6209,7 +6225,7 @@ fn cmdAstCheck(
     }
 }
 
-fn cmdDetectCpu(args: []const []const u8) !void {
+fn cmdDetectCpu(io: Io, args: []const []const u8) !void {
     dev.check(.detect_cpu_command);
 
     const detect_cpu_usage =
@@ -6254,7 +6270,7 @@ fn cmdDetectCpu(args: []const []const u8) !void {
         const cpu = try detectNativeCpuWithLLVM(builtin.cpu.arch, name, features);
         try printCpu(cpu);
     } else {
-        const host_target = std.zig.resolveTargetQueryOrFatal(.{});
+        const host_target = std.zig.resolveTargetQueryOrFatal(io, .{});
         try printCpu(host_target.cpu);
     }
 }
@@ -6385,10 +6401,7 @@ fn cmdDumpLlvmInts(
 }
 
 /// This is only enabled for debug builds.
-fn cmdDumpZir(
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdDumpZir(arena: Allocator, io: Io, args: []const []const u8) !void {
     dev.check(.dump_zir_command);
 
     const Zir = std.zig.Zir;
@@ -6400,7 +6413,7 @@ fn cmdDumpZir(
     };
     defer f.close();
 
-    const zir = try Zcu.loadZirCache(arena, f);
+    const zir = try Zcu.loadZirCache(arena, io, f);
     var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
     {
@@ -6432,10 +6445,7 @@ fn cmdDumpZir(
 }
 
 /// This is only enabled for debug builds.
-fn cmdChangelist(
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdChangelist(arena: Allocator, io: Io, args: []const []const u8) !void {
     dev.check(.changelist_command);
 
     const color: Color = .auto;
@@ -6448,7 +6458,7 @@ fn cmdChangelist(
         var f = fs.cwd().openFile(old_source_path, .{}) catch |err|
             fatal("unable to open old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
         defer f.close();
-        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        var file_reader: fs.File.Reader = f.reader(io, &stdin_buffer);
         break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
     };
@@ -6456,7 +6466,7 @@ fn cmdChangelist(
         var f = fs.cwd().openFile(new_source_path, .{}) catch |err|
             fatal("unable to open new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
         defer f.close();
-        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        var file_reader: fs.File.Reader = f.reader(io, &stdin_buffer);
         break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
     };
@@ -6521,13 +6531,14 @@ fn prefixedIntArg(arg: []const u8, prefix: []const u8) ?u64 {
 }
 
 fn warnAboutForeignBinaries(
+    io: Io,
     arena: Allocator,
     arg_mode: ArgMode,
     target: *const std.Target,
     link_libc: bool,
 ) !void {
     const host_query: std.Target.Query = .{};
-    const host_target = std.zig.resolveTargetQueryOrFatal(host_query);
+    const host_target = std.zig.resolveTargetQueryOrFatal(io, host_query);
 
     switch (std.zig.system.getExternalExecutor(&host_target, target, .{ .link_libc = link_libc })) {
         .native => return,
@@ -6812,6 +6823,7 @@ const usage_fetch =
 fn cmdFetch(
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     args: []const []const u8,
 ) !void {
     dev.check(.fetch_command);
@@ -6867,7 +6879,7 @@ fn cmdFetch(
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
-    var http_client: std.http.Client = .{ .allocator = gpa };
+    var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer http_client.deinit();
 
     try http_client.initDefaultProxies(arena);
@@ -6900,6 +6912,7 @@ fn cmdFetch(
 
     var fetch: Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(gpa),
+        .io = io,
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
         .hash_tok = .none,
@@ -7080,7 +7093,7 @@ fn cmdFetch(
         try fixups.append_string_after_node.put(gpa, manifest.version_node, dependencies_text);
     }
 
-    var aw: std.Io.Writer.Allocating = .init(gpa);
+    var aw: Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     try ast.render(gpa, &aw.writer, fixups);
     const rendered = aw.written();

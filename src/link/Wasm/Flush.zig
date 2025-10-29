@@ -1064,9 +1064,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     // Finally, write the entire binary into the file.
-    const file = wasm.base.file.?;
-    try file.pwriteAll(binary_bytes.items, 0);
-    try file.setEndPos(binary_bytes.items.len);
+    var file_writer = wasm.base.file.?.writer(&.{});
+    file_writer.interface.writeAll(binary_bytes.items) catch |err| switch (err) {
+        error.WriteFailed => return file_writer.err.?,
+    };
+    file_writer.end() catch |err| switch (err) {
+        error.WriteFailed => return file_writer.err.?,
+        else => |e| return e,
+    };
 }
 
 const VirtualAddrs = struct {

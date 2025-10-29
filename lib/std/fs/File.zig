@@ -1,10 +1,12 @@
+const File = @This();
+
 const builtin = @import("builtin");
-const Os = std.builtin.Os;
 const native_os = builtin.os.tag;
 const is_windows = native_os == .windows;
 
-const File = @This();
 const std = @import("../std.zig");
+const Io = std.Io;
+const Os = std.builtin.Os;
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const math = std.math;
@@ -17,25 +19,12 @@ const Alignment = std.mem.Alignment;
 /// The OS-specific file descriptor or file handle.
 handle: Handle,
 
-pub const Handle = posix.fd_t;
-pub const Mode = posix.mode_t;
-pub const INode = posix.ino_t;
+pub const Handle = Io.File.Handle;
+pub const Mode = Io.File.Mode;
+pub const INode = Io.File.INode;
 pub const Uid = posix.uid_t;
 pub const Gid = posix.gid_t;
-
-pub const Kind = enum {
-    block_device,
-    character_device,
-    directory,
-    named_pipe,
-    sym_link,
-    file,
-    unix_domain_socket,
-    whiteout,
-    door,
-    event_port,
-    unknown,
-};
+pub const Kind = Io.File.Kind;
 
 /// This is the default mode given to POSIX operating systems for creating
 /// files. `0o666` is "-rw-rw-rw-" which is counter-intuitive at first,
@@ -43,98 +32,16 @@ pub const Kind = enum {
 /// the `touch` command, which would correspond to `0o644`. However, POSIX
 /// libc implementations use `0o666` inside `fopen` and then rely on the
 /// process-scoped "umask" setting to adjust this number for file creation.
-pub const default_mode = switch (builtin.os.tag) {
-    .windows => 0,
-    .wasi => 0,
-    else => 0o666,
-};
+pub const default_mode: Mode = if (Mode == u0) 0 else 0o666;
 
-pub const OpenError = error{
-    SharingViolation,
-    PathAlreadyExists,
-    FileNotFound,
-    AccessDenied,
-    PipeBusy,
-    NoDevice,
-    NameTooLong,
-    /// WASI-only; file paths must be valid UTF-8.
-    InvalidUtf8,
-    /// Windows-only; file paths provided by the user must be valid WTF-8.
-    /// https://wtf-8.codeberg.page/
-    InvalidWtf8,
-    /// On Windows, file paths cannot contain these characters:
-    /// '/', '*', '?', '"', '<', '>', '|'
-    BadPathName,
-    Unexpected,
-    /// On Windows, `\\server` or `\\server\share` was not found.
-    NetworkNotFound,
-    ProcessNotFound,
-    /// On Windows, antivirus software is enabled by default. It can be
-    /// disabled, but Windows Update sometimes ignores the user's preference
-    /// and re-enables it. When enabled, antivirus software on Windows
-    /// intercepts file system operations and makes them significantly slower
-    /// in addition to possibly failing with this error code.
-    AntivirusInterference,
-} || posix.OpenError || posix.FlockError;
-
-pub const OpenMode = enum {
-    read_only,
-    write_only,
-    read_write,
-};
-
-pub const Lock = enum {
-    none,
-    shared,
-    exclusive,
-};
-
-pub const OpenFlags = struct {
-    mode: OpenMode = .read_only,
-
-    /// Open the file with an advisory lock to coordinate with other processes
-    /// accessing it at the same time. An exclusive lock will prevent other
-    /// processes from acquiring a lock. A shared lock will prevent other
-    /// processes from acquiring a exclusive lock, but does not prevent
-    /// other process from getting their own shared locks.
-    ///
-    /// The lock is advisory, except on Linux in very specific circumstances[1].
-    /// This means that a process that does not respect the locking API can still get access
-    /// to the file, despite the lock.
-    ///
-    /// On these operating systems, the lock is acquired atomically with
-    /// opening the file:
-    /// * Darwin
-    /// * DragonFlyBSD
-    /// * FreeBSD
-    /// * Haiku
-    /// * NetBSD
-    /// * OpenBSD
-    /// On these operating systems, the lock is acquired via a separate syscall
-    /// after opening the file:
-    /// * Linux
-    /// * Windows
-    ///
-    /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-    lock: Lock = .none,
-
-    /// Sets whether or not to wait until the file is locked to return. If set to true,
-    /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
-    /// is available to proceed.
-    lock_nonblocking: bool = false,
-
-    /// Set this to allow the opened file to automatically become the
-    /// controlling TTY for the current process.
-    allow_ctty: bool = false,
-
-    pub fn isRead(self: OpenFlags) bool {
-        return self.mode != .write_only;
-    }
-
-    pub fn isWrite(self: OpenFlags) bool {
-        return self.mode != .read_only;
-    }
-};
+/// Deprecated in favor of `Io.File.OpenError`.
+pub const OpenError = Io.File.OpenError || error{WouldBlock};
+/// Deprecated in favor of `Io.File.OpenMode`.
+pub const OpenMode = Io.File.OpenMode;
+/// Deprecated in favor of `Io.File.Lock`.
+pub const Lock = Io.File.Lock;
+/// Deprecated in favor of `Io.File.OpenFlags`.
+pub const OpenFlags = Io.File.OpenFlags;
 
 pub const CreateFlags = struct {
     /// Whether the file will be created with read access.
@@ -399,193 +306,15 @@ pub fn mode(self: File) ModeError!Mode {
     return (try self.stat()).mode;
 }
 
-pub const Stat = struct {
-    /// A number that the system uses to point to the file metadata. This
-    /// number is not guaranteed to be unique across time, as some file
-    /// systems may reuse an inode after its file has been deleted. Some
-    /// systems may change the inode of a file over time.
-    ///
-    /// On Linux, the inode is a structure that stores the metadata, and
-    /// the inode _number_ is what you see here: the index number of the
-    /// inode.
-    ///
-    /// The FileIndex on Windows is similar. It is a number for a file that
-    /// is unique to each filesystem.
-    inode: INode,
-    size: u64,
-    /// This is available on POSIX systems and is always 0 otherwise.
-    mode: Mode,
-    kind: Kind,
-
-    /// Last access time in nanoseconds, relative to UTC 1970-01-01.
-    atime: i128,
-    /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
-    mtime: i128,
-    /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
-    ctime: i128,
-
-    pub fn fromPosix(st: posix.Stat) Stat {
-        const atime = st.atime();
-        const mtime = st.mtime();
-        const ctime = st.ctime();
-        return .{
-            .inode = st.ino,
-            .size = @bitCast(st.size),
-            .mode = st.mode,
-            .kind = k: {
-                const m = st.mode & posix.S.IFMT;
-                switch (m) {
-                    posix.S.IFBLK => break :k .block_device,
-                    posix.S.IFCHR => break :k .character_device,
-                    posix.S.IFDIR => break :k .directory,
-                    posix.S.IFIFO => break :k .named_pipe,
-                    posix.S.IFLNK => break :k .sym_link,
-                    posix.S.IFREG => break :k .file,
-                    posix.S.IFSOCK => break :k .unix_domain_socket,
-                    else => {},
-                }
-                if (builtin.os.tag == .illumos) switch (m) {
-                    posix.S.IFDOOR => break :k .door,
-                    posix.S.IFPORT => break :k .event_port,
-                    else => {},
-                };
-
-                break :k .unknown;
-            },
-            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
-        };
-    }
-
-    pub fn fromLinux(stx: linux.Statx) Stat {
-        const atime = stx.atime;
-        const mtime = stx.mtime;
-        const ctime = stx.ctime;
-
-        return .{
-            .inode = stx.ino,
-            .size = stx.size,
-            .mode = stx.mode,
-            .kind = switch (stx.mode & linux.S.IFMT) {
-                linux.S.IFDIR => .directory,
-                linux.S.IFCHR => .character_device,
-                linux.S.IFBLK => .block_device,
-                linux.S.IFREG => .file,
-                linux.S.IFIFO => .named_pipe,
-                linux.S.IFLNK => .sym_link,
-                linux.S.IFSOCK => .unix_domain_socket,
-                else => .unknown,
-            },
-            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
-        };
-    }
-
-    pub fn fromWasi(st: std.os.wasi.filestat_t) Stat {
-        return .{
-            .inode = st.ino,
-            .size = @bitCast(st.size),
-            .mode = 0,
-            .kind = switch (st.filetype) {
-                .BLOCK_DEVICE => .block_device,
-                .CHARACTER_DEVICE => .character_device,
-                .DIRECTORY => .directory,
-                .SYMBOLIC_LINK => .sym_link,
-                .REGULAR_FILE => .file,
-                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
-                else => .unknown,
-            },
-            .atime = st.atim,
-            .mtime = st.mtim,
-            .ctime = st.ctim,
-        };
-    }
-};
+pub const Stat = Io.File.Stat;
 
 pub const StatError = posix.FStatError;
 
 /// Returns `Stat` containing basic information about the `File`.
-/// TODO: integrate with async I/O
 pub fn stat(self: File) StatError!Stat {
-    if (builtin.os.tag == .windows) {
-        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-        var info: windows.FILE_ALL_INFORMATION = undefined;
-        const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
-        switch (rc) {
-            .SUCCESS => {},
-            // Buffer overflow here indicates that there is more information available than was able to be stored in the buffer
-            // size provided. This is treated as success because the type of variable-length information that this would be relevant for
-            // (name, volume name, etc) we don't care about.
-            .BUFFER_OVERFLOW => {},
-            .INVALID_PARAMETER => unreachable,
-            .ACCESS_DENIED => return error.AccessDenied,
-            else => return windows.unexpectedStatus(rc),
-        }
-        return .{
-            .inode = info.InternalInformation.IndexNumber,
-            .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
-            .mode = 0,
-            .kind = if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) reparse_point: {
-                var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
-                const tag_rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
-                switch (tag_rc) {
-                    .SUCCESS => {},
-                    // INFO_LENGTH_MISMATCH and ACCESS_DENIED are the only documented possible errors
-                    // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d295752f-ce89-4b98-8553-266d37c84f0e
-                    .INFO_LENGTH_MISMATCH => unreachable,
-                    .ACCESS_DENIED => return error.AccessDenied,
-                    else => return windows.unexpectedStatus(rc),
-                }
-                if (tag_info.ReparseTag & windows.reparse_tag_name_surrogate_bit != 0) {
-                    break :reparse_point .sym_link;
-                }
-                // Unknown reparse point
-                break :reparse_point .unknown;
-            } else if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0)
-                .directory
-            else
-                .file,
-            .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
-            .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-            .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
-        };
-    }
-
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const st = try std.os.fstat_wasi(self.handle);
-        return Stat.fromWasi(st);
-    }
-
-    if (builtin.os.tag == .linux) {
-        var stx = std.mem.zeroes(linux.Statx);
-
-        const rc = linux.statx(
-            self.handle,
-            "",
-            linux.AT.EMPTY_PATH,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
-            &stx,
-        );
-
-        return switch (linux.E.init(rc)) {
-            .SUCCESS => Stat.fromLinux(stx),
-            .ACCES => unreachable,
-            .BADF => unreachable,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            .LOOP => unreachable,
-            .NAMETOOLONG => unreachable,
-            .NOENT => unreachable,
-            .NOMEM => error.SystemResources,
-            .NOTDIR => unreachable,
-            else => |err| posix.unexpectedErrno(err),
-        };
-    }
-
-    const st = try posix.fstat(self.handle);
-    return Stat.fromPosix(st);
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.ioBasic();
+    return Io.File.stat(.{ .handle = self.handle }, io);
 }
 
 pub const ChmodError = posix.FChmodError;
@@ -782,9 +511,9 @@ pub const UpdateTimesError = posix.FutimensError || windows.SetFileTimeError;
 pub fn updateTimes(
     self: File,
     /// access timestamp in nanoseconds
-    atime: i128,
+    atime: Io.Timestamp,
     /// last modification timestamp in nanoseconds
-    mtime: i128,
+    mtime: Io.Timestamp,
 ) UpdateTimesError!void {
     if (builtin.os.tag == .windows) {
         const atime_ft = windows.nanoSecondsToFileTime(atime);
@@ -793,12 +522,12 @@ pub fn updateTimes(
     }
     const times = [2]posix.timespec{
         posix.timespec{
-            .sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
-            .nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(atime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(atime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
         },
         posix.timespec{
-            .sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
-            .nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(mtime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(mtime.nanoseconds, std.time.ns_per_s)) orelse maxInt(isize),
         },
     };
     try posix.futimens(self.handle, &times);
@@ -813,17 +542,6 @@ pub fn read(self: File, buffer: []u8) ReadError!usize {
     }
 
     return posix.read(self.handle, buffer);
-}
-
-/// Deprecated in favor of `Reader`.
-pub fn readAll(self: File, buffer: []u8) ReadError!usize {
-    var index: usize = 0;
-    while (index != buffer.len) {
-        const amt = try self.read(buffer[index..]);
-        if (amt == 0) break;
-        index += amt;
-    }
-    return index;
 }
 
 /// On Windows, this function currently does alter the file pointer.
@@ -858,36 +576,6 @@ pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
     return posix.readv(self.handle, iovecs);
 }
 
-/// Deprecated in favor of `Reader`.
-pub fn readvAll(self: File, iovecs: []posix.iovec) ReadError!usize {
-    if (iovecs.len == 0) return 0;
-
-    // We use the address of this local variable for all zero-length
-    // vectors so that the OS does not complain that we are giving it
-    // addresses outside the application's address space.
-    var garbage: [1]u8 = undefined;
-    for (iovecs) |*v| {
-        if (v.len == 0) v.base = &garbage;
-    }
-
-    var i: usize = 0;
-    var off: usize = 0;
-    while (true) {
-        var amt = try self.readv(iovecs[i..]);
-        var eof = amt == 0;
-        off += amt;
-        while (amt >= iovecs[i].len) {
-            amt -= iovecs[i].len;
-            i += 1;
-            if (i >= iovecs.len) return off;
-            eof = false;
-        }
-        if (eof) return off;
-        iovecs[i].base += amt;
-        iovecs[i].len -= amt;
-    }
-}
-
 /// See https://github.com/ziglang/zig/issues/7699
 /// On Windows, this function currently does alter the file pointer.
 /// https://github.com/ziglang/zig/issues/12783
@@ -901,28 +589,6 @@ pub fn preadv(self: File, iovecs: []const posix.iovec, offset: u64) PReadError!u
     return posix.preadv(self.handle, iovecs, offset);
 }
 
-/// Deprecated in favor of `Reader`.
-pub fn preadvAll(self: File, iovecs: []posix.iovec, offset: u64) PReadError!usize {
-    if (iovecs.len == 0) return 0;
-
-    var i: usize = 0;
-    var off: usize = 0;
-    while (true) {
-        var amt = try self.preadv(iovecs[i..], offset + off);
-        var eof = amt == 0;
-        off += amt;
-        while (amt >= iovecs[i].len) {
-            amt -= iovecs[i].len;
-            i += 1;
-            if (i >= iovecs.len) return off;
-            eof = false;
-        }
-        if (eof) return off;
-        iovecs[i].base += amt;
-        iovecs[i].len -= amt;
-    }
-}
-
 pub const WriteError = posix.WriteError;
 pub const PWriteError = posix.PWriteError;
 
@@ -934,11 +600,18 @@ pub fn write(self: File, bytes: []const u8) WriteError!usize {
     return posix.write(self.handle, bytes);
 }
 
-/// Deprecated in favor of `Writer`.
 pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
     var index: usize = 0;
     while (index < bytes.len) {
         index += try self.write(bytes[index..]);
+    }
+}
+
+/// Deprecated in favor of `Writer`.
+pub fn pwriteAll(self: File, bytes: []const u8, offset: u64) PWriteError!void {
+    var index: usize = 0;
+    while (index < bytes.len) {
+        index += try self.pwrite(bytes[index..], offset + index);
     }
 }
 
@@ -952,14 +625,6 @@ pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
     return posix.pwrite(self.handle, bytes, offset);
 }
 
-/// Deprecated in favor of `Writer`.
-pub fn pwriteAll(self: File, bytes: []const u8, offset: u64) PWriteError!void {
-    var index: usize = 0;
-    while (index < bytes.len) {
-        index += try self.pwrite(bytes[index..], offset + index);
-    }
-}
-
 /// See https://github.com/ziglang/zig/issues/7699
 pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
     if (is_windows) {
@@ -970,31 +635,6 @@ pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
     }
 
     return posix.writev(self.handle, iovecs);
-}
-
-/// Deprecated in favor of `Writer`.
-pub fn writevAll(self: File, iovecs: []posix.iovec_const) WriteError!void {
-    if (iovecs.len == 0) return;
-
-    // We use the address of this local variable for all zero-length
-    // vectors so that the OS does not complain that we are giving it
-    // addresses outside the application's address space.
-    var garbage: [1]u8 = undefined;
-    for (iovecs) |*v| {
-        if (v.len == 0) v.base = &garbage;
-    }
-
-    var i: usize = 0;
-    while (true) {
-        var amt = try self.writev(iovecs[i..]);
-        while (amt >= iovecs[i].len) {
-            amt -= iovecs[i].len;
-            i += 1;
-            if (i >= iovecs.len) return;
-        }
-        iovecs[i].base += amt;
-        iovecs[i].len -= amt;
-    }
 }
 
 /// See https://github.com/ziglang/zig/issues/7699
@@ -1011,23 +651,6 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
 }
 
 /// Deprecated in favor of `Writer`.
-pub fn pwritevAll(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError!void {
-    if (iovecs.len == 0) return;
-    var i: usize = 0;
-    var off: u64 = 0;
-    while (true) {
-        var amt = try self.pwritev(iovecs[i..], offset + off);
-        off += amt;
-        while (amt >= iovecs[i].len) {
-            amt -= iovecs[i].len;
-            i += 1;
-            if (i >= iovecs.len) return;
-        }
-        iovecs[i].base += amt;
-        iovecs[i].len -= amt;
-    }
-}
-
 pub const CopyRangeError = posix.CopyFileRangeError;
 
 /// Deprecated in favor of `Writer`.
@@ -1052,449 +675,8 @@ pub fn copyRangeAll(in: File, in_offset: u64, out: File, out_offset: u64, len: u
     return total_bytes_copied;
 }
 
-/// Memoizes key information about a file handle such as:
-/// * The size from calling stat, or the error that occurred therein.
-/// * The current seek position.
-/// * The error that occurred when trying to seek.
-/// * Whether reading should be done positionally or streaming.
-/// * Whether reading should be done via fd-to-fd syscalls (e.g. `sendfile`)
-///   versus plain variants (e.g. `read`).
-///
-/// Fulfills the `std.Io.Reader` interface.
-pub const Reader = struct {
-    file: File,
-    err: ?ReadError = null,
-    mode: Reader.Mode = .positional,
-    /// Tracks the true seek position in the file. To obtain the logical
-    /// position, use `logicalPos`.
-    pos: u64 = 0,
-    size: ?u64 = null,
-    size_err: ?SizeError = null,
-    seek_err: ?Reader.SeekError = null,
-    interface: std.Io.Reader,
-
-    pub const SizeError = std.os.windows.GetFileSizeError || StatError || error{
-        /// Occurs if, for example, the file handle is a network socket and therefore does not have a size.
-        Streaming,
-    };
-
-    pub const SeekError = File.SeekError || error{
-        /// Seeking fell back to reading, and reached the end before the requested seek position.
-        /// `pos` remains at the end of the file.
-        EndOfStream,
-        /// Seeking fell back to reading, which failed.
-        ReadFailed,
-    };
-
-    pub const Mode = enum {
-        streaming,
-        positional,
-        /// Avoid syscalls other than `read` and `readv`.
-        streaming_reading,
-        /// Avoid syscalls other than `pread` and `preadv`.
-        positional_reading,
-        /// Indicates reading cannot continue because of a seek failure.
-        failure,
-
-        pub fn toStreaming(m: @This()) @This() {
-            return switch (m) {
-                .positional, .streaming => .streaming,
-                .positional_reading, .streaming_reading => .streaming_reading,
-                .failure => .failure,
-            };
-        }
-
-        pub fn toReading(m: @This()) @This() {
-            return switch (m) {
-                .positional, .positional_reading => .positional_reading,
-                .streaming, .streaming_reading => .streaming_reading,
-                .failure => .failure,
-            };
-        }
-    };
-
-    pub fn initInterface(buffer: []u8) std.Io.Reader {
-        return .{
-            .vtable = &.{
-                .stream = Reader.stream,
-                .discard = Reader.discard,
-                .readVec = Reader.readVec,
-            },
-            .buffer = buffer,
-            .seek = 0,
-            .end = 0,
-        };
-    }
-
-    pub fn init(file: File, buffer: []u8) Reader {
-        return .{
-            .file = file,
-            .interface = initInterface(buffer),
-        };
-    }
-
-    pub fn initSize(file: File, buffer: []u8, size: ?u64) Reader {
-        return .{
-            .file = file,
-            .interface = initInterface(buffer),
-            .size = size,
-        };
-    }
-
-    /// Positional is more threadsafe, since the global seek position is not
-    /// affected, but when such syscalls are not available, preemptively
-    /// initializing in streaming mode skips a failed syscall.
-    pub fn initStreaming(file: File, buffer: []u8) Reader {
-        return .{
-            .file = file,
-            .interface = Reader.initInterface(buffer),
-            .mode = .streaming,
-            .seek_err = error.Unseekable,
-            .size_err = error.Streaming,
-        };
-    }
-
-    pub fn getSize(r: *Reader) SizeError!u64 {
-        return r.size orelse {
-            if (r.size_err) |err| return err;
-            if (is_windows) {
-                if (windows.GetFileSizeEx(r.file.handle)) |size| {
-                    r.size = size;
-                    return size;
-                } else |err| {
-                    r.size_err = err;
-                    return err;
-                }
-            }
-            if (posix.Stat == void) {
-                r.size_err = error.Streaming;
-                return error.Streaming;
-            }
-            if (stat(r.file)) |st| {
-                if (st.kind == .file) {
-                    r.size = st.size;
-                    return st.size;
-                } else {
-                    r.mode = r.mode.toStreaming();
-                    r.size_err = error.Streaming;
-                    return error.Streaming;
-                }
-            } else |err| {
-                r.size_err = err;
-                return err;
-            }
-        };
-    }
-
-    pub fn seekBy(r: *Reader, offset: i64) Reader.SeekError!void {
-        switch (r.mode) {
-            .positional, .positional_reading => {
-                setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
-            },
-            .streaming, .streaming_reading => {
-                if (posix.SEEK == void) {
-                    r.seek_err = error.Unseekable;
-                    return error.Unseekable;
-                }
-                const seek_err = r.seek_err orelse e: {
-                    if (posix.lseek_CUR(r.file.handle, offset)) |_| {
-                        setLogicalPos(r, @intCast(@as(i64, @intCast(logicalPos(r))) + offset));
-                        return;
-                    } else |err| {
-                        r.seek_err = err;
-                        break :e err;
-                    }
-                };
-                var remaining = std.math.cast(u64, offset) orelse return seek_err;
-                while (remaining > 0) {
-                    remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
-                        r.seek_err = err;
-                        return err;
-                    };
-                }
-                r.interface.seek = 0;
-                r.interface.end = 0;
-            },
-            .failure => return r.seek_err.?,
-        }
-    }
-
-    pub fn seekTo(r: *Reader, offset: u64) Reader.SeekError!void {
-        switch (r.mode) {
-            .positional, .positional_reading => {
-                setLogicalPos(r, offset);
-            },
-            .streaming, .streaming_reading => {
-                const logical_pos = logicalPos(r);
-                if (offset >= logical_pos) return Reader.seekBy(r, @intCast(offset - logical_pos));
-                if (r.seek_err) |err| return err;
-                posix.lseek_SET(r.file.handle, offset) catch |err| {
-                    r.seek_err = err;
-                    return err;
-                };
-                setLogicalPos(r, offset);
-            },
-            .failure => return r.seek_err.?,
-        }
-    }
-
-    pub fn logicalPos(r: *const Reader) u64 {
-        return r.pos - r.interface.bufferedLen();
-    }
-
-    fn setLogicalPos(r: *Reader, offset: u64) void {
-        const logical_pos = logicalPos(r);
-        if (offset < logical_pos or offset >= r.pos) {
-            r.interface.seek = 0;
-            r.interface.end = 0;
-            r.pos = offset;
-        } else {
-            const logical_delta: usize = @intCast(offset - logical_pos);
-            r.interface.seek += logical_delta;
-        }
-    }
-
-    /// Number of slices to store on the stack, when trying to send as many byte
-    /// vectors through the underlying read calls as possible.
-    const max_buffers_len = 16;
-
-    fn stream(io_reader: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
-        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
-        switch (r.mode) {
-            .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
-                error.Unimplemented => {
-                    r.mode = r.mode.toReading();
-                    return 0;
-                },
-                else => |e| return e,
-            },
-            .positional_reading => {
-                const dest = limit.slice(try w.writableSliceGreedy(1));
-                var data: [1][]u8 = .{dest};
-                const n = try readVecPositional(r, &data);
-                w.advance(n);
-                return n;
-            },
-            .streaming_reading => {
-                const dest = limit.slice(try w.writableSliceGreedy(1));
-                var data: [1][]u8 = .{dest};
-                const n = try readVecStreaming(r, &data);
-                w.advance(n);
-                return n;
-            },
-            .failure => return error.ReadFailed,
-        }
-    }
-
-    fn readVec(io_reader: *std.Io.Reader, data: [][]u8) std.Io.Reader.Error!usize {
-        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
-        switch (r.mode) {
-            .positional, .positional_reading => return readVecPositional(r, data),
-            .streaming, .streaming_reading => return readVecStreaming(r, data),
-            .failure => return error.ReadFailed,
-        }
-    }
-
-    fn readVecPositional(r: *Reader, data: [][]u8) std.Io.Reader.Error!usize {
-        const io_reader = &r.interface;
-        if (is_windows) {
-            // Unfortunately, `ReadFileScatter` cannot be used since it
-            // requires page alignment.
-            if (io_reader.seek == io_reader.end) {
-                io_reader.seek = 0;
-                io_reader.end = 0;
-            }
-            const first = data[0];
-            if (first.len >= io_reader.buffer.len - io_reader.end) {
-                return readPositional(r, first);
-            } else {
-                io_reader.end += try readPositional(r, io_reader.buffer[io_reader.end..]);
-                return 0;
-            }
-        }
-        var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-        const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
-        const dest = iovecs_buffer[0..dest_n];
-        assert(dest[0].len > 0);
-        const n = posix.preadv(r.file.handle, dest, r.pos) catch |err| switch (err) {
-            error.Unseekable => {
-                r.mode = r.mode.toStreaming();
-                const pos = r.pos;
-                if (pos != 0) {
-                    r.pos = 0;
-                    r.seekBy(@intCast(pos)) catch {
-                        r.mode = .failure;
-                        return error.ReadFailed;
-                    };
-                }
-                return 0;
-            },
-            else => |e| {
-                r.err = e;
-                return error.ReadFailed;
-            },
-        };
-        if (n == 0) {
-            r.size = r.pos;
-            return error.EndOfStream;
-        }
-        r.pos += n;
-        if (n > data_size) {
-            io_reader.end += n - data_size;
-            return data_size;
-        }
-        return n;
-    }
-
-    fn readVecStreaming(r: *Reader, data: [][]u8) std.Io.Reader.Error!usize {
-        const io_reader = &r.interface;
-        if (is_windows) {
-            // Unfortunately, `ReadFileScatter` cannot be used since it
-            // requires page alignment.
-            if (io_reader.seek == io_reader.end) {
-                io_reader.seek = 0;
-                io_reader.end = 0;
-            }
-            const first = data[0];
-            if (first.len >= io_reader.buffer.len - io_reader.end) {
-                return readStreaming(r, first);
-            } else {
-                io_reader.end += try readStreaming(r, io_reader.buffer[io_reader.end..]);
-                return 0;
-            }
-        }
-        var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-        const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
-        const dest = iovecs_buffer[0..dest_n];
-        assert(dest[0].len > 0);
-        const n = posix.readv(r.file.handle, dest) catch |err| {
-            r.err = err;
-            return error.ReadFailed;
-        };
-        if (n == 0) {
-            r.size = r.pos;
-            return error.EndOfStream;
-        }
-        r.pos += n;
-        if (n > data_size) {
-            io_reader.end += n - data_size;
-            return data_size;
-        }
-        return n;
-    }
-
-    fn discard(io_reader: *std.Io.Reader, limit: std.Io.Limit) std.Io.Reader.Error!usize {
-        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
-        const file = r.file;
-        const pos = r.pos;
-        switch (r.mode) {
-            .positional, .positional_reading => {
-                const size = r.getSize() catch {
-                    r.mode = r.mode.toStreaming();
-                    return 0;
-                };
-                const delta = @min(@intFromEnum(limit), size - pos);
-                r.pos = pos + delta;
-                return delta;
-            },
-            .streaming, .streaming_reading => {
-                // Unfortunately we can't seek forward without knowing the
-                // size because the seek syscalls provided to us will not
-                // return the true end position if a seek would exceed the
-                // end.
-                fallback: {
-                    if (r.size_err == null and r.seek_err == null) break :fallback;
-                    var trash_buffer: [128]u8 = undefined;
-                    if (is_windows) {
-                        const n = windows.ReadFile(file.handle, limit.slice(&trash_buffer), null) catch |err| {
-                            r.err = err;
-                            return error.ReadFailed;
-                        };
-                        if (n == 0) {
-                            r.size = pos;
-                            return error.EndOfStream;
-                        }
-                        r.pos = pos + n;
-                        return n;
-                    }
-                    var iovecs: [max_buffers_len]std.posix.iovec = undefined;
-                    var iovecs_i: usize = 0;
-                    var remaining = @intFromEnum(limit);
-                    while (remaining > 0 and iovecs_i < iovecs.len) {
-                        iovecs[iovecs_i] = .{ .base = &trash_buffer, .len = @min(trash_buffer.len, remaining) };
-                        remaining -= iovecs[iovecs_i].len;
-                        iovecs_i += 1;
-                    }
-                    const n = posix.readv(file.handle, iovecs[0..iovecs_i]) catch |err| {
-                        r.err = err;
-                        return error.ReadFailed;
-                    };
-                    if (n == 0) {
-                        r.size = pos;
-                        return error.EndOfStream;
-                    }
-                    r.pos = pos + n;
-                    return n;
-                }
-                const size = r.getSize() catch return 0;
-                const n = @min(size - pos, maxInt(i64), @intFromEnum(limit));
-                file.seekBy(n) catch |err| {
-                    r.seek_err = err;
-                    return 0;
-                };
-                r.pos = pos + n;
-                return n;
-            },
-            .failure => return error.ReadFailed,
-        }
-    }
-
-    fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
-        const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
-            error.Unseekable => {
-                r.mode = r.mode.toStreaming();
-                const pos = r.pos;
-                if (pos != 0) {
-                    r.pos = 0;
-                    r.seekBy(@intCast(pos)) catch {
-                        r.mode = .failure;
-                        return error.ReadFailed;
-                    };
-                }
-                return 0;
-            },
-            else => |e| {
-                r.err = e;
-                return error.ReadFailed;
-            },
-        };
-        if (n == 0) {
-            r.size = r.pos;
-            return error.EndOfStream;
-        }
-        r.pos += n;
-        return n;
-    }
-
-    fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
-        const n = r.file.read(dest) catch |err| {
-            r.err = err;
-            return error.ReadFailed;
-        };
-        if (n == 0) {
-            r.size = r.pos;
-            return error.EndOfStream;
-        }
-        r.pos += n;
-        return n;
-    }
-
-    pub fn atEnd(r: *Reader) bool {
-        // Even if stat fails, size is set when end is encountered.
-        const size = r.size orelse return false;
-        return size - r.pos == 0;
-    }
-};
+/// Deprecated in favor of `Io.File.Reader`.
+pub const Reader = Io.File.Reader;
 
 pub const Writer = struct {
     file: File,
@@ -1507,7 +689,7 @@ pub const Writer = struct {
     copy_file_range_err: ?CopyFileRangeError = null,
     fcopyfile_err: ?FcopyfileError = null,
     seek_err: ?Writer.SeekError = null,
-    interface: std.Io.Writer,
+    interface: Io.Writer,
 
     pub const Mode = Reader.Mode;
 
@@ -1553,23 +735,25 @@ pub const Writer = struct {
         };
     }
 
-    pub fn initInterface(buffer: []u8) std.Io.Writer {
+    pub fn initInterface(buffer: []u8) Io.Writer {
         return .{
             .vtable = &.{
                 .drain = drain,
                 .sendFile = switch (builtin.zig_backend) {
                     else => sendFile,
-                    .stage2_aarch64 => std.Io.Writer.unimplementedSendFile,
+                    .stage2_aarch64 => Io.Writer.unimplementedSendFile,
                 },
             },
             .buffer = buffer,
         };
     }
 
-    pub fn moveToReader(w: *Writer) Reader {
+    /// TODO when this logic moves from fs.File to Io.File the io parameter should be deleted
+    pub fn moveToReader(w: *Writer, io: Io) Reader {
         defer w.* = undefined;
         return .{
-            .file = w.file,
+            .io = io,
+            .file = .{ .handle = w.file.handle },
             .mode = w.mode,
             .pos = w.pos,
             .interface = Reader.initInterface(w.interface.buffer),
@@ -1577,7 +761,7 @@ pub const Writer = struct {
         };
     }
 
-    pub fn drain(io_w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+    pub fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
         const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const handle = w.file.handle;
         const buffered = io_w.buffered();
@@ -1727,10 +911,10 @@ pub const Writer = struct {
     }
 
     pub fn sendFile(
-        io_w: *std.Io.Writer,
-        file_reader: *Reader,
-        limit: std.Io.Limit,
-    ) std.Io.Writer.FileError!usize {
+        io_w: *Io.Writer,
+        file_reader: *Io.File.Reader,
+        limit: Io.Limit,
+    ) Io.Writer.FileError!usize {
         const reader_buffered = file_reader.interface.buffered();
         if (reader_buffered.len >= @intFromEnum(limit))
             return sendFileBuffered(io_w, file_reader, limit.slice(reader_buffered));
@@ -1994,16 +1178,16 @@ pub const Writer = struct {
     }
 
     fn sendFileBuffered(
-        io_w: *std.Io.Writer,
-        file_reader: *Reader,
+        io_w: *Io.Writer,
+        file_reader: *Io.File.Reader,
         reader_buffered: []const u8,
-    ) std.Io.Writer.FileError!usize {
+    ) Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
         file_reader.seekBy(@intCast(n)) catch return error.ReadFailed;
         return n;
     }
 
-    pub fn seekTo(w: *Writer, offset: u64) (Writer.SeekError || std.Io.Writer.Error)!void {
+    pub fn seekTo(w: *Writer, offset: u64) (Writer.SeekError || Io.Writer.Error)!void {
         try w.interface.flush();
         try seekToUnbuffered(w, offset);
     }
@@ -2027,7 +1211,7 @@ pub const Writer = struct {
         }
     }
 
-    pub const EndError = SetEndPosError || std.Io.Writer.Error;
+    pub const EndError = SetEndPosError || Io.Writer.Error;
 
     /// Flushes any buffered data and sets the end position of the file.
     ///
@@ -2058,15 +1242,15 @@ pub const Writer = struct {
 ///
 /// Positional is more threadsafe, since the global seek position is not
 /// affected.
-pub fn reader(file: File, buffer: []u8) Reader {
-    return .init(file, buffer);
+pub fn reader(file: File, io: Io, buffer: []u8) Reader {
+    return .init(.{ .handle = file.handle }, io, buffer);
 }
 
 /// Positional is more threadsafe, since the global seek position is not
 /// affected, but when such syscalls are not available, preemptively
 /// initializing in streaming mode skips a failed syscall.
-pub fn readerStreaming(file: File, buffer: []u8) Reader {
-    return .initStreaming(file, buffer);
+pub fn readerStreaming(file: File, io: Io, buffer: []u8) Reader {
+    return .initStreaming(.{ .handle = file.handle }, io, buffer);
 }
 
 /// Defaults to positional reading; falls back to streaming.
@@ -2245,4 +1429,12 @@ pub fn downgradeLock(file: File) LockError!void {
             else => |e| return e,
         };
     }
+}
+
+pub fn adaptToNewApi(file: File) Io.File {
+    return .{ .handle = file.handle };
+}
+
+pub fn adaptFromNewApi(file: Io.File) File {
+    return .{ .handle = file.handle };
 }

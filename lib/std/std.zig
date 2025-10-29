@@ -85,7 +85,6 @@ pub const macho = @import("macho.zig");
 pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
-pub const net = @import("net.zig");
 pub const os = @import("os.zig");
 pub const once = @import("once.zig").once;
 pub const pdb = @import("pdb.zig");
@@ -144,19 +143,6 @@ pub const Options = struct {
     crypto_always_getrandom: bool = false,
 
     crypto_fork_safety: bool = true,
-
-    /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
-    /// to `true` to prevent that.
-    ///
-    /// Note that we use a "no-op" handler instead of SIG_IGN because it will not be inherited by
-    /// any child process.
-    ///
-    /// SIGPIPE is triggered when a process attempts to write to a broken pipe. By default, SIGPIPE
-    /// will terminate the process instead of exiting.  It doesn't trigger the panic handler so in many
-    /// cases it's unclear why the process was terminated.  By capturing SIGPIPE instead, functions that
-    /// write to broken pipes will return the EPIPE error (error.BrokenPipe) and the program can handle
-    /// it like any other error.
-    keep_sigpipe: bool = false,
 
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.

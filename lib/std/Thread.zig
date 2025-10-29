@@ -10,9 +10,9 @@ const target = builtin.target;
 const native_os = builtin.os.tag;
 const posix = std.posix;
 const windows = std.os.windows;
+const testing = std.testing;
 
 pub const Futex = @import("Thread/Futex.zig");
-pub const ResetEvent = @import("Thread/ResetEvent.zig");
 pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
@@ -22,81 +22,122 @@ pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = native_os != .windows and native_os != .wasi and builtin.link_libc;
 
-/// Spurious wakeups are possible and no precision of timing is guaranteed.
-pub fn sleep(nanoseconds: u64) void {
-    if (builtin.os.tag == .windows) {
-        const big_ms_from_ns = nanoseconds / std.time.ns_per_ms;
-        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
-        windows.kernel32.Sleep(ms);
-        return;
+/// A thread-safe logical boolean value which can be `set` and `unset`.
+///
+/// It can also block threads until the value is set with cancelation via timed
+/// waits. Statically initializable; four bytes on all targets.
+pub const ResetEvent = enum(u32) {
+    unset = 0,
+    waiting = 1,
+    is_set = 2,
+
+    /// Returns whether the logical boolean is `set`.
+    ///
+    /// Once `reset` is called, this returns false until the next `set`.
+    ///
+    /// The memory accesses before the `set` can be said to happen before
+    /// `isSet` returns true.
+    pub fn isSet(re: *const ResetEvent) bool {
+        if (builtin.single_threaded) return switch (re.*) {
+            .unset => false,
+            .waiting => unreachable,
+            .is_set => true,
+        };
+        // Acquire barrier ensures memory accesses before `set` happen before
+        // returning true.
+        return @atomicLoad(ResetEvent, re, .acquire) == .is_set;
     }
 
-    if (builtin.os.tag == .wasi) {
-        const w = std.os.wasi;
-        const userdata: w.userdata_t = 0x0123_45678;
-        const clock: w.subscription_clock_t = .{
-            .id = .MONOTONIC,
-            .timeout = nanoseconds,
-            .precision = 0,
-            .flags = 0,
+    /// Blocks the calling thread until `set` is called.
+    ///
+    /// This is effectively a more efficient version of `while (!isSet()) {}`.
+    ///
+    /// The memory accesses before the `set` can be said to happen before `wait` returns.
+    pub fn wait(re: *ResetEvent) void {
+        if (builtin.single_threaded) switch (re.*) {
+            .unset => unreachable, // Deadlock, no other threads to wake us up.
+            .waiting => unreachable, // Invalid state.
+            .is_set => return,
         };
-        const in: w.subscription_t = .{
-            .userdata = userdata,
-            .u = .{
-                .tag = .CLOCK,
-                .u = .{ .clock = clock },
-            },
+        if (!re.isSet()) return timedWaitInner(re, null) catch |err| switch (err) {
+            error.Timeout => unreachable, // No timeout specified.
         };
-
-        var event: w.event_t = undefined;
-        var nevents: usize = undefined;
-        _ = w.poll_oneoff(&in, &event, 1, &nevents);
-        return;
     }
 
-    if (builtin.os.tag == .uefi) {
-        const boot_services = std.os.uefi.system_table.boot_services.?;
-        const us_from_ns = nanoseconds / std.time.ns_per_us;
-        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        boot_services.stall(us) catch unreachable;
-        return;
+    /// Blocks the calling thread until `set` is called, or until the
+    /// corresponding timeout expires, returning `error.Timeout`.
+    ///
+    /// This is effectively a more efficient version of `while (!isSet()) {}`.
+    ///
+    /// The memory accesses before the set() can be said to happen before
+    /// timedWait() returns without error.
+    pub fn timedWait(re: *ResetEvent, timeout_ns: u64) error{Timeout}!void {
+        if (builtin.single_threaded) switch (re.*) {
+            .unset => return error.Timeout,
+            .waiting => unreachable, // Invalid state.
+            .is_set => return,
+        };
+        if (!re.isSet()) return timedWaitInner(re, timeout_ns);
     }
 
-    const s = nanoseconds / std.time.ns_per_s;
-    const ns = nanoseconds % std.time.ns_per_s;
+    fn timedWaitInner(re: *ResetEvent, timeout: ?u64) error{Timeout}!void {
+        @branchHint(.cold);
 
-    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
-    // since Linux 2.6 and glibc 2.1 anyway.
-    if (builtin.os.tag == .linux) {
-        const linux = std.os.linux;
+        // Try to set the state from `unset` to `waiting` to indicate to the
+        // `set` thread that others are blocked on the ResetEvent. Avoid using
+        // any strict barriers until we know the ResetEvent is set.
+        var state = @atomicLoad(ResetEvent, re, .acquire);
+        if (state == .unset) {
+            state = @cmpxchgStrong(ResetEvent, re, state, .waiting, .acquire, .acquire) orelse .waiting;
+        }
 
-        var req: linux.timespec = .{
-            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
-            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
-        };
-        var rem: linux.timespec = undefined;
+        // Wait until the ResetEvent is set since the state is waiting.
+        if (state == .waiting) {
+            var futex_deadline = Futex.Deadline.init(timeout);
+            while (true) {
+                const wait_result = futex_deadline.wait(@ptrCast(re), @intFromEnum(ResetEvent.waiting));
 
-        while (true) {
-            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
-                .SUCCESS => return,
-                .INTR => {
-                    req = rem;
-                    continue;
-                },
-                .FAULT => unreachable,
-                .INVAL => unreachable,
-                .OPNOTSUPP => unreachable,
-                else => return,
+                // Check if the ResetEvent was set before possibly reporting error.Timeout below.
+                state = @atomicLoad(ResetEvent, re, .acquire);
+                if (state != .waiting) break;
+
+                try wait_result;
             }
+        }
+
+        assert(state == .is_set);
+    }
+
+    /// Marks the logical boolean as `set` and unblocks any threads in `wait`
+    /// or `timedWait` to observe the new state.
+    ///
+    /// The logical boolean stays `set` until `reset` is called, making future
+    /// `set` calls do nothing semantically.
+    ///
+    /// The memory accesses before `set` can be said to happen before `isSet`
+    /// returns true or `wait`/`timedWait` return successfully.
+    pub fn set(re: *ResetEvent) void {
+        if (builtin.single_threaded) {
+            re.* = .is_set;
+            return;
+        }
+        if (@atomicRmw(ResetEvent, re, .Xchg, .is_set, .release) == .waiting) {
+            Futex.wake(@ptrCast(re), std.math.maxInt(u32));
         }
     }
 
-    posix.nanosleep(s, ns);
-}
-
-test sleep {
-    sleep(1);
-}
+    /// Unmarks the ResetEvent as if `set` was never called.
+    ///
+    /// Assumes no threads are blocked in `wait` or `timedWait`. Concurrent
+    /// calls to `set`, `isSet` and `reset` are allowed.
+    pub fn reset(re: *ResetEvent) void {
+        if (builtin.single_threaded) {
+            re.* = .unset;
+            return;
+        }
+        @atomicStore(ResetEvent, re, .unset, .monotonic);
+    }
+};
 
 const Thread = @This();
 const Impl = if (native_os == .windows)
@@ -130,6 +171,7 @@ pub const SetNameError = error{
     NameTooLong,
     Unsupported,
     Unexpected,
+    InvalidWtf8,
 } || posix.PrctlError || posix.WriteError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
 pub fn setName(self: Thread, name: []const u8) SetNameError!void {
@@ -277,10 +319,13 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
+            var threaded: std.Io.Threaded = .init_single_threaded;
+            const io = threaded.ioBasic();
+
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
-            var file_reader = file.readerStreaming(&.{});
+            var file_reader = file.readerStreaming(io, &.{});
             const data_len = file_reader.interface.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
                 error.ReadFailed => return file_reader.err.?,
             };
@@ -385,6 +430,8 @@ pub const CpuCountError = error{
 };
 
 /// Returns the platforms view on the number of logical CPU cores available.
+///
+/// Returned value guaranteed to be >= 1.
 pub fn getCpuCount() CpuCountError!usize {
     return try Impl.getCpuCount();
 }
@@ -963,7 +1010,7 @@ const WasiThreadImpl = struct {
                         @call(.auto, f, w.args) catch |err| {
                             std.debug.print("error: {s}\n", .{@errorName(err)});
                             if (@errorReturnTrace()) |trace| {
-                                std.debug.dumpStackTrace(trace.*);
+                                std.debug.dumpStackTrace(trace);
                             }
                         };
                     },
@@ -1652,9 +1699,9 @@ test "setName, getName" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Context = struct {
-        start_wait_event: ResetEvent = .{},
-        test_done_event: ResetEvent = .{},
-        thread_done_event: ResetEvent = .{},
+        start_wait_event: ResetEvent = .unset,
+        test_done_event: ResetEvent = .unset,
+        thread_done_event: ResetEvent = .unset,
 
         done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
         thread: Thread = undefined,
@@ -1721,7 +1768,7 @@ test join {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event = ResetEvent{};
+    var event: ResetEvent = .unset;
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.join();
@@ -1733,7 +1780,7 @@ test detach {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event = ResetEvent{};
+    var event: ResetEvent = .unset;
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.detach();
@@ -1777,4 +1824,125 @@ fn testTls() !void {
     if (x != 1234) return error.TlsBadStartValue;
     x += 1;
     if (x != 1235) return error.TlsBadEndValue;
+}
+
+test "ResetEvent smoke test" {
+    var event: ResetEvent = .unset;
+    try testing.expectEqual(false, event.isSet());
+
+    // make sure the event gets set
+    event.set();
+    try testing.expectEqual(true, event.isSet());
+
+    // make sure the event gets unset again
+    event.reset();
+    try testing.expectEqual(false, event.isSet());
+
+    // waits should timeout as there's no other thread to set the event
+    try testing.expectError(error.Timeout, event.timedWait(0));
+    try testing.expectError(error.Timeout, event.timedWait(std.time.ns_per_ms));
+
+    // set the event again and make sure waits complete
+    event.set();
+    event.wait();
+    try event.timedWait(std.time.ns_per_ms);
+    try testing.expectEqual(true, event.isSet());
+}
+
+test "ResetEvent signaling" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const Context = struct {
+        in: ResetEvent = .unset,
+        out: ResetEvent = .unset,
+        value: usize = 0,
+
+        fn input(self: *@This()) !void {
+            // wait for the value to become 1
+            self.in.wait();
+            self.in.reset();
+            try testing.expectEqual(self.value, 1);
+
+            // bump the value and wake up output()
+            self.value = 2;
+            self.out.set();
+
+            // wait for output to receive 2, bump the value and wake us up with 3
+            self.in.wait();
+            self.in.reset();
+            try testing.expectEqual(self.value, 3);
+
+            // bump the value and wake up output() for it to see 4
+            self.value = 4;
+            self.out.set();
+        }
+
+        fn output(self: *@This()) !void {
+            // start with 0 and bump the value for input to see 1
+            try testing.expectEqual(self.value, 0);
+            self.value = 1;
+            self.in.set();
+
+            // wait for input to receive 1, bump the value to 2 and wake us up
+            self.out.wait();
+            self.out.reset();
+            try testing.expectEqual(self.value, 2);
+
+            // bump the value to 3 for input to see (rhymes)
+            self.value = 3;
+            self.in.set();
+
+            // wait for input to bump the value to 4 and receive no more (rhymes)
+            self.out.wait();
+            self.out.reset();
+            try testing.expectEqual(self.value, 4);
+        }
+    };
+
+    var ctx = Context{};
+
+    const thread = try std.Thread.spawn(.{}, Context.output, .{&ctx});
+    defer thread.join();
+
+    try ctx.input();
+}
+
+test "ResetEvent broadcast" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const num_threads = 10;
+    const Barrier = struct {
+        event: ResetEvent = .unset,
+        counter: std.atomic.Value(usize) = std.atomic.Value(usize).init(num_threads),
+
+        fn wait(self: *@This()) void {
+            if (self.counter.fetchSub(1, .acq_rel) == 1) {
+                self.event.set();
+            }
+        }
+    };
+
+    const Context = struct {
+        start_barrier: Barrier = .{},
+        finish_barrier: Barrier = .{},
+
+        fn run(self: *@This()) void {
+            self.start_barrier.wait();
+            self.finish_barrier.wait();
+        }
+    };
+
+    var ctx = Context{};
+    var threads: [num_threads - 1]std.Thread = undefined;
+
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Context.run, .{&ctx});
+    defer for (threads) |t| t.join();
+
+    ctx.run();
 }

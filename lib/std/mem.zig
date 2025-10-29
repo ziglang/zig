@@ -1678,6 +1678,7 @@ test "indexOfPos empty needle" {
 /// needle.len must be > 0
 /// does not count overlapping needles
 pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
+    if (needle.len == 1) return countScalar(T, haystack, needle[0]);
     assert(needle.len > 0);
     var i: usize = 0;
     var found: usize = 0;
@@ -1704,9 +1705,9 @@ test count {
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
-/// Returns the number of needles inside the haystack
-pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
-    const n = haystack.len;
+/// Returns the number of times `element` appears in a slice of memory.
+pub fn countScalar(comptime T: type, list: []const T, element: T) usize {
+    const n = list.len;
     var i: usize = 0;
     var found: usize = 0;
 
@@ -1716,16 +1717,16 @@ pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
         if (std.simd.suggestVectorLength(T)) |block_size| {
             const Block = @Vector(block_size, T);
 
-            const letter_mask: Block = @splat(needle);
+            const letter_mask: Block = @splat(element);
             while (n - i >= block_size) : (i += block_size) {
-                const haystack_block: Block = haystack[i..][0..block_size].*;
+                const haystack_block: Block = list[i..][0..block_size].*;
                 found += std.simd.countTrues(letter_mask == haystack_block);
             }
         }
     }
 
-    for (haystack[i..n]) |item| {
-        found += @intFromBool(item == needle);
+    for (list[i..n]) |item| {
+        found += @intFromBool(item == element);
     }
 
     return found;
@@ -1735,6 +1736,7 @@ test countScalar {
     try testing.expectEqual(0, countScalar(u8, "", 'h'));
     try testing.expectEqual(1, countScalar(u8, "h", 'h'));
     try testing.expectEqual(2, countScalar(u8, "hh", 'h'));
+    try testing.expectEqual(2, countScalar(u8, "ahhb", 'h'));
     try testing.expectEqual(3, countScalar(u8, "   abcabc   abc", 'b'));
 }
 
@@ -1744,6 +1746,7 @@ test countScalar {
 //
 /// See also: `containsAtLeastScalar`
 pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
+    if (needle.len == 1) return containsAtLeastScalar(T, haystack, expected_count, needle[0]);
     assert(needle.len > 0);
     if (expected_count == 0) return true;
 
@@ -1774,32 +1777,52 @@ test containsAtLeast {
     try testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
 }
 
-/// Returns true if the haystack contains expected_count or more needles
-//
-/// See also: `containsAtLeast`
-pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: T) bool {
-    if (expected_count == 0) return true;
+/// Deprecated in favor of `containsAtLeastScalar2`.
+pub fn containsAtLeastScalar(comptime T: type, list: []const T, minimum: usize, element: T) bool {
+    return containsAtLeastScalar2(T, list, element, minimum);
+}
 
+/// Returns true if `element` appears at least `minimum` number of times in `list`.
+//
+/// Related:
+/// * `containsAtLeast`
+/// * `countScalar`
+pub fn containsAtLeastScalar2(comptime T: type, list: []const T, element: T, minimum: usize) bool {
+    const n = list.len;
+    var i: usize = 0;
     var found: usize = 0;
 
-    for (haystack) |item| {
-        if (item == needle) {
-            found += 1;
-            if (found == expected_count) return true;
+    if (use_vectors_for_comparison and
+        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
+        if (std.simd.suggestVectorLength(T)) |block_size| {
+            const Block = @Vector(block_size, T);
+
+            const letter_mask: Block = @splat(element);
+            while (n - i >= block_size) : (i += block_size) {
+                const haystack_block: Block = list[i..][0..block_size].*;
+                found += std.simd.countTrues(letter_mask == haystack_block);
+                if (found >= minimum) return true;
+            }
         }
+    }
+
+    for (list[i..n]) |item| {
+        found += @intFromBool(item == element);
+        if (found >= minimum) return true;
     }
 
     return false;
 }
 
-test containsAtLeastScalar {
-    try testing.expect(containsAtLeastScalar(u8, "aa", 0, 'a'));
-    try testing.expect(containsAtLeastScalar(u8, "aa", 1, 'a'));
-    try testing.expect(containsAtLeastScalar(u8, "aa", 2, 'a'));
-    try testing.expect(!containsAtLeastScalar(u8, "aa", 3, 'a'));
+test containsAtLeastScalar2 {
+    try testing.expect(containsAtLeastScalar2(u8, "aa", 'a', 0));
+    try testing.expect(containsAtLeastScalar2(u8, "aa", 'a', 1));
+    try testing.expect(containsAtLeastScalar2(u8, "aa", 'a', 2));
+    try testing.expect(!containsAtLeastScalar2(u8, "aa", 'a', 3));
 
-    try testing.expect(containsAtLeastScalar(u8, "adadda", 3, 'd'));
-    try testing.expect(!containsAtLeastScalar(u8, "adadda", 4, 'd'));
+    try testing.expect(containsAtLeastScalar2(u8, "adadda", 'd', 3));
+    try testing.expect(!containsAtLeastScalar2(u8, "adadda", 'd', 4));
 }
 
 /// Reads an integer from memory with size equal to bytes.len.

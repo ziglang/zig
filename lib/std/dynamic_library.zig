@@ -137,6 +137,8 @@ const ElfDynLibError = error{
     ElfStringSectionNotFound,
     ElfSymSectionNotFound,
     ElfHashTableNotFound,
+    Canceled,
+    Streaming,
 } || posix.OpenError || posix.MMapError;
 
 pub const ElfDynLib = struct {

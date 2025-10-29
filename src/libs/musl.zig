@@ -26,6 +26,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
+    const io = comp.io;
 
     switch (in_crt_file) {
         .crt1_o => {
@@ -246,7 +247,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             const misc_task: Compilation.MiscTask = .@"musl libc.so";
 
             var sub_create_diag: Compilation.CreateDiagnostic = undefined;
-            const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+            const sub_compilation = Compilation.create(comp.gpa, arena, io, &sub_create_diag, .{
                 .dirs = comp.dirs.withoutLocalCache(),
                 .self_exe_path = comp.self_exe_path,
                 .cache_mode = .whole,

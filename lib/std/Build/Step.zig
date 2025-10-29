@@ -1,9 +1,11 @@
 const Step = @This();
+const builtin = @import("builtin");
+
 const std = @import("../std.zig");
+const Io = std.Io;
 const Build = std.Build;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const builtin = @import("builtin");
 const Cache = Build.Cache;
 const Path = Cache.Path;
 const ArrayList = std.ArrayList;
@@ -327,7 +329,7 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void {
+pub fn dump(step: *Step, w: *Io.Writer, tty_config: Io.tty.Config) void {
     if (step.debug_stack_trace.instruction_addresses.len > 0) {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
         std.debug.writeStackTrace(&step.debug_stack_trace, w, tty_config) catch {};
@@ -382,7 +384,7 @@ pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutO
 
 pub const ZigProcess = struct {
     child: std.process.Child,
-    poller: std.Io.Poller(StreamEnum),
+    poller: Io.Poller(StreamEnum),
     progress_ipc_fd: if (std.Progress.have_ipc) ?std.posix.fd_t else void,
 
     pub const StreamEnum = enum { stdout, stderr };
@@ -458,7 +460,7 @@ pub fn evalZigProcess(
     const zp = try gpa.create(ZigProcess);
     zp.* = .{
         .child = child,
-        .poller = std.Io.poll(gpa, ZigProcess.StreamEnum, .{
+        .poller = Io.poll(gpa, ZigProcess.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         }),
@@ -505,11 +507,12 @@ pub fn evalZigProcess(
 }
 
 /// Wrapper around `std.fs.Dir.updateFile` that handles verbose and error output.
-pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !std.fs.Dir.PrevStatus {
+pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !Io.Dir.PrevStatus {
     const b = s.owner;
+    const io = b.graph.io;
     const src_path = src_lazy_path.getPath3(b, s);
     try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{f}", .{src_path}), dest_path });
-    return src_path.root_dir.handle.updateFile(src_path.sub_path, std.fs.cwd(), dest_path, .{}) catch |err| {
+    return Io.Dir.updateFile(src_path.root_dir.handle.adaptToNewApi(), io, src_path.sub_path, .cwd(), dest_path, .{}) catch |err| {
         return s.fail("unable to update file from '{f}' to '{s}': {s}", .{
             src_path, dest_path, @errorName(err),
         });
@@ -738,7 +741,7 @@ pub fn allocPrintCmd2(
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
     const shell = struct {
-        fn escape(writer: *std.Io.Writer, string: []const u8, is_argv0: bool) !void {
+        fn escape(writer: *Io.Writer, string: []const u8, is_argv0: bool) !void {
             for (string) |c| {
                 if (switch (c) {
                     else => true,
@@ -772,7 +775,7 @@ pub fn allocPrintCmd2(
         }
     };
 
-    var aw: std.Io.Writer.Allocating = .init(gpa);
+    var aw: Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     const writer = &aw.writer;
     if (opt_cwd) |cwd| writer.print("cd {s} && ", .{cwd}) catch return error.OutOfMemory;

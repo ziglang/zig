@@ -4,9 +4,12 @@
 //!
 //! Each `Compilation` has exactly one or zero `Zcu`, depending on whether
 //! there is or is not any zig source code, respectively.
+const Zcu = @This();
+const builtin = @import("builtin");
 
 const std = @import("std");
-const builtin = @import("builtin");
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -15,9 +18,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
-const Writer = std.Io.Writer;
 
-const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 pub const Value = @import("Value.zig");
@@ -1037,10 +1038,15 @@ pub const File = struct {
         stat: Cache.File.Stat,
     };
 
-    pub const GetSourceError = error{ OutOfMemory, FileTooBig } || std.fs.File.OpenError || std.fs.File.ReadError;
+    pub const GetSourceError = error{
+        OutOfMemory,
+        FileTooBig,
+        Streaming,
+    } || std.fs.File.OpenError || std.fs.File.ReadError;
 
     pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError!Source {
         const gpa = zcu.gpa;
+        const io = zcu.comp.io;
 
         if (file.source) |source| return .{
             .bytes = source,
@@ -1061,7 +1067,7 @@ pub const File = struct {
         const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         errdefer gpa.free(source);
 
-        var file_reader = f.reader(&.{});
+        var file_reader = f.reader(io, &.{});
         file_reader.size = stat.size;
         file_reader.interface.readSliceAll(source) catch return file_reader.err.?;
 
@@ -2859,9 +2865,9 @@ comptime {
     }
 }
 
-pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
+pub fn loadZirCache(gpa: Allocator, io: Io, cache_file: std.fs.File) !Zir {
     var buffer: [2000]u8 = undefined;
-    var file_reader = cache_file.reader(&buffer);
+    var file_reader = cache_file.reader(io, &buffer);
     return result: {
         const header = file_reader.interface.takeStructPointer(Zir.Header) catch |err| break :result err;
         break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
@@ -2871,7 +2877,7 @@ pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
     };
 }
 
-pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.Io.Reader) !Zir {
+pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *Io.Reader) !Zir {
     var instructions: std.MultiArrayList(Zir.Inst) = .{};
     errdefer instructions.deinit(gpa);
 
@@ -2940,7 +2946,7 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2969,7 +2975,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2988,7 +2994,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
     };
 }
 
-pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.Io.Reader) !Zoir {
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *Io.Reader) !Zoir {
     var zoir: Zoir = .{
         .nodes = .empty,
         .extra = &.{},
@@ -4283,7 +4289,7 @@ const FormatAnalUnit = struct {
     zcu: *Zcu,
 };
 
-fn formatAnalUnit(data: FormatAnalUnit, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.unit.unwrap()) {
@@ -4309,7 +4315,7 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *std.Io.Writer) std.Io.Writer.Er
 
 const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *Zcu };
 
-fn formatDependee(data: FormatDependee, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {

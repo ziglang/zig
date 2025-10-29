@@ -8,74 +8,6 @@ const posix = std.posix;
 
 pub const epoch = @import("time/epoch.zig");
 
-/// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
-/// Precision of timing depends on the hardware and operating system.
-/// The return value is signed because it is possible to have a date that is
-/// before the epoch.
-/// See `posix.clock_gettime` for a POSIX timestamp.
-pub fn timestamp() i64 {
-    return @divFloor(milliTimestamp(), ms_per_s);
-}
-
-/// Get a calendar timestamp, in milliseconds, relative to UTC 1970-01-01.
-/// Precision of timing depends on the hardware and operating system.
-/// The return value is signed because it is possible to have a date that is
-/// before the epoch.
-/// See `posix.clock_gettime` for a POSIX timestamp.
-pub fn milliTimestamp() i64 {
-    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_ms)));
-}
-
-/// Get a calendar timestamp, in microseconds, relative to UTC 1970-01-01.
-/// Precision of timing depends on the hardware and operating system.
-/// The return value is signed because it is possible to have a date that is
-/// before the epoch.
-/// See `posix.clock_gettime` for a POSIX timestamp.
-pub fn microTimestamp() i64 {
-    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_us)));
-}
-
-/// Get a calendar timestamp, in nanoseconds, relative to UTC 1970-01-01.
-/// Precision of timing depends on the hardware and operating system.
-/// On Windows this has a maximum granularity of 100 nanoseconds.
-/// The return value is signed because it is possible to have a date that is
-/// before the epoch.
-/// See `posix.clock_gettime` for a POSIX timestamp.
-pub fn nanoTimestamp() i128 {
-    switch (builtin.os.tag) {
-        .windows => {
-            // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
-            // which is 1601-01-01.
-            const epoch_adj = epoch.windows * (ns_per_s / 100);
-            return @as(i128, windows.ntdll.RtlGetSystemTimePrecise() + epoch_adj) * 100;
-        },
-        .wasi => {
-            var ns: std.os.wasi.timestamp_t = undefined;
-            const err = std.os.wasi.clock_time_get(.REALTIME, 1, &ns);
-            assert(err == .SUCCESS);
-            return ns;
-        },
-        .uefi => {
-            const value, _ = std.os.uefi.system_table.runtime_services.getTime() catch return 0;
-            return value.toEpoch();
-        },
-        else => {
-            const ts = posix.clock_gettime(.REALTIME) catch |err| switch (err) {
-                error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
-            };
-            return (@as(i128, ts.sec) * ns_per_s) + ts.nsec;
-        },
-    }
-}
-
-test milliTimestamp {
-    const time_0 = milliTimestamp();
-    std.Thread.sleep(ns_per_ms);
-    const time_1 = milliTimestamp();
-    const interval = time_1 - time_0;
-    try testing.expect(interval > 0);
-}
-
 // Divisions of a nanosecond.
 pub const ns_per_us = 1000;
 pub const ns_per_ms = 1000 * ns_per_us;
@@ -268,9 +200,11 @@ pub const Timer = struct {
 };
 
 test Timer {
+    const io = std.testing.io;
+
     var timer = try Timer.start();
 
-    std.Thread.sleep(10 * ns_per_ms);
+    try std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(10) }, io);
     const time_0 = timer.read();
     try testing.expect(time_0 > 0);
 

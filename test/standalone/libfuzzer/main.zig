@@ -15,6 +15,10 @@ pub fn main() !void {
     defer args.deinit();
     _ = args.skip(); // executable name
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     const cache_dir_path = args.next() orelse @panic("expected cache directory path argument");
     var cache_dir = try std.fs.cwd().openDir(cache_dir_path, .{});
     defer cache_dir.close();
@@ -30,7 +34,7 @@ pub fn main() !void {
     defer coverage_file.close();
 
     var read_buf: [@sizeOf(abi.SeenPcsHeader)]u8 = undefined;
-    var r = coverage_file.reader(&read_buf);
+    var r = coverage_file.reader(io, &read_buf);
     const pcs_header = r.interface.takeStruct(abi.SeenPcsHeader, native_endian) catch return r.err.?;
 
     if (pcs_header.pcs_len == 0)

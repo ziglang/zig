@@ -326,10 +326,11 @@ pub extern "kernel32" fn ExitProcess(
     exit_code: UINT,
 ) callconv(.winapi) noreturn;
 
-// TODO: SleepEx with bAlertable=false.
-pub extern "kernel32" fn Sleep(
+// TODO: implement via ntdll instead
+pub extern "kernel32" fn SleepEx(
     dwMilliseconds: DWORD,
-) callconv(.winapi) void;
+    bAlertable: BOOL,
+) callconv(.winapi) DWORD;
 
 // TODO: Wrapper around NtQueryInformationProcess with `PROCESS_BASIC_INFORMATION`.
 pub extern "kernel32" fn GetExitCodeProcess(
