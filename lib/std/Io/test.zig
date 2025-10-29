@@ -177,7 +177,12 @@ test "select" {
 
     var queue: Io.Queue(u8) = .init(&.{});
 
-    var get_a = try io.concurrent(Io.Queue(u8).getOne, .{ &queue, io });
+    var get_a = io.concurrent(Io.Queue(u8).getOne, .{ &queue, io }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            try testing.expect(builtin.single_threaded);
+            return;
+        },
+    };
     defer if (get_a.cancel(io)) |_| @panic("fail") else |err| assert(err == error.Canceled);
 
     var get_b = try io.concurrent(Io.Queue(u8).getOne, .{ &queue, io });

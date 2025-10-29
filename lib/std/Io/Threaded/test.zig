@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 const std = @import("std");
 const Io = std.Io;
 const testing = std.testing;
@@ -12,7 +14,12 @@ test "concurrent vs main prevents deadlock via oversubscription" {
 
     var queue: Io.Queue(u8) = .init(&.{});
 
-    var putter = try io.concurrent(put, .{ io, &queue });
+    var putter = io.concurrent(put, .{ io, &queue }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            try testing.expect(builtin.single_threaded);
+            return;
+        },
+    };
     defer putter.cancel(io);
 
     try testing.expectEqual(42, queue.getOneUncancelable(io));
@@ -35,7 +42,12 @@ test "concurrent vs concurrent prevents deadlock via oversubscription" {
 
     var queue: Io.Queue(u8) = .init(&.{});
 
-    var putter = try io.concurrent(put, .{ io, &queue });
+    var putter = io.concurrent(put, .{ io, &queue }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            try testing.expect(builtin.single_threaded);
+            return;
+        },
+    };
     defer putter.cancel(io);
 
     var getter = try io.concurrent(get, .{ io, &queue });
