@@ -172,6 +172,7 @@ pub fn createEmpty(
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
+    const export_symbols = comp.config.rdynamic;
 
     const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
 
@@ -185,7 +186,7 @@ pub fn createEmpty(
                 try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
             else
                 null,
-            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
+            .gc_sections = options.gc_sections orelse (!export_symbols and optimize_mode != .Debug),
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = allow_shlib_undefined,
