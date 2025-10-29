@@ -182,6 +182,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                             try elf_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
                         else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
                             .name = extern_func.toSlice(&emit.lower.mir).?,
+                            .lib_name = switch (comp.compiler_rt_strat) {
+                                .none, .lib, .obj, .zcu => null,
+                                .dyn_lib => "compiler_rt",
+                            },
                             .type = .FUNC,
                         })) else if (emit.bin_file.cast(.macho)) |macho_file|
                             try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
@@ -320,10 +324,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 }, emit.lower.target), &.{.{
                                     .op_index = 0,
                                     .target = .{
-                                        .index = if (emit.bin_file.cast(.elf)) |elf_file|
-                                            try elf_file.getGlobalSymbol("__tls_get_addr", null)
-                                        else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
+                                        .index = if (emit.bin_file.cast(.elf)) |elf_file| try elf_file.getGlobalSymbol(
+                                            "__tls_get_addr",
+                                            if (comp.config.link_libc) "c" else null,
+                                        ) else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
                                             .name = "__tls_get_addr",
+                                            .lib_name = if (comp.config.link_libc) "c" else null,
                                             .type = .FUNC,
                                         })) else unreachable,
                                         .is_extern = true,

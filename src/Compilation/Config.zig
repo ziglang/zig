@@ -123,6 +123,7 @@ pub const ResolveError = error{
     WasiExecModelRequiresWasi,
     SharedMemoryIsWasmOnly,
     ObjectFilesCannotShareMemory,
+    ObjectFilesCannotSpecifyDynamicLinker,
     SharedMemoryRequiresAtomicsAndBulkMemory,
     ThreadsRequireSharedMemory,
     EmittingLlvmModuleRequiresLlvmBackend,
@@ -131,6 +132,7 @@ pub const ResolveError = error{
     EmittingBinaryRequiresLlvmLibrary,
     LldIncompatibleObjectFormat,
     LldCannotIncrementallyLink,
+    LldCannotSpecifyDynamicLinkerForSharedLibraries,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     LibCRequiresLibUnwind,
@@ -142,6 +144,7 @@ pub const ResolveError = error{
     TargetCannotStaticLinkExecutables,
     LibCRequiresDynamicLinking,
     SharedLibrariesRequireDynamicLinking,
+    DynamicLinkingWithLldRequiresSharedLibraries,
     ExportMemoryAndDynamicIncompatible,
     DynamicLibraryPrecludesPie,
     TargetRequiresPie,
@@ -274,15 +277,10 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
         }
-        // When creating a executable that links to system libraries, we
-        // require dynamic linking, but we must not link static libraries
-        // or object files dynamically!
-        if (options.any_dyn_libs and options.output_mode == .Exe) {
-            if (options.link_mode == .static) return error.SharedLibrariesRequireDynamicLinking;
-            break :b .dynamic;
-        }
 
         if (options.link_mode) |link_mode| break :b link_mode;
+
+        if (options.any_dyn_libs) break :b .dynamic;
 
         if (explicitly_exe_or_dyn_lib and link_libc) {
             // When using the native glibc/musl ABI, dynamic linking is usually what people want.
@@ -424,6 +422,25 @@ pub fn resolve(options: Options) ResolveError!Config {
         // so that the llvm backend defaults to lld and the self-hosted backends do not.
         break :b use_llvm;
     };
+
+    switch (options.output_mode) {
+        .Exe => if (options.any_dyn_libs) {
+            // When creating a executable that links to system libraries, we
+            // require dynamic linking, but we must not link static libraries
+            // or object files dynamically!
+            if (link_mode == .static) return error.SharedLibrariesRequireDynamicLinking;
+        } else if (use_lld and !link_libc and !link_libcpp and !link_libunwind) {
+            // Lld does not support creating dynamic executables when not
+            // linking to any shared libraries.
+            if (link_mode == .dynamic) return error.DynamicLinkingWithLldRequiresSharedLibraries;
+        },
+        .Lib => if (use_lld and options.resolved_target.is_explicit_dynamic_linker) {
+            return error.LldCannotSpecifyDynamicLinkerForSharedLibraries;
+        },
+        .Obj => if (options.resolved_target.is_explicit_dynamic_linker) {
+            return error.ObjectFilesCannotSpecifyDynamicLinker;
+        },
+    }
 
     const use_new_linker = b: {
         if (use_lld) {

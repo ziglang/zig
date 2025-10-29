@@ -562,7 +562,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // Apply the initial relocations as early as possible in the startup process. We cannot
     // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
     // so this must be fully inlined.
-    if (builtin.position_independent_executable) {
+    if (builtin.link_mode == .static and builtin.position_independent_executable) {
         @call(.always_inline, std.pie.relocate, .{phdrs});
     }
 

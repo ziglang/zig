@@ -46,8 +46,9 @@ android_api_level: ?u32 = null,
 abi: ?Target.Abi = null,
 
 /// When `os_tag` is `null`, then `null` means native. Otherwise it means the standard path
-/// based on the `os_tag`.
-dynamic_linker: Target.DynamicLinker = .none,
+/// based on the `os_tag`.  When `dynamic_linker` is a non-`null` empty string, no dynamic
+/// linker is used regardless of `os_tag`.
+dynamic_linker: ?Target.DynamicLinker = null,
 
 /// `null` means default for the cpu/arch/os combo.
 ofmt: ?Target.ObjectFormat = null,
@@ -213,7 +214,7 @@ pub fn parse(args: ParseOptions) !Query {
     const diags = args.diagnostics orelse &dummy_diags;
 
     var result: Query = .{
-        .dynamic_linker = Target.DynamicLinker.init(args.dynamic_linker),
+        .dynamic_linker = if (args.dynamic_linker) |dynamic_linker| .init(dynamic_linker) else null,
     };
 
     var it = mem.splitScalar(u8, args.arch_os_abi, '-');
@@ -381,7 +382,7 @@ pub fn isNativeCpu(self: Query) bool {
 
 pub fn isNativeOs(self: Query) bool {
     return self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
-        self.dynamic_linker.get() == null and self.glibc_version == null and self.android_api_level == null;
+        self.dynamic_linker == null and self.glibc_version == null and self.android_api_level == null;
 }
 
 pub fn isNativeAbi(self: Query) bool {
@@ -599,7 +600,7 @@ pub fn eql(a: Query, b: Query) bool {
     if (!versionEqualOpt(a.glibc_version, b.glibc_version)) return false;
     if (a.android_api_level != b.android_api_level) return false;
     if (a.abi != b.abi) return false;
-    if (!a.dynamic_linker.eql(b.dynamic_linker)) return false;
+    if (!dynamicLinkerEqualOpt(a.dynamic_linker, b.dynamic_linker)) return false;
     if (a.ofmt != b.ofmt) return false;
 
     return true;
@@ -609,6 +610,12 @@ fn versionEqualOpt(a: ?SemanticVersion, b: ?SemanticVersion) bool {
     if (a == null and b == null) return true;
     if (a == null or b == null) return false;
     return SemanticVersion.order(a.?, b.?) == .eq;
+}
+
+fn dynamicLinkerEqualOpt(a: ?Target.DynamicLinker, b: ?Target.DynamicLinker) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return a.?.eql(b.?);
 }
 
 test parse {

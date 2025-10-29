@@ -1882,17 +1882,13 @@ fn initSyntheticSections(self: *Elf) !void {
     const comp = self.base.comp;
     const target = self.getTarget();
     const ptr_size = self.ptrWidthBytes();
-    const shared_objects = self.shared_objects.values();
 
     const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
         .Exe => true,
         .Lib => comp.config.link_mode == .dynamic,
         .Obj => false,
     };
-    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib and !target.dynamic_linker.eql(.none);
-
-    const needs_interp = have_dynamic_linker and
-        (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker);
+    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib;
 
     const needs_eh_frame = blk: {
         if (self.zigObjectPtr()) |zo|
@@ -2004,7 +2000,15 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (needs_interp and self.section_indexes.interp == null) {
+    if (needs_interp: {
+        if (comp.config.link_mode == .static) break :needs_interp false;
+        if (target.dynamic_linker.get() == null) break :needs_interp false;
+        break :needs_interp switch (comp.config.output_mode) {
+            .Exe => true,
+            .Lib => comp.root_mod.resolved_target.is_explicit_dynamic_linker,
+            .Obj => false,
+        };
+    } and self.section_indexes.interp == null) {
         self.section_indexes.interp = try self.addSection(.{
             .name = try self.insertShString(".interp"),
             .type = elf.SHT_PROGBITS,
@@ -2013,7 +2017,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.isEffectivelyDynLib() or shared_objects.len > 0 or comp.config.pie) {
+    if (have_dynamic_linker or comp.config.pie or self.isEffectivelyDynLib()) {
         if (self.section_indexes.dynstrtab == null) {
             self.section_indexes.dynstrtab = try self.addSection(.{
                 .name = try self.insertShString(".dynstr"),
