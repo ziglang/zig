@@ -175,7 +175,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .nvptx64, .os_tag = .cuda, .abi = .none },
     .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
 
-    .{ .cpu_arch = .powerpc, .os_tag = .aix, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .haiku, .abi = .eabi },
@@ -196,7 +195,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .powerpcle, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .powerpcle, .os_tag = .freestanding, .abi = .eabihf },
 
-    .{ .cpu_arch = .powerpc64, .os_tag = .aix, .abi = .none },
     .{ .cpu_arch = .powerpc64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .powerpc64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .powerpc64, .os_tag = .linux, .abi = .gnu },
@@ -239,7 +237,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .s390x, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .none },
-    // .{ .cpu_arch = .s390x, .os_tag = .zos, .abi = .none },
 
     .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .gnu },

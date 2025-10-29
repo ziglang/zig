@@ -1031,10 +1031,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .alpha => VaListAlpha,
     .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
-    .powerpc, .powerpcle => switch (builtin.os.tag) {
-        .aix => *u8,
-        else => VaListPowerPc,
-    },
+    .powerpc, .powerpcle => VaListPowerPc,
     .s390x => VaListS390x,
     .sh, .sheb => VaListSh, // This is wrong for `sh_renesas`: https://github.com/ziglang/zig/issues/24692#issuecomment-3150779829
     .x86_64 => switch (builtin.os.tag) {

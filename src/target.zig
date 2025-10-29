@@ -155,13 +155,11 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
 
         .coff,
         .elf,
-        .goff,
         .hex,
         .macho,
         .spirv,
         .raw,
         .wasm,
-        .xcoff,
         => {},
     }
 

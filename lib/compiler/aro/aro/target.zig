@@ -403,7 +403,6 @@ pub fn builtinEnabled(target: std.Target, enabled_for: TargetSet) bool {
 }
 
 pub fn defaultFpEvalMethod(target: std.Target) LangOpts.FPEvalMethod {
-    if (target.os.tag == .aix) return .double;
     switch (target.cpu.arch) {
         .x86, .x86_64 => {
             if (target.ptrBitWidth() == 32 and target.os.tag == .netbsd) {
@@ -656,10 +655,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .openbsd => "openbsd",
         .illumos => "solaris",
         .windows => "windows",
-        .zos => "zos",
         .haiku => "haiku",
         .rtems => "rtems",
-        .aix => "aix",
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
@@ -741,7 +738,6 @@ pub const DefaultPIStatus = enum { yes, no, depends_on_linker };
 
 pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
     return switch (target.os.tag) {
-        .aix,
         .haiku,
 
         .macos,
@@ -765,7 +761,6 @@ pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
         .ps5,
 
         .hurd,
-        .zos,
         => .no,
 
         .openbsd,
@@ -810,7 +805,6 @@ pub fn isPIEDefault(target: std.Target) DefaultPIStatus {
 
 pub fn isPICdefault(target: std.Target) DefaultPIStatus {
     return switch (target.os.tag) {
-        .aix,
         .haiku,
 
         .macos,
@@ -830,7 +824,6 @@ pub fn isPICdefault(target: std.Target) DefaultPIStatus {
 
         .fuchsia,
         .cuda,
-        .zos,
         => .no,
 
         .dragonfly,
@@ -889,7 +882,7 @@ pub fn isPICdefault(target: std.Target) DefaultPIStatus {
 
 pub fn isPICDefaultForced(target: std.Target) DefaultPIStatus {
     return switch (target.os.tag) {
-        .aix, .amdhsa, .amdpal, .mesa3d => .yes,
+        .amdhsa, .amdpal, .mesa3d => .yes,
 
         .haiku,
         .dragonfly,
@@ -903,7 +896,6 @@ pub fn isPICDefaultForced(target: std.Target) DefaultPIStatus {
         .hurd,
         .linux,
         .fuchsia,
-        .zos,
         => .no,
 
         .windows => {
