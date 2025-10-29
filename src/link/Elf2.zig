@@ -12,10 +12,8 @@ inputs: std.ArrayList(struct {
 }),
 input_sections: std.ArrayList(struct {
     ii: Node.InputIndex,
-    ni: MappedFile.Node.Index,
-    addr: u64,
-    offset: u64,
-    size: u64,
+    si: Symbol.Index,
+    file_location: MappedFile.Node.FileLocation,
 }),
 input_section_pending_index: u32,
 globals: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index),
@@ -59,7 +57,7 @@ pub const Node = union(enum) {
             return elf.inputs.items[@intFromEnum(ii)].si;
         }
 
-        pub fn nextSymbol(ii: InputIndex, elf: *const Elf) Symbol.Index {
+        pub fn endSymbol(ii: InputIndex, elf: *const Elf) Symbol.Index {
             const next_ii = @intFromEnum(ii) + 1;
             return if (next_ii < elf.inputs.items.len)
                 @as(InputIndex, @enumFromInt(next_ii)).symbol(elf)
@@ -75,17 +73,12 @@ pub const Node = union(enum) {
             return elf.input_sections.items[@intFromEnum(isi)].ii;
         }
 
-        pub fn node(isi: InputSectionIndex, elf: *const Elf) MappedFile.Node.Index {
-            return elf.input_sections.items[@intFromEnum(isi)].ni;
+        pub fn symbol(isi: InputSectionIndex, elf: *const Elf) Symbol.Index {
+            return elf.input_sections.items[@intFromEnum(isi)].si;
         }
 
-        pub fn addr(isi: InputSectionIndex, elf: *Elf) *u64 {
-            return &elf.input_sections.items[@intFromEnum(isi)].addr;
-        }
-
-        pub fn fileLocation(isi: InputSectionIndex, elf: *const Elf) struct { u64, u64 } {
-            const input_section = &elf.input_sections.items[@intFromEnum(isi)];
-            return .{ input_section.offset, input_section.size };
+        pub fn fileLocation(isi: InputSectionIndex, elf: *const Elf) MappedFile.Node.FileLocation {
+            return elf.input_sections.items[@intFromEnum(isi)].file_location;
         }
     };
 
@@ -302,9 +295,12 @@ pub const Symbol = struct {
         }
 
         pub fn applyLocationRelocs(si: Symbol.Index, elf: *Elf) void {
-            for (elf.relocs.items[@intFromEnum(si.get(elf).loc_relocs)..]) |*reloc| {
-                if (reloc.loc != si) break;
-                reloc.apply(elf);
+            switch (si.get(elf).loc_relocs) {
+                .none => {},
+                else => |loc_relocs| for (elf.relocs.items[@intFromEnum(loc_relocs)..]) |*reloc| {
+                    if (reloc.loc != si) break;
+                    reloc.apply(elf);
+                },
             }
         }
 
@@ -390,7 +386,7 @@ pub const Reloc = extern struct {
                             target_value,
                             target_endian,
                         ),
-                        .PC32 => std.mem.writeInt(
+                        .PC32, .PLT32 => std.mem.writeInt(
                             i32,
                             loc_slice[0..4],
                             @intCast(@as(i64, @bitCast(target_value -% loc_value))),
@@ -400,6 +396,12 @@ pub const Reloc = extern struct {
                             u32,
                             loc_slice[0..4],
                             @intCast(target_value),
+                            target_endian,
+                        ),
+                        .@"32S" => std.mem.writeInt(
+                            i32,
+                            loc_slice[0..4],
+                            @intCast(@as(i64, @bitCast(target_value))),
                             target_endian,
                         ),
                         .TPOFF32 => {
@@ -632,12 +634,7 @@ fn initHeaders(
     switch (class) {
         .NONE, _ => unreachable,
         inline else => |ct_class| {
-            const ElfN = switch (ct_class) {
-                .NONE, _ => comptime unreachable,
-                .@"32" => std.elf.Elf32,
-                .@"64" => std.elf.Elf64,
-            };
-
+            const ElfN = ct_class.ElfN();
             assert(Node.Known.ehdr == try elf.mf.addOnlyChildNode(gpa, Node.Known.rodata, .{
                 .size = @sizeOf(ElfN.Ehdr),
                 .alignment = addr_align,
@@ -717,11 +714,7 @@ fn initHeaders(
     switch (class) {
         .NONE, _ => unreachable,
         inline else => |ct_class| {
-            const ElfN = switch (ct_class) {
-                .NONE, _ => comptime unreachable,
-                .@"32" => std.elf.Elf32,
-                .@"64" => std.elf.Elf64,
-            };
+            const ElfN = ct_class.ElfN();
             const target_endian = elf.targetEndian();
 
             const phdr: []ElfN.Phdr = @ptrCast(@alignCast(Node.Known.phdr.slice(&elf.mf)));
@@ -1293,23 +1286,32 @@ pub fn loadInput(elf: *Elf, input: link.Input) !void {
             switch (elf.identClass()) {
                 .NONE, _ => unreachable,
                 inline else => |class| {
-                    const ehdr = try r.peekStruct(
-                        @typeInfo(@FieldType(EhdrPtr, @tagName(class))).pointer.child,
-                        target_endian,
-                    );
+                    const ElfN = class.ElfN();
+                    const ehdr = try r.peekStruct(ElfN.Ehdr, target_endian);
                     if (ehdr.type != .REL)
                         return diags.failParse(object.path, "unsupported object type", .{});
                     if (ehdr.machine != elf.ehdrField(.machine))
                         return diags.failParse(object.path, "wrong machine", .{});
                     if (ehdr.shoff == 0 or ehdr.shnum <= 1) return;
-                    if (ehdr.shstrndx == std.elf.SHN_UNDEF or ehdr.shstrndx >= ehdr.shnum)
-                        return diags.failParse(object.path, "missing section names", .{});
-                    const Shdr = @typeInfo(@FieldType(ShdrSlice, @tagName(class))).pointer.child;
-                    if (ehdr.shentsize < @sizeOf(Shdr))
+                    if (ehdr.shentsize < @sizeOf(ElfN.Shdr))
                         return diags.failParse(object.path, "unsupported shentsize", .{});
+                    const sections = try gpa.alloc(struct {
+                        shdr: ElfN.Shdr,
+                        si: Symbol.Index,
+                    }, ehdr.shnum);
+                    defer gpa.free(sections);
+                    try fr.seekTo(ehdr.shoff);
+                    for (sections) |*section| {
+                        section.* = .{
+                            .shdr = try r.peekStruct(ElfN.Shdr, target_endian),
+                            .si = .null,
+                        };
+                        try fr.seekBy(ehdr.shentsize);
+                    }
                     const shstrtab = shstrtab: {
-                        try fr.seekTo(ehdr.shoff + ehdr.shentsize * ehdr.shstrndx);
-                        const shdr = try r.peekStruct(Shdr, target_endian);
+                        if (ehdr.shstrndx == std.elf.SHN_UNDEF or ehdr.shstrndx >= ehdr.shnum)
+                            return diags.failParse(object.path, "missing section names", .{});
+                        const shdr = &sections[ehdr.shstrndx].shdr;
                         if (shdr.type != std.elf.SHT_STRTAB)
                             return diags.failParse(object.path, "invalid shstrtab type", .{});
                         const shstrtab = try gpa.alloc(u8, @intCast(shdr.size));
@@ -1319,141 +1321,186 @@ pub fn loadInput(elf: *Elf, input: link.Input) !void {
                         break :shstrtab shstrtab;
                     };
                     defer gpa.free(shstrtab);
-                    const Sym = @typeInfo(@FieldType(SymPtr, @tagName(class))).pointer.child;
-                    try fr.seekTo(ehdr.shoff + ehdr.shentsize);
-                    var symtab_shdr: Shdr = .{
-                        .name = 0,
-                        .type = 0,
-                        .flags = .{ .shf = .{} },
-                        .addr = 0,
-                        .offset = 0,
-                        .size = 0,
-                        .link = 0,
-                        .info = 0,
-                        .addralign = 0,
-                        .entsize = 0,
+                    try elf.nodes.ensureUnusedCapacity(gpa, ehdr.shnum - 1);
+                    try elf.symtab.ensureUnusedCapacity(gpa, ehdr.shnum - 1);
+                    try elf.input_sections.ensureUnusedCapacity(gpa, ehdr.shnum - 1);
+                    for (sections[1..]) |*section| switch (section.shdr.type) {
+                        else => {},
+                        std.elf.SHT_PROGBITS, std.elf.SHT_NOBITS => {
+                            if (section.shdr.name >= shstrtab.len) continue;
+                            const name = std.mem.sliceTo(shstrtab[section.shdr.name..], 0);
+                            const parent_si = namedSection(name) orelse continue;
+                            const ni = try elf.mf.addLastChildNode(gpa, parent_si.node(elf), .{
+                                .size = section.shdr.size,
+                                .alignment = .fromByteUnits(std.math.ceilPowerOfTwoAssert(
+                                    usize,
+                                    @intCast(@max(section.shdr.addralign, 1)),
+                                )),
+                                .moved = true,
+                            });
+                            elf.nodes.appendAssumeCapacity(.{
+                                .input_section = @enumFromInt(elf.input_sections.items.len),
+                            });
+                            section.si = try elf.initSymbolAssumeCapacity(.{
+                                .type = .SECTION,
+                                .shndx = elf.targetLoad(&@field(elf.symPtr(parent_si), @tagName(class)).shndx),
+                            });
+                            section.si.get(elf).ni = ni;
+                            elf.input_sections.addOneAssumeCapacity().* = .{
+                                .ii = ii,
+                                .si = section.si,
+                                .file_location = .{
+                                    .offset = section.shdr.offset,
+                                    .size = section.shdr.size,
+                                },
+                            };
+                            elf.synth_prog_node.increaseEstimatedTotalItems(1);
+                        },
                     };
-                    const sections = try gpa.alloc(struct {
-                        shndx: u32,
-                        ni: MappedFile.Node.Index,
-                    }, ehdr.shnum);
-                    defer gpa.free(sections);
-                    @memset(sections, .{ .shndx = std.elf.SHN_UNDEF, .ni = .none });
-                    for (sections[1..ehdr.shnum]) |*section| {
-                        const shdr = try r.peekStruct(Shdr, target_endian);
-                        try r.discardAll(ehdr.shentsize);
-                        switch (shdr.type) {
-                            else => continue,
-                            std.elf.SHT_PROGBITS => {},
-                            std.elf.SHT_SYMTAB => {
-                                if (symtab_shdr.entsize > 0)
-                                    return diags.failParse(object.path, "too many symtabs", .{});
-                                if (shdr.entsize < @sizeOf(Sym))
-                                    return diags.failParse(object.path, "unsupported entsize", .{});
-                                symtab_shdr = shdr;
-                                continue;
-                            },
-                            std.elf.SHT_NOBITS => {},
-                        }
-                        if (shdr.name >= shstrtab.len) continue;
-                        const name = std.mem.sliceTo(shstrtab[shdr.name..], 0);
-                        const si = namedSection(name) orelse continue;
-                        section.shndx = elf.targetLoad(&@field(elf.symPtr(si), @tagName(class)).shndx);
-                        try elf.nodes.ensureUnusedCapacity(gpa, 1);
-                        try elf.input_sections.ensureUnusedCapacity(gpa, 1);
-                        section.ni = try elf.mf.addLastChildNode(gpa, si.node(elf), .{
-                            .size = shdr.size,
-                            .alignment = .fromByteUnits(std.math.ceilPowerOfTwoAssert(
-                                usize,
-                                @intCast(@max(shdr.addralign, 1)),
-                            )),
-                            .moved = true,
-                        });
-                        elf.nodes.appendAssumeCapacity(.{
-                            .input_section = @enumFromInt(elf.input_sections.items.len),
-                        });
-                        elf.input_sections.addOneAssumeCapacity().* = .{
-                            .ii = ii,
-                            .ni = section.ni,
-                            .addr = shdr.addr,
-                            .offset = shdr.offset,
-                            .size = shdr.size,
-                        };
-                        elf.synth_prog_node.increaseEstimatedTotalItems(1);
-                    }
-                    if (symtab_shdr.info <= 1) return;
-                    const strtab = strtab: {
-                        try fr.seekTo(ehdr.shoff + ehdr.shentsize * symtab_shdr.link);
-                        const shdr = try r.peekStruct(Shdr, target_endian);
-                        if (shdr.type != std.elf.SHT_STRTAB)
-                            return diags.failParse(object.path, "invalid strtab type", .{});
-                        const strtab = try gpa.alloc(u8, @intCast(shdr.size));
-                        errdefer gpa.free(strtab);
-                        try fr.seekTo(shdr.offset);
-                        try r.readSliceAll(strtab);
-                        break :strtab strtab;
-                    };
-                    defer gpa.free(strtab);
-                    try elf.symtab.ensureUnusedCapacity(gpa, symtab_shdr.info);
-                    try elf.globals.ensureUnusedCapacity(gpa, symtab_shdr.info);
-                    try fr.seekTo(symtab_shdr.offset + symtab_shdr.entsize);
-                    for (1..try std.math.divExact(
-                        usize,
-                        @intCast(symtab_shdr.size),
-                        @intCast(symtab_shdr.entsize),
-                    )) |_| {
-                        const input_sym = try r.peekStruct(Sym, target_endian);
-                        try r.discardAll64(symtab_shdr.entsize);
-                        switch (input_sym.info.type) {
-                            else => continue,
-                            .OBJECT, .FUNC => {},
-                        }
-                        if (input_sym.name >= strtab.len or input_sym.shndx >= sections.len) continue;
-                        const name = std.mem.sliceTo(strtab[input_sym.name..], 0);
-                        const si = try elf.initSymbolAssumeCapacity(.{
-                            .name = name,
-                            .value = input_sym.value,
-                            .size = input_sym.size,
-                            .type = input_sym.info.type,
-                            .bind = input_sym.info.bind,
-                            .visibility = input_sym.other.visibility,
-                            .shndx = @intCast(sections[input_sym.shndx].shndx),
-                        });
-                        {
-                            const sym = si.get(elf);
-                            sym.ni = sections[input_sym.shndx].ni;
-                            assert(sym.loc_relocs == .none);
-                            sym.loc_relocs = @enumFromInt(elf.relocs.items.len);
-                        }
-                        switch (input_sym.info.bind) {
-                            else => {},
-                            .GLOBAL => {
-                                const gop = elf.globals.getOrPutAssumeCapacity(elf.targetLoad(
-                                    &@field(elf.symPtr(si), @tagName(class)).name,
-                                ));
-                                if (gop.found_existing) switch (elf.targetLoad(
-                                    switch (elf.symPtr(gop.value_ptr.*)) {
-                                        inline else => |sym| &sym.info,
+                    var symmap: std.ArrayList(Symbol.Index) = .empty;
+                    defer symmap.deinit(gpa);
+                    for (sections[1..], 1..) |*symtab, symtab_shndx| switch (symtab.shdr.type) {
+                        else => {},
+                        std.elf.SHT_SYMTAB => {
+                            if (symtab.shdr.entsize < @sizeOf(ElfN.Sym))
+                                return diags.failParse(object.path, "unsupported symtab entsize", .{});
+                            const strtab = strtab: {
+                                if (symtab.shdr.link == std.elf.SHN_UNDEF or symtab.shdr.link >= ehdr.shnum)
+                                    return diags.failParse(object.path, "missing symbol names", .{});
+                                const shdr = &sections[symtab.shdr.link].shdr;
+                                if (shdr.type != std.elf.SHT_STRTAB)
+                                    return diags.failParse(object.path, "invalid strtab type", .{});
+                                const strtab = try gpa.alloc(u8, @intCast(shdr.size));
+                                errdefer gpa.free(strtab);
+                                try fr.seekTo(shdr.offset);
+                                try r.readSliceAll(strtab);
+                                break :strtab strtab;
+                            };
+                            defer gpa.free(strtab);
+                            const symnum = try std.math.divExact(
+                                u32,
+                                @intCast(symtab.shdr.size),
+                                @intCast(symtab.shdr.entsize),
+                            );
+                            symmap.clearRetainingCapacity();
+                            try symmap.resize(gpa, symnum);
+                            try elf.symtab.ensureUnusedCapacity(gpa, symnum);
+                            try elf.globals.ensureUnusedCapacity(gpa, symnum);
+                            try fr.seekTo(symtab.shdr.offset + symtab.shdr.entsize);
+                            symmap.items[0] = .null;
+                            for (symmap.items[1..]) |*si| {
+                                si.* = .null;
+                                const input_sym = try r.peekStruct(ElfN.Sym, target_endian);
+                                try fr.seekBy(@intCast(symtab.shdr.entsize));
+                                if (input_sym.name >= strtab.len or
+                                    input_sym.shndx == std.elf.SHN_UNDEF or
+                                    input_sym.shndx >= ehdr.shnum) continue;
+                                switch (input_sym.info.type) {
+                                    else => continue,
+                                    .SECTION => {
+                                        const section = &sections[input_sym.shndx];
+                                        if (input_sym.value == section.shdr.addr) si.* = section.si;
+                                        continue;
                                     },
-                                ).bind) {
-                                    else => unreachable,
-                                    .GLOBAL => return diags.failParse(
+                                    .OBJECT, .FUNC => {},
+                                }
+                                const name = std.mem.sliceTo(strtab[input_sym.name..], 0);
+                                const parent_si = sections[input_sym.shndx].si;
+                                si.* = try elf.initSymbolAssumeCapacity(.{
+                                    .name = name,
+                                    .value = input_sym.value,
+                                    .size = input_sym.size,
+                                    .type = input_sym.info.type,
+                                    .bind = input_sym.info.bind,
+                                    .visibility = input_sym.other.visibility,
+                                    .shndx = elf.targetLoad(switch (elf.symPtr(parent_si)) {
+                                        inline else => |parent_sym| &parent_sym.shndx,
+                                    }),
+                                });
+                                si.get(elf).ni = parent_si.get(elf).ni;
+                                switch (input_sym.info.bind) {
+                                    else => {},
+                                    .GLOBAL => {
+                                        const gop = elf.globals.getOrPutAssumeCapacity(elf.targetLoad(
+                                            &@field(elf.symPtr(si.*), @tagName(class)).name,
+                                        ));
+                                        if (gop.found_existing) switch (elf.targetLoad(
+                                            switch (elf.symPtr(gop.value_ptr.*)) {
+                                                inline else => |sym| &sym.info,
+                                            },
+                                        ).bind) {
+                                            else => unreachable,
+                                            .GLOBAL => return diags.failParse(
+                                                object.path,
+                                                "multiple definitions of '{s}'",
+                                                .{name},
+                                            ),
+                                            .WEAK => {},
+                                        };
+                                        gop.value_ptr.* = si.*;
+                                    },
+                                    .WEAK => {
+                                        const gop = elf.globals.getOrPutAssumeCapacity(elf.targetLoad(
+                                            &@field(elf.symPtr(si.*), @tagName(class)).name,
+                                        ));
+                                        if (!gop.found_existing) gop.value_ptr.* = si.*;
+                                    },
+                                }
+                            }
+                            for (sections[1..]) |*rels| switch (rels.shdr.type) {
+                                else => {},
+                                inline std.elf.SHT_REL, std.elf.SHT_RELA => |sht| {
+                                    if (rels.shdr.link != symtab_shndx or
+                                        rels.shdr.info == std.elf.SHN_UNDEF or
+                                        rels.shdr.info >= ehdr.shnum) continue;
+                                    const Rel = switch (sht) {
+                                        else => comptime unreachable,
+                                        std.elf.SHT_REL => ElfN.Rel,
+                                        std.elf.SHT_RELA => ElfN.Rela,
+                                    };
+                                    if (rels.shdr.entsize < @sizeOf(Rel)) return diags.failParse(
                                         object.path,
-                                        "multiple definitions of '{s}'",
-                                        .{name},
-                                    ),
-                                    .WEAK => {},
-                                };
-                                gop.value_ptr.* = si;
-                            },
-                            .WEAK => {
-                                const gop = elf.globals.getOrPutAssumeCapacity(elf.targetLoad(
-                                    &@field(elf.symPtr(si), @tagName(class)).name,
-                                ));
-                                if (!gop.found_existing) gop.value_ptr.* = si;
-                            },
-                        }
-                    }
+                                        "unsupported rel entsize",
+                                        .{},
+                                    );
+                                    const loc_sec = &sections[rels.shdr.info];
+                                    if (loc_sec.si == .null) continue;
+                                    const relnum = try std.math.divExact(
+                                        u32,
+                                        @intCast(rels.shdr.size),
+                                        @intCast(rels.shdr.entsize),
+                                    );
+                                    try elf.relocs.ensureUnusedCapacity(gpa, relnum);
+                                    try fr.seekTo(rels.shdr.offset);
+                                    for (0..relnum) |_| {
+                                        const rel = try r.peekStruct(Rel, target_endian);
+                                        try fr.seekBy(@intCast(rels.shdr.entsize));
+                                        if (rel.info.sym >= symnum) continue;
+                                        const target_si = symmap.items[rel.info.sym];
+                                        if (target_si == .null) continue;
+                                        elf.addReloc(
+                                            loc_sec.si,
+                                            rel.offset - loc_sec.shdr.addr,
+                                            target_si,
+                                            rel.addend,
+                                            switch (elf.ehdrField(.machine)) {
+                                                else => unreachable,
+                                                inline .AARCH64,
+                                                .PPC64,
+                                                .RISCV,
+                                                .X86_64,
+                                                => |machine| @unionInit(
+                                                    Reloc.Type,
+                                                    @tagName(machine),
+                                                    @enumFromInt(rel.info.type),
+                                                ),
+                                            },
+                                        ) catch unreachable;
+                                    }
+                                },
+                            };
+                        },
+                    };
                 },
             }
         },
@@ -1512,11 +1559,10 @@ pub fn getVAddr(elf: *Elf, reloc_info: link.File.RelocInfo, target_si: Symbol.In
         reloc_info.addend,
         switch (elf.ehdrField(.machine)) {
             else => unreachable,
-            .X86_64 => .{ .X86_64 = switch (elf.identClass()) {
-                .NONE, _ => unreachable,
-                .@"32" => .@"32",
-                .@"64" => .@"64",
-            } },
+            .AARCH64 => .{ .AARCH64 = .ABS64 },
+            .PPC64 => .{ .PPC64 = .ADDR64 },
+            .RISCV => .{ .RISCV = .@"64" },
+            .X86_64 => .{ .X86_64 = .@"64" },
         },
     );
     return switch (elf.symPtr(target_si)) {
@@ -1912,11 +1958,11 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
         if (elf.input_section_pending_index < elf.input_sections.items.len) {
             const isi: Node.InputSectionIndex = @enumFromInt(elf.input_section_pending_index);
             elf.input_section_pending_index += 1;
-            const sub_prog_node = elf.idleProgNode(tid, elf.input_prog_node, elf.getNode(isi.node(elf)));
+            const sub_prog_node = elf.idleProgNode(tid, elf.input_prog_node, elf.getNode(isi.symbol(elf).node(elf)));
             defer sub_prog_node.end();
             elf.flushInputSection(isi) catch |err| switch (err) {
                 else => |e| return comp.link_diags.fail("linker failed to read input section '{s}' from \"{f}\": {t}", .{
-                    elf.sectionName(elf.getNode(isi.node(elf).parent(&elf.mf)).section),
+                    elf.sectionName(elf.getNode(isi.symbol(elf).node(elf).parent(&elf.mf)).section),
                     isi.input(elf).path(elf).fmtEscapeString(),
                     e,
                 }),
@@ -1954,7 +2000,7 @@ fn idleProgNode(
         .section => |si| elf.sectionName(si),
         .input_section => |isi| std.fmt.bufPrint(&name, "{f} {s}", .{
             isi.input(elf).path(elf),
-            elf.sectionName(elf.getNode(isi.node(elf).parent(&elf.mf)).section),
+            elf.sectionName(elf.getNode(isi.symbol(elf).node(elf).parent(&elf.mf)).section),
         }) catch &name,
         .nav => |nmi| {
             const ip = &elf.base.comp.zcu.?.intern_pool;
@@ -2078,8 +2124,8 @@ fn flushLazy(elf: *Elf, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
 }
 
 fn flushInputSection(elf: *Elf, isi: Node.InputSectionIndex) !void {
-    const offset, const size = isi.fileLocation(elf);
-    if (size == 0) return;
+    const file_loc = isi.fileLocation(elf);
+    if (file_loc.size == 0) return;
     const comp = elf.base.comp;
     const gpa = comp.gpa;
     const io = comp.io;
@@ -2087,11 +2133,11 @@ fn flushInputSection(elf: *Elf, isi: Node.InputSectionIndex) !void {
     const file = try path.root_dir.handle.adaptToNewApi().openFile(io, path.sub_path, .{});
     defer file.close(io);
     var fr = file.reader(io, &.{});
-    try fr.seekTo(offset);
+    try fr.seekTo(file_loc.offset);
     var nw: MappedFile.Node.Writer = undefined;
-    isi.node(elf).writer(&elf.mf, gpa, &nw);
+    isi.symbol(elf).node(elf).writer(&elf.mf, gpa, &nw);
     defer nw.deinit();
-    if (try nw.interface.sendFileAll(&fr, .limited(@intCast(size))) != size) return error.EndOfStream;
+    if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size) return error.EndOfStream;
 }
 
 fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
@@ -2132,13 +2178,13 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
             },
         },
         .input_section => |isi| {
-            const addr = isi.addr(elf);
-            const old_addr = addr.*;
+            const old_addr = switch (elf.symPtr(isi.symbol(elf))) {
+                inline else => |sym| elf.targetLoad(&sym.value),
+            };
             const new_addr = elf.computeNodeVAddr(ni);
-            addr.* = new_addr;
             const ii = isi.input(elf);
             var si = ii.symbol(elf);
-            const end_si = ii.nextSymbol(elf);
+            const end_si = ii.endSymbol(elf);
             while (cond: {
                 si = si.next();
                 break :cond si != end_si;
