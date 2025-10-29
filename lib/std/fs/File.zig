@@ -1395,6 +1395,7 @@ pub const Reader = struct {
                 };
                 const delta = @min(@intFromEnum(limit), size - pos);
                 r.pos = pos + delta;
+                if (r.pos == size) return error.EndOfStream;
                 return delta;
             },
             .streaming, .streaming_reading => {
