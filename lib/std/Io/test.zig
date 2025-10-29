@@ -167,7 +167,7 @@ test "Group cancellation" {
 
 fn sleep(io: Io, result: *usize) void {
     // TODO when cancellation race bug is fixed, make this timeout much longer so that
-    // it causes the unit test to be failed if not cancelled.
+    // it causes the unit test to be failed if not canceled.
     io.sleep(.fromMilliseconds(1), .awake) catch {};
     result.* = 1;
 }
