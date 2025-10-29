@@ -1,4 +1,4 @@
-file: std.fs.File,
+file: std.Io.File,
 flags: packed struct {
     block_size: std.mem.Alignment,
     copy_file_range_unsupported: bool,
@@ -24,7 +24,7 @@ pub const Error = std.posix.MMapError || std.posix.MRemapError || std.fs.File.Se
     NoSpaceLeft,
 };
 
-pub fn init(file: std.fs.File, gpa: std.mem.Allocator) !MappedFile {
+pub fn init(file: std.Io.File, gpa: std.mem.Allocator) !MappedFile {
     var mf: MappedFile = .{
         .file = file,
         .flags = undefined,
@@ -386,7 +386,7 @@ pub const Node = extern struct {
 
         fn sendFile(
             interface: *std.Io.Writer,
-            file_reader: *std.fs.File.Reader,
+            file_reader: *std.Io.File.Reader,
             limit: std.Io.Limit,
         ) std.Io.Writer.FileError!usize {
             if (limit == .nothing) return 0;
@@ -397,14 +397,16 @@ pub const Node = extern struct {
             switch (file_reader.mode) {
                 .positional => {
                     const fr_buf = file_reader.interface.buffered();
-                    const buf_copy_size = interface.write(fr_buf) catch unreachable;
-                    file_reader.interface.toss(buf_copy_size);
-                    if (buf_copy_size < fr_buf.len) return buf_copy_size;
-                    assert(file_reader.logicalPos() == file_reader.pos);
+                    if (fr_buf.len > 0) {
+                        const n = interface.write(fr_buf) catch unreachable;
+                        file_reader.interface.toss(n);
+                        return n;
+                    }
 
+                    assert(file_reader.logicalPos() == file_reader.pos);
                     const w: *Writer = @fieldParentPtr("interface", interface);
-                    const copy_size: usize = @intCast(w.mf.copyFileRange(
-                        .adaptFromNewApi(file_reader.file),
+                    const n: usize = @intCast(w.mf.copyFileRange(
+                        file_reader.file,
                         file_reader.pos,
                         w.ni.fileLocation(w.mf, true).offset + interface.end,
                         limit.minInt(interface.unusedCapacityLen()),
@@ -412,8 +414,10 @@ pub const Node = extern struct {
                         w.err = err;
                         return error.WriteFailed;
                     });
-                    interface.end += copy_size;
-                    return copy_size;
+                    if (n == 0) return error.Unimplemented;
+                    file_reader.pos += n;
+                    interface.end += n;
+                    return n;
                 },
                 .streaming,
                 .streaming_reading,
@@ -614,7 +618,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     // Resize the entire file
     if (ni == Node.Index.root) {
         try mf.ensureCapacityForSetLocation(gpa);
-        try mf.file.setEndPos(new_size);
+        try std.fs.File.adaptFromNewApi(mf.file).setEndPos(new_size);
         try mf.ensureTotalCapacity(@intCast(new_size));
         ni.setLocationAssumeCapacity(mf, old_offset, new_size);
         return;
@@ -894,7 +898,7 @@ fn copyRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
 
 fn copyFileRange(
     mf: *MappedFile,
-    old_file: std.fs.File,
+    old_file: std.Io.File,
     old_file_offset: u64,
     new_file_offset: u64,
     size: u64,
