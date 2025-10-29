@@ -1778,10 +1778,8 @@ pub const all_features = blk: {
         .description = "Support ARM v9.6a architecture",
         .dependencies = featureSet(&[_]Feature{
             .cmpbr,
-            .fprcvt,
             .lsui,
             .occmo,
-            .sve2p2,
             .v9_5a,
         }),
     };
