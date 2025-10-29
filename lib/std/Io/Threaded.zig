@@ -26,7 +26,12 @@ threads: std.ArrayListUnmanaged(std.Thread),
 stack_size: usize,
 cpu_count: std.Thread.CpuCountError!usize,
 concurrent_count: usize,
+
 wsa: if (is_windows) Wsa else struct {} = .{},
+
+have_signal_handler: bool,
+old_sig_io: if (have_sig_io) posix.Sigaction else void,
+old_sig_pipe: if (have_sig_pipe) posix.Sigaction else void,
 
 threadlocal var current_closure: ?*Closure = null;
 
@@ -104,23 +109,46 @@ pub fn init(
         .stack_size = std.Thread.SpawnConfig.default_stack_size,
         .cpu_count = std.Thread.getCpuCount(),
         .concurrent_count = 0,
+        .old_sig_io = undefined,
+        .old_sig_pipe = undefined,
+        .have_signal_handler = false,
     };
+
     if (t.cpu_count) |n| {
         t.threads.ensureTotalCapacityPrecise(gpa, n - 1) catch {};
     } else |_| {}
+
+    if (posix.Sigaction != void) {
+        // This causes sending `posix.SIG.IO` to thread to interrupt blocking
+        // syscalls, returning `posix.E.INTR`.
+        const act: posix.Sigaction = .{
+            .handler = .{ .handler = doNothingSignalHandler },
+            .mask = posix.sigemptyset(),
+            .flags = 0,
+        };
+        if (have_sig_io) posix.sigaction(.IO, &act, &t.old_sig_io);
+        if (have_sig_pipe) posix.sigaction(.PIPE, &act, &t.old_sig_pipe);
+        t.have_signal_handler = true;
+    }
+
     return t;
 }
 
 /// Statically initialize such that calls to `Io.VTable.concurrent` will fail
 /// with `error.ConcurrencyUnavailable`.
 ///
-/// When initialized this way, `deinit` is safe, but unnecessary to call.
+/// When initialized this way:
+/// * cancel requests have no effect.
+/// * `deinit` is safe, but unnecessary to call.
 pub const init_single_threaded: Threaded = .{
     .allocator = .failing,
     .threads = .empty,
     .stack_size = std.Thread.SpawnConfig.default_stack_size,
     .cpu_count = 1,
     .concurrent_count = 0,
+    .old_sig_io = undefined,
+    .old_sig_pipe = undefined,
+    .have_signal_handler = false,
 };
 
 pub fn deinit(t: *Threaded) void {
@@ -129,6 +157,10 @@ pub fn deinit(t: *Threaded) void {
     t.threads.deinit(gpa);
     if (is_windows and t.wsa.status == .initialized) {
         if (ws2_32.WSACleanup() != 0) recoverableOsBugDetected();
+    }
+    if (posix.Sigaction != void and t.have_signal_handler) {
+        if (have_sig_io) posix.sigaction(.IO, &t.old_sig_io, null);
+        if (have_sig_pipe) posix.sigaction(.PIPE, &t.old_sig_pipe, null);
     }
     t.* = undefined;
 }
@@ -338,6 +370,8 @@ const have_preadv = switch (native_os) {
     .windows, .haiku, .serenity => false, // 💩💩💩
     else => true,
 };
+const have_sig_io = posix.SIG != void and @hasField(posix.SIG, "IO");
+const have_sig_pipe = posix.SIG != void and @hasField(posix.SIG, "PIPE");
 
 const openat_sym = if (posix.lfs64_abi) posix.system.openat64 else posix.system.openat;
 const fstat_sym = if (posix.lfs64_abi) posix.system.fstat64 else posix.system.fstat;
@@ -6114,6 +6148,8 @@ fn initializeWsa(t: *Threaded) error{NetworkDown}!void {
     }
     return error.NetworkDown;
 }
+
+fn doNothingSignalHandler(_: posix.SIG) callconv(.c) void {}
 
 test {
     _ = @import("Threaded/test.zig");

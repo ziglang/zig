@@ -651,7 +651,6 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
-    maybeIgnoreSignals();
     std.debug.maybeEnableSegfaultHandler();
 
     return callMain();
@@ -756,23 +755,3 @@ pub fn call_wWinMain() std.os.windows.INT {
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
     return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
 }
-
-fn maybeIgnoreSignals() void {
-    const posix = std.posix;
-    if (posix.Sigaction == void) return;
-    const act: posix.Sigaction = .{
-        // Set handler to a noop function instead of `IGN` to prevent
-        // leaking signal disposition to a child process.
-        .handler = .{ .handler = noopSigHandler },
-        .mask = posix.sigemptyset(),
-        .flags = 0,
-    };
-
-    if (@hasField(posix.SIG, "IO") and !std.options.keep_sig_io)
-        posix.sigaction(.IO, &act, null);
-
-    if (@hasField(posix.SIG, "PIPE") and !std.options.keep_sig_pipe)
-        posix.sigaction(.PIPE, &act, null);
-}
-
-fn noopSigHandler(_: std.posix.SIG) callconv(.c) void {}
