@@ -179,9 +179,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.append('-');
 
     try llvm_triple.appendSlice(switch (target.os.tag) {
-        .aix,
-        .zos,
-        => "ibm",
         .driverkit,
         .ios,
         .macos,
@@ -214,10 +211,8 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .openbsd => "openbsd",
         .illumos => "solaris",
         .windows, .uefi => "windows",
-        .zos => "zos",
         .haiku => "haiku",
         .rtems => "rtems",
-        .aix => "aix",
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
@@ -382,13 +377,9 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
             else => "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
         },
         .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
-        .powerpc => if (target.os.tag == .aix)
-            "E-m:a-p:32:32-Fi32-i64:64-n32"
-        else
-            "E-m:e-p:32:32-Fn32-i64:64-n32",
+        .powerpc => "E-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpc64 => switch (target.os.tag) {
-            .aix => "E-m:a-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
             .linux => if (target.abi.isMusl())
                 "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
             else
@@ -425,10 +416,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
             "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
         .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
-        .s390x => if (target.os.tag == .zos)
-            "E-m:l-p1:32:32-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
-        else
-            "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
+        .s390x => "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
         .x86 => if (target.os.tag == .windows or target.os.tag == .uefi) switch (target.abi) {
             .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
             .gnu => if (target.ofmt == .coff)
@@ -517,7 +505,7 @@ fn codeModel(model: std.builtin.CodeModel, target: *const std.Target) CodeModel 
         .extreme, .large => .large,
         .kernel => .kernel,
         .medany => if (target.cpu.arch.isRISCV()) .medium else .large,
-        .medium => if (target.os.tag == .aix) .large else .medium,
+        .medium => .medium,
         .medmid => .medium,
         .normal, .medlow, .small => .small,
         .tiny => .tiny,
@@ -12828,12 +12816,6 @@ fn backendSupportsF128(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/41838
         .sparc,
         => false,
-        // https://github.com/llvm/llvm-project/issues/101545
-        .powerpc,
-        .powerpcle,
-        .powerpc64,
-        .powerpc64le,
-        => target.os.tag != .aix,
         .arm,
         .armeb,
         .thumb,

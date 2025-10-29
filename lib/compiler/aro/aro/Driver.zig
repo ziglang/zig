@@ -810,7 +810,7 @@ pub fn parseArgs(
         if (strip) break :debug .strip;
         if (debug) |explicit| break :debug explicit;
         break :debug switch (d.comp.target.ofmt) {
-            .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
+            .elf, .macho, .wasm => .{ .dwarf = .@"32" },
             .coff => .code_view,
             .c => switch (d.comp.target.os.tag) {
                 .windows, .uefi => .code_view,

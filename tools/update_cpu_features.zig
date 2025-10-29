@@ -1051,6 +1051,28 @@ const targets = [_]ArchTarget{
             .name = "PowerPC",
             .td_name = "PPC",
         },
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "aix",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "aix-shared-lib-tls-model-opt",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "aix-small-local-dynamic-tls",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "aix-small-local-exec-tls",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "modern-aix-as",
+                .omit = true,
+            },
+        },
         .omit_cpus = &.{
             "ppc32",
         },

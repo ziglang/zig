@@ -362,7 +362,6 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
         .haiku,
         .hurd,
         .illumos,
-        .aix,
         .emscripten,
         .ps4,
         .ps5,
@@ -1003,13 +1002,6 @@ fn writeBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefinesMode
             try w.writeAll(
                 \\#define __STDC_NO_THREADS__ 1
                 \\#define __STDC_NO_COMPLEX__ 1
-                \\
-            );
-        },
-        .aix => {
-            try w.writeAll(
-                \\#define __STDC_NO_THREADS__ 1
-                \\#define __STDC_NO_ATOMICS__ 1
                 \\
             );
         },

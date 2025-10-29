@@ -418,7 +418,6 @@ fn create(
         .freestanding, .other => .STANDALONE,
         .netbsd => .NETBSD,
         .illumos => .SOLARIS,
-        .aix => .AIX,
         .freebsd, .ps4 => .FREEBSD,
         .openbsd => .OPENBSD,
         .cuda => .CUDA,

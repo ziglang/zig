@@ -581,7 +581,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
     src/link/Elf2.zig
-    src/link/Goff.zig
     src/link/LdScript.zig
     src/link/Lld.zig
     src/link/MachO.zig
@@ -617,7 +616,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/Wasm/Archive.zig
     src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
-    src/link/Xcoff.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig

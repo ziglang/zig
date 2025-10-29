@@ -348,7 +348,6 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         object_files.items.ptr,
         object_files.items.len,
         switch (target.os.tag) {
-            .aix => .AIXBIG,
             .windows => .COFF,
             else => if (target.os.tag.isDarwin()) .DARWIN else .GNU,
         },

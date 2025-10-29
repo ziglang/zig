@@ -68,7 +68,7 @@ else switch (std.Target.ObjectFormat.default(native_os, native_arch)) {
         else => @import("debug/SelfInfo/Elf.zig"),
     },
     .macho => @import("debug/SelfInfo/MachO.zig"),
-    .goff, .plan9, .spirv, .wasm, .xcoff => void,
+    .plan9, .spirv, .wasm => void,
     .c, .hex, .raw => unreachable,
 };
 

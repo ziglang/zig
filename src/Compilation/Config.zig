@@ -492,7 +492,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (root_strip and !options.any_non_stripped) break :b .strip;
         if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
-            .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
+            .elf, .macho, .wasm => .{ .dwarf = .@"32" },
             .coff => .code_view,
             .c => switch (target.os.tag) {
                 .windows, .uefi => .code_view,

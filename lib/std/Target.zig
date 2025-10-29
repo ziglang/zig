@@ -24,7 +24,6 @@ pub const Os = struct {
         hermit,
         managarm,
 
-        aix,
         haiku,
         hurd,
         illumos,
@@ -32,7 +31,6 @@ pub const Os = struct {
         plan9,
         rtems,
         serenity,
-        zos,
 
         dragonfly,
         freebsd,
@@ -174,9 +172,7 @@ pub const Os = struct {
                 .fuchsia,
                 .hermit,
 
-                .aix,
                 .rtems,
-                .zos,
 
                 .dragonfly,
                 .freebsd,
@@ -418,12 +414,6 @@ pub const Os = struct {
                     },
                 },
 
-                .aix => .{
-                    .semver = .{
-                        .min = .{ .major = 7, .minor = 2, .patch = 5 },
-                        .max = .{ .major = 7, .minor = 3, .patch = 3 },
-                    },
-                },
                 .hurd => .{
                     .hurd = .{
                         .range = .{
@@ -492,12 +482,6 @@ pub const Os = struct {
                     .semver = .{
                         .min = .{ .major = 5, .minor = 1, .patch = 0 },
                         .max = .{ .major = 6, .minor = 1, .patch = 0 },
-                    },
-                },
-                .zos => .{
-                    .semver = .{
-                        .min = .{ .major = 2, .minor = 5, .patch = 0 },
-                        .max = .{ .major = 3, .minor = 1, .patch = 0 },
                     },
                 },
 
@@ -825,7 +809,6 @@ pub const Abi = enum {
                 => .eabi,
                 else => .none,
             },
-            .aix => if (arch == .powerpc) .eabihf else .none,
             .haiku => switch (arch) {
                 .arm,
                 .powerpc,
@@ -917,7 +900,6 @@ pub const Abi = enum {
             .managarm,
             .plan9,
             .serenity,
-            .zos,
             .dragonfly,
             .driverkit,
             .macos,
@@ -1006,8 +988,6 @@ pub const ObjectFormat = enum {
     coff,
     /// The Executable and Linkable Format used by many Unixes.
     elf,
-    /// The Generalized Object File Format used by z/OS.
-    goff,
     /// The Intel HEX format for storing binary code in ASCII text.
     hex,
     /// The Mach object format used by macOS and other Apple platforms.
@@ -1020,8 +1000,6 @@ pub const ObjectFormat = enum {
     spirv,
     /// The WebAssembly binary format.
     wasm,
-    /// The eXtended Common Object File Format used by AIX.
-    xcoff,
 
     // LLVM tags deliberately omitted:
     // - dxcontainer
@@ -1030,7 +1008,7 @@ pub const ObjectFormat = enum {
         return switch (of) {
             .c => ".c",
             .coff => ".obj",
-            .elf, .goff, .macho, .wasm, .xcoff => ".o",
+            .elf, .macho, .wasm => ".o",
             .hex => ".ihex",
             .plan9 => arch.plan9Ext(),
             .raw => ".bin",
@@ -1040,11 +1018,9 @@ pub const ObjectFormat = enum {
 
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
-            .aix => .xcoff,
             .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
-            .zos => .goff,
             else => switch (arch) {
                 .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
@@ -2030,10 +2006,7 @@ pub const Cpu = struct {
                 .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
                 .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
                 // gcc/clang do not have a generic s390x model.
-                .s390x => switch (os.tag) {
-                    .zos => &s390x.cpu.arch10,
-                    else => &s390x.cpu.arch8,
-                },
+                .s390x => &s390x.cpu.arch8,
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
@@ -2162,7 +2135,6 @@ pub inline fn isWasiLibC(target: *const Target) bool {
 /// syscall interface, for example.
 pub fn requiresLibC(target: *const Target) bool {
     return switch (target.os.tag) {
-        .aix,
         .illumos,
         .driverkit,
         .macos,
@@ -2189,7 +2161,6 @@ pub fn requiresLibC(target: *const Target) bool {
         .fuchsia,
         .managarm,
         .ps3,
-        .zos,
         .rtems,
         .cuda,
         .nvcl,
@@ -2347,10 +2318,8 @@ pub const DynamicLinker = struct {
             .hermit,
             .managarm, // Needs to be double-checked.
 
-            .aix,
             .plan9,
             .rtems,
-            .zos,
 
             .uefi,
             .windows,
@@ -2759,10 +2728,8 @@ pub const DynamicLinker = struct {
             .contiki,
             .hermit,
 
-            .aix,
             .plan9,
             .rtems,
-            .zos,
 
             .uefi,
             .windows,
@@ -2916,7 +2883,7 @@ pub fn stackAlignment(target: *const Target) u16 {
         // can't handle that level of nuance yet.
         .powerpc64,
         .powerpc64le,
-        => if (target.os.tag == .linux or target.os.tag == .aix) return 16,
+        => if (target.os.tag == .linux) return 16,
         .riscv32,
         .riscv32be,
         .riscv64,
@@ -3112,7 +3079,6 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .fuchsia,
         .hermit,
 
-        .aix,
         .haiku,
         .hurd,
         .illumos,
@@ -3120,7 +3086,6 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .plan9,
         .rtems,
         .serenity,
-        .zos,
 
         .freebsd,
         .dragonfly,
@@ -3175,7 +3140,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                         .muslx32,
                         => return 64,
                         else => switch (target.os.tag) {
-                            .aix, .freebsd, .netbsd, .openbsd => return 64,
+                            .freebsd, .netbsd, .openbsd => return 64,
                             else => return 128,
                         },
                     },
@@ -3191,7 +3156,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                         .muslx32,
                         => return 64,
                         else => switch (target.os.tag) {
-                            .aix, .freebsd, .openbsd => return 64,
+                            .freebsd, .openbsd => return 64,
                             else => return 128,
                         },
                     },
@@ -3359,13 +3324,6 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
         },
         .m68k => switch (c_type) {
             .int, .uint, .long, .ulong => return 2,
-            else => {},
-        },
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
-            .aix => switch (c_type) {
-                .double, .longdouble => return 4,
-                else => {},
-            },
             else => {},
         },
         .wasm32, .wasm64 => switch (target.os.tag) {
@@ -3666,10 +3624,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         else
             .{ .powerpc64_elf = .{} },
         .powerpc64le => .{ .powerpc64_elf_v2 = .{} },
-        .powerpc, .powerpcle => switch (target.os.tag) {
-            .aix => .{ .powerpc_aix = .{} },
-            else => .{ .powerpc_sysv = .{} },
-        },
+        .powerpc, .powerpcle => .{ .powerpc_sysv = .{} },
         .wasm32, .wasm64 => .{ .wasm_mvp = .{} },
         .arc, .arceb => .{ .arc_sysv = .{} },
         .avr => .avr_gnu,
