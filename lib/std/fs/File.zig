@@ -564,8 +564,14 @@ pub fn stat(self: File) StatError!Stat {
         const rc = linux.statx(
             self.handle,
             "",
-            linux.AT.EMPTY_PATH,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            .{ .empty_path = true },
+            .{
+                .type = true,
+                .mode = true,
+                .atime = true,
+                .mtime = true,
+                .ctime = true,
+            },
             &stx,
         );
 
