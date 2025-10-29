@@ -12,8 +12,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:18: error: expected type 'tmp.A(u32)', found 'tmp.B(u32)'
 // :5:12: note: struct declared here

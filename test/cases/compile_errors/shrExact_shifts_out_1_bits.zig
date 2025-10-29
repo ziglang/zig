@@ -4,7 +4,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: exact right shift shifted out 1 bits

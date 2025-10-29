@@ -172,7 +172,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             // a new buffer and doing our own copy. With a realloc() call,
             // the allocator implementation would pointlessly copy our
             // extra capacity.
-            const new_capacity = Aligned(T, alignment).growCapacity(self.capacity, new_len);
+            const new_capacity = Aligned(T, alignment).growCapacity(new_len);
             const old_memory = self.allocatedSlice();
             if (self.allocator.remap(old_memory, new_capacity)) |new_memory| {
                 self.items.ptr = new_memory.ptr;
@@ -277,14 +277,13 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// The empty slot is filled from the end of the list.
         /// This operation is O(1).
         /// This may not preserve item order. Use `orderedRemove` if you need to preserve order.
-        /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.items.len - 1 == i) return self.pop().?;
-
-            const old_item = self.items[i];
-            self.items[i] = self.pop().?;
-            return old_item;
+            const val = self.items[i];
+            self.items[i] = self.items[self.items.len - 1];
+            self.items[self.items.len - 1] = undefined;
+            self.items.len -= 1;
+            return val;
         }
 
         /// Append the slice of items to the list. Allocates more
@@ -334,39 +333,6 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             var unmanaged = self.moveToUnmanaged();
             defer self.* = unmanaged.toManaged(gpa);
             try unmanaged.print(gpa, fmt, args);
-        }
-
-        pub const Writer = if (T != u8) void else std.io.GenericWriter(*Self, Allocator.Error, appendWrite);
-
-        /// Initializes a Writer which will append to the list.
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.GenericWriter` API.
-        /// Invalidates element pointers if additional memory is needed.
-        fn appendWrite(self: *Self, m: []const u8) Allocator.Error!usize {
-            try self.appendSlice(m);
-            return m.len;
-        }
-
-        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
-
-        /// Initializes a Writer which will append to the list but will return
-        /// `error.OutOfMemory` rather than increasing capacity.
-        pub fn fixedWriter(self: *Self) FixedWriter {
-            return .{ .context = self };
-        }
-
-        /// The purpose of this function existing is to match `std.io.GenericWriter` API.
-        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
-            const available_capacity = self.capacity - self.items.len;
-            if (m.len > available_capacity)
-                return error.OutOfMemory;
-
-            self.appendSliceAssumeCapacity(m);
-            return m.len;
         }
 
         /// Append a value to the list `n` times.
@@ -438,9 +404,10 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
                 return;
             }
 
+            // Protects growing unnecessarily since better_capacity will be larger.
             if (self.capacity >= new_capacity) return;
 
-            const better_capacity = Aligned(T, alignment).growCapacity(self.capacity, new_capacity);
+            const better_capacity = Aligned(T, alignment).growCapacity(new_capacity);
             return self.ensureTotalCapacityPrecise(better_capacity);
         }
 
@@ -554,6 +521,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
             const val = self.items[self.items.len - 1];
+            self.items[self.items.len - 1] = undefined;
             self.items.len -= 1;
             return val;
         }
@@ -576,8 +544,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// Returns the last element from the list.
         /// Asserts that the list is not empty.
         pub fn getLast(self: Self) T {
-            const val = self.items[self.items.len - 1];
-            return val;
+            return self.items[self.items.len - 1];
         }
 
         /// Returns the last element from the list, or `null` if list is empty.
@@ -697,9 +664,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSliceSentinel(self: *Self, gpa: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
-            // This addition can never overflow because `self.items` can never occupy the whole address space
+            // This addition can never overflow because `self.items` can never occupy the whole address space.
             try self.ensureTotalCapacityPrecise(gpa, self.items.len + 1);
             self.appendAssumeCapacity(sentinel);
+            errdefer self.items.len -= 1;
             const result = try self.toOwnedSlice(gpa);
             return result[0 .. result.len - 1 :sentinel];
         }
@@ -825,6 +793,35 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
                 index,
                 items.len,
             );
+            @memcpy(dst, items);
+        }
+
+        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// This operation is O(N).
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// Asserts that the list has capacity for the additional items.
+        /// Asserts that the index is in bounds or equal to the length.
+        pub fn insertSliceAssumeCapacity(
+            self: *Self,
+            index: usize,
+            items: []const T,
+        ) void {
+            const dst = self.addManyAtAssumeCapacity(index, items.len);
+            @memcpy(dst, items);
+        }
+
+        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// This operation is O(N).
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// If the list lacks unused capacity for the additional items, returns
+        /// `error.OutOfMemory`.
+        /// Asserts that the index is in bounds or equal to the length.
+        pub fn insertSliceBounded(
+            self: *Self,
+            index: usize,
+            items: []const T,
+        ) error{OutOfMemory}!void {
+            const dst = try self.addManyAtBounded(index, items.len);
             @memcpy(dst, items);
         }
 
@@ -958,14 +955,13 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// The empty slot is filled from the end of the list.
         /// Invalidates pointers to last element.
         /// This operation is O(1).
-        /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.items.len - 1 == i) return self.pop().?;
-
-            const old_item = self.items[i];
-            self.items[i] = self.pop().?;
-            return old_item;
+            const val = self.items[i];
+            self.items[i] = self.items[self.items.len - 1];
+            self.items[self.items.len - 1] = undefined;
+            self.items.len -= 1;
+            return val;
         }
 
         /// Append the slice of items to the list. Allocates more
@@ -1033,7 +1029,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
             try self.ensureUnusedCapacity(gpa, fmt.len);
-            var aw: std.io.Writer.Allocating = .fromArrayList(gpa, self);
+            var aw: std.Io.Writer.Allocating = .fromArrayList(gpa, self);
             defer self.* = aw.toArrayList();
             return aw.writer.print(fmt, args) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
@@ -1042,58 +1038,16 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         pub fn printAssumeCapacity(self: *Self, comptime fmt: []const u8, args: anytype) void {
             comptime assert(T == u8);
-            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
             w.print(fmt, args) catch unreachable;
             self.items.len += w.end;
         }
 
         pub fn printBounded(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
-            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
             w.print(fmt, args) catch return error.OutOfMemory;
             self.items.len += w.end;
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub const WriterContext = struct {
-            self: *Self,
-            allocator: Allocator,
-        };
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
-                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
-        else
-            std.io.GenericWriter(WriterContext, Allocator.Error, appendWrite);
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub fn writer(self: *Self, gpa: Allocator) Writer {
-            return .{ .context = .{ .self = self, .allocator = gpa } };
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
-            try context.self.appendSlice(context.allocator, m);
-            return m.len;
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub fn fixedWriter(self: *Self) FixedWriter {
-            return .{ .context = self };
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
-            const available_capacity = self.capacity - self.items.len;
-            if (m.len > available_capacity)
-                return error.OutOfMemory;
-
-            self.appendSliceAssumeCapacity(m);
-            return m.len;
         }
 
         /// Append a value to the list `n` times.
@@ -1204,7 +1158,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.ensureTotalCapacityPrecise(gpa, growCapacity(self.capacity, new_capacity));
+            return self.ensureTotalCapacityPrecise(gpa, growCapacity(new_capacity));
         }
 
         /// If the current capacity is less than `new_capacity`, this function will
@@ -1371,6 +1325,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
             const val = self.items[self.items.len - 1];
+            self.items[self.items.len - 1] = undefined;
             self.items.len -= 1;
             return val;
         }
@@ -1392,8 +1347,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Return the last element from the list.
         /// Asserts that the list is not empty.
         pub fn getLast(self: Self) T {
-            const val = self.items[self.items.len - 1];
-            return val;
+            return self.items[self.items.len - 1];
         }
 
         /// Return the last element from the list, or
@@ -1403,17 +1357,12 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return self.getLast();
         }
 
-        const init_capacity = @as(comptime_int, @max(1, std.atomic.cache_line / @sizeOf(T)));
+        const init_capacity: comptime_int = @max(1, std.atomic.cache_line / @sizeOf(T));
 
         /// Called when memory growth is necessary. Returns a capacity larger than
         /// minimum that grows super-linearly.
-        fn growCapacity(current: usize, minimum: usize) usize {
-            var new = current;
-            while (true) {
-                new +|= new / 2 + init_capacity;
-                if (new >= minimum)
-                    return new;
-            }
+        pub fn growCapacity(minimum: usize) usize {
+            return minimum +| (minimum / 2 + init_capacity);
         }
     };
 }
@@ -2087,60 +2036,6 @@ test "Managed(T) of struct T" {
     }
 }
 
-test "Managed(u8) implements writer" {
-    const a = testing.allocator;
-
-    {
-        var buffer = Managed(u8).init(a);
-        defer buffer.deinit();
-
-        const x: i32 = 42;
-        const y: i32 = 1234;
-        try buffer.writer().print("x: {}\ny: {}\n", .{ x, y });
-
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
-    }
-    {
-        var list = AlignedManaged(u8, .@"2").init(a);
-        defer list.deinit();
-
-        const writer = list.writer();
-        try writer.writeAll("a");
-        try writer.writeAll("bc");
-        try writer.writeAll("d");
-        try writer.writeAll("efg");
-
-        try testing.expectEqualSlices(u8, list.items, "abcdefg");
-    }
-}
-
-test "ArrayList(u8) implements writer" {
-    const a = testing.allocator;
-
-    {
-        var buffer: ArrayList(u8) = .empty;
-        defer buffer.deinit(a);
-
-        const x: i32 = 42;
-        const y: i32 = 1234;
-        try buffer.writer(a).print("x: {}\ny: {}\n", .{ x, y });
-
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
-    }
-    {
-        var list: Aligned(u8, .@"2") = .empty;
-        defer list.deinit(a);
-
-        const writer = list.writer(a);
-        try writer.writeAll("a");
-        try writer.writeAll("bc");
-        try writer.writeAll("d");
-        try writer.writeAll("efg");
-
-        try testing.expectEqualSlices(u8, list.items, "abcdefg");
-    }
-}
-
 test "shrink still sets length when resizing is disabled" {
     var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .resize_fail_index = 0 });
     const a = failing_allocator.allocator();
@@ -2461,4 +2356,23 @@ test "orderedRemoveMany" {
 
     list.orderedRemoveMany(&.{0});
     try testing.expectEqualSlices(usize, &.{}, list.items);
+}
+
+test "insertSlice*" {
+    var buf: [10]u8 = undefined;
+    var list: ArrayList(u8) = .initBuffer(&buf);
+
+    list.appendSliceAssumeCapacity("abcd");
+
+    list.insertSliceAssumeCapacity(2, "ef");
+    try testing.expectEqualStrings("abefcd", list.items);
+
+    try list.insertSliceBounded(4, "gh");
+    try testing.expectEqualStrings("abefghcd", list.items);
+
+    try testing.expectError(error.OutOfMemory, list.insertSliceBounded(6, "ijkl"));
+    try testing.expectEqualStrings("abefghcd", list.items); // ensure no elements were changed before the return of error.OutOfMemory
+
+    list.insertSliceAssumeCapacity(6, "ij");
+    try testing.expectEqualStrings("abefghijcd", list.items);
 }

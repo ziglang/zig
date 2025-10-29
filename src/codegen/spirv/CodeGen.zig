@@ -254,13 +254,7 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             try cg.module.debugName(func_result_id, nav.fqn.toSlice(ip));
         },
         .global => {
-            const maybe_init_val: ?Value = switch (ip.indexToKey(val.toIntern())) {
-                .func => unreachable,
-                .variable => |variable| .fromInterned(variable.init),
-                .@"extern" => null,
-                else => val,
-            };
-            assert(maybe_init_val == null); // TODO
+            assert(ip.indexToKey(val.toIntern()) == .@"extern");
 
             const storage_class = cg.module.storageClass(nav.getAddrspace());
             assert(storage_class != .generic); // These should be instance globals
@@ -273,13 +267,6 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                 .id_result = result_id,
                 .storage_class = storage_class,
             });
-
-            if (nav.getAlignment() != ty.abiAlignment(zcu)) {
-                if (target.os.tag != .opencl) return cg.fail("cannot apply alignment to variables", .{});
-                try cg.module.decorate(result_id, .{
-                    .alignment = .{ .alignment = @intCast(nav.getAlignment().toByteUnits().?) },
-                });
-            }
 
             switch (target.os.tag) {
                 .vulkan, .opengl => {
@@ -1224,7 +1211,7 @@ fn constantNavRef(cg: *CodeGen, ty: Type, nav_index: InternPool.Nav.Index) !Id {
 // Turn a Zig type's name into a cache reference.
 fn resolveTypeName(cg: *CodeGen, ty: Type) ![]const u8 {
     const gpa = cg.module.gpa;
-    var aw: std.io.Writer.Allocating = .init(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     ty.print(&aw.writer, cg.pt) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
@@ -6158,7 +6145,7 @@ fn airWorkGroupSize(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     if (cg.liveness.isUnused(inst)) return null;
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const dimension = pl_op.payload;
-    return try cg.builtin3D(.u32, .workgroup_id, dimension, 0);
+    return try cg.builtin3D(.u32, .workgroup_size, dimension, 0);
 }
 
 fn airWorkGroupId(cg: *CodeGen, inst: Air.Inst.Index) !?Id {

@@ -329,6 +329,7 @@ pub const Reader = struct {
     /// read from `in`.
     trailers: []const u8 = &.{},
     body_err: ?BodyError = null,
+    max_head_len: usize,
 
     pub const RemainingChunkLen = enum(u64) {
         head = 0,
@@ -387,10 +388,11 @@ pub const Reader = struct {
     pub fn receiveHead(reader: *Reader) HeadError![]const u8 {
         reader.trailers = &.{};
         const in = reader.in;
+        const max_head_len = reader.max_head_len;
         var hp: HeadParser = .{};
         var head_len: usize = 0;
         while (true) {
-            if (in.buffer.len - head_len == 0) return error.HttpHeadersOversize;
+            if (head_len >= max_head_len) return error.HttpHeadersOversize;
             const remaining = in.buffered()[head_len..];
             if (remaining.len == 0) {
                 in.fillMore() catch |err| switch (err) {
@@ -758,22 +760,14 @@ pub const BodyWriter = struct {
         /// As a debugging utility, counts down to zero as bytes are written.
         content_length: u64,
         /// Each chunk is wrapped in a header and trailer.
-        chunked: Chunked,
+        /// This length is the the number of bytes to be written before the
+        /// next header. This includes +2 for the `\r\n` trailer and is zero
+        /// for the beginning of the stream.
+        chunk_len: usize,
         /// Cleanly finished stream; connection can be reused.
         end,
 
-        pub const Chunked = union(enum) {
-            /// Index to the start of the hex-encoded chunk length in the chunk
-            /// header within the buffer of `BodyWriter.http_protocol_output`.
-            /// Buffered chunk data starts here plus length of `chunk_header_template`.
-            offset: usize,
-            /// We are in the middle of a chunk and this is how many bytes are
-            /// left until the next header. This includes +2 for "\r"\n", and
-            /// is zero for the beginning of the stream.
-            chunk_len: usize,
-
-            pub const init: Chunked = .{ .chunk_len = 0 };
-        };
+        pub const init_chunked: State = .{ .chunk_len = 0 };
     };
 
     pub fn isEliding(w: *const BodyWriter) bool {
@@ -784,21 +778,7 @@ pub const BodyWriter = struct {
     pub fn flush(w: *BodyWriter) Error!void {
         const out = w.http_protocol_output;
         switch (w.state) {
-            .end, .none, .content_length => return out.flush(),
-            .chunked => |*chunked| switch (chunked.*) {
-                .offset => |offset| {
-                    const chunk_len = out.end - offset - chunk_header_template.len;
-                    if (chunk_len > 0) {
-                        writeHex(out.buffer[offset..][0..chunk_len_digits], chunk_len);
-                        chunked.* = .{ .chunk_len = 2 };
-                    } else {
-                        out.end = offset;
-                        chunked.* = .{ .chunk_len = 0 };
-                    }
-                    try out.flush();
-                },
-                .chunk_len => return out.flush(),
-            },
+            .end, .none, .content_length, .chunk_len => return out.flush(),
         }
     }
 
@@ -841,7 +821,7 @@ pub const BodyWriter = struct {
                 w.state = .end;
             },
             .none => {},
-            .chunked => return endChunkedUnflushed(w, .{}),
+            .chunk_len => return endChunkedUnflushed(w, .{}),
         }
     }
 
@@ -877,24 +857,16 @@ pub const BodyWriter = struct {
     /// * `endUnflushed`
     /// * `end`
     pub fn endChunkedUnflushed(w: *BodyWriter, options: EndChunkedOptions) Error!void {
-        const chunked = &w.state.chunked;
         if (w.isEliding()) {
             w.state = .end;
             return;
         }
         const bw = w.http_protocol_output;
-        switch (chunked.*) {
-            .offset => |offset| {
-                const chunk_len = bw.end - offset - chunk_header_template.len;
-                writeHex(bw.buffer[offset..][0..chunk_len_digits], chunk_len);
-                try bw.writeAll("\r\n");
-            },
-            .chunk_len => |chunk_len| switch (chunk_len) {
-                0 => {},
-                1 => try bw.writeByte('\n'),
-                2 => try bw.writeAll("\r\n"),
-                else => unreachable, // An earlier write call indicated more data would follow.
-            },
+        switch (w.state.chunk_len) {
+            0 => {},
+            1 => unreachable, // Wrote more data than specified in chunk header.
+            2 => try bw.writeAll("\r\n"),
+            else => unreachable, // An earlier write call indicated more data would follow.
         }
         try bw.writeAll("0\r\n");
         for (options.trailers) |trailer| {
@@ -991,41 +963,30 @@ pub const BodyWriter = struct {
             return error.Unimplemented;
         };
         const out = bw.http_protocol_output;
-        const chunked = &bw.state.chunked;
-        state: switch (chunked.*) {
-            .offset => |off| {
-                // TODO: is it better perf to read small files into the buffer?
-                const buffered_len = out.end - off - chunk_header_template.len;
-                const chunk_len = data_len + buffered_len;
-                writeHex(out.buffer[off..][0..chunk_len_digits], chunk_len);
-                const n = try out.sendFileHeader(w.buffered(), file_reader, limit);
-                chunked.* = .{ .chunk_len = data_len + 2 - n };
-                return w.consume(n);
+        l: switch (bw.state.chunk_len) {
+            0 => {
+                const header_buf = try out.writableArray(chunk_header_template.len);
+                @memcpy(header_buf, chunk_header_template);
+                writeHex(header_buf[0..chunk_len_digits], data_len);
+                bw.state.chunk_len = data_len + 2;
+                continue :l bw.state.chunk_len;
             },
-            .chunk_len => |chunk_len| l: switch (chunk_len) {
-                0 => {
-                    const off = out.end;
-                    const header_buf = try out.writableArray(chunk_header_template.len);
-                    @memcpy(header_buf, chunk_header_template);
-                    chunked.* = .{ .offset = off };
-                    continue :state .{ .offset = off };
-                },
-                1 => {
-                    try out.writeByte('\n');
-                    chunked.chunk_len = 0;
-                    continue :l 0;
-                },
-                2 => {
-                    try out.writeByte('\r');
-                    chunked.chunk_len = 1;
-                    continue :l 1;
-                },
-                else => {
-                    const new_limit = limit.min(.limited(chunk_len - 2));
-                    const n = try out.sendFileHeader(w.buffered(), file_reader, new_limit);
-                    chunked.chunk_len = chunk_len - n;
-                    return w.consume(n);
-                },
+            1 => unreachable, // Wrote more data than specified in chunk header.
+            2 => {
+                try out.writeAll("\r\n");
+                bw.state.chunk_len = 0;
+                assert(file_reader.atEnd());
+                return error.EndOfStream;
+            },
+            else => {
+                const chunk_limit: std.Io.Limit = .limited(bw.state.chunk_len - 2);
+                const n = if (chunk_limit.subtract(w.buffered().len)) |sendfile_limit|
+                    try out.sendFileHeader(w.buffered(), file_reader, sendfile_limit.min(limit))
+                else
+                    try out.write(chunk_limit.slice(w.buffered()));
+                bw.state.chunk_len -= n;
+                const ret = w.consume(n);
+                return ret;
             },
         }
     }
@@ -1035,42 +996,24 @@ pub const BodyWriter = struct {
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
         const data_len = w.end + Writer.countSplat(data, splat);
-        const chunked = &bw.state.chunked;
-        state: switch (chunked.*) {
-            .offset => |offset| {
-                if (out.unusedCapacityLen() >= data_len) {
-                    return w.consume(out.writeSplatHeader(w.buffered(), data, splat) catch unreachable);
-                }
-                const buffered_len = out.end - offset - chunk_header_template.len;
-                const chunk_len = data_len + buffered_len;
-                writeHex(out.buffer[offset..][0..chunk_len_digits], chunk_len);
-                const n = try out.writeSplatHeader(w.buffered(), data, splat);
-                chunked.* = .{ .chunk_len = data_len + 2 - n };
-                return w.consume(n);
+        l: switch (bw.state.chunk_len) {
+            0 => {
+                const header_buf = try out.writableArray(chunk_header_template.len);
+                @memcpy(header_buf, chunk_header_template);
+                writeHex(header_buf[0..chunk_len_digits], data_len);
+                bw.state.chunk_len = data_len + 2;
+                continue :l bw.state.chunk_len;
             },
-            .chunk_len => |chunk_len| l: switch (chunk_len) {
-                0 => {
-                    const offset = out.end;
-                    const header_buf = try out.writableArray(chunk_header_template.len);
-                    @memcpy(header_buf, chunk_header_template);
-                    chunked.* = .{ .offset = offset };
-                    continue :state .{ .offset = offset };
-                },
-                1 => {
-                    try out.writeByte('\n');
-                    chunked.chunk_len = 0;
-                    continue :l 0;
-                },
-                2 => {
-                    try out.writeByte('\r');
-                    chunked.chunk_len = 1;
-                    continue :l 1;
-                },
-                else => {
-                    const n = try out.writeSplatHeaderLimit(w.buffered(), data, splat, .limited(chunk_len - 2));
-                    chunked.chunk_len = chunk_len - n;
-                    return w.consume(n);
-                },
+            1 => unreachable, // Wrote more data than specified in chunk header.
+            2 => {
+                try out.writeAll("\r\n");
+                bw.state.chunk_len = 0;
+                continue :l 0;
+            },
+            else => {
+                const n = try out.writeSplatHeaderLimit(w.buffered(), data, splat, .limited(bw.state.chunk_len - 2));
+                bw.state.chunk_len -= n;
+                return w.consume(n);
             },
         }
     }

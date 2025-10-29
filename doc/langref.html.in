@@ -317,6 +317,7 @@
           <a href="https://ziglang.org/documentation/0.12.0/">0.12.0</a> |
           <a href="https://ziglang.org/documentation/0.13.0/">0.13.0</a> |
           <a href="https://ziglang.org/documentation/0.14.1/">0.14.1</a> |
+          <a href="https://ziglang.org/documentation/0.15.2/">0.15.2</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -1968,6 +1969,14 @@ or
       </p>
       {#see_also|@splat|@shuffle|@select|@reduce#}
 
+      {#header_open|Relationship with Arrays#}
+      <p>Vectors and {#link|Arrays#} each have a well-defined <strong>bit layout</strong>
+      and therefore support {#link|@bitCast#} between each other. {#link|Type Coercion#} implicitly peforms
+      {#syntax#}@bitCast{#endsyntax#}.</p>
+      <p>Arrays have well-defined byte layout, but vectors do not, making {#link|@ptrCast#} between
+      them {#link|Illegal Behavior#}.</p>
+      {#header_close#}
+
       {#header_open|Destructuring Vectors#}
       <p>
         Vectors can be destructured:
@@ -2470,6 +2479,13 @@ or
       {#code|test_union_method.zig#}
 
       <p>
+      Unions with inferred enum tag types can also assign ordinal values to their inferred tag.
+      This requires the tag to specify an explicit integer type.
+      {#link|@intFromEnum#} can be used to access the ordinal value corresponding to the active field.
+      </p>
+      {#code|test_tagged_union_with_tag_values.zig#}
+
+      <p>
       {#link|@tagName#} can be used to return a {#link|comptime#}
       {#syntax#}[:0]const u8{#endsyntax#} value representing the field name:
       </p>
@@ -2488,6 +2504,7 @@ or
       {#header_open|packed union#}
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
           to be in a {#link|packed struct#}.</p>
+      <p>All fields in a packed union must have the same {#link|@bitSizeOf#}.</p>
       {#header_close#}
 
       {#header_open|Anonymous Union Literals#}
@@ -3008,7 +3025,7 @@ or
       {#syntax#}catch{#endsyntax#} after performing some logic, you
       can combine {#syntax#}catch{#endsyntax#} with named {#link|Blocks#}:
       </p>
-      {#code|handle_error_with_catch_block.zig.zig#}
+      {#code|handle_error_with_catch_block.zig#}
 
       {#header_close#}
       {#header_open|try#}
@@ -4880,8 +4897,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@fieldParentPtr#}
       <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
-      Given a pointer to a struct field, returns a pointer to the struct containing that field.
-      The return type (and struct in question) is the inferred result type.
+      Given a pointer to a struct or union field, returns a pointer to the struct or union containing that field.
+      The return type (pointer to the parent struct or union in question) is the inferred result type.
       </p>
       <p>
       If {#syntax#}field_ptr{#endsyntax#} does not point to the {#syntax#}field_name{#endsyntax#} field of an instance of
@@ -6270,10 +6287,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>
-              Need to use the same allocator in multiple threads? Use one of your choice
-              wrapped around {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}
-          </li>
-          <li>
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}.
           </li>
@@ -6282,7 +6295,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
               cyclical pattern (such as a video game main loop, or a web server request handler),
               such that it would make sense to free everything at once at the end?
               In this case, it is recommended to follow this pattern:
-      {#code|cli_allocation.zig#}
+              {#code|cli_allocation.zig#}
 
               When using this kind of allocator, there is no need to free anything manually. Everything
               gets freed at once with the call to {#syntax#}arena.deinit(){#endsyntax#}.
@@ -6305,14 +6318,18 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           </li>
           <li>
               Finally, if none of the above apply, you need a general purpose allocator.
-              Zig's general purpose allocator is available as a function that takes a {#link|comptime#}
-              {#link|struct#} of configuration options and returns a type.
-              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#} in
-              your main function, and then pass it or sub-allocators around to various parts of your
+              If you are in Debug mode, {#syntax#}std.heap.DebugAllocator{#endsyntax#} is available as a
+              function that takes a {#link|comptime#} {#link|struct#} of configuration options and returns a type.
+              Generally, you will set up exactly one in your main function, and
+              then pass it or sub-allocators around to various parts of your
               application.
           </li>
           <li>
-              You can also consider {#link|Implementing an Allocator#}.
+              If you are compiling in ReleaseFast mode, {#syntax#}std.heap.smp_allocator{#endsyntax#} is
+              a solid choice for a general purpose allocator.
+          </li>
+          <li>
+              You can also consider implementing an allocator.
           </li>
       </ol>
       {#header_close#}
@@ -6345,17 +6362,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}allocator.create{#endsyntax#} is determined by the allocator's implementation.
       </p>
       <p>TODO: thread local variables</p>
-      {#header_close#}
-
-      {#header_open|Implementing an Allocator#}
-      <p>Zig programmers can implement their own allocators by fulfilling the Allocator interface.
-      In order to do this one must read carefully the documentation comments in std/mem.zig and
-      then supply a {#syntax#}allocFn{#endsyntax#} and a {#syntax#}resizeFn{#endsyntax#}.
-      </p>
-      <p>
-      There are many example allocators to look at for inspiration. Look at std/heap.zig and
-      {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}.
-      </p>
       {#header_close#}
 
       {#header_open|Heap Allocation Failure#}
@@ -7796,11 +7802,11 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Grammar#}
-      {#syntax_block|peg|grammar.y#}
-Root <- skip container_doc_comment? ContainerMembers eof
+      {#syntax_block|peg|grammar.peg#}
+Root <- skip ContainerMembers eof
 
 # *** Top level ***
-ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
+ContainerMembers <- container_doc_comment? ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 
 ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 
@@ -7829,7 +7835,6 @@ Statement
      / KEYWORD_errdefer Payload? BlockExprStatement
      / IfStatement
      / LabeledStatement
-     / SwitchExpr
      / VarDeclExprStatement
 
 ComptimeStatement
@@ -7840,7 +7845,7 @@ IfStatement
     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
      / IfPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
 
-LabeledStatement <- BlockLabel? (Block / LoopStatement)
+LabeledStatement <- BlockLabel? (Block / LoopStatement / SwitchExpr)
 
 LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
 
@@ -7894,7 +7899,7 @@ PrimaryExpr
      / KEYWORD_break BreakLabel? Expr?
      / KEYWORD_comptime Expr
      / KEYWORD_nosuspend Expr
-     / KEYWORD_continue BreakLabel?
+     / KEYWORD_continue BreakLabel? Expr?
      / KEYWORD_resume Expr
      / KEYWORD_return Expr?
      / BlockLabel? LoopExpr
@@ -7944,7 +7949,6 @@ PrimaryTypeExpr
      / KEYWORD_anyframe
      / KEYWORD_unreachable
      / STRINGLITERAL
-     / SwitchExpr
 
 ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
 
@@ -7957,6 +7961,7 @@ IfTypeExpr <- IfPrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
 LabeledTypeExpr
     <- BlockLabel Block
      / BlockLabel? LoopTypeExpr
+     / BlockLabel? SwitchExpr
 
 LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
 
@@ -8126,7 +8131,7 @@ PtrTypeStart
 ArrayTypeStart <- LBRACKET Expr (COLON Expr)? RBRACKET
 
 # ContainerDecl specific
-ContainerDeclAuto <- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
+ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
 
 ContainerDeclType
     <- KEYWORD_struct (LPAREN Expr RPAREN)?
@@ -8145,8 +8150,6 @@ SwitchProngList <- (SwitchProng COMMA)* SwitchProng?
 AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
 
 AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
-
-StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
 
 ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
 
@@ -8194,7 +8197,7 @@ oxC2_oxDF <- [\302-\337]
 # [0xF1,0xF3]     [0x80,0xBF]     [0x80,0xBF]     [0x80,0xBF]
 #    0xF4         [0x80,0x8F]     [0x80,0xBF]     [0x80,0xBF]
 
-mb_utf8_literal <-
+multibyte_utf8 <-
        oxF4      ox80_ox8F ox80_oxBF ox80_oxBF
      / oxF1_oxF3 ox80_oxBF ox80_oxBF ox80_oxBF
      / oxF0      ox90_0xBF ox80_oxBF ox80_oxBF
@@ -8204,46 +8207,47 @@ mb_utf8_literal <-
      / oxE0      oxA0_oxBF ox80_oxBF
      / oxC2_oxDF ox80_oxBF
 
-ascii_char_not_nl_slash_squote <- [\000-\011\013-\046\050-\133\135-\177]
+non_control_ascii <- [\040-\176]
 
 char_escape
     <- "\\x" hex hex
      / "\\u{" hex+ "}"
      / "\\" [nr\\t'"]
 char_char
-    <- mb_utf8_literal
+    <- multibyte_utf8
      / char_escape
-     / ascii_char_not_nl_slash_squote
+     / ![\\'\n] non_control_ascii
 
 string_char
-    <- char_escape
-     / [^\\"\n]
+    <- multibyte_utf8
+     / char_escape
+     / ![\\"\n] non_control_ascii
 
 container_doc_comment <- ('//!' [^\n]* [ \n]* skip)+
 doc_comment <- ('///' [^\n]* [ \n]* skip)+
 line_comment <- '//' ![!/][^\n]* / '////' [^\n]*
-line_string <- ("\\\\" [^\n]* [ \n]*)+
+line_string <- ('\\\\' [^\n]* [ \n]*)+
 skip <- ([ \n] / line_comment)*
 
-CHAR_LITERAL <- "'" char_char "'" skip
+CHAR_LITERAL <- ['] char_char ['] skip
 FLOAT
-    <- "0x" hex_int "." hex_int ([pP] [-+]? dec_int)? skip
-     /      dec_int "." dec_int ([eE] [-+]? dec_int)? skip
-     / "0x" hex_int [pP] [-+]? dec_int skip
+    <- '0x' hex_int '.' hex_int ([pP] [-+]? dec_int)? skip
+     /      dec_int '.' dec_int ([eE] [-+]? dec_int)? skip
+     / '0x' hex_int [pP] [-+]? dec_int skip
      /      dec_int [eE] [-+]? dec_int skip
 INTEGER
-    <- "0b" bin_int skip
-     / "0o" oct_int skip
-     / "0x" hex_int skip
+    <- '0b' bin_int skip
+     / '0o' oct_int skip
+     / '0x' hex_int skip
      /      dec_int   skip
-STRINGLITERALSINGLE <- "\"" string_char* "\"" skip
+STRINGLITERALSINGLE <- ["] string_char* ["] skip
 STRINGLITERAL
     <- STRINGLITERALSINGLE
      / (line_string                 skip)+
 IDENTIFIER
     <- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
-     / "@" STRINGLITERALSINGLE
-BUILTINIDENTIFIER <- "@"[A-Za-z_][A-Za-z0-9_]* skip
+     / '@' STRINGLITERALSINGLE
+BUILTINIDENTIFIER <- '@'[A-Za-z_][A-Za-z0-9_]* skip
 
 
 AMPERSAND            <- '&'      ![=]      skip

@@ -52,7 +52,7 @@ public:
 };
 
 template <class _Engine, size_t __k>
-class _LIBCPP_TEMPLATE_VIS shuffle_order_engine {
+class shuffle_order_engine {
   static_assert(0 < __k, "shuffle_order_engine invalid parameters");
 
 public:

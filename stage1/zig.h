@@ -253,6 +253,12 @@
 #define zig_align_fn zig_align_fn_unavailable
 #endif
 
+#if zig_has_attribute(nonstring)
+#define zig_nonstring __attribute__((nonstring))
+#else
+#define zig_nonstring
+#endif
+
 #if zig_has_attribute(packed) || defined(zig_tinyc)
 #define zig_packed(definition) __attribute__((packed)) definition
 #elif defined(zig_msvc)
@@ -1504,8 +1510,16 @@ static inline zig_u128 zig_shl_u128(zig_u128 lhs, uint8_t rhs) {
 }
 
 static inline zig_i128 zig_shr_i128(zig_i128 lhs, uint8_t rhs) {
+    // This works around a GCC miscompilation, but it has the side benefit of
+    // emitting better code. It is behind the `#if` because it depends on
+    // arithmetic right shift, which is implementation-defined in C, but should
+    // be guaranteed on any GCC-compatible compiler.
+#if defined(zig_gnuc)
+    return lhs >> rhs;
+#else
     zig_i128 sign_mask = lhs < zig_make_i128(0, 0) ? -zig_make_i128(0, 1) : zig_make_i128(0, 0);
     return ((lhs ^ sign_mask) >> rhs) ^ sign_mask;
+#endif
 }
 
 static inline zig_i128 zig_shl_i128(zig_i128 lhs, uint8_t rhs) {
@@ -4189,7 +4203,17 @@ static inline void* zig_x86_64_windows_teb(void) {
 
 #endif
 
-#if defined(zig_x86)
+#if defined(zig_loongarch)
+
+static inline void zig_loongarch_cpucfg(uint32_t word, uint32_t* result) {
+#if defined(zig_gnuc_asm)
+    __asm__("cpucfg %[result], %[word]" : [result] "=r" (result) : [word] "r" (word));
+#else
+    *result = 0;
+#endif
+}
+
+#elif defined(zig_x86)
 
 static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax, uint32_t* ebx, uint32_t* ecx, uint32_t* edx) {
 #if defined(zig_msvc)
@@ -4200,7 +4224,7 @@ static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax
     *ecx = (uint32_t)cpu_info[2];
     *edx = (uint32_t)cpu_info[3];
 #elif defined(zig_gnuc_asm)
-    __asm__("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(leaf_id), "c"(subid));
+    __asm__("cpuid" : "=a" (*eax), "=b" (*ebx), "=c" (*ecx), "=d" (*edx) : "a" (leaf_id), "c" (subid));
 #else
     *eax = 0;
     *ebx = 0;
@@ -4215,7 +4239,7 @@ static inline uint32_t zig_x86_get_xcr0(void) {
 #elif defined(zig_gnuc_asm)
     uint32_t eax;
     uint32_t edx;
-    __asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
+    __asm__("xgetbv" : "=a" (eax), "=d" (edx) : "c" (0));
     return eax;
 #else
     *eax = 0;

@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SHARED_FP_BITS_H
 #define LLVM_LIBC_SHARED_FP_BITS_H
 
+#include "libc_common.h"
 #include "src/__support/FPUtil/FPBits.h"
 
 namespace LIBC_NAMESPACE_DECL {

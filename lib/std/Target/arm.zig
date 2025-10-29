@@ -2646,6 +2646,7 @@ pub const cpu = struct {
         .name = "star_mc1",
         .llvm_name = "star-mc1",
         .features = featureSet(&[_]Feature{
+            .avoid_muls,
             .dsp,
             .fix_cmse_cve_2021_35465,
             .fp_armv8d16sp,

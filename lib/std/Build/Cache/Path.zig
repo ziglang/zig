@@ -147,11 +147,11 @@ pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
     return std.fmt.allocPrintSentinel(allocator, "{f}", .{p}, 0);
 }
 
-pub fn fmtEscapeString(path: Path) std.fmt.Formatter(Path, formatEscapeString) {
+pub fn fmtEscapeString(path: Path) std.fmt.Alt(Path, formatEscapeString) {
     return .{ .data = path };
 }
 
-pub fn formatEscapeString(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn formatEscapeString(path: Path, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
         try std.zig.stringEscape(p, writer);
         if (path.sub_path.len > 0) try std.zig.stringEscape(fs.path.sep_str, writer);
@@ -162,12 +162,12 @@ pub fn formatEscapeString(path: Path, writer: *std.io.Writer) std.io.Writer.Erro
 }
 
 /// Deprecated, use double quoted escape to print paths.
-pub fn fmtEscapeChar(path: Path) std.fmt.Formatter(Path, formatEscapeChar) {
+pub fn fmtEscapeChar(path: Path) std.fmt.Alt(Path, formatEscapeChar) {
     return .{ .data = path };
 }
 
 /// Deprecated, use double quoted escape to print paths.
-pub fn formatEscapeChar(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn formatEscapeChar(path: Path, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
         for (p) |byte| try std.zig.charEscape(byte, writer);
         if (path.sub_path.len > 0) try writer.writeByte(fs.path.sep);
@@ -177,7 +177,7 @@ pub fn formatEscapeChar(path: Path, writer: *std.io.Writer) std.io.Writer.Error!
     }
 }
 
-pub fn format(self: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(self: Path, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (std.fs.path.isAbsolute(self.sub_path)) {
         try writer.writeAll(self.sub_path);
         return;

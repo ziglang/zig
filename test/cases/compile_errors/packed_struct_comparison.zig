@@ -22,8 +22,6 @@ const Foo = packed struct {
 };
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:11: error: operator > not allowed for type 'tmp.Foo'
 // :19:20: note: struct declared here

@@ -1,27 +1,34 @@
 const std = @import("std");
-const assert = std.debug.assert;
-const testing = std.testing;
+const fatal = std.process.fatal;
 
 extern fn add(a: u32, b: u32, addr: *usize) u32;
 
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
+pub fn main() void {
+    var debug_alloc_inst: std.heap.DebugAllocator(.{}) = .init;
+    defer std.debug.assert(debug_alloc_inst.deinit() == .ok);
+    const gpa = debug_alloc_inst.allocator();
 
-    var debug_info = try std.debug.SelfInfo.open(allocator);
-    defer debug_info.deinit();
+    var di: std.debug.SelfInfo = .init;
+    defer di.deinit(gpa);
 
     var add_addr: usize = undefined;
     _ = add(1, 2, &add_addr);
 
-    const module = try debug_info.getModuleForAddress(add_addr);
-    const symbol = try module.getSymbolAtAddress(allocator, add_addr);
-    defer if (symbol.source_location) |sl| allocator.free(sl.file_name);
+    const symbol = di.getSymbol(gpa, add_addr) catch |err| fatal("failed to get symbol: {t}", .{err});
+    defer if (symbol.source_location) |sl| gpa.free(sl.file_name);
 
-    try testing.expectEqualStrings("add", symbol.name);
-    try testing.expect(symbol.source_location != null);
-    try testing.expectEqualStrings("shared_lib.c", std.fs.path.basename(symbol.source_location.?.file_name));
-    try testing.expectEqual(@as(u64, 3), symbol.source_location.?.line);
-    try testing.expectEqual(@as(u64, 0), symbol.source_location.?.column);
+    if (symbol.name == null) fatal("failed to resolve symbol name", .{});
+    if (symbol.compile_unit_name == null) fatal("failed to resolve compile unit", .{});
+    if (symbol.source_location == null) fatal("failed to resolve source location", .{});
+
+    if (!std.mem.eql(u8, symbol.name.?, "add")) {
+        fatal("incorrect symbol name '{s}'", .{symbol.name.?});
+    }
+    const sl = &symbol.source_location.?;
+    if (!std.mem.eql(u8, std.fs.path.basename(sl.file_name), "shared_lib.c")) {
+        fatal("incorrect file name '{s}'", .{sl.file_name});
+    }
+    if (sl.line != 3 or sl.column != 0) {
+        fatal("incorrect line/column :{d}:{d}", .{ sl.line, sl.column });
+    }
 }

@@ -105,7 +105,7 @@ pub fn parseHeader(
         if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
     if (!mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF")) return error.BadMagic;
-    if (ehdr.e_ident[elf.EI_VERSION] != 1) return error.BadElfVersion;
+    if (ehdr.e_ident[elf.EI.VERSION] != 1) return error.BadElfVersion;
     if (ehdr.e_type != elf.ET.DYN) return error.NotSharedObject;
 
     if (target.toElfMachine() != ehdr.e_machine)
@@ -357,7 +357,7 @@ pub fn markImportExports(self: *SharedObject, elf_file: *Elf) void {
         const ref = self.resolveSymbol(@intCast(i), elf_file);
         const ref_sym = elf_file.symbol(ref) orelse continue;
         const ref_file = ref_sym.file(elf_file).?;
-        const vis = @as(elf.STV, @enumFromInt(ref_sym.elfSym(elf_file).st_other));
+        const vis: elf.STV = @enumFromInt(@as(u3, @truncate(ref_sym.elfSym(elf_file).st_other)));
         if (ref_file != .shared_object and vis != .HIDDEN) ref_sym.flags.@"export" = true;
     }
 }
@@ -509,7 +509,7 @@ pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void
     }
 }
 
-pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .shared = self,
         .elf_file = elf_file,
@@ -520,7 +520,7 @@ const Format = struct {
     shared: SharedObject,
     elf_file: *Elf,
 
-    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const shared = f.shared;
         const elf_file = f.elf_file;
         try writer.writeAll("  globals\n");

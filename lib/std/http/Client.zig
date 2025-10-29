@@ -42,7 +42,7 @@ connection_pool: ConnectionPool = .{},
 ///
 /// If the entire HTTP header cannot fit in this amount of bytes,
 /// `error.HttpHeadersOversize` will be returned from `Request.wait`.
-read_buffer_size: usize = 4096 + if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
+read_buffer_size: usize = 8192,
 /// Each `Connection` allocates this amount for the writer buffer.
 write_buffer_size: usize = 1024,
 
@@ -302,18 +302,22 @@ pub const Connection = struct {
             const base = try gpa.alignedAlloc(u8, .of(Tls), alloc_len);
             errdefer gpa.free(base);
             const host_buffer = base[@sizeOf(Tls)..][0..remote_host.len];
-            const tls_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.tls_buffer_size];
+            // The TLS client wants enough buffer for the max encrypted frame
+            // size, and the HTTP body reader wants enough buffer for the
+            // entire HTTP header. This means we need a combined upper bound.
+            const tls_read_buffer_len = client.tls_buffer_size + client.read_buffer_size;
+            const tls_read_buffer = host_buffer.ptr[host_buffer.len..][0..tls_read_buffer_len];
             const tls_write_buffer = tls_read_buffer.ptr[tls_read_buffer.len..][0..client.tls_buffer_size];
-            const write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
-            const read_buffer = write_buffer.ptr[write_buffer.len..][0..client.read_buffer_size];
-            assert(base.ptr + alloc_len == read_buffer.ptr + read_buffer.len);
+            const socket_write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
+            const socket_read_buffer = socket_write_buffer.ptr[socket_write_buffer.len..][0..client.tls_buffer_size];
+            assert(base.ptr + alloc_len == socket_read_buffer.ptr + socket_read_buffer.len);
             @memcpy(host_buffer, remote_host);
             const tls: *Tls = @ptrCast(base);
             tls.* = .{
                 .connection = .{
                     .client = client,
                     .stream_writer = stream.writer(tls_write_buffer),
-                    .stream_reader = stream.reader(tls_read_buffer),
+                    .stream_reader = stream.reader(socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -329,8 +333,8 @@ pub const Connection = struct {
                         .host = .{ .explicit = remote_host },
                         .ca = .{ .bundle = client.ca_bundle },
                         .ssl_key_log = client.ssl_key_log,
-                        .read_buffer = read_buffer,
-                        .write_buffer = write_buffer,
+                        .read_buffer = tls_read_buffer,
+                        .write_buffer = socket_write_buffer,
                         // This is appropriate for HTTPS because the HTTP headers contain
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
@@ -348,8 +352,9 @@ pub const Connection = struct {
         }
 
         fn allocLen(client: *Client, host_len: usize) usize {
-            return @sizeOf(Tls) + host_len + client.tls_buffer_size + client.tls_buffer_size +
-                client.write_buffer_size + client.read_buffer_size;
+            const tls_read_buffer_len = client.tls_buffer_size + client.read_buffer_size;
+            return @sizeOf(Tls) + host_len + tls_read_buffer_len + client.tls_buffer_size +
+                client.write_buffer_size + client.tls_buffer_size;
         }
 
         fn host(tls: *Tls) []u8 {
@@ -377,7 +382,7 @@ pub const Connection = struct {
         return c.stream_reader.getStream();
     }
 
-    fn host(c: *Connection) []u8 {
+    pub fn host(c: *Connection) []u8 {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
@@ -782,6 +787,13 @@ pub const Request = struct {
     /// Standard headers that have default, but overridable, behavior.
     headers: Headers,
 
+    /// Populated in `receiveHead`; used in `deinit` to determine whether to
+    /// discard the body to reuse the connection.
+    response_content_length: ?u64 = null,
+    /// Populated in `receiveHead`; used in `deinit` to determine whether to
+    /// discard the body to reuse the connection.
+    response_transfer_encoding: http.TransferEncoding = .none,
+
     /// These headers are kept including when following a redirect to a
     /// different domain.
     /// Externally-owned; must outlive the Request.
@@ -855,7 +867,15 @@ pub const Request = struct {
         if (r.connection) |connection| {
             connection.closing = connection.closing or switch (r.reader.state) {
                 .ready => false,
-                .received_head => r.method.requestHasBody(),
+                .received_head => c: {
+                    if (r.method.requestHasBody()) break :c true;
+                    if (!r.method.responseHasBody()) break :c false;
+                    const reader = r.reader.bodyReader(&.{}, r.response_transfer_encoding, r.response_content_length);
+                    _ = reader.discardRemaining() catch |err| switch (err) {
+                        error.ReadFailed => break :c true,
+                    };
+                    break :c r.reader.state != .ready;
+                },
                 else => true,
             };
             r.client.connection_pool.release(connection);
@@ -907,7 +927,7 @@ pub const Request = struct {
         return switch (r.transfer_encoding) {
             .chunked => .{
                 .http_protocol_output = http_protocol_output,
-                .state = .{ .chunked = .init },
+                .state = .init_chunked,
                 .writer = .{
                     .buffer = buffer,
                     .vtable = &.{
@@ -1097,6 +1117,8 @@ pub const Request = struct {
 
             if (head.status == .@"continue") {
                 if (r.handle_continue) continue;
+                r.response_transfer_encoding = head.transfer_encoding;
+                r.response_content_length = head.content_length;
                 return response; // we're not handling the 100-continue
             }
 
@@ -1108,6 +1130,8 @@ pub const Request = struct {
             if (r.method == .CONNECT and head.status.class() == .success) {
                 // This connection is no longer doing HTTP.
                 connection.closing = false;
+                r.response_transfer_encoding = head.transfer_encoding;
+                r.response_content_length = head.content_length;
                 return response;
             }
 
@@ -1121,6 +1145,8 @@ pub const Request = struct {
             if (r.method == .HEAD or head.status.class() == .informational or
                 head.status == .no_content or head.status == .not_modified)
             {
+                r.response_transfer_encoding = head.transfer_encoding;
+                r.response_content_length = head.content_length;
                 return response;
             }
 
@@ -1141,6 +1167,8 @@ pub const Request = struct {
             if (!r.accept_encoding[@intFromEnum(head.content_encoding)])
                 return error.HttpContentEncodingUnsupported;
 
+            r.response_transfer_encoding = head.transfer_encoding;
+            r.response_content_length = head.content_length;
             return response;
         }
     }
@@ -1214,6 +1242,7 @@ pub const Request = struct {
             .state = .ready,
             // Populated when `http.Reader.bodyReader` is called.
             .interface = undefined,
+            .max_head_len = r.client.read_buffer_size,
         };
         r.redirect_behavior.subtractOne();
     }
@@ -1346,7 +1375,7 @@ pub const basic_authorization = struct {
         var buf: [max_user_len + 1 + max_password_len]u8 = undefined;
         var w: Writer = .fixed(&buf);
         const user: Uri.Component = uri.user orelse .empty;
-        const password: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.password orelse .empty;
         user.formatUser(&w) catch unreachable;
         w.writeByte(':') catch unreachable;
         password.formatPassword(&w) catch unreachable;
@@ -1679,6 +1708,7 @@ pub fn request(
             .state = .ready,
             // Populated when `http.Reader.bodyReader` is called.
             .interface = undefined,
+            .max_head_len = client.read_buffer_size,
         },
         .keep_alive = options.keep_alive,
         .method = method,
@@ -1722,13 +1752,6 @@ pub const FetchOptions = struct {
         url: []const u8,
         uri: Uri,
     };
-
-    pub const ResponseStorage = struct {
-        list: *std.ArrayListUnmanaged(u8),
-        /// If null then only the existing capacity will be used.
-        allocator: ?Allocator = null,
-        append_limit: std.Io.Limit = .unlimited,
-    };
 };
 
 pub const FetchResult = struct {
@@ -1767,9 +1790,10 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
 
     if (options.payload) |payload| {
         req.transfer_encoding = .{ .content_length = payload.len };
-        var body = try req.sendBody(&.{});
+        var body = try req.sendBodyUnflushed(&.{});
         try body.writer.writeAll(payload);
         try body.end();
+        try req.connection.?.flush();
     } else {
         try req.sendBodiless();
     }

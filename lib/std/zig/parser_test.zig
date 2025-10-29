@@ -1,7 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
-const io = std.io;
 const maxInt = std.math.maxInt;
 
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
@@ -6056,6 +6055,25 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
+test "zig fmt: canonicalize cast builtins" {
+    try testTransform(
+        \\const foo = @alignCast(@ptrCast(bar));
+        \\const baz = @constCast(@ptrCast(@addrSpaceCast(@volatileCast(@alignCast(bar)))));
+        \\
+    ,
+        \\const foo = @ptrCast(@alignCast(bar));
+        \\const baz = @ptrCast(@alignCast(@addrSpaceCast(@constCast(@volatileCast(bar)))));
+        \\
+    );
+}
+
+test "zig fmt: do not canonicalize invalid cast builtins" {
+    try testCanonical(
+        \\const foo = @alignCast(@volatileCast(@ptrCast(@alignCast(bar))));
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
@@ -6432,4 +6450,20 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     for (expected_errors, 0..) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
+}
+
+test "fuzz ast parse" {
+    try std.testing.fuzz({}, fuzzTestOneParse, .{});
+}
+
+fn fuzzTestOneParse(_: void, input: []const u8) !void {
+    // The first byte holds if zig / zon
+    if (input.len == 0) return;
+    const mode: std.zig.Ast.Mode = if (input[0] & 1 == 0) .zig else .zon;
+    const bytes = input[1..];
+
+    var fba: std.heap.FixedBufferAllocator = .init(&fixed_buffer_mem);
+    const allocator = fba.allocator();
+    const source = allocator.dupeZ(u8, bytes) catch return;
+    _ = std.zig.Ast.parse(allocator, source, mode) catch return;
 }

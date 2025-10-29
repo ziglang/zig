@@ -49,7 +49,7 @@ pub fn main() !void {
                     @tagName(op), n.toBytes(), @tagName(order),
                 });
                 try writeFunction(arena, w, name, op, n, order);
-                try footer.writer().print("    @export(&{s}, .{{ .name = \"{s}\", .linkage = common.linkage, .visibility = common.visibility }});\n", .{
+                try footer.print("    @export(&{s}, .{{ .name = \"{s}\", .linkage = common.linkage, .visibility = common.visibility }});\n", .{
                     name, name,
                 });
             }

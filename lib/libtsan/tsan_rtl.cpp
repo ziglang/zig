@@ -566,17 +566,32 @@ static bool IsValidMmapRange(uptr addr, uptr size) {
   return false;
 }
 
-void UnmapShadow(ThreadState *thr, uptr addr, uptr size) {
+void UnmapShadow(ThreadState* thr, uptr addr, uptr size) {
   if (size == 0 || !IsValidMmapRange(addr, size))
     return;
-  DontNeedShadowFor(addr, size);
+  // unmap shadow is related to semantic of mmap/munmap, so we
+  // should clear the whole shadow range, including the tail shadow
+  // while addr + size % kShadowCell != 0.
+  uptr rounded_size_shadow = RoundUp(addr + size, kShadowCell) - addr;
+  DontNeedShadowFor(addr, rounded_size_shadow);
   ScopedGlobalProcessor sgp;
   SlotLocker locker(thr, true);
-  ctx->metamap.ResetRange(thr->proc(), addr, size, true);
+  uptr rounded_size_meta = RoundUp(addr + size, kMetaShadowCell) - addr;
+  ctx->metamap.ResetRange(thr->proc(), addr, rounded_size_meta, true);
 }
 #endif
 
 void MapShadow(uptr addr, uptr size) {
+  // Although named MapShadow, this function's semantic is unrelated to
+  // UnmapShadow. This function currently only used for Go's lazy allocation
+  // of shadow, whose targets are program section (e.g., bss, data, etc.).
+  // Therefore, we can guarantee that the addr and size align to kShadowCell
+  // and kMetaShadowCell by the following assertions.
+  DCHECK_EQ(addr % kShadowCell, 0);
+  DCHECK_EQ(size % kShadowCell, 0);
+  DCHECK_EQ(addr % kMetaShadowCell, 0);
+  DCHECK_EQ(size % kMetaShadowCell, 0);
+
   // Ensure thead registry lock held, so as to synchronize
   // with DoReset, which also access the mapped_shadow_* ctxt fields.
   ThreadRegistryLock lock0(&ctx->thread_registry);
@@ -624,6 +639,7 @@ void MapShadow(uptr addr, uptr size) {
   static uptr mapped_meta_end = 0;
   uptr meta_begin = (uptr)MemToMeta(addr);
   uptr meta_end = (uptr)MemToMeta(addr + size);
+  // Windows wants 64K alignment.
   meta_begin = RoundDownTo(meta_begin, 64 << 10);
   meta_end = RoundUpTo(meta_end, 64 << 10);
   if (!data_mapped) {
@@ -634,9 +650,6 @@ void MapShadow(uptr addr, uptr size) {
       Die();
   } else {
     // Mapping continuous heap.
-    // Windows wants 64K alignment.
-    meta_begin = RoundDownTo(meta_begin, 64 << 10);
-    meta_end = RoundUpTo(meta_end, 64 << 10);
     CHECK_GT(meta_end, mapped_meta_end);
     if (meta_begin < mapped_meta_end)
       meta_begin = mapped_meta_end;
@@ -678,6 +691,12 @@ void CheckUnwind() {
 }
 
 bool is_initialized;
+
+// Symbolization indirectly calls dl_iterate_phdr. If a CHECK() fails early on
+// (prior to the dl_iterate_phdr interceptor setup), resulting in an attempted
+// symbolization, it will segfault.
+// dl_iterate_phdr is not intercepted for Android.
+bool ready_to_symbolize = SANITIZER_ANDROID;
 
 void Initialize(ThreadState *thr) {
   // Thread safe because done before all threads exist.

@@ -36,9 +36,10 @@ pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
 pub const parseCharLiteral = string_literal.parseCharLiteral;
 pub const parseNumberLiteral = number_literal.parseNumberLiteral;
 
-// Files needed by translate-c.
-pub const c_builtins = @import("zig/c_builtins.zig");
-pub const c_translation = @import("zig/c_translation.zig");
+pub const c_translation = struct {
+    pub const builtins = @import("zig/c_translation/builtins.zig");
+    pub const helpers = @import("zig/c_translation/helpers.zig");
+};
 
 pub const SrcHasher = std.crypto.hash.Blake3;
 pub const SrcHash = [16]u8;
@@ -51,9 +52,9 @@ pub const Color = enum {
     /// Assume stderr is a terminal.
     on,
 
-    pub fn get_tty_conf(color: Color) std.io.tty.Config {
+    pub fn get_tty_conf(color: Color) std.Io.tty.Config {
         return switch (color) {
-            .auto => std.io.tty.detectConfig(std.fs.File.stderr()),
+            .auto => std.Io.tty.detectConfig(std.fs.File.stderr()),
             .on => .escape_codes,
             .off => .no_color,
         };
@@ -168,7 +169,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
-        .elf, .goff, .xcoff => switch (options.output_mode) {
+        .elf => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
                 switch (options.link_mode orelse .static) {
@@ -322,7 +323,7 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
 
-    pub fn format(id: BuildId, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(id: BuildId, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (id) {
             .none, .fast, .uuid, .sha1, .md5 => {
                 try writer.writeAll(@tagName(id));
@@ -462,12 +463,12 @@ pub const FormatId = struct {
 };
 
 /// Return a formatter for escaping a double quoted Zig string.
-pub fn fmtString(bytes: []const u8) std.fmt.Formatter([]const u8, stringEscape) {
+pub fn fmtString(bytes: []const u8) std.fmt.Alt([]const u8, stringEscape) {
     return .{ .data = bytes };
 }
 
 /// Return a formatter for escaping a single quoted Zig string.
-pub fn fmtChar(c: u21) std.fmt.Formatter(u21, charEscape) {
+pub fn fmtChar(c: u21) std.fmt.Alt(u21, charEscape) {
     return .{ .data = c };
 }
 
@@ -554,8 +555,11 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
+/// If the source can be UTF-16LE encoded, this function asserts that `gpa`
+/// will align a byte-sized allocation to at least 2. Allocators that don't do
+/// this are rare.
 pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader) ![:0]u8 {
-    var buffer: std.ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
 
     if (file_reader.getSize()) |size| {
@@ -564,7 +568,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
         try buffer.ensureTotalCapacityPrecise(gpa, casted_size + 1);
     } else |_| {}
 
-    try file_reader.interface.appendRemaining(gpa, .@"2", &buffer, .limited(max_src_size));
+    try file_reader.interface.appendRemaining(gpa, &buffer, .limited(max_src_size));
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -581,7 +585,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (std.mem.startsWith(u8, buffer.items, "\xff\xfe")) {
         if (buffer.items.len % 2 != 0) return error.InvalidEncoding;
-        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(buffer.items)) catch |err| switch (err) {
+        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(@alignCast(buffer.items))) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
@@ -693,6 +697,8 @@ pub const EnvVar = enum {
     ZIG_LIB_DIR,
     ZIG_LIBC,
     ZIG_BUILD_RUNNER,
+    ZIG_BUILD_ERROR_STYLE,
+    ZIG_BUILD_MULTILINE_ERRORS,
     ZIG_VERBOSE_LINK,
     ZIG_VERBOSE_CC,
     ZIG_BTRFS_WORKAROUND,

@@ -8,80 +8,66 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-pub const ReadError = std.mem.Allocator.Error || error{ InvalidHeader, InvalidImageType, ImpossibleDataSize, UnexpectedEOF, ReadError };
+pub const ReadError = std.mem.Allocator.Error || error{ InvalidHeader, InvalidImageType, ImpossibleDataSize, UnexpectedEOF, ReadFailed };
 
-pub fn read(allocator: std.mem.Allocator, reader: anytype, max_size: u64) ReadError!IconDir {
-    // Some Reader implementations have an empty ReadError error set which would
-    // cause 'unreachable else' if we tried to use an else in the switch, so we
-    // need to detect this case and not try to translate to ReadError
-    const anyerror_reader_errorset = @TypeOf(reader).Error == anyerror;
-    const empty_reader_errorset = @typeInfo(@TypeOf(reader).Error).error_set == null or @typeInfo(@TypeOf(reader).Error).error_set.?.len == 0;
-    if (empty_reader_errorset and !anyerror_reader_errorset) {
-        return readAnyError(allocator, reader, max_size) catch |err| switch (err) {
-            error.EndOfStream => error.UnexpectedEOF,
-            else => |e| return e,
-        };
-    } else {
-        return readAnyError(allocator, reader, max_size) catch |err| switch (err) {
-            error.OutOfMemory,
-            error.InvalidHeader,
-            error.InvalidImageType,
-            error.ImpossibleDataSize,
-            => |e| return e,
-            error.EndOfStream => error.UnexpectedEOF,
-            // The remaining errors are dependent on the `reader`, so
-            // we just translate them all to generic ReadError
-            else => error.ReadError,
-        };
-    }
+pub fn read(allocator: std.mem.Allocator, reader: *std.Io.Reader, max_size: u64) ReadError!IconDir {
+    return readInner(allocator, reader, max_size) catch |err| switch (err) {
+        error.OutOfMemory,
+        error.InvalidHeader,
+        error.InvalidImageType,
+        error.ImpossibleDataSize,
+        error.ReadFailed,
+        => |e| return e,
+        error.EndOfStream => error.UnexpectedEOF,
+    };
 }
 
 // TODO: This seems like a somewhat strange pattern, could be a better way
 //       to do this. Maybe it makes more sense to handle the translation
 //       at the call site instead of having a helper function here.
-pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64) !IconDir {
-    const reserved = try reader.readInt(u16, .little);
+fn readInner(allocator: std.mem.Allocator, reader: *std.Io.Reader, max_size: u64) !IconDir {
+    const reserved = try reader.takeInt(u16, .little);
     if (reserved != 0) {
         return error.InvalidHeader;
     }
 
-    const image_type = reader.readEnum(ImageType, .little) catch |err| switch (err) {
-        error.InvalidValue => return error.InvalidImageType,
+    const image_type = reader.takeEnum(ImageType, .little) catch |err| switch (err) {
+        error.InvalidEnumTag => return error.InvalidImageType,
         else => |e| return e,
     };
 
-    const num_images = try reader.readInt(u16, .little);
+    const num_images = try reader.takeInt(u16, .little);
 
     // To avoid over-allocation in the case of a file that says it has way more
     // entries than it actually does, we use an ArrayList with a conservatively
     // limited initial capacity instead of allocating the entire slice at once.
     const initial_capacity = @min(num_images, 8);
-    var entries = try std.array_list.Managed(Entry).initCapacity(allocator, initial_capacity);
-    errdefer entries.deinit();
+    var entries = try std.ArrayList(Entry).initCapacity(allocator, initial_capacity);
+    errdefer entries.deinit(allocator);
 
     var i: usize = 0;
     while (i < num_images) : (i += 1) {
         var entry: Entry = undefined;
-        entry.width = try reader.readByte();
-        entry.height = try reader.readByte();
-        entry.num_colors = try reader.readByte();
-        entry.reserved = try reader.readByte();
+        entry.width = try reader.takeByte();
+        entry.height = try reader.takeByte();
+        entry.num_colors = try reader.takeByte();
+        entry.reserved = try reader.takeByte();
         switch (image_type) {
             .icon => {
                 entry.type_specific_data = .{ .icon = .{
-                    .color_planes = try reader.readInt(u16, .little),
-                    .bits_per_pixel = try reader.readInt(u16, .little),
+                    .color_planes = try reader.takeInt(u16, .little),
+                    .bits_per_pixel = try reader.takeInt(u16, .little),
                 } };
             },
             .cursor => {
                 entry.type_specific_data = .{ .cursor = .{
-                    .hotspot_x = try reader.readInt(u16, .little),
-                    .hotspot_y = try reader.readInt(u16, .little),
+                    .hotspot_x = try reader.takeInt(u16, .little),
+                    .hotspot_y = try reader.takeInt(u16, .little),
                 } };
             },
         }
-        entry.data_size_in_bytes = try reader.readInt(u32, .little);
-        entry.data_offset_from_start_of_file = try reader.readInt(u32, .little);
+        entry.data_size_in_bytes = try reader.takeInt(u32, .little);
+        entry.data_offset_from_start_of_file = try reader.takeInt(u32, .little);
         // Validate that the offset/data size is feasible
         if (@as(u64, entry.data_offset_from_start_of_file) + entry.data_size_in_bytes > max_size) {
             return error.ImpossibleDataSize;
@@ -101,12 +87,12 @@ pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64
         if (entry.data_size_in_bytes < 16) {
             return error.ImpossibleDataSize;
         }
-        try entries.append(entry);
+        try entries.append(allocator, entry);
     }
 
     return .{
         .image_type = image_type,
-        .entries = try entries.toOwnedSlice(),
+        .entries = try entries.toOwnedSlice(allocator),
         .allocator = allocator,
     };
 }
@@ -135,7 +121,7 @@ pub const IconDir = struct {
         return @intCast(IconDir.res_header_byte_len + self.entries.len * Entry.res_byte_len);
     }
 
-    pub fn writeResData(self: IconDir, writer: anytype, first_image_id: u16) !void {
+    pub fn writeResData(self: IconDir, writer: *std.Io.Writer, first_image_id: u16) !void {
         try writer.writeInt(u16, 0, .little);
         try writer.writeInt(u16, @intFromEnum(self.image_type), .little);
         // We know that entries.len must fit into a u16
@@ -173,7 +159,7 @@ pub const Entry = struct {
 
     pub const res_byte_len = 14;
 
-    pub fn writeResData(self: Entry, writer: anytype, id: u16) !void {
+    pub fn writeResData(self: Entry, writer: *std.Io.Writer, id: u16) !void {
         switch (self.type_specific_data) {
             .icon => |icon_data| {
                 try writer.writeInt(u8, @as(u8, @truncate(self.width)), .little);
@@ -198,8 +184,8 @@ pub const Entry = struct {
 
 test "icon" {
     const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x16\x00\x00\x00" ++ [_]u8{0} ** 16;
-    var fbs = std.io.fixedBufferStream(data);
-    const icon = try read(std.testing.allocator, fbs.reader(), data.len);
+    var fbs: std.Io.Reader = .fixed(data);
+    const icon = try read(std.testing.allocator, &fbs, data.len);
     defer icon.deinit();
 
     try std.testing.expectEqual(ImageType.icon, icon.image_type);
@@ -211,26 +197,26 @@ test "icon too many images" {
     // it's not possible to hit EOF when looking for more RESDIR structures, since they are
     // themselves 16 bytes long, so we'll always hit ImpossibleDataSize instead.
     const data = "\x00\x00\x01\x00\x02\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x16\x00\x00\x00" ++ [_]u8{0} ** 16;
-    var fbs = std.io.fixedBufferStream(data);
-    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, fbs.reader(), data.len));
+    var fbs: std.Io.Reader = .fixed(data);
+    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, &fbs, data.len));
 }
 
 test "icon data size past EOF" {
     const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x01\x00\x00\x16\x00\x00\x00" ++ [_]u8{0} ** 16;
-    var fbs = std.io.fixedBufferStream(data);
-    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, fbs.reader(), data.len));
+    var fbs: std.Io.Reader = .fixed(data);
+    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, &fbs, data.len));
 }
 
 test "icon data offset past EOF" {
     const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x17\x00\x00\x00" ++ [_]u8{0} ** 16;
-    var fbs = std.io.fixedBufferStream(data);
-    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, fbs.reader(), data.len));
+    var fbs: std.Io.Reader = .fixed(data);
+    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, &fbs, data.len));
 }
 
 test "icon data size too small" {
     const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x0F\x00\x00\x00\x16\x00\x00\x00";
-    var fbs = std.io.fixedBufferStream(data);
-    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, fbs.reader(), data.len));
+    var fbs: std.Io.Reader = .fixed(data);
+    try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, &fbs, data.len));
 }
 
 pub const ImageFormat = enum(u2) {

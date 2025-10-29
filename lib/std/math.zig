@@ -636,6 +636,7 @@ test shl {
 
     try testing.expect(shl(i8, -1, -100) == -1);
     try testing.expect(shl(i8, -1, 100) == 0);
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ -1, 0 }));
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ 0, 0 }));
 }
@@ -684,6 +685,7 @@ test shr {
 
     try testing.expect(shr(i8, -1, -100) == 0);
     try testing.expect(shr(i8, -1, 100) == -1);
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ 0, 0 }));
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ -1, 0 }));
 }
@@ -693,7 +695,7 @@ test shr {
 pub fn rotr(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .vector) {
         const C = @typeInfo(T).vector.child;
-        if (C == u0) return 0;
+        if (C == u0) return @splat(0);
 
         if (@typeInfo(C).int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
@@ -725,8 +727,10 @@ test rotr {
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
     try testing.expect(rotr(u12, 0o7777, 1) == 0o7777);
-    try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
-    try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
+    try testing.expect(rotr(@Vector(1, u32), .{1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
+    try testing.expect(rotr(@Vector(1, u32), .{1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
+    try std.testing.expect(@reduce(.And, rotr(@Vector(2, u0), .{ 0, 0 }, @as(usize, 42)) ==
+        @Vector(2, u0){ 0, 0 }));
 }
 
 /// Rotates left. Only unsigned values can be rotated.  Negative shift
@@ -734,7 +738,7 @@ test rotr {
 pub fn rotl(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .vector) {
         const C = @typeInfo(T).vector.child;
-        if (C == u0) return 0;
+        if (C == u0) return @splat(0);
 
         if (@typeInfo(C).int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
@@ -766,8 +770,10 @@ test rotl {
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
     try testing.expect(rotl(u12, 0o7777, 1) == 0o7777);
-    try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
-    try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
+    try testing.expect(rotl(@Vector(1, u32), .{1 << 31}, @as(usize, 1))[0] == 1);
+    try testing.expect(rotl(@Vector(1, u32), .{1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
+    try std.testing.expect(@reduce(.And, rotl(@Vector(2, u0), .{ 0, 0 }, @as(usize, 42)) ==
+        @Vector(2, u0){ 0, 0 }));
 }
 
 /// Returns an unsigned int type that can hold the number of bits in T - 1.

@@ -241,7 +241,7 @@ LIBC_INLINE constexpr void quick_mul_hi(cpp::array<word, N> &dst,
 }
 
 template <typename word, size_t N>
-LIBC_INLINE constexpr bool is_negative(cpp::array<word, N> &array) {
+LIBC_INLINE constexpr bool is_negative(const cpp::array<word, N> &array) {
   using signed_word = cpp::make_signed_t<word>;
   return cpp::bit_cast<signed_word>(array.back()) < 0;
 }
@@ -284,8 +284,8 @@ LIBC_INLINE constexpr cpp::array<word, N> shift(cpp::array<word, N> array,
     if (i < 0)
       return 0;
     if (i >= int(N))
-      return is_neg ? -1 : 0;
-    return array[i];
+      return is_neg ? cpp::numeric_limits<word>::max() : 0;
+    return array[static_cast<unsigned>(i)];
   };
   const size_t index_offset = offset / WORD_BITS;
   const size_t bit_offset = offset % WORD_BITS;
@@ -296,7 +296,7 @@ LIBC_INLINE constexpr cpp::array<word, N> shift(cpp::array<word, N> array,
   for (size_t index = 0; index < N; ++index) {
     const word part1 = safe_get_at(index + index_offset);
     const word part2 = safe_get_at(index + index_offset + 1);
-    word &dst = out[at(index)];
+    word &dst = out[static_cast<unsigned>(at(index))];
     if (bit_offset == 0)
       dst = part1; // no crosstalk between parts.
     else if constexpr (direction == LEFT)
@@ -465,8 +465,7 @@ public:
   }
 
   // Initialize the first word to |v| and the rest to 0.
-  template <typename T, typename = cpp::enable_if_t<cpp::is_integral_v<T> &&
-                                                    !cpp::is_same_v<T, bool>>>
+  template <typename T, typename = cpp::enable_if_t<cpp::is_integral_v<T>>>
   LIBC_INLINE constexpr BigInt(T v) {
     constexpr size_t T_SIZE = sizeof(T) * CHAR_BIT;
     const bool is_neg = v < 0;
@@ -697,7 +696,8 @@ public:
     }
     BigInt quotient;
     WordType x_word = static_cast<WordType>(x);
-    constexpr size_t LOG2_WORD_SIZE = cpp::bit_width(WORD_SIZE) - 1;
+    constexpr size_t LOG2_WORD_SIZE =
+        static_cast<size_t>(cpp::bit_width(WORD_SIZE) - 1);
     constexpr size_t HALF_WORD_SIZE = WORD_SIZE >> 1;
     constexpr WordType HALF_MASK = ((WordType(1) << HALF_WORD_SIZE) - 1);
     // lower = smallest multiple of WORD_SIZE that is >= e.
@@ -866,7 +866,7 @@ public:
   LIBC_INLINE constexpr BigInt operator~() const {
     BigInt result;
     for (size_t i = 0; i < WORD_COUNT; ++i)
-      result[i] = ~val[i];
+      result[i] = static_cast<WordType>(~val[i]);
     return result;
   }
 
@@ -936,6 +936,18 @@ public:
   // Return the i-th word of the number.
   LIBC_INLINE constexpr WordType &operator[](size_t i) { return val[i]; }
 
+  // Return the i-th bit of the number.
+  LIBC_INLINE constexpr bool get_bit(size_t i) const {
+    const size_t word_index = i / WORD_SIZE;
+    return 1 & (val[word_index] >> (i % WORD_SIZE));
+  }
+
+  // Set the i-th bit of the number.
+  LIBC_INLINE constexpr void set_bit(size_t i) {
+    const size_t word_index = i / WORD_SIZE;
+    val[word_index] |= WordType(1) << (i % WORD_SIZE);
+  }
+
 private:
   LIBC_INLINE friend constexpr int cmp(const BigInt &lhs, const BigInt &rhs) {
     constexpr auto compare = [](WordType a, WordType b) {
@@ -955,7 +967,7 @@ private:
 
   LIBC_INLINE constexpr void bitwise_not() {
     for (auto &part : val)
-      part = ~part;
+      part = static_cast<WordType>(~part);
   }
 
   LIBC_INLINE constexpr void negate() {
@@ -968,7 +980,7 @@ private:
   }
 
   LIBC_INLINE constexpr void decrement() {
-    multiword::add_with_carry(val, cpp::array<WordType, 1>{1});
+    multiword::sub_with_borrow(val, cpp::array<WordType, 1>{1});
   }
 
   LIBC_INLINE constexpr void extend(size_t index, bool is_neg) {
@@ -989,12 +1001,6 @@ private:
   LIBC_INLINE constexpr void clear_msb() {
     val.back() &= mask_trailing_ones<WordType, WORD_SIZE - 1>();
   }
-
-  LIBC_INLINE constexpr void set_bit(size_t i) {
-    const size_t word_index = i / WORD_SIZE;
-    val[word_index] |= WordType(1) << (i % WORD_SIZE);
-  }
-
   LIBC_INLINE constexpr static Division divide_unsigned(const BigInt &dividend,
                                                         const BigInt &divider) {
     BigInt remainder = dividend;
@@ -1003,12 +1009,12 @@ private:
       BigInt subtractor = divider;
       int cur_bit = multiword::countl_zero(subtractor.val) -
                     multiword::countl_zero(remainder.val);
-      subtractor <<= cur_bit;
+      subtractor <<= static_cast<size_t>(cur_bit);
       for (; cur_bit >= 0 && remainder > 0; --cur_bit, subtractor >>= 1) {
         if (remainder < subtractor)
           continue;
         remainder -= subtractor;
-        quotient.set_bit(cur_bit);
+        quotient.set_bit(static_cast<size_t>(cur_bit));
       }
     }
     return Division{quotient, remainder};
@@ -1270,26 +1276,28 @@ rotr(T value, int rotate);
 template <typename T>
 [[nodiscard]] LIBC_INLINE constexpr cpp::enable_if_t<is_big_int_v<T>, T>
 rotl(T value, int rotate) {
-  constexpr unsigned N = cpp::numeric_limits<T>::digits;
+  constexpr int N = cpp::numeric_limits<T>::digits;
   rotate = rotate % N;
   if (!rotate)
     return value;
   if (rotate < 0)
     return cpp::rotr<T>(value, -rotate);
-  return (value << rotate) | (value >> (N - rotate));
+  return (value << static_cast<size_t>(rotate)) |
+         (value >> (N - static_cast<size_t>(rotate)));
 }
 
 // Specialization of cpp::rotr ('bit.h') for BigInt.
 template <typename T>
 [[nodiscard]] LIBC_INLINE constexpr cpp::enable_if_t<is_big_int_v<T>, T>
 rotr(T value, int rotate) {
-  constexpr unsigned N = cpp::numeric_limits<T>::digits;
+  constexpr int N = cpp::numeric_limits<T>::digits;
   rotate = rotate % N;
   if (!rotate)
     return value;
   if (rotate < 0)
     return cpp::rotl<T>(value, -rotate);
-  return (value >> rotate) | (value << (N - rotate));
+  return (value >> static_cast<size_t>(rotate)) |
+         (value << (N - static_cast<size_t>(rotate)));
 }
 
 } // namespace cpp
@@ -1306,7 +1314,7 @@ mask_trailing_ones() {
   T out; // zero initialized
   for (size_t i = 0; i <= QUOTIENT; ++i)
     out[i] = i < QUOTIENT
-                 ? -1
+                 ? cpp::numeric_limits<typename T::word_type>::max()
                  : mask_trailing_ones<typename T::word_type, REMAINDER>();
   return out;
 }
@@ -1322,7 +1330,7 @@ LIBC_INLINE constexpr cpp::enable_if_t<is_big_int_v<T>, T> mask_leading_ones() {
   T out; // zero initialized
   for (size_t i = QUOTIENT; i < T::WORD_COUNT; ++i)
     out[i] = i > QUOTIENT
-                 ? -1
+                 ? cpp::numeric_limits<typename T::word_type>::max()
                  : mask_leading_ones<typename T::word_type, REMAINDER>();
   return out;
 }
@@ -1375,8 +1383,7 @@ first_trailing_zero(T value) {
 template <typename T>
 [[nodiscard]] LIBC_INLINE constexpr cpp::enable_if_t<is_big_int_v<T>, int>
 first_trailing_one(T value) {
-  return value == cpp::numeric_limits<T>::max() ? 0
-                                                : cpp::countr_zero(value) + 1;
+  return value == 0 ? 0 : cpp::countr_zero(value) + 1;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

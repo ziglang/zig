@@ -348,7 +348,6 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         object_files.items.ptr,
         object_files.items.len,
         switch (target.os.tag) {
-            .aix => .AIXBIG,
             .windows => .COFF,
             else => if (target.os.tag.isDarwin()) .DARWIN else .GNU,
         },
@@ -505,7 +504,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (comp.emit_implib) |raw_emit_path| {
-            const path = try comp.resolveEmitPathFlush(arena, .temp, raw_emit_path);
+            const path = try comp.resolveEmitPathFlush(arena, .artifact, raw_emit_path);
             try argv.append(try allocPrint(arena, "-IMPLIB:{f}", .{path}));
         }
 
@@ -1342,7 +1341,9 @@ fn getLDMOption(target: *const std.Target) ?[]const u8 {
         .powerpc64 => "elf64ppc",
         .powerpc64le => "elf64lppc",
         .riscv32 => "elf32lriscv",
+        .riscv32be => "elf32briscv",
         .riscv64 => "elf64lriscv",
+        .riscv64be => "elf64briscv",
         .s390x => "elf64_s390",
         .sparc64 => "elf64_sparc",
         .x86 => switch (target.os.tag) {
@@ -1648,7 +1649,8 @@ fn spawnLld(
         child.stderr_behavior = .Pipe;
 
         child.spawn() catch |err| break :term err;
-        stderr = try child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+        var stderr_reader = child.stderr.?.readerStreaming(&.{});
+        stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
         break :term child.wait();
     }) catch |first_err| term: {
         const err = switch (first_err) {
@@ -1697,7 +1699,8 @@ fn spawnLld(
                     rsp_child.stderr_behavior = .Pipe;
 
                     rsp_child.spawn() catch |err| break :err err;
-                    stderr = try rsp_child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+                    var stderr_reader = rsp_child.stderr.?.readerStreaming(&.{});
+                    stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
                     break :term rsp_child.wait() catch |err| break :err err;
                 }
             },

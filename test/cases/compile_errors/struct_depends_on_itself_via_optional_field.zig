@@ -11,7 +11,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:17: error: struct 'tmp.LhsExpr' depends on itself

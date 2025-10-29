@@ -31,7 +31,9 @@ struct __container_traits<vector<_Tp, _Allocator> > {
   //  there are no effects. Otherwise, if an exception is thrown by the move constructor of a non-Cpp17CopyInsertable T,
   //  the effects are unspecified.
   static _LIBCPP_CONSTEXPR const bool __emplacement_has_strong_exception_safety_guarantee =
-      _Or<is_nothrow_move_constructible<_Tp>, __is_cpp17_copy_insertable<_Allocator> >::value;
+      is_nothrow_move_constructible<_Tp>::value || __is_cpp17_copy_insertable_v<_Allocator>;
+
+  static _LIBCPP_CONSTEXPR const bool __reservable = true;
 };
 
 _LIBCPP_END_NAMESPACE_STD

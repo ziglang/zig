@@ -14,6 +14,18 @@
 #ifndef SANITIZER_ATOMIC_CLANG_H
 #define SANITIZER_ATOMIC_CLANG_H
 
+// Helper to suppress warnings related to 8-byte atomic accesses when the target
+// is 32-bit AIX (where such accesses use libatomic).
+#if defined(_AIX) && !defined(__powerpc64__) && defined(__clang__)
+#  define SANITIZER_IGNORE_ATOMIC_ALIGNMENT_BEGIN \
+    _Pragma("clang diagnostic push")              \
+        _Pragma("clang diagnostic ignored \"-Watomic-alignment\"")
+#  define SANITIZER_IGNORE_ATOMIC_ALIGNMENT_END _Pragma("clang diagnostic pop")
+#else
+#  define SANITIZER_IGNORE_ATOMIC_ALIGNMENT_BEGIN
+#  define SANITIZER_IGNORE_ATOMIC_ALIGNMENT_END
+#endif
+
 namespace __sanitizer {
 
 // We use the compiler builtin atomic operations for loads and stores, which
@@ -35,6 +47,7 @@ inline void proc_yield(int cnt) {
 #endif
 }
 
+SANITIZER_IGNORE_ATOMIC_ALIGNMENT_BEGIN
 template <typename T>
 inline typename T::Type atomic_load(const volatile T *a, memory_order mo) {
   DCHECK(mo == memory_order_relaxed || mo == memory_order_consume ||
@@ -91,6 +104,8 @@ inline bool atomic_compare_exchange_weak(volatile T *a, typename T::Type *cmp,
                                          memory_order mo) {
   return atomic_compare_exchange_strong(a, cmp, xchg, mo);
 }
+
+SANITIZER_IGNORE_ATOMIC_ALIGNMENT_END
 
 }  // namespace __sanitizer
 

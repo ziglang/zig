@@ -52,7 +52,7 @@ pub fn main() !void {
     const zig_exe = opt_zig_exe orelse fatal("missing path to zig\n{s}", .{usage});
     const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
 
-    const input_file_bytes = try std.fs.cwd().readFileAlloc(arena, input_file_name, std.math.maxInt(u32));
+    const input_file_bytes = try std.fs.cwd().readFileAlloc(input_file_name, arena, .limited(std.math.maxInt(u32)));
     const case = try Case.parse(arena, input_file_bytes);
 
     // Check now: if there are any targets using the `cbe` backend, we need the lib dir.
@@ -226,7 +226,7 @@ const Eval = struct {
     cc_child_args: *std.ArrayListUnmanaged([]const u8),
 
     const StreamEnum = enum { stdout, stderr };
-    const Poller = std.io.Poller(StreamEnum);
+    const Poller = std.Io.Poller(StreamEnum);
 
     /// Currently this function assumes the previous updates have already been written.
     fn write(eval: *Eval, update: Case.Update) void {
@@ -259,20 +259,7 @@ const Eval = struct {
 
             switch (header.tag) {
                 .error_bundle => {
-                    const EbHdr = std.zig.Server.Message.ErrorBundle;
-                    const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                    const extra_bytes =
-                        body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                    const string_bytes =
-                        body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                    // TODO: use @ptrCast when the compiler supports it
-                    const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                    const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                    @memcpy(extra_array, unaligned_extra);
-                    const result_error_bundle: std.zig.ErrorBundle = .{
-                        .string_bytes = try arena.dupe(u8, string_bytes),
-                        .extra = extra_array,
-                    };
+                    const result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
                     if (stderr.bufferedLen() > 0) {
                         const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {

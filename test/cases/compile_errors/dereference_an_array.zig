@@ -11,7 +11,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:10: error: cannot dereference non-pointer type '[10]u8'

@@ -8,8 +8,6 @@ export fn g() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:8: error: type 'bool' does not support indexing
 // :3:8: note: operand must be an array, slice, tuple, or vector

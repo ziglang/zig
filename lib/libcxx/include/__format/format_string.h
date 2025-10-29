@@ -29,7 +29,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace __format {
 
 template <contiguous_iterator _Iterator>
-struct _LIBCPP_TEMPLATE_VIS __parse_number_result {
+struct __parse_number_result {
   _Iterator __last;
   uint32_t __value;
 };

@@ -399,6 +399,7 @@ const targets = [_]ArchTarget{
             .name = "AMDGPU",
             .td_name = "AMDGPU",
         },
+        .branch_quota = 2000,
         .feature_overrides = &.{
             .{
                 .llvm_name = "DumpCode",
@@ -985,6 +986,36 @@ const targets = [_]ArchTarget{
             .name = "LoongArch",
             .td_name = "LoongArch",
         },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "la64v1_0",
+                .features = &.{
+                    "64bit",
+                    "lsx",
+                    "ual",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "la64v1_1",
+                .features = &.{
+                    "64bit",
+                    "div32",
+                    "frecipe",
+                    "lam_bh",
+                    "lamcas",
+                    "ld_seq_sa",
+                    "lsx",
+                    "scq",
+                    "ual",
+                },
+            },
+        },
+        .omit_cpus = &.{
+            "generic",
+            "loongarch64",
+        },
     },
     .{
         .zig_name = "m68k",
@@ -1019,6 +1050,28 @@ const targets = [_]ArchTarget{
         .llvm = .{
             .name = "PowerPC",
             .td_name = "PPC",
+        },
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "aix",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "aix-shared-lib-tls-model-opt",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "aix-small-local-dynamic-tls",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "aix-small-local-exec-tls",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "modern-aix-as",
+                .omit = true,
+            },
         },
         .omit_cpus = &.{
             "ppc32",
@@ -1227,6 +1280,27 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = "64bit-mode",
                 .omit = true,
+            },
+            // Remove these when LLVM removes AVX10.N-256 support.
+            .{
+                .llvm_name = "avx10.1-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.2-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.1-512",
+                .zig_name = "avx10_1",
+            },
+            .{
+                .llvm_name = "avx10.2-512",
+                .zig_name = "avx10_2",
+            },
+            .{
+                .llvm_name = "avx512f",
+                .extra_deps = &.{"evex512"},
             },
             .{
                 .llvm_name = "alderlake",
@@ -1685,10 +1759,11 @@ fn processOneTarget(job: Job) void {
         const collate_progress = progress_node.start("collating LLVM data", 0);
 
         // So far, LLVM only has a few aliases for the same CPU.
-        var cpu_aliases = std.StringHashMap(std.SegmentedList(struct {
+        const Alias = struct {
             llvm: []const u8,
             zig: []const u8,
-        }, 4)).init(arena);
+        };
+        var cpu_aliases = std.StringHashMap(std.ArrayList(*Alias)).init(arena);
 
         {
             var it = root_map.iterator();
@@ -1704,12 +1779,16 @@ fn processOneTarget(job: Job) void {
 
                     const gop = try cpu_aliases.getOrPut(try llvmNameToZigName(arena, llvm_name));
 
-                    if (!gop.found_existing) gop.value_ptr.* = .{};
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = .empty;
+                    }
 
-                    try gop.value_ptr.append(arena, .{
+                    const alias = try arena.create(Alias);
+                    alias.* = .{
                         .llvm = llvm_alias,
                         .zig = try llvmNameToZigName(arena, llvm_alias),
-                    });
+                    };
+                    try gop.value_ptr.append(arena, alias);
                 }
             }
         }
@@ -1866,9 +1945,7 @@ fn processOneTarget(job: Job) void {
                     });
 
                     if (cpu_aliases.get(zig_name)) |aliases| {
-                        var alias_it = aliases.constIterator(0);
-
-                        alias_it: while (alias_it.next()) |alias| {
+                        alias_it: for (aliases.items) |alias| {
                             for (target.omit_cpus) |omit_cpu_name| {
                                 if (mem.eql(u8, omit_cpu_name, alias.llvm)) continue :alias_it;
                             }
@@ -1921,7 +1998,7 @@ fn processOneTarget(job: Job) void {
     );
 
     for (all_features.items, 0..) |feature, i| {
-        try w.print("\n    {f},", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("\n    {f},", .{std.zig.fmtIdPU(feature.zig_name)});
 
         if (i == all_features.items.len - 1) try w.writeAll("\n");
     }

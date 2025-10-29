@@ -74,7 +74,6 @@
 #include <mach/time_value.h>
 #include <mach/message.h>
 #include <mach/machine/vm_types.h>
-
 /*
  *	Generic information structure to allow for expansion.
  */

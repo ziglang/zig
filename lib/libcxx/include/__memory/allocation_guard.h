@@ -49,24 +49,26 @@ struct __allocation_guard {
   using _Size _LIBCPP_NODEBUG    = typename allocator_traits<_Alloc>::size_type;
 
   template <class _AllocT> // we perform the allocator conversion inside the constructor
-  _LIBCPP_HIDE_FROM_ABI explicit __allocation_guard(_AllocT __alloc, _Size __n)
+  _LIBCPP_CONSTEXPR_SINCE_CXX26 _LIBCPP_HIDE_FROM_ABI explicit __allocation_guard(_AllocT __alloc, _Size __n)
       : __alloc_(std::move(__alloc)),
         __n_(__n),
         __ptr_(allocator_traits<_Alloc>::allocate(__alloc_, __n_)) // initialization order is important
   {}
 
-  _LIBCPP_HIDE_FROM_ABI ~__allocation_guard() _NOEXCEPT { __destroy(); }
+  _LIBCPP_CONSTEXPR_SINCE_CXX26 _LIBCPP_HIDE_FROM_ABI ~__allocation_guard() _NOEXCEPT { __destroy(); }
 
-  _LIBCPP_HIDE_FROM_ABI __allocation_guard(const __allocation_guard&) = delete;
-  _LIBCPP_HIDE_FROM_ABI __allocation_guard(__allocation_guard&& __other) _NOEXCEPT
+  __allocation_guard(const __allocation_guard&)                    = delete;
+  __allocation_guard& operator=(const __allocation_guard& __other) = delete;
+
+  _LIBCPP_CONSTEXPR_SINCE_CXX26 _LIBCPP_HIDE_FROM_ABI __allocation_guard(__allocation_guard&& __other) _NOEXCEPT
       : __alloc_(std::move(__other.__alloc_)),
         __n_(__other.__n_),
         __ptr_(__other.__ptr_) {
     __other.__ptr_ = nullptr;
   }
 
-  _LIBCPP_HIDE_FROM_ABI __allocation_guard& operator=(const __allocation_guard& __other) = delete;
-  _LIBCPP_HIDE_FROM_ABI __allocation_guard& operator=(__allocation_guard&& __other) _NOEXCEPT {
+  _LIBCPP_CONSTEXPR_SINCE_CXX26 _LIBCPP_HIDE_FROM_ABI __allocation_guard&
+  operator=(__allocation_guard&& __other) _NOEXCEPT {
     if (std::addressof(__other) != this) {
       __destroy();
 
@@ -79,17 +81,17 @@ struct __allocation_guard {
     return *this;
   }
 
-  _LIBCPP_HIDE_FROM_ABI _Pointer
+  _LIBCPP_CONSTEXPR_SINCE_CXX26 _LIBCPP_HIDE_FROM_ABI _Pointer
   __release_ptr() _NOEXCEPT { // not called __release() because it's a keyword in objective-c++
     _Pointer __tmp = __ptr_;
     __ptr_         = nullptr;
     return __tmp;
   }
 
-  _LIBCPP_HIDE_FROM_ABI _Pointer __get() const _NOEXCEPT { return __ptr_; }
+  _LIBCPP_CONSTEXPR_SINCE_CXX26 _LIBCPP_HIDE_FROM_ABI _Pointer __get() const _NOEXCEPT { return __ptr_; }
 
 private:
-  _LIBCPP_HIDE_FROM_ABI void __destroy() _NOEXCEPT {
+  _LIBCPP_CONSTEXPR_SINCE_CXX26 _LIBCPP_HIDE_FROM_ABI void __destroy() _NOEXCEPT {
     if (__ptr_ != nullptr) {
       allocator_traits<_Alloc>::deallocate(__alloc_, __ptr_, __n_);
     }

@@ -29,7 +29,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS __formatter_pointer {
+struct __formatter_pointer {
 public:
   template <class _ParseContext>
   _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {
@@ -59,11 +59,11 @@ public:
 // - template<> struct formatter<void*, charT>;
 // - template<> struct formatter<const void*, charT>;
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<nullptr_t, _CharT> : public __formatter_pointer<_CharT> {};
+struct formatter<nullptr_t, _CharT> : public __formatter_pointer<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<void*, _CharT> : public __formatter_pointer<_CharT> {};
+struct formatter<void*, _CharT> : public __formatter_pointer<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<const void*, _CharT> : public __formatter_pointer<_CharT> {};
+struct formatter<const void*, _CharT> : public __formatter_pointer<_CharT> {};
 
 #  if _LIBCPP_STD_VER >= 23
 template <>

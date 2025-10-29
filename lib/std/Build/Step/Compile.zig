@@ -192,6 +192,7 @@ want_lto: ?bool = null,
 
 use_llvm: ?bool,
 use_lld: ?bool,
+use_new_linker: ?bool,
 
 /// Corresponds to the `-fallow-so-scripts` / `-fno-allow-so-scripts` CLI
 /// flags, overriding the global user setting provided to the `zig build`
@@ -441,6 +442,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .use_new_linker = null,
 
         .zig_process = null,
     };
@@ -1096,6 +1098,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
+    try addFlag(&zig_args, "new-linker", compile.use_new_linker);
 
     if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
@@ -1827,7 +1830,26 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
-        try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
+        if (b.cache_root.handle.access(args_file, .{})) |_| {
+            // The args file is already present from a previous run.
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                try b.cache_root.handle.makePath("tmp");
+                const rand_int = std.crypto.random.int(u64);
+                const tmp_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
+                try b.cache_root.handle.writeFile(.{ .sub_path = tmp_path, .data = args });
+                defer b.cache_root.handle.deleteFile(tmp_path) catch {
+                    // It's fine if the temporary file can't be cleaned up.
+                };
+                b.cache_root.handle.rename(tmp_path, args_file) catch |rename_err| switch (rename_err) {
+                    error.PathAlreadyExists => {
+                        // The args file was created by another concurrent build process.
+                    },
+                    else => |other_err| return other_err,
+                };
+            },
+            else => |other_err| return other_err,
+        }
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",
@@ -2002,7 +2024,7 @@ fn checkCompileErrors(compile: *Compile) !void {
     const arena = compile.step.owner.allocator;
 
     const actual_errors = ae: {
-        var aw: std.io.Writer.Allocating = .init(arena);
+        var aw: std.Io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
             .ttyconf = .no_color,

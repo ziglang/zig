@@ -359,7 +359,7 @@ pub const Format = struct {
     }
 };
 
-pub fn fmt(uri: *const Uri, flags: Format.Flags) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(uri: *const Uri, flags: Format.Flags) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{ .uri = uri, .flags = flags } };
 }
 
@@ -586,6 +586,11 @@ test "file" {
     try std.testing.expectEqualStrings("file", parsed3.scheme);
     try std.testing.expectEqualStrings("localhost", parsed3.host.?.percent_encoded);
     try std.testing.expectEqualStrings("/an/absolute/path/to/another/thing/", parsed3.path.percent_encoded);
+
+    const parsed4 = try parse("file:/an/absolute/path");
+    try std.testing.expectEqualStrings("file", parsed4.scheme);
+    try std.testing.expectEqual(@as(?Component, null), parsed4.host);
+    try std.testing.expectEqualStrings("/an/absolute/path", parsed4.path.percent_encoded);
 }
 
 test "scheme" {

@@ -27,13 +27,15 @@
 #include <sys/cdefs.h>
 #include <_bounds.h>
 
+#ifndef _LIBC_COUNT__L_CTERMID
+#define _LIBC_COUNT__L_CTERMID _LIBC_UNSAFE_INDEXABLE
+#endif /* _LIBC_COUNT__L_CTERMID */
+
 _LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 
-#define	L_ctermid	1024	/* size for ctermid(); PATH_MAX */
-
-char *_LIBC_CSTR	ctermid(char *_LIBC_COUNT_OR_NULL(L_ctermid));
+char *_LIBC_CSTR	ctermid(char *_LIBC_COUNT__L_CTERMID);
 
 __END_DECLS
 

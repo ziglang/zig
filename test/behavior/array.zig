@@ -1125,3 +1125,24 @@ test "splat with an error union or optional result type" {
     _ = try S.doTest(@Vector(4, u32));
     _ = try S.doTest([4]u32);
 }
+
+test "resist alias of explicit copy of array passed as arg" {
+    const S = struct {
+        const Thing = [1]u32;
+
+        fn destroy_and_replace(box_b: *Thing, a: Thing, box_a: *Thing) void {
+            box_a.* = undefined;
+            box_b.* = a;
+        }
+    };
+
+    var buf_a: S.Thing = .{1234};
+    var buf_b: S.Thing = .{5678};
+    const box_a = &buf_a;
+    const box_b = &buf_b;
+
+    const a = box_a.*; // explicit copy
+    S.destroy_and_replace(box_b, a, box_a);
+
+    try expect(buf_b[0] == 1234);
+}

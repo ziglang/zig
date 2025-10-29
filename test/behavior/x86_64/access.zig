@@ -52,22 +52,15 @@ fn accessVector(comptime init: anytype) !void {
     var vector: Vector = undefined;
     vector = init;
     inline for (0..@typeInfo(Vector).vector.len) |ct_index| {
-        var rt_index: usize = undefined;
-        rt_index = ct_index;
-        if (&vector[rt_index] != &vector[ct_index]) return error.Unexpected;
-        if (vector[rt_index] != init[ct_index]) return error.Unexpected;
+        if (&vector[ct_index] != &vector[ct_index]) return error.Unexpected;
         if (vector[ct_index] != init[ct_index]) return error.Unexpected;
-        vector[rt_index] = rt_vals[0];
-        if (vector[rt_index] != ct_vals[0]) return error.Unexpected;
+        vector[ct_index] = rt_vals[0];
         if (vector[ct_index] != ct_vals[0]) return error.Unexpected;
-        vector[rt_index] = ct_vals[1];
-        if (vector[rt_index] != ct_vals[1]) return error.Unexpected;
+        vector[ct_index] = ct_vals[1];
         if (vector[ct_index] != ct_vals[1]) return error.Unexpected;
         vector[ct_index] = ct_vals[0];
-        if (vector[rt_index] != ct_vals[0]) return error.Unexpected;
         if (vector[ct_index] != ct_vals[0]) return error.Unexpected;
         vector[ct_index] = rt_vals[1];
-        if (vector[rt_index] != ct_vals[1]) return error.Unexpected;
         if (vector[ct_index] != ct_vals[1]) return error.Unexpected;
     }
 }

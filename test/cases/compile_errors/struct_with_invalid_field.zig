@@ -24,7 +24,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :14:17: error: use of undeclared identifier 'HeaderValue'

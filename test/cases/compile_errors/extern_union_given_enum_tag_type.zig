@@ -14,7 +14,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:30: error: extern union does not support enum tag type

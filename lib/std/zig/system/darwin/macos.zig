@@ -58,6 +58,8 @@ pub fn detect(target_os: *Target.Os) !void {
             if (parseSystemVersion(bytes)) |ver| {
                 // never return non-canonical `10.(16+)`
                 if (!(ver.major == 10 and ver.minor >= 16)) {
+                    assert(ver.pre == null);
+                    assert(ver.build == null);
                     target_os.version_range.semver.min = ver;
                     target_os.version_range.semver.max = ver;
                     return;
@@ -397,7 +399,6 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     var cpu_family: std.c.CPUFAMILY = undefined;
     var len: usize = @sizeOf(std.c.CPUFAMILY);
     std.posix.sysctlbynameZ("hw.cpufamily", &cpu_family, &len, null, 0) catch |err| switch (err) {
-        error.NameTooLong => unreachable, // constant, known good value
         error.PermissionDenied => unreachable, // only when setting values,
         error.SystemResources => unreachable, // memory already on the stack
         error.UnknownName => unreachable, // constant, known good value

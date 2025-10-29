@@ -56,6 +56,7 @@ pub const ToClientTag = enum(u8) {
     // `--time-report`
     time_report_generic_result,
     time_report_compile_result,
+    time_report_run_test_result,
 
     _,
 };
@@ -138,6 +139,28 @@ pub const Rebuild = extern struct {
 
 /// ABI bits specifically relating to the fuzzer interface.
 pub const fuzz = struct {
+    pub const TestOne = *const fn (Slice) callconv(.c) void;
+    pub extern fn fuzzer_init(cache_dir_path: Slice) void;
+    pub extern fn fuzzer_coverage() Coverage;
+    pub extern fn fuzzer_init_test(test_one: TestOne, unit_test_name: Slice) void;
+    pub extern fn fuzzer_new_input(bytes: Slice) void;
+    pub extern fn fuzzer_main(limit_kind: LimitKind, amount: u64) void;
+
+    pub const Slice = extern struct {
+        ptr: [*]const u8,
+        len: usize,
+
+        pub fn toSlice(s: Slice) []const u8 {
+            return s.ptr[0..s.len];
+        }
+
+        pub fn fromSlice(s: []const u8) Slice {
+            return .{ .ptr = s.ptr, .len = s.len };
+        }
+    };
+
+    pub const LimitKind = enum(u8) { forever, iterations };
+
     /// libfuzzer uses this and its usize is the one that counts. To match the ABI,
     /// make the ints be the size of the target used with libfuzzer.
     ///
@@ -231,6 +254,16 @@ pub const fuzz = struct {
             return .{ .locs_len_raw = @bitCast(locs_len) };
         }
     };
+
+    /// Sent by lib/fuzzer to test_runner to obtain information about the
+    /// active memory mapped input file and cumulative stats about previous
+    /// fuzzing runs.
+    pub const Coverage = extern struct {
+        id: u64,
+        runs: u64,
+        unique: u64,
+        seen: u64,
+    };
 };
 
 /// ABI bits specifically relating to the time report interface.
@@ -309,5 +342,20 @@ pub const time_report = struct {
                 .real_ns_link_flush = 0,
             };
         };
+    };
+
+    /// WebSocket server->client.
+    ///
+    /// Sent after a `Step.Run` for a Zig test executable finishes, providing the test's time report.
+    ///
+    /// Trailing:
+    /// * for each `tests_len`:
+    ///   * `test_ns: u64` (nanoseconds spent running this test)
+    /// * for each `tests_len`:
+    ///   * `name` (null-terminated UTF-8 string)
+    pub const RunTestResult = extern struct {
+        tag: ToClientTag = .time_report_run_test_result,
+        step_idx: u32 align(1),
+        tests_len: u32 align(1),
     };
 };

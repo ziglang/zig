@@ -5,7 +5,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:16: error: expected type '*u8', found '@TypeOf(null)'

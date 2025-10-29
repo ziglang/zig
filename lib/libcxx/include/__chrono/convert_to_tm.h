@@ -15,6 +15,7 @@
 #include <__chrono/day.h>
 #include <__chrono/duration.h>
 #include <__chrono/file_clock.h>
+#include <__chrono/gps_clock.h>
 #include <__chrono/hh_mm_ss.h>
 #include <__chrono/local_info.h>
 #include <__chrono/month.h>
@@ -23,6 +24,7 @@
 #include <__chrono/statically_widen.h>
 #include <__chrono/sys_info.h>
 #include <__chrono/system_clock.h>
+#include <__chrono/tai_clock.h>
 #include <__chrono/time_point.h>
 #include <__chrono/utc_clock.h>
 #include <__chrono/weekday.h>
@@ -35,6 +37,7 @@
 #include <__config>
 #include <__format/format_error.h>
 #include <__memory/addressof.h>
+#include <__type_traits/common_type.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_specialization.h>
 #include <cstdint>
@@ -112,6 +115,21 @@ _LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(chrono::utc_time<_Duration> __tp) {
   return __result;
 }
 
+template <class _Tm, class _Duration>
+_LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(chrono::tai_time<_Duration> __tp) {
+  using _Rp = common_type_t<_Duration, chrono::seconds>;
+  // The time between the TAI epoch (1958-01-01) and UNIX epoch (1970-01-01).
+  // This avoids leap second conversion when going from TAI to UTC.
+  // (It also avoids issues when the date is before the UTC epoch.)
+  constexpr chrono::seconds __offset{4383 * 24 * 60 * 60};
+  return std::__convert_to_tm<_Tm>(chrono::sys_time<_Rp>{__tp.time_since_epoch() - __offset});
+}
+
+template <class _Tm, class _Duration>
+_LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(chrono::gps_time<_Duration> __tp) {
+  return std::__convert_to_tm<_Tm>(chrono::utc_clock::to_sys(chrono::gps_clock::to_utc(__tp)));
+}
+
 #    endif // _LIBCPP_HAS_EXPERIMENTAL_TZDB
 #  endif   // _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
 
@@ -125,20 +143,16 @@ _LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(const _ChronoT& __value) {
 #  endif
 
   if constexpr (__is_time_point<_ChronoT>) {
-    if constexpr (same_as<typename _ChronoT::clock, chrono::system_clock>)
-      return std::__convert_to_tm<_Tm>(__value);
-#  if _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
-#    if _LIBCPP_HAS_EXPERIMENTAL_TZDB
-    else if constexpr (same_as<typename _ChronoT::clock, chrono::utc_clock>)
-      return std::__convert_to_tm<_Tm>(__value);
-#    endif // _LIBCPP_HAS_EXPERIMENTAL_TZDB
-#  endif   // _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
-    else if constexpr (same_as<typename _ChronoT::clock, chrono::file_clock>)
+    if constexpr (same_as<typename _ChronoT::clock, chrono::file_clock>)
       return std::__convert_to_tm<_Tm>(_ChronoT::clock::to_sys(__value));
     else if constexpr (same_as<typename _ChronoT::clock, chrono::local_t>)
       return std::__convert_to_tm<_Tm>(chrono::sys_time<typename _ChronoT::duration>{__value.time_since_epoch()});
-    else
+    else {
+      // Note that some clocks have specializations __convert_to_tm for their
+      // time_point. These don't need to be added here. They do not trigger
+      // this assert.
       static_assert(sizeof(_ChronoT) == 0, "TODO: Add the missing clock specialization");
+    }
   } else if constexpr (chrono::__is_duration_v<_ChronoT>) {
     // [time.format]/6
     //   ...  However, if a flag refers to a "time of day" (e.g. %H, %I, %p,

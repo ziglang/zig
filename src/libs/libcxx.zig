@@ -9,25 +9,30 @@ const trace = @import("../tracy.zig").trace;
 const Module = @import("../Package/Module.zig");
 
 const libcxxabi_files = [_][]const u8{
-    "src/abort_message.cpp",
     "src/cxa_aux_runtime.cpp",
     "src/cxa_default_handlers.cpp",
     "src/cxa_demangle.cpp",
-    "src/cxa_exception.cpp",
     "src/cxa_exception_storage.cpp",
     "src/cxa_guard.cpp",
     "src/cxa_handlers.cpp",
-    "src/cxa_noexception.cpp",
-    "src/cxa_personality.cpp",
-    "src/cxa_thread_atexit.cpp",
     "src/cxa_vector.cpp",
     "src/cxa_virtual.cpp",
-    "src/fallback_malloc.cpp",
-    "src/private_typeinfo.cpp",
+
     "src/stdlib_exception.cpp",
-    "src/stdlib_new_delete.cpp",
     "src/stdlib_stdexcept.cpp",
     "src/stdlib_typeinfo.cpp",
+    "src/stdlib_new_delete.cpp",
+
+    "src/abort_message.cpp",
+    "src/fallback_malloc.cpp",
+    "src/private_typeinfo.cpp",
+
+    "src/cxa_exception.cpp",
+    "src/cxa_personality.cpp",
+
+    "src/cxa_noexception.cpp",
+
+    "src/cxa_thread_atexit.cpp",
 };
 
 const libcxx_base_files = [_][]const u8{
@@ -74,9 +79,6 @@ const libcxx_base_files = [_][]const u8{
     "src/stdexcept.cpp",
     "src/string.cpp",
     "src/strstream.cpp",
-    "src/support/ibm/mbsnrtowcs.cpp",
-    "src/support/ibm/wcsnrtombs.cpp",
-    "src/support/ibm/xlocale_zos.cpp",
     "src/support/win32/locale_win32.cpp",
     "src/support/win32/support.cpp",
     "src/system_error.cpp",
@@ -198,8 +200,6 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/win32/") and target.os.tag != .windows)
             continue;
-        if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
-            continue;
 
         var cflags = std.array_list.Managed([]const u8).init(arena);
 
@@ -218,11 +218,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
 
-        if (target.os.tag == .zos) {
-            try cflags.append("-fno-aligned-allocation");
-        } else {
-            try cflags.append("-faligned-allocation");
-        }
+        try cflags.append("-faligned-allocation");
 
         try cflags.append("-nostdinc++");
         try cflags.append("-std=c++23");
@@ -388,10 +384,12 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     var c_source_files = try std.array_list.Managed(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
-        if (!comp.config.any_non_single_threaded and std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
+        if (!comp.config.any_non_single_threaded and std.mem.eql(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
             continue;
         if (target.os.tag == .wasi and
             (std.mem.eql(u8, cxxabi_src, "src/cxa_exception.cpp") or std.mem.eql(u8, cxxabi_src, "src/cxa_personality.cpp")))
+            continue;
+        if (target.os.tag != .wasi and std.mem.eql(u8, cxxabi_src, "src/cxa_noexception.cpp"))
             continue;
 
         var cflags = std.array_list.Managed([]const u8).init(arena);
@@ -399,6 +397,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try addCxxArgs(comp, arena, &cflags);
 
         try cflags.append("-DNDEBUG");
+        try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
@@ -509,19 +508,19 @@ pub fn addCxxArgs(
     try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
         abi_version,
     }));
-    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}THREADS", .{
-        if (!comp.config.any_non_single_threaded) "NO_" else "",
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_THREADS={d}", .{
+        @as(u1, if (comp.config.any_non_single_threaded) 1 else 0),
     }));
     try cflags.append("-D_LIBCPP_HAS_MONOTONIC_CLOCK");
     try cflags.append("-D_LIBCPP_HAS_TERMINAL");
-    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}MUSL_LIBC", .{
-        if (!target.abi.isMusl()) "NO_" else "",
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_MUSL_LIBC={d}", .{
+        @as(u1, if (target.abi.isMusl()) 1 else 0),
     }));
     try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
     try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-    try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
-    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}FILESYSTEM", .{
-        if (target.os.tag == .wasi) "NO_" else "",
+    try cflags.append("-D_LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS=0");
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_FILESYSTEM={d}", .{
+        @as(u1, if (target.os.tag == .wasi) 0 else 1),
     }));
     try cflags.append("-D_LIBCPP_HAS_RANDOM_DEVICE");
     try cflags.append("-D_LIBCPP_HAS_LOCALIZATION");
@@ -545,8 +544,7 @@ pub fn addCxxArgs(
     if (target.isGnuLibC()) {
         // glibc 2.16 introduced aligned_alloc
         if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
-            try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+            try cflags.append("-D_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION=0");
         }
     }
-    try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
 }

@@ -8,6 +8,7 @@
 
 #include <__assert>
 #include <__config>
+#include <__memory/shared_ptr.h>
 #include <errno.h>
 #include <filesystem>
 #include <stack>

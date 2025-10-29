@@ -30,7 +30,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _OutputIterator, class _Tp>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 raw_storage_iterator
+class _LIBCPP_DEPRECATED_IN_CXX17 raw_storage_iterator
 #  if _LIBCPP_STD_VER <= 14 || !defined(_LIBCPP_ABI_NO_ITERATOR_BASES)
     : public iterator<output_iterator_tag, void, void, void, void>
 #  endif

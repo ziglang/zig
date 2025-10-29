@@ -81,52 +81,79 @@ pub fn getExternalExecutor(
     // If the OS matches, we can use QEMU to emulate a foreign architecture.
     if (options.allow_qemu and os_match and (!cpu_ok or options.qemu_fixes_dl)) {
         return switch (candidate.cpu.arch) {
-            .aarch64 => Executor{ .qemu = "qemu-aarch64" },
-            .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-            .arm, .thumb => Executor{ .qemu = "qemu-arm" },
-            .armeb, .thumbeb => Executor{ .qemu = "qemu-armeb" },
-            .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
-            .m68k => Executor{ .qemu = "qemu-m68k" },
-            .mips => Executor{ .qemu = "qemu-mips" },
-            .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32",
-                    else => "qemu-mips64",
+            inline .aarch64,
+            .arm,
+            .riscv64,
+            .x86,
+            .x86_64,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                .freebsd,
+                => .{ .qemu = switch (t) {
+                    .x86 => "qemu-i386",
+                    .x86_64 => switch (candidate.abi) {
+                        .gnux32, .muslx32 => return bad_result,
+                        else => "qemu-x86_64",
+                    },
+                    else => "qemu-" ++ @tagName(t),
+                } },
+                else => bad_result,
+            },
+            inline .aarch64_be,
+            .alpha,
+            .armeb,
+            .hexagon,
+            .hppa,
+            .loongarch64,
+            .m68k,
+            .microblaze,
+            .microblazeel,
+            .mips,
+            .mipsel,
+            .mips64,
+            .mips64el,
+            .or1k,
+            .powerpc,
+            .powerpc64,
+            .powerpc64le,
+            .riscv32,
+            .s390x,
+            .sh,
+            .sheb,
+            .sparc,
+            .sparc64,
+            .thumb,
+            .thumbeb,
+            .xtensa,
+            .xtensaeb,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                => .{
+                    .qemu = switch (t) {
+                        .powerpc => "qemu-ppc",
+                        .powerpc64 => "qemu-ppc64",
+                        .powerpc64le => "qemu-ppc64le",
+                        .mips64, .mips64el => switch (candidate.abi) {
+                            .gnuabin32, .muslabin32 => if (t == .mips64el) "qemu-mipsn32el" else "qemu-mipsn32",
+                            else => "qemu-" ++ @tagName(t),
+                        },
+                        // TODO: Actually check the SuperH version.
+                        .sh => "qemu-sh4",
+                        .sheb => "qemu-sh4eb",
+                        .sparc => if (candidate.cpu.has(.sparc, .v8plus)) "qemu-sparc32plus" else "qemu-sparc",
+                        .thumb => "qemu-arm",
+                        .thumbeb => "qemu-armeb",
+                        else => "qemu-" ++ @tagName(t),
+                    },
                 },
+                else => bad_result,
             },
-            .mips64el => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32el",
-                    else => "qemu-mips64el",
-                },
-            },
-            .powerpc => Executor{ .qemu = "qemu-ppc" },
-            .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
-            .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
-            .riscv32 => Executor{ .qemu = "qemu-riscv32" },
-            .riscv64 => Executor{ .qemu = "qemu-riscv64" },
-            .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{
-                .qemu = if (candidate.cpu.has(.sparc, .v9))
-                    "qemu-sparc32plus"
-                else
-                    "qemu-sparc",
-            },
-            .sparc64 => Executor{ .qemu = "qemu-sparc64" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
-            .x86_64 => switch (candidate.abi) {
-                .gnux32, .muslx32 => return bad_result,
-                else => Executor{ .qemu = "qemu-x86_64" },
-            },
-            .xtensa => Executor{ .qemu = "qemu-xtensa" },
-            else => return bad_result,
+            else => bad_result,
         };
     }
 
     if (options.allow_wasmtime and candidate.cpu.arch.isWasm()) {
-        return Executor{ .wasmtime = "wasmtime" };
+        return .{ .wasmtime = "wasmtime" };
     }
 
     switch (candidate.os.tag) {
@@ -142,7 +169,7 @@ pub fn getExternalExecutor(
                     .x86_64 => host.cpu.arch == .x86_64,
                     else => false,
                 };
-                return if (wine_supported) Executor{ .wine = "wine" } else bad_result;
+                return if (wine_supported) .{ .wine = "wine" } else bad_result;
             }
             return bad_result;
         },
@@ -154,7 +181,7 @@ pub fn getExternalExecutor(
                 if (candidate.cpu.arch != host.cpu.arch) {
                     return bad_result;
                 }
-                return Executor{ .darling = "darling" };
+                return .{ .darling = "darling" };
             }
             return bad_result;
         },
@@ -188,25 +215,17 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     var os = query_os_tag.defaultVersionRange(query_cpu_arch, query_abi);
     if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
-            .linux => {
+            .linux, .illumos => {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
                 if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.linux.range.min = ver;
-                    os.version_range.linux.range.max = ver;
-                } else |err| switch (err) {
-                    error.Overflow => {},
-                    error.InvalidVersion => {},
-                }
-            },
-            .solaris, .illumos => {
-                const uts = posix.uname();
-                const release = mem.sliceTo(&uts.release, 0);
-                if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.semver.min = ver;
-                    os.version_range.semver.max = ver;
+                    var stripped = ver;
+                    stripped.pre = null;
+                    stripped.build = null;
+                    os.version_range.linux.range.min = stripped;
+                    os.version_range.linux.range.max = stripped;
                 } else |err| switch (err) {
                     error.Overflow => {},
                     error.InvalidVersion => {},
@@ -228,7 +247,6 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 var len: usize = @sizeOf(@TypeOf(value));
 
                 posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
                     error.UnknownName => unreachable, // constant, known good value
@@ -281,10 +299,9 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                     posix.CTL.KERN,
                     posix.KERN.OSRELEASE,
                 };
-                var buf: [64]u8 = undefined;
+                var buf: [64:0]u8 = undefined;
                 // consider that sysctl result includes null-termination
-                // reserve 1 byte to ensure we never overflow when appending ".0"
-                var len: usize = buf.len - 1;
+                var len: usize = buf.len + 1;
 
                 posix.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
                     error.NameTooLong => unreachable, // constant, known good value
@@ -294,12 +311,9 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                     error.Unexpected => return error.OSVersionDetectionFail,
                 };
 
-                // append ".0" to satisfy semver
-                buf[len - 1] = '.';
-                buf[len] = '0';
-                len += 1;
-
-                if (std.SemanticVersion.parse(buf[0..len])) |ver| {
+                if (Target.Query.parseVersion(buf[0..len :0])) |ver| {
+                    assert(ver.build == null);
+                    assert(ver.pre == null);
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |_| {
@@ -360,6 +374,11 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     // However, the "mode" flags can be used as overrides, so if the user explicitly
     // sets one of them, that takes precedence.
     switch (query_cpu_arch) {
+        .x86_16 => {
+            cpu.features.addFeature(
+                @intFromEnum(Target.x86.Feature.@"16bit_mode"),
+            );
+        },
         .x86 => {
             if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
@@ -469,9 +488,8 @@ fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: T
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .x86_64, .x86 => {
-            return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query);
-        },
+        .loongarch32, .loongarch64 => return @import("system/loongarch.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .x86_64, .x86 => return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
         else => {},
     }
 
@@ -518,15 +536,15 @@ pub fn abiAndDynamicLinkerFromFile(
     const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
     const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI.DATA]) {
         elf.ELFDATA2LSB => .little,
         elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+    if (hdr32.e_ident[elf.EI.VERSION] != 1) return error.InvalidElfVersion;
 
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
+    const is_64 = switch (hdr32.e_ident[elf.EI.CLASS]) {
         elf.ELFCLASS32 => false,
         elf.ELFCLASS64 => true,
         else => return error.InvalidElfClass,
@@ -922,15 +940,15 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
     const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI.DATA]) {
         elf.ELFDATA2LSB => .little,
         elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+    if (hdr32.e_ident[elf.EI.VERSION] != 1) return error.InvalidElfVersion;
 
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
+    const is_64 = switch (hdr32.e_ident[elf.EI.CLASS]) {
         elf.ELFCLASS32 => false,
         elf.ELFCLASS64 => true,
         else => return error.InvalidElfClass,
@@ -1033,13 +1051,13 @@ fn detectAbiAndDynamicLinker(
 ) DetectError!Target {
     const native_target_has_ld = comptime Target.DynamicLinker.kind(builtin.os.tag) != .none;
     const is_linux = builtin.target.os.tag == .linux;
-    const is_solarish = builtin.target.os.tag.isSolarish();
+    const is_illumos = builtin.target.os.tag == .illumos;
     const is_darwin = builtin.target.os.tag.isDarwin();
     const have_all_info = query.dynamic_linker.get() != null and
         query.abi != null and (!is_linux or query.abi.?.isGnu());
     const os_is_non_native = query.os_tag != null;
-    // The Solaris/illumos environment is always the same.
-    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish or is_darwin) {
+    // The illumos environment is always the same.
+    if (!native_target_has_ld or have_all_info or os_is_non_native or is_illumos or is_darwin) {
         return defaultAbiAndDynamicLinker(cpu, os, query);
     }
     if (query.abi) |abi| {

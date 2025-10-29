@@ -38,7 +38,7 @@ project(zig
 )
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 15)
+set(ZIG_VERSION_MINOR 16)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -133,9 +133,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 20)
-find_package(clang 20)
-find_package(lld 20)
+find_package(llvm 21)
+find_package(clang 21)
+find_package(lld 21)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -197,7 +197,6 @@ set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
     src/zig_llvm.cpp
     src/zig_llvm-ar.cpp
-    src/zig_clang.cpp
     src/zig_clang_driver.cpp
     src/zig_clang_cc1_main.cpp
     src/zig_clang_cc1as_main.cpp
@@ -502,7 +501,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/Server.zig
     lib/std/zig/WindowsSdk.zig
     lib/std/zig/Zir.zig
-    lib/std/zig/c_builtins.zig
     lib/std/zig/string_literal.zig
     lib/std/zig/system.zig
     lib/std/zig/system/NativePaths.zig
@@ -537,7 +535,6 @@ set(ZIG_STAGE2_SOURCES
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/clang.zig
     src/clang_options.zig
     src/clang_options_data.zig
     src/codegen.zig
@@ -583,7 +580,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Goff.zig
+    src/link/Elf2.zig
     src/link/LdScript.zig
     src/link/Lld.zig
     src/link/MachO.zig
@@ -612,13 +609,13 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
+    src/link/MappedFile.zig
     src/link/Queue.zig
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
     src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
-    src/link/Xcoff.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -639,7 +636,6 @@ set(ZIG_STAGE2_SOURCES
     src/register_manager.zig
     src/target.zig
     src/tracy.zig
-    src/translate_c.zig
     src/libs/wasi_libc.zig
 )
 
@@ -740,17 +736,12 @@ string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
 if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
 elseif(ZIG_HOST_TARGET_OS STREQUAL "sunos")
-  check_symbol_exists(__illumos__ "" ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
-  if (ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
-    set(ZIG_HOST_TARGET_OS "illumos")
-  else()
-    set(ZIG_HOST_TARGET_OS "solaris")
-  endif()
+  set(ZIG_HOST_TARGET_OS "illumos")
 endif()
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
 if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
-  if (ZIG_HOST_TARGET_OS MATCHES "(solaris|illumos)")
+  if (ZIG_HOST_TARGET_OS STREQUAL "illumos")
     set(ZIG_HOST_TARGET_ARCH "x86_64")
   else()
     set(ZIG_HOST_TARGET_ARCH "x86")

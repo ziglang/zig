@@ -30,7 +30,7 @@ pub const Section = union(enum) {
     custom: []const u8,
 };
 
-pub fn getSection(obj: *Object, section: Section) !*std.array_list.Managed(u8) {
+pub fn getSection(obj: *Object, section: Section) !*std.ArrayList(u8) {
     switch (obj.format) {
         .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).getSection(section),
         else => unreachable,
@@ -65,9 +65,9 @@ pub fn addRelocation(obj: *Object, name: []const u8, section: Section, address: 
     }
 }
 
-pub fn finish(obj: *Object, file: std.fs.File) !void {
+pub fn finish(obj: *Object, w: *std.Io.Writer) !void {
     switch (obj.format) {
-        .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).finish(file),
+        .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).finish(w),
         else => unreachable,
     }
 }

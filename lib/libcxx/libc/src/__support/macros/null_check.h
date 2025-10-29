@@ -19,8 +19,17 @@
     if (LIBC_UNLIKELY((ptr) == nullptr))                                       \
       __builtin_trap();                                                        \
   } while (0)
+#define LIBC_CRASH_ON_VALUE(var, value)                                        \
+  do {                                                                         \
+    if (LIBC_UNLIKELY((var) == (value)))                                       \
+      __builtin_trap();                                                        \
+  } while (0)
+
 #else
 #define LIBC_CRASH_ON_NULLPTR(ptr)                                             \
+  do {                                                                         \
+  } while (0)
+#define LIBC_CRASH_ON_VALUE(var, value)                                        \
   do {                                                                         \
   } while (0)
 #endif

@@ -35,54 +35,95 @@ _LIBC_SINGLE_BY_DEFAULT()
 
 #if _USE_FORTIFY_LEVEL > 0
 
+extern int __snprintf_chk (char * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen, int, size_t,
+			  const char * __restrict, ...);
+extern int __vsnprintf_chk (char * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen, int, size_t,
+			  const char * __restrict, va_list);
+
+extern int __sprintf_chk (char * __restrict _LIBC_UNSAFE_INDEXABLE, int, size_t,
+			  const char * __restrict, ...);
+extern int __vsprintf_chk (char * __restrict _LIBC_UNSAFE_INDEXABLE, int, size_t,
+			  const char * __restrict, va_list);
+
+#ifdef __LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES
+
+/* verify that there are at least __n characters at __str */
+static inline char *_LIBC_COUNT(__n)
+__libc_ptrchk_strbuf_chk(char *_LIBC_COUNT(__n) __str, size_t __n) { return __str; }
+
+#undef __sprintf_chk_func /* sprintf is unavailable */
+#undef __vsprintf_chk_func /* vsprintf is unavailable */
+
+#define __vsnprintf_chk_func(str, len, flag, format, ap) ({ \
+	size_t __len = (len); \
+	__builtin___vsnprintf_chk (__libc_ptrchk_strbuf_chk(str, __len), __len, flag, __darwin_obsz(str), format, ap); \
+})
+
+#define __snprintf_chk_func(str, len, flag, ...) ({ \
+	size_t __len = (len); \
+	__builtin___snprintf_chk (__libc_ptrchk_strbuf_chk(str, __len), __len, flag, __darwin_obsz(str), __VA_ARGS__); \
+})
+
+#else
+
 #ifndef __has_builtin
-#define _undef__has_builtin
-#define __has_builtin(x) 0
+#define __undef__has_builtin
+#define __has_builtin(x) defined(__GNUC__)
+#endif
+
+#if __has_builtin(__builtin___snprintf_chk)
+#define __snprintf_chk_func(str, len, flag, ...) \
+	__builtin___snprintf_chk (str, len, flag, __darwin_obsz(str), __VA_ARGS__)
+#endif
+
+#if __has_builtin(__builtin___vsnprintf_chk)
+#define __vsnprintf_chk_func(str, len, flag, format, ap) \
+	__builtin___vsnprintf_chk (str, len, flag, __darwin_obsz(str), format, ap)
+#endif
+
+
+#if __has_builtin(__builtin___sprintf_chk)
+#define __sprintf_chk_func(str, flag, ...) \
+	__builtin___sprintf_chk (str, flag, __darwin_obsz(str), __VA_ARGS__)
+#endif
+
+#if __has_builtin(__builtin___vsprintf_chk)
+#define __vsprintf_chk_func(str, flag, format, ap) \
+	__builtin___vsprintf_chk (str, flag, __darwin_obsz(str), format, ap)
+#endif
+
+
+#ifdef __undef__has_builtin
+#undef __undef__has_builtin
+#undef __has_builtin
+#endif
+
 #endif
 
 /* sprintf, vsprintf, snprintf, vsnprintf */
-#if __has_builtin(__builtin___sprintf_chk) || defined(__GNUC__)
-extern int __sprintf_chk (char * __restrict _LIBC_UNSAFE_INDEXABLE, int, size_t,
-			  const char * __restrict, ...);
 
+#ifdef __sprintf_chk_func
 #undef sprintf
-#define sprintf(str, ...) \
-  __builtin___sprintf_chk (str, 0, __darwin_obsz(str), __VA_ARGS__)
+#define sprintf(str, ...) __sprintf_chk_func (str, 0, __VA_ARGS__)
 #endif
 
 #if __DARWIN_C_LEVEL >= 200112L
-#if __has_builtin(__builtin___snprintf_chk) || defined(__GNUC__)
-extern int __snprintf_chk (char * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen, int, size_t,
-			   const char * __restrict, ...);
 
-#undef snprintf
-#define snprintf(str, len, ...) \
-  __builtin___snprintf_chk (str, len, 0, __darwin_obsz(str), __VA_ARGS__)
-#endif
-
-#if __has_builtin(__builtin___vsprintf_chk) || defined(__GNUC__)
-extern int __vsprintf_chk (char * __restrict _LIBC_UNSAFE_INDEXABLE, int, size_t,
-			   const char * __restrict, va_list);
-
+#ifdef __vsprintf_chk_func
 #undef vsprintf
-#define vsprintf(str, format, ap) \
-  __builtin___vsprintf_chk (str, 0, __darwin_obsz(str), format, ap)
+#define vsprintf(str, ...) __vsprintf_chk_func (str, 0, __VA_ARGS__)
 #endif
 
-#if __has_builtin(__builtin___vsnprintf_chk) || defined(__GNUC__)
-extern int __vsnprintf_chk (char * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen, int, size_t,
-			    const char * __restrict, va_list);
+#ifdef __snprintf_chk_func
+#undef snprintf
+#define snprintf(str, len, ...) __snprintf_chk_func (str, len, 0, __VA_ARGS__)
+#endif
 
+#ifdef __vsnprintf_chk_func
 #undef vsnprintf
-#define vsnprintf(str, len, format, ap) \
-  __builtin___vsnprintf_chk (str, len, 0, __darwin_obsz(str), format, ap)
+#define vsnprintf(str, len, ...) __vsnprintf_chk_func (str, len, 0, __VA_ARGS__)
 #endif
 
-#endif /* __DARWIN_C_LEVEL >= 200112L */
-
-#ifdef _undef__has_builtin
-#undef _undef__has_builtin
-#undef __has_builtin
 #endif
 
 #endif /* _USE_FORTIFY_LEVEL > 0 */
