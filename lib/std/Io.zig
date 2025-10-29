@@ -1632,7 +1632,7 @@ pub fn SelectUnion(S: type) type {
 
 /// `s` is a struct with every field a `*Future(T)`, where `T` can be any type,
 /// and can be different for each field.
-pub fn select(io: Io, s: anytype) SelectUnion(@TypeOf(s)) {
+pub fn select(io: Io, s: anytype) Cancelable!SelectUnion(@TypeOf(s)) {
     const U = SelectUnion(@TypeOf(s));
     const S = @TypeOf(s);
     const fields = @typeInfo(S).@"struct".fields;
@@ -1641,7 +1641,7 @@ pub fn select(io: Io, s: anytype) SelectUnion(@TypeOf(s)) {
         const future = @field(s, field.name);
         any_future.* = future.any_future orelse return @unionInit(U, field.name, future.result);
     }
-    switch (io.vtable.select(io.userdata, &futures)) {
+    switch (try io.vtable.select(io.userdata, &futures)) {
         inline 0...(fields.len - 1) => |selected_index| {
             const field_name = fields[selected_index].name;
             return @unionInit(U, field_name, @field(s, field_name).await(io));

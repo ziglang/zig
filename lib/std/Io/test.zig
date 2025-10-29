@@ -3,24 +3,26 @@ const native_endian = builtin.cpu.arch.endian();
 
 const std = @import("std");
 const Io = std.Io;
-const DefaultPrng = std.Random.DefaultPrng;
+const testing = std.testing;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
+const DefaultPrng = std.Random.DefaultPrng;
 const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
+const assert = std.debug.assert;
 
 const tmpDir = std.testing.tmpDir;
 
 test "write a file, read it, then delete it" {
-    const io = std.testing.io;
+    const io = testing.io;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
     var data: [1024]u8 = undefined;
-    var prng = DefaultPrng.init(std.testing.random_seed);
+    var prng = DefaultPrng.init(testing.random_seed);
     const random = prng.random();
     random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
@@ -51,8 +53,8 @@ test "write a file, read it, then delete it" {
 
         var file_buffer: [1024]u8 = undefined;
         var file_reader = file.reader(io, &file_buffer);
-        const contents = try file_reader.interface.allocRemaining(std.testing.allocator, .limited(2 * 1024));
-        defer std.testing.allocator.free(contents);
+        const contents = try file_reader.interface.allocRemaining(testing.allocator, .limited(2 * 1024));
+        defer testing.allocator.free(contents);
 
         try expect(mem.eql(u8, contents[0.."begin".len], "begin"));
         try expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
@@ -94,18 +96,18 @@ test "setEndPos" {
     defer file.close();
 
     // Verify that the file size changes and the file offset is not moved
-    try std.testing.expect((try file.getEndPos()) == 0);
-    try std.testing.expect((try file.getPos()) == 0);
+    try expect((try file.getEndPos()) == 0);
+    try expect((try file.getPos()) == 0);
     try file.setEndPos(8192);
-    try std.testing.expect((try file.getEndPos()) == 8192);
-    try std.testing.expect((try file.getPos()) == 0);
+    try expect((try file.getEndPos()) == 8192);
+    try expect((try file.getPos()) == 0);
     try file.seekTo(100);
     try file.setEndPos(4096);
-    try std.testing.expect((try file.getEndPos()) == 4096);
-    try std.testing.expect((try file.getPos()) == 100);
+    try expect((try file.getEndPos()) == 4096);
+    try expect((try file.getPos()) == 100);
     try file.setEndPos(0);
-    try std.testing.expect((try file.getEndPos()) == 0);
-    try std.testing.expect((try file.getPos()) == 100);
+    try expect((try file.getEndPos()) == 0);
+    try expect((try file.getPos()) == 100);
 }
 
 test "updateTimes" {
@@ -128,7 +130,7 @@ test "updateTimes" {
 }
 
 test "Group" {
-    const io = std.testing.io;
+    const io = testing.io;
 
     var group: Io.Group = .init;
     var results: [2]usize = undefined;
@@ -138,7 +140,7 @@ test "Group" {
 
     group.wait(io);
 
-    try std.testing.expectEqualSlices(usize, &.{ 45, 245 }, &results);
+    try testing.expectEqualSlices(usize, &.{ 45, 245 }, &results);
 }
 
 fn count(a: usize, b: usize, result: *usize) void {
@@ -150,7 +152,7 @@ fn count(a: usize, b: usize, result: *usize) void {
 }
 
 test "Group cancellation" {
-    const io = std.testing.io;
+    const io = testing.io;
 
     var group: Io.Group = .init;
     var results: [2]usize = undefined;
@@ -160,7 +162,7 @@ test "Group cancellation" {
 
     group.cancel(io);
 
-    try std.testing.expectEqualSlices(usize, &.{ 1, 1 }, &results);
+    try testing.expectEqualSlices(usize, &.{ 1, 1 }, &results);
 }
 
 fn sleep(io: Io, result: *usize) void {
@@ -168,4 +170,29 @@ fn sleep(io: Io, result: *usize) void {
     // it causes the unit test to be failed if not cancelled.
     io.sleep(.fromMilliseconds(1), .awake) catch {};
     result.* = 1;
+}
+
+test "select" {
+    const io = testing.io;
+
+    var queue: Io.Queue(u8) = .init(&.{});
+
+    var get_a = try io.concurrent(Io.Queue(u8).getOne, .{ &queue, io });
+    defer if (get_a.cancel(io)) |_| @panic("fail") else |err| assert(err == error.Canceled);
+
+    var get_b = try io.concurrent(Io.Queue(u8).getOne, .{ &queue, io });
+    defer if (get_b.cancel(io)) |_| @panic("fail") else |err| assert(err == error.Canceled);
+
+    var timeout = io.async(Io.sleep, .{ io, .fromMilliseconds(1), .awake });
+    defer timeout.cancel(io) catch {};
+
+    switch (try io.select(.{
+        .get_a = &get_a,
+        .get_b = &get_b,
+        .timeout = &timeout,
+    })) {
+        .get_a => return error.TestFailure,
+        .get_b => return error.TestFailure,
+        .timeout => {},
+    }
 }
