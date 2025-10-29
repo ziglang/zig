@@ -1449,7 +1449,6 @@ pub const Pool = struct {
     ) !CType {
         const ip = &pt.zcu.intern_pool;
         const zcu = pt.zcu;
-        const is_ez80 = zcu.getTarget().cpu.arch == .ez80;
         switch (ty.toIntern()) {
             .u0_type,
             .i0_type,
