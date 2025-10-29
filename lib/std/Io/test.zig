@@ -183,10 +183,10 @@ test "select" {
             return;
         },
     };
-    defer if (get_a.cancel(io)) |_| @panic("fail") else |err| assert(err == error.Canceled);
+    defer if (get_a.cancel(io)) |_| {} else |_| @panic("fail");
 
     var get_b = try io.concurrent(Io.Queue(u8).getOne, .{ &queue, io });
-    defer if (get_b.cancel(io)) |_| @panic("fail") else |err| assert(err == error.Canceled);
+    defer if (get_b.cancel(io)) |_| {} else |_| @panic("fail");
 
     var timeout = io.async(Io.sleep, .{ io, .fromMilliseconds(1), .awake });
     defer timeout.cancel(io) catch {};
@@ -198,6 +198,13 @@ test "select" {
     })) {
         .get_a => return error.TestFailure,
         .get_b => return error.TestFailure,
-        .timeout => {},
+        .timeout => {
+            // Unblock the queues to avoid making this unit test depend on
+            // cancellation.
+            queue.putOneUncancelable(io, 1);
+            queue.putOneUncancelable(io, 1);
+            try testing.expectEqual(1, try get_a.await(io));
+            try testing.expectEqual(1, try get_b.await(io));
+        },
     }
 }
