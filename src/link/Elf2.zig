@@ -419,7 +419,7 @@ fn create(
         .netbsd => .NETBSD,
         .illumos => .SOLARIS,
         .aix => .AIX,
-        .freebsd => .FREEBSD,
+        .freebsd, .ps4 => .FREEBSD,
         .cuda => .CUDA,
         .amdhsa => .AMDGPU_HSA,
         .amdpal => .AMDGPU_PAL,
