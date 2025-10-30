@@ -434,8 +434,7 @@ pub const Reader = struct {
                         return err;
                     };
                 }
-                r.interface.seek = 0;
-                r.interface.end = 0;
+                r.interface.tossBuffered();
             },
             .failure => return r.seek_err.?,
         }
@@ -467,15 +466,11 @@ pub const Reader = struct {
     }
 
     fn setLogicalPos(r: *Reader, offset: u64) void {
-        const logical_pos = logicalPos(r);
+        const logical_pos = r.logicalPos();
         if (offset < logical_pos or offset >= r.pos) {
-            r.interface.seek = 0;
-            r.interface.end = 0;
+            r.interface.tossBuffered();
             r.pos = offset;
-        } else {
-            const logical_delta: usize = @intCast(offset - logical_pos);
-            r.interface.seek += logical_delta;
-        }
+        } else r.interface.toss(@intCast(offset - logical_pos));
     }
 
     /// Number of slices to store on the stack, when trying to send as many byte

@@ -808,7 +808,6 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = &comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?Cache.Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -1070,12 +1069,12 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             }
         }
 
-        if (have_dynamic_linker and
-            (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker))
-        {
+        if (output_mode == .Exe and link_mode == .dynamic) {
             if (target.dynamic_linker.get()) |dynamic_linker| {
-                try argv.append("-dynamic-linker");
+                try argv.append("--dynamic-linker");
                 try argv.append(dynamic_linker);
+            } else {
+                try argv.append("--no-dynamic-linker");
             }
         }
 

@@ -585,10 +585,10 @@ fn abiAndDynamicLinkerFromFile(
         .os = os,
         .abi = query.abi orelse Target.Abi.default(cpu.arch, os.tag),
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
-        .dynamic_linker = query.dynamic_linker,
+        .dynamic_linker = query.dynamic_linker orelse .none,
     };
     var rpath_offset: ?u64 = null; // Found inside PT_DYNAMIC
-    const look_for_ld = query.dynamic_linker.get() == null;
+    const look_for_ld = query.dynamic_linker == null;
 
     var got_dyn_section: bool = false;
     {
@@ -938,7 +938,7 @@ fn detectAbiAndDynamicLinker(io: Io, cpu: Target.Cpu, os: Target.Os, query: Targ
     const is_linux = builtin.target.os.tag == .linux;
     const is_illumos = builtin.target.os.tag == .illumos;
     const is_darwin = builtin.target.os.tag.isDarwin();
-    const have_all_info = query.dynamic_linker.get() != null and
+    const have_all_info = query.dynamic_linker != null and
         query.abi != null and (!is_linux or query.abi.?.isGnu());
     const os_is_non_native = query.os_tag != null;
     // The illumos environment is always the same.
@@ -1126,10 +1126,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Quer
         .os = os,
         .abi = abi,
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
-        .dynamic_linker = if (query.dynamic_linker.get() == null)
-            Target.DynamicLinker.standard(cpu, os, abi)
-        else
-            query.dynamic_linker,
+        .dynamic_linker = query.dynamic_linker orelse .standard(cpu, os, abi),
     };
 }
 
