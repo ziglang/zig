@@ -830,18 +830,6 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             air_inst_index = air_body[air_body_index];
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
         },
-        .vector_store_elem => {
-            const vector_store_elem = air_data[@intFromEnum(air_inst_index)].vector_store_elem;
-            const bin_op = isel.air.extraData(Air.Bin, vector_store_elem.payload).data;
-
-            try isel.analyzeUse(vector_store_elem.vector_ptr);
-            try isel.analyzeUse(bin_op.lhs);
-            try isel.analyzeUse(bin_op.rhs);
-
-            air_body_index += 1;
-            air_inst_index = air_body[air_body_index];
-            continue :air_tag air_tags[@intFromEnum(air_inst_index)];
-        },
     }
     assert(air_body_index == air_body.len);
     isel.def_order.shrinkRetainingCapacity(initial_def_order_len);

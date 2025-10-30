@@ -2408,8 +2408,7 @@ pub const Object = struct {
                     const field_size = field_ty.abiSize(zcu);
                     const field_align = ty.fieldAlignment(field_index, zcu);
                     const field_offset = ty.structFieldOffset(field_index, zcu);
-                    const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                        try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+                    const field_name = struct_type.fieldName(ip, field_index);
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(field_name.toSlice(ip)),
                         null, // File
@@ -5090,8 +5089,6 @@ pub const FuncGen = struct {
                 .wasm_memory_size => try self.airWasmMemorySize(inst),
                 .wasm_memory_grow => try self.airWasmMemoryGrow(inst),
 
-                .vector_store_elem => try self.airVectorStoreElem(inst),
-
                 .runtime_nav_ptr => try self.airRuntimeNavPtr(inst),
 
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
@@ -6870,16 +6867,14 @@ pub const FuncGen = struct {
         const array_llvm_ty = try o.lowerType(pt, array_ty);
         const elem_ty = array_ty.childType(zcu);
         if (isByRef(array_ty, zcu)) {
-            const indices: [2]Builder.Value = .{
-                try o.builder.intValue(try o.lowerType(pt, Type.usize), 0), rhs,
-            };
+            const elem_ptr = try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &.{
+                try o.builder.intValue(try o.lowerType(pt, Type.usize), 0),
+                rhs,
+            }, "");
             if (isByRef(elem_ty, zcu)) {
-                const elem_ptr = try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
                 return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
-                const elem_ptr =
-                    try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 return self.loadTruncate(.normal, elem_ty, elem_ptr, .default);
             }
         }
@@ -8137,33 +8132,6 @@ pub const FuncGen = struct {
         }, "");
     }
 
-    fn airVectorStoreElem(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const pt = self.ng.pt;
-        const zcu = pt.zcu;
-        const data = self.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
-        const extra = self.air.extraData(Air.Bin, data.payload).data;
-
-        const vector_ptr = try self.resolveInst(data.vector_ptr);
-        const vector_ptr_ty = self.typeOf(data.vector_ptr);
-        const index = try self.resolveInst(extra.lhs);
-        const operand = try self.resolveInst(extra.rhs);
-
-        self.maybeMarkAllowZeroAccess(vector_ptr_ty.ptrInfo(zcu));
-
-        // TODO: Emitting a load here is a violation of volatile semantics. Not fixable in general.
-        // https://github.com/ziglang/zig/issues/18652#issuecomment-2452844908
-        const access_kind: Builder.MemoryAccessKind =
-            if (vector_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
-        const elem_llvm_ty = try o.lowerType(pt, vector_ptr_ty.childType(zcu));
-        const alignment = vector_ptr_ty.ptrAlignment(zcu).toLlvm();
-        const loaded = try self.wip.load(access_kind, elem_llvm_ty, vector_ptr, alignment, "");
-
-        const new_vector = try self.wip.insertElement(loaded, operand, index, "");
-        _ = try self.store(vector_ptr, vector_ptr_ty, new_vector, .none);
-        return .none;
-    }
-
     fn airRuntimeNavPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = fg.ng.object;
         const pt = fg.ng.pt;
@@ -8300,8 +8268,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType(zcu);
-
-        if (scalar_ty.isAnyFloat()) return self.todo("saturating float add", .{});
+        assert(scalar_ty.zigTypeTag(zcu) == .int);
         return self.wip.callIntrinsic(
             .normal,
             .none,
@@ -8341,8 +8308,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType(zcu);
-
-        if (scalar_ty.isAnyFloat()) return self.todo("saturating float sub", .{});
+        assert(scalar_ty.zigTypeTag(zcu) == .int);
         return self.wip.callIntrinsic(
             .normal,
             .none,
@@ -8382,8 +8348,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType(zcu);
-
-        if (scalar_ty.isAnyFloat()) return self.todo("saturating float mul", .{});
+        assert(scalar_ty.zigTypeTag(zcu) == .int);
         return self.wip.callIntrinsic(
             .normal,
             .none,
@@ -11451,7 +11416,6 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (info.flags.is_volatile) .@"volatile" else .normal;
 
-        assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
             const index_u32 = try o.builder.intValue(.i32, info.flags.vector_index);
             const vec_elem_ty = try o.lowerType(pt, elem_ty);
@@ -11521,7 +11485,6 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (info.flags.is_volatile) .@"volatile" else .normal;
 
-        assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
             const index_u32 = try o.builder.intValue(.i32, info.flags.vector_index);
             const vec_elem_ty = try o.lowerType(pt, elem_ty);

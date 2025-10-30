@@ -24,7 +24,6 @@ pub fn loadComptimePtr(sema: *Sema, block: *Block, src: LazySrcLoc, ptr: Value) 
         const child_bits = Type.fromInterned(ptr_info.child).bitSize(zcu);
         const bit_offset = ptr_info.packed_offset.bit_offset + switch (ptr_info.flags.vector_index) {
             .none => 0,
-            .runtime => return .runtime_load,
             else => |idx| switch (pt.zcu.getTarget().cpu.arch.endian()) {
                 .little => child_bits * @intFromEnum(idx),
                 .big => host_bits - child_bits * (@intFromEnum(idx) + 1), // element order reversed on big endian
@@ -81,7 +80,6 @@ pub fn storeComptimePtr(
     };
     const bit_offset = ptr_info.packed_offset.bit_offset + switch (ptr_info.flags.vector_index) {
         .none => 0,
-        .runtime => return .runtime_store,
         else => |idx| switch (zcu.getTarget().cpu.arch.endian()) {
             .little => Type.fromInterned(ptr_info.child).bitSize(zcu) * @intFromEnum(idx),
             .big => host_bits - Type.fromInterned(ptr_info.child).bitSize(zcu) * (@intFromEnum(idx) + 1), // element order reversed on big endian

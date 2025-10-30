@@ -1633,7 +1633,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
             .is_named_enum_value => return func.fail("TODO implement is_named_enum_value", .{}),
             .error_set_has_value => return func.fail("TODO implement error_set_has_value", .{}),
-            .vector_store_elem => return func.fail("TODO implement vector_store_elem", .{}),
 
             .c_va_arg => return func.fail("TODO implement c_va_arg", .{}),
             .c_va_copy => return func.fail("TODO implement c_va_copy", .{}),
