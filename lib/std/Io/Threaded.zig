@@ -13,6 +13,7 @@ const net = std.Io.net;
 const HostName = std.Io.net.HostName;
 const IpAddress = std.Io.net.IpAddress;
 const Allocator = std.mem.Allocator;
+const Alignment = std.mem.Alignment;
 const assert = std.debug.assert;
 const posix = std.posix;
 
@@ -24,7 +25,8 @@ run_queue: std.SinglyLinkedList = .{},
 join_requested: bool = false,
 threads: std.ArrayListUnmanaged(std.Thread),
 stack_size: usize,
-cpu_count: std.Thread.CpuCountError!usize,
+thread_capacity: std.atomic.Value(ThreadCapacity),
+thread_capacity_error: ?std.Thread.CpuCountError,
 concurrent_count: usize,
 
 wsa: if (is_windows) Wsa else struct {} = .{},
@@ -32,6 +34,21 @@ wsa: if (is_windows) Wsa else struct {} = .{},
 have_signal_handler: bool,
 old_sig_io: if (have_sig_io) posix.Sigaction else void,
 old_sig_pipe: if (have_sig_pipe) posix.Sigaction else void,
+
+pub const ThreadCapacity = enum(usize) {
+    unknown = 0,
+    _,
+
+    pub fn init(n: usize) ThreadCapacity {
+        assert(n != 0);
+        return @enumFromInt(n);
+    }
+
+    pub fn get(tc: ThreadCapacity) ?usize {
+        if (tc == .unknown) return null;
+        return @intFromEnum(tc);
+    }
+};
 
 threadlocal var current_closure: ?*Closure = null;
 
@@ -103,18 +120,21 @@ pub fn init(
     /// here.
     gpa: Allocator,
 ) Threaded {
+    const cpu_count = std.Thread.getCpuCount();
+
     var t: Threaded = .{
         .allocator = gpa,
         .threads = .empty,
         .stack_size = std.Thread.SpawnConfig.default_stack_size,
-        .cpu_count = std.Thread.getCpuCount(),
+        .thread_capacity = .init(if (cpu_count) |n| .init(n) else |_| .unknown),
+        .thread_capacity_error = if (cpu_count) |_| null else |e| e,
         .concurrent_count = 0,
         .old_sig_io = undefined,
         .old_sig_pipe = undefined,
         .have_signal_handler = false,
     };
 
-    if (t.cpu_count) |n| {
+    if (cpu_count) |n| {
         t.threads.ensureTotalCapacityPrecise(gpa, n - 1) catch {};
     } else |_| {}
 
@@ -144,7 +164,8 @@ pub const init_single_threaded: Threaded = .{
     .allocator = .failing,
     .threads = .empty,
     .stack_size = std.Thread.SpawnConfig.default_stack_size,
-    .cpu_count = 1,
+    .thread_capacity = .init(.init(1)),
+    .thread_capacity_error = null,
     .concurrent_count = 0,
     .old_sig_io = undefined,
     .old_sig_pipe = undefined,
@@ -163,6 +184,18 @@ pub fn deinit(t: *Threaded) void {
         if (have_sig_pipe) posix.sigaction(.PIPE, &t.old_sig_pipe, null);
     }
     t.* = undefined;
+}
+
+pub fn setThreadCapacity(t: *Threaded, n: usize) void {
+    t.thread_capacity.store(.init(n), .monotonic);
+}
+
+pub fn getThreadCapacity(t: *Threaded) ?usize {
+    return t.thread_capacity.load(.monotonic).get();
+}
+
+pub fn getCurrentThreadId() usize {
+    @panic("TODO");
 }
 
 fn join(t: *Threaded) void {
@@ -208,6 +241,7 @@ pub fn io(t: *Threaded) Io {
             .select = select,
 
             .groupAsync = groupAsync,
+            .groupConcurrent = groupConcurrent,
             .groupWait = groupWait,
             .groupCancel = groupCancel,
 
@@ -304,6 +338,7 @@ pub fn ioBasic(t: *Threaded) Io {
             .select = select,
 
             .groupAsync = groupAsync,
+            .groupConcurrent = groupConcurrent,
             .groupWait = groupWait,
             .groupCancel = groupCancel,
 
@@ -387,7 +422,7 @@ const AsyncClosure = struct {
     func: *const fn (context: *anyopaque, result: *anyopaque) void,
     reset_event: ResetEvent,
     select_condition: ?*ResetEvent,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     result_offset: usize,
 
     const done_reset_event: *ResetEvent = @ptrFromInt(@alignOf(ResetEvent));
@@ -443,9 +478,9 @@ const AsyncClosure = struct {
 fn async(
     userdata: ?*anyopaque,
     result: []u8,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
     context: []const u8,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) ?*Io.AnyFuture {
     if (builtin.single_threaded) {
@@ -453,7 +488,7 @@ fn async(
         return null;
     }
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const cpu_count = t.cpu_count catch {
+    const cpu_count = t.getThreadCapacity() orelse {
         return concurrent(userdata, result.len, result_alignment, context, context_alignment, start) catch {
             start(context.ptr, result.ptr);
             return null;
@@ -521,15 +556,15 @@ fn async(
 fn concurrent(
     userdata: ?*anyopaque,
     result_len: usize,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
     context: []const u8,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) Io.ConcurrentError!*Io.AnyFuture {
     if (builtin.single_threaded) return error.ConcurrencyUnavailable;
 
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const cpu_count = t.cpu_count catch 1;
+    const cpu_count = t.getThreadCapacity() orelse 1;
     const gpa = t.allocator;
     const context_offset = context_alignment.forward(@sizeOf(AsyncClosure));
     const result_offset = result_alignment.forward(context_offset + context.len);
@@ -587,7 +622,7 @@ const GroupClosure = struct {
     /// Points to sibling `GroupClosure`. Used for walking the group to cancel all.
     node: std.SinglyLinkedList.Node,
     func: *const fn (*Io.Group, context: *anyopaque) void,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     context_len: usize,
 
     fn start(closure: *Closure) void {
@@ -621,11 +656,11 @@ const GroupClosure = struct {
         gpa.free(base[0..contextEnd(gc.context_alignment, gc.context_len)]);
     }
 
-    fn contextOffset(context_alignment: std.mem.Alignment) usize {
+    fn contextOffset(context_alignment: Alignment) usize {
         return context_alignment.forward(@sizeOf(GroupClosure));
     }
 
-    fn contextEnd(context_alignment: std.mem.Alignment, context_len: usize) usize {
+    fn contextEnd(context_alignment: Alignment, context_len: usize) usize {
         return contextOffset(context_alignment) + context_len;
     }
 
@@ -642,12 +677,12 @@ fn groupAsync(
     userdata: ?*anyopaque,
     group: *Io.Group,
     context: []const u8,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     start: *const fn (*Io.Group, context: *const anyopaque) void,
 ) void {
     if (builtin.single_threaded) return start(group, context.ptr);
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const cpu_count = t.cpu_count catch 1;
+    const cpu_count = t.getThreadCapacity() orelse 1;
     const gpa = t.allocator;
     const n = GroupClosure.contextEnd(context_alignment, context.len);
     const gc: *GroupClosure = @ptrCast(@alignCast(gpa.alignedAlloc(u8, .of(GroupClosure), n) catch {
@@ -690,6 +725,73 @@ fn groupAsync(
             t.mutex.unlock();
             gc.free(gpa);
             return start(group, context.ptr);
+        };
+        t.threads.appendAssumeCapacity(thread);
+    }
+
+    // This needs to be done before unlocking the mutex to avoid a race with
+    // the associated task finishing.
+    const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
+    const prev_state = group_state.fetchAdd(GroupClosure.sync_one_pending, .monotonic);
+    assert((prev_state / GroupClosure.sync_one_pending) < (std.math.maxInt(usize) / GroupClosure.sync_one_pending));
+
+    t.mutex.unlock();
+    t.cond.signal();
+}
+
+fn groupConcurrent(
+    userdata: ?*anyopaque,
+    group: *Io.Group,
+    context: []const u8,
+    context_alignment: Alignment,
+    start: *const fn (*Io.Group, context: *const anyopaque) void,
+) Io.ConcurrentError!void {
+    if (builtin.single_threaded) return error.ConcurrencyUnavailable;
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    const cpu_count = t.getThreadCapacity() orelse 1;
+    const gpa = t.allocator;
+    const n = GroupClosure.contextEnd(context_alignment, context.len);
+    const gc_bytes = gpa.alignedAlloc(u8, .of(GroupClosure), n) catch
+        return error.ConcurrencyUnavailable;
+    const gc: *GroupClosure = @ptrCast(@alignCast(gc_bytes));
+    gc.* = .{
+        .closure = .{
+            .cancel_tid = .none,
+            .start = GroupClosure.start,
+            .is_concurrent = false,
+        },
+        .t = t,
+        .group = group,
+        .node = undefined,
+        .func = start,
+        .context_alignment = context_alignment,
+        .context_len = context.len,
+    };
+    @memcpy(gc.contextPointer()[0..context.len], context);
+
+    t.mutex.lock();
+
+    // Append to the group linked list inside the mutex to make `Io.Group.concurrent` thread-safe.
+    gc.node = .{ .next = @ptrCast(@alignCast(group.token)) };
+    group.token = &gc.node;
+
+    t.concurrent_count += 1;
+    const thread_capacity = cpu_count - 1 + t.concurrent_count;
+
+    t.threads.ensureTotalCapacityPrecise(gpa, thread_capacity) catch {
+        t.mutex.unlock();
+        gc.free(gpa);
+        return error.ConcurrencyUnavailable;
+    };
+
+    t.run_queue.prepend(&gc.closure.node);
+
+    if (t.threads.items.len < thread_capacity) {
+        const thread = std.Thread.spawn(.{ .stack_size = t.stack_size }, worker, .{t}) catch {
+            assert(t.run_queue.popFirst() == &gc.closure.node);
+            t.mutex.unlock();
+            gc.free(gpa);
+            return error.ConcurrencyUnavailable;
         };
         t.threads.appendAssumeCapacity(thread);
     }
@@ -771,7 +873,7 @@ fn await(
     userdata: ?*anyopaque,
     any_future: *Io.AnyFuture,
     result: []u8,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
 ) void {
     _ = result_alignment;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -783,7 +885,7 @@ fn cancel(
     userdata: ?*anyopaque,
     any_future: *Io.AnyFuture,
     result: []u8,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
 ) void {
     _ = result_alignment;
     const t: *Threaded = @ptrCast(@alignCast(userdata));

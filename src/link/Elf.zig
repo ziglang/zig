@@ -713,6 +713,7 @@ pub fn allocateChunk(self: *Elf, args: struct {
 pub fn loadInput(self: *Elf, input: link.Input) !void {
     const comp = self.base.comp;
     const gpa = comp.gpa;
+    const io = comp.io;
     const diags = &comp.link_diags;
     const target = self.getTarget();
     const debug_fmt_strip = comp.config.debug_format == .strip;
@@ -720,8 +721,8 @@ pub fn loadInput(self: *Elf, input: link.Input) !void {
     const is_static_lib = self.base.isStaticLib();
 
     if (comp.verbose_link) {
-        comp.mutex.lock(); // protect comp.arena
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io); // protect comp.arena
+        defer comp.mutex.unlock(io);
 
         const argv = &self.dump_argv_list;
         switch (input) {

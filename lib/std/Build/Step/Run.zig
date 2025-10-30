@@ -1122,7 +1122,6 @@ pub fn rerunInFuzzMode(
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, .{
         .progress_node = prog_node,
-        .thread_pool = undefined, // not used by `runCommand`
         .watch = undefined, // not used by `runCommand`
         .web_server = null, // only needed for time reports
         .unit_test_timeout_ns = null, // don't time out fuzz tests for now

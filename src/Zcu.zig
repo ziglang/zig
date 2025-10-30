@@ -4566,9 +4566,10 @@ pub fn codegenFail(
 /// Takes ownership of `msg`, even on OOM.
 pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg) CodegenFailError {
     const gpa = zcu.gpa;
+    const io = zcu.comp.io;
     {
-        zcu.comp.mutex.lock();
-        defer zcu.comp.mutex.unlock();
+        zcu.comp.mutex.lockUncancelable(io);
+        defer zcu.comp.mutex.unlock(io);
         errdefer msg.deinit(gpa);
         try zcu.failed_codegen.putNoClobber(gpa, nav_index, msg);
     }
@@ -4577,8 +4578,9 @@ pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg
 
 /// Asserts that `zcu.failed_codegen` contains the key `nav`, with the necessary lock held.
 pub fn assertCodegenFailed(zcu: *Zcu, nav: InternPool.Nav.Index) void {
-    zcu.comp.mutex.lock();
-    defer zcu.comp.mutex.unlock();
+    const io = zcu.comp.io;
+    zcu.comp.mutex.lockUncancelable(io);
+    defer zcu.comp.mutex.unlock(io);
     assert(zcu.failed_codegen.contains(nav));
 }
 
@@ -4729,6 +4731,7 @@ const TrackedUnitSema = struct {
     analysis_timer_decl: ?InternPool.TrackedInst.Index,
     pub fn end(tus: TrackedUnitSema, zcu: *Zcu) void {
         const comp = zcu.comp;
+        const io = comp.io;
         if (tus.old_name) |old_name| {
             zcu.sema_prog_node.completeOne(); // we're just renaming, but it's effectively completion
             zcu.cur_sema_prog_node.setName(&old_name);
@@ -4739,8 +4742,8 @@ const TrackedUnitSema = struct {
         report_time: {
             const sema_ns = zcu.cur_analysis_timer.?.finish() orelse break :report_time;
             const zir_decl = tus.analysis_timer_decl orelse break :report_time;
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
+            comp.mutex.lockUncancelable(io);
+            defer comp.mutex.unlock(io);
             comp.time_report.?.stats.cpu_ns_sema += sema_ns;
             const gop = comp.time_report.?.decl_sema_info.getOrPut(comp.gpa, zir_decl) catch |err| switch (err) {
                 error.OutOfMemory => {

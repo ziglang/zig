@@ -653,6 +653,16 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (*Group, context: *const anyopaque) void,
     ) void,
+    groupConcurrent: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        /// Owner of the spawned async task.
+        group: *Group,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (*Group, context: *const anyopaque) void,
+    ) ConcurrentError!void,
     groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
     groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
 
@@ -1035,6 +1045,32 @@ pub const Group = struct {
             }
         };
         io.vtable.groupAsync(io.userdata, g, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+    }
+
+    pub fn concurrent(
+        g: *Group,
+        io: Io,
+        function: anytype,
+        args: std.meta.ArgsTuple(@TypeOf(function)),
+    ) ConcurrentError!void {
+        const Args = @TypeOf(args);
+        const TypeErased = struct {
+            fn start(group: *Group, context: *const anyopaque) void {
+                _ = group;
+                const args_casted: *const Args = @ptrCast(@alignCast(context));
+                @call(.auto, function, args_casted.*);
+            }
+        };
+        return io.vtable.groupConcurrent(io.userdata, g, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+    }
+
+    pub fn eager(
+        g: *Group,
+        io: Io,
+        function: anytype,
+        args: std.meta.ArgsTuple(@TypeOf(function)),
+    ) void {
+        return Group.concurrent(g, io, function, args) catch @call(.auto, function, args);
     }
 
     /// Blocks until all tasks of the group finish. During this time,

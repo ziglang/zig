@@ -1,5 +1,4 @@
 gpa: Allocator,
-thread_pool: *std.Thread.Pool,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
 listen_address: net.IpAddress,
@@ -53,7 +52,6 @@ pub fn notifyUpdate(ws: *WebServer) void {
 
 pub const Options = struct {
     gpa: Allocator,
-    thread_pool: *std.Thread.Pool,
     graph: *const std.Build.Graph,
     all_steps: []const *Build.Step,
     ttyconf: Io.tty.Config,
@@ -100,7 +98,6 @@ pub fn init(opts: Options) WebServer {
 
     return .{
         .gpa = opts.gpa,
-        .thread_pool = opts.thread_pool,
         .graph = opts.graph,
         .all_steps = all_steps,
         .listen_address = opts.listen_address,
@@ -235,7 +232,6 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
         ws.fuzz = Fuzz.init(
             ws.gpa,
             ws.graph.io,
-            ws.thread_pool,
             ws.all_steps,
             ws.root_prog_node,
             ws.ttyconf,

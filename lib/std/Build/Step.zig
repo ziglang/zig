@@ -110,7 +110,6 @@ pub const TestResults = struct {
 
 pub const MakeOptions = struct {
     progress_node: std.Progress.Node,
-    thread_pool: *std.Thread.Pool,
     watch: bool,
     web_server: switch (builtin.target.cpu.arch) {
         else => ?*Build.WebServer,

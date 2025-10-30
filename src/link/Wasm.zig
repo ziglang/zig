@@ -3393,10 +3393,11 @@ pub fn updateExports(
 pub fn loadInput(wasm: *Wasm, input: link.Input) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
+    const io = comp.io;
 
     if (comp.verbose_link) {
-        comp.mutex.lock(); // protect comp.arena
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io); // protect comp.arena
+        defer comp.mutex.unlock(io);
 
         const argv = &wasm.dump_argv_list;
         switch (input) {

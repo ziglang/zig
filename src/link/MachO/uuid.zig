@@ -15,7 +15,7 @@ pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[
     const hashes = try comp.gpa.alloc([Md5.digest_length]u8, actual_num_chunks);
     defer comp.gpa.free(hashes);
 
-    var hasher = Hasher(Md5){ .allocator = comp.gpa, .thread_pool = comp.thread_pool };
+    var hasher: Hasher(Md5) = .{ .allocator = comp.gpa, .io = comp.io };
     try hasher.hash(file, hashes, .{
         .chunk_size = chunk_size,
         .max_file_size = file_size,
@@ -46,4 +46,3 @@ const trace = @import("../../tracy.zig").trace;
 const Compilation = @import("../../Compilation.zig");
 const Md5 = std.crypto.hash.Md5;
 const Hasher = @import("hasher.zig").ParallelHasher;
-const ThreadPool = std.Thread.Pool;

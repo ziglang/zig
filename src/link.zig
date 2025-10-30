@@ -1344,6 +1344,7 @@ pub const ZcuTask = union(enum) {
 };
 
 pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
+    const io = comp.io;
     const diags = &comp.link_diags;
     const base = comp.bin_file orelse {
         comp.link_prog_node.completeOne();
@@ -1352,8 +1353,8 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
 
     var timer = comp.startTimer();
     defer if (timer.finish()) |ns| {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         comp.time_report.?.stats.cpu_ns_link += ns;
     };
 
@@ -1478,6 +1479,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
     }
 }
 pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
+    const io = comp.io;
     const diags = &comp.link_diags;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
@@ -1567,8 +1569,8 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             .link_nav => |nav| ip.getNav(nav).srcInst(ip),
             .link_func => |f| ip.getNav(ip.indexToKey(f.func).func.owner_nav).srcInst(ip),
         };
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         const tr = &zcu.comp.time_report.?;
         tr.stats.cpu_ns_link += ns_link;
         if (zir_decl) |inst| {

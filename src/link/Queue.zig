@@ -102,6 +102,7 @@ pub fn deinit(q: *Queue, comp: *Compilation) void {
 /// This is expected to be called exactly once, after which the caller must not directly access
 /// `queued_prelink` any longer. This will spawn the link thread if necessary.
 pub fn start(q: *Queue, comp: *Compilation) void {
+    const io = comp.io;
     assert(q.state == .finished);
     assert(q.queued_zcu.items.len == 0);
     // Reset this to 1. We can't init it to 1 in `empty`, because it would fall to 0 on successive
@@ -109,7 +110,7 @@ pub fn start(q: *Queue, comp: *Compilation) void {
     q.prelink_wait_count = 1;
     if (q.queued_prelink.items.len != 0) {
         q.state = .running;
-        comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
+        comp.link_task_wait_group.async(io, flushTaskQueue, .{ q, comp });
     }
 }
 
@@ -124,6 +125,7 @@ pub fn startPrelinkItem(q: *Queue) void {
 /// indicates that we have finished calling `startPrelinkItem`, so once all pending items finish,
 /// we are ready to move on to ZCU tasks.
 pub fn finishPrelinkItem(q: *Queue, comp: *Compilation) void {
+    const io = comp.io;
     {
         q.mutex.lock();
         defer q.mutex.unlock();
@@ -140,12 +142,13 @@ pub fn finishPrelinkItem(q: *Queue, comp: *Compilation) void {
         // that `link.File.prelink()` is called.
         q.state = .running;
     }
-    comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
+    comp.link_task_wait_group.async(io, flushTaskQueue, .{ q, comp });
 }
 
 /// Called by codegen workers after they have populated a `ZcuTask.LinkFunc.SharedMir`. If the link
 /// thread was waiting for this MIR, it can resume.
 pub fn mirReady(q: *Queue, comp: *Compilation, func_index: InternPool.Index, mir: *ZcuTask.LinkFunc.SharedMir) void {
+    const io = comp.io;
     // We would like to assert that `mir` is not pending, but that would race with a worker thread
     // potentially freeing it.
     {
@@ -159,12 +162,13 @@ pub fn mirReady(q: *Queue, comp: *Compilation, func_index: InternPool.Index, mir
         q.state = .running;
     }
     assert(mir.status.load(.acquire) != .pending);
-    comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
+    comp.link_task_wait_group.async(io, flushTaskQueue, .{ q, comp });
 }
 
 /// Enqueues all prelink tasks in `tasks`. Asserts that they were expected, i.e. that
 /// `prelink_wait_count` is not yet 0. Also asserts that `tasks.len` is not 0.
 pub fn enqueuePrelink(q: *Queue, comp: *Compilation, tasks: []const PrelinkTask) Allocator.Error!void {
+    const io = comp.io;
     {
         q.mutex.lock();
         defer q.mutex.unlock();
@@ -178,10 +182,11 @@ pub fn enqueuePrelink(q: *Queue, comp: *Compilation, tasks: []const PrelinkTask)
         // Restart the linker thread, because it was waiting for a task
         q.state = .running;
     }
-    comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
+    comp.link_task_wait_group.async(io, flushTaskQueue, .{ q, comp });
 }
 
 pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!void {
+    const io = comp.io;
     assert(comp.separateCodegenThreadOk());
     {
         q.mutex.lock();
@@ -208,10 +213,11 @@ pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!
         }
         q.state = .running;
     }
-    comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
+    comp.link_task_wait_group.async(io, flushTaskQueue, .{ q, comp });
 }
 
-fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
+fn flushTaskQueue(q: *Queue, comp: *Compilation) void {
+    const tid: usize = std.Io.Threaded.getCurrentThreadId();
     q.flush_safety.lock(); // every `return` site should unlock this before unlocking `q.mutex`
     if (std.debug.runtime_safety) {
         q.mutex.lock();

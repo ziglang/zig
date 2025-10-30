@@ -38,15 +38,12 @@ const assert = std.debug.assert;
 const ascii = std.ascii;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
-const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
 const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
 
 arena: std.heap.ArenaAllocator,
-io: Io,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.OptionalTokenIndex,
@@ -104,6 +101,7 @@ pub const LazyStatus = enum {
 
 /// Contains shared state among all `Fetch` tasks.
 pub const JobQueue = struct {
+    io: Io,
     mutex: std.Thread.Mutex = .{},
     /// It's an array hash map so that it can be sorted before rendering the
     /// dependencies.zig source file.
@@ -115,8 +113,7 @@ pub const JobQueue = struct {
     all_fetches: std.ArrayListUnmanaged(*Fetch) = .empty,
 
     http_client: *std.http.Client,
-    thread_pool: *ThreadPool,
-    wait_group: WaitGroup = .{},
+    wait_group: Io.Group = .init,
     global_cache: Cache.Directory,
     /// If true then, no fetching occurs, and:
     /// * The `global_cache` directory is assumed to be the direct parent
@@ -326,7 +323,7 @@ pub const RunError = error{
 };
 
 pub fn run(f: *Fetch) RunError!void {
-    const io = f.io;
+    const io = f.job_queue.io;
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
@@ -488,7 +485,7 @@ fn runResource(
     resource: *Resource,
     remote_hash: ?Package.Hash,
 ) RunError!void {
-    const io = f.io;
+    const io = f.job_queue.io;
     defer resource.deinit(io);
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
@@ -702,7 +699,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
 }
 
 fn queueJobsForDeps(f: *Fetch) RunError!void {
-    const io = f.io;
+    const io = f.job_queue.io;
     assert(f.job_queue.recursive);
 
     // If the package does not have a build.zig.zon file then there are no dependencies.
@@ -792,7 +789,6 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
             }
             new_fetch.* = .{
-                .io = io,
                 .arena = std.heap.ArenaAllocator.init(gpa),
                 .location = location,
                 .location_tok = dep.location_tok,
@@ -831,10 +827,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
     };
 
     // Now it's time to give tasks to the thread pool.
-    const thread_pool = f.job_queue.thread_pool;
-
     for (new_fetches, prog_names) |*new_fetch, prog_name| {
-        thread_pool.spawnWg(&f.job_queue.wait_group, workerRun, .{ new_fetch, prog_name });
+        f.job_queue.wait_group.async(io, workerRun, .{ new_fetch, prog_name });
     }
 }
 
@@ -992,7 +986,7 @@ const FileType = enum {
 const init_resource_buffer_size = git.Packet.max_data_length;
 
 fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) RunError!void {
-    const io = f.io;
+    const io = f.job_queue.io;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
 
@@ -1286,7 +1280,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *Io.Reader) error{ ReadFailed, OutO
     // must be processed back to front and they could be too large to
     // load into memory.
 
-    const io = f.io;
+    const io = f.job_queue.io;
     const cache_root = f.job_queue.global_cache;
     const prefix = "tmp/";
     const suffix = ".zip";
@@ -1348,7 +1342,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *Io.Reader) error{ ReadFailed, OutO
 }
 
 fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!UnpackResult {
-    const io = f.io;
+    const io = f.job_queue.io;
     const arena = f.arena.allocator();
     // TODO don't try to get a gpa from an arena. expose this dependency higher up
     // because the backing of arena could be page allocator
@@ -1486,11 +1480,11 @@ const ComputedHash = struct {
 /// hashed* and must not be present on the file system when calling this
 /// function.
 fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!ComputedHash {
+    const io = f.job_queue.io;
     // All the path name strings need to be in memory for sorting.
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
     const eb = &f.error_bundle;
-    const thread_pool = f.job_queue.thread_pool;
     const root_dir = pkg_path.root_dir.handle;
 
     // Collect all files, recursively, then sort.
@@ -1514,15 +1508,15 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
     {
         // The final hash will be a hash of each file hashed independently. This
         // allows hashing in parallel.
-        var wait_group: WaitGroup = .{};
-        // `computeHash` is called from a worker thread so there must not be
+        var wait_group: Io.Group = .init;
+        // TODO `computeHash` is called from a worker thread so there must not be
         // any waiting without working or a deadlock could occur.
-        defer thread_pool.waitAndWork(&wait_group);
+        defer wait_group.wait(io);
 
         while (walker.next() catch |err| {
             try eb.addRootErrorMessage(.{ .msg = try eb.printString(
-                "unable to walk temporary directory '{f}': {s}",
-                .{ pkg_path, @errorName(err) },
+                "unable to walk temporary directory '{f}': {t}",
+                .{ pkg_path, err },
             ) });
             return error.FetchFailed;
         }) |entry| {
@@ -1542,7 +1536,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
                     .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
                 };
-                thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
+                wait_group.async(io, workerDeleteFile, .{ root_dir, deleted_file });
                 try deleted_files.append(deleted_file);
                 continue;
             }
@@ -1570,7 +1564,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
                 .failure = undefined, // to be populated by the worker
                 .size = undefined, // to be populated by the worker
             };
-            thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
+            wait_group.async(io, workerHashFile, .{ root_dir, hashed_file });
             try all_files.append(hashed_file);
         }
     }
@@ -2241,7 +2235,6 @@ fn saveEmbedFile(comptime tarball_name: []const u8, dir: fs.Dir) !void {
 
 // Builds Fetch with required dependencies, clears dependencies on deinit().
 const TestFetchBuilder = struct {
-    thread_pool: ThreadPool,
     http_client: std.http.Client,
     global_cache_directory: Cache.Directory,
     job_queue: Fetch.JobQueue,
@@ -2256,13 +2249,11 @@ const TestFetchBuilder = struct {
     ) !*Fetch {
         const cache_dir = try cache_parent_dir.makeOpenPath("zig-global-cache", .{});
 
-        try self.thread_pool.init(.{ .allocator = allocator });
         self.http_client = .{ .allocator = allocator, .io = io };
         self.global_cache_directory = .{ .handle = cache_dir, .path = null };
 
         self.job_queue = .{
             .http_client = &self.http_client,
-            .thread_pool = &self.thread_pool,
             .global_cache = self.global_cache_directory,
             .recursive = false,
             .read_only = false,
@@ -2309,7 +2300,6 @@ const TestFetchBuilder = struct {
         self.fetch.prog_node.end();
         self.global_cache_directory.handle.close();
         self.http_client.deinit();
-        self.thread_pool.deinit();
     }
 
     fn packageDir(self: *TestFetchBuilder) !fs.Dir {

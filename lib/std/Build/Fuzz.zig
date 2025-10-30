@@ -21,10 +21,9 @@ mode: Mode,
 /// Allocated into `gpa`.
 run_steps: []const *Step.Run,
 
-wait_group: std.Thread.WaitGroup,
+wait_group: Io.Group,
 root_prog_node: std.Progress.Node,
 prog_node: std.Progress.Node,
-thread_pool: *std.Thread.Pool,
 ttyconf: tty.Config,
 
 /// Protects `coverage_files`.
@@ -78,7 +77,6 @@ const CoverageMap = struct {
 pub fn init(
     gpa: Allocator,
     io: Io,
-    thread_pool: *std.Thread.Pool,
     all_steps: []const *Build.Step,
     root_prog_node: std.Progress.Node,
     ttyconf: tty.Config,
@@ -89,15 +87,15 @@ pub fn init(
         defer steps.deinit(gpa);
         const rebuild_node = root_prog_node.start("Rebuilding Unit Tests", 0);
         defer rebuild_node.end();
-        var rebuild_wg: std.Thread.WaitGroup = .{};
-        defer rebuild_wg.wait();
+        var rebuild_wg: Io.Group = .init;
+        defer rebuild_wg.wait(io);
 
         for (all_steps) |step| {
             const run = step.cast(Step.Run) orelse continue;
             if (run.producer == null) continue;
             if (run.fuzz_tests.items.len == 0) continue;
             try steps.append(gpa, run);
-            thread_pool.spawnWg(&rebuild_wg, rebuildTestsWorkerRun, .{ run, gpa, ttyconf, rebuild_node });
+            rebuild_wg.async(io, rebuildTestsWorkerRun, .{ run, gpa, ttyconf, rebuild_node });
         }
 
         if (steps.items.len == 0) fatal("no fuzz tests found", .{});
@@ -117,8 +115,7 @@ pub fn init(
         .io = io,
         .mode = mode,
         .run_steps = run_steps,
-        .wait_group = .{},
-        .thread_pool = thread_pool,
+        .wait_group = .init,
         .ttyconf = ttyconf,
         .root_prog_node = root_prog_node,
         .prog_node = .none,
@@ -131,29 +128,26 @@ pub fn init(
 }
 
 pub fn start(fuzz: *Fuzz) void {
+    const io = fuzz.io;
     fuzz.prog_node = fuzz.root_prog_node.start("Fuzzing", fuzz.run_steps.len);
 
     if (fuzz.mode == .forever) {
         // For polling messages and sending updates to subscribers.
-        fuzz.wait_group.start();
-        _ = std.Thread.spawn(.{}, coverageRun, .{fuzz}) catch |err| {
-            fuzz.wait_group.finish();
-            fatal("unable to spawn coverage thread: {s}", .{@errorName(err)});
-        };
+        fuzz.wait_group.concurrent(io, coverageRun, .{fuzz}) catch |err|
+            fatal("unable to spawn coverage thread: {t}", .{err});
     }
 
     for (fuzz.run_steps) |run| {
         for (run.fuzz_tests.items) |unit_test_index| {
             assert(run.rebuilt_executable != null);
-            fuzz.thread_pool.spawnWg(&fuzz.wait_group, fuzzWorkerRun, .{
-                fuzz, run, unit_test_index,
-            });
+            fuzz.wait_group.async(io, fuzzWorkerRun, .{ fuzz, run, unit_test_index });
         }
     }
 }
 
 pub fn deinit(fuzz: *Fuzz) void {
-    if (!fuzz.wait_group.isDone()) @panic("TODO: terminate the fuzzer processes");
+    const io = fuzz.io;
+    fuzz.wait_group.cancel(io);
     fuzz.prog_node.end();
     fuzz.gpa.free(fuzz.run_steps);
 }
@@ -490,8 +484,8 @@ pub fn waitAndPrintReport(fuzz: *Fuzz) void {
     assert(fuzz.mode == .limit);
     const io = fuzz.io;
 
-    fuzz.wait_group.wait();
-    fuzz.wait_group.reset();
+    fuzz.wait_group.wait(io);
+    fuzz.wait_group = .init;
 
     std.debug.print("======= FUZZING REPORT =======\n", .{});
     for (fuzz.msg_queue.items) |msg| {

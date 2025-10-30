@@ -267,8 +267,8 @@ pub fn updateFile(
         // Any potential AST errors are converted to ZIR errors when we run AstGen/ZonGen.
         file.tree = try Ast.parse(gpa, source, file.getMode());
         if (timer.finish()) |ns_parse| {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
+            comp.mutex.lockUncancelable(io);
+            defer comp.mutex.unlock(io);
             comp.time_report.?.stats.cpu_ns_parse += ns_parse;
         }
 
@@ -293,8 +293,8 @@ pub fn updateFile(
             },
         }
         if (timer.finish()) |ns_astgen| {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
+            comp.mutex.lockUncancelable(io);
+            defer comp.mutex.unlock(io);
             comp.time_report.?.stats.cpu_ns_astgen += ns_astgen;
         }
 
@@ -313,8 +313,8 @@ pub fn updateFile(
     switch (file.getMode()) {
         .zig => {
             if (file.zir.?.hasCompileErrors()) {
-                comp.mutex.lock();
-                defer comp.mutex.unlock();
+                comp.mutex.lockUncancelable(io);
+                defer comp.mutex.unlock(io);
                 try zcu.failed_files.putNoClobber(gpa, file_index, null);
             }
             if (file.zir.?.loweringFailed()) {
@@ -326,8 +326,8 @@ pub fn updateFile(
         .zon => {
             if (file.zoir.?.hasCompileErrors()) {
                 file.status = .astgen_failure;
-                comp.mutex.lock();
-                defer comp.mutex.unlock();
+                comp.mutex.lockUncancelable(io);
+                defer comp.mutex.unlock(io);
                 try zcu.failed_files.putNoClobber(gpa, file_index, null);
             } else {
                 file.status = .success;
@@ -1910,6 +1910,7 @@ pub fn discoverImport(
 } {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const io = zcu.comp.io;
 
     if (!mem.endsWith(u8, import_string, ".zig") and !mem.endsWith(u8, import_string, ".zon")) {
         return .module;
@@ -1919,8 +1920,8 @@ pub fn discoverImport(
     errdefer new_path.deinit(gpa);
 
     // We're about to do a GOP on `import_table`, so we need the mutex.
-    zcu.comp.mutex.lock();
-    defer zcu.comp.mutex.unlock();
+    zcu.comp.mutex.lockUncancelable(io);
+    defer zcu.comp.mutex.unlock(io);
 
     const gop = try zcu.import_table.getOrPutAdapted(gpa, new_path, Zcu.ImportTableAdapter{ .zcu = zcu });
     errdefer _ = zcu.import_table.pop();
@@ -2502,12 +2503,10 @@ fn updateEmbedFileInner(
 }
 
 /// Assumes that `path` is allocated into `gpa`. Takes ownership of `path` on success.
-fn newEmbedFile(
-    pt: Zcu.PerThread,
-    path: Compilation.Path,
-) !*Zcu.EmbedFile {
+fn newEmbedFile(pt: Zcu.PerThread, path: Compilation.Path) !*Zcu.EmbedFile {
     const zcu = pt.zcu;
     const comp = zcu.comp;
+    const io = comp.io;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
@@ -2541,8 +2540,8 @@ fn newEmbedFile(
         const path_str = try path.toAbsolute(comp.dirs, gpa);
         defer gpa.free(path_str);
 
-        whole.cache_manifest_mutex.lock();
-        defer whole.cache_manifest_mutex.unlock();
+        whole.cache_manifest_mutex.lockUncancelable(io);
+        defer whole.cache_manifest_mutex.unlock(io);
 
         man.addFilePostContents(path_str, contents, new_file.stat) catch |err| switch (err) {
             error.Unexpected => unreachable,
@@ -3049,6 +3048,8 @@ pub fn getErrorValueFromSlice(pt: Zcu.PerThread, name: []const u8) Allocator.Err
 /// Removes any entry from `Zcu.failed_files` associated with `file`. Acquires `Compilation.mutex` as needed.
 /// `file.zir` must be unchanged from the last update, as it is used to determine if there is such an entry.
 fn lockAndClearFileCompileError(pt: Zcu.PerThread, file_index: Zcu.File.Index, file: *Zcu.File) void {
+    const io = pt.zcu.comp.io;
+
     const maybe_has_error = switch (file.status) {
         .never_loaded => false,
         .retryable_failure => true,
@@ -3070,8 +3071,8 @@ fn lockAndClearFileCompileError(pt: Zcu.PerThread, file_index: Zcu.File.Index, f
         return;
     }
 
-    pt.zcu.comp.mutex.lock();
-    defer pt.zcu.comp.mutex.unlock();
+    pt.zcu.comp.mutex.lockUncancelable(io);
+    defer pt.zcu.comp.mutex.unlock(io);
     if (pt.zcu.failed_files.fetchSwapRemove(file_index)) |kv| {
         assert(maybe_has_error); // the runtime safety case above
         if (kv.value) |msg| pt.zcu.gpa.free(msg); // delete previous error message
@@ -3400,6 +3401,7 @@ pub fn reportRetryableFileError(
 ) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const io = zcu.comp.io;
 
     const file = zcu.fileByIndex(file_index);
 
@@ -3409,8 +3411,8 @@ pub fn reportRetryableFileError(
     errdefer gpa.free(msg);
 
     const old_msg: ?[]u8 = old_msg: {
-        zcu.comp.mutex.lock();
-        defer zcu.comp.mutex.unlock();
+        zcu.comp.mutex.lockUncancelable(io);
+        defer zcu.comp.mutex.unlock(io);
 
         const gop = try zcu.failed_files.getOrPut(gpa, file_index);
         const old: ?[]u8 = if (gop.found_existing) old: {
@@ -4391,6 +4393,7 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
 /// codegen thread, depending on whether the backend supports `Zcu.Feature.separate_thread`.
 pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
     const zcu = pt.zcu;
+    const io = zcu.comp.io;
 
     crash_report.CodegenFunc.start(zcu, func_index);
     defer crash_report.CodegenFunc.stop(func_index);
@@ -4422,8 +4425,8 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, ou
         const ip = &zcu.intern_pool;
         const nav = ip.indexToKey(func_index).func.owner_nav;
         const zir_decl = ip.getNav(nav).srcInst(ip);
-        zcu.comp.mutex.lock();
-        defer zcu.comp.mutex.unlock();
+        zcu.comp.mutex.lockUncancelable(io);
+        defer zcu.comp.mutex.unlock(io);
         const tr = &zcu.comp.time_report.?;
         tr.stats.cpu_ns_codegen += ns_codegen;
         const gop = tr.decl_codegen_ns.getOrPut(zcu.gpa, zir_decl) catch |err| switch (err) {

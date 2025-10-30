@@ -17,8 +17,6 @@ pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
 pub const RwLock = @import("Thread/RwLock.zig");
-pub const Pool = @import("Thread/Pool.zig");
-pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = native_os != .windows and native_os != .wasi and builtin.link_libc;
 
@@ -1756,7 +1754,6 @@ test {
     _ = Semaphore;
     _ = Condition;
     _ = RwLock;
-    _ = Pool;
 }
 
 fn testIncrementNotify(value: *usize, event: *ResetEvent) void {

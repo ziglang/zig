@@ -10,8 +10,6 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
-const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
 const fatal = std.process.fatal;
 
@@ -197,7 +195,6 @@ libc_include_dir_list: []const []const u8,
 libc_framework_dir_list: []const []const u8,
 rc_includes: RcIncludes,
 mingw_unicode_entry_point: bool,
-thread_pool: *ThreadPool,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
@@ -252,11 +249,11 @@ mutex: if (builtin.single_threaded) struct {
     pub inline fn tryLock(_: @This()) void {}
     pub inline fn lock(_: @This()) void {}
     pub inline fn unlock(_: @This()) void {}
-} else std.Thread.Mutex = .{},
+} else Io.Mutex = .init,
 
 test_filters: []const []const u8,
 
-link_task_wait_group: WaitGroup = .{},
+link_task_wait_group: Io.Group = .init,
 link_prog_node: std.Progress.Node = .none,
 link_const_prog_node: std.Progress.Node = .none,
 link_synth_prog_node: std.Progress.Node = .none,
@@ -1579,7 +1576,7 @@ pub const CacheMode = enum {
 
 pub const ParentWholeCache = struct {
     manifest: *Cache.Manifest,
-    mutex: *std.Thread.Mutex,
+    mutex: *Io.Mutex,
     prefix_map: [4]u8,
 };
 
@@ -1607,7 +1604,7 @@ const CacheUse = union(CacheMode) {
         lf_open_opts: link.File.OpenOptions,
         /// This is a pointer to a local variable inside `update`.
         cache_manifest: ?*Cache.Manifest,
-        cache_manifest_mutex: std.Thread.Mutex,
+        cache_manifest_mutex: Io.Mutex,
         /// This is non-`null` for most of the body of `update`. It is the temporary directory which
         /// we initially emit our artifacts to. After the main part of the update is done, it will
         /// be closed and moved to its final location, and this field set to `null`.
@@ -1647,7 +1644,6 @@ const CacheUse = union(CacheMode) {
 
 pub const CreateOptions = struct {
     dirs: Directories,
-    thread_pool: *ThreadPool,
     self_exe_path: ?[]const u8 = null,
 
     /// Options that have been resolved by calling `resolveDefaults`.
@@ -2223,7 +2219,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 .analysis_roots_buffer = undefined,
                 .analysis_roots_len = 0,
             };
-            try zcu.init(options.thread_pool.getIdCount());
+            try zcu.init((@import("main.zig").threaded_io.getThreadCapacity() orelse 1) + 1);
             break :blk zcu;
         } else blk: {
             if (options.emit_h != .no) return diag.fail(.emit_h_without_zcu);
@@ -2252,7 +2248,6 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
             .libc_framework_dir_list = libc_dirs.libc_framework_dir_list,
             .rc_includes = options.rc_includes,
             .mingw_unicode_entry_point = options.mingw_unicode_entry_point,
-            .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
             .verbose_cc = options.verbose_cc,
@@ -2478,7 +2473,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 whole.* = .{
                     .lf_open_opts = lf_open_opts,
                     .cache_manifest = null,
-                    .cache_manifest_mutex = .{},
+                    .cache_manifest_mutex = .init,
                     .tmp_artifact_directory = null,
                     .lock = null,
                 };
@@ -2874,8 +2869,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
-    // This arena is scoped to this one update.
     const gpa = comp.gpa;
+    const io = comp.io;
+
+    // This arena is scoped to this one update.
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -2954,8 +2951,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                 // In this case the cache hit contains the full set of file system inputs. Nice!
                 if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
                 if (comp.parent_whole_cache) |pwc| {
-                    pwc.mutex.lock();
-                    defer pwc.mutex.unlock();
+                    pwc.mutex.lockUncancelable(io);
+                    defer pwc.mutex.unlock(io);
                     try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
                 }
 
@@ -3153,8 +3150,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
         .whole => |whole| {
             if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
             if (comp.parent_whole_cache) |pwc| {
-                pwc.mutex.lock();
-                defer pwc.mutex.unlock();
+                pwc.mutex.lockUncancelable(io);
+                defer pwc.mutex.unlock(io);
                 try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
             }
 
@@ -3321,6 +3318,7 @@ fn flush(
     arena: Allocator,
     tid: Zcu.PerThread.Id,
 ) Allocator.Error!void {
+    const io = comp.io;
     if (comp.zcu) |zcu| {
         if (zcu.llvm_object) |llvm_object| {
             const pt: Zcu.PerThread = .activate(zcu, tid);
@@ -3333,8 +3331,8 @@ fn flush(
 
             var timer = comp.startTimer();
             defer if (timer.finish()) |ns| {
-                comp.mutex.lock();
-                defer comp.mutex.unlock();
+                comp.mutex.lockUncancelable(io);
+                defer comp.mutex.unlock(io);
                 comp.time_report.?.stats.real_ns_llvm_emit = ns;
             };
 
@@ -3378,8 +3376,8 @@ fn flush(
     if (comp.bin_file) |lf| {
         var timer = comp.startTimer();
         defer if (timer.finish()) |ns| {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
+            comp.mutex.lockUncancelable(io);
+            defer comp.mutex.unlock(io);
             comp.time_report.?.stats.real_ns_link_flush = ns;
         };
         // This is needed before reading the error flags.
@@ -4587,10 +4585,8 @@ pub fn unableToLoadZcuFile(
     });
 }
 
-fn performAllTheWork(
-    comp: *Compilation,
-    main_progress_node: std.Progress.Node,
-) JobError!void {
+fn performAllTheWork(comp: *Compilation, main_progress_node: std.Progress.Node) JobError!void {
+    const io = comp.io;
     // Regardless of errors, `comp.zcu` needs to update its generation number.
     defer if (comp.zcu) |zcu| {
         zcu.generation += 1;
@@ -4602,8 +4598,8 @@ fn performAllTheWork(
     defer commit_timer: {
         const t = &(decl_work_timer orelse break :commit_timer);
         const ns = t.finish() orelse break :commit_timer;
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         comp.time_report.?.stats.real_ns_decls = ns;
     }
 
@@ -4612,11 +4608,11 @@ fn performAllTheWork(
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    var work_queue_wait_group: WaitGroup = .{};
-    defer work_queue_wait_group.wait();
+    var work_queue_wait_group: Io.Group = .init;
+    defer work_queue_wait_group.wait(io);
 
-    comp.link_task_wait_group.reset();
-    defer comp.link_task_wait_group.wait();
+    comp.link_task_wait_group = .init;
+    defer comp.link_task_wait_group.wait(io);
 
     // Already-queued prelink tasks
     comp.link_prog_node.increaseEstimatedTotalItems(comp.link_task_queue.queued_prelink.items.len);
@@ -4624,8 +4620,8 @@ fn performAllTheWork(
 
     if (comp.emit_docs != null) {
         dev.check(.docs_emit);
-        comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
-        work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
+        work_queue_wait_group.async(io, workerDocsCopy, .{comp});
+        work_queue_wait_group.eager(io, workerDocsWasm, .{ comp, main_progress_node });
     }
 
     // In case it failed last time, try again. `clearMiscFailures` was already
@@ -4636,7 +4632,7 @@ fn performAllTheWork(
         //
         // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildRt, .{
+        comp.link_task_wait_group.eager(io, buildRt, .{
             comp,
             "compiler_rt.zig",
             "compiler_rt",
@@ -4654,7 +4650,7 @@ fn performAllTheWork(
 
     if (comp.queued_jobs.compiler_rt_obj and comp.compiler_rt_obj == null) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildRt, .{
+        comp.link_task_wait_group.eager(io, buildRt, .{
             comp,
             "compiler_rt.zig",
             "compiler_rt",
@@ -4673,7 +4669,7 @@ fn performAllTheWork(
     // hack for stage2_x86_64 + coff
     if (comp.queued_jobs.compiler_rt_dyn_lib and comp.compiler_rt_dyn_lib == null) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildRt, .{
+        comp.link_task_wait_group.eager(io, buildRt, .{
             comp,
             "compiler_rt.zig",
             "compiler_rt",
@@ -4691,7 +4687,7 @@ fn performAllTheWork(
 
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildRt, .{
+        comp.link_task_wait_group.eager(io, buildRt, .{
             comp,
             "fuzzer.zig",
             "fuzzer",
@@ -4706,7 +4702,7 @@ fn performAllTheWork(
 
     if (comp.queued_jobs.ubsan_rt_lib and comp.ubsan_rt_lib == null) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildRt, .{
+        comp.link_task_wait_group.eager(io, buildRt, .{
             comp,
             "ubsan_rt.zig",
             "ubsan_rt",
@@ -4723,7 +4719,7 @@ fn performAllTheWork(
 
     if (comp.queued_jobs.ubsan_rt_obj and comp.ubsan_rt_obj == null) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildRt, .{
+        comp.link_task_wait_group.eager(io, buildRt, .{
             comp,
             "ubsan_rt.zig",
             "ubsan_rt",
@@ -4740,49 +4736,49 @@ fn performAllTheWork(
 
     if (comp.queued_jobs.glibc_shared_objects) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildGlibcSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.freebsd_shared_objects) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildFreeBSDSharedObjects, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildFreeBSDSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.netbsd_shared_objects) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildNetBSDSharedObjects, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildNetBSDSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libunwind) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildLibUnwind, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildLibUnwind, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libcxx) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildLibCxx, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildLibCxx, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libcxxabi) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildLibCxxAbi, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildLibCxxAbi, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libtsan) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildLibTsan, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildLibTsan, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.zigc_lib and comp.zigc_static_lib == null) {
         comp.link_task_queue.startPrelinkItem();
-        comp.link_task_wait_group.spawnManager(buildLibZigC, .{ comp, main_progress_node });
+        comp.link_task_wait_group.eager(io, buildLibZigC, .{ comp, main_progress_node });
     }
 
     for (0..@typeInfo(musl.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.musl_crt_file[i]) {
             const tag: musl.CrtFile = @enumFromInt(i);
             comp.link_task_queue.startPrelinkItem();
-            comp.link_task_wait_group.spawnManager(buildMuslCrtFile, .{ comp, tag, main_progress_node });
+            comp.link_task_wait_group.eager(io, buildMuslCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -4790,7 +4786,7 @@ fn performAllTheWork(
         if (comp.queued_jobs.glibc_crt_file[i]) {
             const tag: glibc.CrtFile = @enumFromInt(i);
             comp.link_task_queue.startPrelinkItem();
-            comp.link_task_wait_group.spawnManager(buildGlibcCrtFile, .{ comp, tag, main_progress_node });
+            comp.link_task_wait_group.eager(io, buildGlibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -4798,7 +4794,7 @@ fn performAllTheWork(
         if (comp.queued_jobs.freebsd_crt_file[i]) {
             const tag: freebsd.CrtFile = @enumFromInt(i);
             comp.link_task_queue.startPrelinkItem();
-            comp.link_task_wait_group.spawnManager(buildFreeBSDCrtFile, .{ comp, tag, main_progress_node });
+            comp.link_task_wait_group.eager(io, buildFreeBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -4806,7 +4802,7 @@ fn performAllTheWork(
         if (comp.queued_jobs.netbsd_crt_file[i]) {
             const tag: netbsd.CrtFile = @enumFromInt(i);
             comp.link_task_queue.startPrelinkItem();
-            comp.link_task_wait_group.spawnManager(buildNetBSDCrtFile, .{ comp, tag, main_progress_node });
+            comp.link_task_wait_group.eager(io, buildNetBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -4814,7 +4810,7 @@ fn performAllTheWork(
         if (comp.queued_jobs.wasi_libc_crt_file[i]) {
             const tag: wasi_libc.CrtFile = @enumFromInt(i);
             comp.link_task_queue.startPrelinkItem();
-            comp.link_task_wait_group.spawnManager(buildWasiLibcCrtFile, .{ comp, tag, main_progress_node });
+            comp.link_task_wait_group.eager(io, buildWasiLibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -4822,7 +4818,7 @@ fn performAllTheWork(
         if (comp.queued_jobs.mingw_crt_file[i]) {
             const tag: mingw.CrtFile = @enumFromInt(i);
             comp.link_task_queue.startPrelinkItem();
-            comp.link_task_wait_group.spawnManager(buildMingwCrtFile, .{ comp, tag, main_progress_node });
+            comp.link_task_wait_group.eager(io, buildMingwCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
@@ -4835,13 +4831,13 @@ fn performAllTheWork(
 
         var timer = comp.startTimer();
         defer if (timer.finish()) |ns| {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
+            comp.mutex.lockUncancelable(io);
+            defer comp.mutex.unlock(io);
             comp.time_report.?.stats.real_ns_files = ns;
         };
 
-        var astgen_wait_group: WaitGroup = .{};
-        defer astgen_wait_group.wait();
+        var astgen_wait_group: Io.Group = .init;
+        defer astgen_wait_group.wait(io);
 
         if (comp.zcu) |zcu| {
             const gpa = zcu.gpa;
@@ -4865,7 +4861,7 @@ fn performAllTheWork(
                     // sure the file contents are still correct on disk, since it can improve the
                     // debugging experience better. That job only needs `file`, so we can kick it
                     // off right now.
-                    comp.thread_pool.spawnWg(&astgen_wait_group, workerUpdateBuiltinFile, .{ comp, file });
+                    astgen_wait_group.async(io, workerUpdateBuiltinFile, .{ comp, file });
                     continue;
                 }
                 astgen_work_items.appendAssumeCapacity(.{
@@ -4876,7 +4872,7 @@ fn performAllTheWork(
 
             // Now that we're not going to touch `zcu.import_table` again, we can spawn `workerUpdateFile` jobs.
             for (astgen_work_items.items(.file_index), astgen_work_items.items(.file)) |file_index, file| {
-                comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateFile, .{
+                astgen_wait_group.async(io, workerUpdateFile, .{
                     comp, file, file_index, zir_prog_node, &astgen_wait_group,
                 });
             }
@@ -4886,22 +4882,20 @@ fn performAllTheWork(
             // `@embedFile` can't trigger analysis of a new `@embedFile`!
             for (0.., zcu.embed_table.keys()) |ef_index_usize, ef| {
                 const ef_index: Zcu.EmbedFile.Index = @enumFromInt(ef_index_usize);
-                comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateEmbedFile, .{
-                    comp, ef_index, ef,
-                });
+                astgen_wait_group.async(io, workerUpdateEmbedFile, .{ comp, ef_index, ef });
             }
         }
 
         while (comp.c_object_work_queue.popFront()) |c_object| {
             comp.link_task_queue.startPrelinkItem();
-            comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateCObject, .{
+            comp.link_task_wait_group.async(io, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         while (comp.win32_resource_work_queue.popFront()) |win32_resource| {
             comp.link_task_queue.startPrelinkItem();
-            comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateWin32Resource, .{
+            comp.link_task_wait_group.async(io, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
             });
         }
@@ -4935,8 +4929,8 @@ fn performAllTheWork(
                     defer gpa.free(path);
 
                     const result = res: {
-                        whole.cache_manifest_mutex.lock();
-                        defer whole.cache_manifest_mutex.unlock();
+                        whole.cache_manifest_mutex.lockUncancelable(io);
+                        defer whole.cache_manifest_mutex.unlock(io);
                         if (file.source) |source| {
                             break :res man.addFilePostContents(path, source, file.stat);
                         } else {
@@ -5008,8 +5002,8 @@ fn performAllTheWork(
 
     if (!comp.separateCodegenThreadOk()) {
         // Waits until all input files have been parsed.
-        comp.link_task_wait_group.wait();
-        comp.link_task_wait_group.reset();
+        comp.link_task_wait_group.wait(io);
+        comp.link_task_wait_group = .init;
         std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
     }
 
@@ -5056,6 +5050,8 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
 }
 
 fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
+    const io = comp.io;
+
     switch (job) {
         .codegen_func => |func| {
             const zcu = comp.zcu.?;
@@ -5087,7 +5083,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             const air_bytes: u32 = @intCast(air.instructions.len * 5 + air.extra.items.len * 4);
             if (comp.separateCodegenThreadOk()) {
                 // `workerZcuCodegen` takes ownership of `air`.
-                comp.thread_pool.spawnWgId(&comp.link_task_wait_group, workerZcuCodegen, .{ comp, func.func, air, shared_mir });
+                comp.link_task_wait_group.async(io, workerZcuCodegen, .{ comp, func.func, air, shared_mir });
                 comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
                     .func = func.func,
                     .mir = shared_mir,
@@ -5463,7 +5459,6 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
         .entry = .disabled,
         .cache_mode = .whole,
         .root_name = root_name,
-        .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
         .emit_bin = .yes_cache,
         .verbose_cc = comp.verbose_cc,
@@ -5517,13 +5512,15 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
 }
 
 fn workerUpdateFile(
-    tid: usize,
     comp: *Compilation,
     file: *Zcu.File,
     file_index: Zcu.File.Index,
     prog_node: std.Progress.Node,
-    wg: *WaitGroup,
+    wg: *Io.Group,
 ) void {
+    const io = comp.io;
+    const tid: usize = std.Io.Threaded.getCurrentThreadId();
+
     const child_prog_node = prog_node.start(fs.path.basename(file.path.sub_path), 0);
     defer child_prog_node.end();
 
@@ -5532,8 +5529,8 @@ fn workerUpdateFile(
     pt.updateFile(file_index, file) catch |err| {
         pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
             error.OutOfMemory => {
-                comp.mutex.lock();
-                defer comp.mutex.unlock();
+                comp.mutex.lockUncancelable(io);
+                defer comp.mutex.unlock(io);
                 comp.setAllocFailure();
             },
         };
@@ -5563,14 +5560,14 @@ fn workerUpdateFile(
             if (pt.discoverImport(file.path, import_path)) |res| switch (res) {
                 .module, .existing_file => {},
                 .new_file => |new| {
-                    comp.thread_pool.spawnWgId(wg, workerUpdateFile, .{
+                    wg.async(io, workerUpdateFile, .{
                         comp, new.file, new.index, prog_node, wg,
                     });
                 },
             } else |err| switch (err) {
                 error.OutOfMemory => {
-                    comp.mutex.lock();
-                    defer comp.mutex.unlock();
+                    comp.mutex.lockUncancelable(io);
+                    defer comp.mutex.unlock(io);
                     comp.setAllocFailure();
                 },
             }
@@ -5586,17 +5583,20 @@ fn workerUpdateBuiltinFile(comp: *Compilation, file: *Zcu.File) void {
     );
 }
 
-fn workerUpdateEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
+fn workerUpdateEmbedFile(comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
+    const tid: usize = std.Io.Threaded.getCurrentThreadId();
+    const io = comp.io;
     comp.detectEmbedFileUpdate(@enumFromInt(tid), ef_index, ef) catch |err| switch (err) {
         error.OutOfMemory => {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
+            comp.mutex.lockUncancelable(io);
+            defer comp.mutex.unlock(io);
             comp.setAllocFailure();
         },
     };
 }
 
 fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) !void {
+    const io = comp.io;
     const zcu = comp.zcu.?;
     const pt: Zcu.PerThread = .activate(zcu, tid);
     defer pt.deactivate();
@@ -5609,8 +5609,8 @@ fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zc
     if (ef.val != .none and ef.val == old_val) return; // success, value unchanged
     if (ef.val == .none and old_val == .none and ef.err == old_err) return; // failure, error unchanged
 
-    comp.mutex.lock();
-    defer comp.mutex.unlock();
+    comp.mutex.lockUncancelable(io);
+    defer comp.mutex.unlock(io);
 
     try zcu.markDependeeOutdated(.not_marked_po, .{ .embed_file = ef_index });
 }
@@ -5753,8 +5753,8 @@ pub fn translateC(
 
         switch (comp.cache_use) {
             .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
-                whole.cache_manifest_mutex.lock();
-                defer whole.cache_manifest_mutex.unlock();
+                whole.cache_manifest_mutex.lockUncancelable(io);
+                defer whole.cache_manifest_mutex.unlock(io);
                 try whole_cache_manifest.addDepFilePost(cache_tmp_dir, dep_basename);
             },
             .incremental, .none => {},
@@ -5892,12 +5892,12 @@ pub const RtOptions = struct {
 };
 
 fn workerZcuCodegen(
-    tid: usize,
     comp: *Compilation,
     func_index: InternPool.Index,
     orig_air: Air,
     out: *link.ZcuTask.LinkFunc.SharedMir,
 ) void {
+    const tid: usize = std.Io.Threaded.getCurrentThreadId();
     var air = orig_air;
     // We own `air` now, so we are responsbile for freeing it.
     defer air.deinit(comp.gpa);
@@ -6119,6 +6119,7 @@ fn reportRetryableWin32ResourceError(
     win32_resource: *Win32Resource,
     err: anyerror,
 ) error{OutOfMemory}!void {
+    const io = comp.io;
     win32_resource.status = .failure_retryable;
 
     var bundle: ErrorBundle.Wip = undefined;
@@ -6140,8 +6141,8 @@ fn reportRetryableWin32ResourceError(
     });
     const finished_bundle = try bundle.toOwnedBundle("");
     {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, finished_bundle);
     }
 }
@@ -6166,8 +6167,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
     if (c_object.clearStatus(gpa)) {
         // There was previous failure.
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         // If the failure was OOM, there will not be an entry here, so we do
         // not assert discard.
         _ = comp.failed_c_objects.swapRemove(c_object);
@@ -6459,6 +6460,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 }
 
 fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: std.Progress.Node) !void {
+    const io = comp.io;
     if (!std.process.can_spawn) {
         return comp.failWin32Resource(win32_resource, "{s} does not support spawning a child process", .{@tagName(builtin.os.tag)});
     }
@@ -6483,8 +6485,8 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
     if (win32_resource.clearStatus(comp.gpa)) {
         // There was previous failure.
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         // If the failure was OOM, there will not be an entry here, so we do
         // not assert discard.
         _ = comp.failed_win32_resources.swapRemove(win32_resource);
@@ -6658,8 +6660,8 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                 try man.addFilePost(dep_file_path);
                 switch (comp.cache_use) {
                     .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
-                        whole.cache_manifest_mutex.lock();
-                        defer whole.cache_manifest_mutex.unlock();
+                        whole.cache_manifest_mutex.lockUncancelable(io);
+                        defer whole.cache_manifest_mutex.unlock(io);
                         try whole_cache_manifest.addFilePost(dep_file_path);
                     },
                     .incremental, .none => {},
@@ -7375,10 +7377,11 @@ fn failCObjWithOwnedDiagBundle(
     diag_bundle: *CObject.Diag.Bundle,
 ) SemaError {
     @branchHint(.cold);
+    const io = comp.io;
     assert(diag_bundle.diags.len > 0);
     {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         {
             errdefer diag_bundle.destroy(comp.gpa);
             try comp.failed_c_objects.ensureUnusedCapacity(comp.gpa, 1);
@@ -7418,9 +7421,10 @@ fn failWin32ResourceWithOwnedBundle(
     err_bundle: ErrorBundle,
 ) SemaError {
     @branchHint(.cold);
+    const io = comp.io;
     {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, err_bundle);
     }
     win32_resource.status = .failure;
@@ -7744,8 +7748,9 @@ pub fn lockAndSetMiscFailure(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    comp.mutex.lock();
-    defer comp.mutex.unlock();
+    const io = comp.io;
+    comp.mutex.lockUncancelable(io);
+    defer comp.mutex.unlock(io);
 
     return setMiscFailure(comp, tag, format, args);
 }
@@ -7775,6 +7780,7 @@ pub fn updateSubCompilation(
     misc_task: MiscTask,
     prog_node: std.Progress.Node,
 ) SubUpdateError!void {
+    const io = parent_comp.io;
     {
         const sub_node = prog_node.start(@tagName(misc_task), 0);
         defer sub_node.end();
@@ -7789,8 +7795,8 @@ pub fn updateSubCompilation(
     defer errors.deinit(gpa);
 
     if (errors.errorMessageCount() > 0) {
-        parent_comp.mutex.lock();
-        defer parent_comp.mutex.unlock();
+        parent_comp.mutex.lockUncancelable(io);
+        defer parent_comp.mutex.unlock(io);
         try parent_comp.misc_failures.ensureUnusedCapacity(gpa, 1);
         parent_comp.misc_failures.putAssumeCapacityNoClobber(misc_task, .{
             .msg = try std.fmt.allocPrint(gpa, "sub-compilation of {t} failed", .{misc_task}),
@@ -7898,7 +7904,6 @@ fn buildOutputFromZig(
         .config = config,
         .root_mod = root_mod,
         .root_name = root_name,
-        .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
         .emit_bin = .yes_cache,
         .function_sections = true,
@@ -8034,7 +8039,6 @@ pub fn build_crt_file(
         .config = config,
         .root_mod = root_mod,
         .root_name = root_name,
-        .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
         .emit_bin = .yes_cache,
         .function_sections = options.function_sections orelse false,
@@ -8066,8 +8070,8 @@ pub fn build_crt_file(
     comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 
     {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
+        comp.mutex.lockUncancelable(io);
+        defer comp.mutex.unlock(io);
         try comp.crt_files.ensureUnusedCapacity(gpa, 1);
         comp.crt_files.putAssumeCapacityNoClobber(basename, crt_file);
     }

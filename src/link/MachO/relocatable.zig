@@ -773,7 +773,6 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
 
 const std = @import("std");
 const Path = std.Build.Cache.Path;
-const WaitGroup = std.Thread.WaitGroup;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 const macho = std.macho;

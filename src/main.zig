@@ -11,7 +11,6 @@ const Allocator = mem.Allocator;
 const Ast = std.zig.Ast;
 const Color = std.zig.Color;
 const warn = std.log.warn;
-const ThreadPool = std.Thread.Pool;
 const cleanExit = std.process.cleanExit;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
@@ -166,6 +165,8 @@ var debug_allocator: std.heap.DebugAllocator(.{
     .stack_trace_frames = build_options.mem_leak_frames,
 }) = .init;
 
+pub var threaded_io: Io.Threaded = undefined;
+
 pub fn main() anyerror!void {
     const gpa, const is_debug = gpa: {
         if (build_options.debug_gpa) break :gpa .{ debug_allocator.allocator(), true };
@@ -247,9 +248,13 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
-    var threaded: Io.Threaded = .init(gpa);
-    defer threaded.deinit();
-    const io = threaded.io();
+    threaded_io = .init(gpa);
+    defer threaded_io.deinit();
+    if (threaded_io.getThreadCapacity()) |n| {
+        threaded_io.setThreadCapacity(@min(n, std.math.maxInt(Zcu.PerThread.IdBacking)));
+    }
+    threaded_io.stack_size = thread_stack_size;
+    const io = threaded_io.io();
 
     const cmd = args[1];
     const cmd_args = args[2..];
@@ -1124,15 +1129,10 @@ fn buildOutputType(
                             fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                         };
                     } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
-                        const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
-                            fatal("unable to parse jobs count '{s}': {s}", .{
-                                str, @errorName(err),
-                            });
-                        };
-                        if (num < 1) {
-                            fatal("number of jobs must be at least 1\n", .{});
-                        }
-                        n_jobs = num;
+                        const n = std.fmt.parseUnsigned(u32, str, 10) catch |err|
+                            fatal("unable to parse jobs count '{s}': {t}", .{ str, err });
+                        if (n < 1) fatal("number of jobs must be at least 1", .{});
+                        n_jobs = n;
                     } else if (mem.eql(u8, arg, "--subsystem")) {
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
@@ -3282,14 +3282,10 @@ fn buildOutputType(
         },
     };
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{
-        .allocator = gpa,
-        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
-        .track_ids = true,
-        .stack_size = thread_stack_size,
-    });
-    defer thread_pool.deinit();
+    if (n_jobs) |n| {
+        assert(n >= 1);
+        threaded_io.setThreadCapacity(@min(n, std.math.maxInt(Zcu.PerThread.IdBacking)));
+    }
 
     for (create_module.c_source_files.items) |*src| {
         dev.check(.c_compiler);
@@ -3378,7 +3374,6 @@ fn buildOutputType(
     var create_diag: Compilation.CreateDiagnostic = undefined;
     const comp = Compilation.create(gpa, arena, io, &create_diag, .{
         .dirs = dirs,
-        .thread_pool = &thread_pool,
         .self_exe_path = switch (native_os) {
             .wasi => null,
             else => self_exe_path,
@@ -4956,15 +4951,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
                     try child_argv.appendSlice(&.{ arg, args[i] });
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
-                    const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
-                        fatal("unable to parse jobs count '{s}': {s}", .{
-                            str, @errorName(err),
-                        });
-                    };
-                    if (num < 1) {
-                        fatal("number of jobs must be at least 1\n", .{});
-                    }
-                    n_jobs = num;
+                    const n = std.fmt.parseUnsigned(u32, str, 10) catch |err|
+                        fatal("unable to parse jobs count '{s}': {t}", .{ str, err });
+                    if (n < 1) fatal("number of jobs must be at least 1", .{});
+                    n_jobs = n;
                 } else if (mem.eql(u8, arg, "--seed")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -5049,14 +5039,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
     child_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
     child_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{
-        .allocator = gpa,
-        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
-        .track_ids = true,
-        .stack_size = thread_stack_size,
-    });
-    defer thread_pool.deinit();
+    if (n_jobs) |n| {
+        assert(n >= 1);
+        threaded_io.setThreadCapacity(@min(n, std.math.maxInt(Zcu.PerThread.IdBacking)));
+    }
 
     // Dummy http client that is not actually used when fetch_command is unsupported.
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
@@ -5122,8 +5108,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
                 defer fetch_prog_node.end();
 
                 var job_queue: Package.Fetch.JobQueue = .{
+                    .io = io,
                     .http_client = &http_client,
-                    .thread_pool = &thread_pool,
                     .global_cache = dirs.global_cache,
                     .read_only = false,
                     .recursive = true,
@@ -5156,7 +5142,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
 
                 var fetch: Package.Fetch = .{
                     .arena = std.heap.ArenaAllocator.init(gpa),
-                    .io = io,
                     .location = .{ .relative_path = phantom_package_root },
                     .location_tok = 0,
                     .hash_tok = .none,
@@ -5190,10 +5175,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
                     &fetch,
                 );
 
-                job_queue.thread_pool.spawnWg(&job_queue.wait_group, Package.Fetch.workerRun, .{
-                    &fetch, "root",
-                });
-                job_queue.wait_group.wait();
+                job_queue.wait_group.async(io, Package.Fetch.workerRun, .{ &fetch, "root" });
+                job_queue.wait_group.wait(io);
 
                 try job_queue.consolidateErrors();
 
@@ -5288,7 +5271,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
                 .main_mod = build_mod,
                 .emit_bin = .yes_cache,
                 .self_exe_path = self_exe_path,
-                .thread_pool = &thread_pool,
                 .verbose_cc = verbose_cc,
                 .verbose_link = verbose_link,
                 .verbose_air = verbose_air,
@@ -5460,15 +5442,6 @@ fn jitCmd(
     );
     defer dirs.deinit();
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{
-        .allocator = gpa,
-        .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
-        .track_ids = true,
-        .stack_size = thread_stack_size,
-    });
-    defer thread_pool.deinit();
-
     var child_argv: std.ArrayListUnmanaged([]const u8) = .empty;
     try child_argv.ensureUnusedCapacity(arena, args.len + 4);
 
@@ -5531,7 +5504,6 @@ fn jitCmd(
             .main_mod = root_mod,
             .emit_bin = .yes_cache,
             .self_exe_path = self_exe_path,
-            .thread_pool = &thread_pool,
             .cache_mode = .whole,
         }) catch |err| switch (err) {
             error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
@@ -6875,10 +6847,6 @@ fn cmdFetch(
 
     const path_or_url = opt_path_or_url orelse fatal("missing url or path parameter", .{});
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
-    defer thread_pool.deinit();
-
     var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer http_client.deinit();
 
@@ -6899,8 +6867,8 @@ fn cmdFetch(
     defer global_cache_directory.handle.close();
 
     var job_queue: Package.Fetch.JobQueue = .{
+        .io = io,
         .http_client = &http_client,
-        .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
         .recursive = false,
         .read_only = false,
@@ -6912,7 +6880,6 @@ fn cmdFetch(
 
     var fetch: Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(gpa),
-        .io = io,
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
         .hash_tok = .none,
