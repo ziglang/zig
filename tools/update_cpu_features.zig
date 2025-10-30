@@ -1563,6 +1563,13 @@ const targets = [_]ArchTarget{
                 .deps = &.{},
             },
         },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "i86",
+                .features = &.{"16bit_mode"},
+            },
+        },
         .omit_cpus = &.{
             // LLVM defines a bunch of dumb aliases with foreach loops in X86.td.
             "pentium_mmx",
