@@ -2133,7 +2133,7 @@ pub fn dirOpenFileWtf16(
                 // incorrectly returned for an indeterminate amount of time
                 // after an executable file is closed. Here we work around the
                 // kernel bug with retry attempts.
-                if (attempt - max_attempts == 0) return error.SharingViolation;
+                if (max_attempts - attempt == 0) return error.SharingViolation;
                 _ = w.kernel32.SleepEx((@as(u32, 1) << attempt) >> 1, w.TRUE);
                 attempt += 1;
                 continue;
@@ -2153,7 +2153,7 @@ pub fn dirOpenFileWtf16(
                 // finished with the deletion operation, and so this CreateFile
                 // call has failed. Here, we simulate the kernel bug being
                 // fixed by sleeping and retrying until the error goes away.
-                if (attempt - max_attempts == 0) return error.SharingViolation;
+                if (max_attempts - attempt == 0) return error.SharingViolation;
                 _ = w.kernel32.SleepEx((@as(u32, 1) << attempt) >> 1, w.TRUE);
                 attempt += 1;
                 continue;
