@@ -1454,6 +1454,9 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     const docgen_cmd = b.addRunArtifact(docgen_exe);
     docgen_cmd.addArgs(&.{"--code-dir"});
     docgen_cmd.addDirectoryArg(wf.getDirectory());
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const os_cwd = std.process.getCwd(&buf) catch unreachable;
+    docgen_cmd.addArgs(&.{"--base-dir", os_cwd });
 
     docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
     return docgen_cmd.addOutputFileArg("langref.html");
