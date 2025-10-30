@@ -522,7 +522,7 @@ pub fn PostQueuedCompletionStatus(
 pub const GetQueuedCompletionStatusResult = enum {
     Normal,
     Aborted,
-    Cancelled,
+    Canceled,
     EOF,
     Timeout,
 };
@@ -543,7 +543,7 @@ pub fn GetQueuedCompletionStatus(
     ) == FALSE) {
         switch (GetLastError()) {
             .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
-            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
+            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Canceled,
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             .WAIT_TIMEOUT => return GetQueuedCompletionStatusResult.Timeout,
             else => |err| {
@@ -559,7 +559,7 @@ pub fn GetQueuedCompletionStatus(
 
 pub const GetQueuedCompletionStatusError = error{
     Aborted,
-    Cancelled,
+    Canceled,
     EOF,
     Timeout,
 } || UnexpectedError;
@@ -584,7 +584,7 @@ pub fn GetQueuedCompletionStatusEx(
     if (success == FALSE) {
         return switch (GetLastError()) {
             .ABANDONED_WAIT_0 => error.Aborted,
-            .OPERATION_ABORTED => error.Cancelled,
+            .OPERATION_ABORTED => error.Canceled,
             .HANDLE_EOF => error.EOF,
             .WAIT_TIMEOUT => error.Timeout,
             else => |err| unexpectedError(err),

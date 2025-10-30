@@ -848,7 +848,7 @@ pub fn timeout(
 ///
 /// The timeout is identified by its `user_data`.
 ///
-/// The completion event result will be `0` if the timeout was found and cancelled successfully,
+/// The completion event result will be `0` if the timeout was found and canceled successfully,
 /// `-EBUSY` if the timeout was found but expiration was already in progress, or
 /// `-ENOENT` if the timeout was not found.
 pub fn timeout_remove(
@@ -972,7 +972,7 @@ pub fn statx(
 ///
 /// The operation is identified by its `user_data`.
 ///
-/// The completion event result will be `0` if the operation was found and cancelled successfully,
+/// The completion event result will be `0` if the operation was found and canceled successfully,
 /// `-EALREADY` if the operation was found but was already in progress, or
 /// `-ENOENT` if the operation was not found.
 pub fn cancel(

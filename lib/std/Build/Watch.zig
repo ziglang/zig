@@ -615,7 +615,7 @@ const Os = switch (builtin.os.tag) {
                 },
                 .Timeout => break .timeout,
                 // This status is issued because CancelIo was called, skip and try again.
-                .Cancelled => continue,
+                .Canceled => continue,
                 else => break error.Unexpected,
             };
         }
