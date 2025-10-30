@@ -2,9 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const fmt = std.fmt;
 const mem = std.mem;
+const Io = std.Io;
 const Thread = std.Thread;
-const Pool = Thread.Pool;
-const WaitGroup = Thread.WaitGroup;
 
 const Vec4 = @Vector(4, u32);
 const Vec8 = @Vector(8, u32);
@@ -738,7 +737,7 @@ fn buildMerkleTreeLayerParallel(
     output_cvs: [][8]u32,
     key: [8]u32,
     flags: Flags,
-    pool: *Pool,
+    io: Io,
 ) void {
     const num_parents = input_cvs.len / 2;
 
@@ -750,15 +749,15 @@ fn buildMerkleTreeLayerParallel(
         return;
     }
 
-    const num_workers = pool.threads.len + 1;
+    const num_workers = Thread.getCpuCount() catch 1;
     const parents_per_worker = (num_parents + num_workers - 1) / num_workers;
-    var wait_group: WaitGroup = .{};
+    var group: Io.Group = .init;
 
     for (0..num_workers) |worker_id| {
         const start_idx = worker_id * parents_per_worker;
         if (start_idx >= num_parents) break;
 
-        pool.spawnWg(&wait_group, processParentBatch, .{ParentBatchContext{
+        group.async(io, processParentBatch, .{ParentBatchContext{
             .input_cvs = input_cvs,
             .output_cvs = output_cvs,
             .start_idx = start_idx,
@@ -767,7 +766,7 @@ fn buildMerkleTreeLayerParallel(
             .flags = flags,
         }});
     }
-    pool.waitAndWork(&wait_group);
+    group.wait(io);
 }
 
 fn parentOutput(parent_block: []const u8, key: [8]u32, flags: Flags) Output {
@@ -953,7 +952,7 @@ pub const Blake3 = struct {
         d.final(out);
     }
 
-    pub fn hashParallel(b: []const u8, out: []u8, options: Options, allocator: std.mem.Allocator) !void {
+    pub fn hashParallel(b: []const u8, out: []u8, options: Options, allocator: std.mem.Allocator, io: Io) !void {
         if (b.len < getLargeFileThreshold()) {
             return hash(b, out, options);
         }
@@ -961,12 +960,9 @@ pub const Blake3 = struct {
         const key_words = if (options.key) |key| loadKeyWords(key) else iv;
         const flags: Flags = if (options.key != null) .{ .keyed_hash = true } else .{};
 
-        var pool: Pool = undefined;
-        try pool.init(.{ .allocator = allocator });
-        defer pool.deinit();
-
         const num_full_chunks = b.len / chunk_length;
-        if (pool.threads.len == 0 or num_full_chunks == 0) {
+        const thread_count = Thread.getCpuCount() catch 1;
+        if (thread_count <= 1 or num_full_chunks == 0) {
             return hash(b, out, options);
         }
 
@@ -974,15 +970,15 @@ pub const Blake3 = struct {
         defer allocator.free(cvs);
 
         // Process chunks in parallel
-        const num_workers = pool.threads.len + 1;
+        const num_workers = thread_count;
         const chunks_per_worker = (num_full_chunks + num_workers - 1) / num_workers;
-        var wait_group: WaitGroup = .{};
+        var group: Io.Group = .init;
 
         for (0..num_workers) |worker_id| {
             const start_chunk = worker_id * chunks_per_worker;
             if (start_chunk >= num_full_chunks) break;
 
-            pool.spawnWg(&wait_group, ChunkBatch.process, .{ChunkBatch{
+            group.async(io, ChunkBatch.process, .{ChunkBatch{
                 .input = b,
                 .start_chunk = start_chunk,
                 .end_chunk = @min(start_chunk + chunks_per_worker, num_full_chunks),
@@ -991,7 +987,7 @@ pub const Blake3 = struct {
                 .flags = flags,
             }});
         }
-        pool.waitAndWork(&wait_group);
+        group.wait(io);
 
         // Build Merkle tree in parallel layers using ping-pong buffers
         const max_intermediate_size = (num_full_chunks + 1) / 2;
@@ -1014,7 +1010,7 @@ pub const Blake3 = struct {
                 next_level_buf[0..num_parents],
                 key_words,
                 flags,
-                &pool,
+                io,
             );
 
             if (has_odd) {
@@ -1376,6 +1372,9 @@ test "BLAKE3 reference test cases" {
 
 test "BLAKE3 parallel vs sequential" {
     const allocator = std.testing.allocator;
+    var io_threaded = Io.Threaded.init(allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
 
     // Test various sizes including those above the parallelization threshold
     const test_sizes = [_]usize{
@@ -1402,7 +1401,7 @@ test "BLAKE3 parallel vs sequential" {
         Blake3.hash(input, &expected, .{});
 
         var actual: [32]u8 = undefined;
-        try Blake3.hashParallel(input, &actual, .{}, allocator);
+        try Blake3.hashParallel(input, &actual, .{}, allocator, io);
 
         try std.testing.expectEqualSlices(u8, &expected, &actual);
 
@@ -1412,7 +1411,7 @@ test "BLAKE3 parallel vs sequential" {
         Blake3.hash(input, &expected_keyed, .{ .key = key });
 
         var actual_keyed: [32]u8 = undefined;
-        try Blake3.hashParallel(input, &actual_keyed, .{ .key = key }, allocator);
+        try Blake3.hashParallel(input, &actual_keyed, .{ .key = key }, allocator, io);
 
         try std.testing.expectEqualSlices(u8, &expected_keyed, &actual_keyed);
     }
