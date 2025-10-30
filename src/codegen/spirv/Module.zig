@@ -433,7 +433,7 @@ pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
     // generators. The low order 16 bits are reserved for use as a tool
     // version number, or any other purpose the tool supplier chooses.
     // Only the tool IDs are reserved with Khronos.
-    // See https://github.com/KhronosGroup/SPIRV-Headers/blob/main/include/spirv/spir-v.xml#L17C5-L21C54
+    // See https://github.com/KhronosGroup/SPIRV-Headers/blob/f2e4bd213104fe323a01e935df56557328d37ac8/include/spirv/spir-v.xml#L17C5-L21C54
     const generator_id: u32 = (spec.zig_generator_id << 16) | zig_spirv_compiler_version;
 
     const header = [_]Word{
