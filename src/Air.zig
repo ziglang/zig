@@ -874,10 +874,6 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field.
         save_err_return_trace_index,
 
-        /// Store an element to a vector pointer at an index.
-        /// Uses the `vector_store_elem` field.
-        vector_store_elem,
-
         /// Compute a pointer to a `Nav` at runtime, always one of:
         ///
         /// * `threadlocal var`
@@ -1219,11 +1215,6 @@ pub const Inst = struct {
         reduce: struct {
             operand: Ref,
             operation: std.builtin.ReduceOp,
-        },
-        vector_store_elem: struct {
-            vector_ptr: Ref,
-            // Index into a different array.
-            payload: u32,
         },
         ty_nav: struct {
             ty: InternPool.Index,
@@ -1689,7 +1680,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .set_union_tag,
         .prefetch,
         .set_err_return_trace,
-        .vector_store_elem,
         .c_va_end,
         => return .void,
 
@@ -1857,7 +1847,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .prefetch,
         .wasm_memory_grow,
         .set_err_return_trace,
-        .vector_store_elem,
         .c_va_arg,
         .c_va_copy,
         .c_va_end,

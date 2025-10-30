@@ -15919,26 +15919,27 @@ fn zirOverflowArithmetic(
             },
             .mul_with_overflow => {
                 // If either of the arguments is zero, the result is zero and no overflow occured.
-                // If either of the arguments is one, the result is the other and no overflow occured.
-                // Otherwise, if either of the arguments is undefined, both results are undefined.
-                const scalar_one = try pt.intValue(dest_ty.scalarType(zcu), 1);
                 if (maybe_lhs_val) |lhs_val| {
-                    if (!lhs_val.isUndef(zcu)) {
-                        if (try lhs_val.compareAllWithZeroSema(.eq, pt)) {
-                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
-                        } else if (try sema.compareAll(lhs_val, .eq, try sema.splat(dest_ty, scalar_one), dest_ty)) {
-                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = rhs };
-                        }
+                    if (!lhs_val.isUndef(zcu) and try lhs_val.compareAllWithZeroSema(.eq, pt)) {
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
                     }
                 }
-
                 if (maybe_rhs_val) |rhs_val| {
-                    if (!rhs_val.isUndef(zcu)) {
-                        if (try rhs_val.compareAllWithZeroSema(.eq, pt)) {
-                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = rhs };
-                        } else if (try sema.compareAll(rhs_val, .eq, try sema.splat(dest_ty, scalar_one), dest_ty)) {
-                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
-                        }
+                    if (!rhs_val.isUndef(zcu) and try rhs_val.compareAllWithZeroSema(.eq, pt)) {
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = rhs };
+                    }
+                }
+                // If either of the arguments is one, the result is the other and no overflow occured.
+                const scalar_one = try pt.intValue(dest_ty.scalarType(zcu), 1);
+                const vec_one = try sema.splat(dest_ty, scalar_one);
+                if (maybe_lhs_val) |lhs_val| {
+                    if (!lhs_val.isUndef(zcu) and try sema.compareAll(lhs_val, .eq, vec_one, dest_ty)) {
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = rhs };
+                    }
+                }
+                if (maybe_rhs_val) |rhs_val| {
+                    if (!rhs_val.isUndef(zcu) and try sema.compareAll(rhs_val, .eq, vec_one, dest_ty)) {
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
                     }
                 }
 
@@ -15947,7 +15948,6 @@ fn zirOverflowArithmetic(
                         if (lhs_val.isUndef(zcu) or rhs_val.isUndef(zcu)) {
                             break :result .{ .overflow_bit = .undef, .wrapped = .undef };
                         }
-
                         const result = try arith.mulWithOverflow(sema, dest_ty, lhs_val, rhs_val);
                         break :result .{ .overflow_bit = result.overflow_bit, .wrapped = result.wrapped_result };
                     }
@@ -17751,10 +17751,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 try ty.resolveStructFieldInits(pt);
 
                 for (struct_field_vals, 0..) |*field_val, field_index| {
-                    const field_name = if (struct_type.fieldName(ip, field_index).unwrap()) |field_name|
-                        field_name
-                    else
-                        try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+                    const field_name = struct_type.fieldName(ip, field_index);
                     const field_name_len = field_name.length(ip);
                     const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
                     const field_init = struct_type.fieldInit(ip, field_index);
@@ -28347,6 +28344,10 @@ fn elemPtrArray(
         break :o index;
     } else null;
 
+    if (offset == null and array_ty.zigTypeTag(zcu) == .vector) {
+        return sema.fail(block, elem_index_src, "vector index not comptime known", .{});
+    }
+
     const elem_ptr_ty = try array_ptr_ty.elemPtrType(offset, pt);
 
     if (maybe_undef_array_ptr_val) |array_ptr_val| {
@@ -28362,10 +28363,6 @@ fn elemPtrArray(
     if (!init) {
         try sema.validateRuntimeElemAccess(block, elem_index_src, array_ty.elemType2(zcu), array_ty, array_ptr_src);
         try sema.validateRuntimeValue(block, array_ptr_src, array_ptr);
-    }
-
-    if (offset == null and array_ty.zigTypeTag(zcu) == .vector) {
-        return sema.fail(block, elem_index_src, "vector index not comptime known", .{});
     }
 
     // Runtime check is only needed if unable to comptime check.
@@ -30399,22 +30396,6 @@ fn storePtr2(
 
     const is_ret = air_tag == .ret_ptr;
 
-    // Detect if we are storing an array operand to a bitcasted vector pointer.
-    // If so, we instead reach through the bitcasted pointer to the vector pointer,
-    // bitcast the array operand to a vector, and then lower this as a store of
-    // a vector value to a vector pointer. This generally results in better code,
-    // as well as working around an LLVM bug:
-    // https://github.com/ziglang/zig/issues/11154
-    if (sema.obtainBitCastedVectorPtr(ptr)) |vector_ptr| {
-        const vector_ty = sema.typeOf(vector_ptr).childType(zcu);
-        const vector = sema.coerceExtra(block, vector_ty, uncasted_operand, operand_src, .{ .is_ret = is_ret }) catch |err| switch (err) {
-            error.NotCoercible => unreachable,
-            else => |e| return e,
-        };
-        try sema.storePtr2(block, src, vector_ptr, ptr_src, vector, operand_src, .store);
-        return;
-    }
-
     const operand = sema.coerceExtra(block, elem_ty, uncasted_operand, operand_src, .{ .is_ret = is_ret }) catch |err| switch (err) {
         error.NotCoercible => unreachable,
         else => |e| return e,
@@ -30446,29 +30427,6 @@ fn storePtr2(
     }
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
-
-    if (ptr_ty.ptrInfo(zcu).flags.vector_index == .runtime) {
-        const ptr_inst = ptr.toIndex().?;
-        const air_tags = sema.air_instructions.items(.tag);
-        if (air_tags[@intFromEnum(ptr_inst)] == .ptr_elem_ptr) {
-            const ty_pl = sema.air_instructions.items(.data)[@intFromEnum(ptr_inst)].ty_pl;
-            const bin_op = sema.getTmpAir().extraData(Air.Bin, ty_pl.payload).data;
-            _ = try block.addInst(.{
-                .tag = .vector_store_elem,
-                .data = .{ .vector_store_elem = .{
-                    .vector_ptr = bin_op.lhs,
-                    .payload = try block.sema.addExtra(Air.Bin{
-                        .lhs = bin_op.rhs,
-                        .rhs = operand,
-                    }),
-                } },
-            });
-            return;
-        }
-        return sema.fail(block, ptr_src, "unable to determine vector element index of type '{f}'", .{
-            ptr_ty.fmt(pt),
-        });
-    }
 
     const store_inst = if (is_ret)
         try block.addBinOp(.store, ptr, operand)
@@ -30566,37 +30524,6 @@ fn markMaybeComptimeAllocRuntime(sema: *Sema, block: *Block, alloc_inst: Air.Ins
         const other_data = sema.air_instructions.items(.data)[@intFromEnum(other_inst)].bin_op;
         const other_operand = other_data.rhs;
         try sema.validateRuntimeValue(block, other_src, other_operand);
-    }
-}
-
-/// Traverse an arbitrary number of bitcasted pointers and return the underyling vector
-/// pointer. Only if the final element type matches the vector element type, and the
-/// lengths match.
-fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const array_ty = sema.typeOf(ptr).childType(zcu);
-    if (array_ty.zigTypeTag(zcu) != .array) return null;
-    var ptr_ref = ptr;
-    var ptr_inst = ptr_ref.toIndex() orelse return null;
-    const air_datas = sema.air_instructions.items(.data);
-    const air_tags = sema.air_instructions.items(.tag);
-    const vector_ty = while (air_tags[@intFromEnum(ptr_inst)] == .bitcast) {
-        ptr_ref = air_datas[@intFromEnum(ptr_inst)].ty_op.operand;
-        if (!sema.isKnownZigType(ptr_ref, .pointer)) return null;
-        const child_ty = sema.typeOf(ptr_ref).childType(zcu);
-        if (child_ty.zigTypeTag(zcu) == .vector) break child_ty;
-        ptr_inst = ptr_ref.toIndex() orelse return null;
-    } else return null;
-
-    // We have a pointer-to-array and a pointer-to-vector. If the elements and
-    // lengths match, return the result.
-    if (array_ty.childType(zcu).eql(vector_ty.childType(zcu), zcu) and
-        array_ty.arrayLen(zcu) == vector_ty.vectorLen(zcu))
-    {
-        return ptr_ref;
-    } else {
-        return null;
     }
 }
 
@@ -35579,8 +35506,13 @@ fn structFieldInits(
             const default_val = try sema.resolveConstValue(&block_scope, init_src, coerced, null);
 
             if (default_val.canMutateComptimeVarState(zcu)) {
-                const field_name = struct_type.fieldName(ip, field_i).unwrap().?;
-                return sema.failWithContainsReferenceToComptimeVar(&block_scope, init_src, field_name, "field default value", default_val);
+                return sema.failWithContainsReferenceToComptimeVar(
+                    &block_scope,
+                    init_src,
+                    struct_type.fieldName(ip, field_i),
+                    "field default value",
+                    default_val,
+                );
             }
             struct_type.field_inits.get(ip)[field_i] = default_val.toIntern();
         }

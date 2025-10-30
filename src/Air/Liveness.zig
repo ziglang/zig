@@ -463,12 +463,6 @@ fn analyzeInst(
             return analyzeOperands(a, pass, data, inst, .{ o.lhs, o.rhs, .none });
         },
 
-        .vector_store_elem => {
-            const o = inst_datas[@intFromEnum(inst)].vector_store_elem;
-            const extra = a.air.extraData(Air.Bin, o.payload).data;
-            return analyzeOperands(a, pass, data, inst, .{ o.vector_ptr, extra.lhs, extra.rhs });
-        },
-
         .arg,
         .alloc,
         .ret_ptr,
