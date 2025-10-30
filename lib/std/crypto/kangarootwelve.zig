@@ -2,9 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const crypto = std.crypto;
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const Thread = std.Thread;
-const Pool = Thread.Pool;
-const WaitGroup = Thread.WaitGroup;
 
 const TurboSHAKE128State = crypto.hash.sha3.TurboShake128(0x06);
 const TurboSHAKE256State = crypto.hash.sha3.TurboShake256(0x06);
@@ -738,6 +737,7 @@ fn ktSingleThreaded(comptime Variant: type, view: *const MultiSliceView, total_l
 fn ktMultiThreaded(
     comptime Variant: type,
     allocator: Allocator,
+    io: Io,
     view: *const MultiSliceView,
     total_len: usize,
     output: []u8,
@@ -747,21 +747,17 @@ fn ktMultiThreaded(
     // Calculate total number of leaves
     const total_leaves: usize = (total_len - 1) / chunk_size;
 
-    // Allocate buffer for all chaining values
-    const cvs = try allocator.alloc(u8, total_leaves * cv_size);
-    defer allocator.free(cvs);
-
-    // Initialize thread pool
-    var pool: Pool = undefined;
-    try pool.init(.{ .allocator = allocator });
-    defer pool.deinit();
-
-    const thread_count = pool.threads.len;
-    if (thread_count == 0) {
-        // Single-threaded fallback
+    // Check if we have enough threads to benefit from parallelization
+    const thread_count = Thread.getCpuCount() catch 1;
+    if (thread_count <= 1) {
+        // Single-threaded fallback - more efficient than using group.async
         ktSingleThreaded(Variant, view, total_len, output);
         return;
     }
+
+    // Allocate buffer for all chaining values
+    const cvs = try allocator.alloc(u8, total_leaves * cv_size);
+    defer allocator.free(cvs);
 
     // Divide work among threads
     const leaves_per_thread = (total_leaves + thread_count - 1) / thread_count;
@@ -771,7 +767,7 @@ fn ktMultiThreaded(
     const all_scratch = try allocator.alloc(u8, thread_count * scratch_size);
     defer allocator.free(all_scratch);
 
-    var wait_group: WaitGroup = .{};
+    var group: Io.Group = .init;
     var leaves_assigned: usize = 0;
     var thread_idx: usize = 0;
 
@@ -789,14 +785,18 @@ fn ktMultiThreaded(
             .total_len = total_len,
         };
 
-        pool.spawnWg(&wait_group, processLeafBatch, .{ Variant, ctx });
+        group.async(io, struct {
+            fn process(c: LeafBatchContext) void {
+                processLeafBatch(Variant, c);
+            }
+        }.process, .{ctx});
 
         leaves_assigned += batch_count;
         thread_idx += 1;
     }
 
     // Wait for all threads to complete
-    pool.waitAndWork(&wait_group);
+    group.wait(io);
 
     // Build final node
     const n_enc = rightEncode(total_leaves);
@@ -998,8 +998,8 @@ fn KTHash(
 
         /// Hash with automatic parallelization for large inputs (>3-10MB depending on CPU count).
         /// Automatically uses sequential processing for smaller inputs to avoid thread overhead.
-        /// Allocator required for thread pool and temporary buffers.
-        pub fn hashParallel(message: []const u8, out: []u8, options: Options, allocator: Allocator) !void {
+        /// Allocator required for temporary buffers. IO object required for thread management.
+        pub fn hashParallel(message: []const u8, out: []u8, options: Options, allocator: Allocator, io: Io) !void {
             const custom = options.customization orelse &[_]u8{};
 
             const custom_len_enc = rightEncode(custom.len);
@@ -1020,7 +1020,7 @@ fn KTHash(
             }
 
             // Tree mode - multi-threaded processing
-            try ktMultiThreaded(Variant, allocator, &view, total_len, out);
+            try ktMultiThreaded(Variant, allocator, io, &view, total_len, out);
         }
     };
 }
@@ -1056,6 +1056,8 @@ pub const KT256 = KTHash(KT256Variant, turboSHAKE256MultiSliceToBuffer);
 
 test "KT128 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
+    var io_threaded = Io.Threaded.init_single_threaded;
+    const io = io_threaded.io();
 
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
@@ -1074,7 +1076,7 @@ test "KT128 sequential and parallel produce same output for small inputs" {
         try KT128.hash(input, &output_seq, .{});
 
         // Hash with parallel method
-        try KT128.hashParallel(input, &output_par, .{}, allocator);
+        try KT128.hashParallel(input, &output_par, .{}, allocator, io);
 
         // Verify outputs match
         try std.testing.expectEqualSlices(u8, &output_seq, &output_par);
@@ -1083,6 +1085,9 @@ test "KT128 sequential and parallel produce same output for small inputs" {
 
 test "KT128 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
+    var io_threaded = Io.Threaded.init(allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
 
     // Test with large input sizes that trigger parallel processing
     // The threshold is 3-10MB depending on CPU count, so we test above that
@@ -1102,7 +1107,7 @@ test "KT128 sequential and parallel produce same output for large inputs" {
         try KT128.hash(input, &output_seq, .{});
 
         // Hash with parallel method
-        try KT128.hashParallel(input, &output_par, .{}, allocator);
+        try KT128.hashParallel(input, &output_par, .{}, allocator, io);
 
         // Verify outputs match
         try std.testing.expectEqualSlices(u8, &output_seq, &output_par);
@@ -1111,6 +1116,9 @@ test "KT128 sequential and parallel produce same output for large inputs" {
 
 test "KT128 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
+    var io_threaded = Io.Threaded.init(allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
 
     const input_size = 15 * 1024 * 1024; // 15MB
     const input = try allocator.alloc(u8, input_size);
@@ -1127,7 +1135,7 @@ test "KT128 sequential and parallel produce same output with customization" {
     try KT128.hash(input, &output_seq, .{ .customization = customization });
 
     // Hash with parallel method
-    try KT128.hashParallel(input, &output_par, .{ .customization = customization }, allocator);
+    try KT128.hashParallel(input, &output_par, .{ .customization = customization }, allocator, io);
 
     // Verify outputs match
     try std.testing.expectEqualSlices(u8, &output_seq, &output_par);
@@ -1135,6 +1143,8 @@ test "KT128 sequential and parallel produce same output with customization" {
 
 test "KT256 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
+    var io_threaded = Io.Threaded.init_single_threaded;
+    const io = io_threaded.io();
 
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
@@ -1153,7 +1163,7 @@ test "KT256 sequential and parallel produce same output for small inputs" {
         try KT256.hash(input, &output_seq, .{});
 
         // Hash with parallel method
-        try KT256.hashParallel(input, &output_par, .{}, allocator);
+        try KT256.hashParallel(input, &output_par, .{}, allocator, io);
 
         // Verify outputs match
         try std.testing.expectEqualSlices(u8, &output_seq, &output_par);
@@ -1162,6 +1172,9 @@ test "KT256 sequential and parallel produce same output for small inputs" {
 
 test "KT256 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
+    var io_threaded = Io.Threaded.init(allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
 
     // Test with large input sizes that trigger parallel processing
     const test_sizes = [_]usize{ 11 * 1024 * 1024, 20 * 1024 * 1024 }; // 11MB, 20MB
@@ -1180,7 +1193,7 @@ test "KT256 sequential and parallel produce same output for large inputs" {
         try KT256.hash(input, &output_seq, .{});
 
         // Hash with parallel method
-        try KT256.hashParallel(input, &output_par, .{}, allocator);
+        try KT256.hashParallel(input, &output_par, .{}, allocator, io);
 
         // Verify outputs match
         try std.testing.expectEqualSlices(u8, &output_seq, &output_par);
@@ -1189,6 +1202,9 @@ test "KT256 sequential and parallel produce same output for large inputs" {
 
 test "KT256 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
+    var io_threaded = Io.Threaded.init(allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
 
     const input_size = 15 * 1024 * 1024; // 15MB
     const input = try allocator.alloc(u8, input_size);
@@ -1205,7 +1221,7 @@ test "KT256 sequential and parallel produce same output with customization" {
     try KT256.hash(input, &output_seq, .{ .customization = customization });
 
     // Hash with parallel method
-    try KT256.hashParallel(input, &output_par, .{ .customization = customization }, allocator);
+    try KT256.hashParallel(input, &output_par, .{ .customization = customization }, allocator, io);
 
     // Verify outputs match
     try std.testing.expectEqualSlices(u8, &output_seq, &output_par);
