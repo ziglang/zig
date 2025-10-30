@@ -2093,7 +2093,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
 
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
-                const stderr_w = std.debug.lockStderrWriter(&.{});
+                const stderr_w, _ = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
                 stderr_w.print("compilation: {s}\n", .{options.root_name}) catch break :print;
                 stderr_w.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
@@ -4270,7 +4270,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
             // However, we haven't reported any such error.
             // This is a compiler bug.
             print_ctx: {
-                var stderr_w = std.debug.lockStderrWriter(&.{});
+                var stderr_w, _ = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
                 stderr_w.writeAll("referenced transitive analysis errors, but none actually emitted\n") catch break :print_ctx;
                 stderr_w.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)}) catch break :print_ctx;
@@ -7752,7 +7752,7 @@ pub fn lockAndSetMiscFailure(
 
 pub fn dump_argv(argv: []const []const u8) void {
     var buffer: [64]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
+    const stderr, _ = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
     nosuspend {
         for (argv, 0..) |arg, i| {

@@ -149,7 +149,6 @@ test "nested optional field in struct" {
 }
 
 test "equality compare optionals and non-optionals" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -209,7 +208,6 @@ test "equality compare optionals and non-optionals" {
 }
 
 test "compare optionals with modified payloads" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var lhs: ?bool = false;

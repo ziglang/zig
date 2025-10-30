@@ -54,9 +54,9 @@ pub fn notifyUpdate(ws: *WebServer) void {
 pub const Options = struct {
     gpa: Allocator,
     thread_pool: *std.Thread.Pool,
+    ttyconf: Io.tty.Config,
     graph: *const std.Build.Graph,
     all_steps: []const *Build.Step,
-    ttyconf: Io.tty.Config,
     root_prog_node: std.Progress.Node,
     watch: bool,
     listen_address: net.IpAddress,
@@ -101,10 +101,10 @@ pub fn init(opts: Options) WebServer {
     return .{
         .gpa = opts.gpa,
         .thread_pool = opts.thread_pool,
+        .ttyconf = opts.ttyconf,
         .graph = opts.graph,
         .all_steps = all_steps,
         .listen_address = opts.listen_address,
-        .ttyconf = opts.ttyconf,
         .root_prog_node = opts.root_prog_node,
         .watch = opts.watch,
 
@@ -236,9 +236,9 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
             ws.gpa,
             ws.graph.io,
             ws.thread_pool,
+            ws.ttyconf,
             ws.all_steps,
             ws.root_prog_node,
-            ws.ttyconf,
             .{ .forever = .{ .ws = ws } },
         ) catch |err| std.process.fatal("failed to start fuzzer: {s}", .{@errorName(err)});
         ws.fuzz.?.start();
@@ -655,8 +655,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     }
 
     if (result_error_bundle.errorMessageCount() > 0) {
-        const color = std.zig.Color.auto;
-        result_error_bundle.renderToStdErr(color.renderOptions());
+        result_error_bundle.renderToStdErr(.{}, .auto);
         log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
             try Build.Step.allocPrintCmd(arena, null, argv.items),

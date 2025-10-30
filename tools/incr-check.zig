@@ -340,8 +340,7 @@ const Eval = struct {
             .unknown => return,
             .compile_errors => |ce| ce,
             .stdout, .exit_code => {
-                const color: std.zig.Color = .auto;
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, .auto);
                 eval.fatal("update '{s}': unexpected compile errors", .{update.name});
             },
         };
@@ -350,8 +349,7 @@ const Eval = struct {
 
         for (error_bundle.getMessages()) |err_idx| {
             if (expected_idx == expected.errors.len) {
-                const color: std.zig.Color = .auto;
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, .auto);
                 eval.fatal("update '{s}': more errors than expected", .{update.name});
             }
             try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], false, err_idx);
@@ -359,8 +357,7 @@ const Eval = struct {
 
             for (error_bundle.getNotes(err_idx)) |note_idx| {
                 if (expected_idx == expected.errors.len) {
-                    const color: std.zig.Color = .auto;
-                    error_bundle.renderToStdErr(color.renderOptions());
+                    error_bundle.renderToStdErr(.{}, .auto);
                     eval.fatal("update '{s}': more error notes than expected", .{update.name});
                 }
                 try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], true, note_idx);
@@ -369,8 +366,7 @@ const Eval = struct {
         }
 
         if (!std.mem.eql(u8, error_bundle.getCompileLogOutput(), expected.compile_log_output)) {
-            const color: std.zig.Color = .auto;
-            error_bundle.renderToStdErr(color.renderOptions());
+            error_bundle.renderToStdErr(.{}, .auto);
             eval.fatal("update '{s}': unexpected compile log output", .{update.name});
         }
     }
@@ -404,8 +400,7 @@ const Eval = struct {
             expected.column != src.column + 1 or
             !std.mem.eql(u8, expected.msg, msg))
         {
-            const color: std.zig.Color = .auto;
-            eb.renderToStdErr(color.renderOptions());
+            eb.renderToStdErr(.{}, .auto);
             eval.fatal("update '{s}': compile error did not match expected error", .{update.name});
         }
     }

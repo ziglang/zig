@@ -2257,8 +2257,8 @@ pub const GeneratedFile = struct {
 
     pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
         return gen.path orelse {
-            const w = debug.lockStderrWriter(&.{});
-            dumpBadGetPathHelp(gen.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+            const w, const ttyconf = debug.lockStderrWriter(&.{});
+            dumpBadGetPathHelp(gen.step, w, ttyconf, src_builder, asking_step) catch {};
             debug.unlockStderrWriter();
             @panic("misconfigured build script");
         };
@@ -2466,8 +2466,8 @@ pub const LazyPath = union(enum) {
                 var file_path: Cache.Path = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
-                        const w = debug.lockStderrWriter(&.{});
-                        dumpBadGetPathHelp(gen.file.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+                        const w, const ttyconf = debug.lockStderrWriter(&.{});
+                        dumpBadGetPathHelp(gen.file.step, w, ttyconf, src_builder, asking_step) catch {};
                         debug.unlockStderrWriter();
                         @panic("misconfigured build script");
                     },
@@ -2558,12 +2558,10 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    const w = debug.lockStderrWriter(&.{});
+    const w, const tty_config = debug.lockStderrWriter(&.{});
     defer debug.unlockStderrWriter();
 
     try w.print(msg, args);
-
-    const tty_config = std.Io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};

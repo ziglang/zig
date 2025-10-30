@@ -2335,7 +2335,7 @@ pub fn deleteExport(coff: *Coff, exported: Zcu.Exported, name: InternPool.NullTe
 }
 
 pub fn dump(coff: *Coff, tid: Zcu.PerThread.Id) void {
-    const w = std.debug.lockStderrWriter(&.{});
+    const w, _ = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
     coff.printNode(tid, w, .root, 0) catch {};
 }

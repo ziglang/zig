@@ -4520,7 +4520,7 @@ fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) 
     defer errors.deinit(comp.gpa);
 
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(color.renderOptions());
+        errors.renderToStdErr(.{}, color);
         return error.CompileErrorsReported;
     }
 }
@@ -4573,7 +4573,7 @@ fn cmdTranslateC(
                 return;
             } else {
                 const color: Color = .auto;
-                result.errors.renderToStdErr(color.renderOptions());
+                result.errors.renderToStdErr(.{}, color);
                 process.exit(1);
             }
         }
@@ -5199,7 +5199,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
 
                 if (fetch.error_bundle.root_list.items.len > 0) {
                     var errors = try fetch.error_bundle.toOwnedBundle("");
-                    errors.renderToStdErr(color.renderOptions());
+                    errors.renderToStdErr(.{}, color);
                     process.exit(1);
                 }
 
@@ -6135,7 +6135,7 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8) !void {
                 try wip_errors.init(arena);
                 try wip_errors.addZirErrorMessages(zir, tree, source, display_path);
                 var error_bundle = try wip_errors.toOwnedBundle("");
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, color);
                 if (zir.loweringFailed()) {
                     process.exit(1);
                 }
@@ -6206,7 +6206,7 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8) !void {
                 try wip_errors.init(arena);
                 try wip_errors.addZoirErrorMessages(zoir, tree, source, display_path);
                 var error_bundle = try wip_errors.toOwnedBundle("");
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, color);
                 process.exit(1);
             }
 
@@ -6479,7 +6479,7 @@ fn cmdChangelist(arena: Allocator, io: Io, args: []const []const u8) !void {
         try wip_errors.init(arena);
         try wip_errors.addZirErrorMessages(old_zir, old_tree, old_source, old_source_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
-        error_bundle.renderToStdErr(color.renderOptions());
+        error_bundle.renderToStdErr(.{}, color);
         process.exit(1);
     }
 
@@ -6491,7 +6491,7 @@ fn cmdChangelist(arena: Allocator, io: Io, args: []const []const u8) !void {
         try wip_errors.init(arena);
         try wip_errors.addZirErrorMessages(new_zir, new_tree, new_source, new_source_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
-        error_bundle.renderToStdErr(color.renderOptions());
+        error_bundle.renderToStdErr(.{}, color);
         process.exit(1);
     }
 
@@ -6948,7 +6948,7 @@ fn cmdFetch(
 
     if (fetch.error_bundle.root_list.items.len > 0) {
         var errors = try fetch.error_bundle.toOwnedBundle("");
-        errors.renderToStdErr(color.renderOptions());
+        errors.renderToStdErr(.{}, color);
         process.exit(1);
     }
 
@@ -7304,7 +7304,7 @@ fn loadManifest(
 
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(options.color.renderOptions());
+        error_bundle.renderToStdErr(.{}, options.color);
 
         process.exit(2);
     }

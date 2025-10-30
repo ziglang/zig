@@ -442,8 +442,7 @@ pub fn main() !void {
         if (builtin.single_threaded) fatal("'--webui' is not yet supported on single-threaded hosts", .{});
     }
 
-    const stderr: std.fs.File = .stderr();
-    const ttyconf = get_tty_conf(color, stderr);
+    const ttyconf = color.detectTtyConf();
     switch (ttyconf) {
         .no_color => try graph.env_map.put("NO_COLOR", "1"),
         .escape_codes => try graph.env_map.put("CLICOLOR_FORCE", "1"),
@@ -522,9 +521,9 @@ pub fn main() !void {
         .error_style = error_style,
         .multiline_errors = multiline_errors,
         .summary = summary orelse if (watch or webui_listen != null) .line else .failures,
-        .ttyconf = ttyconf,
-        .stderr = stderr,
         .thread_pool = undefined,
+
+        .ttyconf = ttyconf,
     };
     defer {
         run.memory_blocked_steps.deinit(gpa);
@@ -563,9 +562,9 @@ pub fn main() !void {
         break :ws .init(.{
             .gpa = gpa,
             .thread_pool = &run.thread_pool,
+            .ttyconf = ttyconf,
             .graph = &graph,
             .all_steps = run.step_stack.keys(),
-            .ttyconf = run.ttyconf,
             .root_prog_node = main_progress_node,
             .watch = watch,
             .listen_address = listen_address,
@@ -578,7 +577,7 @@ pub fn main() !void {
     }
 
     rebuild: while (true) : (if (run.error_style.clearOnUpdate()) {
-        const bw = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        const bw, _ = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
         try bw.writeAll("\x1B[2J\x1B[3J\x1B[H");
     }) {
@@ -682,13 +681,14 @@ const Run = struct {
     /// Allocated into `gpa`.
     step_stack: std.AutoArrayHashMapUnmanaged(*Step, void),
     thread_pool: std.Thread.Pool,
+    /// Similar to the `tty.Config` returned by `std.debug.lockStderrWriter`,
+    /// but also respects the '--color' flag.
+    ttyconf: tty.Config,
 
     claimed_rss: usize,
     error_style: ErrorStyle,
     multiline_errors: MultilineErrors,
     summary: Summary,
-    ttyconf: tty.Config,
-    stderr: File,
 };
 
 fn prepare(
@@ -834,8 +834,6 @@ fn runStepNames(
         }
     }
 
-    const ttyconf = run.ttyconf;
-
     if (fuzz) |mode| blk: {
         switch (builtin.os.tag) {
             // Current implementation depends on two things that need to be ported to Windows:
@@ -863,9 +861,9 @@ fn runStepNames(
             gpa,
             io,
             thread_pool,
+            run.ttyconf,
             step_stack.keys(),
             parent_prog_node,
-            ttyconf,
             mode,
         ) catch |err| fatal("failed to start fuzzer: {s}", .{@errorName(err)});
         defer f.deinit();
@@ -890,8 +888,9 @@ fn runStepNames(
             .none => break :summary,
         }
 
-        const w = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        const w, _ = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
+        const ttyconf = run.ttyconf;
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(w, .cyan) catch {};
@@ -1399,9 +1398,10 @@ fn workerMakeOneStep(
     const show_error_msgs = s.result_error_msgs.items.len > 0;
     const show_stderr = s.result_stderr.len > 0;
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        const bw = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        const bw, _ = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
-        printErrorMessages(run.gpa, s, .{ .ttyconf = run.ttyconf }, bw, run.error_style, run.multiline_errors) catch {};
+        const ttyconf = run.ttyconf;
+        printErrorMessages(run.gpa, s, .{}, bw, ttyconf, run.error_style, run.multiline_errors) catch {};
     }
 
     handle_result: {
@@ -1465,11 +1465,10 @@ pub fn printErrorMessages(
     failing_step: *Step,
     options: std.zig.ErrorBundle.RenderOptions,
     stderr: *Writer,
+    ttyconf: tty.Config,
     error_style: ErrorStyle,
     multiline_errors: MultilineErrors,
 ) !void {
-    const ttyconf = options.ttyconf;
-
     if (error_style.verboseContext()) {
         // Provide context for where these error messages are coming from by
         // printing the corresponding Step subtree.
@@ -1513,7 +1512,7 @@ pub fn printErrorMessages(
         }
     }
 
-    try failing_step.result_error_bundle.renderToWriter(options, stderr);
+    try failing_step.result_error_bundle.renderToWriter(options, stderr, ttyconf);
 
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
@@ -1758,14 +1757,6 @@ const ErrorStyle = enum {
 };
 const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
-
-fn get_tty_conf(color: Color, stderr: File) tty.Config {
-    return switch (color) {
-        .auto => tty.detectConfig(stderr),
-        .on => .escape_codes,
-        .off => .no_color,
-    };
-}
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);

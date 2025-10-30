@@ -1965,7 +1965,7 @@ pub fn deleteExport(elf: *Elf, exported: Zcu.Exported, name: InternPool.NullTerm
 }
 
 pub fn dump(elf: *Elf, tid: Zcu.PerThread.Id) void {
-    const w = std.debug.lockStderrWriter(&.{});
+    const w, _ = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
     elf.printNode(tid, w, .root, 0) catch {};
 }

@@ -73,13 +73,13 @@ pub fn writeInst(
 }
 
 pub fn dump(air: Air, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
-    const stderr_bw = std.debug.lockStderrWriter(&.{});
+    const stderr_bw, _ = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
     air.write(stderr_bw, pt, liveness);
 }
 
 pub fn dumpInst(air: Air, inst: Air.Inst.Index, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
-    const stderr_bw = std.debug.lockStderrWriter(&.{});
+    const stderr_bw, _ = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
     air.writeInst(stderr_bw, inst, pt, liveness);
 }
