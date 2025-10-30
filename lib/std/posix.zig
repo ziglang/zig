@@ -3497,7 +3497,6 @@ pub fn accept(
                 .BADF => unreachable, // always a race condition
                 .CONNABORTED => return error.ConnectionAborted,
                 .FAULT => unreachable,
-                .INVAL => return error.SocketNotListening,
                 .NOTSOCK => unreachable,
                 .MFILE => return error.ProcessFdQuotaExceeded,
                 .NFILE => return error.SystemFdQuotaExceeded,
@@ -3831,7 +3830,6 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             .SUCCESS => return,
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
-            .ADDRINUSE => return error.AddressInUse,
             .ADDRNOTAVAIL => return error.AddressUnavailable,
             .AFNOSUPPORT => return error.AddressFamilyUnsupported,
             .AGAIN => return error.SystemResources,
@@ -3839,7 +3837,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             .BADF => unreachable, // sockfd is not a valid open file descriptor.
             .CONNREFUSED => return error.ConnectionRefused,
             .FAULT => unreachable, // The socket structure address is outside the user's address space.
-            .ISCONN => return error.AlreadyConnected, // The socket is already connected.
+            .ISCONN => @panic("AlreadyConnected"), // The socket is already connected.
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
