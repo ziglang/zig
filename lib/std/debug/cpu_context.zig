@@ -1609,6 +1609,10 @@ const signal_ucontext_t = switch (native_os) {
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/include/uapi/asm-generic/ucontext.h
         .arc,
         .arceb,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .csky,
         .hexagon,
         .m68k,
@@ -1647,6 +1651,14 @@ const signal_ucontext_t = switch (native_os) {
                     _efa: u32,
                     _stop_pc: u32,
                     r30: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/uapi/asm/sigcontext.h
+                .arm, .armeb, .thumb, .thumbeb => extern struct {
+                    _trap_no: u32,
+                    _error_code: u32,
+                    _oldmask: u32,
+                    r: [15]u32,
+                    pc: u32,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/csky/include/uapi/asm/sigcontext.h
                 .csky => extern struct {
@@ -1791,21 +1803,6 @@ const signal_ucontext_t = switch (native_os) {
                     a: [16]u32,
                 },
                 else => unreachable,
-            },
-        },
-        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/asm/ucontext.h
-        .arm, .armeb, .thumb, .thumbeb => extern struct {
-            _flags: u32,
-            _link: ?*signal_ucontext_t,
-            _stack: std.os.linux.stack_t,
-            _unused: [31]i32,
-            // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/uapi/asm/sigcontext.h
-            mcontext: extern struct {
-                _trap_no: u32,
-                _error_code: u32,
-                _oldmask: u32,
-                r: [15]u32,
-                pc: u32,
             },
         },
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/powerpc/include/uapi/asm/ucontext.h
