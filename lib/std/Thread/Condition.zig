@@ -180,8 +180,8 @@ const WindowsImpl = struct {
 
     fn wake(self: *Impl, comptime notify: Notify) void {
         switch (notify) {
-            .one => os.windows.kernel32.WakeConditionVariable(&self.condition),
-            .all => os.windows.kernel32.WakeAllConditionVariable(&self.condition),
+            .one => os.windows.ntdll.RtlWakeConditionVariable(&self.condition),
+            .all => os.windows.ntdll.RtlWakeAllConditionVariable(&self.condition),
         }
     }
 };

@@ -1,6 +1,5 @@
 const std = @import("../../std.zig");
 const windows = std.os.windows;
-const ntdll = windows.ntdll;
 
 const BOOL = windows.BOOL;
 const CONDITION_VARIABLE = windows.CONDITION_VARIABLE;
@@ -255,9 +254,6 @@ pub extern "kernel32" fn CreateIoCompletionPort(
     NumberOfConcurrentThreads: DWORD,
 ) callconv(.winapi) ?HANDLE;
 
-pub const AddVectoredExceptionHandler = ntdll.RtlAddVectoredExceptionHandler;
-pub const RemoveVectoredExceptionHandler = ntdll.RtlRemoveVectoredExceptionHandler;
-
 // TODO: Wrapper around RtlReportSilentProcessExit + NtTerminateProcess.
 pub extern "kernel32" fn TerminateProcess(
     hProcess: HANDLE,
@@ -310,8 +306,6 @@ pub extern "kernel32" fn CreateProcessW(
     lpProcessInformation: *PROCESS_INFORMATION,
 ) callconv(.winapi) BOOL;
 
-pub const ExitProcess = ntdll.RtlExitUserProcess;
-
 // TODO: implement via ntdll instead
 pub extern "kernel32" fn SleepEx(
     dwMilliseconds: DWORD,
@@ -358,24 +352,12 @@ pub extern "kernel32" fn SwitchToThread() callconv(.winapi) BOOL;
 
 // Locks, critical sections, initializers
 
-pub const InitializeCriticalSection = ntdll.RtlInitializeCriticalSection;
-pub const EnterCriticalSection = ntdll.RtlEnterCriticalSection;
-pub const LeaveCriticalSection = ntdll.RtlLeaveCriticalSection;
-pub const DeleteCriticalSection = ntdll.RtlDeleteCriticalSection;
-
-pub const TryAcquireSRWLockExclusive = ntdll.RtlTryAcquireSRWLockExclusive;
-pub const AcquireSRWLockExclusive = ntdll.RtlAcquireSRWLockExclusive;
-pub const ReleaseSRWLockExclusive = ntdll.RtlReleaseSRWLockExclusive;
-
 pub extern "kernel32" fn InitOnceExecuteOnce(
     InitOnce: *INIT_ONCE,
     InitFn: INIT_ONCE_FN,
     Parameter: ?*anyopaque,
     Context: ?*anyopaque,
 ) callconv(.winapi) BOOL;
-
-pub const WakeConditionVariable = ntdll.RtlWakeConditionVariable;
-pub const WakeAllConditionVariable = ntdll.RtlWakeAllConditionVariable;
 
 // TODO:
 //  - dwMilliseconds -> LARGE_INTEGER.
@@ -466,10 +448,6 @@ pub extern "kernel32" fn HeapCreate(
     dwInitialSize: SIZE_T,
     dwMaximumSize: SIZE_T,
 ) callconv(.winapi) ?HANDLE;
-
-pub const HeapReAlloc = ntdll.RtlReAllocateHeap;
-pub const HeapAlloc = ntdll.RtlAllocateHeap;
-pub const HeapFree = ntdll.RtlFreeHeap;
 
 // TODO: Wrapper around RtlValidateHeap (BOOLEAN -> BOOL)
 pub extern "kernel32" fn HeapValidate(

@@ -701,7 +701,7 @@ pub fn abort() noreturn {
         if (builtin.mode == .Debug and windows.peb().BeingDebugged != 0) {
             @breakpoint();
         }
-        windows.kernel32.ExitProcess(3);
+        windows.ntdll.RtlExitUserProcess(3);
     }
     if (!builtin.link_libc and native_os == .linux) {
         // The Linux man page says that the libc abort() function
@@ -794,7 +794,7 @@ pub fn exit(status: u8) noreturn {
         std.c.exit(status);
     }
     if (native_os == .windows) {
-        windows.kernel32.ExitProcess(status);
+        windows.ntdll.RtlExitUserProcess(status);
     }
     if (native_os == .wasi) {
         wasi.proc_exit(status);
