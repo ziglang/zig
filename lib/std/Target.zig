@@ -634,7 +634,7 @@ pub const Os = struct {
                 => .{
                     .semver = .{
                         .min = .{ .major = 2, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 3, .minor = 0, .patch = 17 },
+                        .max = .{ .major = 3, .minor = 0, .patch = 19 },
                     },
                 },
                 .opengl => .{
