@@ -801,7 +801,7 @@ const ChunkState = struct {
         return ChunkState{
             .cv = key,
             .chunk_counter = 0,
-            .buf = [_]u8{0} ** Blake3.block_length,
+            .buf = @splat(0),
             .buf_len = 0,
             .blocks_compressed = 0,
             .flags = flags,
@@ -812,7 +812,7 @@ const ChunkState = struct {
         self.cv = key;
         self.chunk_counter = chunk_counter;
         self.blocks_compressed = 0;
-        self.buf = [_]u8{0} ** Blake3.block_length;
+        self.buf = @splat(0);
         self.buf_len = 0;
     }
 
@@ -838,7 +838,7 @@ const ChunkState = struct {
             if (self.buf_len == Blake3.block_length) {
                 compressInPlace(&self.cv, &self.buf, Blake3.block_length, self.chunk_counter, self.flags.with(self.maybeStartFlag()));
                 self.blocks_compressed += 1;
-                self.buf = [_]u8{0} ** Blake3.block_length;
+                self.buf = @splat(0);
                 self.buf_len = 0;
             }
 
@@ -1399,7 +1399,7 @@ test "BLAKE3 parallel vs sequential" {
         try std.testing.expectEqualSlices(u8, &expected, &actual);
 
         // Test keyed hash
-        const key: [32]u8 = [_]u8{0x42} ** 32;
+        const key: [32]u8 = @splat(0x42);
         var expected_keyed: [32]u8 = undefined;
         Blake3.hash(input, &expected_keyed, .{ .key = key });
 
