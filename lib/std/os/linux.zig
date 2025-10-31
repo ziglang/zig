@@ -1904,6 +1904,10 @@ pub fn setsid() usize {
     return syscall0(.setsid);
 }
 
+pub fn getsid(pid: pid_t) pid_t {
+    return @bitCast(@as(u32, @truncate(syscall1(.getsid, @intCast(pid)))));
+}
+
 pub fn getpid() pid_t {
     // Casts result to a pid_t, safety-checking >= 0, because getpid() cannot fail
     return @intCast(@as(u32, @truncate(syscall0(.getpid))));
