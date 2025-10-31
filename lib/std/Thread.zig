@@ -674,7 +674,7 @@ const WindowsThreadImpl = struct {
 
         const heap_handle = windows.kernel32.GetProcessHeap() orelse return error.OutOfMemory;
         const alloc_bytes = @alignOf(Instance) + @sizeOf(Instance);
-        const alloc_ptr = windows.kernel32.HeapAlloc(heap_handle, 0, alloc_bytes) orelse return error.OutOfMemory;
+        const alloc_ptr = windows.ntdll.RtlAllocateHeap(heap_handle, 0, alloc_bytes) orelse return error.OutOfMemory;
         errdefer assert(windows.kernel32.HeapFree(heap_handle, 0, alloc_ptr) != 0);
 
         const instance_bytes = @as([*]u8, @ptrCast(alloc_ptr))[0..alloc_bytes];
