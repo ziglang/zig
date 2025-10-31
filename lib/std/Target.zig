@@ -607,7 +607,7 @@ pub const Os = struct {
                 .wasi => .{
                     .semver = .{
                         .min = .{ .major = 0, .minor = 1, .patch = 0 },
-                        .max = .{ .major = 0, .minor = 2, .patch = 2 },
+                        .max = .{ .major = 0, .minor = 3, .patch = 0 },
                     },
                 },
 
