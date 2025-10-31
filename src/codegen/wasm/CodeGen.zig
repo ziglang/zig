@@ -1230,12 +1230,17 @@ pub fn generate(
 fn generateInner(cg: *CodeGen, any_returns: bool) InnerError!Mir {
     const zcu = cg.pt.zcu;
     try cg.branches.append(cg.gpa, .{});
-    // clean up outer branch
+    defer {
+        var const_branch = cg.branches.pop().?;
+        const_branch.deinit(cg.gpa);
+        assert(cg.branches.items.len == 0); // missing branch merge
+    }
+    try cg.branches.append(cg.gpa, .{});
     defer {
         var outer_branch = cg.branches.pop().?;
         outer_branch.deinit(cg.gpa);
-        assert(cg.branches.items.len == 0); // missing branch merge
     }
+
     // Generate MIR for function body
     try cg.genBody(cg.air.getMainBody());
 
@@ -1384,7 +1389,7 @@ fn lowerArg(cg: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WV
                 return cg.lowerToStack(value);
             } else {
                 switch (value) {
-                    .nav_ref, .stack_offset => _ = try cg.load(value, scalar_type, 0),
+                    .nav_ref, .uav_ref, .stack_offset => _ = try cg.load(value, scalar_type, 0),
                     .dead => unreachable,
                     else => try cg.emitWValue(value),
                 }
@@ -2401,6 +2406,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
         } else if (abi_size > 16) {
             assert(offset == 0);
             try cg.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(zcu))) });
+            return;
         },
         else => if (abi_size > 8) {
             return cg.fail("TODO: `store` for type `{f}` with abisize `{d}`", .{ ty.fmt(pt), abi_size });
@@ -2450,7 +2456,8 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const loaded = try cg.load(operand, ty, 0);
             const ty_size = ty.abiSize(zcu);
             if (ty.isAbiInt(zcu) and ty_size * 8 > ty.bitSize(zcu)) {
-                const int_elem_ty = try pt.intType(.unsigned, @intCast(ty_size * 8));
+                const int_info = ty.intInfo(zcu);
+                const int_elem_ty = try pt.intType(int_info.signedness, @intCast(ty_size * 8));
                 break :result try cg.trunc(loaded, ty, int_elem_ty);
             } else {
                 break :result loaded;
@@ -2496,11 +2503,15 @@ fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue 
     }
 
     const abi_size: u8 = @intCast(ty.abiSize(zcu));
+    const is_signed = switch (ty.zigTypeTag(zcu)) {
+        .int, .@"struct", .@"enum" => ty.intInfo(zcu).signedness == .signed,
+        else => false,
+    };
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, zcu, cg.target),
         .width = abi_size * 8,
         .op = .load,
-        .signedness = if (ty.isSignedInt(zcu)) .signed else .unsigned,
+        .signedness = if (is_signed) .signed else .unsigned,
     });
 
     try cg.addMemArg(
@@ -3026,10 +3037,15 @@ fn wrapOperand(cg: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
 
     if (wasm_bits == int_bits) return operand;
 
+    const is_signed = switch (ty.zigTypeTag(zcu)) {
+        .int, .@"struct", .@"enum" => ty.intInfo(zcu).signedness == .signed,
+        else => false,
+    };
+
     switch (wasm_bits) {
         32 => {
             try cg.emitWValue(operand);
-            if (ty.isSignedInt(zcu)) {
+            if (is_signed) {
                 try cg.addImm32(32 - int_bits);
                 try cg.addTag(.i32_shl);
                 try cg.addImm32(32 - int_bits);
@@ -3042,7 +3058,7 @@ fn wrapOperand(cg: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
         },
         64 => {
             try cg.emitWValue(operand);
-            if (ty.isSignedInt(zcu)) {
+            if (is_signed) {
                 try cg.addImm64(64 - int_bits);
                 try cg.addTag(.i64_shl);
                 try cg.addImm64(64 - int_bits);
@@ -3063,7 +3079,7 @@ fn wrapOperand(cg: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
 
             try cg.emitWValue(result);
             _ = try cg.load(operand, Type.u64, 8);
-            if (ty.isSignedInt(zcu)) {
+            if (is_signed) {
                 try cg.addImm64(128 - int_bits);
                 try cg.addTag(.i64_shl);
                 try cg.addImm64(128 - int_bits);
@@ -3083,12 +3099,41 @@ fn wrapOperand(cg: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
 fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerError!WValue {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
+    const ip = &zcu.intern_pool;
+    const ptr = ip.indexToKey(ptr_val).ptr;
     const offset: u64 = prev_offset + ptr.byte_offset;
     return switch (ptr.base_addr) {
-        .nav => |nav| return .{ .nav_ref = .{ .nav_index = nav, .offset = @intCast(offset) } },
-        .uav => |uav| return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset), .orig_ptr_ty = uav.orig_ty } },
-        .int => return cg.lowerConstant(try pt.intValue(Type.usize, offset), Type.usize),
+        .nav => |nav| {
+            const nav_val = ip.getNav(nav);
+            const nav_ty = Type.fromInterned(nav_val.typeOf(ip));
+            const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
+
+            if (!is_fn_body and !nav_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+                return switch (cg.ptr_size) {
+                    .wasm32 => .{ .imm32 = 0xaaaaaaaa },
+                    .wasm64 => .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
+                };
+            }
+
+            return .{ .nav_ref = .{ .nav_index = nav, .offset = @intCast(offset) } };
+        },
+        .uav => |uav| {
+            const uav_ty = Type.fromInterned(ip.typeOf(uav.val));
+            const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
+
+            if (!is_fn_body and !uav_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+                return switch (cg.ptr_size) {
+                    .wasm32 => .{ .imm32 = 0xaaaaaaaa },
+                    .wasm64 => .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
+                };
+            }
+
+            return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset), .orig_ptr_ty = uav.orig_ty } };
+        },
+        .int => return switch (cg.ptr_size) {
+            .wasm32 => .{ .imm32 = @intCast(offset) },
+            .wasm64 => .{ .imm64 = offset },
+        },
         .eu_payload => |eu_ptr| try cg.lowerPtr(
             eu_ptr,
             offset + codegen.errUnionPayloadOffset(
@@ -7116,7 +7161,7 @@ fn airTagName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result_ptr = try cg.allocStack(cg.typeOfIndex(inst));
     try cg.lowerToStack(result_ptr);
-    try cg.emitWValue(operand);
+    try cg.lowerToStack(operand);
     try cg.addInst(.{ .tag = .call_tag_name, .data = .{ .ip_index = enum_ty.toIntern() } });
 
     return cg.finishAir(inst, result_ptr, &.{un_op});
