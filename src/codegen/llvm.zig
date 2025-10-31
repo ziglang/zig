@@ -2693,13 +2693,34 @@ pub const Object = struct {
         );
     }
 
-    fn allocTypeName(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error![:0]const u8 {
-        var aw: std.Io.Writer.Allocating = .init(o.gpa);
-        defer aw.deinit();
-        ty.print(&aw.writer, pt) catch |err| switch (err) {
-            error.WriteFailed => return error.OutOfMemory,
-        };
-        return aw.toOwnedSliceSentinel(0);
+    fn getStackTraceType(o: *Object) Allocator.Error!Type {
+        const pt = o.pt;
+        const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
+
+        const std_mod = zcu.std_mod;
+        const std_file_imported = pt.importPkg(std_mod) catch unreachable;
+
+        const builtin_str = try ip.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
+        const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
+        const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu));
+        const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
+
+        const stack_trace_str = try ip.getOrPutString(zcu.gpa, pt.tid, "StackTrace", .no_embedded_nulls);
+        // buffer is only used for int_type, `builtin` is a struct.
+        const builtin_ty = zcu.navValue(builtin_nav).toType();
+        const builtin_namespace = zcu.namespacePtr(builtin_ty.getNamespaceIndex(zcu));
+        const stack_trace_nav = builtin_namespace.pub_decls.getKeyAdapted(stack_trace_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
+
+        // Sema should have ensured that StackTrace was analyzed.
+        return zcu.navValue(stack_trace_nav).toType();
+    }
+
+    fn allocTypeName(o: *Object, ty: Type) Allocator.Error![:0]const u8 {
+        var buffer = std.ArrayList(u8).init(o.gpa);
+        errdefer buffer.deinit();
+        try ty.print(buffer.writer(), o.pt, null);
+        return buffer.toOwnedSliceSentinel(0);
     }
 
     /// If the llvm function does not exist, create it.
