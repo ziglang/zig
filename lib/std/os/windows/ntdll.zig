@@ -390,16 +390,16 @@ pub extern "ntdll" fn RtlRemoveVectoredExceptionHandler(
 
 pub extern "ntdll" fn RtlInitializeCriticalSection(
     lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
+) callconv(.winapi) NTSTATUS;
 pub extern "ntdll" fn RtlEnterCriticalSection(
     lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
+) callconv(.winapi) NTSTATUS;
 pub extern "ntdll" fn RtlLeaveCriticalSection(
     lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
+) callconv(.winapi) NTSTATUS;
 pub extern "ntdll" fn RtlDeleteCriticalSection(
     lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
+) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn RtlTryAcquireSRWLockExclusive(
     SRWLock: *SRWLOCK,
