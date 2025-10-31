@@ -614,7 +614,7 @@ pub const Os = struct {
                 .amdhsa => .{
                     .semver = .{
                         .min = .{ .major = 5, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 6, .minor = 4, .patch = 2 },
+                        .max = .{ .major = 7, .minor = 1, .patch = 0 },
                     },
                 },
                 .amdpal => .{
