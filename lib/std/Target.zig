@@ -488,7 +488,7 @@ pub const Os = struct {
                 .dragonfly => .{
                     .semver = .{
                         .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 6, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 6, .minor = 4, .patch = 2 },
                     },
                 },
                 .freebsd => .{
