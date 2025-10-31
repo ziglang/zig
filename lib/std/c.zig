@@ -9703,8 +9703,8 @@ pub const NSIG = switch (native_os) {
 pub const MINSIGSTKSZ = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => 32768,
     .freebsd => switch (builtin.cpu.arch) {
-        .x86, .x86_64 => 2048,
-        .arm, .aarch64 => 4096,
+        .powerpc64, .powerpc64le, .x86, .x86_64 => 2048,
+        .arm, .aarch64, .riscv64 => 4096,
         else => @compileError("unsupported arch"),
     },
     .illumos => 2048,
