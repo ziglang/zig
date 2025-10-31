@@ -398,7 +398,7 @@ pub const Os = struct {
                 .contiki => .{
                     .semver = .{
                         .min = .{ .major = 4, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 5, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 5, .minor = 1, .patch = 0 },
                     },
                 },
                 .fuchsia => .{
