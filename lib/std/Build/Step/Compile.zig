@@ -1173,6 +1173,11 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                     }
                 }
 
+                // Inherit dependencies on library paths
+                for (mod.lib_paths.items) |path| {
+                    try zig_args.appendSlice(&.{ "-L", path.getPath2(mod.owner, step) });
+                }
+
                 // Inherit dependencies on system libraries and static libraries.
                 for (mod.link_objects.items) |link_object| {
                     switch (link_object) {
