@@ -626,7 +626,7 @@ pub const Os = struct {
                 .cuda => .{
                     .semver = .{
                         .min = .{ .major = 11, .minor = 0, .patch = 1 },
-                        .max = .{ .major = 12, .minor = 9, .patch = 1 },
+                        .max = .{ .major = 13, .minor = 0, .patch = 2 },
                     },
                 },
                 .nvcl,
