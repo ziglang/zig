@@ -449,6 +449,9 @@ pub extern "kernel32" fn HeapCreate(
     dwMaximumSize: SIZE_T,
 ) callconv(.winapi) ?HANDLE;
 
+// TODO: Fowrarder to RtlFreeHeap before win11_zn.
+// Since win11_zn this function points to unexported symbol RtlFreeHeapFast.
+// See https://github.com/ziglang/zig/pull/25766#discussion_r2479727640
 pub extern "kernel32" fn HeapFree(
     hHeap: HANDLE,
     dwFlags: DWORD,
