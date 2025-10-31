@@ -218,10 +218,13 @@ test "union with specified enum tag" {
 }
 
 test "packed union generates correctly aligned type" {
+    // This test will be removed after the following accepted proposal is implemented:
+    // https://github.com/ziglang/zig/issues/24657
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const U = packed union {
         f1: *const fn () error{TestUnexpectedResult}!void,
