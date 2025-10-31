@@ -1365,9 +1365,7 @@ test "BLAKE3 reference test cases" {
 
 test "BLAKE3 parallel vs sequential" {
     const allocator = std.testing.allocator;
-    var io_threaded = Io.Threaded.init(allocator);
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
+    const io = std.testing.io;
 
     // Test various sizes including those above the parallelization threshold
     const test_sizes = [_]usize{
