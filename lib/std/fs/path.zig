@@ -368,6 +368,133 @@ fn testIsAbsolutePosix(path: []const u8, expected_result: bool) !void {
     try testing.expectEqual(expected_result, isAbsolutePosix(path));
 }
 
+/// Checks if a path contains directory traversal sequences that could escape
+/// from a base directory. This includes:
+/// - Paths starting with "/" (absolute paths on Unix)
+/// - Paths starting with "\" (absolute paths on Windows)
+/// - Paths containing ".." components that could traverse up directories
+/// - On Windows: paths with drive letters (e.g., "C:")
+/// - On Windows: UNC paths (e.g., "\\server\share")
+/// - On Windows: reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9, etc.)
+///
+/// This function is useful for validating untrusted paths from archives (zip, tar),
+/// network requests, or user input to prevent directory traversal attacks.
+///
+/// Returns true if the path is potentially dangerous, false if it's safe.
+pub fn hasDirectoryTraversal(path: []const u8) bool {
+    // Empty paths are considered safe
+    if (path.len == 0) return false;
+
+    // Check for absolute paths
+    if (path[0] == '/' or path[0] == '\\') return true;
+
+    // Windows-specific checks
+    if (native_os == .windows or native_os == .uefi) {
+        // Check for drive letters
+        if (path.len >= 2 and path[1] == ':') return true;
+
+        // Check for Windows reserved device names
+        // These names are reserved in all directories, with or without extensions
+        var it = mem.tokenizeAny(u8, path, "/\\");
+        while (it.next()) |component| {
+            // Get the base name without extension
+            const dot_index = mem.indexOfScalar(u8, component, '.');
+            const base_name = if (dot_index) |idx| component[0..idx] else component;
+
+            // Check if it's a reserved name (case-insensitive)
+            if (isWindowsReservedName(base_name)) return true;
+        }
+    }
+
+    // Check for ".." components in the path
+    // We need to handle both forward and backward slashes
+    for (0..path.len) |index| {
+        // Check if we're at the start of a path component
+        const is_start = index == 0 or path[index - 1] == '/' or path[index - 1] == '\\';
+
+        if (is_start and index + 2 <= path.len and
+            path[index] == '.' and path[index + 1] == '.')
+        {
+            // Check if ".." is the whole component
+            const is_end = index + 2 == path.len or
+                path[index + 2] == '/' or
+                path[index + 2] == '\\';
+            if (is_end) return true;
+        }
+    }
+
+    return false;
+}
+
+fn isWindowsReservedName(name: []const u8) bool {
+    // Windows reserved device names (case-insensitive)
+    const reserved_names = [_][]const u8{
+        "CON",  "PRN",  "AUX",  "NUL",
+        "COM1", "COM2", "COM3", "COM4",
+        "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3",
+        "LPT4", "LPT5", "LPT6", "LPT7",
+        "LPT8", "LPT9",
+    };
+
+    for (reserved_names) |reserved| {
+        if (std.ascii.eqlIgnoreCase(name, reserved)) return true;
+    }
+
+    return false;
+}
+
+test hasDirectoryTraversal {
+    // Safe paths
+    try testing.expect(!hasDirectoryTraversal(""));
+    try testing.expect(!hasDirectoryTraversal("file.txt"));
+    try testing.expect(!hasDirectoryTraversal("dir/file.txt"));
+    try testing.expect(!hasDirectoryTraversal("./file.txt"));
+    try testing.expect(!hasDirectoryTraversal("dir1/dir2/file.txt"));
+    try testing.expect(!hasDirectoryTraversal("...txt")); // Not ".."
+    try testing.expect(!hasDirectoryTraversal("..name.txt")); // Not ".."
+    try testing.expect(!hasDirectoryTraversal("file.con.txt")); // CON not as base name
+
+    // Dangerous paths - absolute paths
+    try testing.expect(hasDirectoryTraversal("/etc/passwd"));
+    try testing.expect(hasDirectoryTraversal("\\windows\\system32"));
+
+    // Dangerous paths - parent directory traversal
+    try testing.expect(hasDirectoryTraversal("../etc/passwd"));
+    try testing.expect(hasDirectoryTraversal("../../etc/passwd"));
+    try testing.expect(hasDirectoryTraversal("dir/../../../etc/passwd"));
+    try testing.expect(hasDirectoryTraversal(".."));
+    try testing.expect(hasDirectoryTraversal("../"));
+    try testing.expect(hasDirectoryTraversal("..\\"));
+
+    // Windows-specific dangerous paths
+    if (native_os == .windows) {
+        try testing.expect(hasDirectoryTraversal("C:/Windows"));
+        try testing.expect(hasDirectoryTraversal("C:\\Windows"));
+        try testing.expect(hasDirectoryTraversal("D:file.txt"));
+        try testing.expect(hasDirectoryTraversal("//server/share"));
+        try testing.expect(hasDirectoryTraversal("\\\\server\\share"));
+
+        // Reserved device names
+        try testing.expect(hasDirectoryTraversal("CON"));
+        try testing.expect(hasDirectoryTraversal("con")); // case-insensitive
+        try testing.expect(hasDirectoryTraversal("CON.txt")); // with extension
+        try testing.expect(hasDirectoryTraversal("PRN"));
+        try testing.expect(hasDirectoryTraversal("AUX"));
+        try testing.expect(hasDirectoryTraversal("NUL"));
+        try testing.expect(hasDirectoryTraversal("COM1"));
+        try testing.expect(hasDirectoryTraversal("COM9"));
+        try testing.expect(hasDirectoryTraversal("LPT1"));
+        try testing.expect(hasDirectoryTraversal("LPT9"));
+        try testing.expect(hasDirectoryTraversal("path/to/CON"));
+        try testing.expect(hasDirectoryTraversal("path\\to\\nul.txt"));
+    }
+
+    // Mixed separators
+    try testing.expect(hasDirectoryTraversal("dir\\..\\..\\file"));
+    try testing.expect(hasDirectoryTraversal("dir/../../file"));
+}
+
 pub const WindowsPath = struct {
     is_abs: bool,
     kind: Kind,
