@@ -14,17 +14,9 @@ const cache_line_size = std.atomic.cache_line;
 // Optimal SIMD vector length for u64 on this target platform
 const optimal_vector_len = std.simd.suggestVectorLength(u64) orelse 1;
 
-// Dynamic multi-threading threshold based on CPU count
-fn getLargeFileThreshold() usize {
-    const cpu_count = Thread.getCpuCount() catch 1;
-    if (cpu_count >= 8) {
-        return 3 * 1024 * 1024; // 3 MB for 8+ cores
-    } else if (cpu_count >= 4) {
-        return 5 * 1024 * 1024; // 5 MB for 4-7 cores
-    } else {
-        return 10 * 1024 * 1024; // 10 MB for 1-3 cores
-    }
-}
+// Multi-threading threshold: inputs larger than this will use parallel processing.
+// Benchmarked optimal value for ReleaseFast mode.
+const large_file_threshold: usize = 2 * 1024 * 1024; // 2 MB
 
 // Round constants for Keccak-p[1600,12]
 const RC = [12]u64{
@@ -996,7 +988,7 @@ fn KTHash(
             ktSingleThreaded(Variant, &view, total_len, out);
         }
 
-        /// Hash with automatic parallelization for large inputs (>3-10MB depending on CPU count).
+        /// Hash with automatic parallelization for large inputs (>2MB).
         /// Automatically uses sequential processing for smaller inputs to avoid thread overhead.
         /// Allocator required for temporary buffers. IO object required for thread management.
         pub fn hashParallel(message: []const u8, out: []u8, options: Options, allocator: Allocator, io: Io) !void {
@@ -1013,8 +1005,7 @@ fn KTHash(
             }
 
             // Use single-threaded processing if below threshold
-            const threshold = getLargeFileThreshold();
-            if (total_len < threshold) {
+            if (total_len < large_file_threshold) {
                 ktSingleThreaded(Variant, &view, total_len, out);
                 return;
             }
