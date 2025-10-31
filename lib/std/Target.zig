@@ -404,7 +404,7 @@ pub const Os = struct {
                 .fuchsia => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 27, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 28, .minor = 0, .patch = 0 },
                     },
                 },
                 .hermit => .{
