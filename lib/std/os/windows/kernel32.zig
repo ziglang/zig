@@ -449,6 +449,12 @@ pub extern "kernel32" fn HeapCreate(
     dwMaximumSize: SIZE_T,
 ) callconv(.winapi) ?HANDLE;
 
+pub extern "kernel32" fn HeapFree(
+    hHeap: HANDLE,
+    dwFlags: DWORD,
+    lpMem: LPVOID,
+) callconv(.winapi) BOOL;
+
 // TODO: Wrapper around RtlValidateHeap (BOOLEAN -> BOOL)
 pub extern "kernel32" fn HeapValidate(
     hHeap: HANDLE,

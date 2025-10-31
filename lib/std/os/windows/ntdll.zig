@@ -419,18 +419,13 @@ pub extern "ntdll" fn RtlWakeAllConditionVariable(
 ) callconv(.winapi) void;
 
 pub extern "ntdll" fn RtlReAllocateHeap(
-    hHeap: HANDLE,
-    dwFlags: DWORD,
-    lpMem: *anyopaque,
-    dwBytes: SIZE_T,
-) callconv(.winapi) ?*anyopaque;
+    HeapHandle: HANDLE,
+    Flags: ULONG,
+    BaseAddress: PVOID,
+    Size: SIZE_T,
+) callconv(.winapi) ?PVOID;
 pub extern "ntdll" fn RtlAllocateHeap(
-    hHeap: HANDLE,
-    dwFlags: DWORD,
-    dwBytes: SIZE_T,
-) callconv(.winapi) ?*anyopaque;
-pub extern "ntdll" fn RtlFreeHeap(
-    hHeap: HANDLE,
-    dwFlags: DWORD,
-    lpMem: LPVOID,
-) callconv(.winapi) BOOL;
+    HeapHandle: HANDLE,
+    Flags: ULONG,
+    Size: SIZE_T,
+) callconv(.winapi) ?PVOID;
