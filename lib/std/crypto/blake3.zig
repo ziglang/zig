@@ -16,17 +16,10 @@ pub const simd_degree = std.simd.suggestVectorLength(u32) orelse 1;
 pub const max_simd_degree = simd_degree;
 const max_simd_degree_or_2 = if (max_simd_degree > 2) max_simd_degree else 2;
 
-// Dynamic multi-threading threshold based on CPU count
-fn getLargeFileThreshold() usize {
-    const cpu_count = Thread.getCpuCount() catch 1;
-    if (cpu_count >= 8) {
-        return 3 * 1024 * 1024; // 3 MB for 8+ cores
-    } else if (cpu_count >= 4) {
-        return 5 * 1024 * 1024; // 5 MB for 4-7 cores
-    } else {
-        return 10 * 1024 * 1024; // 10 MB for 1-3 cores
-    }
-}
+/// Threshold for switching to parallel processing.
+/// Below this size, sequential hashing is used.
+/// Benchmarks generally show significant speedup starting at 3 MiB.
+const parallel_threshold = 3 * 1024 * 1024;
 
 const iv: [8]u32 = .{
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
@@ -953,7 +946,7 @@ pub const Blake3 = struct {
     }
 
     pub fn hashParallel(b: []const u8, out: []u8, options: Options, allocator: std.mem.Allocator, io: Io) !void {
-        if (b.len < getLargeFileThreshold()) {
+        if (b.len < parallel_threshold) {
             return hash(b, out, options);
         }
 
