@@ -377,7 +377,7 @@ fn loadSeparateDebugFile(arena: Allocator, main_loaded: *LoadInnerResult, opt_cr
         "debug_line",
     })) |name| {
         const s = @field(Section.Id, name);
-        if (main_loaded.sections.get(s) == null and result.sections.get(s) != null) {
+        if (main_loaded.sections.get(s) == null and result.sections.get(s) == null) {
             break false;
         }
     } else true;
