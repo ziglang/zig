@@ -25,10 +25,20 @@ pub const GeneralPurposeAllocatorConfig = DebugAllocatorConfig;
 /// Deprecated; to be removed after 0.14.0 is tagged.
 pub const GeneralPurposeAllocator = DebugAllocator;
 
-const memory_pool = @import("heap/memory_pool.zig");
-pub const MemoryPool = memory_pool.MemoryPool;
-pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
-pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
+/// A memory pool that can allocate objects of a single type very quickly.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because it outperforms general purpose allocators.
+/// Functions that potentially allocate memory accept an `Allocator` parameter.
+pub fn MemoryPool(comptime Item: type) type {
+    return memory_pool.Extra(Item, .{ .alignment = null });
+}
+pub const memory_pool = @import("heap/memory_pool.zig");
+
+/// Deprecated; use `memory_pool.Aligned`.
+pub const MemoryPoolAligned = memory_pool.Aligned;
+/// Deprecated; use `memory_pool.Extra`.
+pub const MemoryPoolExtra = memory_pool.Extra;
+/// Deprecated; use `memory_pool.Options`.
 pub const MemoryPoolOptions = memory_pool.Options;
 
 /// TODO Utilize this on Windows.
