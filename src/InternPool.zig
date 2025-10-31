@@ -11330,7 +11330,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 
 fn dumpAllFallible(ip: *const InternPool) anyerror!void {
     var buffer: [4096]u8 = undefined;
-    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    const stderr_bw, _ = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view();
@@ -11462,7 +11462,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     }
 
     var buffer: [4096]u8 = undefined;
-    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    const stderr_bw, _ = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
 
     const SortContext = struct {

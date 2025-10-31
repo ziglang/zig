@@ -258,8 +258,6 @@ test_filters: []const []const u8,
 
 link_task_wait_group: WaitGroup = .{},
 link_prog_node: std.Progress.Node = .none,
-link_const_prog_node: std.Progress.Node = .none,
-link_synth_prog_node: std.Progress.Node = .none,
 
 llvm_opt_bisect_limit: c_int,
 
@@ -1991,7 +1989,6 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                         break :s if (is_exe_or_dyn_lib and build_options.have_llvm) .dyn_lib else .zcu;
                     },
                 }
-                if (options.config.use_new_linker) break :s .zcu;
             }
             if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
@@ -2093,7 +2090,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
 
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
-                const stderr_w = std.debug.lockStderrWriter(&.{});
+                const stderr_w, _ = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
                 stderr_w.print("compilation: {s}\n", .{options.root_name}) catch break :print;
                 stderr_w.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
@@ -3066,35 +3063,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
     // we also want it around during `flush`.
     if (comp.bin_file) |lf| {
         comp.link_prog_node = main_progress_node.start("Linking", 0);
-        if (lf.cast(.elf2)) |elf| {
-            comp.link_prog_node.increaseEstimatedTotalItems(3);
-            comp.link_const_prog_node = comp.link_prog_node.start("Constants", 0);
-            comp.link_synth_prog_node = comp.link_prog_node.start("Synthetics", 0);
-            elf.mf.update_prog_node = comp.link_prog_node.start("Relocations", elf.mf.updates.items.len);
-        } else if (lf.cast(.coff2)) |coff| {
-            comp.link_prog_node.increaseEstimatedTotalItems(3);
-            comp.link_const_prog_node = comp.link_prog_node.start("Constants", 0);
-            comp.link_synth_prog_node = comp.link_prog_node.start("Synthetics", 0);
-            coff.mf.update_prog_node = comp.link_prog_node.start("Relocations", coff.mf.updates.items.len);
-        }
+        lf.startProgress(comp.link_prog_node);
     }
-    defer {
+    defer if (comp.bin_file) |lf| {
+        lf.endProgress();
         comp.link_prog_node.end();
         comp.link_prog_node = .none;
-        comp.link_const_prog_node.end();
-        comp.link_const_prog_node = .none;
-        comp.link_synth_prog_node.end();
-        comp.link_synth_prog_node = .none;
-        if (comp.bin_file) |lf| {
-            if (lf.cast(.elf2)) |elf| {
-                elf.mf.update_prog_node.end();
-                elf.mf.update_prog_node = .none;
-            } else if (lf.cast(.coff2)) |coff| {
-                coff.mf.update_prog_node.end();
-                coff.mf.update_prog_node = .none;
-            }
-        }
-    }
+    };
 
     try comp.performAllTheWork(main_progress_node);
 
@@ -4270,7 +4245,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
             // However, we haven't reported any such error.
             // This is a compiler bug.
             print_ctx: {
-                var stderr_w = std.debug.lockStderrWriter(&.{});
+                var stderr_w, _ = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
                 stderr_w.writeAll("referenced transitive analysis errors, but none actually emitted\n") catch break :print_ctx;
                 stderr_w.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)}) catch break :print_ctx;
@@ -7752,7 +7727,7 @@ pub fn lockAndSetMiscFailure(
 
 pub fn dump_argv(argv: []const []const u8) void {
     var buffer: [64]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
+    const stderr, _ = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
     nosuspend {
         for (argv, 0..) |arg, i| {

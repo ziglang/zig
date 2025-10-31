@@ -67,18 +67,13 @@ pub const Diagnostics = struct {
         return @intCast(index);
     }
 
-    pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.Io.tty.Config, source_mappings: ?SourceMappings) void {
+    pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, source_mappings: ?SourceMappings) void {
         const io = self.io;
-        const stderr = std.debug.lockStderrWriter(&.{});
+        const stderr, const ttyconf = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         for (self.errors.items) |err_details| {
-            renderErrorMessage(io, stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
+            renderErrorMessage(io, stderr, ttyconf, cwd, err_details, source, self.strings.items, source_mappings) catch return;
         }
-    }
-
-    pub fn renderToStdErrDetectTTY(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, source_mappings: ?SourceMappings) void {
-        const tty_config = std.Io.tty.detectConfig(std.fs.File.stderr());
-        return self.renderToStdErr(cwd, source, tty_config, source_mappings);
     }
 
     pub fn contains(self: *const Diagnostics, err: ErrorDetails.Error) bool {

@@ -16,6 +16,7 @@ const build_runner = @import("root");
 
 gpa: Allocator,
 io: Io,
+ttyconf: tty.Config,
 mode: Mode,
 
 /// Allocated into `gpa`.
@@ -25,7 +26,6 @@ wait_group: std.Thread.WaitGroup,
 root_prog_node: std.Progress.Node,
 prog_node: std.Progress.Node,
 thread_pool: *std.Thread.Pool,
-ttyconf: tty.Config,
 
 /// Protects `coverage_files`.
 coverage_mutex: std.Thread.Mutex,
@@ -79,9 +79,9 @@ pub fn init(
     gpa: Allocator,
     io: Io,
     thread_pool: *std.Thread.Pool,
+    ttyconf: tty.Config,
     all_steps: []const *Build.Step,
     root_prog_node: std.Progress.Node,
-    ttyconf: tty.Config,
     mode: Mode,
 ) Allocator.Error!Fuzz {
     const run_steps: []const *Step.Run = steps: {
@@ -115,11 +115,11 @@ pub fn init(
     return .{
         .gpa = gpa,
         .io = io,
+        .ttyconf = ttyconf,
         .mode = mode,
         .run_steps = run_steps,
         .wait_group = .{},
         .thread_pool = thread_pool,
-        .ttyconf = ttyconf,
         .root_prog_node = root_prog_node,
         .prog_node = .none,
         .coverage_files = .empty,
@@ -158,7 +158,7 @@ pub fn deinit(fuzz: *Fuzz) void {
     fuzz.gpa.free(fuzz.run_steps);
 }
 
-fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, ttyconf: std.Io.tty.Config, parent_prog_node: std.Progress.Node) void {
+fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, ttyconf: tty.Config, parent_prog_node: std.Progress.Node) void {
     rebuildTestsWorkerRunFallible(run, gpa, ttyconf, parent_prog_node) catch |err| {
         const compile = run.producer.?;
         log.err("step '{s}': failed to rebuild in fuzz mode: {s}", .{
@@ -167,7 +167,7 @@ fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, ttyconf: std.Io.tty.Con
     };
 }
 
-fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, ttyconf: std.Io.tty.Config, parent_prog_node: std.Progress.Node) !void {
+fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, ttyconf: tty.Config, parent_prog_node: std.Progress.Node) !void {
     const compile = run.producer.?;
     const prog_node = parent_prog_node.start(compile.step.name, 0);
     defer prog_node.end();
@@ -180,9 +180,9 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, ttyconf: std.Io
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
         var buf: [256]u8 = undefined;
-        const w = std.debug.lockStderrWriter(&buf);
+        const w, _ = std.debug.lockStderrWriter(&buf);
         defer std.debug.unlockStderrWriter();
-        build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, w, .verbose, .indent) catch {};
+        build_runner.printErrorMessages(gpa, &compile.step, .{}, w, ttyconf, .verbose, .indent) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
@@ -206,9 +206,9 @@ fn fuzzWorkerRun(
     run.rerunInFuzzMode(fuzz, unit_test_index, prog_node) catch |err| switch (err) {
         error.MakeFailed => {
             var buf: [256]u8 = undefined;
-            const w = std.debug.lockStderrWriter(&buf);
+            const w, _ = std.debug.lockStderrWriter(&buf);
             defer std.debug.unlockStderrWriter();
-            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = fuzz.ttyconf }, w, .verbose, .indent) catch {};
+            build_runner.printErrorMessages(gpa, &run.step, .{}, w, fuzz.ttyconf, .verbose, .indent) catch {};
             return;
         },
         else => {

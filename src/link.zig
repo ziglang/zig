@@ -571,6 +571,26 @@ pub const File = struct {
         return if (dev.env.supports(tag.devFeature()) and base.tag == tag) @fieldParentPtr("base", base) else null;
     }
 
+    pub fn startProgress(base: *File, prog_node: std.Progress.Node) void {
+        switch (base.tag) {
+            else => {},
+            inline .elf2, .coff2 => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).startProgress(prog_node);
+            },
+        }
+    }
+
+    pub fn endProgress(base: *File) void {
+        switch (base.tag) {
+            else => {},
+            inline .elf2, .coff2 => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).endProgress();
+            },
+        }
+    }
+
     pub fn makeWritable(base: *File) !void {
         dev.check(.make_writable);
         const comp = base.comp;
@@ -620,10 +640,10 @@ pub const File = struct {
                     &coff.mf
                 else
                     unreachable;
-                mf.file = .adaptFromNewApi(try Io.Dir.openFile(base.emit.root_dir.handle.adaptToNewApi(), io, base.emit.sub_path, .{
+                mf.file = try base.emit.root_dir.handle.adaptToNewApi().openFile(io, base.emit.sub_path, .{
                     .mode = .read_write,
-                }));
-                base.file = mf.file;
+                });
+                base.file = .adaptFromNewApi(mf.file);
                 try mf.ensureTotalCapacity(@intCast(mf.nodes.items[0].location().resolve(mf)[1]));
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
@@ -648,6 +668,7 @@ pub const File = struct {
     pub fn makeExecutable(base: *File) !void {
         dev.check(.make_executable);
         const comp = base.comp;
+        const io = comp.io;
         switch (comp.config.output_mode) {
             .Obj => return,
             .Lib => switch (comp.config.link_mode) {
@@ -698,8 +719,8 @@ pub const File = struct {
                     unreachable;
                 mf.unmap();
                 assert(mf.file.handle == f.handle);
+                mf.file.close(io);
                 mf.file = undefined;
-                f.close();
                 base.file = null;
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
@@ -1120,7 +1141,7 @@ pub const File = struct {
     pub fn loadInput(base: *File, input: Input) anyerror!void {
         if (base.tag == .lld) return;
         switch (base.tag) {
-            inline .elf, .wasm => |tag| {
+            inline .elf, .elf2, .wasm => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).loadInput(input);
             },
@@ -1281,9 +1302,6 @@ pub const PrelinkTask = union(enum) {
     /// Tells the linker to load a shared library, possibly one that is a
     /// GNU ld script.
     load_dso: Path,
-    /// Tells the linker to load an input which could be an object file,
-    /// archive, or shared library.
-    load_input: Input,
 };
 pub const ZcuTask = union(enum) {
     /// Write the constant value for a Decl to the output file.
@@ -1459,20 +1477,6 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             }) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
                 else => |e| diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
-            };
-        },
-        .load_input => |input| {
-            const prog_node = comp.link_prog_node.start("Parse Input", 0);
-            defer prog_node.end();
-            base.loadInput(input) catch |err| switch (err) {
-                error.LinkFailure => return, // error reported via link_diags
-                else => |e| {
-                    if (input.path()) |path| {
-                        diags.addParseError(path, "failed to parse linker input: {s}", .{@errorName(e)});
-                    } else {
-                        diags.addError("failed to {s}: {s}", .{ input.taskName(), @errorName(e) });
-                    }
-                },
             };
         },
     }
@@ -2215,7 +2219,7 @@ fn resolvePathInputLib(
             var error_bundle = try wip_errors.toOwnedBundle("");
             defer error_bundle.deinit(gpa);
 
-            error_bundle.renderToStdErr(color.renderOptions());
+            error_bundle.renderToStdErr(.{}, color);
 
             std.process.exit(1);
         }

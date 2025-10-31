@@ -558,6 +558,7 @@ const usage_build_generic =
     \\  --enable-new-dtags             Use the new behavior for dynamic tags (RUNPATH)
     \\  --disable-new-dtags            Use the old behavior for dynamic tags (RPATH)
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
+    \\  --no-dynamic-linker            Do not set any dynamic interpreter path
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
     \\  -fentry                        Enable entry point with default symbol name
@@ -1301,6 +1302,8 @@ fn buildOutputType(
                         mod_opts.optimize_mode = parseOptimizeMode(rest);
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                         create_module.dynamic_linker = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--no-dynamic-linker")) {
+                        create_module.dynamic_linker = "";
                     } else if (mem.eql(u8, arg, "--sysroot")) {
                         const next_arg = args_iter.nextOrFatal();
                         create_module.sysroot = next_arg;
@@ -2418,6 +2421,11 @@ fn buildOutputType(
                     mem.eql(u8, arg, "-dynamic-linker"))
                 {
                     create_module.dynamic_linker = linker_args_it.nextOrFatal();
+                } else if (mem.eql(u8, arg, "-I") or
+                    mem.eql(u8, arg, "--no-dynamic-linker") or
+                    mem.eql(u8, arg, "-no-dynamic-linker"))
+                {
+                    create_module.dynamic_linker = "";
                 } else if (mem.eql(u8, arg, "-E") or
                     mem.eql(u8, arg, "--export-dynamic") or
                     mem.eql(u8, arg, "-export-dynamic"))
@@ -3191,13 +3199,14 @@ fn buildOutputType(
     const resolved_soname: ?[]const u8 = switch (soname) {
         .yes => |explicit| explicit,
         .no => null,
-        .yes_default_value => switch (target.ofmt) {
-            .elf => if (have_version)
+        .yes_default_value => if (create_module.resolved_options.output_mode == .Lib and
+            create_module.resolved_options.link_mode == .dynamic and target.ofmt == .elf)
+            if (have_version)
                 try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ root_name, version.major })
             else
-                try std.fmt.allocPrint(arena, "lib{s}.so", .{root_name}),
-            else => null,
-        },
+                try std.fmt.allocPrint(arena, "lib{s}.so", .{root_name})
+        else
+            null,
     };
 
     const emit_bin_resolved: Compilation.CreateOptions.Emit = switch (emit_bin) {
@@ -3646,7 +3655,11 @@ fn buildOutputType(
                 try test_exec_args.append(arena, try std.fmt.allocPrint(arena, "-mcpu={s}", .{mcpu}));
             }
             if (create_module.dynamic_linker) |dl| {
-                try test_exec_args.appendSlice(arena, &.{ "--dynamic-linker", dl });
+                if (dl.len > 0) {
+                    try test_exec_args.appendSlice(arena, &.{ "--dynamic-linker", dl });
+                } else {
+                    try test_exec_args.append(arena, "--no-dynamic-linker");
+                }
             }
             try test_exec_args.append(arena, null); // placeholder for the path of the emitted C source file
         }
@@ -3793,7 +3806,7 @@ fn createModule(
             .result = target,
             .is_native_os = target_query.isNativeOs(),
             .is_native_abi = target_query.isNativeAbi(),
-            .is_explicit_dynamic_linker = !target_query.dynamic_linker.eql(.none),
+            .is_explicit_dynamic_linker = target_query.dynamic_linker != null,
         };
     };
 
@@ -3965,6 +3978,7 @@ fn createModule(
             error.WasiExecModelRequiresWasi => fatal("only WASI OS targets support execution model", .{}),
             error.SharedMemoryIsWasmOnly => fatal("only WebAssembly CPU targets support shared memory", .{}),
             error.ObjectFilesCannotShareMemory => fatal("object files cannot share memory", .{}),
+            error.ObjectFilesCannotSpecifyDynamicLinker => fatal("object files cannot specify --dynamic-linker", .{}),
             error.SharedMemoryRequiresAtomicsAndBulkMemory => fatal("shared memory requires atomics and bulk_memory CPU features", .{}),
             error.ThreadsRequireSharedMemory => fatal("threads require shared memory", .{}),
             error.EmittingLlvmModuleRequiresLlvmBackend => fatal("emitting an LLVM module requires using the LLVM backend", .{}),
@@ -3973,6 +3987,7 @@ fn createModule(
             error.EmittingBinaryRequiresLlvmLibrary => fatal("producing machine code via LLVM requires using the LLVM library", .{}),
             error.LldIncompatibleObjectFormat => fatal("using LLD to link {s} files is unsupported", .{@tagName(target.ofmt)}),
             error.LldCannotIncrementallyLink => fatal("self-hosted backends do not support linking with LLD", .{}),
+            error.LldCannotSpecifyDynamicLinkerForSharedLibraries => fatal("LLD does not support --dynamic-linker on shared libraries", .{}),
             error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
             error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
             error.LibCRequiresLibUnwind => fatal("libc of the specified target requires linking libunwind", .{}),
@@ -3984,6 +3999,7 @@ fn createModule(
             error.TargetCannotStaticLinkExecutables => fatal("static linking of executables unavailable on the specified target", .{}),
             error.LibCRequiresDynamicLinking => fatal("libc of the specified target requires dynamic linking", .{}),
             error.SharedLibrariesRequireDynamicLinking => fatal("using shared libraries requires dynamic linking", .{}),
+            error.DynamicLinkingWithLldRequiresSharedLibraries => fatal("dynamic linking with lld requires at least one shared library", .{}),
             error.ExportMemoryAndDynamicIncompatible => fatal("exporting memory is incompatible with dynamic linking", .{}),
             error.DynamicLibraryPrecludesPie => fatal("dynamic libraries cannot be position independent executables", .{}),
             error.TargetRequiresPie => fatal("the specified target requires position independent executables", .{}),
@@ -4520,7 +4536,7 @@ fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) 
     defer errors.deinit(comp.gpa);
 
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(color.renderOptions());
+        errors.renderToStdErr(.{}, color);
         return error.CompileErrorsReported;
     }
 }
@@ -4573,7 +4589,7 @@ fn cmdTranslateC(
                 return;
             } else {
                 const color: Color = .auto;
-                result.errors.renderToStdErr(color.renderOptions());
+                result.errors.renderToStdErr(.{}, color);
                 process.exit(1);
             }
         }
@@ -5199,7 +5215,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
 
                 if (fetch.error_bundle.root_list.items.len > 0) {
                     var errors = try fetch.error_bundle.toOwnedBundle("");
-                    errors.renderToStdErr(color.renderOptions());
+                    errors.renderToStdErr(.{}, color);
                     process.exit(1);
                 }
 
@@ -6135,7 +6151,7 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8) !void {
                 try wip_errors.init(arena);
                 try wip_errors.addZirErrorMessages(zir, tree, source, display_path);
                 var error_bundle = try wip_errors.toOwnedBundle("");
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, color);
                 if (zir.loweringFailed()) {
                     process.exit(1);
                 }
@@ -6206,7 +6222,7 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8) !void {
                 try wip_errors.init(arena);
                 try wip_errors.addZoirErrorMessages(zoir, tree, source, display_path);
                 var error_bundle = try wip_errors.toOwnedBundle("");
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, color);
                 process.exit(1);
             }
 
@@ -6479,7 +6495,7 @@ fn cmdChangelist(arena: Allocator, io: Io, args: []const []const u8) !void {
         try wip_errors.init(arena);
         try wip_errors.addZirErrorMessages(old_zir, old_tree, old_source, old_source_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
-        error_bundle.renderToStdErr(color.renderOptions());
+        error_bundle.renderToStdErr(.{}, color);
         process.exit(1);
     }
 
@@ -6491,7 +6507,7 @@ fn cmdChangelist(arena: Allocator, io: Io, args: []const []const u8) !void {
         try wip_errors.init(arena);
         try wip_errors.addZirErrorMessages(new_zir, new_tree, new_source, new_source_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
-        error_bundle.renderToStdErr(color.renderOptions());
+        error_bundle.renderToStdErr(.{}, color);
         process.exit(1);
     }
 
@@ -6948,7 +6964,7 @@ fn cmdFetch(
 
     if (fetch.error_bundle.root_list.items.len > 0) {
         var errors = try fetch.error_bundle.toOwnedBundle("");
-        errors.renderToStdErr(color.renderOptions());
+        errors.renderToStdErr(.{}, color);
         process.exit(1);
     }
 
@@ -7304,7 +7320,7 @@ fn loadManifest(
 
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(options.color.renderOptions());
+        error_bundle.renderToStdErr(.{}, options.color);
 
         process.exit(2);
     }

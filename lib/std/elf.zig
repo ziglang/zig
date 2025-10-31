@@ -943,11 +943,30 @@ pub const Elf32 = struct {
             unused: u5 = 0,
         };
     };
+    pub const Rel = extern struct {
+        offset: Elf32.Addr,
+        info: Info,
+        addend: u0 = 0,
+
+        pub const Info = packed struct(u32) {
+            type: u8,
+            sym: u24,
+        };
+    };
+    pub const Rela = extern struct {
+        offset: Elf32.Addr,
+        info: Info,
+        addend: i32,
+
+        pub const Info = Elf32.Rel.Info;
+    };
     comptime {
         assert(@sizeOf(Elf32.Ehdr) == 52);
         assert(@sizeOf(Elf32.Phdr) == 32);
         assert(@sizeOf(Elf32.Shdr) == 40);
         assert(@sizeOf(Elf32.Sym) == 16);
+        assert(@sizeOf(Elf32.Rel) == 8);
+        assert(@sizeOf(Elf32.Rela) == 12);
     }
 };
 pub const Elf64 = struct {
@@ -1008,11 +1027,30 @@ pub const Elf64 = struct {
         pub const Info = Elf32.Sym.Info;
         pub const Other = Elf32.Sym.Other;
     };
+    pub const Rel = extern struct {
+        offset: Elf64.Addr,
+        info: Info,
+        addend: u0 = 0,
+
+        pub const Info = packed struct(u64) {
+            type: u32,
+            sym: u32,
+        };
+    };
+    pub const Rela = extern struct {
+        offset: Elf64.Addr,
+        info: Info,
+        addend: i64,
+
+        pub const Info = Elf64.Rel.Info;
+    };
     comptime {
         assert(@sizeOf(Elf64.Ehdr) == 64);
         assert(@sizeOf(Elf64.Phdr) == 56);
         assert(@sizeOf(Elf64.Shdr) == 64);
         assert(@sizeOf(Elf64.Sym) == 24);
+        assert(@sizeOf(Elf64.Rel) == 16);
+        assert(@sizeOf(Elf64.Rela) == 24);
     }
 };
 pub const ElfN = switch (@sizeOf(usize)) {
@@ -1428,6 +1466,14 @@ pub const CLASS = enum(u8) {
     _,
 
     pub const NUM = @typeInfo(CLASS).@"enum".fields.len;
+
+    pub fn ElfN(comptime class: CLASS) type {
+        return switch (class) {
+            .NONE, _ => comptime unreachable,
+            .@"32" => Elf32,
+            .@"64" => Elf64,
+        };
+    }
 };
 
 /// Deprecated, use `@intFromEnum(std.elf.DATA.NONE)`

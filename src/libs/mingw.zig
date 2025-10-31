@@ -312,7 +312,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        var stderr = std.debug.lockStderrWriter(&.{});
+        var stderr, _ = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
@@ -332,11 +332,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     if (aro_comp.diagnostics.output.to_list.messages.items.len != 0) {
         var buffer: [64]u8 = undefined;
-        const w = std.debug.lockStderrWriter(&buffer);
+        const w, const ttyconf = std.debug.lockStderrWriter(&buffer);
         defer std.debug.unlockStderrWriter();
         for (aro_comp.diagnostics.output.to_list.messages.items) |msg| {
             if (msg.kind == .@"fatal error" or msg.kind == .@"error") {
-                msg.write(w, .detect(std.fs.File.stderr()), true) catch {};
+                msg.write(w, ttyconf, true) catch {};
                 return error.AroPreprocessorFailed;
             }
         }
@@ -356,7 +356,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
             error.OutOfMemory => |e| return e,
             error.ParseError => {
                 var buffer: [64]u8 = undefined;
-                const w = std.debug.lockStderrWriter(&buffer);
+                const w, _ = std.debug.lockStderrWriter(&buffer);
                 defer std.debug.unlockStderrWriter();
                 try w.writeAll("error: ");
                 try def_diagnostics.writeMsg(w, input);

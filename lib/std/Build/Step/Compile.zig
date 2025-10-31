@@ -1056,15 +1056,15 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
-        const w = std.debug.lockStderrWriter(&.{});
-        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, ttyconf, compile.step.owner, asking_step) catch {};
         std.debug.unlockStderrWriter();
         @panic("missing emit option for " ++ tag_name);
     };
 
     const path = generated_file.path orelse {
-        const w = std.debug.lockStderrWriter(&.{});
-        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, ttyconf, compile.step.owner, asking_step) catch {};
         std.debug.unlockStderrWriter();
         @panic(tag_name ++ " is null. Is there a missing step dependency?");
     };
@@ -2027,10 +2027,9 @@ fn checkCompileErrors(compile: *Compile) !void {
         var aw: std.Io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
-            .ttyconf = .no_color,
             .include_reference_trace = false,
             .include_source_line = false,
-        }, &aw.writer);
+        }, &aw.writer, .no_color);
         break :ae try aw.toOwnedSlice();
     };
 
