@@ -647,12 +647,14 @@ pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
 
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
-    const n = @min(lhs.len, rhs.len);
-    for (lhs[0..n], rhs[0..n]) |lhs_elem, rhs_elem| {
-        switch (math.order(lhs_elem, rhs_elem)) {
-            .eq => continue,
-            .lt => return .lt,
-            .gt => return .gt,
+    if (lhs.ptr != rhs.ptr) {
+        const n = @min(lhs.len, rhs.len);
+        for (lhs[0..n], rhs[0..n]) |lhs_elem, rhs_elem| {
+            switch (math.order(lhs_elem, rhs_elem)) {
+                .eq => continue,
+                .lt => return .lt,
+                .gt => return .gt,
+            }
         }
     }
     return math.order(lhs.len, rhs.len);
@@ -660,6 +662,7 @@ pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
 
 /// Compares two many-item pointers with NUL-termination lexicographically.
 pub fn orderZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) math.Order {
+    if (lhs == rhs) return .eq;
     var i: usize = 0;
     while (lhs[i] == rhs[i] and lhs[i] != 0) : (i += 1) {}
     return math.order(lhs[i], rhs[i]);
@@ -671,6 +674,10 @@ test order {
     try testing.expect(order(u8, "abc", "abc0") == .lt);
     try testing.expect(order(u8, "", "") == .eq);
     try testing.expect(order(u8, "", "a") == .lt);
+
+    const s: []const u8 = "abc";
+    try testing.expect(order(u8, s, s) == .eq);
+    try testing.expect(order(u8, s[0..2], s) == .lt);
 }
 
 test orderZ {
@@ -679,6 +686,9 @@ test orderZ {
     try testing.expect(orderZ(u8, "abc", "abc0") == .lt);
     try testing.expect(orderZ(u8, "", "") == .eq);
     try testing.expect(orderZ(u8, "", "a") == .lt);
+
+    const s: [*:0]const u8 = "abc";
+    try testing.expect(orderZ(u8, s, s) == .eq);
 }
 
 /// Returns true if lhs < rhs, false otherwise
