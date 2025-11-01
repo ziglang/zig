@@ -11875,8 +11875,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 }
             }
         },
-        .enum_literal, .void, .@"fn", .pointer, .type => {
-            if (!has_else) {
+        .enum_literal, .void, .@"fn", .pointer, .type => |tag| {
+            if (!has_else and tag != .void) {
                 return sema.fail(
                     block,
                     src,
