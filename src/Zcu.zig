@@ -3842,6 +3842,9 @@ pub fn atomicPtrAlignment(
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
+        .ez80,
+        => 8,
+
         .aarch64,
         .aarch64_be,
         => 128,
@@ -4477,6 +4480,8 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .avr_interrupt,
                 .avr_signal,
                 => true,
+
+                .ez80_tiflags => true,
 
                 .naked => true,
 
