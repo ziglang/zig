@@ -1161,7 +1161,7 @@ pub fn printValue(
             },
             't' => switch (@typeInfo(T)) {
                 .error_set => return w.alignBufferOptions(@errorName(value), options),
-                .@"enum", .@"union" => return w.alignBufferOptions(@tagName(value), options),
+                .@"enum", .enum_literal, .@"union" => return w.alignBufferOptions(@tagName(value), options),
                 else => invalidFmtError(fmt, value),
             },
             else => {},
