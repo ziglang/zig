@@ -1,7 +1,6 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const autoHash = std.hash.autoHash;
 const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -12,11 +11,11 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     comptime {
         assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         if (K == []const u8) {
-            @compileError("std.hash.autoHash does not allow slices here (" ++
+            @compileError("std.hash.auto does not allow slices here (" ++
                 @typeName(K) ++
                 ") because the intent is unclear. " ++
                 "Consider using std.StringHashMap for hashing the contents of []const u8. " ++
-                "Alternatively, consider using std.hash.autoHashStrat or providing your own hash function instead.");
+                "Alternatively, consider using std.hash.autoStrat or providing your own hash function instead.");
         }
     }
 
@@ -26,8 +25,8 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
             if (std.meta.hasUniqueRepresentation(K)) {
                 return Wyhash.hash(0, std.mem.asBytes(&key));
             } else {
-                var hasher = Wyhash.init(0);
-                autoHash(&hasher, key);
+                var hasher: Wyhash = .init(0);
+                std.hash.auto(&hasher, key);
                 return hasher.final();
             }
         }
