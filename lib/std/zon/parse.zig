@@ -805,6 +805,16 @@ const Parser = struct {
         const fields: @FieldType(Zoir.Node, "struct_literal") = switch (repr) {
             .struct_literal => |nodes| nodes,
             .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
+            .enum_literal => |lit| {
+                const decl_name = lit.get(self.zoir);
+                inline for (@typeInfo(T).@"struct".decls) |decl| {
+                    if (@TypeOf(@field(T,decl.name)) != T) continue;
+                    if (std.mem.eql(u8, decl_name, decl.name)) {
+                        return @field(T, decl.name);
+                    }
+                }
+                return self.failNodeFmt(node, "Declaration Literal `{s}` does not exist in {s}",.{decl_name, @typeName(T)});
+            },
             else => return error.WrongType,
         };
 
@@ -1541,7 +1551,12 @@ test "std.zon structs" {
         const Vec0 = struct {};
         const Vec1 = struct { x: f32 };
         const Vec2 = struct { x: f32, y: f32 };
-        const Vec3 = struct { x: f32, y: f32, z: f32 };
+        const Vec3 = struct {
+            pub const Zero: @This() = .{ .x = 0,.y = 0, .z = 0 };
+            x: f32,
+            y: f32,
+            z: f32,
+        };
 
         const zero = try fromSlice(Vec0, gpa, ".{}", null, .{});
         try std.testing.expectEqual(Vec0{}, zero);
@@ -1554,6 +1569,12 @@ test "std.zon structs" {
 
         const three = try fromSlice(Vec3, gpa, ".{.x = 1.2, .y = 3.4, .z = 5.6}", null, .{});
         try std.testing.expectEqual(Vec3{ .x = 1.2, .y = 3.4, .z = 5.6 }, three);
+
+        const decl_literal_Zero = try fromSlice(Vec3, gpa, ".Zero", null, .{});
+        try std.testing.expectEqual(decl_literal_Zero, @as(Vec3, .Zero));
+
+        const decl_literal_One: ?Vec3 = fromSlice(Vec3, gpa, ".DeclarationThatDoesNotExist", null, .{}) catch null;
+        try std.testing.expectEqual(decl_literal_One, null);
     }
 
     // Deep free (structs and arrays)
