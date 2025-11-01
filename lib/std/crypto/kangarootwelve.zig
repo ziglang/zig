@@ -1047,8 +1047,7 @@ pub const KT256 = KTHash(KT256Variant, turboSHAKE256MultiSliceToBuffer);
 
 test "KT128 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
-    var io_threaded = Io.Threaded.init_single_threaded;
-    const io = io_threaded.io();
+    const io = std.testing.io;
 
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
@@ -1076,9 +1075,7 @@ test "KT128 sequential and parallel produce same output for small inputs" {
 
 test "KT128 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
-    var io_threaded = Io.Threaded.init(allocator);
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
+    const io = std.testing.io;
 
     // Test with large input sizes that trigger parallel processing
     // The threshold is 3-10MB depending on CPU count, so we test above that
@@ -1107,9 +1104,7 @@ test "KT128 sequential and parallel produce same output for large inputs" {
 
 test "KT128 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
-    var io_threaded = Io.Threaded.init(allocator);
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
+    const io = std.testing.io;
 
     const input_size = 15 * 1024 * 1024; // 15MB
     const input = try allocator.alloc(u8, input_size);
@@ -1134,8 +1129,7 @@ test "KT128 sequential and parallel produce same output with customization" {
 
 test "KT256 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
-    var io_threaded = Io.Threaded.init_single_threaded;
-    const io = io_threaded.io();
+    const io = std.testing.io;
 
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
@@ -1163,9 +1157,7 @@ test "KT256 sequential and parallel produce same output for small inputs" {
 
 test "KT256 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
-    var io_threaded = Io.Threaded.init(allocator);
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
+    const io = std.testing.io;
 
     // Test with large input sizes that trigger parallel processing
     const test_sizes = [_]usize{ 11 * 1024 * 1024, 20 * 1024 * 1024 }; // 11MB, 20MB
@@ -1193,9 +1185,7 @@ test "KT256 sequential and parallel produce same output for large inputs" {
 
 test "KT256 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
-    var io_threaded = Io.Threaded.init(allocator);
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
+    const io = std.testing.io;
 
     const input_size = 15 * 1024 * 1024; // 15MB
     const input = try allocator.alloc(u8, input_size);
