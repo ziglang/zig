@@ -12,11 +12,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const expectError = std.testing.expectError;
 
 test "trailers" {
-    if (builtin.cpu.arch == .arm) {
-        // https://github.com/ziglang/zig/issues/25762
-        return error.SkipZigTest;
-    }
-
     const io = std.testing.io;
     const test_server = try createTestServer(io, struct {
         fn run(test_server: *TestServer) anyerror!void {
