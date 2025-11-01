@@ -5898,7 +5898,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
 /// It can also block threads until the value is set with cancelation via timed
 /// waits. Statically initializable; four bytes on all targets.
 pub const ResetEvent = switch (native_os) {
-    .netbsd => ResetEventPosix,
+    .illumos, .netbsd => ResetEventPosix,
     else => ResetEventFutex,
 };
 
