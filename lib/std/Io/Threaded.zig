@@ -356,7 +356,7 @@ pub fn ioBasic(t: *Threaded) Io {
     };
 }
 
-pub const socket_flags_unsupported = native_os.isDarwin() or native_os == .haiku; // 💩💩
+pub const socket_flags_unsupported = native_os.isDarwin() or native_os == .haiku;
 const have_accept4 = !socket_flags_unsupported;
 const have_flock_open_flags = @hasField(posix.O, "EXLOCK");
 const have_networking = native_os != .wasi;
@@ -367,7 +367,7 @@ const have_futex = switch (builtin.cpu.arch) {
     else => true,
 };
 const have_preadv = switch (native_os) {
-    .windows, .haiku, .serenity => false, // 💩💩💩
+    .windows, .haiku => false,
     else => true,
 };
 const have_sig_io = posix.SIG != void and @hasField(posix.SIG, "IO");

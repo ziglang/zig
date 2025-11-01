@@ -1114,9 +1114,8 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
-    // NOTE: serenity does not have preadv but it *does* have pwritev.
     const have_pread_but_not_preadv = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku, .serenity => true,
+        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku => true,
         else => false,
     };
     if (have_pread_but_not_preadv) {
