@@ -120,12 +120,12 @@ inline fn div(a: f32, b: f32) f32 {
     // with each iteration, so after three iterations, we have about 28 binary
     // digits of accuracy.
     var correction: u32 = undefined;
-    correction = @truncate(~(@as(u64, reciprocal) *% q31b >> 32) +% 1);
-    reciprocal = @truncate(@as(u64, reciprocal) *% correction >> 31);
-    correction = @truncate(~(@as(u64, reciprocal) *% q31b >> 32) +% 1);
-    reciprocal = @truncate(@as(u64, reciprocal) *% correction >> 31);
-    correction = @truncate(~(@as(u64, reciprocal) *% q31b >> 32) +% 1);
-    reciprocal = @truncate(@as(u64, reciprocal) *% correction >> 31);
+    correction = @truncate(~((@as(u64, reciprocal) *% q31b) >> 32) +% 1);
+    reciprocal = @truncate((@as(u64, reciprocal) *% correction) >> 31);
+    correction = @truncate(~((@as(u64, reciprocal) *% q31b) >> 32) +% 1);
+    reciprocal = @truncate((@as(u64, reciprocal) *% correction) >> 31);
+    correction = @truncate(~((@as(u64, reciprocal) *% q31b) >> 32) +% 1);
+    reciprocal = @truncate((@as(u64, reciprocal) *% correction) >> 31);
 
     // Exhaustive testing shows that the error in reciprocal after three steps
     // is in the interval [-0x1.f58108p-31, 0x1.d0e48cp-29], in line with our
@@ -147,7 +147,7 @@ inline fn div(a: f32, b: f32) f32 {
     //       is the error in the reciprocal of b scaled by the maximum
     //       possible value of a.  As a consequence of this error bound,
     //       either q or nextafter(q) is the correctly rounded
-    var quotient: Z = @truncate(@as(u64, reciprocal) *% (aSignificand << 1) >> 32);
+    var quotient: Z = @truncate((@as(u64, reciprocal) *% (aSignificand << 1)) >> 32);
 
     // Two cases: quotient is in [0.5, 1.0) or quotient is in [1.0, 2.0).
     // In either case, we are going to compute a residual of the form
