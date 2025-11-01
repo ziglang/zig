@@ -3,6 +3,15 @@
 //! provide meaningful and unsurprising defaults. This struct does reference
 //! any resources and it is copyable.
 
+const Query = @This();
+const std = @import("../std.zig");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const Target = std.Target;
+const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+
 /// `null` means native.
 cpu_arch: ?Target.Cpu.Arch = null,
 
@@ -37,8 +46,9 @@ android_api_level: ?u32 = null,
 abi: ?Target.Abi = null,
 
 /// When `os_tag` is `null`, then `null` means native. Otherwise it means the standard path
-/// based on the `os_tag`.
-dynamic_linker: Target.DynamicLinker = .none,
+/// based on the `os_tag`.  When `dynamic_linker` is a non-`null` empty string, no dynamic
+/// linker is used regardless of `os_tag`.
+dynamic_linker: ?Target.DynamicLinker = null,
 
 /// `null` means default for the cpu/arch/os combo.
 ofmt: ?Target.ObjectFormat = null,
@@ -204,7 +214,7 @@ pub fn parse(args: ParseOptions) !Query {
     const diags = args.diagnostics orelse &dummy_diags;
 
     var result: Query = .{
-        .dynamic_linker = Target.DynamicLinker.init(args.dynamic_linker),
+        .dynamic_linker = if (args.dynamic_linker) |dynamic_linker| .init(dynamic_linker) else null,
     };
 
     var it = mem.splitScalar(u8, args.arch_os_abi, '-');
@@ -330,6 +340,7 @@ pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
 /// Similar to `SemanticVersion.parse`, but with following changes:
 /// * Leading zeroes are allowed.
 /// * Supports only 2 or 3 version components (major, minor, [patch]). If 3-rd component is omitted, it will be 0.
+/// * Prerelease and build components are disallowed.
 pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticVersion {
     const parseVersionComponentFn = (struct {
         fn parseVersionComponentInner(component: []const u8) error{ InvalidVersion, Overflow }!usize {
@@ -339,11 +350,14 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
             };
         }
     }).parseVersionComponentInner;
+
     var version_components = mem.splitScalar(u8, ver, '.');
+
     const major = version_components.first();
     const minor = version_components.next() orelse return error.InvalidVersion;
     const patch = version_components.next() orelse "0";
     if (version_components.next() != null) return error.InvalidVersion;
+
     return .{
         .major = try parseVersionComponentFn(major),
         .minor = try parseVersionComponentFn(minor),
@@ -352,10 +366,12 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
 }
 
 test parseVersion {
-    try std.testing.expectError(error.InvalidVersion, parseVersion("1"));
     try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 0 }, try parseVersion("1.2"));
     try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, try parseVersion("1.2.3"));
+
+    try std.testing.expectError(error.InvalidVersion, parseVersion("1"));
     try std.testing.expectError(error.InvalidVersion, parseVersion("1.2.3.4"));
+    try std.testing.expectError(error.InvalidVersion, parseVersion("1.2.3-dev"));
 }
 
 pub fn isNativeCpu(self: Query) bool {
@@ -366,7 +382,7 @@ pub fn isNativeCpu(self: Query) bool {
 
 pub fn isNativeOs(self: Query) bool {
     return self.os_tag == null and self.os_version_min == null and self.os_version_max == null and
-        self.dynamic_linker.get() == null and self.glibc_version == null and self.android_api_level == null;
+        self.dynamic_linker == null and self.glibc_version == null and self.android_api_level == null;
 }
 
 pub fn isNativeAbi(self: Query) bool {
@@ -394,7 +410,7 @@ pub fn canDetectLibC(self: Query) bool {
 
 /// Formats a version with the patch component omitted if it is zero,
 /// unlike SemanticVersion.format which formats all its version components regardless.
-fn formatVersion(version: SemanticVersion, gpa: Allocator, list: *std.ArrayListUnmanaged(u8)) !void {
+fn formatVersion(version: SemanticVersion, gpa: Allocator, list: *ArrayList(u8)) !void {
     if (version.patch == 0) {
         try list.print(gpa, "{d}.{d}", .{ version.major, version.minor });
     } else {
@@ -408,7 +424,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
     const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
     const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
 
-    var result: std.ArrayListUnmanaged(u8) = .empty;
+    var result: ArrayList(u8) = .empty;
     defer result.deinit(gpa);
 
     try result.print(gpa, "{s}-{s}", .{ arch_name, os_name });
@@ -423,7 +439,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
                 try formatVersion(v, gpa, &result);
             },
             .windows => |v| {
-                try result.print(gpa, "{d}", .{v});
+                try result.print(gpa, "{f}", .{v});
             },
         }
     }
@@ -437,7 +453,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
             .windows => |v| {
                 // This is counting on a custom format() function defined on `WindowsVersion`
                 // to add a prefix '.' and make there be a total of three dots.
-                try result.print(gpa, "..{d}", .{v});
+                try result.print(gpa, "..{f}", .{v});
             },
         }
     }
@@ -469,7 +485,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
 /// Renders the query into a textual representation that can be parsed via the
 /// `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
-pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
+pub fn serializeCpu(q: Query, buffer: *std.array_list.Managed(u8)) Allocator.Error!void {
     try buffer.ensureUnusedCapacity(8);
     switch (q.cpu_model) {
         .native => {
@@ -512,7 +528,7 @@ pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
 }
 
 pub fn serializeCpuAlloc(q: Query, ally: Allocator) Allocator.Error![]u8 {
-    var buffer = std.ArrayList(u8).init(ally);
+    var buffer = std.array_list.Managed(u8).init(ally);
     try serializeCpu(q, &buffer);
     return buffer.toOwnedSlice();
 }
@@ -584,7 +600,7 @@ pub fn eql(a: Query, b: Query) bool {
     if (!versionEqualOpt(a.glibc_version, b.glibc_version)) return false;
     if (a.android_api_level != b.android_api_level) return false;
     if (a.abi != b.abi) return false;
-    if (!a.dynamic_linker.eql(b.dynamic_linker)) return false;
+    if (!dynamicLinkerEqualOpt(a.dynamic_linker, b.dynamic_linker)) return false;
     if (a.ofmt != b.ofmt) return false;
 
     return true;
@@ -596,15 +612,15 @@ fn versionEqualOpt(a: ?SemanticVersion, b: ?SemanticVersion) bool {
     return SemanticVersion.order(a.?, b.?) == .eq;
 }
 
-const Query = @This();
-const std = @import("../std.zig");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const Target = std.Target;
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
+fn dynamicLinkerEqualOpt(a: ?Target.DynamicLinker, b: ?Target.DynamicLinker) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return a.?.eql(b.?);
+}
 
 test parse {
+    const io = std.testing.io;
+
     if (builtin.target.isGnuLibC()) {
         var query = try Query.parse(.{});
         query.setGnuLibCVersion(2, 1, 1);
@@ -647,7 +663,7 @@ test parse {
             .arch_os_abi = "x86_64-linux-gnu",
             .cpu_features = "x86_64-sse-sse2-avx-cx8",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.abi == .gnu);
@@ -672,7 +688,7 @@ test parse {
             .arch_os_abi = "arm-linux-musleabihf",
             .cpu_features = "generic+v8a",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.abi == .musleabihf);
@@ -689,7 +705,7 @@ test parse {
             .arch_os_abi = "aarch64-linux.3.10...4.4.1-gnu.2.27",
             .cpu_features = "generic+v8a",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.cpu.arch == .aarch64);
         try std.testing.expect(target.os.tag == .linux);
@@ -712,7 +728,7 @@ test parse {
         const query = try Query.parse(.{
             .arch_os_abi = "aarch64-linux.3.10...4.4.1-android.30",
         });
-        const target = try std.zig.system.resolveTargetQuery(query);
+        const target = try std.zig.system.resolveTargetQuery(io, query);
 
         try std.testing.expect(target.cpu.arch == .aarch64);
         try std.testing.expect(target.os.tag == .linux);
@@ -728,5 +744,21 @@ test parse {
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-android.30", text);
+    }
+    {
+        const query = try Query.parse(.{
+            .arch_os_abi = "x86-windows.xp...win8-msvc",
+        });
+        const target = try std.zig.system.resolveTargetQuery(io, query);
+
+        try std.testing.expect(target.cpu.arch == .x86);
+        try std.testing.expect(target.os.tag == .windows);
+        try std.testing.expect(target.os.version_range.windows.min == .xp);
+        try std.testing.expect(target.os.version_range.windows.max == .win8);
+        try std.testing.expect(target.abi == .msvc);
+
+        const text = try query.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+        try std.testing.expectEqualSlices(u8, "x86-windows.xp...win8-msvc", text);
     }
 }

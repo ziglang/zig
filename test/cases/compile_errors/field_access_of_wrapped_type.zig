@@ -11,8 +11,6 @@ export fn f2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:8: error: optional type '?tmp.Foo' does not support field access
 // :6:8: note: consider using '.?', 'orelse', or 'if'

@@ -4,9 +4,12 @@
 //!
 //! Each `Compilation` has exactly one or zero `Zcu`, depending on whether
 //! there is or is not any zig source code, respectively.
+const Zcu = @This();
+const builtin = @import("builtin");
 
 const std = @import("std");
-const builtin = @import("builtin");
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -15,9 +18,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
-const Writer = std.io.Writer;
 
-const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 pub const Value = @import("Value.zig");
@@ -32,7 +33,6 @@ const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
 const isUpDir = @import("introspect.zig").isUpDir;
-const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
@@ -268,11 +268,12 @@ nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, voi
 
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
-analysis_roots: std.BoundedArray(*Package.Module, 4) = .{},
+analysis_roots_buffer: [4]*Package.Module,
+analysis_roots_len: usize = 0,
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
 /// Allocated into `gpa`.
-resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
+resolved_references: ?std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
 /// If `true`, then semantic analysis must not occur on this update due to AstGen errors.
 /// Essentially the entire pipeline after AstGen, including Sema, codegen, and link, is skipped.
@@ -311,6 +312,10 @@ builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
 
 incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
     if (build_options.enable_debug_extensions) .init else {},
+
+/// Times semantic analysis of the current `AnalUnit`. When we pause to analyze a different unit,
+/// this timer must be temporarily paused and resumed later.
+cur_analysis_timer: ?Compilation.Timer = null,
 
 generation: u32 = 0,
 
@@ -460,6 +465,9 @@ pub const BuiltinDecl = enum {
 
     VaList,
 
+    assembly,
+    @"assembly.Clobbers",
+
     /// Determines what kind of validation will be done to the decl's value.
     pub fn kind(decl: BuiltinDecl) enum { type, func, string } {
         return switch (decl) {
@@ -480,6 +488,8 @@ pub const BuiltinDecl = enum {
             .ExportOptions,
             .ExternOptions,
             .BranchHint,
+            .assembly,
+            .@"assembly.Clobbers",
             => .type,
 
             .Type,
@@ -540,6 +550,7 @@ pub const BuiltinDecl = enum {
     /// Resolution of these values is done in three distinct stages:
     /// * Resolution of `std.builtin.Panic` and everything under it
     /// * Resolution of `VaList`
+    /// * Resolution of `assembly`
     /// * Everything else
     ///
     /// Panics are separated because they are provided by the user, so must be able to use
@@ -548,14 +559,20 @@ pub const BuiltinDecl = enum {
     /// `VaList` is separate because its value depends on the target, so it needs some reflection
     /// machinery to work; additionally, it is `@compileError` on some targets, so must be referenced
     /// by itself.
+    ///
+    /// `assembly` is separate because its value depends on the target.
     pub fn stage(decl: BuiltinDecl) InternPool.MemoizedStateStage {
-        if (decl == .VaList) return .va_list;
-
-        if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
-            return .main;
-        } else {
-            return .panic;
-        }
+        return switch (decl) {
+            .VaList => .va_list,
+            .assembly, .@"assembly.Clobbers" => .assembly,
+            else => {
+                if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
+                    return .main;
+                } else {
+                    return .panic;
+                }
+            },
+        };
     }
 
     /// Based on the tag name, determines how to access this decl; either as a direct child of the
@@ -1021,8 +1038,15 @@ pub const File = struct {
         stat: Cache.File.Stat,
     };
 
-    pub fn getSource(file: *File, zcu: *const Zcu) !Source {
+    pub const GetSourceError = error{
+        OutOfMemory,
+        FileTooBig,
+        Streaming,
+    } || std.fs.File.OpenError || std.fs.File.ReadError;
+
+    pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError!Source {
         const gpa = zcu.gpa;
+        const io = zcu.comp.io;
 
         if (file.source) |source| return .{
             .bytes = source,
@@ -1043,9 +1067,9 @@ pub const File = struct {
         const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         errdefer gpa.free(source);
 
-        var file_reader = f.reader(&.{});
+        var file_reader = f.reader(io, &.{});
         file_reader.size = stat.size;
-        try file_reader.interface.readSliceAll(source);
+        file_reader.interface.readSliceAll(source) catch return file_reader.err.?;
 
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
@@ -1064,7 +1088,7 @@ pub const File = struct {
         };
     }
 
-    pub fn getTree(file: *File, zcu: *const Zcu) !*const Ast {
+    pub fn getTree(file: *File, zcu: *const Zcu) GetSourceError!*const Ast {
         if (file.tree) |*tree| return tree;
 
         const source = try file.getSource(zcu);
@@ -1097,8 +1121,8 @@ pub const File = struct {
     pub fn internFullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
-        const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-        var w: Writer = .fixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
+        const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(gpa);
+        var w: Writer = .fixed((try string_bytes.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
         file.renderFullyQualifiedName(&w) catch unreachable;
         assert(w.end == w.buffer.len);
         return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(w.end), .no_embedded_nulls);
@@ -1110,7 +1134,7 @@ pub const File = struct {
         file: *File,
         zcu: *const Zcu,
         eb: *std.zig.ErrorBundle.Wip,
-    ) !std.zig.ErrorBundle.SourceLocationIndex {
+    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = 0,
@@ -1121,17 +1145,17 @@ pub const File = struct {
             .source_line = 0,
         });
     }
+    /// Asserts that the tree has already been loaded with `getTree`.
     pub fn errorBundleTokenSrc(
         file: *File,
         tok: Ast.TokenIndex,
         zcu: *const Zcu,
         eb: *std.zig.ErrorBundle.Wip,
-    ) !std.zig.ErrorBundle.SourceLocationIndex {
-        const source = try file.getSource(zcu);
-        const tree = try file.getTree(zcu);
+    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
+        const tree = &file.tree.?;
         const start = tree.tokenStart(tok);
         const end = start + tree.tokenSlice(tok).len;
-        const loc = std.zig.findLineColumn(source.bytes, start);
+        const loc = std.zig.findLineColumn(file.source.?, start);
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = start,
@@ -1660,20 +1684,37 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(condition);
             },
 
-            .node_offset_switch_special_prong => |node_off| {
+            .node_offset_switch_else_prong => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const switch_node = node_off.toAbsolute(src_loc.base_node);
                 _, const extra_index = tree.nodeData(switch_node).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    const is_special = (case.ast.values.len == 0) or
-                        (case.ast.values.len == 1 and
-                            tree.nodeTag(case.ast.values[0]) == .identifier and
-                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"));
-                    if (!is_special) continue;
+                    if (case.ast.values.len == 0) {
+                        return tree.nodeToSpan(case_node);
+                    }
+                } else unreachable;
+            },
 
-                    return tree.nodeToSpan(case_node);
+            .node_offset_switch_under_prong => |node_off| {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const switch_node = node_off.toAbsolute(src_loc.base_node);
+                _, const extra_index = tree.nodeData(switch_node).node_and_extra;
+                const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
+                for (case_nodes) |case_node| {
+                    const case = tree.fullSwitchCase(case_node).?;
+                    for (case.ast.values) |val| {
+                        if (tree.nodeTag(val) == .identifier and
+                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(val)), "_"))
+                        {
+                            return tree.tokensToSpan(
+                                tree.firstToken(case_node),
+                                tree.lastToken(case_node),
+                                tree.nodeMainToken(val),
+                            );
+                        }
+                    }
                 } else unreachable;
             },
 
@@ -1684,12 +1725,6 @@ pub const SrcLoc = struct {
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    const is_special = (case.ast.values.len == 0) or
-                        (case.ast.values.len == 1 and
-                            tree.nodeTag(case.ast.values[0]) == .identifier and
-                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"));
-                    if (is_special) continue;
-
                     for (case.ast.values) |item_node| {
                         if (tree.nodeTag(item_node) == .switch_range) {
                             return tree.nodeToSpan(item_node);
@@ -1994,7 +2029,7 @@ pub const SrcLoc = struct {
             },
             .tuple_field_type, .tuple_field_init => |field_info| {
                 const tree = try src_loc.file_scope.getTree(zcu);
-                const node = src_loc.base_node;
+                const node = field_info.tuple_decl_node_offset.toAbsolute(src_loc.base_node);
                 var buf: [2]Ast.Node.Index = undefined;
                 const container_decl = tree.fullContainerDecl(&buf, node) orelse
                     return tree.nodeToSpan(node);
@@ -2094,28 +2129,35 @@ pub const SrcLoc = struct {
 
                 var multi_i: u32 = 0;
                 var scalar_i: u32 = 0;
-                const case = for (case_nodes) |case_node| {
+                var underscore_node: Ast.Node.OptionalIndex = .none;
+                const case = case: for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    const is_special = special: {
-                        if (case.ast.values.len == 0) break :special true;
-                        if (case.ast.values.len == 1 and tree.nodeTag(case.ast.values[0]) == .identifier) {
-                            break :special mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_");
+                    if (case.ast.values.len == 0) {
+                        if (want_case_idx == LazySrcLoc.Offset.SwitchCaseIndex.special_else) {
+                            break :case case;
                         }
-                        break :special false;
-                    };
-                    if (is_special) {
-                        if (want_case_idx.isSpecial()) {
-                            break case;
-                        }
-                        continue;
+                        continue :case;
                     }
+                    if (underscore_node == .none) for (case.ast.values) |val_node| {
+                        if (tree.nodeTag(val_node) == .identifier and
+                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(val_node)), "_"))
+                        {
+                            underscore_node = val_node.toOptional();
+                            if (want_case_idx == LazySrcLoc.Offset.SwitchCaseIndex.special_under) {
+                                break :case case;
+                            }
+                            continue :case;
+                        }
+                    };
 
                     const is_multi = case.ast.values.len != 1 or
                         tree.nodeTag(case.ast.values[0]) == .switch_range;
 
                     switch (want_case_idx.kind) {
-                        .scalar => if (!is_multi and want_case_idx.index == scalar_i) break case,
-                        .multi => if (is_multi and want_case_idx.index == multi_i) break case,
+                        .scalar => if (!is_multi and want_case_idx.index == scalar_i)
+                            break :case case,
+                        .multi => if (is_multi and want_case_idx.index == multi_i)
+                            break :case case,
                     }
 
                     if (is_multi) {
@@ -2129,7 +2171,10 @@ pub const SrcLoc = struct {
                     .switch_case_item,
                     .switch_case_item_range_first,
                     .switch_case_item_range_last,
-                    => |x| x.item_idx,
+                    => |x| item_idx: {
+                        assert(want_case_idx != LazySrcLoc.Offset.SwitchCaseIndex.special_else);
+                        break :item_idx x.item_idx;
+                    },
                     .switch_capture, .switch_tag_capture => {
                         const start = switch (src_loc.lazy) {
                             .switch_capture => case.payload_token.?,
@@ -2154,7 +2199,11 @@ pub const SrcLoc = struct {
                     .single => {
                         var item_i: u32 = 0;
                         for (case.ast.values) |item_node| {
-                            if (tree.nodeTag(item_node) == .switch_range) continue;
+                            if (item_node.toOptional() == underscore_node or
+                                tree.nodeTag(item_node) == .switch_range)
+                            {
+                                continue;
+                            }
                             if (item_i != want_item.index) {
                                 item_i += 1;
                                 continue;
@@ -2165,7 +2214,9 @@ pub const SrcLoc = struct {
                     .range => {
                         var range_i: u32 = 0;
                         for (case.ast.values) |item_node| {
-                            if (tree.nodeTag(item_node) != .switch_range) continue;
+                            if (tree.nodeTag(item_node) != .switch_range) {
+                                continue;
+                            }
                             if (range_i != want_item.index) {
                                 range_i += 1;
                                 continue;
@@ -2344,10 +2395,14 @@ pub const LazySrcLoc = struct {
         /// by taking this AST node index offset from the containing base node,
         /// which points to a switch expression AST node. Next, navigate to the operand.
         node_offset_switch_operand: Ast.Node.Offset,
-        /// The source location points to the else/`_` prong of a switch expression, found
+        /// The source location points to the else prong of a switch expression, found
         /// by taking this AST node index offset from the containing base node,
-        /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
-        node_offset_switch_special_prong: Ast.Node.Offset,
+        /// which points to a switch expression AST node. Next, navigate to the else prong.
+        node_offset_switch_else_prong: Ast.Node.Offset,
+        /// The source location points to the `_` prong of a switch expression, found
+        /// by taking this AST node index offset from the containing base node,
+        /// which points to a switch expression AST node. Next, navigate to the `_` prong.
+        node_offset_switch_under_prong: Ast.Node.Offset,
         /// The source location points to all the ranges of a switch expression, found
         /// by taking this AST node index offset from the containing base node,
         /// which points to a switch expression AST node. Next, navigate to any of the
@@ -2543,10 +2598,8 @@ pub const LazySrcLoc = struct {
             kind: enum(u1) { scalar, multi },
             index: u31,
 
-            pub const special: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32)));
-            pub fn isSpecial(idx: SwitchCaseIndex) bool {
-                return @as(u32, @bitCast(idx)) == @as(u32, @bitCast(special));
-            }
+            pub const special_else: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32)));
+            pub const special_under: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32) - 1));
         };
 
         pub const SwitchItemIndex = packed struct(u32) {
@@ -2648,8 +2701,9 @@ pub const LazySrcLoc = struct {
     }
 
     /// Used to sort error messages, so that they're printed in a consistent order.
-    /// If an error is returned, that error makes sorting impossible.
-    pub fn lessThan(lhs_lazy: LazySrcLoc, rhs_lazy: LazySrcLoc, zcu: *Zcu) !bool {
+    /// If an error is returned, a file could not be read in order to resolve a source location.
+    /// In that case, `bad_file_out` is populated, and sorting is impossible.
+    pub fn lessThan(lhs_lazy: LazySrcLoc, rhs_lazy: LazySrcLoc, zcu: *Zcu, bad_file_out: **Zcu.File) File.GetSourceError!bool {
         const lhs_src = lhs_lazy.upgradeOrLost(zcu) orelse {
             // LHS source location lost, so should never be referenced. Just sort it to the end.
             return false;
@@ -2667,8 +2721,14 @@ pub const LazySrcLoc = struct {
             return std.mem.order(u8, lhs_path.sub_path, rhs_path.sub_path).compare(.lt);
         }
 
-        const lhs_span = try lhs_src.span(zcu);
-        const rhs_span = try rhs_src.span(zcu);
+        const lhs_span = lhs_src.span(zcu) catch |err| {
+            bad_file_out.* = lhs_src.file_scope;
+            return err;
+        };
+        const rhs_span = rhs_src.span(zcu) catch |err| {
+            bad_file_out.* = rhs_src.file_scope;
+            return err;
+        };
         return lhs_span.main < rhs_span.main;
     }
 };
@@ -2805,11 +2865,11 @@ comptime {
     }
 }
 
-pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
+pub fn loadZirCache(gpa: Allocator, io: Io, cache_file: std.fs.File) !Zir {
     var buffer: [2000]u8 = undefined;
-    var file_reader = cache_file.reader(&buffer);
+    var file_reader = cache_file.reader(io, &buffer);
     return result: {
-        const header = file_reader.interface.takeStruct(Zir.Header) catch |err| break :result err;
+        const header = file_reader.interface.takeStructPointer(Zir.Header) catch |err| break :result err;
         break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
     } catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
@@ -2817,7 +2877,7 @@ pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
     };
 }
 
-pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.io.Reader) !Zir {
+pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *Io.Reader) !Zir {
     var instructions: std.MultiArrayList(Zir.Inst) = .{};
     errdefer instructions.deinit(gpa);
 
@@ -2886,7 +2946,7 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2915,7 +2975,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2934,7 +2994,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
     };
 }
 
-pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.io.Reader) !Zoir {
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *Io.Reader) !Zoir {
     var zoir: Zoir = .{
         .nodes = .empty,
         .extra = &.{},
@@ -3111,7 +3171,7 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 }
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
-    if (!zcu.comp.incremental) return null;
+    if (!zcu.comp.config.incremental) return null;
 
     if (zcu.outdated.count() == 0) {
         // Any units in `potentially_outdated` must just be stuck in loops with one another: none of those
@@ -3396,7 +3456,10 @@ pub fn mapOldZirToNew(
 /// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
 pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func_index: InternPool.Index) !void {
     const ip = &zcu.intern_pool;
+
     const func = zcu.funcInfo(func_index);
+
+    assert(func.ty == func.uncoerced_ty); // analyze the body of the original function, not a coerced one
 
     if (zcu.func_body_analysis_queued.contains(func_index)) return;
 
@@ -3634,9 +3697,8 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
 
     if (zcu.error_limit == 0) return 0;
     if (target.cpu.arch.isSpirV()) {
-        if (!target.cpu.has(.spirv, .storage_push_constant16)) {
-            return 32;
-        }
+        // As expected by https://github.com/Snektron/zig-spirv-test-executor
+        if (zcu.comp.config.is_test) return 32;
     }
 
     return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
@@ -3780,59 +3842,17 @@ pub fn atomicPtrAlignment(
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
-        .avr,
-        .msp430,
-        => 16,
-
-        .arc,
-        .arm,
-        .armeb,
-        .hexagon,
-        .m68k,
-        .mips,
-        .mipsel,
-        .nvptx,
-        .or1k,
-        .powerpc,
-        .powerpcle,
-        .riscv32,
-        .sparc,
-        .thumb,
-        .thumbeb,
-        .x86,
-        .xcore,
-        .kalimba,
-        .lanai,
-        .wasm32,
-        .csky,
-        .spirv32,
-        .loongarch32,
-        .xtensa,
-        .propeller,
-        => 32,
-
-        .amdgcn,
-        .bpfel,
-        .bpfeb,
-        .mips64,
-        .mips64el,
-        .nvptx64,
-        .powerpc64,
-        .powerpc64le,
-        .riscv64,
-        .sparc64,
-        .s390x,
-        .wasm64,
-        .ve,
-        .spirv64,
-        .loongarch64,
-        => 64,
-
         .aarch64,
         .aarch64_be,
         => 128,
 
-        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64,
+        .mips64,
+        .mips64el,
+        => 64, // N32 should be 64, not 32.
+
+        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64, // x32 should be 64 or 128, not 32.
+
+        else => target.ptrBitWidth(),
     };
 
     if (ty.toIntern() == .bool_type) return .none;
@@ -3847,7 +3867,12 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isAbiInt(zcu)) {
+    if (switch (ty.zigTypeTag(zcu)) {
+        .int, .@"enum" => true,
+        .@"struct" => ty.containerLayout(zcu) == .@"packed",
+        else => false,
+    }) {
+        assert(ty.isAbiInt(zcu));
         const bit_count = ty.intInfo(zcu).bits;
         if (bit_count > max_atomic_bits) {
             diags.* = .{
@@ -3877,6 +3902,29 @@ pub fn typeToPackedStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructTyp
     const s = zcu.typeToStruct(ty) orelse return null;
     if (s.layout != .@"packed") return null;
     return s;
+}
+
+/// https://github.com/ziglang/zig/issues/17178 explored storing these bit offsets
+/// into the packed struct InternPool data rather than computing this on the
+/// fly, however it was found to perform worse when measured on real world
+/// projects.
+pub fn structPackedFieldBitOffset(
+    zcu: *Zcu,
+    struct_type: InternPool.LoadedStructType,
+    field_index: u32,
+) u16 {
+    const ip = &zcu.intern_pool;
+    assert(struct_type.layout == .@"packed");
+    assert(struct_type.haveLayout(ip));
+    var bit_sum: u64 = 0;
+    for (0..struct_type.field_types.len) |i| {
+        if (i == field_index) {
+            return @intCast(bit_sum);
+        }
+        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
+        bit_sum += field_ty.bitSize(zcu);
+    }
+    unreachable; // index out of bounds
 }
 
 pub fn typeToUnion(zcu: *const Zcu, ty: Type) ?InternPool.LoadedUnionType {
@@ -3943,45 +3991,42 @@ pub const ResolvedReference = struct {
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
 /// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
 /// This hashmap is cached, so repeated calls to this function are cheap.
-pub fn resolveReferences(zcu: *Zcu) !*const std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+pub fn resolveReferences(zcu: *Zcu) !*const std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     if (zcu.resolved_references == null) {
         zcu.resolved_references = try zcu.resolveReferencesInner();
     }
     return &zcu.resolved_references.?;
 }
-fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
 
-    var result: std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
-    errdefer result.deinit(gpa);
-
-    var checked_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
-    var type_queue: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
-    var unit_queue: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
+    var units: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
+    var types: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
     defer {
-        checked_types.deinit(gpa);
-        type_queue.deinit(gpa);
-        unit_queue.deinit(gpa);
+        units.deinit(gpa);
+        types.deinit(gpa);
     }
 
-    // This is not a sufficient size, but a lower bound.
-    try result.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
+    // This is not a sufficient size, but an approximate lower bound.
+    try units.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
 
-    try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
-    for (zcu.analysis_roots.slice()) |mod| {
+    try types.ensureTotalCapacity(gpa, zcu.analysis_roots_len);
+    for (zcu.analysisRoots()) |mod| {
         const file = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const root_ty = zcu.fileRootType(file);
         if (root_ty == .none) continue;
-        type_queue.putAssumeCapacityNoClobber(root_ty, null);
+        types.putAssumeCapacityNoClobber(root_ty, null);
     }
 
+    var unit_idx: usize = 0;
+    var type_idx: usize = 0;
     while (true) {
-        if (type_queue.pop()) |kv| {
-            const ty = kv.key;
-            const referencer = kv.value;
-            try checked_types.putNoClobber(gpa, ty, {});
+        if (type_idx < types.count()) {
+            const ty = types.keys()[type_idx];
+            const referencer = types.values()[type_idx];
+            type_idx += 1;
 
             log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
 
@@ -3995,8 +4040,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             if (has_resolution) {
                 // this should only be referenced by the type
                 const unit: AnalUnit = .wrap(.{ .type = ty });
-                assert(!result.contains(unit));
-                try unit_queue.putNoClobber(gpa, unit, referencer);
+                try units.putNoClobber(gpa, unit, referencer);
             }
 
             // If this is a union with a generated tag, its tag type is automatically referenced.
@@ -4005,9 +4049,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const tag_ty = union_obj.enum_tag_ty;
                 if (tag_ty != .none) {
                     if (ip.indexToKey(tag_ty).enum_type == .generated_tag) {
-                        if (!checked_types.contains(tag_ty)) {
-                            try type_queue.put(gpa, tag_ty, referencer);
-                        }
+                        const gop = try types.getOrPut(gpa, tag_ty);
+                        if (!gop.found_existing) gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4018,12 +4061,13 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             for (zcu.namespacePtr(ns).comptime_decls.items) |cu| {
                 // `comptime` decls are always analyzed.
                 const unit: AnalUnit = .wrap(.{ .@"comptime" = cu });
-                if (!result.contains(unit)) {
+                const gop = try units.getOrPut(gpa, unit);
+                if (!gop.found_existing) {
                     log.debug("type '{f}': ref comptime %{}", .{
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
                     });
-                    try unit_queue.put(gpa, unit, referencer);
+                    gop.value_ptr.* = referencer;
                 }
             }
             for (zcu.namespacePtr(ns).test_decls.items) |nav_id| {
@@ -4050,14 +4094,20 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     },
                 };
                 if (want_analysis) {
-                    log.debug("type '{f}': ref test %{}", .{
-                        Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                        @intFromEnum(inst_info.inst),
-                    });
-                    try unit_queue.put(gpa, .wrap(.{ .nav_val = nav_id }), referencer);
+                    {
+                        const gop = try units.getOrPut(gpa, .wrap(.{ .nav_val = nav_id }));
+                        if (!gop.found_existing) {
+                            log.debug("type '{f}': ref test %{}", .{
+                                Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                                @intFromEnum(inst_info.inst),
+                            });
+                            gop.value_ptr.* = referencer;
+                        }
+                    }
                     // Non-fatal AstGen errors could mean this test decl failed
                     if (nav.status == .fully_resolved) {
-                        try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
+                        const gop = try units.getOrPut(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }));
+                        if (!gop.found_existing) gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4068,12 +4118,13 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                    if (!result.contains(unit)) {
+                    const gop = try units.getOrPut(gpa, unit);
+                    if (!gop.found_existing) {
                         log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
-                        try unit_queue.put(gpa, unit, referencer);
+                        gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4084,20 +4135,21 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                    if (!result.contains(unit)) {
+                    const gop = try units.getOrPut(gpa, unit);
+                    if (!gop.found_existing) {
                         log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
-                        try unit_queue.put(gpa, unit, referencer);
+                        gop.value_ptr.* = referencer;
                     }
                 }
             }
             continue;
         }
-        if (unit_queue.pop()) |kv| {
-            const unit = kv.key;
-            try result.putNoClobber(gpa, unit, kv.value);
+        if (unit_idx < units.count()) {
+            const unit = units.keys()[unit_idx];
+            unit_idx += 1;
 
             // `nav_val` and `nav_ty` reference each other *implicitly* to save memory.
             queue_paired: {
@@ -4106,8 +4158,9 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     .nav_ty => |n| .{ .nav_val = n },
                     .@"comptime", .type, .func, .memoized_state => break :queue_paired,
                 });
-                if (result.contains(other)) break :queue_paired;
-                try unit_queue.put(gpa, other, kv.value); // same reference location
+                const gop = try units.getOrPut(gpa, other);
+                if (gop.found_existing) break :queue_paired;
+                gop.value_ptr.* = units.values()[unit_idx]; // same reference location
             }
 
             log.debug("handle unit '{f}'", .{zcu.fmtAnalUnit(unit)});
@@ -4117,16 +4170,17 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 var ref_idx = first_ref_idx;
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_references.items[ref_idx];
-                    if (!result.contains(ref.referenced)) {
+                    const gop = try units.getOrPut(gpa, ref.referenced);
+                    if (!gop.found_existing) {
                         log.debug("unit '{f}': ref unit '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             zcu.fmtAnalUnit(ref.referenced),
                         });
-                        try unit_queue.put(gpa, ref.referenced, .{
+                        gop.value_ptr.* = .{
                             .referencer = unit,
                             .src = ref.src,
                             .inline_frame = ref.inline_frame,
-                        });
+                        };
                     }
                     ref_idx = ref.next;
                 }
@@ -4136,16 +4190,17 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 var ref_idx = first_ref_idx;
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_type_references.items[ref_idx];
-                    if (!checked_types.contains(ref.referenced)) {
+                    const gop = try types.getOrPut(gpa, ref.referenced);
+                    if (!gop.found_existing) {
                         log.debug("unit '{f}': ref type '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             Type.fromInterned(ref.referenced).containerTypeName(ip).fmt(ip),
                         });
-                        try type_queue.put(gpa, ref.referenced, .{
+                        gop.value_ptr.* = .{
                             .referencer = unit,
                             .src = ref.src,
                             .inline_frame = .none,
-                        });
+                        };
                     }
                     ref_idx = ref.next;
                 }
@@ -4155,7 +4210,11 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
         break;
     }
 
-    return result;
+    return units.move();
+}
+
+pub fn analysisRoots(zcu: *Zcu) []*Package.Module {
+    return zcu.analysis_roots_buffer[0..zcu.analysis_roots_len];
 }
 
 pub fn fileByIndex(zcu: *const Zcu, file_index: File.Index) *File {
@@ -4218,10 +4277,10 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
     return zcu.fileByIndex(zcu.navFileScopeIndex(nav));
 }
 
-pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(FormatAnalUnit, formatAnalUnit) {
+pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Alt(FormatAnalUnit, formatAnalUnit) {
     return .{ .data = .{ .unit = unit, .zcu = zcu } };
 }
-pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(FormatDependee, formatDependee) {
+pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Alt(FormatDependee, formatDependee) {
     return .{ .data = .{ .dependee = d, .zcu = zcu } };
 }
 
@@ -4230,7 +4289,7 @@ const FormatAnalUnit = struct {
     zcu: *Zcu,
 };
 
-fn formatAnalUnit(data: FormatAnalUnit, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.unit.unwrap()) {
@@ -4256,7 +4315,7 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *std.io.Writer) std.io.Writer.Er
 
 const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *Zcu };
 
-fn formatDependee(data: FormatDependee, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
@@ -4360,6 +4419,10 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 }
             }
             break :ok switch (cc) {
+                .x86_16_cdecl,
+                .x86_16_stdcall,
+                .x86_16_regparmcall,
+                .x86_16_interrupt,
                 .x86_64_sysv,
                 .x86_64_win,
                 .x86_64_vectorcall,
@@ -4380,12 +4443,19 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .riscv32_ilp32_v,
                 .m68k_rtd,
                 .m68k_interrupt,
+                .msp430_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_aapcs_vfp,
                 => |opts| opts.incoming_stack_alignment == null,
 
+                .arc_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
                 .arm_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .microblaze_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .mips_interrupt,
@@ -4394,6 +4464,9 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
 
                 .riscv32_interrupt,
                 .riscv64_interrupt,
+                => |opts| opts.incoming_stack_alignment == null,
+
+                .sh_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .x86_sysv,
@@ -4424,11 +4497,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             else => false,
         },
         .stage2_aarch64 => switch (cc) {
-            .aarch64_aapcs,
-            .aarch64_aapcs_darwin,
-            .aarch64_aapcs_win,
-            => |opts| opts.incoming_stack_alignment == null,
-            .naked => true,
+            .aarch64_aapcs, .aarch64_aapcs_darwin, .naked => true,
             else => false,
         },
         .stage2_x86 => switch (cc) {
@@ -4470,7 +4539,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
         },
         .stage2_spirv => switch (cc) {
             .spirv_device, .spirv_kernel => true,
-            .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan,
+            .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan or target.os.tag == .opengl,
             else => false,
         },
     };
@@ -4540,7 +4609,7 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
 pub fn addFileInMultipleModulesError(
     zcu: *Zcu,
     eb: *std.zig.ErrorBundle.Wip,
-) !void {
+) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     const info = zcu.multi_module_err.?;
@@ -4587,7 +4656,7 @@ fn explainWhyFileIsInModule(
     file: File.Index,
     in_module: *Package.Module,
     ref: File.Reference,
-) !void {
+) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     // error: file is the root of module 'foo'
@@ -4622,7 +4691,13 @@ fn explainWhyFileIsInModule(
         const thing: []const u8 = if (is_first) "file" else "which";
         is_first = false;
 
-        const import_src = try zcu.fileByIndex(import.importer).errorBundleTokenSrc(import.tok, zcu, eb);
+        const importer_file = zcu.fileByIndex(import.importer);
+        // `errorBundleTokenSrc` expects the tree to be loaded
+        _ = importer_file.getTree(zcu) catch |err| {
+            try Compilation.unableToLoadZcuFile(zcu, eb, importer_file, err);
+            return; // stop the explanation early
+        };
+        const import_src = try importer_file.errorBundleTokenSrc(import.tok, zcu, eb);
 
         const importer_ref = zcu.alive_files.get(import.importer).?;
         const importer_root: ?*Package.Module = switch (importer_ref) {
@@ -4647,26 +4722,56 @@ fn explainWhyFileIsInModule(
     }
 }
 
-const SemaProgNode = struct {
+const TrackedUnitSema = struct {
     /// `null` means we created the node, so should end it.
     old_name: ?[std.Progress.Node.max_name_len]u8,
-    pub fn end(spn: SemaProgNode, zcu: *Zcu) void {
-        if (spn.old_name) |old_name| {
+    old_analysis_timer: ?Compilation.Timer,
+    analysis_timer_decl: ?InternPool.TrackedInst.Index,
+    pub fn end(tus: TrackedUnitSema, zcu: *Zcu) void {
+        const comp = zcu.comp;
+        if (tus.old_name) |old_name| {
             zcu.sema_prog_node.completeOne(); // we're just renaming, but it's effectively completion
             zcu.cur_sema_prog_node.setName(&old_name);
         } else {
             zcu.cur_sema_prog_node.end();
             zcu.cur_sema_prog_node = .none;
         }
+        report_time: {
+            const sema_ns = zcu.cur_analysis_timer.?.finish() orelse break :report_time;
+            const zir_decl = tus.analysis_timer_decl orelse break :report_time;
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.cpu_ns_sema += sema_ns;
+            const gop = comp.time_report.?.decl_sema_info.getOrPut(comp.gpa, zir_decl) catch |err| switch (err) {
+                error.OutOfMemory => {
+                    comp.setAllocFailure();
+                    break :report_time;
+                },
+            };
+            if (!gop.found_existing) gop.value_ptr.* = .{ .ns = 0, .count = 0 };
+            gop.value_ptr.ns += sema_ns;
+            gop.value_ptr.count += 1;
+        }
+        zcu.cur_analysis_timer = tus.old_analysis_timer;
+        if (zcu.cur_analysis_timer) |*t| t.@"resume"();
     }
 };
-pub fn startSemaProgNode(zcu: *Zcu, name: []const u8) SemaProgNode {
-    if (zcu.cur_sema_prog_node.index != .none) {
+pub fn trackUnitSema(zcu: *Zcu, name: []const u8, zir_inst: ?InternPool.TrackedInst.Index) TrackedUnitSema {
+    if (zcu.cur_analysis_timer) |*t| t.pause();
+    const old_analysis_timer = zcu.cur_analysis_timer;
+    zcu.cur_analysis_timer = zcu.comp.startTimer();
+    const old_name: ?[std.Progress.Node.max_name_len]u8 = old_name: {
+        if (zcu.cur_sema_prog_node.index == .none) {
+            zcu.cur_sema_prog_node = zcu.sema_prog_node.start(name, 0);
+            break :old_name null;
+        }
         const old_name = zcu.cur_sema_prog_node.getName();
         zcu.cur_sema_prog_node.setName(name);
-        return .{ .old_name = old_name };
-    } else {
-        zcu.cur_sema_prog_node = zcu.sema_prog_node.start(name, 0);
-        return .{ .old_name = null };
-    }
+        break :old_name old_name;
+    };
+    return .{
+        .old_name = old_name,
+        .old_analysis_timer = old_analysis_timer,
+        .analysis_timer_decl = zir_inst,
+    };
 }

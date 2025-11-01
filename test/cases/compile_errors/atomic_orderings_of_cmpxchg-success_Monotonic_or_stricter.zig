@@ -5,7 +5,5 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:58: error: success atomic ordering must be monotonic or stricter

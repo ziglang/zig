@@ -58,6 +58,12 @@ pub fn bytes(r: Random, buf: []u8) void {
     r.fillFn(r.ptr, buf);
 }
 
+pub fn array(r: Random, comptime E: type, comptime N: usize) [N]E {
+    var result: [N]E = undefined;
+    bytes(r, &result);
+    return result;
+}
+
 pub fn boolean(r: Random) bool {
     return r.int(u1) != 0;
 }

@@ -34,7 +34,6 @@ any_error_tracing: bool,
 any_sanitize_thread: bool,
 any_sanitize_c: std.zig.SanitizeC,
 any_fuzz: bool,
-pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
 /// Module, outputting it to an object file, and then linking that together
 /// with link options and other objects. Otherwise (depending on `use_lld`)
@@ -48,7 +47,10 @@ use_lib_llvm: bool,
 /// and updates the final binary.
 use_lld: bool,
 c_frontend: CFrontend,
+use_new_linker: bool,
+pie: bool,
 lto: std.zig.LtoMode,
+incremental: bool,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
 wasi_exec_model: std.builtin.WasiExecModel,
@@ -98,12 +100,14 @@ pub const Options = struct {
     link_libc: ?bool = null,
     link_libcpp: ?bool = null,
     link_libunwind: ?bool = null,
-    pie: ?bool = null,
     use_llvm: ?bool = null,
     use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
+    use_new_linker: ?bool = null,
+    pie: ?bool = null,
     lto: ?std.zig.LtoMode = null,
+    incremental: bool = false,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     import_memory: ?bool = null,
@@ -119,6 +123,7 @@ pub const ResolveError = error{
     WasiExecModelRequiresWasi,
     SharedMemoryIsWasmOnly,
     ObjectFilesCannotShareMemory,
+    ObjectFilesCannotSpecifyDynamicLinker,
     SharedMemoryRequiresAtomicsAndBulkMemory,
     ThreadsRequireSharedMemory,
     EmittingLlvmModuleRequiresLlvmBackend,
@@ -127,6 +132,7 @@ pub const ResolveError = error{
     EmittingBinaryRequiresLlvmLibrary,
     LldIncompatibleObjectFormat,
     LldCannotIncrementallyLink,
+    LldCannotSpecifyDynamicLinkerForSharedLibraries,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     LibCRequiresLibUnwind,
@@ -138,6 +144,7 @@ pub const ResolveError = error{
     TargetCannotStaticLinkExecutables,
     LibCRequiresDynamicLinking,
     SharedLibrariesRequireDynamicLinking,
+    DynamicLinkingWithLldRequiresSharedLibraries,
     ExportMemoryAndDynamicIncompatible,
     DynamicLibraryPrecludesPie,
     TargetRequiresPie,
@@ -147,6 +154,8 @@ pub const ResolveError = error{
     LldUnavailable,
     ClangUnavailable,
     DllExportFnsRequiresWindows,
+    NewLinkerIncompatibleWithLld,
+    NewLinkerIncompatibleObjectFormat,
 };
 
 pub fn resolve(options: Options) ResolveError!Config {
@@ -268,15 +277,10 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
         }
-        // When creating a executable that links to system libraries, we
-        // require dynamic linking, but we must not link static libraries
-        // or object files dynamically!
-        if (options.any_dyn_libs and options.output_mode == .Exe) {
-            if (options.link_mode == .static) return error.SharedLibrariesRequireDynamicLinking;
-            break :b .dynamic;
-        }
 
         if (options.link_mode) |link_mode| break :b link_mode;
+
+        if (options.any_dyn_libs) break :b .dynamic;
 
         if (explicitly_exe_or_dyn_lib and link_libc) {
             // When using the native glibc/musl ABI, dynamic linking is usually what people want.
@@ -316,33 +320,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         }
         if (options.export_memory) |x| break :b x;
         break :b !import_memory;
-    };
-
-    const pie: bool = b: {
-        switch (options.output_mode) {
-            .Exe => if (target.os.tag == .fuchsia or
-                (target.abi.isAndroid() and link_mode == .dynamic))
-            {
-                if (options.pie == false) return error.TargetRequiresPie;
-                break :b true;
-            },
-            .Lib => if (link_mode == .dynamic) {
-                if (options.pie == true) return error.DynamicLibraryPrecludesPie;
-                break :b false;
-            },
-            .Obj => {},
-        }
-        if (options.any_sanitize_thread) {
-            if (options.pie == false) return error.SanitizeThreadRequiresPie;
-            break :b true;
-        }
-        if (options.pie) |pie| break :b pie;
-        break :b if (options.output_mode == .Exe) switch (target.os.tag) {
-            .fuchsia,
-            .openbsd,
-            => true,
-            else => target.os.tag.isDarwin(),
-        } else false;
     };
 
     const is_dyn_lib = switch (options.output_mode) {
@@ -399,6 +376,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         // we are confident in the robustness of the backend.
         break :b !target_util.selfHostedBackendIsAsRobustAsLlvm(target);
     };
+    const backend = target_util.zigBackend(target, use_llvm);
 
     if (options.emit_bin and options.have_zcu) {
         if (!use_lib_llvm and use_llvm) {
@@ -407,7 +385,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             return error.EmittingBinaryRequiresLlvmLibrary;
         }
 
-        if (target_util.zigBackend(target, use_llvm) == .other) {
+        if (backend == .other) {
             // There is no compiler backend available for this target.
             return error.ZigLacksTargetSupport;
         }
@@ -445,6 +423,68 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b use_llvm;
     };
 
+    switch (options.output_mode) {
+        .Exe => if (options.any_dyn_libs) {
+            // When creating a executable that links to system libraries, we
+            // require dynamic linking, but we must not link static libraries
+            // or object files dynamically!
+            if (link_mode == .static) return error.SharedLibrariesRequireDynamicLinking;
+        } else if (use_lld and !link_libc and !link_libcpp and !link_libunwind) {
+            // Lld does not support creating dynamic executables when not
+            // linking to any shared libraries.
+            if (link_mode == .dynamic) return error.DynamicLinkingWithLldRequiresSharedLibraries;
+        },
+        .Lib => if (use_lld and options.resolved_target.is_explicit_dynamic_linker) {
+            return error.LldCannotSpecifyDynamicLinkerForSharedLibraries;
+        },
+        .Obj => if (options.resolved_target.is_explicit_dynamic_linker) {
+            return error.ObjectFilesCannotSpecifyDynamicLinker;
+        },
+    }
+
+    const use_new_linker = b: {
+        if (use_lld) {
+            if (options.use_new_linker == true) return error.NewLinkerIncompatibleWithLld;
+            break :b false;
+        }
+
+        if (!target_util.hasNewLinkerSupport(target.ofmt, backend)) {
+            if (options.use_new_linker == true) return error.NewLinkerIncompatibleObjectFormat;
+            break :b false;
+        }
+
+        if (options.use_new_linker) |x| break :b x;
+
+        break :b options.incremental;
+    };
+
+    const pie = b: {
+        switch (options.output_mode) {
+            .Exe => if (target.os.tag == .fuchsia or
+                (target.abi.isAndroid() and link_mode == .dynamic))
+            {
+                if (options.pie == false) return error.TargetRequiresPie;
+                break :b true;
+            },
+            .Lib => if (link_mode == .dynamic) {
+                if (options.pie == true) return error.DynamicLibraryPrecludesPie;
+                break :b false;
+            },
+            .Obj => {},
+        }
+        if (options.any_sanitize_thread) {
+            if (options.pie == false) return error.SanitizeThreadRequiresPie;
+            break :b true;
+        }
+        if (options.pie) |pie| break :b pie;
+        break :b if (options.output_mode == .Exe) switch (target.os.tag) {
+            .fuchsia,
+            .openbsd,
+            => true,
+            else => target.os.tag.isDarwin(),
+        } else false;
+    };
+
     const lto: std.zig.LtoMode = b: {
         if (!use_lld) {
             // zig ld LTO support is tracked by
@@ -469,7 +509,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (root_strip and !options.any_non_stripped) break :b .strip;
         if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
-            .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
+            .elf, .macho, .wasm => .{ .dwarf = .@"32" },
             .coff => .code_view,
             .c => switch (target.os.tag) {
                 .windows, .uefi => .code_view,
@@ -479,7 +519,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         };
     };
 
-    const backend = target_util.zigBackend(target, use_llvm);
     const backend_supports_error_tracing = target_util.backendSupportsFeature(backend, .error_return_trace);
 
     const root_error_tracing = b: {
@@ -529,8 +568,10 @@ pub fn resolve(options: Options) ResolveError!Config {
         .any_fuzz = options.any_fuzz,
         .san_cov_trace_pc_guard = options.san_cov_trace_pc_guard,
         .root_error_tracing = root_error_tracing,
+        .use_new_linker = use_new_linker,
         .pie = pie,
         .lto = lto,
+        .incremental = options.incremental,
         .import_memory = import_memory,
         .export_memory = export_memory,
         .shared_memory = shared_memory,

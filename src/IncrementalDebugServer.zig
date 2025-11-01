@@ -44,25 +44,28 @@ pub fn spawn(ids: *IncrementalDebugServer) void {
 }
 fn runThread(ids: *IncrementalDebugServer) void {
     const gpa = ids.zcu.gpa;
+    const io = ids.zcu.comp.io;
 
     var cmd_buf: [1024]u8 = undefined;
     var text_out: std.ArrayListUnmanaged(u8) = .empty;
     defer text_out.deinit(gpa);
 
-    const addr = std.net.Address.parseIp6("::", port) catch unreachable;
-    var server = addr.listen(.{}) catch @panic("IncrementalDebugServer: failed to listen");
-    defer server.deinit();
-    const conn = server.accept() catch @panic("IncrementalDebugServer: failed to accept");
-    defer conn.stream.close();
+    const addr: std.Io.net.IpAddress = .{ .ip6 = .loopback(port) };
+    var server = addr.listen(io, .{}) catch @panic("IncrementalDebugServer: failed to listen");
+    defer server.deinit(io);
+    var stream = server.accept(io) catch @panic("IncrementalDebugServer: failed to accept");
+    defer stream.close(io);
+
+    var stream_reader = stream.reader(io, &cmd_buf);
+    var stream_writer = stream.writer(io, &.{});
 
     while (ids.running.load(.monotonic)) {
-        conn.stream.writeAll("zig> ") catch @panic("IncrementalDebugServer: failed to write");
-        var fbs = std.io.fixedBufferStream(&cmd_buf);
-        conn.stream.reader().streamUntilDelimiter(fbs.writer(), '\n', cmd_buf.len) catch |err| switch (err) {
+        stream_writer.interface.writeAll("zig> ") catch @panic("IncrementalDebugServer: failed to write");
+        const untrimmed = stream_reader.interface.takeSentinel('\n') catch |err| switch (err) {
             error.EndOfStream => break,
             else => @panic("IncrementalDebugServer: failed to read command"),
         };
-        const cmd_and_arg = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
+        const cmd_and_arg = std.mem.trim(u8, untrimmed, " \t\r\n");
         const cmd: []const u8, const arg: []const u8 = if (std.mem.indexOfScalar(u8, cmd_and_arg, ' ')) |i|
             .{ cmd_and_arg[0..i], cmd_and_arg[i + 1 ..] }
         else
@@ -71,14 +74,16 @@ fn runThread(ids: *IncrementalDebugServer) void {
         text_out.clearRetainingCapacity();
         {
             if (!ids.mutex.tryLock()) {
-                conn.stream.writeAll("waiting for in-progress update to finish...\n") catch @panic("IncrementalDebugServer: failed to write");
+                stream_writer.interface.writeAll("waiting for in-progress update to finish...\n") catch @panic("IncrementalDebugServer: failed to write");
                 ids.mutex.lock();
             }
             defer ids.mutex.unlock();
-            handleCommand(ids.zcu, &text_out, cmd, arg) catch @panic("IncrementalDebugServer: out of memory");
+            var allocating: std.Io.Writer.Allocating = .fromArrayList(gpa, &text_out);
+            defer text_out = allocating.toArrayList();
+            handleCommand(ids.zcu, &allocating.writer, cmd, arg) catch @panic("IncrementalDebugServer: out of memory");
         }
         text_out.append(gpa, '\n') catch @panic("IncrementalDebugServer: out of memory");
-        conn.stream.writeAll(text_out.items) catch @panic("IncrementalDebugServer: failed to write");
+        stream_writer.interface.writeAll(text_out.items) catch @panic("IncrementalDebugServer: failed to write");
     }
     std.debug.print("closing incremental debug server\n", .{});
 }
@@ -118,10 +123,8 @@ const help_str: []const u8 =
     \\
 ;
 
-fn handleCommand(zcu: *Zcu, output: *std.ArrayListUnmanaged(u8), cmd_str: []const u8, arg_str: []const u8) Allocator.Error!void {
+fn handleCommand(zcu: *Zcu, w: *std.Io.Writer, cmd_str: []const u8, arg_str: []const u8) error{ WriteFailed, OutOfMemory }!void {
     const ip = &zcu.intern_pool;
-    const gpa = zcu.gpa;
-    const w = output.writer(gpa);
     if (std.mem.eql(u8, cmd_str, "help")) {
         try w.writeAll(help_str);
     } else if (std.mem.eql(u8, cmd_str, "summary")) {
@@ -372,6 +375,7 @@ fn printType(ty: Type, zcu: *const Zcu, w: anytype) !void {
 }
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 const Compilation = @import("Compilation.zig");

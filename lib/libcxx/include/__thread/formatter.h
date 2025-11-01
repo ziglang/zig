@@ -34,7 +34,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #  if _LIBCPP_HAS_THREADS
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<__thread_id, _CharT> {
+struct formatter<__thread_id, _CharT> {
 public:
   template <class _ParseContext>
   _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {

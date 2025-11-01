@@ -15,5 +15,5 @@ pub fn main() !void {
     return error.TestFailed;
 }
 // run
-// backend=stage2,llvm
-// target=native
+// backend=selfhosted,llvm
+// target=x86_64-linux

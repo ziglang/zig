@@ -1,5 +1,5 @@
-$TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.15.0-dev.233+7c85dc460"
+$TARGET = "x86_64-windows-gnu"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.16.0-dev.104+689461e31"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$($Env:USERPROFILE)\$ZIG_LLVM_CLANG_LLD_NAME"
@@ -20,14 +20,6 @@ function CheckLastExitCode {
         exit 1
     }
     return 0
-}
-
-# Make the `zig version` number consistent.
-# This will affect the `zig build` command below which uses `git describe`.
-git fetch --tags
-
-if ((git rev-parse --is-shallow-repository) -eq "true") {
-    git fetch --unshallow # `git describe` won't work on a shallow repo
 }
 
 # Override the cache directories because they won't actually help other CI runs
@@ -67,7 +59,8 @@ Write-Output "Main test suite..."
   -Dstatic-llvm `
   -Dskip-non-native `
   -Dskip-release `
-  -Denable-symlinks-windows
+  -Denable-symlinks-windows `
+  --test-timeout 30m
 CheckLastExitCode
 
 Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
@@ -102,7 +95,7 @@ Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
-& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
+& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib ws2_32.lib
 CheckLastExitCode
 
 & .\test-x86_64-windows-msvc.exe

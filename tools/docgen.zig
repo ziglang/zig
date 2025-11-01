@@ -1,16 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const io = std.io;
 const fs = std.fs;
 const process = std.process;
-const ChildProcess = std.process.Child;
 const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const getExternalExecutor = std.zig.system.getExternalExecutor;
 const fatal = std.process.fatal;
+const Writer = std.Io.Writer;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -35,6 +35,12 @@ pub fn main() !void {
 
     var args_it = try process.argsWithAllocator(arena);
     if (!args_it.skip()) @panic("expected self arg");
+
+    const gpa = arena;
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     var opt_code_dir: ?[]const u8 = null;
     var opt_input: ?[]const u8 = null;
@@ -71,19 +77,20 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
     var code_dir = try fs.cwd().openDir(code_dir_path, .{});
     defer code_dir.close();
 
-    const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, max_doc_file_size);
-
-    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
+    var in_file_reader = in_file.reader(io, &.{});
+    const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .limited(max_doc_file_size));
 
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
     var toc = try genToc(arena, &tokenizer);
 
-    try genHtml(arena, &tokenizer, &toc, code_dir, buffered_writer.writer());
-    try buffered_writer.flush();
+    try genHtml(arena, &tokenizer, &toc, code_dir, &out_file_writer.interface);
+    try out_file_writer.end();
 }
 
 const Token = struct {
@@ -345,12 +352,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     var last_action: Action = .open;
     var last_columns: ?u8 = null;
 
-    var toc_buf = std.ArrayList(u8).init(allocator);
+    var toc_buf: Writer.Allocating = .init(allocator);
     defer toc_buf.deinit();
 
-    var toc = toc_buf.writer();
+    const toc = &toc_buf.writer;
 
-    var nodes = std.ArrayList(Node).init(allocator);
+    var nodes = std.array_list.Managed(Node).init(allocator);
     defer nodes.deinit();
 
     try toc.writeByte('\n');
@@ -423,7 +430,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     }
                     if (last_action == .open) {
                         try toc.writeByte('\n');
-                        try toc.writeByteNTimes(' ', header_stack_size * 4);
+                        try toc.splatByteAll(' ', header_stack_size * 4);
                         if (last_columns) |n| {
                             try toc.print("<ul style=\"columns: {d}\">\n", .{n});
                         } else {
@@ -433,7 +440,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         last_action = .open;
                     }
                     last_columns = columns;
-                    try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
+                    try toc.splatByteAll(' ', 4 + header_stack_size * 4);
                     try toc.print("<li><a id=\"toc-{s}\" href=\"#{s}\">{s}</a>", .{ urlized, urlized, content });
                 } else if (mem.eql(u8, tag_name, "header_close")) {
                     if (header_stack_size == 0) {
@@ -443,14 +450,14 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     _ = try eatToken(tokenizer, .bracket_close);
 
                     if (last_action == .close) {
-                        try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
+                        try toc.splatByteAll(' ', 8 + header_stack_size * 4);
                         try toc.writeAll("</ul></li>\n");
                     } else {
                         try toc.writeAll("</li>\n");
                         last_action = .close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
-                    var list = std.ArrayList(SeeAlsoItem).init(allocator);
+                    var list = std.array_list.Managed(SeeAlsoItem).init(allocator);
                     errdefer list.deinit();
 
                     while (true) {
@@ -592,34 +599,33 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
         }
     }
 
-    return Toc{
+    return .{
         .nodes = try nodes.toOwnedSlice(),
         .toc = try toc_buf.toOwnedSlice(),
         .urls = urls,
     };
 }
 
-fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
+fn urlize(gpa: Allocator, input: []const u8) ![]u8 {
+    var buf: ArrayList(u8) = .empty;
+    defer buf.deinit(gpa);
 
-    const out = buf.writer();
     for (input) |c| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_', '-', '0'...'9' => {
-                try out.writeByte(c);
+                try buf.append(gpa, c);
             },
             ' ' => {
-                try out.writeByte('-');
+                try buf.append(gpa, '-');
             },
             else => {},
         }
     }
-    return try buf.toOwnedSlice();
+    return try buf.toOwnedSlice(gpa);
 }
 
 fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();
@@ -627,7 +633,7 @@ fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
     return try buf.toOwnedSlice();
 }
 
-fn writeEscaped(out: anytype, input: []const u8) !void {
+fn writeEscaped(out: *Writer, input: []const u8) !void {
     for (input) |c| {
         try switch (c) {
             '&' => out.writeAll("&amp;"),
@@ -663,14 +669,14 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-fn writeEscapedLines(out: anytype, text: []const u8) !void {
+fn writeEscapedLines(out: *Writer, text: []const u8) !void {
     return writeEscaped(out, text);
 }
 
 fn tokenizeAndPrintRaw(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
-    out: anytype,
+    out: *Writer,
     source_token: Token,
     raw_src: []const u8,
 ) !void {
@@ -908,14 +914,14 @@ fn tokenizeAndPrintRaw(
 fn tokenizeAndPrint(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
-    out: anytype,
+    out: *Writer,
     source_token: Token,
 ) !void {
     const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
     return tokenizeAndPrintRaw(allocator, docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: anytype, syntax_block: SyntaxBlock) !void {
+fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: *Writer, syntax_block: SyntaxBlock) !void {
     const source_type = @tagName(syntax_block.source_type);
 
     try out.print("<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>", .{ source_type, syntax_block.name });
@@ -933,7 +939,7 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
     try out.writeAll("</pre></figure>");
 }
 
-fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
+fn printShell(out: *Writer, shell_content: []const u8, escape: bool) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
@@ -985,7 +991,7 @@ fn genHtml(
     tokenizer: *Tokenizer,
     toc: *Toc,
     code_dir: std.fs.Dir,
-    out: anytype,
+    out: *Writer,
 ) !void {
     for (toc.nodes) |node| {
         switch (node) {
@@ -1040,10 +1046,8 @@ fn genHtml(
                 });
                 defer allocator.free(out_basename);
 
-                const contents = code_dir.readFileAlloc(allocator, out_basename, std.math.maxInt(u32)) catch |err| {
-                    return parseError(tokenizer, code.token, "unable to open '{s}': {s}", .{
-                        out_basename, @errorName(err),
-                    });
+                const contents = code_dir.readFileAlloc(out_basename, allocator, .limited(std.math.maxInt(u32))) catch |err| {
+                    return parseError(tokenizer, code.token, "unable to open '{s}': {t}", .{ out_basename, err });
                 };
                 defer allocator.free(contents);
 

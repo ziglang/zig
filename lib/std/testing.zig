@@ -28,11 +28,15 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
     break :b .init;
 };
 
+pub var io_instance: std.Io.Threaded = undefined;
+pub const io = io_instance.io();
+
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
 pub const backend_can_print = switch (builtin.zig_backend) {
+    .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
     .stage2_spirv,
@@ -134,15 +138,9 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         .array => |array| try expectEqualSlices(array.child, &expected, &actual),
 
         .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!std.meta.eql(expected[i], actual[i])) {
-                    print("index {d} incorrect. expected {any}, found {any}\n", .{
-                        i, expected[i], actual[i],
-                    });
-                    return error.TestExpectedEqual;
-                }
-            }
+            const expect_array: [info.len]info.child = expected;
+            const actual_array: [info.len]info.child = actual;
+            try expectEqualSlices(info.child, &expect_array, &actual_array);
         },
 
         .@"struct" => |structType| {
@@ -357,7 +355,7 @@ test expectApproxEqRel {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
+/// The colorized output is optional and controlled by the return of `std.Io.tty.Config.detect`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     const diff_index: usize = diff_index: {
@@ -369,9 +367,9 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         break :diff_index if (expected.len == actual.len) return else shortest;
     };
     if (!backend_can_print) return error.TestExpectedEqual;
-    const stderr_w = std.debug.lockStderrWriter(&.{});
+    const stderr_w, const ttyconf = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
-    failEqualSlices(T, expected, actual, diff_index, stderr_w) catch {};
+    failEqualSlices(T, expected, actual, diff_index, stderr_w, ttyconf) catch {};
     return error.TestExpectedEqual;
 }
 
@@ -380,7 +378,8 @@ fn failEqualSlices(
     expected: []const T,
     actual: []const T,
     diff_index: usize,
-    w: *std.io.Writer,
+    w: *std.Io.Writer,
+    ttyconf: std.Io.tty.Config,
 ) !void {
     try w.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
@@ -400,7 +399,6 @@ fn failEqualSlices(
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -466,11 +464,11 @@ fn SliceDiffer(comptime T: type) type {
         start_index: usize,
         expected: []const T,
         actual: []const T,
-        ttyconf: std.io.tty.Config,
+        ttyconf: std.Io.tty.Config,
 
         const Self = @This();
 
-        pub fn write(self: Self, writer: *std.io.Writer) !void {
+        pub fn write(self: Self, writer: *std.Io.Writer) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
@@ -489,9 +487,9 @@ fn SliceDiffer(comptime T: type) type {
 const BytesDiffer = struct {
     expected: []const u8,
     actual: []const u8,
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
 
-    pub fn write(self: BytesDiffer, writer: *std.io.Writer) !void {
+    pub fn write(self: BytesDiffer, writer: *std.Io.Writer) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -537,7 +535,7 @@ const BytesDiffer = struct {
         }
     }
 
-    fn writeDiff(self: BytesDiffer, writer: *std.io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(writer, .red);
         try writer.print(fmt, args);
         if (diff) try self.ttyconf.setColor(writer, .reset);
@@ -827,8 +825,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
                 print("Vector len not the same, expected {d}, found {d}\n", .{ info.len, @typeInfo(@TypeOf(actual)).vector.len });
                 return error.TestExpectedEqual;
             }
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
+            inline for (0..info.len) |i| {
                 expectEqualDeep(expected[i], actual[i]) catch |e| {
                     print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
@@ -1151,6 +1148,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
+                    const tty_config = std.Io.tty.detectConfig(.stderr());
                     print(
                         "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {f}",
                         .{
@@ -1160,7 +1158,10 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
                             failing_allocator_inst.freed_bytes,
                             failing_allocator_inst.allocations,
                             failing_allocator_inst.deallocations,
-                            failing_allocator_inst.getStackTrace(),
+                            std.debug.FormatStackTrace{
+                                .stack_trace = failing_allocator_inst.getStackTrace(),
+                                .tty_config = tty_config,
+                            },
                         },
                     );
                     return error.MemoryLeakDetected;
@@ -1207,12 +1208,14 @@ pub inline fn fuzz(
     return @import("root").fuzz(context, testOne, options);
 }
 
-/// A `std.io.Reader` that writes a predetermined list of buffers during `stream`.
+/// A `std.Io.Reader` that writes a predetermined list of buffers during `stream`.
 pub const Reader = struct {
     calls: []const Call,
-    interface: std.io.Reader,
+    interface: std.Io.Reader,
     next_call_index: usize,
     next_offset: usize,
+    /// Further reduces how many bytes are written in each `stream` call.
+    artificial_limit: std.Io.Limit = .unlimited,
 
     pub const Call = struct {
         buffer: []const u8,
@@ -1232,11 +1235,11 @@ pub const Reader = struct {
         };
     }
 
-    fn stream(io_r: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+    fn stream(io_r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
         if (r.calls.len - r.next_call_index == 0) return error.EndOfStream;
         const call = r.calls[r.next_call_index];
-        const buffer = limit.sliceConst(call.buffer[r.next_offset..]);
+        const buffer = r.artificial_limit.sliceConst(limit.sliceConst(call.buffer[r.next_offset..]));
         const n = try w.write(buffer);
         r.next_offset += n;
         if (call.buffer.len - r.next_offset == 0) {
@@ -1244,5 +1247,65 @@ pub const Reader = struct {
             r.next_offset = 0;
         }
         return n;
+    }
+};
+
+/// A `std.Io.Reader` that gets its data from another `std.Io.Reader`, and always
+/// writes to its own buffer (and returns 0) during `stream` and `readVec`.
+pub const ReaderIndirect = struct {
+    in: *std.Io.Reader,
+    interface: std.Io.Reader,
+
+    pub fn init(in: *std.Io.Reader, buffer: []u8) ReaderIndirect {
+        return .{
+            .in = in,
+            .interface = .{
+                .vtable = &.{
+                    .stream = stream,
+                    .readVec = readVec,
+                },
+                .buffer = buffer,
+                .seek = 0,
+                .end = 0,
+            },
+        };
+    }
+
+    fn readVec(r: *std.Io.Reader, _: [][]u8) std.Io.Reader.Error!usize {
+        try streamInner(r);
+        return 0;
+    }
+
+    fn stream(r: *std.Io.Reader, _: *std.Io.Writer, _: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        try streamInner(r);
+        return 0;
+    }
+
+    fn streamInner(r: *std.Io.Reader) std.Io.Reader.Error!void {
+        const r_indirect: *ReaderIndirect = @alignCast(@fieldParentPtr("interface", r));
+
+        // If there's no room remaining in the buffer at all, make room.
+        if (r.buffer.len == r.end) {
+            try r.rebase(r.buffer.len);
+        }
+
+        var writer: std.Io.Writer = .{
+            .buffer = r.buffer,
+            .end = r.end,
+            .vtable = &.{
+                .drain = std.Io.Writer.unreachableDrain,
+                .rebase = std.Io.Writer.unreachableRebase,
+            },
+        };
+        defer r.end = writer.end;
+
+        r_indirect.in.streamExact(&writer, r.buffer.len - r.end) catch |err| switch (err) {
+            // Only forward EndOfStream if no new bytes were written to the buffer
+            error.EndOfStream => |e| if (r.end == writer.end) {
+                return e;
+            },
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
     }
 };

@@ -6,8 +6,6 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:17: error: incompatible types: '*[10]u8' and 'comptime_int'
 // :4:15: note: type '*[10]u8' here

@@ -57,7 +57,7 @@ pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_o
 };
 
 /// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
-/// Otherwise use `access` or `accessZ`.
+/// Otherwise use `access`.
 pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     const ret = try windows.GetFileAttributesW(path);
     if (ret != windows.INVALID_FILE_ATTRIBUTES) {
@@ -80,7 +80,6 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .tvos,
         .visionos,
         .linux,
-        .solaris,
         .illumos,
         .freebsd,
         .serenity,
@@ -98,7 +97,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
 /// For example, while it generally works on Linux, macOS, FreeBSD or Windows, it is
 /// unsupported on WASI.
 ///
-/// * On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// * On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// * On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 ///
 /// Calling this function is usually a bug.
@@ -132,14 +131,12 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
         },
         .linux, .serenity => {
             var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-            const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{fd}) catch unreachable;
+            const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/fd/{d}", .{fd}, 0) catch unreachable;
 
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| {
                 switch (err) {
                     error.NotLink => unreachable,
                     error.BadPathName => unreachable,
-                    error.InvalidUtf8 => unreachable, // WASI-only
-                    error.InvalidWtf8 => unreachable, // Windows-only
                     error.UnsupportedReparsePointType => unreachable, // Windows-only
                     error.NetworkNotFound => unreachable, // Windows-only
                     else => |e| return e,
@@ -147,14 +144,13 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             };
             return target;
         },
-        .solaris, .illumos => {
+        .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
-            const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/path/{d}", .{fd}) catch unreachable;
+            const proc_path = std.fmt.bufPrintSentinel(procfs_buf[0..], "/proc/self/path/{d}", .{fd}, 0) catch unreachable;
 
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,
                 error.NotLink => unreachable,
-                error.InvalidUtf8 => unreachable, // WASI-only
                 else => |e| return e,
             };
             return target;
@@ -202,28 +198,13 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
     }
 }
 
-/// WASI-only. Same as `fstatat` but targeting WASI.
-/// `pathname` should be encoded as valid UTF-8.
-/// See also `fstatat`.
-pub fn fstatat_wasi(dirfd: posix.fd_t, pathname: []const u8, flags: wasi.lookupflags_t) posix.FStatAtError!wasi.filestat_t {
-    var stat: wasi.filestat_t = undefined;
-    switch (wasi.path_filestat_get(dirfd, flags, pathname.ptr, pathname.len, &stat)) {
-        .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
-        .NOMEM => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        .FAULT => unreachable,
-        .NAMETOOLONG => return error.NameTooLong,
-        .NOENT => return error.FileNotFound,
-        .NOTDIR => return error.FileNotFound,
-        .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
-        else => |err| return posix.unexpectedErrno(err),
-    }
-}
+pub const FstatError = error{
+    SystemResources,
+    AccessDenied,
+    Unexpected,
+};
 
-pub fn fstat_wasi(fd: posix.fd_t) posix.FStatError!wasi.filestat_t {
+pub fn fstat_wasi(fd: posix.fd_t) FstatError!wasi.filestat_t {
     var stat: wasi.filestat_t = undefined;
     switch (wasi.fd_filestat_get(fd, &stat)) {
         .SUCCESS => return stat,

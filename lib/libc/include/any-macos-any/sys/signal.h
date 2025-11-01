@@ -164,6 +164,7 @@ union sigval {
 #define SIGEV_NONE      0       /* No async notification */
 #define SIGEV_SIGNAL    1       /* aio - completion notification */
 #define SIGEV_THREAD    3       /* [NOTIMP] [RTS] call notification function */
+#define SIGEV_KEVENT    4       /* Generate a kevent */
 
 struct sigevent {
 	int                             sigev_notify;                           /* Notification type */

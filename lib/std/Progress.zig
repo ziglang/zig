@@ -9,7 +9,7 @@ const Progress = @This();
 const posix = std.posix;
 const is_big_endian = builtin.cpu.arch.endian() == .big;
 const is_windows = builtin.os.tag == .windows;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 /// `null` if the current node (and its children) should
 /// not print on update()
@@ -25,6 +25,7 @@ redraw_event: std.Thread.ResetEvent,
 /// Accessed atomically.
 done: bool,
 need_clear: bool,
+status: Status,
 
 refresh_rate_ns: u64,
 initial_delay_ns: u64,
@@ -46,6 +47,22 @@ node_freelist: Freelist,
 /// index are either active, or on the freelist. The remaining nodes are implicitly free. This
 /// value may at times temporarily exceed the node count.
 node_end_index: u32,
+
+pub const Status = enum {
+    /// Indicates the application is progressing towards completion of a task.
+    /// Unless the application is interactive, this is the only status the
+    /// program will ever have!
+    working,
+    /// The application has completed an operation, and is now waiting for user
+    /// input rather than calling exit(0).
+    success,
+    /// The application encountered an error, and is now waiting for user input
+    /// rather than calling exit(1).
+    failure,
+    /// The application encountered at least one error, but is still working on
+    /// more tasks.
+    failure_working,
+};
 
 const Freelist = packed struct(u32) {
     head: Node.OptionalIndex,
@@ -375,7 +392,7 @@ var global_progress: Progress = .{
     .terminal = undefined,
     .terminal_mode = .off,
     .update_thread = null,
-    .redraw_event = .{},
+    .redraw_event = .unset,
     .refresh_rate_ns = undefined,
     .initial_delay_ns = undefined,
     .rows = 0,
@@ -383,6 +400,7 @@ var global_progress: Progress = .{
     .draw_buffer = undefined,
     .done = false,
     .need_clear = false,
+    .status = .working,
 
     .node_parents = &node_parents_buffer,
     .node_storage = &node_storage_buffer,
@@ -407,6 +425,9 @@ pub const have_ipc = switch (builtin.os.tag) {
 
 const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
+    else => false,
+} or switch (builtin.zig_backend) {
+    .stage2_aarch64 => true,
     else => false,
 };
 
@@ -472,7 +493,7 @@ pub fn start(options: Options) Node {
                     .mask = posix.sigemptyset(),
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
-                posix.sigaction(posix.SIG.WINCH, &act, null);
+                posix.sigaction(.WINCH, &act, null);
             }
 
             if (switch (global_progress.terminal_mode) {
@@ -495,11 +516,14 @@ pub fn start(options: Options) Node {
     return root_node;
 }
 
+pub fn setStatus(new_status: Status) void {
+    if (noop_impl) return;
+    @atomicStore(Status, &global_progress.status, new_status, .monotonic);
+}
+
 /// Returns whether a resize is needed to learn the terminal size.
 fn wait(timeout_ns: u64) bool {
-    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_|
-        true
-    else |err| switch (err) {
+    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_| true else |err| switch (err) {
         error.Timeout => false,
     };
     global_progress.redraw_event.reset();
@@ -633,6 +657,7 @@ pub fn lockStderrWriter(buffer: []u8) *Writer {
 
 pub fn unlockStderrWriter() void {
     stderr_writer.flush() catch {};
+    stderr_writer.end = 0;
     stderr_writer.buffer = &.{};
     stderr_mutex.unlock();
 }
@@ -673,6 +698,14 @@ const clear = "\x1b[J";
 const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
+
+const progress_remove = "\x1b]9;4;0\x07";
+const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x07";
+const @"progress_error {d}" = "\x1b]9;4;2;{d}\x07";
+const progress_pulsing = "\x1b]9;4;3\x07";
+const progress_pulsing_error = "\x1b]9;4;2\x07";
+const progress_normal_100 = "\x1b]9;4;1;100\x07";
+const progress_error_100 = "\x1b]9;4;2;100\x07";
 
 const TreeSymbol = enum {
     /// ├─
@@ -753,10 +786,10 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
 }
 
 fn clearWrittenWithEscapeCodes() anyerror!void {
-    if (!global_progress.need_clear) return;
+    if (noop_impl or !global_progress.need_clear) return;
 
     global_progress.need_clear = false;
-    try write(clear);
+    try write(clear ++ progress_remove);
 }
 
 /// U+25BA or ►
@@ -971,7 +1004,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
                         continue;
                     }
                     const src = pipe_buf[m.remaining_read_trash_bytes..n];
-                    std.mem.copyForwards(u8, &pipe_buf, src);
+                    @memmove(pipe_buf[0..src.len], src);
                     m.remaining_read_trash_bytes = 0;
                     bytes_read = src.len;
                     continue;
@@ -1199,6 +1232,47 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
     i, const nl_n = computeNode(buf, i, 0, serialized, children, root_node_index);
 
     if (global_progress.terminal_mode == .ansi_escape_codes) {
+        {
+            // Set progress state https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+            const root_storage = &serialized.storage[0];
+            const storage = if (root_storage.name[0] != 0 or children[0].child == .none) root_storage else &serialized.storage[@intFromEnum(children[0].child)];
+            const estimated_total = storage.estimated_total_count;
+            const completed_items = storage.completed_count;
+            const status = @atomicLoad(Status, &global_progress.status, .monotonic);
+            switch (status) {
+                .working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing.len].* = progress_pulsing.*;
+                        i += progress_pulsing.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
+                    }
+                },
+                .success => {
+                    buf[i..][0..progress_remove.len].* = progress_remove.*;
+                    i += progress_remove.len;
+                },
+                .failure => {
+                    buf[i..][0..progress_error_100.len].* = progress_error_100.*;
+                    i += progress_error_100.len;
+                },
+                .failure_working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing_error.len].* = progress_pulsing_error.*;
+                        i += progress_pulsing_error.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
+                    }
+                },
+            }
+        }
+
         if (nl_n > 0) {
             buf[i] = '\r';
             i += 1;
@@ -1292,12 +1366,18 @@ fn computeNode(
     if (!is_empty_root) {
         if (name.len != 0 or estimated_total > 0) {
             if (estimated_total > 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total }) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total })) |b| {
+                    i += b.len;
+                } else |_| {}
             } else if (completed_items != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
             if (name.len != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "{s}", .{name}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "{s}", .{name})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
         }
 
@@ -1455,17 +1535,17 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+fn handleSigWinch(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
-    assert(sig == posix.SIG.WINCH);
+    assert(sig == .WINCH);
     global_progress.redraw_event.set();
 }
 
 const have_sigwinch = switch (builtin.os.tag) {
     .linux,
     .plan9,
-    .solaris,
+    .illumos,
     .netbsd,
     .openbsd,
     .haiku,
@@ -1476,6 +1556,7 @@ const have_sigwinch = switch (builtin.os.tag) {
     .visionos,
     .dragonfly,
     .freebsd,
+    .serenity,
     => true,
 
     else => false,

@@ -8,8 +8,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:16: error: function with non-void return type 'u32' implicitly returns
 // :3:1: note: control flow reaches end of body here

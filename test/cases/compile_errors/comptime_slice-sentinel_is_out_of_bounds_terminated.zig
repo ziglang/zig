@@ -55,8 +55,6 @@ export fn foo_slice() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
 // :12:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'

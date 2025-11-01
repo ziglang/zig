@@ -811,10 +811,6 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
 
     if (self.base.gc_sections) {
         try gc.gcAtoms(self);
-
-        if (self.base.print_gc_sections) {
-            try gc.dumpPrunedAtoms(self);
-        }
     }
 
     self.checkDuplicates() catch |err| switch (err) {
@@ -882,7 +878,7 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     self.rela_plt.clearRetainingCapacity();
 
     if (self.zigObjectPtr()) |zo| {
-        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
         defer {
             for (undefs.values()) |*refs| refs.deinit();
             undefs.deinit();
@@ -1326,7 +1322,7 @@ fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
     defer {
         for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
@@ -1469,7 +1465,7 @@ pub fn writeShdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+            try self.pwriteAll(@ptrCast(buf), self.shdr_table_offset.?);
         },
         .p64 => {
             const buf = try gpa.alloc(elf.Elf64_Shdr, self.sections.items(.shdr).len);
@@ -1482,7 +1478,7 @@ pub fn writeShdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+            try self.pwriteAll(@ptrCast(buf), self.shdr_table_offset.?);
         },
     }
 }
@@ -1509,7 +1505,7 @@ fn writePhdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+            try self.pwriteAll(@ptrCast(buf), phdr_table.p_offset);
         },
         .p64 => {
             const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
@@ -1521,7 +1517,7 @@ fn writePhdrTable(self: *Elf) !void {
                     mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
                 }
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+            try self.pwriteAll(@ptrCast(buf), phdr_table.p_offset);
         },
     }
 }
@@ -1565,7 +1561,7 @@ pub fn writeElfHeader(self: *Elf) !void {
         else => switch (target.os.tag) {
             .freebsd, .ps4 => .FREEBSD,
             .hermit => .STANDALONE,
-            .illumos, .solaris => .SOLARIS,
+            .illumos => .SOLARIS,
             .openbsd => .OPENBSD,
             else => .NONE,
         },
@@ -1849,7 +1845,7 @@ pub fn updateMergeSectionSizes(self: *Elf) !void {
 
 pub fn writeMergeSections(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     for (self.merge_sections.items) |*msec| {
@@ -1886,7 +1882,13 @@ fn initSyntheticSections(self: *Elf) !void {
     const comp = self.base.comp;
     const target = self.getTarget();
     const ptr_size = self.ptrWidthBytes();
-    const shared_objects = self.shared_objects.values();
+
+    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
+        .Exe => true,
+        .Lib => comp.config.link_mode == .dynamic,
+        .Obj => false,
+    };
+    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib;
 
     const needs_eh_frame = blk: {
         if (self.zigObjectPtr()) |zo|
@@ -1895,6 +1897,7 @@ fn initSyntheticSections(self: *Elf) !void {
             if (self.file(index).?.object.cies.items.len > 0) break true;
         } else false;
     };
+
     if (needs_eh_frame) {
         if (self.section_indexes.eh_frame == null) {
             self.section_indexes.eh_frame = self.sectionByName(".eh_frame") orelse try self.addSection(.{
@@ -1926,13 +1929,17 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.section_indexes.got_plt == null) {
-        self.section_indexes.got_plt = try self.addSection(.{
-            .name = try self.insertShString(".got.plt"),
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .addralign = @alignOf(u64),
-        });
+    if (have_dynamic_linker) {
+        if (self.section_indexes.got_plt == null) {
+            self.section_indexes.got_plt = try self.addSection(.{
+                .name = try self.insertShString(".got.plt"),
+                .type = elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                .addralign = @alignOf(u64),
+            });
+        }
+    } else {
+        assert(self.plt.symbols.items.len == 0);
     }
 
     const needs_rela_dyn = blk: {
@@ -1993,17 +2000,15 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
-        .Exe => true,
-        .Lib => comp.config.link_mode == .dynamic,
-        .Obj => false,
-    };
-    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib and !target.dynamic_linker.eql(.none);
-
-    const needs_interp = have_dynamic_linker and
-        (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker);
-
-    if (needs_interp and self.section_indexes.interp == null) {
+    if (needs_interp: {
+        if (comp.config.link_mode == .static) break :needs_interp false;
+        if (target.dynamic_linker.get() == null) break :needs_interp false;
+        break :needs_interp switch (comp.config.output_mode) {
+            .Exe => true,
+            .Lib => comp.root_mod.resolved_target.is_explicit_dynamic_linker,
+            .Obj => false,
+        };
+    } and self.section_indexes.interp == null) {
         self.section_indexes.interp = try self.addSection(.{
             .name = try self.insertShString(".interp"),
             .type = elf.SHT_PROGBITS,
@@ -2012,7 +2017,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.isEffectivelyDynLib() or shared_objects.len > 0 or comp.config.pie) {
+    if (have_dynamic_linker or comp.config.pie or self.isEffectivelyDynLib()) {
         if (self.section_indexes.dynstrtab == null) {
             self.section_indexes.dynstrtab = try self.addSection(.{
                 .name = try self.insertShString(".dynstr"),
@@ -2214,7 +2219,7 @@ fn sortInitFini(self: *Elf) !void {
         }
         if (!is_init_fini and !is_ctor_dtor) continue;
 
-        var entries = std.ArrayList(Entry).init(gpa);
+        var entries = std.array_list.Managed(Entry).init(gpa);
         try entries.ensureTotalCapacityPrecise(atom_list.atoms.keys().len);
         defer entries.deinit();
 
@@ -2771,7 +2776,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
     // virtual and file offsets. However, the simple one will do for one
     // as we are more interested in quick turnaround and compatibility
     // with `findFreeSpace` mechanics than anything else.
-    const Cover = std.ArrayList(u32);
+    const Cover = std.array_list.Managed(u32);
     const gpa = self.base.comp.gpa;
     var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
@@ -2999,13 +3004,13 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
     defer {
         for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer: std.Io.Writer.Allocating = .init(gpa);
     defer buffer.deinit();
 
     const slice = self.sections.slice();
@@ -3032,9 +3037,9 @@ fn writeAtoms(self: *Elf) !void {
             try buffer.ensureUnusedCapacity(thunk_size);
             const shdr = slice.items(.shdr)[th.output_section_index];
             const offset = @as(u64, @intCast(th.value)) + shdr.sh_offset;
-            try th.write(self, buffer.writer());
-            assert(buffer.items.len == thunk_size);
-            try self.pwriteAll(buffer.items, offset);
+            try th.write(self, &buffer.writer);
+            assert(buffer.written().len == thunk_size);
+            try self.pwriteAll(buffer.written(), offset);
             buffer.clearRetainingCapacity();
         }
     }
@@ -3048,7 +3053,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var files = std.ArrayList(File.Index).init(gpa);
+    var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + shared_objects.len + 2);
 
@@ -3152,39 +3157,40 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.gnu_hash) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.gnu_hash.size());
-        defer buffer.deinit();
-        try self.gnu_hash.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        var aw: std.Io.Writer.Allocating = .init(gpa);
+        try aw.ensureUnusedCapacity(self.gnu_hash.size());
+        defer aw.deinit();
+        try self.gnu_hash.write(self, &aw.writer);
+        try self.pwriteAll(aw.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.versym) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        try self.pwriteAll(mem.sliceAsBytes(self.versym.items), shdr.sh_offset);
+        try self.pwriteAll(@ptrCast(self.versym.items), shdr.sh_offset);
     }
 
     if (self.section_indexes.verneed) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.verneed.size());
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.verneed.size());
         defer buffer.deinit();
-        try self.verneed.write(buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.verneed.write(&buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.dynamic) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.dynamic.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.dynamic.size(self));
         defer buffer.deinit();
-        try self.dynamic.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.dynamic.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.dynsymtab) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.dynsym.size());
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.dynsym.size());
         defer buffer.deinit();
-        try self.dynsym.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.dynsym.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.dynstrtab) |shndx| {
@@ -3200,28 +3206,28 @@ fn writeSyntheticSections(self: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
-        try eh_frame.writeEhFrame(self, buffer.writer());
-        assert(buffer.items.len == sh_size - existing_size);
-        try self.pwriteAll(buffer.items, shdr.sh_offset + existing_size);
+        try eh_frame.writeEhFrame(self, &buffer.writer);
+        assert(buffer.written().len == sh_size - existing_size);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset + existing_size);
     }
 
     if (self.section_indexes.eh_frame_hdr) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, sh_size);
         defer buffer.deinit();
-        try eh_frame.writeEhFrameHdr(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try eh_frame.writeEhFrameHdr(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.got) |index| {
         const shdr = slice.items(.shdr)[index];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.got.size(self));
         defer buffer.deinit();
-        try self.got.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.got.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.rela_dyn) |shndx| {
@@ -3229,37 +3235,37 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.got.addRela(self);
         try self.copy_rel.addRela(self);
         self.sortRelaDyn();
-        try self.pwriteAll(mem.sliceAsBytes(self.rela_dyn.items), shdr.sh_offset);
+        try self.pwriteAll(@ptrCast(self.rela_dyn.items), shdr.sh_offset);
     }
 
     if (self.section_indexes.plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.plt.size(self));
         defer buffer.deinit();
-        try self.plt.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.plt.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.got_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got_plt.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.got_plt.size(self));
         defer buffer.deinit();
-        try self.got_plt.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.got_plt.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.plt_got) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.plt_got.size(self));
         defer buffer.deinit();
-        try self.plt_got.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.plt_got.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.rela_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try self.plt.addRela(self);
-        try self.pwriteAll(mem.sliceAsBytes(self.rela_plt.items), shdr.sh_offset);
+        try self.pwriteAll(@ptrCast(self.rela_plt.items), shdr.sh_offset);
     }
 
     try self.writeSymtab();
@@ -3367,13 +3373,13 @@ pub fn writeSymtab(self: *Elf) !void {
                 };
                 if (foreign_endian) mem.byteSwapAllFields(elf.Elf32_Sym, out);
             }
-            try self.pwriteAll(mem.sliceAsBytes(buf), symtab_shdr.sh_offset);
+            try self.pwriteAll(@ptrCast(buf), symtab_shdr.sh_offset);
         },
         .p64 => {
             if (foreign_endian) {
                 for (self.symtab.items) |*sym| mem.byteSwapAllFields(elf.Elf64_Sym, sym);
             }
-            try self.pwriteAll(mem.sliceAsBytes(self.symtab.items), symtab_shdr.sh_offset);
+            try self.pwriteAll(@ptrCast(self.symtab.items), symtab_shdr.sh_offset);
         },
     }
 
@@ -3721,8 +3727,8 @@ pub fn tpAddress(self: *Elf) i64 {
     const phdr = self.phdrs.items[index];
     const addr = switch (self.getTarget().cpu.arch) {
         .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
-        .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
-        .riscv64 => phdr.p_vaddr,
+        .aarch64, .aarch64_be => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
+        .riscv64, .riscv64be => phdr.p_vaddr,
         else => |arch| std.debug.panic("TODO implement getTpAddress for {s}", .{@tagName(arch)}),
     };
     return @intCast(addr);
@@ -3756,7 +3762,7 @@ pub fn insertShString(self: *Elf, name: [:0]const u8) error{OutOfMemory}!u32 {
     const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.shstrtab.items.len));
     try self.shstrtab.ensureUnusedCapacity(gpa, name.len + 1);
-    self.shstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
+    self.shstrtab.print(gpa, "{s}\x00", .{name}) catch unreachable;
     return off;
 }
 
@@ -3769,7 +3775,7 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
     const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.dynstrtab.items.len));
     try self.dynstrtab.ensureUnusedCapacity(gpa, name.len + 1);
-    self.dynstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
+    self.dynstrtab.print(gpa, "{s}\x00", .{name}) catch unreachable;
     return off;
 }
 
@@ -3865,14 +3871,14 @@ const FormatShdr = struct {
     shdr: elf.Elf64_Shdr,
 };
 
-fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(FormatShdr, formatShdr) {
+fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Alt(FormatShdr, formatShdr) {
     return .{ .data = .{
         .shdr = shdr,
         .elf_file = self,
     } };
 }
 
-fn formatShdr(ctx: FormatShdr, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatShdr(ctx: FormatShdr, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const shdr = ctx.shdr;
     try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({f})", .{
         ctx.elf_file.getShString(shdr.sh_name), shdr.sh_offset,
@@ -3882,11 +3888,11 @@ fn formatShdr(ctx: FormatShdr, writer: *std.io.Writer) std.io.Writer.Error!void 
     });
 }
 
-pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(u64, formatShdrFlags) {
+pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Alt(u64, formatShdrFlags) {
     return .{ .data = sh_flags };
 }
 
-fn formatShdrFlags(sh_flags: u64, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatShdrFlags(sh_flags: u64, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (elf.SHF_WRITE & sh_flags != 0) {
         try writer.writeAll("W");
     }
@@ -3936,14 +3942,14 @@ const FormatPhdr = struct {
     phdr: elf.Elf64_Phdr,
 };
 
-fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Formatter(FormatPhdr, formatPhdr) {
+fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Alt(FormatPhdr, formatPhdr) {
     return .{ .data = .{
         .phdr = phdr,
         .elf_file = self,
     } };
 }
 
-fn formatPhdr(ctx: FormatPhdr, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatPhdr(ctx: FormatPhdr, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const phdr = ctx.phdr;
     const write = phdr.p_flags & elf.PF_W != 0;
     const read = phdr.p_flags & elf.PF_R != 0;
@@ -3970,11 +3976,11 @@ fn formatPhdr(ctx: FormatPhdr, writer: *std.io.Writer) std.io.Writer.Error!void 
     });
 }
 
-pub fn dumpState(self: *Elf) std.fmt.Formatter(*Elf, fmtDumpState) {
+pub fn dumpState(self: *Elf) std.fmt.Alt(*Elf, fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn fmtDumpState(self: *Elf, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const shared_objects = self.shared_objects.values();
 
     if (self.zigObjectPtr()) |zig_object| {
@@ -4098,8 +4104,8 @@ pub fn getTarget(self: *const Elf) *const std.Target {
 
 fn requiresThunks(self: Elf) bool {
     return switch (self.getTarget().cpu.arch) {
-        .aarch64 => true,
-        .x86_64, .riscv64 => false,
+        .aarch64, .aarch64_be => true,
+        .x86_64, .riscv64, .riscv64be => false,
         else => @panic("TODO unimplemented architecture"),
     };
 }
@@ -4192,7 +4198,7 @@ pub const Ref = struct {
         return ref.index == other.index and ref.file == other.file;
     }
 
-    pub fn format(ref: Ref, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(ref: Ref, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("ref({d},{d})", .{ ref.index, ref.file });
     }
 };
@@ -4344,8 +4350,8 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
     // A branch will need an extender if its target is larger than
     // `2^(jump_bits - 1) - margin` where margin is some arbitrary number.
     const max_distance = switch (cpu_arch) {
-        .aarch64 => 0x500_000,
-        .x86_64, .riscv64 => unreachable,
+        .aarch64, .aarch64_be => 0x500_000,
+        .x86_64, .riscv64, .riscv64be => unreachable,
         else => @panic("unhandled arch"),
     };
 
@@ -4391,7 +4397,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
             log.debug("atom({f}) {s}", .{ ref, atom_ptr.name(elf_file) });
             for (atom_ptr.relocs(elf_file)) |rel| {
                 const is_reachable = switch (cpu_arch) {
-                    .aarch64 => r: {
+                    .aarch64, .aarch64_be => r: {
                         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
                         if (r_type != .CALL26 and r_type != .JUMP26) break :r true;
                         const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
@@ -4405,7 +4411,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
                         _ = math.cast(i28, taddr + rel.r_addend - saddr) orelse break :r false;
                         break :r true;
                     },
-                    .x86_64, .riscv64 => unreachable,
+                    .x86_64, .riscv64, .riscv64be => unreachable,
                     else => @panic("unsupported arch"),
                 };
                 if (is_reachable) continue;

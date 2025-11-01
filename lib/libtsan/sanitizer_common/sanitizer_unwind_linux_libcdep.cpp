@@ -12,7 +12,7 @@
 
 #include "sanitizer_platform.h"
 #if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD || \
-    SANITIZER_SOLARIS
+    SANITIZER_SOLARIS || SANITIZER_HAIKU
 #include "sanitizer_common.h"
 #include "sanitizer_stacktrace.h"
 
@@ -91,38 +91,6 @@ _Unwind_Reason_Code Unwind_Trace(struct _Unwind_Context *ctx, void *param) {
 
 }  // namespace
 
-#if SANITIZER_ANDROID
-void SanitizerInitializeUnwinder() {
-  if (AndroidGetApiLevel() >= ANDROID_LOLLIPOP_MR1) return;
-
-  // Pre-lollipop Android can not unwind through signal handler frames with
-  // libgcc unwinder, but it has a libcorkscrew.so library with the necessary
-  // workarounds.
-  void *p = dlopen("libcorkscrew.so", RTLD_LAZY);
-  if (!p) {
-    VReport(1,
-            "Failed to open libcorkscrew.so. You may see broken stack traces "
-            "in SEGV reports.");
-    return;
-  }
-  acquire_my_map_info_list =
-      (acquire_my_map_info_list_func)(uptr)dlsym(p, "acquire_my_map_info_list");
-  release_my_map_info_list =
-      (release_my_map_info_list_func)(uptr)dlsym(p, "release_my_map_info_list");
-  unwind_backtrace_signal_arch = (unwind_backtrace_signal_arch_func)(uptr)dlsym(
-      p, "unwind_backtrace_signal_arch");
-  if (!acquire_my_map_info_list || !release_my_map_info_list ||
-      !unwind_backtrace_signal_arch) {
-    VReport(1,
-            "Failed to find one of the required symbols in libcorkscrew.so. "
-            "You may see broken stack traces in SEGV reports.");
-    acquire_my_map_info_list = 0;
-    unwind_backtrace_signal_arch = 0;
-    release_my_map_info_list = 0;
-  }
-}
-#endif
-
 void BufferedStackTrace::UnwindSlow(uptr pc, u32 max_depth) {
   CHECK_GE(max_depth, 2);
   size = 0;
@@ -171,4 +139,4 @@ void BufferedStackTrace::UnwindSlow(uptr pc, void *context, u32 max_depth) {
 }  // namespace __sanitizer
 
 #endif  // SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD ||
-        // SANITIZER_SOLARIS
+        // SANITIZER_SOLARIS || SANITIZER_HAIKU

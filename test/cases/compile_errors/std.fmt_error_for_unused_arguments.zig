@@ -3,7 +3,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :?:?: error: 10 unused arguments in '{d} {d} {d} {d} {d}'

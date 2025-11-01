@@ -100,13 +100,8 @@ test {
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
-    _ = @import("behavior/union_with_members.zig");
     _ = @import("behavior/var_args.zig");
-    // https://github.com/llvm/llvm-project/issues/118879
-    // https://github.com/llvm/llvm-project/issues/134659
-    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
-        _ = @import("behavior/vector.zig");
-    }
+    _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
@@ -123,7 +118,6 @@ test {
     }
 
     if (builtin.zig_backend != .stage2_arm and
-        builtin.zig_backend != .stage2_aarch64 and
         builtin.zig_backend != .stage2_spirv)
     {
         _ = @import("behavior/export_keyword.zig");
@@ -141,7 +135,8 @@ test {
 }
 
 // This bug only repros in the root file
-test "deference @embedFile() of a file full of zero bytes" {
+test "dereference @embedFile() of a file full of zero bytes" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const contents = @embedFile("behavior/zero.bin").*;

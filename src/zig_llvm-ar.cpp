@@ -130,7 +130,7 @@ MODIFIERS:
          << "USAGE: " + ToolName +
                 " [options] [-]<operation>[modifiers] [relpos] "
                 "[count] <archive> [files]\n"
-         << "       " + ToolName + " -M [<mri-script]\n\n";
+         << "       " + ToolName + " -M [< mri-script]\n\n";
 
   outs() << ArOptions;
 }

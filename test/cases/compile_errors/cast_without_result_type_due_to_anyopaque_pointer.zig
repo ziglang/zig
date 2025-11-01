@@ -10,8 +10,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:34: error: @intCast must have a known result type
 // :2:34: note: result type is unknown due to opaque pointer type

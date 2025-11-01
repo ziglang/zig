@@ -1,3 +1,14 @@
+const builtin = @import("builtin");
+const std = @import("../std.zig");
+const mem = std.mem;
+const elf = std.elf;
+const fs = std.fs;
+const assert = std.debug.assert;
+const Target = std.Target;
+const native_endian = builtin.cpu.arch.endian();
+const posix = std.posix;
+const Io = std.Io;
+
 pub const NativePaths = @import("system/NativePaths.zig");
 
 pub const windows = @import("system/windows.zig");
@@ -81,52 +92,79 @@ pub fn getExternalExecutor(
     // If the OS matches, we can use QEMU to emulate a foreign architecture.
     if (options.allow_qemu and os_match and (!cpu_ok or options.qemu_fixes_dl)) {
         return switch (candidate.cpu.arch) {
-            .aarch64 => Executor{ .qemu = "qemu-aarch64" },
-            .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-            .arm, .thumb => Executor{ .qemu = "qemu-arm" },
-            .armeb, .thumbeb => Executor{ .qemu = "qemu-armeb" },
-            .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
-            .m68k => Executor{ .qemu = "qemu-m68k" },
-            .mips => Executor{ .qemu = "qemu-mips" },
-            .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32",
-                    else => "qemu-mips64",
+            inline .aarch64,
+            .arm,
+            .riscv64,
+            .x86,
+            .x86_64,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                .freebsd,
+                => .{ .qemu = switch (t) {
+                    .x86 => "qemu-i386",
+                    .x86_64 => switch (candidate.abi) {
+                        .gnux32, .muslx32 => return bad_result,
+                        else => "qemu-x86_64",
+                    },
+                    else => "qemu-" ++ @tagName(t),
+                } },
+                else => bad_result,
+            },
+            inline .aarch64_be,
+            .alpha,
+            .armeb,
+            .hexagon,
+            .hppa,
+            .loongarch64,
+            .m68k,
+            .microblaze,
+            .microblazeel,
+            .mips,
+            .mipsel,
+            .mips64,
+            .mips64el,
+            .or1k,
+            .powerpc,
+            .powerpc64,
+            .powerpc64le,
+            .riscv32,
+            .s390x,
+            .sh,
+            .sheb,
+            .sparc,
+            .sparc64,
+            .thumb,
+            .thumbeb,
+            .xtensa,
+            .xtensaeb,
+            => |t| switch (candidate.os.tag) {
+                .linux,
+                => .{
+                    .qemu = switch (t) {
+                        .powerpc => "qemu-ppc",
+                        .powerpc64 => "qemu-ppc64",
+                        .powerpc64le => "qemu-ppc64le",
+                        .mips64, .mips64el => switch (candidate.abi) {
+                            .gnuabin32, .muslabin32 => if (t == .mips64el) "qemu-mipsn32el" else "qemu-mipsn32",
+                            else => "qemu-" ++ @tagName(t),
+                        },
+                        // TODO: Actually check the SuperH version.
+                        .sh => "qemu-sh4",
+                        .sheb => "qemu-sh4eb",
+                        .sparc => if (candidate.cpu.has(.sparc, .v8plus)) "qemu-sparc32plus" else "qemu-sparc",
+                        .thumb => "qemu-arm",
+                        .thumbeb => "qemu-armeb",
+                        else => "qemu-" ++ @tagName(t),
+                    },
                 },
+                else => bad_result,
             },
-            .mips64el => Executor{
-                .qemu = switch (candidate.abi) {
-                    .gnuabin32, .muslabin32 => "qemu-mipsn32el",
-                    else => "qemu-mips64el",
-                },
-            },
-            .powerpc => Executor{ .qemu = "qemu-ppc" },
-            .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
-            .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
-            .riscv32 => Executor{ .qemu = "qemu-riscv32" },
-            .riscv64 => Executor{ .qemu = "qemu-riscv64" },
-            .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{
-                .qemu = if (candidate.cpu.has(.sparc, .v9))
-                    "qemu-sparc32plus"
-                else
-                    "qemu-sparc",
-            },
-            .sparc64 => Executor{ .qemu = "qemu-sparc64" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
-            .x86_64 => switch (candidate.abi) {
-                .gnux32, .muslx32 => return bad_result,
-                else => Executor{ .qemu = "qemu-x86_64" },
-            },
-            .xtensa => Executor{ .qemu = "qemu-xtensa" },
-            else => return bad_result,
+            else => bad_result,
         };
     }
 
     if (options.allow_wasmtime and candidate.cpu.arch.isWasm()) {
-        return Executor{ .wasmtime = "wasmtime" };
+        return .{ .wasmtime = "wasmtime" };
     }
 
     switch (candidate.os.tag) {
@@ -142,7 +180,7 @@ pub fn getExternalExecutor(
                     .x86_64 => host.cpu.arch == .x86_64,
                     else => false,
                 };
-                return if (wine_supported) Executor{ .wine = "wine" } else bad_result;
+                return if (wine_supported) .{ .wine = "wine" } else bad_result;
             }
             return bad_result;
         },
@@ -154,7 +192,7 @@ pub fn getExternalExecutor(
                 if (candidate.cpu.arch != host.cpu.arch) {
                     return bad_result;
                 }
-                return Executor{ .darling = "darling" };
+                return .{ .darling = "darling" };
             }
             return bad_result;
         },
@@ -172,14 +210,14 @@ pub const DetectError = error{
     OSVersionDetectionFail,
     Unexpected,
     ProcessNotFound,
-};
+} || Io.Cancelable;
 
 /// Given a `Target.Query`, which specifies in detail which parts of the
 /// target should be detected natively, which should be standard or default,
 /// and which are provided explicitly, this function resolves the native
 /// components by detecting the native system, and then resolves
 /// standard/default parts relative to that.
-pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
+pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
     const query_cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
@@ -188,25 +226,17 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     var os = query_os_tag.defaultVersionRange(query_cpu_arch, query_abi);
     if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
-            .linux => {
+            .linux, .illumos => {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
                 if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.linux.range.min = ver;
-                    os.version_range.linux.range.max = ver;
-                } else |err| switch (err) {
-                    error.Overflow => {},
-                    error.InvalidVersion => {},
-                }
-            },
-            .solaris, .illumos => {
-                const uts = posix.uname();
-                const release = mem.sliceTo(&uts.release, 0);
-                if (std.SemanticVersion.parse(release)) |ver| {
-                    os.version_range.semver.min = ver;
-                    os.version_range.semver.max = ver;
+                    var stripped = ver;
+                    stripped.pre = null;
+                    stripped.build = null;
+                    os.version_range.linux.range.min = stripped;
+                    os.version_range.linux.range.max = stripped;
                 } else |err| switch (err) {
                     error.Overflow => {},
                     error.InvalidVersion => {},
@@ -228,7 +258,6 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 var len: usize = @sizeOf(@TypeOf(value));
 
                 posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
                     error.UnknownName => unreachable, // constant, known good value
@@ -281,10 +310,9 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                     posix.CTL.KERN,
                     posix.KERN.OSRELEASE,
                 };
-                var buf: [64]u8 = undefined;
+                var buf: [64:0]u8 = undefined;
                 // consider that sysctl result includes null-termination
-                // reserve 1 byte to ensure we never overflow when appending ".0"
-                var len: usize = buf.len - 1;
+                var len: usize = buf.len + 1;
 
                 posix.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
                     error.NameTooLong => unreachable, // constant, known good value
@@ -294,12 +322,9 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                     error.Unexpected => return error.OSVersionDetectionFail,
                 };
 
-                // append ".0" to satisfy semver
-                buf[len - 1] = '.';
-                buf[len] = '0';
-                len += 1;
-
-                if (std.SemanticVersion.parse(buf[0..len])) |ver| {
+                if (Target.Query.parseVersion(buf[0..len :0])) |ver| {
+                    assert(ver.build == null);
+                    assert(ver.pre == null);
                     os.version_range.semver.min = ver;
                     os.version_range.semver.max = ver;
                 } else |_| {
@@ -342,10 +367,10 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     }
 
     var cpu = switch (query.cpu_model) {
-        .native => detectNativeCpuAndFeatures(query_cpu_arch, os, query),
+        .native => detectNativeCpuAndFeatures(io, query_cpu_arch, os, query),
         .baseline => Target.Cpu.baseline(query_cpu_arch, os),
         .determined_by_arch_os => if (query.cpu_arch == null)
-            detectNativeCpuAndFeatures(query_cpu_arch, os, query)
+            detectNativeCpuAndFeatures(io, query_cpu_arch, os, query)
         else
             Target.Cpu.baseline(query_cpu_arch, os),
         .explicit => |model| model.toCpu(query_cpu_arch),
@@ -360,6 +385,11 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     // However, the "mode" flags can be used as overrides, so if the user explicitly
     // sets one of them, that takes precedence.
     switch (query_cpu_arch) {
+        .x86_16 => {
+            cpu.features.addFeature(
+                @intFromEnum(Target.x86.Feature.@"16bit_mode"),
+            );
+        },
         .x86 => {
             if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
@@ -392,7 +422,34 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         query.cpu_features_sub,
     );
 
-    var result = try detectAbiAndDynamicLinker(cpu, os, query);
+    var result = detectAbiAndDynamicLinker(io, cpu, os, query) catch |err| switch (err) {
+        error.Canceled => |e| return e,
+        error.Unexpected => |e| return e,
+        error.WouldBlock => return error.Unexpected,
+        error.BrokenPipe => return error.Unexpected,
+        error.ConnectionResetByPeer => return error.Unexpected,
+        error.Timeout => return error.Unexpected,
+        error.NotOpenForReading => return error.Unexpected,
+        error.SocketUnconnected => return error.Unexpected,
+
+        error.AccessDenied,
+        error.ProcessNotFound,
+        error.SymLinkLoop,
+        error.ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded,
+        error.SystemResources,
+        error.IsDir,
+        error.DeviceBusy,
+        error.InputOutput,
+        error.LockViolation,
+        error.FileSystem,
+
+        error.UnableToOpenElfFile,
+        error.UnhelpfulFile,
+        error.InvalidElfFile,
+        error.RelativeShebang,
+        => return defaultAbiAndDynamicLinker(cpu, os, query),
+    };
 
     // These CPU feature hacks have to come after ABI detection.
     {
@@ -464,19 +521,18 @@ fn updateCpuFeatures(
     set.removeFeatureSet(sub_set);
 }
 
-fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: Target.Query) ?Target.Cpu {
+fn detectNativeCpuAndFeatures(io: Io, cpu_arch: Target.Cpu.Arch, os: Target.Os, query: Target.Query) ?Target.Cpu {
     // Here we switch on a comptime value rather than `cpu_arch`. This is valid because `cpu_arch`,
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .x86_64, .x86 => {
-            return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query);
-        },
+        .loongarch32, .loongarch64 => return @import("system/loongarch.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .x86_64, .x86 => return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
         else => {},
     }
 
     switch (builtin.os.tag) {
-        .linux => return linux.detectNativeCpuAndFeatures(),
+        .linux => return linux.detectNativeCpuAndFeatures(io),
         .macos => return darwin.macos.detectNativeCpuAndFeatures(),
         .windows => return windows.detectNativeCpuAndFeatures(),
         else => {},
@@ -488,227 +544,136 @@ fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: T
 }
 
 pub const AbiAndDynamicLinkerFromFileError = error{
-    FileSystem,
-    SystemResources,
+    Canceled,
+    AccessDenied,
+    Unexpected,
+    Unseekable,
+    ReadFailed,
+    EndOfStream,
+    NameTooLong,
+    StaticElfFile,
+    InvalidElfFile,
+    StreamTooLong,
+    Timeout,
     SymLinkLoop,
+    SystemResources,
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
-    UnableToReadElfFile,
-    InvalidElfClass,
-    InvalidElfVersion,
-    InvalidElfEndian,
-    InvalidElfFile,
-    InvalidElfMagic,
-    Unexpected,
-    UnexpectedEndOfFile,
-    NameTooLong,
     ProcessNotFound,
-    StaticElfFile,
+    IsDir,
+    WouldBlock,
+    InputOutput,
+    BrokenPipe,
+    ConnectionResetByPeer,
+    NotOpenForReading,
+    SocketUnconnected,
+    LockViolation,
+    FileSystem,
 };
 
-pub fn abiAndDynamicLinkerFromFile(
-    file: fs.File,
+fn abiAndDynamicLinkerFromFile(
+    file_reader: *Io.File.Reader,
+    header: *const elf.Header,
     cpu: Target.Cpu,
     os: Target.Os,
     ld_info_list: []const LdInfo,
     query: Target.Query,
 ) AbiAndDynamicLinkerFromFileError!Target {
-    var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
-    _ = try preadAtLeast(file, &hdr_buf, 0, hdr_buf.len);
-    const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
-    const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
-    if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
-        elf.ELFDATA2LSB => .little,
-        elf.ELFDATA2MSB => .big,
-        else => return error.InvalidElfEndian,
-    };
-    const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
-
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
-        elf.ELFCLASS32 => false,
-        elf.ELFCLASS64 => true,
-        else => return error.InvalidElfClass,
-    };
-    var phoff = elfInt(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff);
-    const phentsize = elfInt(is_64, need_bswap, hdr32.e_phentsize, hdr64.e_phentsize);
-    const phnum = elfInt(is_64, need_bswap, hdr32.e_phnum, hdr64.e_phnum);
-
+    const io = file_reader.io;
     var result: Target = .{
         .cpu = cpu,
         .os = os,
         .abi = query.abi orelse Target.Abi.default(cpu.arch, os.tag),
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
-        .dynamic_linker = query.dynamic_linker,
+        .dynamic_linker = query.dynamic_linker orelse .none,
     };
     var rpath_offset: ?u64 = null; // Found inside PT_DYNAMIC
-    const look_for_ld = query.dynamic_linker.get() == null;
+    const look_for_ld = query.dynamic_linker == null;
 
-    var ph_buf: [16 * @sizeOf(elf.Elf64_Phdr)]u8 align(@alignOf(elf.Elf64_Phdr)) = undefined;
-    if (phentsize > @sizeOf(elf.Elf64_Phdr)) return error.InvalidElfFile;
-
-    var ph_i: u16 = 0;
     var got_dyn_section: bool = false;
+    {
+        var it = header.iterateProgramHeaders(file_reader);
+        while (try it.next()) |phdr| switch (phdr.p_type) {
+            elf.PT_INTERP => {
+                got_dyn_section = true;
 
-    while (ph_i < phnum) {
-        // Reserve some bytes so that we can deref the 64-bit struct fields
-        // even when the ELF file is 32-bits.
-        const ph_reserve: usize = @sizeOf(elf.Elf64_Phdr) - @sizeOf(elf.Elf32_Phdr);
-        const ph_read_byte_len = try preadAtLeast(file, ph_buf[0 .. ph_buf.len - ph_reserve], phoff, phentsize);
-        var ph_buf_i: usize = 0;
-        while (ph_buf_i < ph_read_byte_len and ph_i < phnum) : ({
-            ph_i += 1;
-            phoff += phentsize;
-            ph_buf_i += phentsize;
-        }) {
-            const ph32: *elf.Elf32_Phdr = @ptrCast(@alignCast(&ph_buf[ph_buf_i]));
-            const ph64: *elf.Elf64_Phdr = @ptrCast(@alignCast(&ph_buf[ph_buf_i]));
-            const p_type = elfInt(is_64, need_bswap, ph32.p_type, ph64.p_type);
-            switch (p_type) {
-                elf.PT_INTERP => {
-                    got_dyn_section = true;
+                if (look_for_ld) {
+                    const p_filesz = phdr.p_filesz;
+                    if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
+                    const filesz: usize = @intCast(p_filesz);
+                    try file_reader.seekTo(phdr.p_offset);
+                    try file_reader.interface.readSliceAll(result.dynamic_linker.buffer[0..filesz]);
+                    // PT_INTERP includes a null byte in filesz.
+                    const len = filesz - 1;
+                    // dynamic_linker.max_byte is "max", not "len".
+                    // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
+                    result.dynamic_linker.len = @intCast(len);
 
-                    if (look_for_ld) {
-                        const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
-                        const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
-                        if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
-                        const filesz: usize = @intCast(p_filesz);
-                        _ = try preadAtLeast(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
-                        // PT_INTERP includes a null byte in filesz.
-                        const len = filesz - 1;
-                        // dynamic_linker.max_byte is "max", not "len".
-                        // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
-                        result.dynamic_linker.len = @intCast(len);
-
-                        // Use it to determine ABI.
-                        const full_ld_path = result.dynamic_linker.buffer[0..len];
-                        for (ld_info_list) |ld_info| {
-                            const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
-                            if (std.mem.endsWith(u8, full_ld_path, standard_ld_basename)) {
-                                result.abi = ld_info.abi;
-                                break;
-                            }
+                    // Use it to determine ABI.
+                    const full_ld_path = result.dynamic_linker.buffer[0..len];
+                    for (ld_info_list) |ld_info| {
+                        const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
+                        if (std.mem.endsWith(u8, full_ld_path, standard_ld_basename)) {
+                            result.abi = ld_info.abi;
+                            break;
                         }
                     }
-                },
-                // We only need this for detecting glibc version.
-                elf.PT_DYNAMIC => {
-                    got_dyn_section = true;
+                }
+            },
+            // We only need this for detecting glibc version.
+            elf.PT_DYNAMIC => {
+                got_dyn_section = true;
 
-                    if (builtin.target.os.tag == .linux and result.isGnuLibC() and
-                        query.glibc_version == null)
-                    {
-                        var dyn_off = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
-                        const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
-                        const dyn_size: usize = if (is_64) @sizeOf(elf.Elf64_Dyn) else @sizeOf(elf.Elf32_Dyn);
-                        const dyn_num = p_filesz / dyn_size;
-                        var dyn_buf: [16 * @sizeOf(elf.Elf64_Dyn)]u8 align(@alignOf(elf.Elf64_Dyn)) = undefined;
-                        var dyn_i: usize = 0;
-                        dyn: while (dyn_i < dyn_num) {
-                            // Reserve some bytes so that we can deref the 64-bit struct fields
-                            // even when the ELF file is 32-bits.
-                            const dyn_reserve: usize = @sizeOf(elf.Elf64_Dyn) - @sizeOf(elf.Elf32_Dyn);
-                            const dyn_read_byte_len = try preadAtLeast(
-                                file,
-                                dyn_buf[0 .. dyn_buf.len - dyn_reserve],
-                                dyn_off,
-                                dyn_size,
-                            );
-                            var dyn_buf_i: usize = 0;
-                            while (dyn_buf_i < dyn_read_byte_len and dyn_i < dyn_num) : ({
-                                dyn_i += 1;
-                                dyn_off += dyn_size;
-                                dyn_buf_i += dyn_size;
-                            }) {
-                                const dyn32: *elf.Elf32_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
-                                const dyn64: *elf.Elf64_Dyn = @ptrCast(@alignCast(&dyn_buf[dyn_buf_i]));
-                                const tag = elfInt(is_64, need_bswap, dyn32.d_tag, dyn64.d_tag);
-                                const val = elfInt(is_64, need_bswap, dyn32.d_val, dyn64.d_val);
-                                if (tag == elf.DT_RUNPATH) {
-                                    rpath_offset = val;
-                                    break :dyn;
-                                }
-                            }
+                if (builtin.target.os.tag == .linux and result.isGnuLibC() and query.glibc_version == null) {
+                    var dyn_it = header.iterateDynamicSection(file_reader, phdr.p_offset, phdr.p_filesz);
+                    while (try dyn_it.next()) |dyn| {
+                        if (dyn.d_tag == elf.DT_RUNPATH) {
+                            rpath_offset = dyn.d_val;
+                            break;
                         }
                     }
-                },
-                else => continue,
-            }
-        }
+                }
+            },
+            else => continue,
+        };
     }
 
     if (!got_dyn_section) {
         return error.StaticElfFile;
     }
 
-    if (builtin.target.os.tag == .linux and result.isGnuLibC() and
-        query.glibc_version == null)
-    {
-        const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
-
-        var shoff = elfInt(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff);
-        const shentsize = elfInt(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize);
-        const str_section_off = shoff + @as(u64, shentsize) * @as(u64, shstrndx);
-
-        var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
-        if (sh_buf.len < shentsize) return error.InvalidElfFile;
-
-        _ = try preadAtLeast(file, &sh_buf, str_section_off, shentsize);
-        const shstr32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf));
-        const shstr64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf));
-        const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
-        const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
-        var strtab_buf: [4096:0]u8 = undefined;
-        const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
-        const shstrtab_read_len = try preadAtLeast(file, &strtab_buf, shstrtab_off, shstrtab_len);
-        const shstrtab = strtab_buf[0..shstrtab_read_len];
-
-        const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
-        var sh_i: u16 = 0;
-        const dynstr: ?struct { offset: u64, size: u64 } = find_dyn_str: while (sh_i < shnum) {
-            // Reserve some bytes so that we can deref the 64-bit struct fields
-            // even when the ELF file is 32-bits.
-            const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
-            const sh_read_byte_len = try preadAtLeast(
-                file,
-                sh_buf[0 .. sh_buf.len - sh_reserve],
-                shoff,
-                shentsize,
-            );
-            var sh_buf_i: usize = 0;
-            while (sh_buf_i < sh_read_byte_len and sh_i < shnum) : ({
-                sh_i += 1;
-                shoff += shentsize;
-                sh_buf_i += shentsize;
-            }) {
-                const sh32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
-                const sh64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
-                const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
-                const sh_name = mem.sliceTo(shstrtab[sh_name_off..], 0);
-                if (mem.eql(u8, sh_name, ".dynstr")) {
-                    break :find_dyn_str .{
-                        .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
-                        .size = elfInt(is_64, need_bswap, sh32.sh_size, sh64.sh_size),
-                    };
-                }
-            }
-        } else null;
-
+    if (builtin.target.os.tag == .linux and result.isGnuLibC() and query.glibc_version == null) {
+        const str_section_off = header.shoff + @as(u64, header.shentsize) * @as(u64, header.shstrndx);
+        try file_reader.seekTo(str_section_off);
+        const shstr = try elf.takeSectionHeader(&file_reader.interface, header.is_64, header.endian);
+        var strtab_buf: [4096]u8 = undefined;
+        const shstrtab = strtab_buf[0..@min(shstr.sh_size, strtab_buf.len)];
+        try file_reader.seekTo(shstr.sh_offset);
+        try file_reader.interface.readSliceAll(shstrtab);
+        const dynstr: ?struct { offset: u64, size: u64 } = find_dyn_str: {
+            var it = header.iterateSectionHeaders(file_reader);
+            while (try it.next()) |shdr| {
+                const end = mem.findScalarPos(u8, shstrtab, shdr.sh_name, 0) orelse continue;
+                const sh_name = shstrtab[shdr.sh_name..end :0];
+                if (mem.eql(u8, sh_name, ".dynstr")) break :find_dyn_str .{
+                    .offset = shdr.sh_offset,
+                    .size = shdr.sh_size,
+                };
+            } else break :find_dyn_str null;
+        };
         if (dynstr) |ds| {
             if (rpath_offset) |rpoff| {
                 if (rpoff > ds.size) return error.InvalidElfFile;
                 const rpoff_file = ds.offset + rpoff;
                 const rp_max_size = ds.size - rpoff;
 
-                const strtab_len = @min(rp_max_size, strtab_buf.len);
-                const strtab_read_len = try preadAtLeast(file, &strtab_buf, rpoff_file, strtab_len);
-                const strtab = strtab_buf[0..strtab_read_len];
+                try file_reader.seekTo(rpoff_file);
+                const rpath_list = try file_reader.interface.takeSentinel(0);
+                if (rpath_list.len > rp_max_size) return error.StreamTooLong;
 
-                const rpath_list = mem.sliceTo(strtab, 0);
                 var it = mem.tokenizeScalar(u8, rpath_list, ':');
                 while (it.next()) |rpath| {
-                    if (glibcVerFromRPath(rpath)) |ver| {
+                    if (glibcVerFromRPath(io, rpath)) |ver| {
                         result.os.version_range.linux.glibc = ver;
                         return result;
                     } else |err| switch (err) {
@@ -723,7 +688,7 @@ pub fn abiAndDynamicLinkerFromFile(
             // There is no DT_RUNPATH so we try to find libc.so.6 inside the same
             // directory as the dynamic linker.
             if (fs.path.dirname(dl_path)) |rpath| {
-                if (glibcVerFromRPath(rpath)) |ver| {
+                if (glibcVerFromRPath(io, rpath)) |ver| {
                     result.os.version_range.linux.glibc = ver;
                     return result;
                 } else |err| switch (err) {
@@ -737,8 +702,6 @@ pub fn abiAndDynamicLinkerFromFile(
             var link_buf: [posix.PATH_MAX]u8 = undefined;
             const link_name = posix.readlink(dl_path, &link_buf) catch |err| switch (err) {
                 error.NameTooLong => unreachable,
-                error.InvalidUtf8 => unreachable, // WASI only
-                error.InvalidWtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable, // Windows only
                 error.UnsupportedReparsePointType => unreachable, // Windows only
                 error.NetworkNotFound => unreachable, // Windows only
@@ -788,7 +751,7 @@ pub fn abiAndDynamicLinkerFromFile(
         @memcpy(path_buf[index..][0..abi.len], abi);
         index += abi.len;
         const rpath = path_buf[0..index];
-        if (glibcVerFromRPath(rpath)) |ver| {
+        if (glibcVerFromRPath(io, rpath)) |ver| {
             result.os.version_range.linux.glibc = ver;
             return result;
         } else |err| switch (err) {
@@ -827,29 +790,25 @@ test glibcVerFromLinkName {
     try std.testing.expectError(error.InvalidGnuLibCVersion, glibcVerFromLinkName("ld-2.37.4.5.so", "ld-"));
 }
 
-fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
+fn glibcVerFromRPath(io: Io, rpath: []const u8) !std.SemanticVersion {
     var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
-        error.NameTooLong => unreachable,
-        error.InvalidUtf8 => unreachable, // WASI only
-        error.InvalidWtf8 => unreachable, // Windows-only
-        error.BadPathName => unreachable,
-        error.DeviceBusy => unreachable,
-        error.NetworkNotFound => unreachable, // Windows-only
+        error.NameTooLong => return error.Unexpected,
+        error.BadPathName => return error.Unexpected,
+        error.DeviceBusy => return error.Unexpected,
+        error.NetworkNotFound => return error.Unexpected, // Windows-only
 
-        error.FileNotFound,
-        error.NotDir,
-        error.AccessDenied,
-        error.PermissionDenied,
-        error.NoDevice,
-        => return error.GLibCNotFound,
+        error.FileNotFound => return error.GLibCNotFound,
+        error.NotDir => return error.GLibCNotFound,
+        error.AccessDenied => return error.GLibCNotFound,
+        error.PermissionDenied => return error.GLibCNotFound,
+        error.NoDevice => return error.GLibCNotFound,
 
-        error.ProcessNotFound,
-        error.ProcessFdQuotaExceeded,
-        error.SystemFdQuotaExceeded,
-        error.SystemResources,
-        error.SymLinkLoop,
-        error.Unexpected,
-        => |e| return e,
+        error.ProcessFdQuotaExceeded => |e| return e,
+        error.SystemFdQuotaExceeded => |e| return e,
+        error.SystemResources => |e| return e,
+        error.SymLinkLoop => |e| return e,
+        error.Unexpected => |e| return e,
+        error.Canceled => |e| return e,
     };
     defer dir.close();
 
@@ -861,155 +820,103 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
     // .dynstr section, and finding the max version number of symbols
     // that start with "GLIBC_2.".
     const glibc_so_basename = "libc.so.6";
-    var f = dir.openFile(glibc_so_basename, .{}) catch |err| switch (err) {
-        error.NameTooLong => unreachable,
-        error.InvalidUtf8 => unreachable, // WASI only
-        error.InvalidWtf8 => unreachable, // Windows only
-        error.BadPathName => unreachable, // Windows only
-        error.PipeBusy => unreachable, // Windows-only
-        error.SharingViolation => unreachable, // Windows-only
-        error.NetworkNotFound => unreachable, // Windows-only
-        error.AntivirusInterference => unreachable, // Windows-only
-        error.FileLocksNotSupported => unreachable, // No lock requested.
-        error.NoSpaceLeft => unreachable, // read-only
-        error.PathAlreadyExists => unreachable, // read-only
-        error.DeviceBusy => unreachable, // read-only
-        error.FileBusy => unreachable, // read-only
-        error.WouldBlock => unreachable, // not using O_NONBLOCK
-        error.NoDevice => unreachable, // not asking for a special device
-
-        error.AccessDenied,
-        error.PermissionDenied,
-        error.FileNotFound,
-        error.NotDir,
-        error.IsDir,
-        => return error.GLibCNotFound,
-
+    var file = dir.openFile(glibc_so_basename, .{}) catch |err| switch (err) {
+        error.NameTooLong => return error.Unexpected,
+        error.BadPathName => return error.Unexpected,
+        error.PipeBusy => return error.Unexpected, // Windows-only
+        error.SharingViolation => return error.Unexpected, // Windows-only
+        error.NetworkNotFound => return error.Unexpected, // Windows-only
+        error.AntivirusInterference => return error.Unexpected, // Windows-only
+        error.FileLocksNotSupported => return error.Unexpected, // No lock requested.
+        error.NoSpaceLeft => return error.Unexpected, // read-only
+        error.PathAlreadyExists => return error.Unexpected, // read-only
+        error.DeviceBusy => return error.Unexpected, // read-only
+        error.FileBusy => return error.Unexpected, // read-only
+        error.NoDevice => return error.Unexpected, // not asking for a special device
         error.FileTooBig => return error.Unexpected,
+        error.WouldBlock => return error.Unexpected, // not opened in non-blocking
 
-        error.ProcessNotFound,
-        error.ProcessFdQuotaExceeded,
-        error.SystemFdQuotaExceeded,
-        error.SystemResources,
-        error.SymLinkLoop,
-        error.Unexpected,
-        => |e| return e,
+        error.AccessDenied => return error.GLibCNotFound,
+        error.PermissionDenied => return error.GLibCNotFound,
+        error.FileNotFound => return error.GLibCNotFound,
+        error.NotDir => return error.GLibCNotFound,
+        error.IsDir => return error.GLibCNotFound,
+
+        error.ProcessNotFound => |e| return e,
+        error.ProcessFdQuotaExceeded => |e| return e,
+        error.SystemFdQuotaExceeded => |e| return e,
+        error.SystemResources => |e| return e,
+        error.SymLinkLoop => |e| return e,
+        error.Unexpected => |e| return e,
+        error.Canceled => |e| return e,
     };
-    defer f.close();
+    defer file.close();
 
-    return glibcVerFromSoFile(f) catch |err| switch (err) {
+    // Empirically, glibc 2.34 libc.so .dynstr section is 32441 bytes on my system.
+    var buffer: [8000]u8 = undefined;
+    var file_reader: Io.File.Reader = .initAdapted(file, io, &buffer);
+
+    return glibcVerFromSoFile(&file_reader) catch |err| switch (err) {
         error.InvalidElfMagic,
         error.InvalidElfEndian,
         error.InvalidElfClass,
-        error.InvalidElfFile,
         error.InvalidElfVersion,
         error.InvalidGnuLibCVersion,
-        error.UnexpectedEndOfFile,
+        error.EndOfStream,
         => return error.GLibCNotFound,
 
-        error.SystemResources,
-        error.UnableToReadElfFile,
-        error.Unexpected,
-        error.FileSystem,
-        error.ProcessNotFound,
-        => |e| return e,
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
     };
 }
 
-fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
-    var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
-    _ = try preadAtLeast(file, &hdr_buf, 0, hdr_buf.len);
-    const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
-    const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
-    if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
-        elf.ELFDATA2LSB => .little,
-        elf.ELFDATA2MSB => .big,
-        else => return error.InvalidElfEndian,
+fn glibcVerFromSoFile(file_reader: *Io.File.Reader) !std.SemanticVersion {
+    const header = try elf.Header.read(&file_reader.interface);
+    const str_section_off = header.shoff + @as(u64, header.shentsize) * @as(u64, header.shstrndx);
+    try file_reader.seekTo(str_section_off);
+    const shstr = try elf.takeSectionHeader(&file_reader.interface, header.is_64, header.endian);
+    var strtab_buf: [4096]u8 = undefined;
+    const shstrtab = strtab_buf[0..@min(shstr.sh_size, strtab_buf.len)];
+    try file_reader.seekTo(shstr.sh_offset);
+    try file_reader.interface.readSliceAll(shstrtab);
+    const dynstr: struct { offset: u64, size: u64 } = find_dyn_str: {
+        var it = header.iterateSectionHeaders(file_reader);
+        while (try it.next()) |shdr| {
+            const end = mem.findScalarPos(u8, shstrtab, shdr.sh_name, 0) orelse continue;
+            const sh_name = shstrtab[shdr.sh_name..end :0];
+            if (mem.eql(u8, sh_name, ".dynstr")) break :find_dyn_str .{
+                .offset = shdr.sh_offset,
+                .size = shdr.sh_size,
+            };
+        } else return error.InvalidGnuLibCVersion;
     };
-    const need_bswap = elf_endian != native_endian;
-    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
-
-    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
-        elf.ELFCLASS32 => false,
-        elf.ELFCLASS64 => true,
-        else => return error.InvalidElfClass,
-    };
-    const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
-    var shoff = elfInt(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff);
-    const shentsize = elfInt(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize);
-    const str_section_off = shoff + @as(u64, shentsize) * @as(u64, shstrndx);
-    var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
-    if (sh_buf.len < shentsize) return error.InvalidElfFile;
-
-    _ = try preadAtLeast(file, &sh_buf, str_section_off, shentsize);
-    const shstr32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf));
-    const shstr64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf));
-    const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
-    const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
-    var strtab_buf: [4096:0]u8 = undefined;
-    const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
-    const shstrtab_read_len = try preadAtLeast(file, &strtab_buf, shstrtab_off, shstrtab_len);
-    const shstrtab = strtab_buf[0..shstrtab_read_len];
-    const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
-    var sh_i: u16 = 0;
-    const dynstr: struct { offset: u64, size: u64 } = find_dyn_str: while (sh_i < shnum) {
-        // Reserve some bytes so that we can deref the 64-bit struct fields
-        // even when the ELF file is 32-bits.
-        const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
-        const sh_read_byte_len = try preadAtLeast(
-            file,
-            sh_buf[0 .. sh_buf.len - sh_reserve],
-            shoff,
-            shentsize,
-        );
-        var sh_buf_i: usize = 0;
-        while (sh_buf_i < sh_read_byte_len and sh_i < shnum) : ({
-            sh_i += 1;
-            shoff += shentsize;
-            sh_buf_i += shentsize;
-        }) {
-            const sh32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
-            const sh64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf[sh_buf_i]));
-            const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
-            const sh_name = mem.sliceTo(shstrtab[sh_name_off..], 0);
-            if (mem.eql(u8, sh_name, ".dynstr")) {
-                break :find_dyn_str .{
-                    .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
-                    .size = elfInt(is_64, need_bswap, sh32.sh_size, sh64.sh_size),
-                };
-            }
-        }
-    } else return error.InvalidGnuLibCVersion;
 
     // Here we loop over all the strings in the dynstr string table, assuming that any
     // strings that start with "GLIBC_2." indicate the existence of such a glibc version,
     // and furthermore, that the system-installed glibc is at minimum that version.
-
-    // Empirically, glibc 2.34 libc.so .dynstr section is 32441 bytes on my system.
-    // Here I use double this value plus some headroom. This makes it only need
-    // a single read syscall here.
-    var buf: [80000]u8 = undefined;
-    if (buf.len < dynstr.size) return error.InvalidGnuLibCVersion;
-
-    const dynstr_size: usize = @intCast(dynstr.size);
-    const dynstr_bytes = buf[0..dynstr_size];
-    _ = try preadAtLeast(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
-    var it = mem.splitScalar(u8, dynstr_bytes, 0);
     var max_ver: std.SemanticVersion = .{ .major = 2, .minor = 2, .patch = 5 };
-    while (it.next()) |s| {
-        if (mem.startsWith(u8, s, "GLIBC_2.")) {
-            const chopped = s["GLIBC_".len..];
-            const ver = Target.Query.parseVersion(chopped) catch |err| switch (err) {
-                error.Overflow => return error.InvalidGnuLibCVersion,
-                error.InvalidVersion => return error.InvalidGnuLibCVersion,
-            };
-            switch (ver.order(max_ver)) {
-                .gt => max_ver = ver,
-                .lt, .eq => continue,
+    var offset: u64 = 0;
+    try file_reader.seekTo(dynstr.offset);
+    while (offset < dynstr.size) {
+        if (file_reader.interface.takeSentinel(0)) |s| {
+            if (mem.startsWith(u8, s, "GLIBC_2.")) {
+                const chopped = s["GLIBC_".len..];
+                const ver = Target.Query.parseVersion(chopped) catch |err| switch (err) {
+                    error.Overflow => return error.InvalidGnuLibCVersion,
+                    error.InvalidVersion => return error.InvalidGnuLibCVersion,
+                };
+                switch (ver.order(max_ver)) {
+                    .gt => max_ver = ver,
+                    .lt, .eq => continue,
+                }
             }
+            offset += s.len + 1;
+        } else |err| switch (err) {
+            error.EndOfStream, error.StreamTooLong => break,
+            error.ReadFailed => |e| return e,
         }
     }
+
     return max_ver;
 }
 
@@ -1026,20 +933,16 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
 /// answer to these questions, or if there is a shebang line, then it chases the referenced
 /// file recursively. If that does not provide the answer, then the function falls back to
 /// defaults.
-fn detectAbiAndDynamicLinker(
-    cpu: Target.Cpu,
-    os: Target.Os,
-    query: Target.Query,
-) DetectError!Target {
+fn detectAbiAndDynamicLinker(io: Io, cpu: Target.Cpu, os: Target.Os, query: Target.Query) !Target {
     const native_target_has_ld = comptime Target.DynamicLinker.kind(builtin.os.tag) != .none;
     const is_linux = builtin.target.os.tag == .linux;
-    const is_solarish = builtin.target.os.tag.isSolarish();
+    const is_illumos = builtin.target.os.tag == .illumos;
     const is_darwin = builtin.target.os.tag.isDarwin();
-    const have_all_info = query.dynamic_linker.get() != null and
+    const have_all_info = query.dynamic_linker != null and
         query.abi != null and (!is_linux or query.abi.?.isGnu());
     const os_is_non_native = query.os_tag != null;
-    // The Solaris/illumos environment is always the same.
-    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish or is_darwin) {
+    // The illumos environment is always the same.
+    if (!native_target_has_ld or have_all_info or os_is_non_native or is_illumos or is_darwin) {
         return defaultAbiAndDynamicLinker(cpu, os, query);
     }
     if (query.abi) |abi| {
@@ -1093,49 +996,49 @@ fn detectAbiAndDynamicLinker(
 
     const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
+    var file_reader: Io.File.Reader = undefined;
+    // According to `man 2 execve`:
+    //
+    // The kernel imposes a maximum length on the text
+    // that follows the "#!" characters at the start of a script;
+    // characters beyond the limit are ignored.
+    // Before Linux 5.1, the limit is 127 characters.
+    // Since Linux 5.1, the limit is 255 characters.
+    //
+    // Tests show that bash and zsh consider 255 as total limit,
+    // *including* "#!" characters and ignoring newline.
+    // For safety, we set max length as 255 + \n (1).
+    const max_shebang_line_size = 256;
+    var file_reader_buffer: [4096]u8 = undefined;
+    comptime assert(file_reader_buffer.len >= max_shebang_line_size);
+
     // Best case scenario: the executable is dynamically linked, and we can iterate
     // over our own shared objects and find a dynamic linker.
-    const elf_file = elf_file: {
-        // This block looks for a shebang line in /usr/bin/env,
-        // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
-        // doing the same logic recursively in case it finds another shebang line.
+    const header = elf_file: {
+        // This block looks for a shebang line in "/usr/bin/env". If it finds
+        // one, then instead of using "/usr/bin/env" as the ELF file to examine,
+        // it uses the file it references instead, doing the same logic
+        // recursively in case it finds another shebang line.
 
         var file_name: []const u8 = switch (os.tag) {
-            // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
-            // reasonably reliable path to start with.
+            // Since /usr/bin/env is hard-coded into the shebang line of many
+            // portable scripts, it's a reasonably reliable path to start with.
             else => "/usr/bin/env",
             // Haiku does not have a /usr root directory.
             .haiku => "/bin/env",
         };
 
-        // According to `man 2 execve`:
-        //
-        // The kernel imposes a maximum length on the text
-        // that follows the "#!" characters at the start of a script;
-        // characters beyond the limit are ignored.
-        // Before Linux 5.1, the limit is 127 characters.
-        // Since Linux 5.1, the limit is 255 characters.
-        //
-        // Tests show that bash and zsh consider 255 as total limit,
-        // *including* "#!" characters and ignoring newline.
-        // For safety, we set max length as 255 + \n (1).
-        var buffer: [255 + 1]u8 = undefined;
         while (true) {
-            // Interpreter path can be relative on Linux, but
-            // for simplicity we are asserting it is an absolute path.
             const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
-                error.NoSpaceLeft => unreachable,
-                error.NameTooLong => unreachable,
-                error.PathAlreadyExists => unreachable,
-                error.SharingViolation => unreachable,
-                error.InvalidUtf8 => unreachable, // WASI only
-                error.InvalidWtf8 => unreachable, // Windows only
-                error.BadPathName => unreachable,
-                error.PipeBusy => unreachable,
-                error.FileLocksNotSupported => unreachable,
-                error.WouldBlock => unreachable,
-                error.FileBusy => unreachable, // opened without write permissions
-                error.AntivirusInterference => unreachable, // Windows-only error
+                error.NoSpaceLeft => return error.Unexpected,
+                error.NameTooLong => return error.Unexpected,
+                error.PathAlreadyExists => return error.Unexpected,
+                error.SharingViolation => return error.Unexpected,
+                error.BadPathName => return error.Unexpected,
+                error.PipeBusy => return error.Unexpected,
+                error.FileLocksNotSupported => return error.Unexpected,
+                error.FileBusy => return error.Unexpected, // opened without write permissions
+                error.AntivirusInterference => return error.Unexpected, // Windows-only error
 
                 error.IsDir,
                 error.NotDir,
@@ -1146,87 +1049,71 @@ fn detectAbiAndDynamicLinker(
                 error.NetworkNotFound,
                 error.FileTooBig,
                 error.Unexpected,
-                => |e| {
-                    std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
-                    return defaultAbiAndDynamicLinker(cpu, os, query);
-                },
+                => return error.UnableToOpenElfFile,
 
                 else => |e| return e,
             };
             var is_elf_file = false;
-            defer if (is_elf_file == false) file.close();
+            defer if (!is_elf_file) file.close();
 
-            // Shortest working interpreter path is "#!/i" (4)
-            // (interpreter is "/i", assuming all paths are absolute, like in above comment).
-            // ELF magic number length is also 4.
-            //
-            // If file is shorter than that, it is definitely not ELF file
-            // nor file with "shebang" line.
-            const min_len: usize = 4;
+            file_reader = .initAdapted(file, io, &file_reader_buffer);
+            file_name = undefined; // it aliases file_reader_buffer
 
-            const len = preadAtLeast(file, &buffer, 0, min_len) catch |err| switch (err) {
-                error.UnexpectedEndOfFile,
-                error.UnableToReadElfFile,
-                error.ProcessNotFound,
-                => return defaultAbiAndDynamicLinker(cpu, os, query),
+            const header = elf.Header.read(&file_reader.interface) catch |hdr_err| switch (hdr_err) {
+                error.EndOfStream,
+                error.InvalidElfMagic,
+                => {
+                    const shebang_line = file_reader.interface.takeSentinel('\n') catch |err| switch (err) {
+                        error.ReadFailed => return file_reader.err.?,
+                        // It's neither an ELF file nor file with shebang line.
+                        error.EndOfStream, error.StreamTooLong => return error.UnhelpfulFile,
+                    };
+                    if (!mem.startsWith(u8, shebang_line, "#!")) return error.UnhelpfulFile;
+                    // We detected shebang, now parse entire line.
 
-                else => |e| return e,
+                    // Trim leading "#!", spaces and tabs.
+                    const trimmed_line = mem.trimStart(u8, shebang_line[2..], &.{ ' ', '\t' });
+
+                    // This line can have:
+                    // * Interpreter path only,
+                    // * Interpreter path and arguments, all separated by space, tab or NUL character.
+                    // And optionally newline at the end.
+                    const path_maybe_args = mem.trimEnd(u8, trimmed_line, "\n");
+
+                    // Separate path and args.
+                    const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;
+                    const unvalidated_path = path_maybe_args[0..path_end];
+                    file_name = if (fs.path.isAbsolute(unvalidated_path)) unvalidated_path else return error.RelativeShebang;
+                    continue;
+                },
+
+                error.InvalidElfVersion,
+                error.InvalidElfClass,
+                error.InvalidElfEndian,
+                => return error.InvalidElfFile,
+
+                error.ReadFailed => return file_reader.err.?,
             };
-            const content = buffer[0..len];
-
-            if (mem.eql(u8, content[0..4], std.elf.MAGIC)) {
-                // It is very likely ELF file!
-                is_elf_file = true;
-                break :elf_file file;
-            } else if (mem.eql(u8, content[0..2], "#!")) {
-                // We detected shebang, now parse entire line.
-
-                // Trim leading "#!", spaces and tabs.
-                const trimmed_line = mem.trimStart(u8, content[2..], &.{ ' ', '\t' });
-
-                // This line can have:
-                // * Interpreter path only,
-                // * Interpreter path and arguments, all separated by space, tab or NUL character.
-                // And optionally newline at the end.
-                const path_maybe_args = mem.trimEnd(u8, trimmed_line, "\n");
-
-                // Separate path and args.
-                const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;
-
-                file_name = path_maybe_args[0..path_end];
-                continue;
-            } else {
-                // Not a ELF file, not a shell script with "shebang line", invalid duck.
-                return defaultAbiAndDynamicLinker(cpu, os, query);
-            }
+            is_elf_file = true;
+            break :elf_file header;
         }
     };
-    defer elf_file.close();
+    defer file_reader.file.close(io);
 
-    // TODO: inline this function and combine the buffer we already read above to find
-    // the possible shebang line with the buffer we use for the ELF header.
-    return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, query) catch |err| switch (err) {
+    return abiAndDynamicLinkerFromFile(&file_reader, &header, cpu, os, ld_info_list, query) catch |err| switch (err) {
         error.FileSystem,
         error.SystemResources,
         error.SymLinkLoop,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.ProcessNotFound,
+        error.Canceled,
         => |e| return e,
 
-        error.UnableToReadElfFile,
-        error.InvalidElfClass,
-        error.InvalidElfVersion,
-        error.InvalidElfEndian,
-        error.InvalidElfFile,
-        error.InvalidElfMagic,
-        error.Unexpected,
-        error.UnexpectedEndOfFile,
-        error.NameTooLong,
-        error.StaticElfFile,
-        // Finally, we fall back on the standard path.
-        => |e| {
-            std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
+        error.ReadFailed => return file_reader.err.?,
+
+        else => |e| {
+            std.log.warn("encountered {t}; falling back to default ABI and dynamic linker", .{e});
             return defaultAbiAndDynamicLinker(cpu, os, query);
         },
     };
@@ -1239,10 +1126,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Quer
         .os = os,
         .abi = abi,
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
-        .dynamic_linker = if (query.dynamic_linker.get() == null)
-            Target.DynamicLinker.standard(cpu, os, abi)
-        else
-            query.dynamic_linker,
+        .dynamic_linker = query.dynamic_linker orelse .standard(cpu, os, abi),
     };
 }
 
@@ -1250,59 +1134,6 @@ const LdInfo = struct {
     ld: Target.DynamicLinker,
     abi: Target.Abi,
 };
-
-fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
-    var i: usize = 0;
-    while (i < min_read_len) {
-        const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {
-            error.OperationAborted => unreachable, // Windows-only
-            error.WouldBlock => unreachable, // Did not request blocking mode
-            error.Canceled => unreachable, // timerfd is unseekable
-            error.NotOpenForReading => unreachable,
-            error.SystemResources => return error.SystemResources,
-            error.IsDir => return error.UnableToReadElfFile,
-            error.BrokenPipe => return error.UnableToReadElfFile,
-            error.Unseekable => return error.UnableToReadElfFile,
-            error.ConnectionResetByPeer => return error.UnableToReadElfFile,
-            error.ConnectionTimedOut => return error.UnableToReadElfFile,
-            error.SocketNotConnected => return error.UnableToReadElfFile,
-            error.Unexpected => return error.Unexpected,
-            error.InputOutput => return error.FileSystem,
-            error.AccessDenied => return error.Unexpected,
-            error.ProcessNotFound => return error.ProcessNotFound,
-            error.LockViolation => return error.UnableToReadElfFile,
-        };
-        if (len == 0) return error.UnexpectedEndOfFile;
-        i += len;
-    }
-    return i;
-}
-
-fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
-    if (is_64) {
-        if (need_bswap) {
-            return @byteSwap(int_64);
-        } else {
-            return int_64;
-        }
-    } else {
-        if (need_bswap) {
-            return @byteSwap(int_32);
-        } else {
-            return int_32;
-        }
-    }
-}
-
-const builtin = @import("builtin");
-const std = @import("../std.zig");
-const mem = std.mem;
-const elf = std.elf;
-const fs = std.fs;
-const assert = std.debug.assert;
-const Target = std.Target;
-const native_endian = builtin.cpu.arch.endian();
-const posix = std.posix;
 
 test {
     _ = NativePaths;

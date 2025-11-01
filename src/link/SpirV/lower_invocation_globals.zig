@@ -6,7 +6,7 @@ const log = std.log.scoped(.spirv_link);
 const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
-const ResultId = spec.IdResult;
+const ResultId = spec.Id;
 const Word = spec.Word;
 
 /// This structure contains all the stuff that we need to parse from the module in
@@ -74,9 +74,9 @@ const ModuleInfo = struct {
             param_types: []const ResultId,
         }).init(arena);
         var calls = std.AutoArrayHashMap(ResultId, void).init(arena);
-        var callee_store = std.ArrayList(ResultId).init(arena);
+        var callee_store = std.array_list.Managed(ResultId).init(arena);
         var function_invocation_globals = std.AutoArrayHashMap(ResultId, void).init(arena);
-        var result_id_offsets = std.ArrayList(u16).init(arena);
+        var result_id_offsets = std.array_list.Managed(u16).init(arena);
         var invocation_globals = std.AutoArrayHashMap(ResultId, InvocationGlobal).init(arena);
 
         var maybe_current_function: ?ResultId = null;
@@ -382,6 +382,15 @@ const ModuleBuilder = struct {
         var it = binary.iterateInstructions();
         while (it.next()) |inst| {
             switch (inst.opcode) {
+                .OpName => {
+                    const id: ResultId = @enumFromInt(inst.operands[0]);
+                    if (info.invocation_globals.contains(id)) continue;
+                },
+                .OpExtInstImport => {
+                    const set_id: ResultId = @enumFromInt(inst.operands[0]);
+                    const set = binary.ext_inst_map.get(set_id).?;
+                    if (set == .zig) continue;
+                },
                 .OpExtInst => {
                     const set_id: ResultId = @enumFromInt(inst.operands[2]);
                     const set_inst = inst.operands[3];
@@ -482,15 +491,15 @@ const ModuleBuilder = struct {
         return entry.value_ptr.*;
     }
 
-    /// Rewrite the modules' functions and emit them with the new parameter types.
+    /// Rewrite the modules functions and emit them with the new parameter types.
     fn rewriteFunctions(
         self: *ModuleBuilder,
         parser: *BinaryModule.Parser,
         binary: BinaryModule,
         info: ModuleInfo,
     ) !void {
-        var result_id_offsets = std.ArrayList(u16).init(self.arena);
-        var operands = std.ArrayList(u32).init(self.arena);
+        var result_id_offsets = std.array_list.Managed(u16).init(self.arena);
+        var operands = std.array_list.Managed(u32).init(self.arena);
 
         var maybe_current_function: ?ResultId = null;
         var it = binary.iterateInstructionsFrom(binary.sections.functions);
@@ -626,7 +635,7 @@ const ModuleBuilder = struct {
                 try self.section.emit(self.arena, .OpVariable, .{
                     .id_result_type = global_info.ty,
                     .id_result = id,
-                    .storage_class = .Function,
+                    .storage_class = .function,
                     .initializer = null,
                 });
             }

@@ -7,7 +7,5 @@ export fn entry(foo: [*]Foo) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:8: error: type '[*]tmp.Foo' does not support field access

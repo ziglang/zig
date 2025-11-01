@@ -273,9 +273,13 @@ pub const Inst = struct {
         /// element type. Emits a compile error if the type is not an indexable pointer.
         /// Uses the `un_node` field.
         indexable_ptr_elem_type,
-        /// Given a vector or array type, returns its element type.
+        /// Given a vector or array type, strips off any error unions or
+        /// optionals layered on top and returns its element type.
+        ///
+        /// `!?[N]T` -> `T`
+        ///
         /// Uses the `un_node` field.
-        vec_arr_elem_type,
+        splat_op_result_ty,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -416,6 +420,7 @@ pub const Inst = struct {
         /// is the local's value.
         dbg_var_val,
         /// Uses a name to identify a Decl and takes a pointer to it.
+        ///
         /// Uses the `str_tok` union field.
         decl_ref,
         /// Uses a name to identify a Decl and uses it as a value.
@@ -436,12 +441,17 @@ pub const Inst = struct {
         /// Payload is `Bin`.
         /// No OOB safety check is emitted.
         elem_ptr,
-        /// Given an array, slice, or pointer, returns the element at the provided index.
+        /// Given a pointer to an array, slice, or pointer, loads the element
+        /// at the provided index.
+        ///
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
-        elem_val_node,
-        /// Same as `elem_val_node` but used only for for loop.
-        /// Uses the `pl_node` union field. AST node is the condition of a for loop.
-        /// Payload is `Bin`.
+        elem_ptr_load,
+        /// Given an array, slice, or pointer, returns the element at the
+        /// provided index.
+        ///
+        /// Uses the `pl_node` union field. AST node is the condition of a for
+        /// loop. Payload is `Bin`.
+        ///
         /// No OOB safety check is emitted.
         elem_val,
         /// Same as `elem_val` but takes the index as an immediate value.
@@ -468,19 +478,26 @@ pub const Inst = struct {
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_ptr,
-        /// Given a struct or object that contains virtual fields, returns the named field.
+        /// Given a pointer to a struct or object that contains virtual fields, loads from the
+        /// named field.
+        ///
         /// The field name is stored in string_bytes. Used by a.b syntax.
+        ///
         /// This instruction also accepts a pointer.
+        ///
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
-        field_val,
+        field_ptr_load,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_ptr_named,
-        /// Given a struct or object that contains virtual fields, returns the named field.
+        /// Given a pointer to a struct or object that contains virtual fields,
+        /// loads from the named field.
+        ///
         /// The field name is a comptime instruction. Used by @field.
+        ///
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
-        field_val_named,
+        field_ptr_named_load,
         /// Returns a function type, or a function instance, depending on whether
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
@@ -1098,7 +1115,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vec_arr_elem_type,
+                .splat_op_result_ty,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1134,16 +1151,16 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_val_node,
+                .elem_ptr_load,
                 .elem_val_imm,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
                 .@"export",
                 .field_ptr,
-                .field_val,
+                .field_ptr_load,
                 .field_ptr_named,
-                .field_val_named,
+                .field_ptr_named_load,
                 .func,
                 .func_inferred,
                 .func_fancy,
@@ -1395,7 +1412,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vec_arr_elem_type,
+                .splat_op_result_ty,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1428,12 +1445,12 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_val_node,
+                .elem_ptr_load,
                 .elem_val_imm,
                 .field_ptr,
-                .field_val,
+                .field_ptr_load,
                 .field_ptr_named,
-                .field_val_named,
+                .field_ptr_named_load,
                 .func,
                 .func_inferred,
                 .func_fancy,
@@ -1630,7 +1647,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
-                .vec_arr_elem_type = .un_node,
+                .splat_op_result_ty = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as_node = .pl_node,
@@ -1675,7 +1692,7 @@ pub const Inst = struct {
                 .elem_ptr = .pl_node,
                 .elem_ptr_node = .pl_node,
                 .elem_val = .pl_node,
-                .elem_val_node = .pl_node,
+                .elem_ptr_load = .pl_node,
                 .elem_val_imm = .elem_val_imm,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
@@ -1684,9 +1701,9 @@ pub const Inst = struct {
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
                 .field_ptr = .pl_node,
-                .field_val = .pl_node,
+                .field_ptr_load = .pl_node,
                 .field_ptr_named = .pl_node,
-                .field_val_named = .pl_node,
+                .field_ptr_named_load = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .func_fancy = .pl_node,
@@ -1939,11 +1956,6 @@ pub const Inst = struct {
         /// `operand` is payload index to `BinNode`.
         builtin_extern,
         /// Inline assembly.
-        /// `small`:
-        ///  * 0b00000000_000XXXXX - `outputs_len`.
-        ///  * 0b000000XX_XXX00000 - `inputs_len`.
-        ///  * 0b0XXXXX00_00000000 - `clobbers_len`.
-        ///  * 0bX0000000_00000000 - is volatile
         /// `operand` is payload index to `Asm`.
         @"asm",
         /// Same as `asm` except the assembly template is not a string literal but a comptime
@@ -2112,6 +2124,11 @@ pub const Inst = struct {
         /// This instruction is always `noreturn`, however, it is not considered as such by ZIR-level queries. This allows AstGen to assume that
         /// any code may have gone here, avoiding false-positive "unreachable code" errors.
         astgen_error,
+        /// Given a type, strips away any error unions or optionals stacked
+        /// on top and returns the base type. That base type must be a float.
+        /// For example: Provided with error{Foo}!?f64, returns f64.
+        /// `operand` is `operand: Air.Inst.Ref`.
+        float_op_result_ty,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2495,7 +2512,6 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. Output for every outputs_len
     /// 1. Input for every inputs_len
-    /// 2. clobber: NullTerminatedString // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: Ast.Node.Offset,
         // null-terminated string index
@@ -2505,6 +2521,13 @@ pub const Inst = struct {
         ///   0b1 - operand is a type; asm expression has the output as the result.
         /// 0b0X is the first output, 0bX0 is the second, etc.
         output_type_bits: u32,
+        clobbers: Ref,
+
+        pub const Small = packed struct(u16) {
+            is_volatile: bool,
+            outputs_len: u7,
+            inputs_len: u8,
+        };
 
         pub const Output = struct {
             /// index into string_bytes (null terminated)
@@ -3225,20 +3248,32 @@ pub const Inst = struct {
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
     /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
-    /// 2. else_body { // If has_else or has_under is set.
+    /// 2. else_body { // If special_prong.hasElse() is set.
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 3. scalar_cases: { // for every scalar_cases_len
+    /// 3. under_body { // If special_prong.hasUnder() is set.
+    ///        item: Ref, // If special_prong.hasOneAdditionalItem() is set.
+    ///        items_len: u32, // If special_prong.hasManyAdditionalItems() is set.
+    ///        ranges_len: u32, // If special_prong.hasManyAdditionalItems() is set.
+    ///        info: ProngInfo,
+    ///        item: Ref, // for every items_len
+    ///        ranges: { // for every ranges_len
+    ///            item_first: Ref,
+    ///            item_last: Ref,
+    ///        }
+    ///        body member Index for every info.body_len
+    ///     }
+    /// 4. scalar_cases: { // for every scalar_cases_len
     ///        item: Ref,
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 4. multi_cases: { // for every multi_cases_len
+    /// 5. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
     ///        ranges_len: u32,
     ///        info: ProngInfo,
-    ///        item: Ref // for every items_len
+    ///        item: Ref, // for every items_len
     ///        ranges: { // for every ranges_len
     ///            item_first: Ref,
     ///            item_last: Ref,
@@ -3274,30 +3309,18 @@ pub const Inst = struct {
         pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
             has_multi_cases: bool,
-            /// If true, there is an else prong. This is mutually exclusive with `has_under`.
-            has_else: bool,
-            /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
-            has_under: bool,
+            /// Information about the special prong.
+            special_prongs: SpecialProngs,
             /// If true, at least one prong has an inline tag capture.
             any_has_tag_capture: bool,
             /// If true, at least one prong has a capture which may not
             /// be comptime-known via `inline`.
             any_non_inline_capture: bool,
+            /// If true, at least one prong contains a `continue`.
             has_continue: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u26;
-
-            pub fn specialProng(bits: Bits) SpecialProng {
-                const has_else: u2 = @intFromBool(bits.has_else);
-                const has_under: u2 = @intFromBool(bits.has_under);
-                return switch ((has_else << 1) | has_under) {
-                    0b00 => .none,
-                    0b01 => .under,
-                    0b10 => .@"else",
-                    0b11 => unreachable,
-                };
-            }
+            pub const ScalarCasesLen = u25;
         };
 
         pub const MultiProng = struct {
@@ -3482,6 +3505,7 @@ pub const Inst = struct {
         extern_options,
         type_info,
         branch_hint,
+        clobbers,
         // Values
         calling_convention_c,
         calling_convention_inline,
@@ -3872,7 +3896,68 @@ pub const Inst = struct {
     };
 };
 
-pub const SpecialProng = enum { none, @"else", under };
+pub const SpecialProngs = enum(u3) {
+    none = 0b000,
+    /// Simple `else` prong.
+    /// `else => {},`
+    @"else" = 0b001,
+    /// Simple `_` prong.
+    /// `_ => {},`
+    under = 0b010,
+    /// Both an `else` and a `_` prong.
+    /// `else => {},`
+    /// `_ => {},`
+    under_and_else = 0b011,
+    /// `_` prong with 1 additional item.
+    /// `a, _ => {},`
+    under_one_item = 0b100,
+    /// Both an `else` and a `_` prong with 1 additional item.
+    /// `else => {},`
+    /// `a, _ => {},`
+    under_one_item_and_else = 0b101,
+    /// `_` prong with >1 additional items.
+    /// `a, _, b => {},`
+    under_many_items = 0b110,
+    /// Both an `else` and a `_` prong with >1 additional items.
+    /// `else => {},`
+    /// `a, _, b => {},`
+    under_many_items_and_else = 0b111,
+
+    pub const AdditionalItems = enum(u3) {
+        none = @intFromEnum(SpecialProngs.under),
+        one = @intFromEnum(SpecialProngs.under_one_item),
+        many = @intFromEnum(SpecialProngs.under_many_items),
+    };
+
+    pub fn init(has_else: bool, has_under: bool, additional_items: AdditionalItems) SpecialProngs {
+        const else_bit: u3 = @intFromBool(has_else);
+        const under_bits: u3 = if (has_under)
+            @intFromEnum(additional_items)
+        else
+            @intFromEnum(SpecialProngs.none);
+        return @enumFromInt(else_bit | under_bits);
+    }
+
+    pub fn hasElse(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b001) != 0;
+    }
+
+    pub fn hasUnder(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) != 0;
+    }
+
+    pub fn hasAdditionalItems(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b100) != 0;
+    }
+
+    pub fn hasOneAdditionalItem(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) == @intFromEnum(SpecialProngs.under_one_item);
+    }
+
+    pub fn hasManyAdditionalItems(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) == @intFromEnum(SpecialProngs.under_many_items);
+    }
+};
 
 pub const DeclIterator = struct {
     extra_index: u32,
@@ -4110,7 +4195,7 @@ fn findTrackableInner(
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
-        .vec_arr_elem_type,
+        .splat_op_result_ty,
         .indexable_ptr_len,
         .anyframe_type,
         .as_node,
@@ -4143,7 +4228,7 @@ fn findTrackableInner(
         .div,
         .elem_ptr_node,
         .elem_ptr,
-        .elem_val_node,
+        .elem_ptr_load,
         .elem_val,
         .elem_val_imm,
         .ensure_result_used,
@@ -4153,9 +4238,9 @@ fn findTrackableInner(
         .error_value,
         .@"export",
         .field_ptr,
-        .field_val,
+        .field_ptr_load,
         .field_ptr_named,
-        .field_val_named,
+        .field_ptr_named_load,
         .import,
         .int,
         .int_big,
@@ -4369,6 +4454,7 @@ fn findTrackableInner(
                 .tuple_decl,
                 .dbg_empty_stmt,
                 .astgen_error,
+                .float_op_result_ty,
                 => return,
 
                 // `@TypeOf` has a body.
@@ -4716,7 +4802,7 @@ fn findTrackableSwitch(
     }
 
     const has_special = switch (kind) {
-        .normal => extra.data.bits.specialProng() != .none,
+        .normal => extra.data.bits.special_prongs != .none,
         .err_union => has_special: {
             // Handle `non_err_body` first.
             const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
@@ -4731,12 +4817,40 @@ fn findTrackableSwitch(
     };
 
     if (has_special) {
-        const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
-        extra_index += 1;
-        const body = zir.bodySlice(extra_index, prong_info.body_len);
-        extra_index += body.len;
+        const has_else = if (kind == .normal)
+            extra.data.bits.special_prongs.hasElse()
+        else
+            true;
+        if (has_else) {
+            const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
+            extra_index += 1;
+            const body = zir.bodySlice(extra_index, prong_info.body_len);
+            extra_index += body.len;
 
-        try zir.findTrackableBody(gpa, contents, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
+        }
+        if (kind == .normal) {
+            const special_prongs = extra.data.bits.special_prongs;
+
+            if (special_prongs.hasUnder()) {
+                var trailing_items_len: u32 = 0;
+                if (special_prongs.hasOneAdditionalItem()) {
+                    extra_index += 1;
+                } else if (special_prongs.hasManyAdditionalItems()) {
+                    const items_len = zir.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = zir.extra[extra_index];
+                    extra_index += 1;
+                    trailing_items_len = items_len + ranges_len * 2;
+                }
+                const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
+                extra_index += 1 + trailing_items_len;
+                const body = zir.bodySlice(extra_index, prong_info.body_len);
+                extra_index += body.len;
+
+                try zir.findTrackableBody(gpa, contents, defers, body);
+            }
+        }
     }
 
     {

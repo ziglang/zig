@@ -39,10 +39,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         .mips, .mipsel, .mips64, .mips64el => true,
         else => false,
     };
-    const riscv = switch (arch) {
-        .riscv32, .riscv64 => true,
-        else => false,
-    };
+    const riscv = arch.isRISCV();
     const powerpc64 = switch (arch) {
         .powerpc64, .powerpc64le => true,
         else => false,
@@ -97,14 +94,12 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
             .nbytes = end - start,
             .whichcache = 3, // ICACHE | DCACHE
         };
-        asm volatile (
-            \\ syscall
+        asm volatile ("syscall"
             :
             : [_] "{$2}" (165), // nr = SYS_sysarch
               [_] "{$4}" (0), // op = MIPS_CACHEFLUSH
               [_] "{$5}" (&cfa), // args = &cfa
-            : "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$24", "$25", "hi", "lo", "memory"
-        );
+            : .{ .r1 = true, .r2 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
         exportIt();
     } else if (mips and os == .openbsd) {
         // TODO
@@ -117,11 +112,8 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
     } else if (arm64 and !apple) {
         // Get Cache Type Info.
         // TODO memoize this?
-        var ctr_el0: u64 = 0;
-        asm volatile (
-            \\mrs %[x], ctr_el0
-            \\
-            : [x] "=r" (ctr_el0),
+        const ctr_el0 = asm volatile ("mrs %[ctr_el0], ctr_el0"
+            : [ctr_el0] "=r" (-> u64),
         );
         // The DC and IC instructions must use 64-bit registers so we don't use
         // uintptr_t in case this runs in an IPL32 environment.
@@ -188,9 +180,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         exportIt();
     } else if (os == .linux and loongarch) {
         // See: https://github.com/llvm/llvm-project/blob/cf54cae26b65fc3201eff7200ffb9b0c9e8f9a13/compiler-rt/lib/builtins/clear_cache.c#L94-L95
-        asm volatile (
-            \\ ibar 0
-        );
+        asm volatile ("ibar 0");
         exportIt();
     }
 

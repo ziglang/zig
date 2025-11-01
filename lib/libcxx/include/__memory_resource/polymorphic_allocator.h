@@ -41,7 +41,7 @@ template <class _ValueType
           = byte
 #  endif
           >
-class _LIBCPP_AVAILABILITY_PMR _LIBCPP_TEMPLATE_VIS polymorphic_allocator {
+class _LIBCPP_AVAILABILITY_PMR polymorphic_allocator {
 
 public:
   using value_type = _ValueType;
@@ -64,7 +64,7 @@ public:
 
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI _ValueType* allocate(size_t __n) {
     if (__n > __max_size()) {
-      __throw_bad_array_new_length();
+      std::__throw_bad_array_new_length();
     }
     return static_cast<_ValueType*>(__res_->allocate(__n * sizeof(_ValueType), alignof(_ValueType)));
   }

@@ -188,7 +188,7 @@ fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
     return error.ParseError;
 }
 
-/// Root <- skip container_doc_comment? ContainerMembers eof
+/// Root <- skip ContainerMembers eof
 pub fn parseRoot(p: *Parse) !void {
     // Root node must be index 0.
     p.nodes.appendAssumeCapacity(.{
@@ -227,7 +227,7 @@ pub fn parseZon(p: *Parse) !void {
     p.nodes.items(.data)[0] = .{ .node = node_index };
 }
 
-/// ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
+/// ContainerMembers <- container_doc_comment? ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 ///
 /// ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 ///
@@ -2423,7 +2423,7 @@ fn parseSuffixExpr(p: *Parse) !?Node.Index {
 ///
 /// ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
 ///
-/// ContainerDeclAuto <- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
+/// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
 ///
 /// InitList
 ///     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
@@ -2801,7 +2801,7 @@ fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
 ///
 /// AsmInput <- COLON AsmInputList AsmClobbers?
 ///
-/// AsmClobbers <- COLON StringList
+/// AsmClobbers <- COLON Expr
 ///
 /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
 ///
@@ -2841,7 +2841,8 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
             else => try p.warnExpected(.comma),
         }
     }
-    if (p.eatToken(.colon)) |_| {
+
+    const clobbers: Node.OptionalIndex = if (p.eatToken(.colon)) |_| clobbers: {
         while (true) {
             const input_item = try p.parseAsmInputItem() orelse break;
             try p.scratch.append(p.gpa, input_item);
@@ -2853,7 +2854,11 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
                 else => try p.warnExpected(.comma),
             }
         }
-        if (p.eatToken(.colon)) |_| {
+
+        _ = p.eatToken(.colon) orelse break :clobbers .none;
+
+        // For automatic upgrades; delete after 0.15.0 released.
+        if (p.tokenTag(p.tok_i) == .string_literal) {
             while (p.eatToken(.string_literal)) |_| {
                 switch (p.tokenTag(p.tok_i)) {
                     .comma => p.tok_i += 1,
@@ -2862,8 +2867,25 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
                     else => try p.warnExpected(.comma),
                 }
             }
+            const rparen = try p.expectToken(.r_paren);
+            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
+            return p.addNode(.{
+                .tag = .asm_legacy,
+                .main_token = asm_token,
+                .data = .{ .node_and_extra = .{
+                    template,
+                    try p.addExtra(Node.AsmLegacy{
+                        .items_start = span.start,
+                        .items_end = span.end,
+                        .rparen = rparen,
+                    }),
+                } },
+            });
         }
-    }
+
+        break :clobbers (try p.expectExpr()).toOptional();
+    } else .none;
+
     const rparen = try p.expectToken(.r_paren);
     const span = try p.listToSpan(p.scratch.items[scratch_top..]);
     return p.addNode(.{
@@ -2874,6 +2896,7 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
             try p.addExtra(Node.Asm{
                 .items_start = span.start,
                 .items_end = span.end,
+                .clobbers = clobbers,
                 .rparen = rparen,
             }),
         } },
@@ -3294,7 +3317,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !?Node.Index {
 
 /// Caller must have already verified the first token.
 ///
-/// ContainerDeclAuto <- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
+/// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
 ///
 /// ContainerDeclType
 ///     <- KEYWORD_struct (LPAREN Expr RPAREN)?

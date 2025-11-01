@@ -1,7 +1,5 @@
+const assert = @import("std").debug.assert;
 const std = @import("std");
-const builtin = @import("builtin");
-const bits = @import("../../arch/aarch64/bits.zig");
-const Register = bits.Register;
 const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
 
@@ -15,7 +13,7 @@ pub const Class = union(enum) {
 
 /// For `float_array` the second element will be the amount of floats.
 pub fn classifyType(ty: Type, zcu: *Zcu) Class {
-    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
+    assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
 
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag(zcu)) {
@@ -47,11 +45,11 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
             return .byval;
         },
         .optional => {
-            std.debug.assert(ty.isPtrLikeOptional(zcu));
+            assert(ty.isPtrLikeOptional(zcu));
             return .byval;
         },
         .pointer => {
-            std.debug.assert(!ty.isSlice(zcu));
+            assert(!ty.isSlice(zcu));
             return .byval;
         },
         .error_union,
@@ -138,13 +136,3 @@ pub fn getFloatArrayType(ty: Type, zcu: *Zcu) ?Type {
         else => return null,
     }
 }
-
-pub const callee_preserved_regs = [_]Register{
-    .x19, .x20, .x21, .x22, .x23,
-    .x24, .x25, .x26, .x27, .x28,
-};
-
-pub const c_abi_int_param_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
-pub const c_abi_int_return_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
-
-const allocatable_registers = callee_preserved_regs;

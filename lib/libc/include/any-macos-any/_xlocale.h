@@ -32,6 +32,7 @@
 #endif /* _USE_EXTENDED_LOCALES_ */
 
 #include <_locale.h>
+#include <_locale_posix2008.h>
 #include <__xlocale.h>
 
 _LIBC_SINGLE_BY_DEFAULT()

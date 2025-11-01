@@ -49,7 +49,7 @@ fn csuPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const 
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
 
@@ -69,13 +69,13 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .scrt0_o => {
-            var cflags = std.ArrayList([]const u8).init(arena);
+            var cflags = std.array_list.Managed([]const u8).init(arena);
             try cflags.appendSlice(&.{
                 "-DHAVE_INITFINI_ARRAY",
                 "-w", // Disable all warnings.
             });
 
-            var acflags = std.ArrayList([]const u8).init(arena);
+            var acflags = std.array_list.Managed([]const u8).init(arena);
             try acflags.appendSlice(&.{
                 // See `Compilation.addCCArgs`.
                 try std.fmt.allocPrint(arena, "-D__NetBSD_Version__={d}", .{(target_version.major * 100_000_000) + (target_version.minor * 1_000_000)}),
@@ -360,7 +360,7 @@ fn wordDirective(target: *const std.Target) []const u8 {
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     // See also glibc.zig which this code is based on.
 
@@ -372,6 +372,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     }
 
     const gpa = comp.gpa;
+    const io = comp.io;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -383,6 +384,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
+        .io = io,
         .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
@@ -454,24 +456,21 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         break :blk latest_index;
     };
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
         stubs_asm.shrinkRetainingCapacity(0);
 
-        const stubs_writer = stubs_asm.writer();
-
-        try stubs_writer.writeAll(".text\n");
+        try stubs_asm.appendSlice(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf: std.Io.Writer.Allocating = .init(arena);
         var opt_symbol_name: ?[]const u8 = null;
 
-        var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
-        var inc_reader = inc_fbs.reader();
+        var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
-        const fn_inclusions_len = try inc_reader.readInt(u16, .little);
+        const fn_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         var chosen_ver_index: usize = 255;
         var chosen_is_weak: bool = undefined;
@@ -479,17 +478,19 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         while (sym_i < fn_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 chosen_ver_index = 255;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
 
             {
-                const targets = try std.leb.readUleb128(u64, inc_reader);
-                var lib_index = try inc_reader.readByte();
+                const targets = try inc_reader.takeLeb128(u64);
+                var lib_index = try inc_reader.takeByte();
 
                 const is_weak = (lib_index & (1 << 6)) != 0;
                 const is_terminal = (lib_index & (1 << 7)) != 0;
@@ -502,7 +503,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
                 while (true) {
-                    const byte = try inc_reader.readByte();
+                    const byte = try inc_reader.takeByte();
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index and
@@ -525,7 +526,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 // .globl _Exit
                 // .type _Exit, %function
                 // _Exit: .long 0
-                try stubs_writer.print(
+                try stubs_asm.print(
                     \\.balign {d}
                     \\.{s} {s}
                     \\.type {s}, %function
@@ -542,9 +543,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
         }
 
-        try stubs_writer.writeAll(".data\n");
+        try stubs_asm.appendSlice(".data\n");
 
-        const obj_inclusions_len = try inc_reader.readInt(u16, .little);
+        const obj_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         sym_i = 0;
         opt_symbol_name = null;
@@ -554,18 +555,20 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         while (sym_i < obj_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 chosen_ver_index = 255;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
 
             {
-                const targets = try std.leb.readUleb128(u64, inc_reader);
-                const size = try std.leb.readUleb128(u16, inc_reader);
-                var lib_index = try inc_reader.readByte();
+                const targets = try inc_reader.takeLeb128(u64);
+                const size = try inc_reader.takeLeb128(u16);
+                var lib_index = try inc_reader.takeByte();
 
                 const is_weak = (lib_index & (1 << 6)) != 0;
                 const is_terminal = (lib_index & (1 << 7)) != 0;
@@ -578,7 +581,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
                 while (true) {
-                    const byte = try inc_reader.readByte();
+                    const byte = try inc_reader.takeByte();
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index and
@@ -603,7 +606,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 // .type malloc_conf, %object
                 // .size malloc_conf, 4
                 // malloc_conf: .fill 4, 1, 0
-                try stubs_writer.print(
+                try stubs_asm.print(
                     \\.balign {d}
                     \\.{s} {s}
                     \\.type {s}, %object
@@ -640,10 +643,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
         },
     });
-}
-
-pub fn sharedObjectsCount() u8 {
-    return libs.len;
 }
 
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
@@ -683,6 +682,7 @@ fn buildSharedLib(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const io = comp.io;
     const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
@@ -733,7 +733,10 @@ fn buildSharedLib(
         },
     };
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .@"netbsd libc shared object";
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, io, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
@@ -757,8 +760,14 @@ fn buildSharedLib(
         .soname = soname,
         .c_source_files = &c_source_files,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .@"netbsd libc shared object", prog_node);
+    try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }

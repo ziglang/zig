@@ -9,9 +9,8 @@
 #ifndef _LIBCPP___BIT_ROTATE_H
 #define _LIBCPP___BIT_ROTATE_H
 
-#include <__concepts/arithmetic.h>
 #include <__config>
-#include <__type_traits/is_unsigned_integer.h>
+#include <__type_traits/integer_traits.h>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -25,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // the rotr function becomes the ROR instruction.
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotl(_Tp __x, int __s) _NOEXCEPT {
-  static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotl requires an unsigned integer type");
+  static_assert(__is_unsigned_integer_v<_Tp>, "__rotl requires an unsigned integer type");
   const int __n = numeric_limits<_Tp>::digits;
   int __r       = __s % __n;
 
@@ -40,7 +39,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotl(_Tp __x, int __s)
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotr(_Tp __x, int __s) _NOEXCEPT {
-  static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotr requires an unsigned integer type");
+  static_assert(__is_unsigned_integer_v<_Tp>, "__rotr requires an unsigned integer type");
   const int __n = numeric_limits<_Tp>::digits;
   int __r       = __s % __n;
 
@@ -55,12 +54,12 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotr(_Tp __x, int __s)
 
 #if _LIBCPP_STD_VER >= 20
 
-template <__libcpp_unsigned_integer _Tp>
+template <__unsigned_integer _Tp>
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp rotl(_Tp __t, int __cnt) noexcept {
   return std::__rotl(__t, __cnt);
 }
 
-template <__libcpp_unsigned_integer _Tp>
+template <__unsigned_integer _Tp>
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp rotr(_Tp __t, int __cnt) noexcept {
   return std::__rotr(__t, __cnt);
 }

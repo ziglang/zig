@@ -379,6 +379,8 @@ struct file_handle
 						identity and may not
 						be usable to
 						open_by_handle_at.  */
+# define AT_HANDLE_MNT_ID_UNIQUE 1 /* Return the 64-bit unique mount
+				      ID.  */
 #endif
 
 __BEGIN_DECLS

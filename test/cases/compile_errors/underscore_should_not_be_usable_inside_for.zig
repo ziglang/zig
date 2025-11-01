@@ -7,7 +7,5 @@ export fn returns() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:20: error: '_' used as an identifier without @"_" syntax

@@ -1,5 +1,8 @@
 const builtin = @import("builtin");
+
 const std = @import("std");
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const fatal = std.process.fatal;
 const mem = std.mem;
 const fs = std.fs;
@@ -35,6 +38,12 @@ pub fn main() !void {
     var args_it = try process.argsWithAllocator(arena);
     if (!args_it.skip()) fatal("missing argv[0]", .{});
 
+    const gpa = arena;
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var opt_input: ?[]const u8 = null;
     var opt_output: ?[]const u8 = null;
     var opt_zig: ?[]const u8 = null;
@@ -69,7 +78,7 @@ pub fn main() !void {
     const zig_path = opt_zig orelse fatal("missing zig compiler path (--zig)", .{});
     const cache_root = opt_cache_root orelse fatal("missing cache root path (--cache-root)", .{});
 
-    const source_bytes = try fs.cwd().readFileAlloc(arena, input_path, std.math.maxInt(u32));
+    const source_bytes = try fs.cwd().readFileAlloc(input_path, arena, .limited(std.math.maxInt(u32)));
     const code = try parseManifest(arena, source_bytes);
     const source = stripManifest(source_bytes);
 
@@ -84,13 +93,15 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
-    var bw = std.io.bufferedWriter(out_file.deprecatedWriter());
-    const out = bw.writer();
+    const out = &out_file_writer.interface;
 
     try printSourceBlock(arena, out, source, fs.path.basename(input_path));
     try printOutput(
         arena,
+        io,
         out,
         code,
         tmp_dir_path,
@@ -102,12 +113,13 @@ pub fn main() !void {
             null,
     );
 
-    try bw.flush();
+    try out_file_writer.end();
 }
 
 fn printOutput(
     arena: Allocator,
-    out: anytype,
+    io: Io,
+    out: *Writer,
     code: Code,
     /// Relative to this process' cwd.
     tmp_dir_path: []const u8,
@@ -121,19 +133,19 @@ fn printOutput(
     var env_map = try process.getEnvMap(arena);
     try env_map.put("CLICOLOR_FORCE", "1");
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try std.zig.system.resolveTargetQuery(io, .{});
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
     const print = std.debug.print;
 
-    var shell_buffer = std.ArrayList(u8).init(arena);
+    var shell_buffer: Writer.Allocating = .init(arena);
     defer shell_buffer.deinit();
-    var shell_out = shell_buffer.writer();
+    const shell_out = &shell_buffer.writer;
 
     const code_name = std.fs.path.stem(input_path);
 
     switch (code.id) {
         .exe => |expected_outcome| code_block: {
-            var build_args = std.ArrayList([]const u8).init(arena);
+            var build_args = std.array_list.Managed([]const u8).init(arena);
             defer build_args.deinit();
             try build_args.appendSlice(&[_][]const u8{
                 zig_exe,    "build-exe",
@@ -236,7 +248,7 @@ fn printOutput(
             const target_query = try std.Target.Query.parse(.{
                 .arch_os_abi = code.target_str orelse "native",
             });
-            const target = try std.zig.system.resolveTargetQuery(target_query);
+            const target = try std.zig.system.resolveTargetQuery(io, target_query);
 
             const path_to_exe = try std.fmt.allocPrint(arena, "./{s}{s}", .{
                 code_name, target.exeFileExt(),
@@ -283,7 +295,7 @@ fn printOutput(
             try shell_out.writeAll("\n");
         },
         .@"test" => {
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -314,9 +326,7 @@ fn printOutput(
                 const target_query = try std.Target.Query.parse(.{
                     .arch_os_abi = triple,
                 });
-                const target = try std.zig.system.resolveTargetQuery(
-                    target_query,
-                );
+                const target = try std.zig.system.resolveTargetQuery(io, target_query);
                 switch (getExternalExecutor(&host, &target, .{
                     .link_libc = code.link_libc,
                 })) {
@@ -344,7 +354,7 @@ fn printOutput(
             try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
         },
         .test_error => |error_match| {
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -398,7 +408,7 @@ fn printOutput(
             try shell_out.print("\n{s}\n", .{colored_stderr});
         },
         .test_safety => |error_match| {
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -460,7 +470,7 @@ fn printOutput(
         },
         .obj => |maybe_error_match| {
             const name_plus_obj_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ code_name, obj_ext });
-            var build_args = std.ArrayList([]const u8).init(arena);
+            var build_args = std.array_list.Managed([]const u8).init(arena);
             defer build_args.deinit();
 
             try build_args.appendSlice(&[_][]const u8{
@@ -542,7 +552,7 @@ fn printOutput(
                 .output_mode = .Lib,
             });
 
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -598,7 +608,7 @@ fn printOutput(
     }
 
     if (!code.just_check_syntax) {
-        try printShell(out, shell_buffer.items, false);
+        try printShell(out, shell_buffer.written(), false);
     }
 }
 
@@ -609,7 +619,7 @@ fn dumpArgs(args: []const []const u8) void {
         std.debug.print("\n", .{});
 }
 
-fn printSourceBlock(arena: Allocator, out: anytype, source_bytes: []const u8, name: []const u8) !void {
+fn printSourceBlock(arena: Allocator, out: *Writer, source_bytes: []const u8, name: []const u8) !void {
     try out.print("<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>", .{
         "zig", name,
     });
@@ -617,7 +627,7 @@ fn printSourceBlock(arena: Allocator, out: anytype, source_bytes: []const u8, na
     try out.writeAll("</pre></figure>");
 }
 
-fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
+fn tokenizeAndPrint(arena: Allocator, out: *Writer, raw_src: []const u8) !void {
     const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
     const src = try arena.dupeZ(u8, src_non_terminated);
 
@@ -845,7 +855,7 @@ fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
     try out.writeAll("</code>");
 }
 
-fn writeEscapedLines(out: anytype, text: []const u8) !void {
+fn writeEscapedLines(out: *Writer, text: []const u8) !void {
     return writeEscaped(out, text);
 }
 
@@ -973,25 +983,21 @@ fn skipPrefix(line: []const u8) []const u8 {
     return line[3..];
 }
 
-fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
-
-    const out = buf.writer();
-    try writeEscaped(out, input);
-    return try buf.toOwnedSlice();
+fn escapeHtml(gpa: Allocator, input: []const u8) ![]u8 {
+    var allocating: Writer.Allocating = .init(gpa);
+    defer allocating.deinit();
+    try writeEscaped(&allocating.writer, input);
+    return allocating.toOwnedSlice();
 }
 
-fn writeEscaped(out: anytype, input: []const u8) !void {
-    for (input) |c| {
-        try switch (c) {
-            '&' => out.writeAll("&amp;"),
-            '<' => out.writeAll("&lt;"),
-            '>' => out.writeAll("&gt;"),
-            '"' => out.writeAll("&quot;"),
-            else => out.writeByte(c),
-        };
-    }
+fn writeEscaped(w: *Writer, input: []const u8) !void {
+    for (input) |c| try switch (c) {
+        '&' => w.writeAll("&amp;"),
+        '<' => w.writeAll("&lt;"),
+        '>' => w.writeAll("&gt;"),
+        '"' => w.writeAll("&quot;"),
+        else => w.writeByte(c),
+    };
 }
 
 fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
@@ -1010,10 +1016,9 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
     const supported_sgr_colors = [_]u8{ 31, 32, 36 };
     const supported_sgr_numbers = [_]u8{ 0, 1, 2 };
 
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
-    var out = buf.writer();
     var sgr_param_start_index: usize = undefined;
     var sgr_num: u8 = undefined;
     var sgr_color: u8 = undefined;
@@ -1036,10 +1041,10 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             .start => switch (c) {
                 '\x1b' => state = .escape,
                 '\n' => {
-                    try out.writeByte(c);
+                    try buf.append(c);
                     last_new_line = buf.items.len;
                 },
-                else => try out.writeByte(c),
+                else => try buf.append(c),
             },
             .escape => switch (c) {
                 '[' => state = .lbracket,
@@ -1100,16 +1105,16 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
                 'm' => {
                     state = .start;
                     while (open_span_count != 0) : (open_span_count -= 1) {
-                        try out.writeAll("</span>");
+                        try buf.appendSlice("</span>");
                     }
                     if (sgr_num == 0) {
                         if (sgr_color != 0) return error.UnsupportedColor;
                         continue;
                     }
                     if (sgr_color != 0) {
-                        try out.print("<span class=\"sgr-{d}_{d}m\">", .{ sgr_color, sgr_num });
+                        try buf.print("<span class=\"sgr-{d}_{d}m\">", .{ sgr_color, sgr_num });
                     } else {
-                        try out.print("<span class=\"sgr-{d}m\">", .{sgr_num});
+                        try buf.print("<span class=\"sgr-{d}m\">", .{sgr_num});
                     }
                     open_span_count += 1;
                 },
@@ -1155,7 +1160,7 @@ fn run(
     return result;
 }
 
-fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
+fn printShell(out: *Writer, shell_content: []const u8, escape: bool) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
@@ -1400,11 +1405,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1417,11 +1422,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out = "$ zig build test.zig\r\nbuild output\r\n";
@@ -1431,11 +1436,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1450,11 +1455,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1471,11 +1476,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1490,11 +1495,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1513,11 +1518,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         // intentional space after "--build-option1 \"
@@ -1535,11 +1540,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1552,11 +1557,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1571,11 +1576,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1586,10 +1591,10 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer: Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
 }

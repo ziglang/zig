@@ -1,10 +1,12 @@
-const std = @import("../std.zig");
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
+const std = @import("../std.zig");
+const Io = std.Io;
 const testing = std.testing;
 const fs = std.fs;
 const mem = std.mem;
 const wasi = std.os.wasi;
-const native_os = builtin.os.tag;
 const windows = std.os.windows;
 const posix = std.posix;
 
@@ -73,6 +75,7 @@ const PathType = enum {
 };
 
 const TestContext = struct {
+    io: Io,
     path_type: PathType,
     path_sep: u8,
     arena: ArenaAllocator,
@@ -83,6 +86,7 @@ const TestContext = struct {
     pub fn init(path_type: PathType, path_sep: u8, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
         const tmp = tmpDir(.{ .iterate = true });
         return .{
+            .io = testing.io,
             .path_type = path_type,
             .path_sep = path_sep,
             .arena = ArenaAllocator.init(allocator),
@@ -464,7 +468,7 @@ test "Dir.Iterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -497,7 +501,7 @@ test "Dir.Iterator many entries" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -531,7 +535,7 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         // Create iterator.
         var iter = tmp_dir.dir.iterate();
@@ -567,7 +571,7 @@ test "Dir.Iterator reset" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
@@ -617,7 +621,7 @@ fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+fn contains(entries: *const std.array_list.Managed(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }
@@ -676,37 +680,47 @@ test "Dir.realpath smoke test" {
     }.impl);
 }
 
-test "readAllAlloc" {
+test "readFileAlloc" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
     var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
     defer file.close();
 
-    const buf1 = try file.readToEndAlloc(testing.allocator, 1024);
+    const buf1 = try tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(1024));
     defer testing.allocator.free(buf1);
-    try testing.expectEqual(@as(usize, 0), buf1.len);
+    try testing.expectEqualStrings("", buf1);
 
     const write_buf: []const u8 = "this is a test.\nthis is a test.\nthis is a test.\nthis is a test.\n";
     try file.writeAll(write_buf);
-    try file.seekTo(0);
 
-    // max_bytes > file_size
-    const buf2 = try file.readToEndAlloc(testing.allocator, 1024);
-    defer testing.allocator.free(buf2);
-    try testing.expectEqual(write_buf.len, buf2.len);
-    try testing.expectEqualStrings(write_buf, buf2);
-    try file.seekTo(0);
+    {
+        // max_bytes > file_size
+        const buf2 = try tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(1024));
+        defer testing.allocator.free(buf2);
+        try testing.expectEqualStrings(write_buf, buf2);
+    }
 
-    // max_bytes == file_size
-    const buf3 = try file.readToEndAlloc(testing.allocator, write_buf.len);
-    defer testing.allocator.free(buf3);
-    try testing.expectEqual(write_buf.len, buf3.len);
-    try testing.expectEqualStrings(write_buf, buf3);
-    try file.seekTo(0);
+    {
+        // max_bytes == file_size
+        try testing.expectError(
+            error.StreamTooLong,
+            tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(write_buf.len)),
+        );
+    }
+
+    {
+        // max_bytes == file_size + 1
+        const buf2 = try tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(write_buf.len + 1));
+        defer testing.allocator.free(buf2);
+        try testing.expectEqualStrings(write_buf, buf2);
+    }
 
     // max_bytes < file_size
-    try testing.expectError(error.FileTooBig, file.readToEndAlloc(testing.allocator, write_buf.len - 1));
+    try testing.expectError(
+        error.StreamTooLong,
+        tmp_dir.dir.readFileAlloc("test_file", testing.allocator, .limited(write_buf.len - 1)),
+    );
 }
 
 test "Dir.statFile" {
@@ -778,16 +792,16 @@ test "file operations on directories" {
             switch (native_os) {
                 .dragonfly, .netbsd => {
                     // no error when reading a directory. See https://github.com/ziglang/zig/issues/5732
-                    const buf = try ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize));
+                    const buf = try ctx.dir.readFileAlloc(test_dir_name, testing.allocator, .unlimited);
                     testing.allocator.free(buf);
                 },
                 .wasi => {
                     // WASI return EBADF, which gets mapped to NotOpenForReading.
                     // See https://github.com/bytecodealliance/wasmtime/issues/1935
-                    try testing.expectError(error.NotOpenForReading, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+                    try testing.expectError(error.NotOpenForReading, ctx.dir.readFileAlloc(test_dir_name, testing.allocator, .unlimited));
                 },
                 else => {
-                    try testing.expectError(error.IsDir, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+                    try testing.expectError(error.IsDir, ctx.dir.readFileAlloc(test_dir_name, testing.allocator, .unlimited));
                 },
             }
 
@@ -1309,6 +1323,8 @@ test "max file name component lengths" {
 }
 
 test "writev, readv" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1317,84 +1333,63 @@ test "writev, readv" {
 
     var buf1: [line1.len]u8 = undefined;
     var buf2: [line2.len]u8 = undefined;
-    var write_vecs = [_]posix.iovec_const{
-        .{
-            .base = line1,
-            .len = line1.len,
-        },
-        .{
-            .base = line2,
-            .len = line2.len,
-        },
-    };
-    var read_vecs = [_]posix.iovec{
-        .{
-            .base = &buf2,
-            .len = buf2.len,
-        },
-        .{
-            .base = &buf1,
-            .len = buf1.len,
-        },
-    };
+    var write_vecs: [2][]const u8 = .{ line1, line2 };
+    var read_vecs: [2][]u8 = .{ &buf2, &buf1 };
 
     var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
     defer src_file.close();
 
-    try src_file.writevAll(&write_vecs);
+    var writer = src_file.writerStreaming(&.{});
+
+    try writer.interface.writeVecAll(&write_vecs);
+    try writer.interface.flush();
     try testing.expectEqual(@as(u64, line1.len + line2.len), try src_file.getEndPos());
-    try src_file.seekTo(0);
-    const read = try src_file.readvAll(&read_vecs);
-    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+
+    var reader = writer.moveToReader(io);
+    try reader.seekTo(0);
+    try reader.interface.readVecAll(&read_vecs);
     try testing.expectEqualStrings(&buf1, "line2\n");
     try testing.expectEqualStrings(&buf2, "line1\n");
+    try testing.expectError(error.EndOfStream, reader.interface.readSliceAll(&buf1));
 }
 
 test "pwritev, preadv" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
     const line1 = "line1\n";
     const line2 = "line2\n";
-
+    var lines: [2][]const u8 = .{ line1, line2 };
     var buf1: [line1.len]u8 = undefined;
     var buf2: [line2.len]u8 = undefined;
-    var write_vecs = [_]posix.iovec_const{
-        .{
-            .base = line1,
-            .len = line1.len,
-        },
-        .{
-            .base = line2,
-            .len = line2.len,
-        },
-    };
-    var read_vecs = [_]posix.iovec{
-        .{
-            .base = &buf2,
-            .len = buf2.len,
-        },
-        .{
-            .base = &buf1,
-            .len = buf1.len,
-        },
-    };
+    var read_vecs: [2][]u8 = .{ &buf2, &buf1 };
 
     var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
     defer src_file.close();
 
-    try src_file.pwritevAll(&write_vecs, 16);
+    var writer = src_file.writer(&.{});
+
+    try writer.seekTo(16);
+    try writer.interface.writeVecAll(&lines);
+    try writer.interface.flush();
     try testing.expectEqual(@as(u64, 16 + line1.len + line2.len), try src_file.getEndPos());
-    const read = try src_file.preadvAll(&read_vecs, 16);
-    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+
+    var reader = writer.moveToReader(io);
+    try reader.seekTo(16);
+    try reader.interface.readVecAll(&read_vecs);
     try testing.expectEqualStrings(&buf1, "line2\n");
     try testing.expectEqualStrings(&buf2, "line1\n");
+    try testing.expectError(error.EndOfStream, reader.interface.readSliceAll(&buf1));
 }
 
 test "setEndPos" {
     // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23806
+
+    const io = testing.io;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1406,11 +1401,13 @@ test "setEndPos" {
 
     const initial_size = try f.getEndPos();
     var buffer: [32]u8 = undefined;
+    var reader = f.reader(io, &.{});
 
     {
         try f.setEndPos(initial_size);
         try testing.expectEqual(initial_size, try f.getEndPos());
-        try testing.expectEqual(initial_size, try f.preadAll(&buffer, 0));
+        try reader.seekTo(0);
+        try testing.expectEqual(initial_size, try reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("ninebytes", buffer[0..@intCast(initial_size)]);
     }
 
@@ -1418,7 +1415,8 @@ test "setEndPos" {
         const larger = initial_size + 4;
         try f.setEndPos(larger);
         try testing.expectEqual(larger, try f.getEndPos());
-        try testing.expectEqual(larger, try f.preadAll(&buffer, 0));
+        try reader.seekTo(0);
+        try testing.expectEqual(larger, try reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("ninebytes\x00\x00\x00\x00", buffer[0..@intCast(larger)]);
     }
 
@@ -1426,27 +1424,15 @@ test "setEndPos" {
         const smaller = initial_size - 5;
         try f.setEndPos(smaller);
         try testing.expectEqual(smaller, try f.getEndPos());
-        try testing.expectEqual(smaller, try f.preadAll(&buffer, 0));
+        try reader.seekTo(0);
+        try testing.expectEqual(smaller, try reader.interface.readSliceShort(&buffer));
         try testing.expectEqualStrings("nine", buffer[0..@intCast(smaller)]);
     }
 
     try f.setEndPos(0);
     try testing.expectEqual(0, try f.getEndPos());
-    try testing.expectEqual(0, try f.preadAll(&buffer, 0));
-
-    // Invalid file length should error gracefully. Actual limit is host
-    // and file-system dependent, but 1PB should fail on filesystems like
-    // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
-    f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
-        return err;
-    };
-
-    f.setEndPos(std.math.maxInt(u63)) catch |err| if (err != error.FileTooBig) {
-        return err;
-    };
-
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
+    try reader.seekTo(0);
+    try testing.expectEqual(0, try reader.interface.readSliceShort(&buffer));
 }
 
 test "access file" {
@@ -1466,6 +1452,8 @@ test "access file" {
 }
 
 test "sendfile" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1476,21 +1464,14 @@ test "sendfile" {
 
     const line1 = "line1\n";
     const line2 = "second line\n";
-    var vecs = [_]posix.iovec_const{
-        .{
-            .base = line1,
-            .len = line1.len,
-        },
-        .{
-            .base = line2,
-            .len = line2.len,
-        },
-    };
+    var vecs = [_][]const u8{ line1, line2 };
 
     var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
     defer src_file.close();
-
-    try src_file.writevAll(&vecs);
+    {
+        var fw = src_file.writer(&.{});
+        try fw.interface.writeVecAll(&vecs);
+    }
 
     var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
     defer dest_file.close();
@@ -1499,37 +1480,27 @@ test "sendfile" {
     const header2 = "second header\n";
     const trailer1 = "trailer1\n";
     const trailer2 = "second trailer\n";
-    var hdtr = [_]posix.iovec_const{
-        .{
-            .base = header1,
-            .len = header1.len,
-        },
-        .{
-            .base = header2,
-            .len = header2.len,
-        },
-        .{
-            .base = trailer1,
-            .len = trailer1.len,
-        },
-        .{
-            .base = trailer2,
-            .len = trailer2.len,
-        },
-    };
+    var headers: [2][]const u8 = .{ header1, header2 };
+    var trailers: [2][]const u8 = .{ trailer1, trailer2 };
 
     var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
-    const amt = try dest_file.preadAll(&written_buf, 0);
+    var file_reader = src_file.reader(io, &.{});
+    var fallback_buffer: [50]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+    try file_writer.interface.writeVecAll(&headers);
+    try file_reader.seekTo(1);
+    try testing.expectEqual(10, try file_writer.interface.sendFileAll(&file_reader, .limited(10)));
+    try file_writer.interface.writeVecAll(&trailers);
+    try file_writer.interface.flush();
+    var fr = file_writer.moveToReader(io);
+    try fr.seekTo(0);
+    const amt = try fr.interface.readSliceShort(&written_buf);
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
 
-test "copyRangeAll" {
+test "sendfile with buffered data" {
+    const io = testing.io;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1538,20 +1509,32 @@ test "copyRangeAll" {
     var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
 
-    var src_file = try dir.createFile("file1.txt", .{ .read = true });
+    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
     defer src_file.close();
 
-    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
-    try src_file.writeAll(data);
+    try src_file.writeAll("AAAABBBB");
 
-    var dest_file = try dir.createFile("file2.txt", .{ .read = true });
+    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
     defer dest_file.close();
 
-    var written_buf: [100]u8 = undefined;
-    _ = try src_file.copyRangeAll(0, dest_file, 0, data.len);
+    var src_buffer: [32]u8 = undefined;
+    var file_reader = src_file.reader(io, &src_buffer);
 
-    const amt = try dest_file.preadAll(&written_buf, 0);
-    try testing.expectEqualStrings(data, written_buf[0..amt]);
+    try file_reader.seekTo(0);
+    try file_reader.interface.fill(8);
+
+    var fallback_buffer: [32]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+
+    try std.testing.expectEqual(4, try file_writer.interface.sendFileAll(&file_reader, .limited(4)));
+
+    var written_buf: [8]u8 = undefined;
+    var fr = file_writer.moveToReader(io);
+    try fr.seekTo(0);
+    const amt = try fr.interface.readSliceShort(&written_buf);
+
+    try std.testing.expectEqual(4, amt);
+    try std.testing.expectEqualSlices(u8, "AAAA", written_buf[0..amt]);
 }
 
 test "copyFile" {
@@ -1578,7 +1561,7 @@ test "copyFile" {
 }
 
 fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
-    const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
+    const contents = try dir.readFileAlloc(file_path, testing.allocator, .limited(1000));
     defer testing.allocator.free(contents);
 
     try testing.expectEqualSlices(u8, data, contents);
@@ -1595,12 +1578,13 @@ test "AtomicFile" {
             ;
 
             {
-                var af = try ctx.dir.atomicFile(test_out_file, .{});
+                var buffer: [100]u8 = undefined;
+                var af = try ctx.dir.atomicFile(test_out_file, .{ .write_buffer = &buffer });
                 defer af.deinit();
-                try af.file.writeAll(test_content);
+                try af.file_writer.interface.writeAll(test_content);
                 try af.finish();
             }
-            const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
+            const content = try ctx.dir.readFileAlloc(test_out_file, allocator, .limited(9999));
             try testing.expectEqualStrings(test_content, content);
 
             try ctx.dir.deleteFile(test_out_file);
@@ -1676,8 +1660,8 @@ test "open file with exclusive lock twice, make sure second lock waits" {
                 }
             };
 
-            var started = std.Thread.ResetEvent{};
-            var locked = std.Thread.ResetEvent{};
+            var started: std.Thread.ResetEvent = .unset;
+            var locked: std.Thread.ResetEvent = .unset;
 
             const t = try std.Thread.spawn(.{}, S.checkFn, .{
                 &ctx.dir,
@@ -1741,7 +1725,7 @@ test "read from locked file" {
                 const f = try ctx.dir.createFile(filename, .{ .read = true });
                 defer f.close();
                 var buffer: [1]u8 = undefined;
-                _ = try f.readAll(&buffer);
+                _ = try f.read(&buffer);
             }
             {
                 const f = try ctx.dir.createFile(filename, .{
@@ -1753,9 +1737,9 @@ test "read from locked file" {
                 defer f2.close();
                 var buffer: [1]u8 = undefined;
                 if (builtin.os.tag == .windows) {
-                    try std.testing.expectError(error.LockViolation, f2.readAll(&buffer));
+                    try std.testing.expectError(error.LockViolation, f2.read(&buffer));
                 } else {
-                    try std.testing.expectEqual(0, f2.readAll(&buffer));
+                    try std.testing.expectEqual(0, f2.read(&buffer));
                 }
             }
         }
@@ -1768,14 +1752,14 @@ test "walker" {
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
-    const expected_paths = std.StaticStringMap(void).initComptime(.{
-        .{"dir1"},
-        .{"dir2"},
-        .{"dir3"},
-        .{"dir4"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub1"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2"},
-        .{"dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1"},
+    const expected_paths = std.StaticStringMap(usize).initComptime(.{
+        .{ "dir1", 1 },
+        .{ "dir2", 1 },
+        .{ "dir3", 1 },
+        .{ "dir4", 1 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub1", 2 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2", 2 },
+        .{ "dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1", 3 },
     });
 
     const expected_basenames = std.StaticStringMap(void).initComptime(.{
@@ -1805,6 +1789,76 @@ test "walker" {
             std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
             return err;
         };
+        testing.expectEqual(expected_paths.get(entry.path).?, entry.depth()) catch |err| {
+            std.debug.print("path reported unexpected depth: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+        // make sure that the entry.dir is the containing dir
+        var entry_dir = try entry.dir.openDir(entry.basename, .{});
+        defer entry_dir.close();
+        num_walked += 1;
+    }
+    try testing.expectEqual(expected_paths.kvs.len, num_walked);
+}
+
+test "selective walker, skip entries that start with ." {
+    var tmp = tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const paths_to_create: []const []const u8 = &.{
+        "dir1/foo/.git/ignored",
+        ".hidden/bar",
+        "a/b/c",
+        "a/baz",
+    };
+
+    // iteration order of walker is undefined, so need lookup maps to check against
+
+    const expected_paths = std.StaticStringMap(usize).initComptime(.{
+        .{ "dir1", 1 },
+        .{ "dir1" ++ fs.path.sep_str ++ "foo", 2 },
+        .{ "a", 1 },
+        .{ "a" ++ fs.path.sep_str ++ "b", 2 },
+        .{ "a" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c", 3 },
+        .{ "a" ++ fs.path.sep_str ++ "baz", 2 },
+    });
+
+    const expected_basenames = std.StaticStringMap(void).initComptime(.{
+        .{"dir1"},
+        .{"foo"},
+        .{"a"},
+        .{"b"},
+        .{"c"},
+        .{"baz"},
+    });
+
+    for (paths_to_create) |path| {
+        try tmp.dir.makePath(path);
+    }
+
+    var walker = try tmp.dir.walkSelectively(testing.allocator);
+    defer walker.deinit();
+
+    var num_walked: usize = 0;
+    while (try walker.next()) |entry| {
+        if (entry.basename[0] == '.') continue;
+        if (entry.kind == .directory) {
+            try walker.enter(entry);
+        }
+
+        testing.expect(expected_basenames.has(entry.basename)) catch |err| {
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
+            return err;
+        };
+        testing.expect(expected_paths.has(entry.path)) catch |err| {
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+        testing.expectEqual(expected_paths.get(entry.path).?, entry.depth()) catch |err| {
+            std.debug.print("path reported unexpected depth: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
+            return err;
+        };
+
         // make sure that the entry.dir is the containing dir
         var entry_dir = try entry.dir.openDir(entry.basename, .{});
         defer entry_dir.close();
@@ -1842,6 +1896,7 @@ test "'.' and '..' in fs.Dir functions" {
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const io = ctx.io;
             const subdir_path = try ctx.transformPath("./subdir");
             const file_path = try ctx.transformPath("./subdir/../file");
             const copy_path = try ctx.transformPath("./subdir/../copy");
@@ -1864,8 +1919,9 @@ test "'.' and '..' in fs.Dir functions" {
             try ctx.dir.deleteFile(rename_path);
 
             try ctx.dir.writeFile(.{ .sub_path = update_path, .data = "something" });
-            const prev_status = try ctx.dir.updateFile(file_path, ctx.dir, update_path, .{});
-            try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
+            var dir = ctx.dir.adaptToNewApi();
+            const prev_status = try dir.updateFile(io, file_path, dir, update_path, .{});
+            try testing.expectEqual(Io.Dir.PrevStatus.stale, prev_status);
 
             try ctx.dir.deleteDir(subdir_path);
         }
@@ -1902,13 +1958,6 @@ test "'.' and '..' in absolute functions" {
     const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
     renamed_file.close();
     try fs.deleteFileAbsolute(renamed_file_path);
-
-    const update_file_path = try fs.path.join(allocator, &.{ subdir_path, "../update" });
-    const update_file = try fs.createFileAbsolute(update_file_path, .{});
-    try update_file.writeAll("something");
-    update_file.close();
-    const prev_status = try fs.updateFileAbsolute(created_file_path, update_file_path, .{});
-    try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
     try fs.deleteDirAbsolute(subdir_path);
 }
@@ -1970,54 +2019,46 @@ test "delete a setAsCwd directory on Windows" {
 
 test "invalid UTF-8/WTF-8 paths" {
     const expected_err = switch (native_os) {
-        .wasi => error.InvalidUtf8,
-        .windows => error.InvalidWtf8,
+        .wasi => error.BadPathName,
+        .windows => error.BadPathName,
         else => return error.SkipZigTest,
     };
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const io = ctx.io;
             // This is both invalid UTF-8 and WTF-8, since \xFF is an invalid start byte
             const invalid_path = try ctx.transformPath("\xFF");
 
             try testing.expectError(expected_err, ctx.dir.openFile(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.openFileZ(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.createFile(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.createFileZ(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.makeDir(invalid_path));
-            try testing.expectError(expected_err, ctx.dir.makeDirZ(invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.makePath(invalid_path));
             try testing.expectError(expected_err, ctx.dir.makeOpenPath(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.openDir(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.openDirZ(invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.deleteFile(invalid_path));
-            try testing.expectError(expected_err, ctx.dir.deleteFileZ(invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.deleteDir(invalid_path));
-            try testing.expectError(expected_err, ctx.dir.deleteDirZ(invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.rename(invalid_path, invalid_path));
-            try testing.expectError(expected_err, ctx.dir.renameZ(invalid_path, invalid_path));
 
             try testing.expectError(expected_err, ctx.dir.symLink(invalid_path, invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.symLinkZ(invalid_path, invalid_path, .{}));
             if (native_os == .wasi) {
                 try testing.expectError(expected_err, ctx.dir.symLinkWasi(invalid_path, invalid_path, .{}));
             }
 
             try testing.expectError(expected_err, ctx.dir.readLink(invalid_path, &[_]u8{}));
-            try testing.expectError(expected_err, ctx.dir.readLinkZ(invalid_path, &[_]u8{}));
             if (native_os == .wasi) {
                 try testing.expectError(expected_err, ctx.dir.readLinkWasi(invalid_path, &[_]u8{}));
             }
 
             try testing.expectError(expected_err, ctx.dir.readFile(invalid_path, &[_]u8{}));
-            try testing.expectError(expected_err, ctx.dir.readFileAlloc(testing.allocator, invalid_path, 0));
+            try testing.expectError(expected_err, ctx.dir.readFileAlloc(invalid_path, testing.allocator, .limited(0)));
 
             try testing.expectError(expected_err, ctx.dir.deleteTree(invalid_path));
             try testing.expectError(expected_err, ctx.dir.deleteTreeMinStackSize(invalid_path));
@@ -2025,49 +2066,189 @@ test "invalid UTF-8/WTF-8 paths" {
             try testing.expectError(expected_err, ctx.dir.writeFile(.{ .sub_path = invalid_path, .data = "" }));
 
             try testing.expectError(expected_err, ctx.dir.access(invalid_path, .{}));
-            try testing.expectError(expected_err, ctx.dir.accessZ(invalid_path, .{}));
 
-            try testing.expectError(expected_err, ctx.dir.updateFile(invalid_path, ctx.dir, invalid_path, .{}));
+            var dir = ctx.dir.adaptToNewApi();
+            try testing.expectError(expected_err, dir.updateFile(io, invalid_path, dir, invalid_path, .{}));
             try testing.expectError(expected_err, ctx.dir.copyFile(invalid_path, ctx.dir, invalid_path, .{}));
 
             try testing.expectError(expected_err, ctx.dir.statFile(invalid_path));
 
             if (native_os != .wasi) {
                 try testing.expectError(expected_err, ctx.dir.realpath(invalid_path, &[_]u8{}));
-                try testing.expectError(expected_err, ctx.dir.realpathZ(invalid_path, &[_]u8{}));
                 try testing.expectError(expected_err, ctx.dir.realpathAlloc(testing.allocator, invalid_path));
             }
 
             try testing.expectError(expected_err, fs.rename(ctx.dir, invalid_path, ctx.dir, invalid_path));
-            try testing.expectError(expected_err, fs.renameZ(ctx.dir, invalid_path, ctx.dir, invalid_path));
 
             if (native_os != .wasi and ctx.path_type != .relative) {
-                try testing.expectError(expected_err, fs.updateFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.copyFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.makeDirAbsolute(invalid_path));
-                try testing.expectError(expected_err, fs.makeDirAbsoluteZ(invalid_path));
                 try testing.expectError(expected_err, fs.deleteDirAbsolute(invalid_path));
-                try testing.expectError(expected_err, fs.deleteDirAbsoluteZ(invalid_path));
                 try testing.expectError(expected_err, fs.renameAbsolute(invalid_path, invalid_path));
-                try testing.expectError(expected_err, fs.renameAbsoluteZ(invalid_path, invalid_path));
                 try testing.expectError(expected_err, fs.openDirAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.openDirAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.openFileAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.openFileAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.accessAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.accessAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.createFileAbsolute(invalid_path, .{}));
-                try testing.expectError(expected_err, fs.createFileAbsoluteZ(invalid_path, .{}));
                 try testing.expectError(expected_err, fs.deleteFileAbsolute(invalid_path));
-                try testing.expectError(expected_err, fs.deleteFileAbsoluteZ(invalid_path));
                 try testing.expectError(expected_err, fs.deleteTreeAbsolute(invalid_path));
                 var readlink_buf: [fs.max_path_bytes]u8 = undefined;
                 try testing.expectError(expected_err, fs.readLinkAbsolute(invalid_path, &readlink_buf));
-                try testing.expectError(expected_err, fs.readLinkAbsoluteZ(invalid_path, &readlink_buf));
                 try testing.expectError(expected_err, fs.symLinkAbsolute(invalid_path, invalid_path, .{}));
-                try testing.expectError(expected_err, fs.symLinkAbsoluteZ(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.realpathAlloc(testing.allocator, invalid_path));
             }
         }
     }.impl);
+}
+
+test "read file non vectored" {
+    const io = std.testing.io;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "hello, world!\n";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var file_reader: std.Io.File.Reader = .initAdapted(file, io, &.{});
+
+    var write_buffer: [100]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&write_buffer);
+
+    var i: usize = 0;
+    while (true) {
+        i += file_reader.interface.stream(&w, .limited(3)) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+    }
+    try testing.expectEqualStrings(contents, w.buffered());
+    try testing.expectEqual(contents.len, i);
+}
+
+test "seek keeping partial buffer" {
+    const io = std.testing.io;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "0123456789";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [3]u8 = undefined;
+    var file_reader: Io.File.Reader = .initAdapted(file, io, &read_buffer);
+
+    try testing.expectEqual(0, file_reader.logicalPos());
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+
+    if (file_reader.interface.bufferedLen() != 3) {
+        // Pass the test if the OS doesn't give us vectored reads.
+        return;
+    }
+
+    try testing.expectEqual(4, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+    try file_reader.seekTo(6);
+    try testing.expectEqual(6, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+
+    try testing.expectEqualStrings("0123", &buf);
+
+    const n = try file_reader.interface.readSliceShort(&buf);
+    try testing.expectEqual(4, n);
+
+    try testing.expectEqualStrings("6789", &buf);
+}
+
+test "seekBy" {
+    const io = testing.io;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+    var reader = f.readerStreaming(io, &.{});
+    try reader.seekBy(2);
+
+    var buffer: [20]u8 = undefined;
+    const n = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(15, n);
+    try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
+}
+
+test "seekTo flushes buffered data" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const io = std.testing.io;
+
+    const contents = "data";
+
+    const file = try tmp.dir.createFile("seek.bin", .{ .read = true });
+    defer file.close();
+    {
+        var buf: [16]u8 = undefined;
+        var file_writer = std.fs.File.writer(file, &buf);
+
+        try file_writer.interface.writeAll(contents);
+        try file_writer.seekTo(8);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [16]u8 = undefined;
+    var file_reader: std.Io.File.Reader = .initAdapted(file, io, &read_buffer);
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+    try std.testing.expectEqualStrings(contents, &buf);
+}
+
+test "File.Writer sendfile with buffered contents" {
+    const io = testing.io;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    {
+        try tmp_dir.dir.writeFile(.{ .sub_path = "a", .data = "bcd" });
+        const in = try tmp_dir.dir.openFile("a", .{});
+        defer in.close();
+        const out = try tmp_dir.dir.createFile("b", .{});
+        defer out.close();
+
+        var in_buf: [2]u8 = undefined;
+        var in_r = in.reader(io, &in_buf);
+        _ = try in_r.getSize(); // Catch seeks past end by populating size
+        try in_r.interface.fill(2);
+
+        var out_buf: [1]u8 = undefined;
+        var out_w = out.writerStreaming(&out_buf);
+        try out_w.interface.writeByte('a');
+        try testing.expectEqual(3, try out_w.interface.sendFileAll(&in_r, .unlimited));
+        try out_w.interface.flush();
+    }
+
+    var check = try tmp_dir.dir.openFile("b", .{});
+    defer check.close();
+    var check_buf: [4]u8 = undefined;
+    var check_r = check.reader(io, &check_buf);
+    try testing.expectEqualStrings("abcd", try check_r.interface.take(4));
+    try testing.expectError(error.EndOfStream, check_r.interface.takeByte());
 }

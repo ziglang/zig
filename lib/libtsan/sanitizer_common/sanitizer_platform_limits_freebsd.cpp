@@ -29,6 +29,7 @@
 #include <sys/mtio.h>
 #include <sys/ptrace.h>
 #include <sys/resource.h>
+#include <sys/shm.h>
 #include <sys/signal.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
@@ -70,14 +71,8 @@
 #include <semaphore.h>
 #include <signal.h>
 #include <stddef.h>
-#include <md5.h>
-#include <sha224.h>
-#include <sha256.h>
-#include <sha384.h>
-#include <sha512.h>
 #include <stdio.h>
 #include <stringlist.h>
-#include <term.h>
 #include <termios.h>
 #include <time.h>
 #include <ttyent.h>
@@ -86,10 +81,6 @@
 #include <vis.h>
 #include <wchar.h>
 #include <wordexp.h>
-
-#define _KERNEL  // to declare 'shminfo' structure
-#include <sys/shm.h>
-#undef _KERNEL
 
 #undef IOC_DIRMASK
 
@@ -141,8 +132,6 @@ unsigned struct_timeb_sz = sizeof(struct timeb);
 unsigned struct_msqid_ds_sz = sizeof(struct msqid_ds);
 unsigned struct_mq_attr_sz = sizeof(struct mq_attr);
 unsigned struct_statvfs_sz = sizeof(struct statvfs);
-unsigned struct_shminfo_sz = sizeof(struct shminfo);
-unsigned struct_shm_info_sz = sizeof(struct shm_info);
 unsigned struct_regmatch_sz = sizeof(regmatch_t);
 unsigned struct_regex_sz = sizeof(regex_t);
 unsigned struct_fstab_sz = sizeof(struct fstab);
@@ -156,9 +145,6 @@ const uptr sig_err = (uptr)SIG_ERR;
 const uptr sa_siginfo = (uptr)SA_SIGINFO;
 
 int shmctl_ipc_stat = (int)IPC_STAT;
-int shmctl_ipc_info = (int)IPC_INFO;
-int shmctl_shm_info = (int)SHM_INFO;
-int shmctl_shm_stat = (int)SHM_STAT;
 unsigned struct_utmpx_sz = sizeof(struct utmpx);
 
 int map_fixed = MAP_FIXED;
@@ -378,22 +364,6 @@ const int si_SEGV_MAPERR = SEGV_MAPERR;
 const int si_SEGV_ACCERR = SEGV_ACCERR;
 const int unvis_valid = UNVIS_VALID;
 const int unvis_validpush = UNVIS_VALIDPUSH;
-
-const unsigned MD5_CTX_sz = sizeof(MD5_CTX);
-const unsigned MD5_return_length = MD5_DIGEST_STRING_LENGTH;
-
-#define SHA2_CONST(LEN)                                                      \
-  const unsigned SHA##LEN##_CTX_sz = sizeof(SHA##LEN##_CTX);                 \
-  const unsigned SHA##LEN##_return_length = SHA##LEN##_DIGEST_STRING_LENGTH; \
-  const unsigned SHA##LEN##_block_length = SHA##LEN##_BLOCK_LENGTH;          \
-  const unsigned SHA##LEN##_digest_length = SHA##LEN##_DIGEST_LENGTH
-
-SHA2_CONST(224);
-SHA2_CONST(256);
-SHA2_CONST(384);
-SHA2_CONST(512);
-
-#undef SHA2_CONST
 }  // namespace __sanitizer
 
 using namespace __sanitizer;

@@ -147,6 +147,21 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+template <class _Lock>
+struct __unlock_guard {
+  _Lock& __lock_;
+
+  _LIBCPP_HIDE_FROM_ABI __unlock_guard(_Lock& __lock) : __lock_(__lock) { __lock_.unlock(); }
+
+  _LIBCPP_HIDE_FROM_ABI ~__unlock_guard() _NOEXCEPT // turns exception to std::terminate
+  {
+    __lock_.lock();
+  }
+
+  __unlock_guard(const __unlock_guard&)            = delete;
+  __unlock_guard& operator=(const __unlock_guard&) = delete;
+};
+
 class _LIBCPP_EXPORTED_FROM_ABI condition_variable_any {
   condition_variable __cv_;
   shared_ptr<mutex> __mut_;
@@ -158,13 +173,25 @@ public:
   _LIBCPP_HIDE_FROM_ABI void notify_all() _NOEXCEPT;
 
   template <class _Lock>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS void wait(_Lock& __lock);
+  _LIBCPP_HIDE_FROM_ABI void wait(_Lock& __lock) {
+    shared_ptr<mutex> __mut = __mut_;
+    unique_lock<mutex> __lk(*__mut);
+    __unlock_guard<_Lock> __unlock(__lock);
+    lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock_t());
+    __cv_.wait(__lk);
+  } // __mut_.unlock(), __lock.lock()
+
   template <class _Lock, class _Predicate>
   _LIBCPP_HIDE_FROM_ABI void wait(_Lock& __lock, _Predicate __pred);
 
   template <class _Lock, class _Clock, class _Duration>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS cv_status
-  wait_until(_Lock& __lock, const chrono::time_point<_Clock, _Duration>& __t);
+  _LIBCPP_HIDE_FROM_ABI cv_status wait_until(_Lock& __lock, const chrono::time_point<_Clock, _Duration>& __t) {
+    shared_ptr<mutex> __mut = __mut_;
+    unique_lock<mutex> __lk(*__mut);
+    __unlock_guard<_Lock> __unlock(__lock);
+    lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock_t());
+    return __cv_.wait_until(__lk, __t);
+  } // __mut_.unlock(), __lock.lock()
 
   template <class _Lock, class _Clock, class _Duration, class _Predicate>
   bool _LIBCPP_HIDE_FROM_ABI
@@ -204,44 +231,11 @@ inline void condition_variable_any::notify_all() _NOEXCEPT {
   __cv_.notify_all();
 }
 
-template <class _Lock>
-struct __unlock_guard {
-  _Lock& __lock_;
-
-  _LIBCPP_HIDE_FROM_ABI __unlock_guard(_Lock& __lock) : __lock_(__lock) { __lock_.unlock(); }
-
-  _LIBCPP_HIDE_FROM_ABI ~__unlock_guard() _NOEXCEPT // turns exception to std::terminate
-  {
-    __lock_.lock();
-  }
-
-  __unlock_guard(const __unlock_guard&)            = delete;
-  __unlock_guard& operator=(const __unlock_guard&) = delete;
-};
-
-template <class _Lock>
-void condition_variable_any::wait(_Lock& __lock) {
-  shared_ptr<mutex> __mut = __mut_;
-  unique_lock<mutex> __lk(*__mut);
-  __unlock_guard<_Lock> __unlock(__lock);
-  lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock_t());
-  __cv_.wait(__lk);
-} // __mut_.unlock(), __lock.lock()
-
 template <class _Lock, class _Predicate>
 inline void condition_variable_any::wait(_Lock& __lock, _Predicate __pred) {
   while (!__pred())
     wait(__lock);
 }
-
-template <class _Lock, class _Clock, class _Duration>
-cv_status condition_variable_any::wait_until(_Lock& __lock, const chrono::time_point<_Clock, _Duration>& __t) {
-  shared_ptr<mutex> __mut = __mut_;
-  unique_lock<mutex> __lk(*__mut);
-  __unlock_guard<_Lock> __unlock(__lock);
-  lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock_t());
-  return __cv_.wait_until(__lk, __t);
-} // __mut_.unlock(), __lock.lock()
 
 template <class _Lock, class _Clock, class _Duration, class _Predicate>
 inline bool
@@ -363,6 +357,7 @@ _LIBCPP_POP_MACROS
 #    include <initializer_list>
 #    include <iosfwd>
 #    include <new>
+#    include <optional>
 #    include <stdexcept>
 #    include <system_error>
 #    include <type_traits>

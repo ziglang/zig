@@ -299,18 +299,18 @@ pub fn main() !void {
 
         // Read the ELF header.
         const elf_bytes = build_all_dir.readFileAllocOptions(
-            arena,
             libc_so_path,
-            100 * 1024 * 1024,
-            1 * 1024 * 1024,
-            @alignOf(elf.Elf64_Ehdr),
+            arena,
+            .limited(100 * 1024 * 1024),
+            .of(elf.Elf64_Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {s}", .{
                 build_all_path, libc_so_path, @errorName(err),
             });
         };
-        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+        var stream: std.Io.Reader = .fixed(elf_bytes);
+        const header = try elf.Header.read(&stream);
 
         const parse: Parse = .{
             .arena = arena,
@@ -608,7 +608,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
         const ty = @as(u4, @truncate(sym.st_info));
         const binding = @as(u4, @truncate(sym.st_info >> 4));
-        const visib = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
+        const visib = @as(elf.STV, @enumFromInt(@as(u3, @truncate(sym.st_other))));
         const size = s(sym.st_size);
 
         if (size == 0) {

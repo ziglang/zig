@@ -2,6 +2,13 @@
 //! source lives here. These APIs are provided as-is and have absolutely no API
 //! guarantees whatsoever.
 
+const std = @import("std.zig");
+const tokenizer = @import("zig/tokenizer.zig");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const Writer = std.Io.Writer;
+
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
 pub const Server = @import("zig/Server.zig");
 pub const Client = @import("zig/Client.zig");
@@ -30,9 +37,10 @@ pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
 pub const parseCharLiteral = string_literal.parseCharLiteral;
 pub const parseNumberLiteral = number_literal.parseNumberLiteral;
 
-// Files needed by translate-c.
-pub const c_builtins = @import("zig/c_builtins.zig");
-pub const c_translation = @import("zig/c_translation.zig");
+pub const c_translation = struct {
+    pub const builtins = @import("zig/c_translation/builtins.zig");
+    pub const helpers = @import("zig/c_translation/helpers.zig");
+};
 
 pub const SrcHasher = std.crypto.hash.Blake3;
 pub const SrcHash = [16]u8;
@@ -45,17 +53,18 @@ pub const Color = enum {
     /// Assume stderr is a terminal.
     on,
 
-    pub fn get_tty_conf(color: Color) std.io.tty.Config {
+    pub fn getTtyConf(color: Color, detected: Io.tty.Config) Io.tty.Config {
         return switch (color) {
-            .auto => std.io.tty.detectConfig(std.fs.File.stderr()),
+            .auto => detected,
             .on => .escape_codes,
             .off => .no_color,
         };
     }
-
-    pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        return .{
-            .ttyconf = get_tty_conf(color),
+    pub fn detectTtyConf(color: Color) Io.tty.Config {
+        return switch (color) {
+            .auto => .detect(.stderr()),
+            .on => .escape_codes,
+            .off => .no_color,
         };
     }
 };
@@ -162,7 +171,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
-        .elf, .goff, .xcoff => switch (options.output_mode) {
+        .elf => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
                 switch (options.link_mode orelse .static) {
@@ -315,6 +324,27 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
+
+    pub fn format(id: BuildId, writer: *Writer) Writer.Error!void {
+        switch (id) {
+            .none, .fast, .uuid, .sha1, .md5 => {
+                try writer.writeAll(@tagName(id));
+            },
+            .hexstring => |hs| {
+                try writer.print("0x{x}", .{hs.toSlice()});
+            },
+        }
+    }
+
+    test format {
+        try std.testing.expectFmt("none", "{f}", .{@as(BuildId, .none)});
+        try std.testing.expectFmt("fast", "{f}", .{@as(BuildId, .fast)});
+        try std.testing.expectFmt("uuid", "{f}", .{@as(BuildId, .uuid)});
+        try std.testing.expectFmt("sha1", "{f}", .{@as(BuildId, .sha1)});
+        try std.testing.expectFmt("md5", "{f}", .{@as(BuildId, .md5)});
+        try std.testing.expectFmt("0x", "{f}", .{BuildId.initHexString("")});
+        try std.testing.expectFmt("0x1234cdef", "{f}", .{BuildId.initHexString("\x12\x34\xcd\xef")});
+    }
 };
 
 pub const LtoMode = enum { none, full, thin };
@@ -328,7 +358,7 @@ pub const SoName = union(enum) {
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
-pub fn serializeCpu(buffer: *std.ArrayList(u8), cpu: std.Target.Cpu) Allocator.Error!void {
+pub fn serializeCpu(buffer: *std.array_list.Managed(u8), cpu: std.Target.Cpu) Allocator.Error!void {
     const all_features = cpu.arch.allFeaturesList();
     var populated_cpu_features = cpu.model.features;
     populated_cpu_features.populateDependencies(all_features);
@@ -356,36 +386,31 @@ pub fn serializeCpu(buffer: *std.ArrayList(u8), cpu: std.Target.Cpu) Allocator.E
 }
 
 pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![]u8 {
-    var buffer = std.ArrayList(u8).init(ally);
+    var buffer = std.array_list.Managed(u8).init(ally);
     try serializeCpu(&buffer, cpu);
     return buffer.toOwnedSlice();
 }
 
-const std = @import("std.zig");
-const tokenizer = @import("zig/tokenizer.zig");
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// See also `fmtIdFlags`.
-pub fn fmtId(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{} } };
+pub fn fmtId(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{} };
 }
 
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// See also `fmtId`.
-pub fn fmtIdFlags(bytes: []const u8, flags: FormatId.Flags) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = flags } };
+pub fn fmtIdFlags(bytes: []const u8, flags: FormatId.Flags) FormatId {
+    return .{ .bytes = bytes, .flags = flags };
 }
 
-pub fn fmtIdPU(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true, .allow_underscore = true } } };
+pub fn fmtIdPU(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{ .allow_primitive = true, .allow_underscore = true } };
 }
 
-pub fn fmtIdP(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true } } };
+pub fn fmtIdP(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{ .allow_primitive = true } };
 }
 
 test fmtId {
@@ -431,7 +456,7 @@ pub const FormatId = struct {
     };
 
     /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
-    fn render(ctx: FormatId, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(ctx: FormatId, writer: *Writer) Writer.Error!void {
         const bytes = ctx.bytes;
         if (isValidId(bytes) and
             (ctx.flags.allow_primitive or !std.zig.isPrimitive(bytes)) and
@@ -446,13 +471,13 @@ pub const FormatId = struct {
 };
 
 /// Return a formatter for escaping a double quoted Zig string.
-pub fn fmtString(bytes: []const u8) std.fmt.Formatter([]const u8, stringEscape) {
+pub fn fmtString(bytes: []const u8) std.fmt.Alt([]const u8, stringEscape) {
     return .{ .data = bytes };
 }
 
 /// Return a formatter for escaping a single quoted Zig string.
-pub fn fmtChar(bytes: []const u8) std.fmt.Formatter([]const u8, charEscape) {
-    return .{ .data = bytes };
+pub fn fmtChar(c: u21) std.fmt.Alt(u21, charEscape) {
+    return .{ .data = c };
 }
 
 test fmtString {
@@ -463,13 +488,11 @@ test fmtString {
 }
 
 test fmtChar {
-    try std.testing.expectFmt(
-        \\" \\ hi \x07 \x11 " derp \'"
-    , "\"{f}\"", .{fmtChar(" \\ hi \x07 \x11 \" derp '")});
+    try std.testing.expectFmt("c \\u{26a1}", "{f} {f}", .{ fmtChar('c'), fmtChar('⚡') });
 }
 
 /// Print the string as escaped contents of a double quoted string.
-pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+pub fn stringEscape(bytes: []const u8, w: *Writer) Writer.Error!void {
     for (bytes) |byte| switch (byte) {
         '\n' => try w.writeAll("\\n"),
         '\r' => try w.writeAll("\\r"),
@@ -485,21 +508,26 @@ pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!vo
     };
 }
 
-/// Print the string as escaped contents of a single-quoted string.
-pub fn charEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
-    for (bytes) |byte| switch (byte) {
+/// Print as escaped contents of a single-quoted string.
+pub fn charEscape(codepoint: u21, w: *Writer) Writer.Error!void {
+    switch (codepoint) {
         '\n' => try w.writeAll("\\n"),
         '\r' => try w.writeAll("\\r"),
         '\t' => try w.writeAll("\\t"),
         '\\' => try w.writeAll("\\\\"),
-        '"' => try w.writeByte('"'),
         '\'' => try w.writeAll("\\'"),
-        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(byte),
+        '"', ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(@intCast(codepoint)),
         else => {
-            try w.writeAll("\\x");
-            try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            if (std.math.cast(u8, codepoint)) |byte| {
+                try w.writeAll("\\x");
+                try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            } else {
+                try w.writeAll("\\u{");
+                try w.printInt(codepoint, 16, .lower, .{});
+                try w.writeByte('}');
+            }
         },
-    };
+    }
 }
 
 pub fn isValidId(bytes: []const u8) bool {
@@ -535,20 +563,20 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
-pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?usize) ![:0]u8 {
-    const source_code = input.readToEndAllocOptions(
-        gpa,
-        max_src_size,
-        size_hint,
-        .of(u8),
-        0,
-    ) catch |err| switch (err) {
-        error.ConnectionResetByPeer => unreachable,
-        error.ConnectionTimedOut => unreachable,
-        error.NotOpenForReading => unreachable,
-        else => |e| return e,
-    };
-    errdefer gpa.free(source_code);
+/// If the source can be UTF-16LE encoded, this function asserts that `gpa`
+/// will align a byte-sized allocation to at least 2. Allocators that don't do
+/// this are rare.
+pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *Io.File.Reader) ![:0]u8 {
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(gpa);
+
+    if (file_reader.getSize()) |size| {
+        const casted_size = std.math.cast(u32, size) orelse return error.StreamTooLong;
+        // +1 to avoid resizing for the null byte added in toOwnedSliceSentinel below.
+        try buffer.ensureTotalCapacityPrecise(gpa, casted_size + 1);
+    } else |_| {}
+
+    try file_reader.interface.appendRemaining(gpa, &buffer, .limited(max_src_size));
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -557,30 +585,23 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?
         "\xfe\xff", // UTF-16 big endian
     };
     for (unsupported_boms) |bom| {
-        if (std.mem.startsWith(u8, source_code, bom)) {
+        if (std.mem.startsWith(u8, buffer.items, bom)) {
             return error.UnsupportedEncoding;
         }
     }
 
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
-    if (std.mem.startsWith(u8, source_code, "\xff\xfe")) {
-        if (source_code.len % 2 != 0) return error.InvalidEncoding;
-        // TODO: after wrangle-writer-buffering branch is merged,
-        // avoid this unnecessary allocation
-        const aligned_copy = try gpa.alloc(u16, source_code.len / 2);
-        defer gpa.free(aligned_copy);
-        @memcpy(std.mem.sliceAsBytes(aligned_copy), source_code);
-        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(gpa, aligned_copy) catch |err| switch (err) {
+    if (std.mem.startsWith(u8, buffer.items, "\xff\xfe")) {
+        if (buffer.items.len % 2 != 0) return error.InvalidEncoding;
+        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(@alignCast(buffer.items))) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             else => |e| return e,
         };
-        gpa.free(source_code);
-        return source_code_utf8;
     }
 
-    return source_code;
+    return buffer.toOwnedSliceSentinel(gpa, 0);
 }
 
 pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
@@ -592,7 +613,7 @@ pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(color.renderOptions());
+    error_bundle.renderToStdErr(.{}, color);
 }
 
 pub fn putAstErrorsIntoBundle(
@@ -607,8 +628,8 @@ pub fn putAstErrorsIntoBundle(
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
 }
 
-pub fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
-    return std.zig.system.resolveTargetQuery(target_query) catch |err|
+pub fn resolveTargetQueryOrFatal(io: Io, target_query: std.Target.Query) std.Target {
+    return std.zig.system.resolveTargetQuery(io, target_query) catch |err|
         std.process.fatal("unable to resolve target: {s}", .{@errorName(err)});
 }
 
@@ -624,10 +645,10 @@ pub fn parseTargetQueryOrReportFatalError(
     return std.Target.Query.parse(opts_with_diags) catch |err| switch (err) {
         error.UnknownCpuModel => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allCpuModels()) |cpu| {
-                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
+                    help_text.print(" {s}\n", .{cpu.name}) catch break :help;
                 }
                 std.log.info("available CPUs for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
@@ -637,10 +658,10 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownCpuFeature => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
+                    help_text.print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
                 }
                 std.log.info("available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
@@ -650,10 +671,10 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownObjectFormat => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                    help_text.print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }
@@ -661,10 +682,10 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownArchitecture => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                    help_text.print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available architectures:\n{s} native\n", .{help_text.items});
             }
@@ -684,6 +705,8 @@ pub const EnvVar = enum {
     ZIG_LIB_DIR,
     ZIG_LIBC,
     ZIG_BUILD_RUNNER,
+    ZIG_BUILD_ERROR_STYLE,
+    ZIG_BUILD_MULTILINE_ERRORS,
     ZIG_VERBOSE_LINK,
     ZIG_VERBOSE_CC,
     ZIG_BTRFS_WORKAROUND,
@@ -746,6 +769,7 @@ pub const SimpleComptimeReason = enum(u32) {
     generic_call_target,
     wasm_memory_index,
     work_group_dim_index,
+    clobber,
 
     // Evaluating at comptime because types must be comptime-known.
     // Reasons other than `.type` are just more specific messages.
@@ -826,6 +850,7 @@ pub const SimpleComptimeReason = enum(u32) {
             .generic_call_target  => "generic function being called must be comptime-known",
             .wasm_memory_index    => "wasm memory index must be comptime-known",
             .work_group_dim_index => "work group dimension index must be comptime-known",
+            .clobber              => "clobber must be comptime-known",
 
             .type                => "types must be comptime-known",
             .array_sentinel      => "array sentinel value must be comptime-known",
@@ -918,4 +943,5 @@ test {
     _ = system;
     _ = target;
     _ = c_translation;
+    _ = llvm;
 }

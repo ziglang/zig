@@ -635,7 +635,7 @@ pub fn main() anyerror!void {
     const args = try std.process.argsAlloc(allocator);
 
     var stdout_buffer: [4000]u8 = undefined;
-    var stdout_writer = fs.stdout().writerStreaming(&stdout_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     if (args.len <= 1) printUsageAndExit(args[0]);
@@ -699,7 +699,7 @@ pub fn main() anyerror!void {
     defer parsed.deinit();
     const root_map = &parsed.value.object;
 
-    var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
+    var all_objects = std.array_list.Managed(*json.ObjectMap).init(allocator);
     {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {
@@ -767,7 +767,7 @@ pub fn main() anyerror!void {
             try stdout.print(
                 \\.{{
                 \\    .name = "{s}",
-                \\    .syntax = {s},
+                \\    .syntax = {f},
                 \\    .zig_equivalent = .{s},
                 \\    .pd1 = {},
                 \\    .pd2 = {},
@@ -797,7 +797,7 @@ pub fn main() anyerror!void {
             try stdout.print(
                 \\.{{
                 \\    .name = "{s}",
-                \\    .syntax = {s},
+                \\    .syntax = {f},
                 \\    .zig_equivalent = .other,
                 \\    .pd1 = {},
                 \\    .pd2 = {},
@@ -845,14 +845,10 @@ const Syntax = union(enum) {
 
     pub fn format(
         self: Syntax,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
+        out_stream: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         switch (self) {
-            .multi_arg => |n| return out_stream.print(".{{.{s}={}}}", .{ @tagName(self), n }),
+            .multi_arg => |n| return out_stream.print(".{{.{t}={d}}}", .{ self, n }),
             else => return out_stream.print(".{s}", .{@tagName(self)}),
         }
     }
@@ -965,11 +961,13 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
 }
 
 fn printUsageAndExit(arg0: []const u8) noreturn {
-    printUsage(std.debug.lockStderrWriter(&.{}), arg0) catch std.process.exit(2);
+    const w, _ = std.debug.lockStderrWriter(&.{});
+    defer std.debug.unlockStderrWriter();
+    printUsage(w, arg0) catch std.process.exit(2);
     std.process.exit(1);
 }
 
-fn printUsage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     try w.print(
         \\Usage: {s} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project

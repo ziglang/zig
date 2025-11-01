@@ -78,8 +78,6 @@ export fn entry14() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:12: error: packed structs cannot contain fields of type 'anyerror'
 // :3:12: note: type has no guaranteed in-memory representation

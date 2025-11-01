@@ -5,12 +5,14 @@
 //!   slices as well as APIs which accept null-terminated WTF16LE byte buffers.
 
 const builtin = @import("builtin");
+const native_arch = builtin.cpu.arch;
+
 const std = @import("../std.zig");
+const Io = std.Io;
 const mem = std.mem;
 const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
-const native_arch = builtin.cpu.arch;
 const UnexpectedError = std.posix.UnexpectedError;
 
 test {
@@ -87,7 +89,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     };
     var attr = OBJECT_ATTRIBUTES{
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else options.dir,
         .Attributes = if (options.sa) |ptr| blk: { // Note we do not use OBJ_CASE_INSENSITIVE here.
             const inherit: ULONG = if (ptr.bInheritHandle == TRUE) OBJ_INHERIT else 0;
             break :blk inherit;
@@ -146,7 +148,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.Thread.sleep(std.time.ns_per_ms);
+                _ = kernel32.SleepEx(1, TRUE);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
@@ -202,7 +204,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         const name = UNICODE_STRING{
             .Length = len,
             .MaximumLength = len,
-            .Buffer = @constCast(@ptrCast(str)),
+            .Buffer = @ptrCast(@constCast(str)),
         };
         const attrs = OBJECT_ATTRIBUTES{
             .ObjectName = @constCast(&name),
@@ -408,7 +410,12 @@ pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInfor
     }
 }
 
-pub const RtlGenRandomError = error{Unexpected};
+pub const RtlGenRandomError = error{
+    /// `RtlGenRandom` has been known to fail in situations where the system is under heavy load.
+    /// Unfortunately, it does not call `SetLastError`, so it is not possible to get more specific
+    /// error information; it could actually be due to an out-of-memory condition, for example.
+    SystemResources,
+};
 
 /// Call RtlGenRandom() instead of CryptGetRandom() on Windows
 /// https://github.com/rust-lang-nursery/rand/issues/111
@@ -422,7 +429,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
         const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
-            return unexpectedError(GetLastError());
+            return error.SystemResources;
         }
 
         total_read += to_read;
@@ -515,7 +522,7 @@ pub fn PostQueuedCompletionStatus(
 pub const GetQueuedCompletionStatusResult = enum {
     Normal,
     Aborted,
-    Cancelled,
+    Canceled,
     EOF,
     Timeout,
 };
@@ -536,7 +543,7 @@ pub fn GetQueuedCompletionStatus(
     ) == FALSE) {
         switch (GetLastError()) {
             .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
-            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
+            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Canceled,
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             .WAIT_TIMEOUT => return GetQueuedCompletionStatusResult.Timeout,
             else => |err| {
@@ -552,7 +559,7 @@ pub fn GetQueuedCompletionStatus(
 
 pub const GetQueuedCompletionStatusError = error{
     Aborted,
-    Cancelled,
+    Canceled,
     EOF,
     Timeout,
 } || UnexpectedError;
@@ -577,7 +584,7 @@ pub fn GetQueuedCompletionStatusEx(
     if (success == FALSE) {
         return switch (GetLastError()) {
             .ABANDONED_WAIT_0 => error.Aborted,
-            .OPERATION_ABORTED => error.Cancelled,
+            .OPERATION_ABORTED => error.Canceled,
             .HANDLE_EOF => error.EOF,
             .WAIT_TIMEOUT => error.Timeout,
             else => |err| unexpectedError(err),
@@ -599,7 +606,7 @@ pub const ReadFileError = error{
     BrokenPipe,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
-    OperationAborted,
+    Canceled,
     /// Unable to read file due to lock.
     LockViolation,
     /// Known to be possible when:
@@ -649,7 +656,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
 
 pub const WriteFileError = error{
     SystemResources,
-    OperationAborted,
+    Canceled,
     BrokenPipe,
     NotOpenForWriting,
     /// The process cannot access the file because another process has locked
@@ -689,7 +696,7 @@ pub fn WriteFile(
         switch (GetLastError()) {
             .INVALID_USER_BUFFER => return error.SystemResources,
             .NOT_ENOUGH_MEMORY => return error.SystemResources,
-            .OPERATION_ABORTED => return error.OperationAborted,
+            .OPERATION_ABORTED => return error.Canceled,
             .NOT_ENOUGH_QUOTA => return error.SystemResources,
             .IO_PENDING => unreachable,
             .NO_DATA => return error.BrokenPipe,
@@ -744,7 +751,7 @@ pub const GetCurrentDirectoryError = error{
 };
 
 /// The result is a slice of `buffer`, indexed from 0.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     var wtf16le_buf: [PATH_MAX_WIDE:0]u16 = undefined;
     const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len + 1, &wtf16le_buf);
@@ -840,7 +847,7 @@ pub fn CreateSymbolicLink(
                 //       the C:\ drive.
                 .rooted => break :target_path target_path,
                 // Keep relative paths relative, but anything else needs to get NT-prefixed.
-                else => if (!std.fs.path.isAbsoluteWindowsWTF16(target_path))
+                else => if (!std.fs.path.isAbsoluteWindowsWtf16(target_path))
                     break :target_path target_path,
             },
             // Already an NT path, no need to do anything to it
@@ -849,7 +856,7 @@ pub fn CreateSymbolicLink(
         }
         var prefixed_target_path = try wToPrefixedFileW(dir, target_path);
         // We do this after prefixing to ensure that drive-relative paths are treated as absolute
-        is_target_absolute = std.fs.path.isAbsoluteWindowsWTF16(prefixed_target_path.span());
+        is_target_absolute = std.fs.path.isAbsoluteWindowsWtf16(prefixed_target_path.span());
         break :target_path prefixed_target_path.span();
     };
 
@@ -857,7 +864,7 @@ pub fn CreateSymbolicLink(
     var buffer: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
     const buf_len = @sizeOf(SYMLINK_DATA) + final_target_path.len * 4;
     const header_len = @sizeOf(ULONG) + @sizeOf(USHORT) * 2;
-    const target_is_absolute = std.fs.path.isAbsoluteWindowsWTF16(final_target_path);
+    const target_is_absolute = std.fs.path.isAbsoluteWindowsWtf16(final_target_path);
     const symlink_data = SYMLINK_DATA{
         .ReparseTag = IO_REPARSE_TAG_SYMLINK,
         .ReparseDataLength = @intCast(buf_len - header_len),
@@ -898,7 +905,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     };
     var attr = OBJECT_ATTRIBUTES{
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else dir,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else dir,
         .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
         .ObjectName = &nt_name,
         .SecurityDescriptor = null,
@@ -971,7 +978,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
 }
 
 /// Asserts that there is enough space is `out_buffer`.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
     const win32_namespace_path = path: {
         if (is_relative) break :path path;
@@ -1028,7 +1035,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
 
     var attr = OBJECT_ATTRIBUTES{
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else options.dir,
         .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
         .ObjectName = &nt_name,
         .SecurityDescriptor = null,
@@ -1066,13 +1073,18 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
     defer CloseHandle(tmp_handle);
 
-    // FileDispositionInformationEx (and therefore FILE_DISPOSITION_POSIX_SEMANTICS and FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE)
-    // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
-    // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
-    // us INVALID_PARAMETER.
-    // The same reasoning for win10_rs5 as in os.renameatW() applies (FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5).
-    var need_fallback = true;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
+    // FileDispositionInformationEx has varying levels of support:
+    // - FILE_DISPOSITION_INFORMATION_EX requires >= win10_rs1
+    //   (INVALID_INFO_CLASS is returned if not supported)
+    // - Requires the NTFS filesystem
+    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
+    // - FILE_DISPOSITION_POSIX_SEMANTICS requires >= win10_rs1
+    // - FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
+    //   (NOT_SUPPORTED is returned if a flag is unsupported)
+    //
+    // The strategy here is just to try using FileDispositionInformationEx and fall back to
+    // FileDispositionInformation if the return value lets us know that some aspect of it is not supported.
+    const need_fallback = need_fallback: {
         // Deletion with posix semantics if the filesystem supports it.
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
@@ -1089,12 +1101,18 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         );
         switch (rc) {
             .SUCCESS => return,
-            // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER => {},
+            // The filesystem does not support FileDispositionInformationEx
+            .INVALID_PARAMETER,
+            // The operating system does not support FileDispositionInformationEx
+            .INVALID_INFO_CLASS,
+            // The operating system does not support one of the flags
+            .NOT_SUPPORTED,
+            => break :need_fallback true,
             // For all other statuses, fall down to the switch below to handle them.
-            else => need_fallback = false,
+            else => break :need_fallback false,
         }
-    }
+    };
+
     if (need_fallback) {
         // Deletion with file pending semantics, which requires waiting or moving
         // files to get them removed (from here).
@@ -1332,7 +1350,7 @@ pub fn GetFinalPathNameByHandle(
             // dropping the \Device\Mup\ and making sure the path begins with \\
             if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
                 out_buffer[0] = '\\';
-                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                @memmove(out_buffer[1..][0..file_name_u16.len], file_name_u16);
                 return out_buffer[0 .. 1 + file_name_u16.len];
             }
 
@@ -1400,7 +1418,7 @@ pub fn GetFinalPathNameByHandle(
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
                     @memcpy(out_buffer[0..drive_letter.len], drive_letter);
-                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
+                    @memmove(out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
@@ -1449,12 +1467,7 @@ pub fn GetFinalPathNameByHandle(
                     // to copy backwards. We also need to do this before copying the volume path because
                     // it could overwrite the file_name_u16 memory.
                     const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
-                    const file_name_byte_offset = @intFromPtr(file_name_u16.ptr) - @intFromPtr(out_buffer.ptr);
-                    const file_name_index = file_name_byte_offset / @sizeOf(u16);
-                    if (volume_path.len > file_name_index)
-                        mem.copyBackwards(u16, file_name_dest, file_name_u16)
-                    else
-                        mem.copyForwards(u16, file_name_dest, file_name_u16);
+                    @memmove(file_name_dest, file_name_u16);
                     @memcpy(out_buffer[0..volume_path.len], volume_path);
                     const total_len = volume_path.len + file_name_u16.len;
 
@@ -1561,133 +1574,42 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
     return rc;
 }
 
-pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
-    var wsadata: ws2_32.WSADATA = undefined;
-    return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
-        0 => wsadata,
-        else => |err_int| switch (@as(ws2_32.WinsockError, @enumFromInt(@as(u16, @intCast(err_int))))) {
-            .WSASYSNOTREADY => return error.SystemNotAvailable,
-            .WSAVERNOTSUPPORTED => return error.VersionNotSupported,
-            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
-            .WSAEPROCLIM => return error.ProcessFdQuotaExceeded,
-            else => |err| return unexpectedWSAError(err),
-        },
-    };
-}
-
-pub fn WSACleanup() !void {
-    return switch (ws2_32.WSACleanup()) {
-        0 => {},
-        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
-            .WSANOTINITIALISED => return error.NotInitialized,
-            .WSAENETDOWN => return error.NetworkNotAvailable,
-            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
-            else => |err| return unexpectedWSAError(err),
-        },
-        else => unreachable,
-    };
-}
-
-var wsa_startup_mutex: std.Thread.Mutex = .{};
-
-pub fn callWSAStartup() !void {
-    wsa_startup_mutex.lock();
-    defer wsa_startup_mutex.unlock();
-
-    // Here we could use a flag to prevent multiple threads to prevent
-    // multiple calls to WSAStartup, but it doesn't matter. We're globally
-    // leaking the resource intentionally, and the mutex already prevents
-    // data races within the WSAStartup function.
-    _ = WSAStartup(2, 2) catch |err| switch (err) {
-        error.SystemNotAvailable => return error.SystemResources,
-        error.VersionNotSupported => return error.Unexpected,
-        error.BlockingOperationInProgress => return error.Unexpected,
-        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
-        error.Unexpected => return error.Unexpected,
-    };
-}
-
-/// Microsoft requires WSAStartup to be called to initialize, or else
-/// WSASocketW will return WSANOTINITIALISED.
-/// Since this is a standard library, we do not have the luxury of
-/// putting initialization code anywhere, because we would not want
-/// to pay the cost of calling WSAStartup if there ended up being no
-/// networking. Also, if Zig code is used as a library, Zig is not in
-/// charge of the start code, and we couldn't put in any initialization
-/// code even if we wanted to.
-/// The documentation for WSAStartup mentions that there must be a
-/// matching WSACleanup call. It is not possible for the Zig Standard
-/// Library to honor this for the same reason - there is nowhere to put
-/// deinitialization code.
-/// So, API users of the zig std lib have two options:
-///  * (recommended) The simple, cross-platform way: just call `WSASocketW`
-///    and don't worry about it. Zig will call WSAStartup() in a thread-safe
-///    manner and never deinitialize networking. This is ideal for an
-///    application which has the capability to do networking.
-///  * The getting-your-hands-dirty way: call `WSAStartup()` before doing
-///    networking, so that the error handling code for WSANOTINITIALISED never
-///    gets run, which then allows the application or library to call `WSACleanup()`.
-///    This could make sense for a library, which has init and deinit
-///    functions for the whole library's lifetime.
-pub fn WSASocketW(
-    af: i32,
-    socket_type: i32,
-    protocol: i32,
-    protocolInfo: ?*ws2_32.WSAPROTOCOL_INFOW,
-    g: ws2_32.GROUP,
-    dwFlags: DWORD,
-) !ws2_32.SOCKET {
-    var first = true;
-    while (true) {
-        const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
-        if (rc == ws2_32.INVALID_SOCKET) {
-            switch (ws2_32.WSAGetLastError()) {
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .WSAEMFILE => return error.ProcessFdQuotaExceeded,
-                .WSAENOBUFS => return error.SystemResources,
-                .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
-                .WSANOTINITIALISED => {
-                    if (!first) return error.Unexpected;
-                    first = false;
-                    try callWSAStartup();
-                    continue;
-                },
-                else => |err| return unexpectedWSAError(err),
-            }
-        }
-        return rc;
-    }
-}
-
-pub fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: ws2_32.socklen_t) i32 {
-    return ws2_32.bind(s, name, @as(i32, @intCast(namelen)));
-}
-
-pub fn listen(s: ws2_32.SOCKET, backlog: u31) i32 {
-    return ws2_32.listen(s, backlog);
-}
-
-pub fn closesocket(s: ws2_32.SOCKET) !void {
-    switch (ws2_32.closesocket(s)) {
-        0 => {},
-        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
-            else => |err| return unexpectedWSAError(err),
-        },
-        else => unreachable,
-    }
-}
-
-pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
-    assert((name == null) == (namelen == null));
-    return ws2_32.accept(s, name, @as(?*i32, @ptrCast(namelen)));
-}
-
-pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
-    return ws2_32.getsockname(s, name, @as(*i32, @ptrCast(namelen)));
-}
-
 pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
     return ws2_32.getpeername(s, name, @as(*i32, @ptrCast(namelen)));
+}
+
+pub fn sendmsg(
+    s: ws2_32.SOCKET,
+    msg: *ws2_32.WSAMSG_const,
+    flags: u32,
+) i32 {
+    var bytes_send: DWORD = undefined;
+    if (ws2_32.WSASendMsg(s, msg, flags, &bytes_send, null, null) == ws2_32.SOCKET_ERROR) {
+        return ws2_32.SOCKET_ERROR;
+    } else {
+        return @as(i32, @as(u31, @intCast(bytes_send)));
+    }
+}
+
+pub fn sendto(s: ws2_32.SOCKET, buf: [*]const u8, len: usize, flags: u32, to: ?*const ws2_32.sockaddr, to_len: ws2_32.socklen_t) i32 {
+    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = @constCast(buf) };
+    var bytes_send: DWORD = undefined;
+    if (ws2_32.WSASendTo(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_send, flags, to, @as(i32, @intCast(to_len)), null, null) == ws2_32.SOCKET_ERROR) {
+        return ws2_32.SOCKET_ERROR;
+    } else {
+        return @as(i32, @as(u31, @intCast(bytes_send)));
+    }
+}
+
+pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws2_32.sockaddr, from_len: ?*ws2_32.socklen_t) i32 {
+    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = buf };
+    var bytes_received: DWORD = undefined;
+    var flags_inout = flags;
+    if (ws2_32.WSARecvFrom(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_received, &flags_inout, from, @as(?*i32, @ptrCast(from_len)), null, null) == ws2_32.SOCKET_ERROR) {
+        return ws2_32.SOCKET_ERROR;
+    } else {
+        return @as(i32, @as(u31, @intCast(bytes_received)));
+    }
 }
 
 pub fn poll(fds: [*]ws2_32.pollfd, n: c_ulong, timeout: i32) i32 {
@@ -1878,6 +1800,7 @@ pub const CreateProcessError = error{
     NameTooLong,
     InvalidExe,
     SystemResources,
+    FileBusy,
     Unexpected,
 };
 
@@ -1948,6 +1871,7 @@ pub fn CreateProcessW(
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
             .FILENAME_EXCED_RANGE => return error.NameTooLong,
+            .SHARING_VIOLATION => return error.FileBusy,
             // These are all the system errors that are mapped to ENOEXEC by
             // the undocumented _dosmaperr (old CRT) or __acrt_errno_map_os_error
             // (newer CRT) functions. Their code can be found in crt/src/dosmap.c (old SDK)
@@ -2172,25 +2096,25 @@ pub fn peb() *PEB {
 /// Universal Time (UTC).
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
-pub fn fromSysTime(hns: i64) i128 {
+pub fn fromSysTime(hns: i64) Io.Timestamp {
     const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
-    return adjusted_epoch * 100;
+    return .fromNanoseconds(@intCast(adjusted_epoch * 100));
 }
 
-pub fn toSysTime(ns: i128) i64 {
-    const hns = @divFloor(ns, 100);
+pub fn toSysTime(ns: Io.Timestamp) i64 {
+    const hns = @divFloor(ns.nanoseconds, 100);
     return @as(i64, @intCast(hns)) - std.time.epoch.windows * (std.time.ns_per_s / 100);
 }
 
-pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
+pub fn fileTimeToNanoSeconds(ft: FILETIME) Io.Timestamp {
     const hns = (@as(i64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
     return fromSysTime(hns);
 }
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
-pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
+pub fn nanoSecondsToFileTime(ns: Io.Timestamp) FILETIME {
     const adjusted: u64 = @bitCast(toSysTime(ns));
-    return FILETIME{
+    return .{
         .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
         .dwLowDateTime = @as(u32, @truncate(adjusted)),
     };
@@ -2378,20 +2302,22 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
     return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
 }
 
-pub const Wtf8ToPrefixedFileWError = error{InvalidWtf8} || Wtf16ToPrefixedFileWError;
+pub const Wtf8ToPrefixedFileWError = Wtf16ToPrefixedFileWError;
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated WTF-8 encoded path.
-/// https://simonsapin.github.io/wtf-8/
+/// https://wtf-8.codeberg.page/
 pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) Wtf8ToPrefixedFileWError!PathSpace {
     return sliceToPrefixedFileW(dir, mem.sliceTo(s, 0));
 }
 
 /// Same as `wToPrefixedFileW` but accepts a WTF-8 encoded path.
-/// https://simonsapin.github.io/wtf-8/
+/// https://wtf-8.codeberg.page/
 pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) Wtf8ToPrefixedFileWError!PathSpace {
     var temp_path: PathSpace = undefined;
-    temp_path.len = try std.unicode.wtf8ToWtf16Le(&temp_path.data, path);
+    temp_path.len = std.unicode.wtf8ToWtf16Le(&temp_path.data, path) catch |err| switch (err) {
+        error.InvalidWtf8 => return error.BadPathName,
+    };
     temp_path.data[temp_path.len] = 0;
     return wToPrefixedFileW(dir, temp_path.span());
 }
@@ -2765,38 +2691,6 @@ inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
     return (s << 10) | p;
 }
 
-/// Loads a Winsock extension function in runtime specified by a GUID.
-pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
-    var function: T = undefined;
-    var num_bytes: DWORD = undefined;
-
-    const rc = ws2_32.WSAIoctl(
-        sock,
-        ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
-        &guid,
-        @sizeOf(GUID),
-        @as(?*anyopaque, @ptrFromInt(@intFromPtr(&function))),
-        @sizeOf(T),
-        &num_bytes,
-        null,
-        null,
-    );
-
-    if (rc == ws2_32.SOCKET_ERROR) {
-        return switch (ws2_32.WSAGetLastError()) {
-            .WSAEOPNOTSUPP => error.OperationNotSupported,
-            .WSAENOTSOCK => error.FileDescriptorNotASocket,
-            else => |err| unexpectedWSAError(err),
-        };
-    }
-
-    if (num_bytes != @sizeOf(T)) {
-        return error.ShortRead;
-    }
-
-    return function;
-}
-
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) UnexpectedError {
@@ -2815,7 +2709,7 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
         std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
             err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
         });
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
 }
@@ -2829,9 +2723,23 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) UnexpectedError {
 pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
+}
+
+pub fn statusBug(status: NTSTATUS) UnexpectedError {
+    switch (builtin.mode) {
+        .Debug => std.debug.panic("programmer bug caused syscall status: {t}", .{status}),
+        else => return error.Unexpected,
+    }
+}
+
+pub fn errorBug(err: Win32Error) UnexpectedError {
+    switch (builtin.mode) {
+        .Debug => std.debug.panic("programmer bug caused syscall status: {t}", .{err}),
+        else => return error.Unexpected,
+    }
 }
 
 pub const Win32Error = @import("windows/win32error.zig").Win32Error;
@@ -3093,12 +3001,12 @@ pub const FILE_DISPOSITION_INFORMATION_EX = extern struct {
     Flags: ULONG,
 };
 
-const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
-const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
-const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
-const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
-const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
-const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
+pub const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
+pub const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
+pub const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
+pub const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
+pub const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
+pub const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
 // FILE_RENAME_INFORMATION.Flags
 pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
@@ -4193,8 +4101,8 @@ pub const CONTEXT = switch (native_arch) {
         SegSs: DWORD,
         ExtendedRegisters: [512]BYTE,
 
-        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
-            return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+            return .{ .bp = ctx.Ebp, .ip = ctx.Eip, .sp = ctx.Esp };
         }
     },
     .x86_64 => extern struct {
@@ -4587,25 +4495,28 @@ pub const TEB = extern struct {
 };
 
 comptime {
-    // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
-    // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
-    assert(@offsetOf(TEB, "NtTib") == 0x00);
-    if (@sizeOf(usize) == 4) {
-        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
-        assert(@offsetOf(TEB, "ClientId") == 0x20);
-        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
-        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
-        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
-        assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
-        assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
-    } else if (@sizeOf(usize) == 8) {
-        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
-        assert(@offsetOf(TEB, "ClientId") == 0x40);
-        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
-        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
-        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
-        assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
-        assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
+    // XXX: Without this check we cannot use `std.Io.Writer` on 16-bit platforms. `std.fmt.bufPrint` will hit the unreachable in `PEB.GdiHandleBuffer` without this guard.
+    if (builtin.os.tag == .windows) {
+        // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
+        // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
+        assert(@offsetOf(TEB, "NtTib") == 0x00);
+        if (@sizeOf(usize) == 4) {
+            assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
+            assert(@offsetOf(TEB, "ClientId") == 0x20);
+            assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
+            assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
+            assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+            assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
+            assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
+        } else if (@sizeOf(usize) == 8) {
+            assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
+            assert(@offsetOf(TEB, "ClientId") == 0x40);
+            assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
+            assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
+            assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+            assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
+            assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
+        }
     }
 }
 
@@ -5686,4 +5597,17 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
     const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
     return ppeb.ImageBaseAddress;
+}
+
+pub fn wtf8ToWtf16Le(wtf16le: []u16, wtf8: []const u8) error{ BadPathName, NameTooLong }!usize {
+    // Each u8 in UTF-8/WTF-8 correlates to at most one u16 in UTF-16LE/WTF-16LE.
+    if (wtf16le.len < wtf8.len) {
+        const utf16_len = std.unicode.calcUtf16LeLenImpl(wtf8, .can_encode_surrogate_half) catch
+            return error.BadPathName;
+        if (utf16_len > wtf16le.len)
+            return error.NameTooLong;
+    }
+    return std.unicode.wtf8ToWtf16Le(wtf16le, wtf8) catch |err| switch (err) {
+        error.InvalidWtf8 => return error.BadPathName,
+    };
 }

@@ -1,6 +1,5 @@
 const std = @import("std");
 const fs = std.fs;
-const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
 const fatal = std.process.fatal;
@@ -14,8 +13,7 @@ const introspect = @import("introspect.zig");
 pub fn cmdTargets(
     allocator: Allocator,
     args: []const []const u8,
-    /// Output stream
-    stdout: anytype,
+    out: *std.Io.Writer,
     native_target: *const Target,
 ) !void {
     _ = args;
@@ -26,9 +24,9 @@ pub fn cmdTargets(
     defer allocator.free(zig_lib_directory.path.?);
 
     const abilists_contents = zig_lib_directory.handle.readFileAlloc(
-        allocator,
         glibc.abilists_path,
-        glibc.abilists_max_size,
+        allocator,
+        .limited(glibc.abilists_max_size),
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => fatal("unable to read " ++ glibc.abilists_path ++ ": {s}", .{@errorName(err)}),
@@ -38,12 +36,10 @@ pub fn cmdTargets(
     const glibc_abi = try glibc.loadMetaData(allocator, abilists_contents);
     defer glibc_abi.destroy(allocator);
 
-    var bw = io.bufferedWriter(stdout);
-    const w = bw.writer();
-    var sz = std.zon.stringify.serializer(w, .{});
+    var serializer: std.zon.Serializer = .{ .writer = out };
 
     {
-        var root_obj = try sz.beginStruct(.{});
+        var root_obj = try serializer.beginStruct(.{});
 
         try root_obj.field("arch", meta.fieldNames(Target.Cpu.Arch), .{});
         try root_obj.field("os", meta.fieldNames(Target.Os.Tag), .{});
@@ -136,6 +132,5 @@ pub fn cmdTargets(
         try root_obj.end();
     }
 
-    try w.writeByte('\n');
-    return bw.flush();
+    try out.writeByte('\n');
 }

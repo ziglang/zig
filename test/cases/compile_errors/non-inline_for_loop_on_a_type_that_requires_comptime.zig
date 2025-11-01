@@ -10,8 +10,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:10: error: values of type '[2]tmp.Foo' must be comptime-known, but index value is runtime-known
 // :3:8: note: struct requires comptime because of this field

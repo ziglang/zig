@@ -350,6 +350,42 @@ pub fn MultiArrayList(comptime T: type) type {
             self.len -= 1;
         }
 
+        /// Remove the elements indexed by `sorted_indexes`. The indexes to be
+        /// removed correspond to the array list before deletion.
+        ///
+        /// Asserts:
+        /// * Each index to be removed is in bounds.
+        /// * The indexes to be removed are sorted ascending.
+        ///
+        /// Duplicates in `sorted_indexes` are allowed.
+        ///
+        /// This operation is O(N).
+        ///
+        /// Invalidates element pointers beyond the first deleted index.
+        pub fn orderedRemoveMany(self: *Self, sorted_indexes: []const usize) void {
+            if (sorted_indexes.len == 0) return;
+            const slices = self.slice();
+            var shift: usize = 1;
+            for (sorted_indexes[0 .. sorted_indexes.len - 1], sorted_indexes[1..]) |removed, end| {
+                if (removed == end) continue; // allows duplicates in `sorted_indexes`
+                const start = removed + 1;
+                const len = end - start; // safety checks `sorted_indexes` are sorted
+                inline for (fields, 0..) |_, field_index| {
+                    const field_slice = slices.items(@enumFromInt(field_index));
+                    @memmove(field_slice[start - shift ..][0..len], field_slice[start..][0..len]); // safety checks initial `sorted_indexes` are in range
+                }
+                shift += 1;
+            }
+            const start = sorted_indexes[sorted_indexes.len - 1] + 1;
+            const end = self.len;
+            const len = end - start; // safety checks final `sorted_indexes` are in range
+            inline for (fields, 0..) |_, field_index| {
+                const field_slice = slices.items(@enumFromInt(field_index));
+                @memmove(field_slice[start - shift ..][0..len], field_slice[start..][0..len]);
+            }
+            self.len = end - shift;
+        }
+
         /// Adjust the list's length to `new_len`.
         /// Does not initialize added items, if any.
         pub fn resize(self: *Self, gpa: Allocator, new_len: usize) !void {
@@ -421,24 +457,19 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.setCapacity(gpa, growCapacity(self.capacity, new_capacity));
+            return self.setCapacity(gpa, growCapacity(new_capacity));
         }
 
-        const init_capacity = init: {
-            var max = 1;
-            for (fields) |field| max = @as(comptime_int, @max(max, @sizeOf(field.type)));
-            break :init @as(comptime_int, @max(1, std.atomic.cache_line / max));
+        const init_capacity: comptime_int = init: {
+            var max: comptime_int = 1;
+            for (fields) |field| max = @max(max, @sizeOf(field.type));
+            break :init @max(1, std.atomic.cache_line / max);
         };
 
-        /// Called when memory growth is necessary. Returns a capacity larger than
-        /// minimum that grows super-linearly.
-        fn growCapacity(current: usize, minimum: usize) usize {
-            var new = current;
-            while (true) {
-                new +|= new / 2 + init_capacity;
-                if (new >= minimum)
-                    return new;
-            }
+        /// Given a lower bound of required memory capacity, returns a larger value
+        /// with super-linear growth.
+        pub fn growCapacity(minimum: usize) usize {
+            return minimum +| (minimum / 2 + init_capacity);
         }
 
         /// Modify the array so that it can hold at least `additional_count` **more** items.
@@ -1024,4 +1055,30 @@ test "struct with many fields" {
     try ManyFields.doTest(testing.allocator, 50);
     try ManyFields.doTest(testing.allocator, 100);
     try ManyFields.doTest(testing.allocator, 200);
+}
+
+test "orderedRemoveMany" {
+    const gpa = testing.allocator;
+
+    var list: MultiArrayList(struct { x: usize }) = .empty;
+    defer list.deinit(gpa);
+
+    for (0..10) |n| {
+        try list.append(gpa, .{ .x = n });
+    }
+
+    list.orderedRemoveMany(&.{ 1, 5, 5, 7, 9 });
+    try testing.expectEqualSlices(usize, &.{ 0, 2, 3, 4, 6, 8 }, list.items(.x));
+
+    list.orderedRemoveMany(&.{0});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, list.items(.x));
+
+    list.orderedRemoveMany(&.{});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, list.items(.x));
+
+    list.orderedRemoveMany(&.{ 1, 2, 3, 4 });
+    try testing.expectEqualSlices(usize, &.{2}, list.items(.x));
+
+    list.orderedRemoveMany(&.{0});
+    try testing.expectEqualSlices(usize, &.{}, list.items(.x));
 }

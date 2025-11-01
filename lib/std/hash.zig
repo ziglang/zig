@@ -1,5 +1,4 @@
-const adler = @import("hash/adler.zig");
-pub const Adler32 = adler.Adler32;
+pub const Adler32 = @import("hash/Adler32.zig");
 
 const auto_hash = @import("hash/auto_hash.zig");
 pub const autoHash = auto_hash.autoHash;
@@ -31,8 +30,6 @@ pub const CityHash64 = cityhash.CityHash64;
 
 const wyhash = @import("hash/wyhash.zig");
 pub const Wyhash = wyhash.Wyhash;
-
-pub const RapidHash = @import("hash/RapidHash.zig");
 
 const xxhash = @import("hash/xxhash.zig");
 pub const XxHash3 = xxhash.XxHash3;
@@ -118,7 +115,7 @@ test int {
 }
 
 test {
-    _ = adler;
+    _ = Adler32;
     _ = auto_hash;
     _ = crc;
     _ = fnv;

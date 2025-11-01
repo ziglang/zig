@@ -1,5 +1,8 @@
 //! Parser for transfer-encoding: chunked.
 
+const ChunkParser = @This();
+const std = @import("std");
+
 state: State,
 chunk_len: u64,
 
@@ -96,9 +99,6 @@ pub fn feed(p: *ChunkParser, bytes: []const u8) usize {
     };
     return bytes.len;
 }
-
-const ChunkParser = @This();
-const std = @import("std");
 
 test feed {
     const testing = std.testing;

@@ -7,7 +7,5 @@ export fn entry() u16 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:17: error: type 'u3' cannot represent integer value '8'

@@ -19,8 +19,6 @@ export fn d() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: discard of error capture; omit it instead
 // :3:9: error: use of undeclared identifier '_'

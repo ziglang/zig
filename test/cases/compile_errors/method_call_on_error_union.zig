@@ -14,8 +14,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :13:6: error: no field or member function named 'a' in '@typeInfo(@typeInfo(@TypeOf(tmp.X.init)).@"fn".return_type.?).error_union.error_set!tmp.X'
 // :13:6: note: consider using 'try', 'catch', or 'if'

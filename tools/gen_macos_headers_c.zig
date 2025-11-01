@@ -23,7 +23,7 @@ pub fn main() anyerror!void {
     const args = try std.process.argsAlloc(arena);
     if (args.len == 1) fatal("no command or option specified", .{});
 
-    var positionals = std.ArrayList([]const u8).init(arena);
+    var positionals = std.array_list.Managed([]const u8).init(arena);
 
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
@@ -33,9 +33,9 @@ pub fn main() anyerror!void {
 
     if (positionals.items.len != 1) fatal("expected one positional argument: [dir]", .{});
 
-    var dir = try std.fs.cwd().openDir(positionals.items[0], .{ .no_follow = true });
+    var dir = try std.fs.cwd().openDir(positionals.items[0], .{ .follow_symlinks = false });
     defer dir.close();
-    var paths = std.ArrayList([]const u8).init(arena);
+    var paths = std.array_list.Managed([]const u8).init(arena);
     try findHeaders(arena, dir, "", &paths);
 
     const SortFn = struct {
@@ -66,14 +66,14 @@ fn findHeaders(
     arena: Allocator,
     dir: std.fs.Dir,
     prefix: []const u8,
-    paths: *std.ArrayList([]const u8),
+    paths: *std.array_list.Managed([]const u8),
 ) anyerror!void {
     var it = dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
             .directory => {
                 const path = try std.fs.path.join(arena, &.{ prefix, entry.name });
-                var subdir = try dir.openDir(entry.name, .{ .no_follow = true });
+                var subdir = try dir.openDir(entry.name, .{ .follow_symlinks = false });
                 defer subdir.close();
                 try findHeaders(arena, subdir, path, paths);
             },

@@ -7,7 +7,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:22: error: size of packed struct '131070' exceeds maximum bit width of 65535

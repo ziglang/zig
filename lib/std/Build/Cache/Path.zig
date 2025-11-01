@@ -1,5 +1,7 @@
 const Path = @This();
+
 const std = @import("../../std.zig");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
@@ -119,7 +121,7 @@ pub fn atomicFile(
     return p.root_dir.handle.atomicFile(joined_path, options);
 }
 
-pub fn access(p: Path, sub_path: []const u8, flags: fs.File.OpenFlags) !void {
+pub fn access(p: Path, sub_path: []const u8, flags: Io.Dir.AccessOptions) !void {
     var buf: [fs.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
         break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
@@ -147,11 +149,11 @@ pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
     return std.fmt.allocPrintSentinel(allocator, "{f}", .{p}, 0);
 }
 
-pub fn fmtEscapeString(path: Path) std.fmt.Formatter(Path, formatEscapeString) {
+pub fn fmtEscapeString(path: Path) std.fmt.Alt(Path, formatEscapeString) {
     return .{ .data = path };
 }
 
-pub fn formatEscapeString(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn formatEscapeString(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
         try std.zig.stringEscape(p, writer);
         if (path.sub_path.len > 0) try std.zig.stringEscape(fs.path.sep_str, writer);
@@ -161,21 +163,23 @@ pub fn formatEscapeString(path: Path, writer: *std.io.Writer) std.io.Writer.Erro
     }
 }
 
-pub fn fmtEscapeChar(path: Path) std.fmt.Formatter(Path, formatEscapeChar) {
+/// Deprecated, use double quoted escape to print paths.
+pub fn fmtEscapeChar(path: Path) std.fmt.Alt(Path, formatEscapeChar) {
     return .{ .data = path };
 }
 
-pub fn formatEscapeChar(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+/// Deprecated, use double quoted escape to print paths.
+pub fn formatEscapeChar(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
-        try std.zig.charEscape(p, writer);
-        if (path.sub_path.len > 0) try std.zig.charEscape(fs.path.sep_str, writer);
+        for (p) |byte| try std.zig.charEscape(byte, writer);
+        if (path.sub_path.len > 0) try writer.writeByte(fs.path.sep);
     }
     if (path.sub_path.len > 0) {
-        try std.zig.charEscape(path.sub_path, writer);
+        for (path.sub_path) |byte| try std.zig.charEscape(byte, writer);
     }
 }
 
-pub fn format(self: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(self: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (std.fs.path.isAbsolute(self.sub_path)) {
         try writer.writeAll(self.sub_path);
         return;

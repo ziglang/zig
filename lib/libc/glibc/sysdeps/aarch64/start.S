@@ -70,8 +70,8 @@ ENTRY(_start)
 	mov	x5, x0
 
 	/* Load argc and a pointer to argv */
-	ldr	PTR_REG (1), [sp, #0]
-	add	x2, sp, #PTR_SIZE
+	ldr	x1, [sp, #0]
+	add	x2, sp, 8
 
 	/* Setup stack limit in argument register */
 	mov	x6, sp
@@ -79,14 +79,16 @@ ENTRY(_start)
 #ifdef PIC
 # ifdef SHARED
         adrp    x0, :got:main
-	ldr     PTR_REG (0), [x0, #:got_lo12:main]
+	ldr     x0, [x0, #:got_lo12:main]
 # else
 	adrp	x0, __wrap_main
 	add	x0, x0, :lo12:__wrap_main
 # endif
 #else
-	/* Set up the other arguments in registers */
-	MOVL (0, main)
+	movz    x0, :abs_g3:main
+	movk    x0, :abs_g2_nc:main
+	movk    x0, :abs_g1_nc:main
+	movk    x0, :abs_g0_nc:main
 #endif
 	mov	x3, #0		/* Used to be init.  */
 	mov	x4, #0		/* Used to be fini.  */
@@ -106,7 +108,7 @@ ENTRY(_start)
 	   because crt1.o and rcrt1.o share code and the later must avoid the
 	   use of GOT relocations before __libc_start_main is called.  */
 __wrap_main:
-	BTI_C
+	bti	c
 	b	main
 #endif
 END(_start)

@@ -1,6 +1,12 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
+
+const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
+const WORD = std.os.windows.WORD;
+const DWORD = std.os.windows.DWORD;
+
 const Node = @import("ast.zig").Node;
 const lex = @import("lex.zig");
 const Parser = @import("parse.zig").Parser;
@@ -17,8 +23,6 @@ const res = @import("res.zig");
 const ico = @import("ico.zig");
 const ani = @import("ani.zig");
 const bmp = @import("bmp.zig");
-const WORD = std.os.windows.WORD;
-const DWORD = std.os.windows.DWORD;
 const utils = @import("utils.zig");
 const NameOrOrdinal = res.NameOrOrdinal;
 const SupportedCodePage = @import("code_pages.zig").SupportedCodePage;
@@ -28,17 +32,13 @@ const windows1252 = @import("windows1252.zig");
 const lang = @import("lang.zig");
 const code_pages = @import("code_pages.zig");
 const errors = @import("errors.zig");
-const native_endian = builtin.cpu.arch.endian();
 
 pub const CompileOptions = struct {
     cwd: std.fs.Dir,
     diagnostics: *Diagnostics,
     source_mappings: ?*SourceMappings = null,
     /// List of paths (absolute or relative to `cwd`) for every file that the resources within the .rc file depend on.
-    /// Items within the list will be allocated using the allocator of the ArrayList and must be
-    /// freed by the caller.
-    /// TODO: Maybe a dedicated struct for this purpose so that it's a bit nicer to work with.
-    dependencies_list: ?*std.ArrayList([]const u8) = null,
+    dependencies: ?*Dependencies = null,
     default_code_page: SupportedCodePage = .windows1252,
     /// If true, the first #pragma code_page directive only sets the input code page, but not the output code page.
     /// This check must be done before comments are removed from the file.
@@ -61,7 +61,26 @@ pub const CompileOptions = struct {
     warn_instead_of_error_on_invalid_code_page: bool = false,
 };
 
-pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, options: CompileOptions) !void {
+pub const Dependencies = struct {
+    list: std.ArrayList([]const u8),
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator) Dependencies {
+        return .{
+            .list = .empty,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Dependencies) void {
+        for (self.list.items) |item| {
+            self.allocator.free(item);
+        }
+        self.list.deinit(self.allocator);
+    }
+};
+
+pub fn compile(allocator: Allocator, io: Io, source: []const u8, writer: *std.Io.Writer, options: CompileOptions) !void {
     var lexer = lex.Lexer.init(source, .{
         .default_code_page = options.default_code_page,
         .source_mappings = options.source_mappings,
@@ -74,12 +93,12 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
     var tree = try parser.parse(allocator, options.diagnostics);
     defer tree.deinit();
 
-    var search_dirs = std.ArrayList(SearchDir).init(allocator);
+    var search_dirs: std.ArrayList(SearchDir) = .empty;
     defer {
         for (search_dirs.items) |*search_dir| {
             search_dir.deinit(allocator);
         }
-        search_dirs.deinit();
+        search_dirs.deinit(allocator);
     }
 
     if (options.source_mappings) |source_mappings| {
@@ -89,7 +108,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
         if (std.fs.path.dirname(root_path)) |root_dir_path| {
             var root_dir = try options.cwd.openDir(root_dir_path, .{});
             errdefer root_dir.close();
-            try search_dirs.append(.{ .dir = root_dir, .path = try allocator.dupe(u8, root_dir_path) });
+            try search_dirs.append(allocator, .{ .dir = root_dir, .path = try allocator.dupe(u8, root_dir_path) });
         }
     }
     // Re-open the passed in cwd since we want to be able to close it (std.fs.cwd() shouldn't be closed)
@@ -111,14 +130,14 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
         });
         return error.CompileError;
     };
-    try search_dirs.append(.{ .dir = cwd_dir, .path = null });
+    try search_dirs.append(allocator, .{ .dir = cwd_dir, .path = null });
     for (options.extra_include_paths) |extra_include_path| {
         var dir = openSearchPathDir(options.cwd, extra_include_path) catch {
             // TODO: maybe a warning that the search path is skipped?
             continue;
         };
         errdefer dir.close();
-        try search_dirs.append(.{ .dir = dir, .path = try allocator.dupe(u8, extra_include_path) });
+        try search_dirs.append(allocator, .{ .dir = dir, .path = try allocator.dupe(u8, extra_include_path) });
     }
     for (options.system_include_paths) |system_include_path| {
         var dir = openSearchPathDir(options.cwd, system_include_path) catch {
@@ -126,7 +145,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
             continue;
         };
         errdefer dir.close();
-        try search_dirs.append(.{ .dir = dir, .path = try allocator.dupe(u8, system_include_path) });
+        try search_dirs.append(allocator, .{ .dir = dir, .path = try allocator.dupe(u8, system_include_path) });
     }
     if (!options.ignore_include_env_var) {
         const INCLUDE = std.process.getEnvVarOwned(allocator, "INCLUDE") catch "";
@@ -142,7 +161,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
         while (it.next()) |search_path| {
             var dir = openSearchPathDir(options.cwd, search_path) catch continue;
             errdefer dir.close();
-            try search_dirs.append(.{ .dir = dir, .path = try allocator.dupe(u8, search_path) });
+            try search_dirs.append(allocator, .{ .dir = dir, .path = try allocator.dupe(u8, search_path) });
         }
     }
 
@@ -150,13 +169,14 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var compiler = Compiler{
+    var compiler: Compiler = .{
         .source = source,
         .arena = arena,
         .allocator = allocator,
+        .io = io,
         .cwd = options.cwd,
         .diagnostics = options.diagnostics,
-        .dependencies_list = options.dependencies_list,
+        .dependencies = options.dependencies,
         .input_code_pages = &tree.input_code_pages,
         .output_code_pages = &tree.output_code_pages,
         // This is only safe because we know search_dirs won't be modified past this point
@@ -175,10 +195,11 @@ pub const Compiler = struct {
     source: []const u8,
     arena: Allocator,
     allocator: Allocator,
+    io: Io,
     cwd: std.fs.Dir,
     state: State = .{},
     diagnostics: *Diagnostics,
-    dependencies_list: ?*std.ArrayList([]const u8),
+    dependencies: ?*Dependencies,
     input_code_pages: *const CodePageLookup,
     output_code_pages: *const CodePageLookup,
     search_dirs: []SearchDir,
@@ -194,7 +215,7 @@ pub const Compiler = struct {
         characteristics: u32 = 0,
     };
 
-    pub fn writeRoot(self: *Compiler, root: *Node.Root, writer: anytype) !void {
+    pub fn writeRoot(self: *Compiler, root: *Node.Root, writer: *std.Io.Writer) !void {
         try writeEmptyResource(writer);
         for (root.body) |node| {
             try self.writeNode(node, writer);
@@ -236,7 +257,7 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn writeNode(self: *Compiler, node: *Node, writer: anytype) !void {
+    pub fn writeNode(self: *Compiler, node: *Node, writer: *std.Io.Writer) !void {
         switch (node.id) {
             .root => unreachable, // writeRoot should be called directly instead
             .resource_external => try self.writeResourceExternal(@alignCast(@fieldParentPtr("base", node)), writer),
@@ -280,31 +301,31 @@ pub const Compiler = struct {
                         const slice = literal_node.token.slice(self.source);
                         const code_page = self.input_code_pages.getForToken(literal_node.token);
                         var buf = try std.ArrayList(u8).initCapacity(self.allocator, slice.len);
-                        errdefer buf.deinit();
+                        errdefer buf.deinit(self.allocator);
 
                         var index: usize = 0;
                         while (code_page.codepointAt(index, slice)) |codepoint| : (index += codepoint.byte_len) {
                             const c = codepoint.value;
                             if (c == code_pages.Codepoint.invalid) {
-                                try buf.appendSlice("�");
+                                try buf.appendSlice(self.allocator, "�");
                             } else {
                                 // Anything that is not returned as an invalid codepoint must be encodable as UTF-8.
                                 const utf8_len = std.unicode.utf8CodepointSequenceLength(c) catch unreachable;
-                                try buf.ensureUnusedCapacity(utf8_len);
+                                try buf.ensureUnusedCapacity(self.allocator, utf8_len);
                                 _ = std.unicode.utf8Encode(c, buf.unusedCapacitySlice()) catch unreachable;
                                 buf.items.len += utf8_len;
                             }
                         }
 
-                        return buf.toOwnedSlice();
+                        return buf.toOwnedSlice(self.allocator);
                     },
                     .quoted_ascii_string, .quoted_wide_string => {
                         const slice = literal_node.token.slice(self.source);
                         const column = literal_node.token.calculateColumn(self.source, 8, null);
                         const bytes = SourceBytes{ .slice = slice, .code_page = self.input_code_pages.getForToken(literal_node.token) };
 
-                        var buf = std.ArrayList(u8).init(self.allocator);
-                        errdefer buf.deinit();
+                        var buf: std.ArrayList(u8) = .empty;
+                        errdefer buf.deinit(self.allocator);
 
                         // Filenames are sort-of parsed as if they were wide strings, but the max escape width of
                         // hex/octal escapes is still determined by the L prefix. Since we want to end up with
@@ -320,19 +341,19 @@ pub const Compiler = struct {
                         while (try parser.nextUnchecked()) |parsed| {
                             const c = parsed.codepoint;
                             if (c == code_pages.Codepoint.invalid) {
-                                try buf.appendSlice("�");
+                                try buf.appendSlice(self.allocator, "�");
                             } else {
                                 var codepoint_buf: [4]u8 = undefined;
                                 // If the codepoint cannot be encoded, we fall back to �
                                 if (std.unicode.utf8Encode(c, &codepoint_buf)) |len| {
-                                    try buf.appendSlice(codepoint_buf[0..len]);
+                                    try buf.appendSlice(self.allocator, codepoint_buf[0..len]);
                                 } else |_| {
-                                    try buf.appendSlice("�");
+                                    try buf.appendSlice(self.allocator, "�");
                                 }
                             }
                         }
 
-                        return buf.toOwnedSlice();
+                        return buf.toOwnedSlice(self.allocator);
                     },
                     else => unreachable, // no other token types should be in a filename literal node
                 }
@@ -386,24 +407,24 @@ pub const Compiler = struct {
             const file = try utils.openFileNotDir(std.fs.cwd(), path, .{});
             errdefer file.close();
 
-            if (self.dependencies_list) |dependencies_list| {
-                const duped_path = try dependencies_list.allocator.dupe(u8, path);
-                errdefer dependencies_list.allocator.free(duped_path);
-                try dependencies_list.append(duped_path);
+            if (self.dependencies) |dependencies| {
+                const duped_path = try dependencies.allocator.dupe(u8, path);
+                errdefer dependencies.allocator.free(duped_path);
+                try dependencies.list.append(dependencies.allocator, duped_path);
             }
         }
 
-        var first_error: ?std.fs.File.OpenError = null;
+        var first_error: ?(std.fs.File.OpenError || std.fs.File.StatError) = null;
         for (self.search_dirs) |search_dir| {
             if (utils.openFileNotDir(search_dir.dir, path, .{})) |file| {
                 errdefer file.close();
 
-                if (self.dependencies_list) |dependencies_list| {
-                    const searched_file_path = try std.fs.path.join(dependencies_list.allocator, &.{
+                if (self.dependencies) |dependencies| {
+                    const searched_file_path = try std.fs.path.join(dependencies.allocator, &.{
                         search_dir.path orelse "", path,
                     });
-                    errdefer dependencies_list.allocator.free(searched_file_path);
-                    try dependencies_list.append(searched_file_path);
+                    errdefer dependencies.allocator.free(searched_file_path);
+                    try dependencies.list.append(dependencies.allocator, searched_file_path);
                 }
 
                 return file;
@@ -422,7 +443,7 @@ pub const Compiler = struct {
         const output_code_page = self.output_code_pages.getForToken(token);
 
         var buf = try std.ArrayList(u8).initCapacity(self.allocator, bytes.slice.len);
-        errdefer buf.deinit();
+        errdefer buf.deinit(self.allocator);
 
         var iterative_parser = literals.IterativeStringParser.init(bytes, .{
             .start_column = token.calculateColumn(self.source, 8, null),
@@ -444,11 +465,11 @@ pub const Compiler = struct {
             switch (iterative_parser.declared_string_type) {
                 .wide => {
                     if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
-                        try buf.append(best_fit);
+                        try buf.append(self.allocator, best_fit);
                     } else if (c < 0x10000 or c == code_pages.Codepoint.invalid or parsed.escaped_surrogate_pair) {
-                        try buf.append('?');
+                        try buf.append(self.allocator, '?');
                     } else {
-                        try buf.appendSlice("??");
+                        try buf.appendSlice(self.allocator, "??");
                     }
                 },
                 .ascii => {
@@ -456,30 +477,32 @@ pub const Compiler = struct {
                         const truncated: u8 = @truncate(c);
                         switch (output_code_page) {
                             .utf8 => switch (truncated) {
-                                0...0x7F => try buf.append(truncated),
-                                else => try buf.append('?'),
+                                0...0x7F => try buf.append(self.allocator, truncated),
+                                else => try buf.append(self.allocator, '?'),
                             },
                             .windows1252 => {
-                                try buf.append(truncated);
+                                try buf.append(self.allocator, truncated);
                             },
                         }
                     } else {
                         if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
-                            try buf.append(best_fit);
+                            try buf.append(self.allocator, best_fit);
                         } else if (c < 0x10000 or c == code_pages.Codepoint.invalid) {
-                            try buf.append('?');
+                            try buf.append(self.allocator, '?');
                         } else {
-                            try buf.appendSlice("??");
+                            try buf.appendSlice(self.allocator, "??");
                         }
                     }
                 },
             }
         }
 
-        return buf.toOwnedSlice();
+        return buf.toOwnedSlice(self.allocator);
     }
 
-    pub fn writeResourceExternal(self: *Compiler, node: *Node.ResourceExternal, writer: anytype) !void {
+    pub fn writeResourceExternal(self: *Compiler, node: *Node.ResourceExternal, writer: *std.Io.Writer) !void {
+        const io = self.io;
+
         // Init header with data size zero for now, will need to fill it in later
         var header = try self.resourceHeader(node.id, node.type, .{});
         defer header.deinit(self.allocator);
@@ -550,7 +573,7 @@ pub const Compiler = struct {
         // so get it here to simplify future usage.
         const filename_token = node.filename.getFirstToken();
 
-        const file = self.searchForFile(filename_utf8) catch |err| switch (err) {
+        const file_handle = self.searchForFile(filename_utf8) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => |e| {
                 const filename_string_index = try self.diagnostics.putString(filename_utf8);
@@ -564,13 +587,15 @@ pub const Compiler = struct {
                 });
             },
         };
-        defer file.close();
+        defer file_handle.close();
+        var file_buffer: [2048]u8 = undefined;
+        var file_reader = file_handle.reader(io, &file_buffer);
 
         if (maybe_predefined_type) |predefined_type| {
             switch (predefined_type) {
                 .GROUP_ICON, .GROUP_CURSOR => {
                     // Check for animated icon first
-                    if (ani.isAnimatedIcon(file.deprecatedReader())) {
+                    if (ani.isAnimatedIcon(&file_reader.interface)) {
                         // Animated icons are just put into the resource unmodified,
                         // and the resource type changes to ANIICON/ANICURSOR
 
@@ -582,18 +607,23 @@ pub const Compiler = struct {
                         header.type_value.ordinal = @intFromEnum(new_predefined_type);
                         header.memory_flags = MemoryFlags.defaults(new_predefined_type);
                         header.applyMemoryFlags(node.common_resource_attributes, self.source);
-                        header.data_size = @intCast(try file.getEndPos());
+                        header.data_size = std.math.cast(u32, try file_reader.getSize()) orelse {
+                            return self.addErrorDetailsAndFail(.{
+                                .err = .resource_data_size_exceeds_max,
+                                .token = node.id,
+                            });
+                        };
 
                         try header.write(writer, self.errContext(node.id));
-                        try file.seekTo(0);
-                        try writeResourceData(writer, file.deprecatedReader(), header.data_size);
+                        try file_reader.seekTo(0);
+                        try writeResourceData(writer, &file_reader.interface, header.data_size);
                         return;
                     }
 
                     // isAnimatedIcon moved the file cursor so reset to the start
-                    try file.seekTo(0);
+                    try file_reader.seekTo(0);
 
-                    const icon_dir = ico.read(self.allocator, file.deprecatedReader(), try file.getEndPos()) catch |err| switch (err) {
+                    const icon_dir = ico.read(self.allocator, &file_reader.interface, try file_reader.getSize()) catch |err| switch (err) {
                         error.OutOfMemory => |e| return e,
                         else => |e| {
                             return self.iconReadError(
@@ -671,15 +701,15 @@ pub const Compiler = struct {
                             try writer.writeInt(u16, entry.type_specific_data.cursor.hotspot_y, .little);
                         }
 
-                        try file.seekTo(entry.data_offset_from_start_of_file);
-                        var header_bytes = file.deprecatedReader().readBytesNoEof(16) catch {
+                        try file_reader.seekTo(entry.data_offset_from_start_of_file);
+                        var header_bytes: [16]u8 align(@alignOf(ico.BitmapHeader)) = (file_reader.interface.takeArray(16) catch {
                             return self.iconReadError(
                                 error.UnexpectedEOF,
                                 filename_utf8,
                                 filename_token,
                                 predefined_type,
                             );
-                        };
+                        }).*;
 
                         const image_format = ico.ImageFormat.detect(&header_bytes);
                         if (!image_format.validate(&header_bytes)) {
@@ -802,8 +832,8 @@ pub const Compiler = struct {
                             },
                         }
 
-                        try file.seekTo(entry.data_offset_from_start_of_file);
-                        try writeResourceDataNoPadding(writer, file.deprecatedReader(), entry.data_size_in_bytes);
+                        try file_reader.seekTo(entry.data_offset_from_start_of_file);
+                        try writeResourceDataNoPadding(writer, &file_reader.interface, entry.data_size_in_bytes);
                         try writeDataPadding(writer, full_data_size);
 
                         if (self.state.icon_id == std.math.maxInt(u16)) {
@@ -857,9 +887,9 @@ pub const Compiler = struct {
                 },
                 .BITMAP => {
                     header.applyMemoryFlags(node.common_resource_attributes, self.source);
-                    const file_size = try file.getEndPos();
+                    const file_size = try file_reader.getSize();
 
-                    const bitmap_info = bmp.read(file.deprecatedReader(), file_size) catch |err| {
+                    const bitmap_info = bmp.read(&file_reader.interface, file_size) catch |err| {
                         const filename_string_index = try self.diagnostics.putString(filename_utf8);
                         return self.addErrorDetailsAndFail(.{
                             .err = .bmp_read_error,
@@ -921,18 +951,17 @@ pub const Compiler = struct {
 
                     header.data_size = bmp_bytes_to_write;
                     try header.write(writer, self.errContext(node.id));
-                    try file.seekTo(bmp.file_header_len);
-                    const file_reader = file.deprecatedReader();
-                    try writeResourceDataNoPadding(writer, file_reader, bitmap_info.dib_header_size);
+                    try file_reader.seekTo(bmp.file_header_len);
+                    try writeResourceDataNoPadding(writer, &file_reader.interface, bitmap_info.dib_header_size);
                     if (bitmap_info.getBitmasksByteLen() > 0) {
-                        try writeResourceDataNoPadding(writer, file_reader, bitmap_info.getBitmasksByteLen());
+                        try writeResourceDataNoPadding(writer, &file_reader.interface, bitmap_info.getBitmasksByteLen());
                     }
                     if (bitmap_info.getExpectedPaletteByteLen() > 0) {
-                        try writeResourceDataNoPadding(writer, file_reader, @intCast(bitmap_info.getActualPaletteByteLen()));
+                        try writeResourceDataNoPadding(writer, &file_reader.interface, @intCast(bitmap_info.getActualPaletteByteLen()));
                     }
-                    try file.seekTo(bitmap_info.pixel_data_offset);
+                    try file_reader.seekTo(bitmap_info.pixel_data_offset);
                     const pixel_bytes: u32 = @intCast(file_size - bitmap_info.pixel_data_offset);
-                    try writeResourceDataNoPadding(writer, file_reader, pixel_bytes);
+                    try writeResourceDataNoPadding(writer, &file_reader.interface, pixel_bytes);
                     try writeDataPadding(writer, bmp_bytes_to_write);
                     return;
                 },
@@ -956,7 +985,7 @@ pub const Compiler = struct {
                         return;
                     }
                     header.applyMemoryFlags(node.common_resource_attributes, self.source);
-                    const file_size = try file.getEndPos();
+                    const file_size = try file_reader.getSize();
                     if (file_size > std.math.maxInt(u32)) {
                         return self.addErrorDetailsAndFail(.{
                             .err = .resource_data_size_exceeds_max,
@@ -968,12 +997,19 @@ pub const Compiler = struct {
                     header.data_size = @intCast(file_size);
                     try header.write(writer, self.errContext(node.id));
 
-                    var header_slurping_reader = headerSlurpingReader(148, file.deprecatedReader());
-                    try writeResourceData(writer, header_slurping_reader.reader(), header.data_size);
+                    // Slurp the first 148 bytes separately so we can store them in the FontDir
+                    var font_dir_header_buf: [148]u8 = @splat(0);
+                    const populated_len: u32 = @intCast(try file_reader.interface.readSliceShort(&font_dir_header_buf));
+
+                    // Write only the populated bytes slurped from the header
+                    try writer.writeAll(font_dir_header_buf[0..populated_len]);
+                    // Then write the rest of the bytes and the padding
+                    try writeResourceDataNoPadding(writer, &file_reader.interface, header.data_size - populated_len);
+                    try writeDataPadding(writer, header.data_size);
 
                     try self.state.font_dir.add(self.arena, FontDir.Font{
                         .id = header.name_value.ordinal,
-                        .header_bytes = header_slurping_reader.slurped_header,
+                        .header_bytes = font_dir_header_buf,
                     }, node.id);
                     return;
                 },
@@ -992,7 +1028,7 @@ pub const Compiler = struct {
         }
 
         // Fallback to just writing out the entire contents of the file
-        const data_size = try file.getEndPos();
+        const data_size = try file_reader.getSize();
         if (data_size > std.math.maxInt(u32)) {
             return self.addErrorDetailsAndFail(.{
                 .err = .resource_data_size_exceeds_max,
@@ -1002,7 +1038,7 @@ pub const Compiler = struct {
         // We now know that the data size will fit in a u32
         header.data_size = @intCast(data_size);
         try header.write(writer, self.errContext(node.id));
-        try writeResourceData(writer, file.deprecatedReader(), header.data_size);
+        try writeResourceData(writer, &file_reader.interface, header.data_size);
     }
 
     fn iconReadError(
@@ -1051,7 +1087,7 @@ pub const Compiler = struct {
             }
         }
 
-        pub fn write(self: Data, writer: anytype) !void {
+        pub fn write(self: Data, writer: *std.Io.Writer) !void {
             switch (self) {
                 .number => |number| switch (number.is_long) {
                     false => try writer.writeInt(WORD, number.asWord(), .little),
@@ -1223,38 +1259,30 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn writeResourceRawData(self: *Compiler, node: *Node.ResourceRawData, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+    pub fn writeResourceRawData(self: *Compiler, node: *Node.ResourceRawData, writer: *std.Io.Writer) !void {
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
-        // The header's data length field is a u32 so limit the resource's data size so that
-        // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
 
         for (node.raw_data) |expression| {
             const data = try self.evaluateDataExpression(expression);
             defer data.deinit(self.allocator);
-            data.write(data_writer) catch |err| switch (err) {
-                error.NoSpaceLeft => {
-                    return self.addErrorDetailsAndFail(.{
-                        .err = .resource_data_size_exceeds_max,
-                        .token = node.id,
-                    });
-                },
-                else => |e| return e,
-            };
+            try data.write(&data_buffer.writer);
         }
 
-        // This intCast can't fail because the limitedWriter above guarantees that
-        // we will never write more than maxInt(u32) bytes.
-        const data_len: u32 = @intCast(data_buffer.items.len);
+        // TODO: Limit data_buffer in some way to error when writing more than u32 max bytes
+        const data_len: u32 = std.math.cast(u32, data_buffer.written().len) orelse {
+            return self.addErrorDetailsAndFail(.{
+                .err = .resource_data_size_exceeds_max,
+                .token = node.id,
+            });
+        };
         try self.writeResourceHeader(writer, node.id, node.type, data_len, node.common_resource_attributes, self.state.language);
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_len);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
+        try writeResourceData(writer, &data_fbs, data_len);
     }
 
-    pub fn writeResourceHeader(self: *Compiler, writer: anytype, id_token: Token, type_token: Token, data_size: u32, common_resource_attributes: []Token, language: res.Language) !void {
+    pub fn writeResourceHeader(self: *Compiler, writer: *std.Io.Writer, id_token: Token, type_token: Token, data_size: u32, common_resource_attributes: []Token, language: res.Language) !void {
         var header = try self.resourceHeader(id_token, type_token, .{
             .language = language,
             .data_size = data_size,
@@ -1266,21 +1294,17 @@ pub const Compiler = struct {
         try header.write(writer, self.errContext(id_token));
     }
 
-    pub fn writeResourceDataNoPadding(writer: anytype, data_reader: anytype, data_size: u32) !void {
-        var limited_reader = std.io.limitedReader(data_reader, data_size);
-
-        const FifoBuffer = std.fifo.LinearFifo(u8, .{ .Static = 4096 });
-        var fifo = FifoBuffer.init();
-        try fifo.pump(limited_reader.reader(), writer);
+    pub fn writeResourceDataNoPadding(writer: *std.Io.Writer, data_reader: *std.Io.Reader, data_size: u32) !void {
+        try data_reader.streamExact(writer, data_size);
     }
 
-    pub fn writeResourceData(writer: anytype, data_reader: anytype, data_size: u32) !void {
+    pub fn writeResourceData(writer: *std.Io.Writer, data_reader: *std.Io.Reader, data_size: u32) !void {
         try writeResourceDataNoPadding(writer, data_reader, data_size);
         try writeDataPadding(writer, data_size);
     }
 
-    pub fn writeDataPadding(writer: anytype, data_size: u32) !void {
-        try writer.writeByteNTimes(0, numPaddingBytesNeeded(data_size));
+    pub fn writeDataPadding(writer: *std.Io.Writer, data_size: u32) !void {
+        try writer.splatByteAll(0, numPaddingBytesNeeded(data_size));
     }
 
     pub fn numPaddingBytesNeeded(data_size: u32) u2 {
@@ -1307,28 +1331,19 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn writeAccelerators(self: *Compiler, node: *Node.Accelerators, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+    pub fn writeAccelerators(self: *Compiler, node: *Node.Accelerators, writer: *std.Io.Writer) !void {
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
 
-        // The header's data length field is a u32 so limit the resource's data size so that
-        // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
+        try self.writeAcceleratorsData(node, &data_buffer.writer);
 
-        self.writeAcceleratorsData(node, data_writer) catch |err| switch (err) {
-            error.NoSpaceLeft => {
-                return self.addErrorDetailsAndFail(.{
-                    .err = .resource_data_size_exceeds_max,
-                    .token = node.id,
-                });
-            },
-            else => |e| return e,
+        // TODO: Limit data_buffer in some way to error when writing more than u32 max bytes
+        const data_size: u32 = std.math.cast(u32, data_buffer.written().len) orelse {
+            return self.addErrorDetailsAndFail(.{
+                .err = .resource_data_size_exceeds_max,
+                .token = node.id,
+            });
         };
-
-        // This intCast can't fail because the limitedWriter above guarantees that
-        // we will never write more than maxInt(u32) bytes.
-        const data_size: u32 = @intCast(data_buffer.items.len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -1339,13 +1354,13 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Expects `data_writer` to be a LimitedWriter limited to u32, meaning all writes to
     /// the writer within this function could return error.NoSpaceLeft
-    pub fn writeAcceleratorsData(self: *Compiler, node: *Node.Accelerators, data_writer: anytype) !void {
+    pub fn writeAcceleratorsData(self: *Compiler, node: *Node.Accelerators, data_writer: *std.Io.Writer) !void {
         for (node.accelerators, 0..) |accel_node, i| {
             const accelerator: *Node.Accelerator = @alignCast(@fieldParentPtr("base", accel_node));
             var modifiers = res.AcceleratorModifiers{};
@@ -1406,13 +1421,9 @@ pub const Compiler = struct {
         caption: ?Token = null,
     };
 
-    pub fn writeDialog(self: *Compiler, node: *Node.Dialog, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+    pub fn writeDialog(self: *Compiler, node: *Node.Dialog, writer: *std.Io.Writer) !void {
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
-        // The header's data length field is a u32 so limit the resource's data size so that
-        // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
 
         const resource = ResourceType.fromString(.{
             .slice = node.type.slice(self.source),
@@ -1673,21 +1684,18 @@ pub const Compiler = struct {
             optional_statement_values.style |= res.WS.CAPTION;
         }
 
-        self.writeDialogHeaderAndStrings(
+        // NOTE: Dialog header and menu/class/title strings can never exceed u32 bytes
+        // on their own.
+        try self.writeDialogHeaderAndStrings(
             node,
-            data_writer,
+            &data_buffer.writer,
             resource,
             &optional_statement_values,
             x,
             y,
             width,
             height,
-        ) catch |err| switch (err) {
-            // Dialog header and menu/class/title strings can never exceed u32 bytes
-            // on their own, so this error is unreachable.
-            error.NoSpaceLeft => unreachable,
-            else => |e| return e,
-        };
+        );
 
         var controls_by_id = std.AutoHashMap(u32, *const Node.ControlStatement).init(self.allocator);
         // Number of controls are guaranteed by the parser to be within maxInt(u16).
@@ -1697,31 +1705,30 @@ pub const Compiler = struct {
         for (node.controls) |control_node| {
             const control: *Node.ControlStatement = @alignCast(@fieldParentPtr("base", control_node));
 
-            self.writeDialogControl(
+            try self.writeDialogControl(
                 control,
-                data_writer,
+                &data_buffer.writer,
                 resource,
                 // We know the data_buffer len is limited to u32 max.
-                @intCast(data_buffer.items.len),
+                @intCast(data_buffer.written().len),
                 &controls_by_id,
-            ) catch |err| switch (err) {
-                error.NoSpaceLeft => {
-                    try self.addErrorDetails(.{
-                        .err = .resource_data_size_exceeds_max,
-                        .token = node.id,
-                    });
-                    return self.addErrorDetailsAndFail(.{
-                        .err = .resource_data_size_exceeds_max,
-                        .type = .note,
-                        .token = control.type,
-                    });
-                },
-                else => |e| return e,
-            };
+            );
+
+            if (data_buffer.written().len > std.math.maxInt(u32)) {
+                try self.addErrorDetails(.{
+                    .err = .resource_data_size_exceeds_max,
+                    .token = node.id,
+                });
+                return self.addErrorDetailsAndFail(.{
+                    .err = .resource_data_size_exceeds_max,
+                    .type = .note,
+                    .token = control.type,
+                });
+            }
         }
 
         // We know the data_buffer len is limited to u32 max.
-        const data_size: u32 = @intCast(data_buffer.items.len);
+        const data_size: u32 = @intCast(data_buffer.written().len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -1732,14 +1739,14 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     fn writeDialogHeaderAndStrings(
         self: *Compiler,
         node: *Node.Dialog,
-        data_writer: anytype,
+        data_writer: *std.Io.Writer,
         resource: ResourceType,
         optional_statement_values: *const DialogOptionalStatementValues,
         x: Number,
@@ -1799,7 +1806,7 @@ pub const Compiler = struct {
     fn writeDialogControl(
         self: *Compiler,
         control: *Node.ControlStatement,
-        data_writer: anytype,
+        data_writer: *std.Io.Writer,
         resource: ResourceType,
         bytes_written_so_far: u32,
         controls_by_id: *std.AutoHashMap(u32, *const Node.ControlStatement),
@@ -1823,7 +1830,7 @@ pub const Compiler = struct {
                 .token = control.type,
             });
         }
-        try data_writer.writeByteNTimes(0, num_padding);
+        try data_writer.splatByteAll(0, num_padding);
 
         const style = if (control.style) |style_expression|
             // Certain styles are implied by the control type
@@ -1975,40 +1982,37 @@ pub const Compiler = struct {
             try NameOrOrdinal.writeEmpty(data_writer);
         }
 
-        var extra_data_buf = std.ArrayList(u8).init(self.allocator);
-        defer extra_data_buf.deinit();
         // The extra data byte length must be able to fit within a u16.
-        var limited_extra_data_writer = limitedWriter(extra_data_buf.writer(), std.math.maxInt(u16));
-        const extra_data_writer = limited_extra_data_writer.writer();
+        var extra_data_buf: std.Io.Writer.Allocating = .init(self.allocator);
+        defer extra_data_buf.deinit();
         for (control.extra_data) |data_expression| {
             const data = try self.evaluateDataExpression(data_expression);
             defer data.deinit(self.allocator);
-            data.write(extra_data_writer) catch |err| switch (err) {
-                error.NoSpaceLeft => {
-                    try self.addErrorDetails(.{
-                        .err = .control_extra_data_size_exceeds_max,
-                        .token = control.type,
-                    });
-                    return self.addErrorDetailsAndFail(.{
-                        .err = .control_extra_data_size_exceeds_max,
-                        .type = .note,
-                        .token = data_expression.getFirstToken(),
-                        .token_span_end = data_expression.getLastToken(),
-                    });
-                },
-                else => |e| return e,
-            };
+            try data.write(&extra_data_buf.writer);
+
+            if (extra_data_buf.written().len > std.math.maxInt(u16)) {
+                try self.addErrorDetails(.{
+                    .err = .control_extra_data_size_exceeds_max,
+                    .token = control.type,
+                });
+                return self.addErrorDetailsAndFail(.{
+                    .err = .control_extra_data_size_exceeds_max,
+                    .type = .note,
+                    .token = data_expression.getFirstToken(),
+                    .token_span_end = data_expression.getLastToken(),
+                });
+            }
         }
         // We know the extra_data_buf size fits within a u16.
-        const extra_data_size: u16 = @intCast(extra_data_buf.items.len);
+        const extra_data_size: u16 = @intCast(extra_data_buf.written().len);
         try data_writer.writeInt(u16, extra_data_size, .little);
-        try data_writer.writeAll(extra_data_buf.items);
+        try data_writer.writeAll(extra_data_buf.written());
     }
 
-    pub fn writeToolbar(self: *Compiler, node: *Node.Toolbar, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+    pub fn writeToolbar(self: *Compiler, node: *Node.Toolbar, writer: *std.Io.Writer) !void {
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
-        const data_writer = data_buffer.writer();
+        const data_writer = &data_buffer.writer;
 
         const button_width = evaluateNumberExpression(node.button_width, self.source, self.input_code_pages);
         const button_height = evaluateNumberExpression(node.button_height, self.source, self.input_code_pages);
@@ -2036,7 +2040,7 @@ pub const Compiler = struct {
             }
         }
 
-        const data_size: u32 = @intCast(data_buffer.items.len);
+        const data_size: u32 = @intCast(data_buffer.written().len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -2046,8 +2050,8 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Weight and italic carry over from previous FONT statements within a single resource,
@@ -2058,7 +2062,7 @@ pub const Compiler = struct {
         node: *Node.FontStatement,
     };
 
-    pub fn writeDialogFont(self: *Compiler, resource: ResourceType, values: FontStatementValues, writer: anytype) !void {
+    pub fn writeDialogFont(self: *Compiler, resource: ResourceType, values: FontStatementValues, writer: *std.Io.Writer) !void {
         const node = values.node;
         const point_size = evaluateNumberExpression(node.point_size, self.source, self.input_code_pages);
         try writer.writeInt(u16, point_size.asWord(), .little);
@@ -2083,13 +2087,9 @@ pub const Compiler = struct {
         try writer.writeAll(std.mem.sliceAsBytes(typeface[0 .. typeface.len + 1]));
     }
 
-    pub fn writeMenu(self: *Compiler, node: *Node.Menu, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+    pub fn writeMenu(self: *Compiler, node: *Node.Menu, writer: *std.Io.Writer) !void {
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
-        // The header's data length field is a u32 so limit the resource's data size so that
-        // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
 
         const type_bytes = SourceBytes{
             .slice = node.type.slice(self.source),
@@ -2098,19 +2098,15 @@ pub const Compiler = struct {
         const resource = ResourceType.fromString(type_bytes);
         std.debug.assert(resource == .menu or resource == .menuex);
 
-        self.writeMenuData(node, data_writer, resource) catch |err| switch (err) {
-            error.NoSpaceLeft => {
-                return self.addErrorDetailsAndFail(.{
-                    .err = .resource_data_size_exceeds_max,
-                    .token = node.id,
-                });
-            },
-            else => |e| return e,
-        };
+        try self.writeMenuData(node, &data_buffer.writer, resource);
 
-        // This intCast can't fail because the limitedWriter above guarantees that
-        // we will never write more than maxInt(u32) bytes.
-        const data_size: u32 = @intCast(data_buffer.items.len);
+        // TODO: Limit data_buffer in some way to error when writing more than u32 max bytes
+        const data_size: u32 = std.math.cast(u32, data_buffer.written().len) orelse {
+            return self.addErrorDetailsAndFail(.{
+                .err = .resource_data_size_exceeds_max,
+                .token = node.id,
+            });
+        };
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -2121,13 +2117,13 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Expects `data_writer` to be a LimitedWriter limited to u32, meaning all writes to
     /// the writer within this function could return error.NoSpaceLeft
-    pub fn writeMenuData(self: *Compiler, node: *Node.Menu, data_writer: anytype, resource: ResourceType) !void {
+    pub fn writeMenuData(self: *Compiler, node: *Node.Menu, data_writer: *std.Io.Writer, resource: ResourceType) !void {
         // menu header
         const version: u16 = if (resource == .menu) 0 else 1;
         try data_writer.writeInt(u16, version, .little);
@@ -2154,7 +2150,7 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn writeMenuItem(self: *Compiler, node: *Node, writer: anytype, is_last_of_parent: bool) !void {
+    pub fn writeMenuItem(self: *Compiler, node: *Node, writer: *std.Io.Writer, is_last_of_parent: bool) !void {
         switch (node.id) {
             .menu_item_separator => {
                 // This is the 'alternate compability form' of the separator, see
@@ -2264,13 +2260,11 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn writeVersionInfo(self: *Compiler, node: *Node.VersionInfo, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+    pub fn writeVersionInfo(self: *Compiler, node: *Node.VersionInfo, writer: *std.Io.Writer) !void {
+        // NOTE: The node's length field (which is inclusive of the length of all of its children) is a u16
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
-        // The node's length field (which is inclusive of the length of all of its children) is a u16
-        // so limit the node's data size so that we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u16));
-        const data_writer = limited_writer.writer();
+        const data_writer = &data_buffer.writer;
 
         try data_writer.writeInt(u16, 0, .little); // placeholder size
         try data_writer.writeInt(u16, res.FixedFileInfo.byte_len, .little);
@@ -2354,28 +2348,32 @@ pub const Compiler = struct {
         try fixed_file_info.write(data_writer);
 
         for (node.block_statements) |statement| {
-            self.writeVersionNode(statement, data_writer, &data_buffer) catch |err| switch (err) {
+            var overflow = false;
+            self.writeVersionNode(statement, data_writer) catch |err| switch (err) {
                 error.NoSpaceLeft => {
-                    try self.addErrorDetails(.{
-                        .err = .version_node_size_exceeds_max,
-                        .token = node.id,
-                    });
-                    return self.addErrorDetailsAndFail(.{
-                        .err = .version_node_size_exceeds_max,
-                        .type = .note,
-                        .token = statement.getFirstToken(),
-                        .token_span_end = statement.getLastToken(),
-                    });
+                    overflow = true;
                 },
                 else => |e| return e,
             };
+            if (overflow or data_buffer.written().len > std.math.maxInt(u16)) {
+                try self.addErrorDetails(.{
+                    .err = .version_node_size_exceeds_max,
+                    .token = node.id,
+                });
+                return self.addErrorDetailsAndFail(.{
+                    .err = .version_node_size_exceeds_max,
+                    .type = .note,
+                    .token = statement.getFirstToken(),
+                    .token_span_end = statement.getLastToken(),
+                });
+            }
         }
 
-        // We know that data_buffer.items.len is within the limits of a u16, since we
-        // limited the writer to maxInt(u16)
-        const data_size: u16 = @intCast(data_buffer.items.len);
+        // We know that data_buffer len is within the limits of a u16, since we check in the block
+        // statements loop above which is the only place it can overflow.
+        const data_size: u16 = @intCast(data_buffer.written().len);
         // And now that we know the full size of this node (including its children), set its size
-        std.mem.writeInt(u16, data_buffer.items[0..2], data_size, .little);
+        std.mem.writeInt(u16, data_buffer.written()[0..2], data_size, .little);
 
         var header = try self.resourceHeader(node.id, node.versioninfo, .{
             .data_size = data_size,
@@ -2386,22 +2384,21 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
-    /// Expects writer to be a LimitedWriter limited to u16, meaning all writes to
-    /// the writer within this function could return error.NoSpaceLeft, and that buf.items.len
-    /// will never be able to exceed maxInt(u16).
-    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: anytype, buf: *std.ArrayList(u8)) !void {
+    /// Assumes that writer is Writer.Allocating (specifically, that buffered() gets the entire data)
+    /// TODO: This function could be nicer if writer was guaranteed to fail if it wrote more than u16 max bytes
+    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: *std.Io.Writer) !void {
         // We can assume that buf.items.len will never be able to exceed the limits of a u16
-        try writeDataPadding(writer, @as(u16, @intCast(buf.items.len)));
+        try writeDataPadding(writer, std.math.cast(u16, writer.buffered().len) orelse return error.NoSpaceLeft);
 
-        const node_and_children_size_offset = buf.items.len;
+        const node_and_children_size_offset = writer.buffered().len;
         try writer.writeInt(u16, 0, .little); // placeholder for size
-        const data_size_offset = buf.items.len;
+        const data_size_offset = writer.buffered().len;
         try writer.writeInt(u16, 0, .little); // placeholder for data size
-        const data_type_offset = buf.items.len;
+        const data_type_offset = writer.buffered().len;
         // Data type is string unless the node contains values that are numbers.
         try writer.writeInt(u16, res.VersionNode.type_string, .little);
 
@@ -2431,7 +2428,7 @@ pub const Compiler = struct {
                 // during parsing, so we can just do the correct thing here.
                 var values_size: usize = 0;
 
-                try writeDataPadding(writer, @intCast(buf.items.len));
+                try writeDataPadding(writer, std.math.cast(u16, writer.buffered().len) orelse return error.NoSpaceLeft);
 
                 for (block_or_value.values, 0..) |value_value_node_uncasted, i| {
                     const value_value_node = value_value_node_uncasted.cast(.block_value_value).?;
@@ -2470,26 +2467,26 @@ pub const Compiler = struct {
                         }
                     }
                 }
-                var data_size_slice = buf.items[data_size_offset..];
+                var data_size_slice = writer.buffered()[data_size_offset..];
                 std.mem.writeInt(u16, data_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(values_size)), .little);
 
                 if (has_number_value) {
-                    const data_type_slice = buf.items[data_type_offset..];
+                    const data_type_slice = writer.buffered()[data_type_offset..];
                     std.mem.writeInt(u16, data_type_slice[0..@sizeOf(u16)], res.VersionNode.type_binary, .little);
                 }
 
                 if (node_type == .block) {
                     const block = block_or_value;
                     for (block.children) |child| {
-                        try self.writeVersionNode(child, writer, buf);
+                        try self.writeVersionNode(child, writer);
                     }
                 }
             },
             else => unreachable,
         }
 
-        const node_and_children_size = buf.items.len - node_and_children_size_offset;
-        const node_and_children_size_slice = buf.items[node_and_children_size_offset..];
+        const node_and_children_size = writer.buffered().len - node_and_children_size_offset;
+        const node_and_children_size_slice = writer.buffered()[node_and_children_size_offset..];
         std.mem.writeInt(u16, node_and_children_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(node_and_children_size)), .little);
     }
 
@@ -2682,11 +2679,11 @@ pub const Compiler = struct {
             return .{ .bytes = header_size, .padding_after_name = padding_after_name };
         }
 
-        pub fn writeAssertNoOverflow(self: ResourceHeader, writer: anytype) !void {
+        pub fn writeAssertNoOverflow(self: ResourceHeader, writer: *std.Io.Writer) !void {
             return self.writeSizeInfo(writer, self.calcSize() catch unreachable);
         }
 
-        pub fn write(self: ResourceHeader, writer: anytype, err_ctx: errors.DiagnosticsContext) !void {
+        pub fn write(self: ResourceHeader, writer: *std.Io.Writer, err_ctx: errors.DiagnosticsContext) !void {
             const size_info = self.calcSize() catch {
                 try err_ctx.diagnostics.append(.{
                     .err = .resource_data_size_exceeds_max,
@@ -2698,12 +2695,12 @@ pub const Compiler = struct {
             return self.writeSizeInfo(writer, size_info);
         }
 
-        pub fn writeSizeInfo(self: ResourceHeader, writer: anytype, size_info: SizeInfo) !void {
+        pub fn writeSizeInfo(self: ResourceHeader, writer: *std.Io.Writer, size_info: SizeInfo) !void {
             try writer.writeInt(DWORD, self.data_size, .little); // DataSize
             try writer.writeInt(DWORD, size_info.bytes, .little); // HeaderSize
             try self.type_value.write(writer); // TYPE
             try self.name_value.write(writer); // NAME
-            try writer.writeByteNTimes(0, size_info.padding_after_name);
+            try writer.splatByteAll(0, size_info.padding_after_name);
 
             try writer.writeInt(DWORD, self.data_version, .little); // DataVersion
             try writer.writeInt(WORD, self.memory_flags.value, .little); // MemoryFlags
@@ -2824,7 +2821,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    pub fn writeEmptyResource(writer: anytype) !void {
+    pub fn writeEmptyResource(writer: *std.Io.Writer) !void {
         const header = ResourceHeader{
             .name_value = .{ .ordinal = 0 },
             .type_value = .{ .ordinal = 0 },
@@ -2941,87 +2938,8 @@ pub const SearchDir = struct {
     }
 };
 
-/// Slurps the first `size` bytes read into `slurped_header`
-pub fn HeaderSlurpingReader(comptime size: usize, comptime ReaderType: anytype) type {
-    return struct {
-        child_reader: ReaderType,
-        bytes_read: usize = 0,
-        slurped_header: [size]u8 = [_]u8{0x00} ** size,
-
-        pub const Error = ReaderType.Error;
-        pub const Reader = std.io.GenericReader(*@This(), Error, read);
-
-        pub fn read(self: *@This(), buf: []u8) Error!usize {
-            const amt = try self.child_reader.read(buf);
-            if (self.bytes_read < size) {
-                const bytes_to_add = @min(amt, size - self.bytes_read);
-                const end_index = self.bytes_read + bytes_to_add;
-                @memcpy(self.slurped_header[self.bytes_read..end_index], buf[0..bytes_to_add]);
-            }
-            self.bytes_read +|= amt;
-            return amt;
-        }
-
-        pub fn reader(self: *@This()) Reader {
-            return .{ .context = self };
-        }
-    };
-}
-
-pub fn headerSlurpingReader(comptime size: usize, reader: anytype) HeaderSlurpingReader(size, @TypeOf(reader)) {
-    return .{ .child_reader = reader };
-}
-
-/// Sort of like std.io.LimitedReader, but a Writer.
-/// Returns an error if writing the requested number of bytes
-/// would ever exceed bytes_left, i.e. it does not always
-/// write up to the limit and instead will error if the
-/// limit would be breached if the entire slice was written.
-pub fn LimitedWriter(comptime WriterType: type) type {
-    return struct {
-        inner_writer: WriterType,
-        bytes_left: u64,
-
-        pub const Error = error{NoSpaceLeft} || WriterType.Error;
-        pub const Writer = std.io.GenericWriter(*Self, Error, write);
-
-        const Self = @This();
-
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (bytes.len > self.bytes_left) return error.NoSpaceLeft;
-            const amt = try self.inner_writer.write(bytes);
-            self.bytes_left -= amt;
-            return amt;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-    };
-}
-
-/// Returns an initialised `LimitedWriter`
-/// `bytes_left` is a `u64` to be able to take 64 bit file offsets
-pub fn limitedWriter(inner_writer: anytype, bytes_left: u64) LimitedWriter(@TypeOf(inner_writer)) {
-    return .{ .inner_writer = inner_writer, .bytes_left = bytes_left };
-}
-
-test "limitedWriter basic usage" {
-    var buf: [4]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    var limited_stream = limitedWriter(fbs.writer(), 4);
-    var writer = limited_stream.writer();
-
-    try std.testing.expectEqual(@as(usize, 3), try writer.write("123"));
-    try std.testing.expectEqualSlices(u8, "123", buf[0..3]);
-    try std.testing.expectError(error.NoSpaceLeft, writer.write("45"));
-    try std.testing.expectEqual(@as(usize, 1), try writer.write("4"));
-    try std.testing.expectEqualSlices(u8, "1234", buf[0..4]);
-    try std.testing.expectError(error.NoSpaceLeft, writer.write("5"));
-}
-
 pub const FontDir = struct {
-    fonts: std.ArrayListUnmanaged(Font) = .empty,
+    fonts: std.ArrayList(Font) = .empty,
     /// To keep track of which ids are set and where they were set from
     ids: std.AutoHashMapUnmanaged(u16, Token) = .empty,
 
@@ -3039,7 +2957,7 @@ pub const FontDir = struct {
         try self.fonts.append(allocator, font);
     }
 
-    pub fn writeResData(self: *FontDir, compiler: *Compiler, writer: anytype) !void {
+    pub fn writeResData(self: *FontDir, compiler: *Compiler, writer: *std.Io.Writer) !void {
         if (self.fonts.items.len == 0) return;
 
         // We know the number of fonts is limited to maxInt(u16) because fonts
@@ -3118,7 +3036,7 @@ pub const FontDir = struct {
             // First, the ID is written, though
             try writer.writeInt(u16, font.id, .little);
             try writer.writeAll(&font.header_bytes);
-            try writer.writeByteNTimes(0, 2);
+            try writer.splatByteAll(0, 2);
         }
         try Compiler.writeDataPadding(writer, data_size);
     }
@@ -3163,7 +3081,7 @@ pub const StringTable = struct {
     blocks: std.AutoArrayHashMapUnmanaged(u16, Block) = .empty,
 
     pub const Block = struct {
-        strings: std.ArrayListUnmanaged(Token) = .empty,
+        strings: std.ArrayList(Token) = .empty,
         set_indexes: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 },
         memory_flags: MemoryFlags = MemoryFlags.defaults(res.RT.STRING),
         characteristics: u32,
@@ -3244,10 +3162,10 @@ pub const StringTable = struct {
             try std.testing.expectEqualStrings("a", trimToDoubleNUL(u8, "a\x00\x00b"));
         }
 
-        pub fn writeResData(self: *Block, compiler: *Compiler, language: res.Language, block_id: u16, writer: anytype) !void {
-            var data_buffer = std.ArrayList(u8).init(compiler.allocator);
+        pub fn writeResData(self: *Block, compiler: *Compiler, language: res.Language, block_id: u16, writer: *std.Io.Writer) !void {
+            var data_buffer: std.Io.Writer.Allocating = .init(compiler.allocator);
             defer data_buffer.deinit();
-            const data_writer = data_buffer.writer();
+            const data_writer = &data_buffer.writer;
 
             var i: u8 = 0;
             var string_i: u8 = 0;
@@ -3306,7 +3224,7 @@ pub const StringTable = struct {
             //   16 * (131,070 + 2) = 2,097,152 which is well within the u32 max.
             //
             // Note: The string literal maximum length is enforced by the lexer.
-            const data_size: u32 = @intCast(data_buffer.items.len);
+            const data_size: u32 = @intCast(data_buffer.written().len);
 
             const header = Compiler.ResourceHeader{
                 .name_value = .{ .ordinal = block_id },
@@ -3321,8 +3239,8 @@ pub const StringTable = struct {
             // we fully control and know are numbers, so they have a fixed size.
             try header.writeAssertNoOverflow(writer);
 
-            var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-            try Compiler.writeResourceData(writer, data_fbs.reader(), data_size);
+            var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
+            try Compiler.writeResourceData(writer, &data_fbs, data_size);
         }
     };
 

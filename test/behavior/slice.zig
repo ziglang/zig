@@ -211,7 +211,6 @@ test "comptime pointer cast array and then slice" {
 }
 
 test "slicing zero length array" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -239,6 +238,8 @@ test "slicing pointer by length" {
 const x = @as([*]i32, @ptrFromInt(0x1000))[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     try expect(@intFromPtr(x) == 0x1000);
     try expect(x.len == 0x500);
 
@@ -273,7 +274,6 @@ test "result location zero sized array inside struct field implicit cast to slic
 }
 
 test "runtime safety lets us slice from len..len" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -287,7 +287,6 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 }
 
 test "C pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -299,7 +298,6 @@ test "C pointer" {
 }
 
 test "C pointer slice access" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -331,7 +329,6 @@ fn sliceSum(comptime q: []const u8) i32 {
 }
 
 test "slice type with custom alignment" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -390,7 +387,6 @@ test "empty array to slice" {
 }
 
 test "@ptrCast slice to pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -445,7 +441,6 @@ test "slice multi-pointer without end" {
 }
 
 test "slice syntax resulting in pointer-to-array" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -635,9 +630,6 @@ test "slice syntax resulting in pointer-to-array" {
             comptime assert(@TypeOf(ptr[1..][0..2]) == *[2]u8);
             comptime assert(@TypeOf(ptr[1..][0..4]) == *[4]u8);
             comptime assert(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..2]) == *[2]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..4]) == *[4]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..2 :4]) == *[2:4]u8);
 
             var ptr_z: [*:0]u8 = &array;
             comptime assert(@TypeOf(ptr_z[1..][0..2]) == *[2]u8);
@@ -665,7 +657,6 @@ test "slice syntax resulting in pointer-to-array" {
 }
 
 test "slice pointer-to-array null terminated" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -718,7 +709,6 @@ test "slice pointer-to-array zero length" {
 }
 
 test "type coercion of pointer to anon struct literal to pointer to slice" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -812,7 +802,6 @@ test "slice sentinel access at comptime" {
 }
 
 test "slicing array with sentinel as end index" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -831,7 +820,6 @@ test "slicing array with sentinel as end index" {
 }
 
 test "slicing slice with sentinel as end index" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -888,7 +876,7 @@ test "slice field ptr var" {
 }
 
 test "global slice field access" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -929,7 +917,6 @@ test "slice with dereferenced value" {
 }
 
 test "empty slice ptr is non null" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // Test assumes `undefined` is non-zero
 
     {
@@ -947,7 +934,6 @@ test "empty slice ptr is non null" {
 }
 
 test "slice decays to many pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -957,7 +943,6 @@ test "slice decays to many pointer" {
 }
 
 test "write through pointer to optional slice arg" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -977,7 +962,6 @@ test "write through pointer to optional slice arg" {
 }
 
 test "modify slice length at comptime" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -994,7 +978,6 @@ test "modify slice length at comptime" {
 }
 
 test "slicing zero length array field of struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -1010,7 +993,6 @@ test "slicing zero length array field of struct" {
 }
 
 test "slicing slices gives correct result" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -1024,7 +1006,6 @@ test "slicing slices gives correct result" {
 }
 
 test "get address of element of zero-sized slice" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -1037,7 +1018,6 @@ test "get address of element of zero-sized slice" {
 }
 
 test "sentinel-terminated 0-length slices" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 

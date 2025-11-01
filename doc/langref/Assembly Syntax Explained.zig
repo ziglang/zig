@@ -53,8 +53,7 @@ pub fn syscall1(number: usize, arg1: usize) usize {
           // memory locations - not only the memory pointed to by a declared indirect
           // output. In this example we list $rcx and $r11 because it is known the
           // kernel syscall does not preserve these registers.
-        : "rcx", "r11"
-    );
+        : .{ .rcx = true, .r11 = true });
 }
 
 // syntax

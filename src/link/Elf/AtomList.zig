@@ -89,7 +89,7 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
     list.dirty = false;
 }
 
-pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_file: *Elf) !void {
+pub fn write(list: AtomList, buffer: *std.Io.Writer.Allocating, undefs: anytype, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
     assert(osec.sh_type != elf.SHT_NOBITS);
@@ -98,8 +98,7 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
     log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.sh_name)});
 
     const list_size = math.cast(usize, list.size) orelse return error.Overflow;
-    try buffer.ensureUnusedCapacity(list_size);
-    buffer.appendNTimesAssumeCapacity(0, list_size);
+    try buffer.writer.splatByteAll(0, list_size);
 
     for (list.atoms.keys()) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
@@ -113,7 +112,7 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
         const object = atom_ptr.file(elf_file).?.object;
         const code = try object.codeDecompressAlloc(elf_file, ref.index);
         defer gpa.free(code);
-        const out_code = buffer.items[off..][0..size];
+        const out_code = buffer.written()[off..][0..size];
         @memcpy(out_code, code);
 
         if (osec.sh_flags & elf.SHF_ALLOC == 0)
@@ -122,11 +121,11 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
             try atom_ptr.resolveRelocsAlloc(elf_file, out_code);
     }
 
-    try elf_file.base.file.?.pwriteAll(buffer.items, list.offset(elf_file));
+    try elf_file.base.file.?.pwriteAll(buffer.written(), list.offset(elf_file));
     buffer.clearRetainingCapacity();
 }
 
-pub fn writeRelocatable(list: AtomList, buffer: *std.ArrayList(u8), elf_file: *Elf) !void {
+pub fn writeRelocatable(list: AtomList, buffer: *std.array_list.Managed(u8), elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
     assert(osec.sh_type != elf.SHT_NOBITS);
@@ -171,7 +170,7 @@ const Format = struct {
     atom_list: AtomList,
     elf_file: *Elf,
 
-    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const list = f.atom_list;
         try writer.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
             list.address(f.elf_file),
@@ -188,7 +187,7 @@ const Format = struct {
     }
 };
 
-pub fn fmt(atom_list: AtomList, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(atom_list: AtomList, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{ .atom_list = atom_list, .elf_file = elf_file } };
 }
 

@@ -8,7 +8,7 @@
  */
 #ifndef __IMMINTRIN_H
 #error                                                                         \
-    "Never use <amxtf32tranposeintrin.h> directly; include <immintrin.h> instead."
+    "Never use <amxtf32transposeintrin.h> directly; include <immintrin.h> instead."
 #endif // __IMMINTRIN_H
 
 #ifndef __AMX_TF32TRANSPOSEINTRIN_H

@@ -2,7 +2,7 @@
 //!
 //! Windows paths are arbitrary sequences of `u16` (WTF-16).
 //! For cross-platform APIs that deal with sequences of `u8`, Windows
-//! paths are encoded by Zig as [WTF-8](https://simonsapin.github.io/wtf-8/).
+//! paths are encoded by Zig as [WTF-8](https://wtf-8.codeberg.page/).
 //! WTF-8 is a superset of UTF-8 that allows encoding surrogate codepoints,
 //! which enables lossless roundtripping when converting to/from WTF-16
 //! (as long as the WTF-8 encoded surrogate codepoints do not form a pair).
@@ -146,11 +146,11 @@ pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     return out[0 .. out.len - 1 :0];
 }
 
-pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter([]const []const u8, formatJoin) {
+pub fn fmtJoin(paths: []const []const u8) std.fmt.Alt([]const []const u8, formatJoin) {
     return .{ .data = paths };
 }
 
-fn formatJoin(paths: []const []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatJoin(paths: []const []const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
     const first_path_idx = for (paths, 0..) |p, idx| {
         if (p.len != 0) break idx;
     } else return;
@@ -313,7 +313,7 @@ pub fn isAbsoluteWindowsW(path_w: [*:0]const u16) bool {
     return isAbsoluteWindowsImpl(u16, mem.sliceTo(path_w, 0));
 }
 
-pub fn isAbsoluteWindowsWTF16(path: []const u16) bool {
+pub fn isAbsoluteWindowsWtf16(path: []const u16) bool {
     return isAbsoluteWindowsImpl(u16, path);
 }
 
@@ -413,7 +413,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
                 return relative_path;
             }
 
-            var it = mem.tokenizeScalar(u8, path, this_sep);
+            var it = mem.tokenizeAny(u8, path, "/\\");
             _ = (it.next() orelse return relative_path);
             _ = (it.next() orelse return relative_path);
             return WindowsPath{
@@ -438,6 +438,12 @@ test windowsParsePath {
         try testing.expect(parsed.is_abs);
         try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
         try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a\\b"));
+    }
+    {
+        const parsed = windowsParsePath("\\\\a/b");
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a/b"));
     }
     {
         const parsed = windowsParsePath("\\\\a\\");
@@ -492,11 +498,8 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             return ascii.toUpper(p1[0]) == ascii.toUpper(p2[0]);
         },
         WindowsPath.Kind.NetworkShare => {
-            const sep1 = p1[0];
-            const sep2 = p2[0];
-
-            var it1 = mem.tokenizeScalar(u8, p1, sep1);
-            var it2 = mem.tokenizeScalar(u8, p2, sep2);
+            var it1 = mem.tokenizeAny(u8, p1, "/\\");
+            var it2 = mem.tokenizeAny(u8, p2, "/\\");
 
             return windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?) and windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?);
         },
@@ -577,7 +580,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
     }
 
     // Allocate result and fill in the disk designator.
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit();
 
     const disk_designator_len: usize = l: {
@@ -698,7 +701,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
 pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
     assert(paths.len > 0);
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit();
 
     var negative_count: usize = 0;
@@ -795,6 +798,7 @@ test resolveWindows {
     try testResolveWindows(&[_][]const u8{ "c:/ignore", "c:/some/file" }, "C:\\some\\file");
     try testResolveWindows(&[_][]const u8{ "d:/ignore", "d:some/dir//" }, "D:\\ignore\\some\\dir");
     try testResolveWindows(&[_][]const u8{ "//server/share", "..", "relative\\" }, "\\\\server\\share\\relative");
+    try testResolveWindows(&[_][]const u8{ "\\\\server/share", "..", "relative\\" }, "\\\\server\\share\\relative");
     try testResolveWindows(&[_][]const u8{ "c:/", "//" }, "C:\\");
     try testResolveWindows(&[_][]const u8{ "c:/", "//dir" }, "C:\\dir");
     try testResolveWindows(&[_][]const u8{ "c:/", "//server/share" }, "\\\\server\\share\\");

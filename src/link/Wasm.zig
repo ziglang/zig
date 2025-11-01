@@ -29,8 +29,8 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 
-const Mir = @import("../arch/wasm/Mir.zig");
-const CodeGen = @import("../arch/wasm/CodeGen.zig");
+const Mir = @import("../codegen/wasm/Mir.zig");
+const CodeGen = @import("../codegen/wasm/CodeGen.zig");
 const abi = @import("../codegen/wasm/abi.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
@@ -2126,7 +2126,7 @@ pub const FunctionType = extern struct {
         wasm: *const Wasm,
         ft: FunctionType,
 
-        pub fn format(self: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: Formatter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const params = self.ft.params.slice(self.wasm);
             const returns = self.ft.returns.slice(self.wasm);
 
@@ -2905,7 +2905,7 @@ pub const Feature = packed struct(u8) {
         @"=",
     };
 
-    pub fn format(feature: Feature, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(feature: Feature, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
     }
 
@@ -3029,18 +3029,22 @@ fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
 fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
     log.debug("parseObject {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
+    const io = wasm.base.comp.io;
     const gc_sections = wasm.base.gc_sections;
 
     defer obj.file.close();
 
+    var file_reader = obj.file.reader(io, &.{});
+
     try wasm.objects.ensureUnusedCapacity(gpa, 1);
-    const stat = try obj.file.stat();
-    const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
+    const size = std.math.cast(usize, try file_reader.getSize()) orelse return error.FileTooBig;
 
     const file_contents = try gpa.alloc(u8, size);
     defer gpa.free(file_contents);
 
-    const n = try obj.file.preadAll(file_contents, 0);
+    const n = file_reader.interface.readSliceShort(file_contents) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+    };
     if (n != file_contents.len) return error.UnexpectedEndOfFile;
 
     var ss: Object.ScratchSpace = .{};
@@ -3053,17 +3057,21 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
 fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
     log.debug("parseArchive {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
+    const io = wasm.base.comp.io;
     const gc_sections = wasm.base.gc_sections;
 
     defer obj.file.close();
 
-    const stat = try obj.file.stat();
-    const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
+    var file_reader = obj.file.reader(io, &.{});
+
+    const size = std.math.cast(usize, try file_reader.getSize()) orelse return error.FileTooBig;
 
     const file_contents = try gpa.alloc(u8, size);
     defer gpa.free(file_contents);
 
-    const n = try obj.file.preadAll(file_contents, 0);
+    const n = file_reader.interface.readSliceShort(file_contents) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+    };
     if (n != file_contents.len) return error.UnexpectedEndOfFile;
 
     var archive = try Archive.parse(gpa, file_contents);
@@ -4257,7 +4265,14 @@ fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Zcu
     const func_table_fixups_start: u32 = @intCast(wasm.func_table_fixups.items.len);
     wasm.string_bytes_lock.lock();
 
-    try codegen.generateSymbol(&wasm.base, pt, .unneeded, .fromInterned(ip_index), &wasm.string_bytes, .none);
+    {
+        var aw: std.Io.Writer.Allocating = .fromArrayList(wasm.base.comp.gpa, &wasm.string_bytes);
+        defer wasm.string_bytes = aw.toArrayList();
+        codegen.generateSymbol(&wasm.base, pt, .unneeded, .fromInterned(ip_index), &aw.writer, .none) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
+    }
 
     const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
     const relocs_len: u32 = @intCast(wasm.out_relocs.len - relocs_start);

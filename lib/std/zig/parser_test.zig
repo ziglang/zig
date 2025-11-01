@@ -1,7 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
-const io = std.io;
 const maxInt = std.math.maxInt;
 
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
@@ -32,7 +31,7 @@ test "zig fmt: tuple struct" {
 }
 
 test "zig fmt: preserves clobbers in inline asm with stray comma" {
-    try testCanonical(
+    try testTransform(
         \\fn foo() void {
         \\    asm volatile (""
         \\        : [_] "" (-> type),
@@ -43,6 +42,20 @@ test "zig fmt: preserves clobbers in inline asm with stray comma" {
         \\        :
         \\        : [_] "" (type),
         \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : .{ .clobber = true }
+        \\    );
+        \\    asm volatile (""
+        \\        :
+        \\        : [_] "" (type),
+        \\        : .{ .clobber = true }
         \\    );
         \\}
         \\
@@ -64,7 +77,7 @@ test "zig fmt: remove trailing comma at the end of assembly clobber" {
         \\    asm volatile (""
         \\        : [_] "" (-> type),
         \\        :
-        \\        : "clobber1", "clobber2"
+        \\        : .{ .clobber1 = true, .clobber2 = true }
         \\    );
         \\}
         \\
@@ -628,7 +641,7 @@ test "zig fmt: builtin call with trailing comma" {
 }
 
 test "zig fmt: asm expression with comptime content" {
-    try testCanonical(
+    try testTransform(
         \\comptime {
         \\    asm ("foo" ++ "bar");
         \\}
@@ -645,6 +658,26 @@ test "zig fmt: asm expression with comptime content" {
         \\        : [_] "" (x),
         \\        : [_] "" (y),
         \\        : "h", "e", "l", "l", "o"
+        \\    );
+        \\}
+        \\
+    ,
+        \\comptime {
+        \\    asm ("foo" ++ "bar");
+        \\}
+        \\pub fn main() void {
+        \\    asm volatile ("foo" ++ "bar");
+        \\    asm volatile ("foo" ++ "bar"
+        \\        : [_] "" (x),
+        \\    );
+        \\    asm volatile ("foo" ++ "bar"
+        \\        : [_] "" (x),
+        \\        : [_] "" (y),
+        \\    );
+        \\    asm volatile ("foo" ++ "bar"
+        \\        : [_] "" (x),
+        \\        : [_] "" (y),
+        \\        : .{ .h = true, .e = true, .l = true, .l = true, .o = true }
         \\    );
         \\}
         \\
@@ -2182,7 +2215,7 @@ test "zig fmt: simple asm" {
         \\        : [a] "x" (-> i32),
         \\        : [a] "x" (1),
         \\    );
-        \\    asm ("still not real assembly" ::: "a", "b");
+        \\    asm ("still not real assembly" ::: .{ .a = true, .b = true });
         \\}
         \\
     );
@@ -3907,13 +3940,23 @@ test "zig fmt: fn type" {
 }
 
 test "zig fmt: inline asm" {
-    try testCanonical(
+    try testTransform(
         \\pub fn syscall1(number: usize, arg1: usize) usize {
         \\    return asm volatile ("syscall"
         \\        : [ret] "={rax}" (-> usize),
         \\        : [number] "{rax}" (number),
         \\          [arg1] "{rdi}" (arg1),
         \\        : "rcx", "r11"
+        \\    );
+        \\}
+        \\
+    ,
+        \\pub fn syscall1(number: usize, arg1: usize) usize {
+        \\    return asm volatile ("syscall"
+        \\        : [ret] "={rax}" (-> usize),
+        \\        : [number] "{rax}" (number),
+        \\          [arg1] "{rdi}" (arg1),
+        \\        : .{ .rcx = true, .r11 = true }
         \\    );
         \\}
         \\
@@ -3998,7 +4041,7 @@ test "zig fmt: inline asm parameter alignment" {
         \\    asm volatile (
         \\        \\ foo
         \\        \\ bar
-        \\        ::: "", "");
+        \\        ::: .{ .a = true, .b = true });
         \\    asm volatile (
         \\        \\ foo
         \\        \\ bar
@@ -4006,8 +4049,7 @@ test "zig fmt: inline asm parameter alignment" {
         \\          [_] "" (-> usize),
         \\        : [_] "" (0),
         \\          [_] "" (0),
-        \\        : "", ""
-        \\    );
+        \\        : .{});
         \\}
         \\
     );
@@ -5325,7 +5367,7 @@ test "zig fmt: make single-line if no trailing comma, fmt: off" {
         \\        asm ("not real assembly"
         \\            :[a] "x" (->i32),:[a] "x" (1),);
         \\        asm volatile ("still not real assembly"
-        \\            :::"a","b",);
+        \\            :::.{.a = true,.b = true,});
         \\    }
         \\}
     );
@@ -5737,7 +5779,7 @@ test "zig fmt: canonicalize symbols (asm)" {
         \\          [@"arg1"] "{rdi}" (arg),
         \\          [arg2] "{rsi}" (arg),
         \\          [arg3] "{rdx}" (arg),
-        \\        : "rcx", "r11"
+        \\        : "rcx", "fn"
         \\    );
         \\
         \\    const @"false": usize = 10;
@@ -5759,7 +5801,7 @@ test "zig fmt: canonicalize symbols (asm)" {
         \\          [arg1] "{rdi}" (arg),
         \\          [arg2] "{rsi}" (arg),
         \\          [arg3] "{rdx}" (arg),
-        \\        : "rcx", "r11"
+        \\        : .{ .rcx = true, .@"fn" = true }
         \\    );
         \\
         \\    const @"false": usize = 10;
@@ -6009,6 +6051,25 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
         \\        //
         \\        qux();
         \\}
+        \\
+    );
+}
+
+test "zig fmt: canonicalize cast builtins" {
+    try testTransform(
+        \\const foo = @alignCast(@ptrCast(bar));
+        \\const baz = @constCast(@ptrCast(@addrSpaceCast(@volatileCast(@alignCast(bar)))));
+        \\
+    ,
+        \\const foo = @ptrCast(@alignCast(bar));
+        \\const baz = @ptrCast(@alignCast(@addrSpaceCast(@constCast(@volatileCast(bar)))));
+        \\
+    );
+}
+
+test "zig fmt: do not canonicalize invalid cast builtins" {
+    try testCanonical(
+        \\const foo = @alignCast(@volatileCast(@ptrCast(@alignCast(bar))));
         \\
     );
 }
@@ -6324,7 +6385,9 @@ test "ampersand" {
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
-    const stderr = std.fs.File.stderr().deprecatedWriter();
+    var buffer: [64]u8 = undefined;
+    const stderr, _ = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
 
     var tree = try std.zig.Ast.parse(allocator, source, .zig);
     defer tree.deinit(allocator);
@@ -6347,7 +6410,7 @@ fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *
         return error.ParseError;
     }
 
-    const formatted = try tree.render(allocator);
+    const formatted = try tree.renderAlloc(allocator);
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }
@@ -6387,4 +6450,20 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     for (expected_errors, 0..) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
+}
+
+test "fuzz ast parse" {
+    try std.testing.fuzz({}, fuzzTestOneParse, .{});
+}
+
+fn fuzzTestOneParse(_: void, input: []const u8) !void {
+    // The first byte holds if zig / zon
+    if (input.len == 0) return;
+    const mode: std.zig.Ast.Mode = if (input[0] & 1 == 0) .zig else .zon;
+    const bytes = input[1..];
+
+    var fba: std.heap.FixedBufferAllocator = .init(&fixed_buffer_mem);
+    const allocator = fba.allocator();
+    const source = allocator.dupeZ(u8, bytes) catch return;
+    _ = std.zig.Ast.parse(allocator, source, mode) catch return;
 }

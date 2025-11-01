@@ -205,7 +205,6 @@ pub fn createEmpty(
     const target = &comp.root_mod.resolved_target.result;
     const output_mode = comp.config.output_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
-    const is_native_os = comp.root_mod.resolved_target.is_native_os;
 
     const obj_file_ext: []const u8 = switch (target.ofmt) {
         .coff => "obj",
@@ -234,7 +233,7 @@ pub fn createEmpty(
             .gc_sections = gc_sections,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = stack_size,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
             .build_id = options.build_id,
         },
@@ -349,7 +348,6 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         object_files.items.ptr,
         object_files.items.len,
         switch (target.os.tag) {
-            .aix => .AIXBIG,
             .windows => .COFF,
             else => if (target.os.tag.isDarwin()) .DARWIN else .GNU,
         },
@@ -410,7 +408,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -506,7 +504,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (comp.emit_implib) |raw_emit_path| {
-            const path = try comp.resolveEmitPathFlush(arena, .temp, raw_emit_path);
+            const path = try comp.resolveEmitPathFlush(arena, .artifact, raw_emit_path);
             try argv.append(try allocPrint(arena, "-IMPLIB:{f}", .{path}));
         }
 
@@ -810,7 +808,6 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = &comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?Cache.Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -864,7 +861,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -1072,12 +1069,12 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             }
         }
 
-        if (have_dynamic_linker and
-            (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker))
-        {
+        if (output_mode == .Exe and link_mode == .dynamic) {
             if (target.dynamic_linker.get()) |dynamic_linker| {
-                try argv.append("-dynamic-linker");
+                try argv.append("--dynamic-linker");
                 try argv.append(dynamic_linker);
+            } else {
+                try argv.append("--no-dynamic-linker");
             }
         }
 
@@ -1350,7 +1347,9 @@ fn getLDMOption(target: *const std.Target) ?[]const u8 {
         .powerpc64 => "elf64ppc",
         .powerpc64le => "elf64lppc",
         .riscv32 => "elf32lriscv",
+        .riscv32be => "elf32briscv",
         .riscv64 => "elf64lriscv",
+        .riscv64be => "elf64briscv",
         .s390x => "elf64_s390",
         .sparc64 => "elf64_sparc",
         .x86 => switch (target.os.tag) {
@@ -1420,7 +1419,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -1620,11 +1619,9 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     }
 }
 
-fn spawnLld(
-    comp: *Compilation,
-    arena: Allocator,
-    argv: []const []const u8,
-) !void {
+fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !void {
+    const io = comp.io;
+
     if (comp.verbose_link) {
         // Skip over our own name so that the LLD linker name is the first argv item.
         Compilation.dump_argv(argv[1..]);
@@ -1656,7 +1653,8 @@ fn spawnLld(
         child.stderr_behavior = .Pipe;
 
         child.spawn() catch |err| break :term err;
-        stderr = try child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+        var stderr_reader = child.stderr.?.readerStreaming(io, &.{});
+        stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
         break :term child.wait();
     }) catch |first_err| term: {
         const err = switch (first_err) {
@@ -1665,13 +1663,14 @@ fn spawnLld(
                 const rand_int = std.crypto.random.int(u64);
                 const rsp_path = "tmp" ++ s ++ std.fmt.hex(rand_int) ++ ".rsp";
 
-                const rsp_file = try comp.dirs.local_cache.handle.createFileZ(rsp_path, .{});
+                const rsp_file = try comp.dirs.local_cache.handle.createFile(rsp_path, .{});
                 defer comp.dirs.local_cache.handle.deleteFileZ(rsp_path) catch |err|
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
-                    var rsp_buf = std.io.bufferedWriter(rsp_file.deprecatedWriter());
-                    const rsp_writer = rsp_buf.writer();
+                    var rsp_file_buffer: [1024]u8 = undefined;
+                    var rsp_file_writer = rsp_file.writer(&rsp_file_buffer);
+                    const rsp_writer = &rsp_file_writer.interface;
                     for (argv[2..]) |arg| {
                         try rsp_writer.writeByte('"');
                         for (arg) |c| {
@@ -1684,7 +1683,7 @@ fn spawnLld(
                         try rsp_writer.writeByte('"');
                         try rsp_writer.writeByte('\n');
                     }
-                    try rsp_buf.flush();
+                    try rsp_writer.flush();
                 }
 
                 var rsp_child = std.process.Child.init(&.{ argv[0], argv[1], try std.fmt.allocPrint(
@@ -1704,7 +1703,8 @@ fn spawnLld(
                     rsp_child.stderr_behavior = .Pipe;
 
                     rsp_child.spawn() catch |err| break :err err;
-                    stderr = try rsp_child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+                    var stderr_reader = rsp_child.stderr.?.readerStreaming(io, &.{});
+                    stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
                     break :term rsp_child.wait() catch |err| break :err err;
                 }
             },

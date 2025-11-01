@@ -10,9 +10,9 @@ const target = builtin.target;
 const native_os = builtin.os.tag;
 const posix = std.posix;
 const windows = std.os.windows;
+const testing = std.testing;
 
 pub const Futex = @import("Thread/Futex.zig");
-pub const ResetEvent = @import("Thread/ResetEvent.zig");
 pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
@@ -22,82 +22,122 @@ pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = native_os != .windows and native_os != .wasi and builtin.link_libc;
 
-/// Spurious wakeups are possible and no precision of timing is guaranteed.
-pub fn sleep(nanoseconds: u64) void {
-    if (builtin.os.tag == .windows) {
-        const big_ms_from_ns = nanoseconds / std.time.ns_per_ms;
-        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
-        windows.kernel32.Sleep(ms);
-        return;
+/// A thread-safe logical boolean value which can be `set` and `unset`.
+///
+/// It can also block threads until the value is set with cancelation via timed
+/// waits. Statically initializable; four bytes on all targets.
+pub const ResetEvent = enum(u32) {
+    unset = 0,
+    waiting = 1,
+    is_set = 2,
+
+    /// Returns whether the logical boolean is `set`.
+    ///
+    /// Once `reset` is called, this returns false until the next `set`.
+    ///
+    /// The memory accesses before the `set` can be said to happen before
+    /// `isSet` returns true.
+    pub fn isSet(re: *const ResetEvent) bool {
+        if (builtin.single_threaded) return switch (re.*) {
+            .unset => false,
+            .waiting => unreachable,
+            .is_set => true,
+        };
+        // Acquire barrier ensures memory accesses before `set` happen before
+        // returning true.
+        return @atomicLoad(ResetEvent, re, .acquire) == .is_set;
     }
 
-    if (builtin.os.tag == .wasi) {
-        const w = std.os.wasi;
-        const userdata: w.userdata_t = 0x0123_45678;
-        const clock: w.subscription_clock_t = .{
-            .id = .MONOTONIC,
-            .timeout = nanoseconds,
-            .precision = 0,
-            .flags = 0,
+    /// Blocks the calling thread until `set` is called.
+    ///
+    /// This is effectively a more efficient version of `while (!isSet()) {}`.
+    ///
+    /// The memory accesses before the `set` can be said to happen before `wait` returns.
+    pub fn wait(re: *ResetEvent) void {
+        if (builtin.single_threaded) switch (re.*) {
+            .unset => unreachable, // Deadlock, no other threads to wake us up.
+            .waiting => unreachable, // Invalid state.
+            .is_set => return,
         };
-        const in: w.subscription_t = .{
-            .userdata = userdata,
-            .u = .{
-                .tag = .CLOCK,
-                .u = .{ .clock = clock },
-            },
+        if (!re.isSet()) return timedWaitInner(re, null) catch |err| switch (err) {
+            error.Timeout => unreachable, // No timeout specified.
         };
-
-        var event: w.event_t = undefined;
-        var nevents: usize = undefined;
-        _ = w.poll_oneoff(&in, &event, 1, &nevents);
-        return;
     }
 
-    if (builtin.os.tag == .uefi) {
-        const boot_services = std.os.uefi.system_table.boot_services.?;
-        const us_from_ns = nanoseconds / std.time.ns_per_us;
-        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
-        return;
+    /// Blocks the calling thread until `set` is called, or until the
+    /// corresponding timeout expires, returning `error.Timeout`.
+    ///
+    /// This is effectively a more efficient version of `while (!isSet()) {}`.
+    ///
+    /// The memory accesses before the set() can be said to happen before
+    /// timedWait() returns without error.
+    pub fn timedWait(re: *ResetEvent, timeout_ns: u64) error{Timeout}!void {
+        if (builtin.single_threaded) switch (re.*) {
+            .unset => return error.Timeout,
+            .waiting => unreachable, // Invalid state.
+            .is_set => return,
+        };
+        if (!re.isSet()) return timedWaitInner(re, timeout_ns);
     }
 
-    const s = nanoseconds / std.time.ns_per_s;
-    const ns = nanoseconds % std.time.ns_per_s;
+    fn timedWaitInner(re: *ResetEvent, timeout: ?u64) error{Timeout}!void {
+        @branchHint(.cold);
 
-    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
-    // since Linux 2.6 and glibc 2.1 anyway.
-    if (builtin.os.tag == .linux) {
-        const linux = std.os.linux;
+        // Try to set the state from `unset` to `waiting` to indicate to the
+        // `set` thread that others are blocked on the ResetEvent. Avoid using
+        // any strict barriers until we know the ResetEvent is set.
+        var state = @atomicLoad(ResetEvent, re, .acquire);
+        if (state == .unset) {
+            state = @cmpxchgStrong(ResetEvent, re, state, .waiting, .acquire, .acquire) orelse .waiting;
+        }
 
-        var req: linux.timespec = .{
-            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
-            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
-        };
-        var rem: linux.timespec = undefined;
+        // Wait until the ResetEvent is set since the state is waiting.
+        if (state == .waiting) {
+            var futex_deadline = Futex.Deadline.init(timeout);
+            while (true) {
+                const wait_result = futex_deadline.wait(@ptrCast(re), @intFromEnum(ResetEvent.waiting));
 
-        while (true) {
-            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
-                .SUCCESS => return,
-                .INTR => {
-                    req = rem;
-                    continue;
-                },
-                .FAULT,
-                .INVAL,
-                .OPNOTSUPP,
-                => unreachable,
-                else => return,
+                // Check if the ResetEvent was set before possibly reporting error.Timeout below.
+                state = @atomicLoad(ResetEvent, re, .acquire);
+                if (state != .waiting) break;
+
+                try wait_result;
             }
+        }
+
+        assert(state == .is_set);
+    }
+
+    /// Marks the logical boolean as `set` and unblocks any threads in `wait`
+    /// or `timedWait` to observe the new state.
+    ///
+    /// The logical boolean stays `set` until `reset` is called, making future
+    /// `set` calls do nothing semantically.
+    ///
+    /// The memory accesses before `set` can be said to happen before `isSet`
+    /// returns true or `wait`/`timedWait` return successfully.
+    pub fn set(re: *ResetEvent) void {
+        if (builtin.single_threaded) {
+            re.* = .is_set;
+            return;
+        }
+        if (@atomicRmw(ResetEvent, re, .Xchg, .is_set, .release) == .waiting) {
+            Futex.wake(@ptrCast(re), std.math.maxInt(u32));
         }
     }
 
-    posix.nanosleep(s, ns);
-}
-
-test sleep {
-    sleep(1);
-}
+    /// Unmarks the ResetEvent as if `set` was never called.
+    ///
+    /// Assumes no threads are blocked in `wait` or `timedWait`. Concurrent
+    /// calls to `set`, `isSet` and `reset` are allowed.
+    pub fn reset(re: *ResetEvent) void {
+        if (builtin.single_threaded) {
+            re.* = .unset;
+            return;
+        }
+        @atomicStore(ResetEvent, re, .unset, .monotonic);
+    }
+};
 
 const Thread = @This();
 const Impl = if (native_os == .windows)
@@ -121,7 +161,7 @@ pub const max_name_len = switch (native_os) {
     .freebsd => 15,
     .openbsd => 23,
     .dragonfly => 1023,
-    .solaris, .illumos => 31,
+    .illumos => 31,
     // https://github.com/SerenityOS/serenity/blob/6b4c300353da49d3508b5442cf61da70bd04d757/Kernel/Tasks/Thread.h#L102
     .serenity => 63,
     else => 0,
@@ -131,6 +171,7 @@ pub const SetNameError = error{
     NameTooLong,
     Unsupported,
     Unexpected,
+    InvalidWtf8,
 } || posix.PrctlError || posix.WriteError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
 pub fn setName(self: Thread, name: []const u8) SetNameError!void {
@@ -167,7 +208,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
             defer file.close();
 
-            try file.deprecatedWriter().writeAll(name);
+            try file.writeAll(name);
             return;
         },
         .windows => {
@@ -212,7 +253,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 else => |e| return posix.unexpectedErrno(e),
             }
         },
-        .netbsd, .solaris, .illumos => if (use_pthreads) {
+        .netbsd, .illumos => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
             switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
@@ -251,7 +292,7 @@ pub const GetNameError = error{
     Unexpected,
 } || posix.PrctlError || posix.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
@@ -278,11 +319,16 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
+            var threaded: std.Io.Threaded = .init_single_threaded;
+            const io = threaded.ioBasic();
+
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
-            const data_len = try file.deprecatedReader().readAll(buffer_ptr[0 .. max_name_len + 1]);
-
+            var file_reader = file.readerStreaming(io, &.{});
+            const data_len = file_reader.interface.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
+                error.ReadFailed => return file_reader.err.?,
+            };
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
         },
         .windows => {
@@ -323,7 +369,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 else => |e| return posix.unexpectedErrno(e),
             }
         },
-        .netbsd, .solaris, .illumos => if (use_pthreads) {
+        .netbsd, .illumos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
             switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
@@ -384,6 +430,8 @@ pub const CpuCountError = error{
 };
 
 /// Returns the platforms view on the number of logical CPU cores available.
+///
+/// Returned value guaranteed to be >= 1.
 pub fn getCpuCount() CpuCountError!usize {
     return try Impl.getCpuCount();
 }
@@ -529,7 +577,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
                     @call(.auto, f, args) catch |err| {
                         std.debug.print("error: {s}\n", .{@errorName(err)});
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
                     };
 
@@ -626,7 +674,7 @@ const WindowsThreadImpl = struct {
 
         const heap_handle = windows.kernel32.GetProcessHeap() orelse return error.OutOfMemory;
         const alloc_bytes = @alignOf(Instance) + @sizeOf(Instance);
-        const alloc_ptr = windows.kernel32.HeapAlloc(heap_handle, 0, alloc_bytes) orelse return error.OutOfMemory;
+        const alloc_ptr = windows.ntdll.RtlAllocateHeap(heap_handle, 0, alloc_bytes) orelse return error.OutOfMemory;
         errdefer assert(windows.kernel32.HeapFree(heap_handle, 0, alloc_ptr) != 0);
 
         const instance_bytes = @as([*]u8, @ptrCast(alloc_ptr))[0..alloc_bytes];
@@ -738,10 +786,10 @@ const PosixThreadImpl = struct {
                 };
                 return @as(usize, @intCast(count));
             },
-            .solaris, .illumos, .serenity => {
+            .illumos, .serenity => {
                 // The "proper" way to get the cpu count would be to query
                 // /dev/kstat via ioctls, and traverse a linked list for each
-                // cpu. (solaris, illumos)
+                // cpu. (illumos)
                 const rc = c.sysconf(@intFromEnum(std.c._SC.NPROCESSORS_ONLN));
                 return switch (posix.errno(rc)) {
                     .SUCCESS => @as(usize, @intCast(rc)),
@@ -761,7 +809,7 @@ const PosixThreadImpl = struct {
                 var count_len: usize = @sizeOf(c_int);
                 const name = if (comptime target.os.tag.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
                 posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong, error.UnknownName => unreachable,
+                    error.UnknownName => unreachable,
                     else => |e| return e,
                 };
                 return @as(usize, @intCast(count));
@@ -911,18 +959,9 @@ const WasiThreadImpl = struct {
             allocator.free(self.thread.memory);
         }
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
-
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
+            if (tid == 0) break;
 
             const result = asm (
                 \\ local.get %[ptr]
@@ -971,7 +1010,7 @@ const WasiThreadImpl = struct {
                         @call(.auto, f, w.args) catch |err| {
                             std.debug.print("error: {s}\n", .{@errorName(err)});
                             if (@errorReturnTrace()) |trace| {
-                                std.debug.dumpStackTrace(trace.*);
+                                std.debug.dumpStackTrace(trace);
                             }
                         };
                     },
@@ -1198,14 +1237,23 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
-                .x86_64 => asm volatile (
-                    \\  movq $11, %%rax # SYS_munmap
-                    \\  syscall
-                    \\  movq $60, %%rax # SYS_exit
-                    \\  movq $1, %%rdi
-                    \\  syscall
+                    : .{ .memory = true }),
+                .x86_64 => asm volatile (switch (target.abi) {
+                        .gnux32, .muslx32 =>
+                        \\  movl $0x4000000b, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $0x4000003c, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                        else =>
+                        \\  movl $11, %%eax # SYS_munmap
+                        \\  syscall
+                        \\  movl $60, %%eax # SYS_exit
+                        \\  xor %%rdi, %%rdi
+                        \\  syscall
+                        ,
+                    }
                     :
                     : [ptr] "{rdi}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{rsi}" (self.mapped.len),
@@ -1221,8 +1269,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .aarch64, .aarch64_be => asm volatile (
                     \\  mov x8, #215 // SYS_munmap
                     \\  mov x0, %[ptr]
@@ -1234,8 +1281,19 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
+                .alpha => asm volatile (
+                    \\ ldi $0, 73 # SYS_munmap
+                    \\ mov %[ptr], $16
+                    \\ mov %[len], $17
+                    \\ callsys
+                    \\ ldi $0, 1 # SYS_exit
+                    \\ ldi $16, 0
+                    \\ callsys
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
                     \\  r0 = %[ptr]
@@ -1247,39 +1305,96 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
+                .hppa => asm volatile (
+                    \\ ldi 91, %%r20 /* SYS_munmap */
+                    \\ copy %[ptr], %%r26
+                    \\ copy %[len], %%r25
+                    \\ ble 0x100(%%sr2, %%r0)
+                    \\ ldi 1, %%r20 /* SYS_exit */
+                    \\ ldi 0, %%r26
+                    \\ ble 0x100(%%sr2, %%r0)
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
+                .m68k => asm volatile (
+                    \\ move.l #91, %%d0 // SYS_munmap
+                    \\ move.l %[ptr], %%d1
+                    \\ move.l %[len], %%d2
+                    \\ trap #0
+                    \\ move.l #1, %%d0 // SYS_exit
+                    \\ move.l #0, %%d1
+                    \\ trap #0
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
+                .microblaze, .microblazeel => asm volatile (
+                    \\ ori r12, r0, 91 # SYS_munmap
+                    \\ ori r5, %[ptr], 0
+                    \\ ori r6, %[len], 0
+                    \\ brki r14, 0x8
+                    \\ ori r12, r0, 1 # SYS_exit
+                    \\ or r5, r0, r0
+                    \\ brki r14, 0x8
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 // We set `sp` to the address of the current function as a workaround for a Linux
                 // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
                 // 7928eb0370d1133d0d8cd2f5ddfca19c309079d5.
                 .mips, .mipsel => asm volatile (
-                    \\  move $sp, $25
-                    \\  li $2, 4091 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 4001 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                    \\ move $sp, $t9
+                    \\ li $v0, 4091 # SYS_munmap
+                    \\ move $a0, %[ptr]
+                    \\ move $a1, %[len]
+                    \\ syscall
+                    \\ li $v0, 4001 # SYS_exit
+                    \\ li $a0, 0
+                    \\ syscall
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
-                .mips64, .mips64el => asm volatile (
-                    \\  li $2, 5011 # SYS_munmap
-                    \\  move $4, %[ptr]
-                    \\  move $5, %[len]
-                    \\  syscall
-                    \\  li $2, 5058 # SYS_exit
-                    \\  li $4, 0
-                    \\  syscall
+                    : .{ .memory = true }),
+                .mips64, .mips64el => asm volatile (switch (target.abi) {
+                        .gnuabin32, .muslabin32 =>
+                        \\ li $v0, 6011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 6058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                        else =>
+                        \\ li $v0, 5011 # SYS_munmap
+                        \\ move $a0, %[ptr]
+                        \\ move $a1, %[len]
+                        \\ syscall
+                        \\ li $v0, 5058 # SYS_exit
+                        \\ li $a0, 0
+                        \\ syscall
+                        ,
+                    }
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
+                .or1k => asm volatile (
+                    \\ l.ori r11, r0, 215 # SYS_munmap
+                    \\ l.ori r3, %[ptr]
+                    \\ l.ori r4, %[len]
+                    \\ l.sys 1
+                    \\ l.ori r11, r0, 93 # SYS_exit
+                    \\ l.ori r3, r0, r0
+                    \\ l.sys 1
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91 # SYS_munmap
                     \\  mr 3, %[ptr]
@@ -1292,8 +1407,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .riscv32, .riscv64 => asm volatile (
                     \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
@@ -1305,8 +1419,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .s390x => asm volatile (
                     \\  lgr %%r2, %[ptr]
                     \\  lgr %%r3, %[len]
@@ -1316,8 +1429,29 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
+                .sh, .sheb => asm volatile (
+                    \\ mov #91, r3 ! SYS_munmap
+                    \\ mov %[ptr], r4
+                    \\ mov %[len], r5
+                    \\ trapa #31
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ mov #1, r3 ! SYS_exit
+                    \\ mov #0, r4
+                    \\ trapa #31
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    \\ or r0, r0
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : .{ .memory = true }),
                 .sparc => asm volatile (
                     \\ # See sparc64 comments below.
                     \\ 1:
@@ -1338,8 +1472,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .sparc64 => asm volatile (
                     \\ # SPARCs really don't like it when active stack frames
                     \\ # is unmapped (it will result in a segfault), so we
@@ -1365,8 +1498,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .loongarch32, .loongarch64 => asm volatile (
                     \\ or      $a0, $zero, %[ptr]
                     \\ or      $a1, $zero, %[len]
@@ -1378,8 +1510,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;
@@ -1526,18 +1657,9 @@ const LinuxThreadImpl = struct {
     fn join(self: Impl) void {
         defer posix.munmap(self.thread.mapped);
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.child_tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
-
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
+            if (tid == 0) break;
 
             switch (linux.E.init(linux.futex_4arg(
                 &self.thread.child_tid.raw,
@@ -1577,9 +1699,9 @@ test "setName, getName" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     const Context = struct {
-        start_wait_event: ResetEvent = .{},
-        test_done_event: ResetEvent = .{},
-        thread_done_event: ResetEvent = .{},
+        start_wait_event: ResetEvent = .unset,
+        test_done_event: ResetEvent = .unset,
+        thread_done_event: ResetEvent = .unset,
 
         done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
         thread: Thread = undefined,
@@ -1628,7 +1750,6 @@ test "setName, getName" {
 }
 
 test {
-    // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
     _ = Futex;
     _ = ResetEvent;
     _ = Mutex;
@@ -1647,7 +1768,7 @@ test join {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event = ResetEvent{};
+    var event: ResetEvent = .unset;
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.join();
@@ -1659,11 +1780,169 @@ test detach {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
-    var event = ResetEvent{};
+    var event: ResetEvent = .unset;
 
     const thread = try Thread.spawn(.{}, testIncrementNotify, .{ &value, &event });
     thread.detach();
 
     event.wait();
     try std.testing.expectEqual(value, 1);
+}
+
+test "Thread.getCpuCount" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    const cpu_count = try Thread.getCpuCount();
+    try std.testing.expect(cpu_count >= 1);
+}
+
+fn testThreadIdFn(thread_id: *Thread.Id) void {
+    thread_id.* = Thread.getCurrentId();
+}
+
+test "Thread.getCurrentId" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    var thread_current_id: Thread.Id = undefined;
+    const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
+    thread.join();
+    try std.testing.expect(Thread.getCurrentId() != thread_current_id);
+}
+
+test "thread local storage" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    const thread1 = try Thread.spawn(.{}, testTls, .{});
+    const thread2 = try Thread.spawn(.{}, testTls, .{});
+    try testTls();
+    thread1.join();
+    thread2.join();
+}
+
+threadlocal var x: i32 = 1234;
+fn testTls() !void {
+    if (x != 1234) return error.TlsBadStartValue;
+    x += 1;
+    if (x != 1235) return error.TlsBadEndValue;
+}
+
+test "ResetEvent smoke test" {
+    var event: ResetEvent = .unset;
+    try testing.expectEqual(false, event.isSet());
+
+    // make sure the event gets set
+    event.set();
+    try testing.expectEqual(true, event.isSet());
+
+    // make sure the event gets unset again
+    event.reset();
+    try testing.expectEqual(false, event.isSet());
+
+    // waits should timeout as there's no other thread to set the event
+    try testing.expectError(error.Timeout, event.timedWait(0));
+    try testing.expectError(error.Timeout, event.timedWait(std.time.ns_per_ms));
+
+    // set the event again and make sure waits complete
+    event.set();
+    event.wait();
+    try event.timedWait(std.time.ns_per_ms);
+    try testing.expectEqual(true, event.isSet());
+}
+
+test "ResetEvent signaling" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const Context = struct {
+        in: ResetEvent = .unset,
+        out: ResetEvent = .unset,
+        value: usize = 0,
+
+        fn input(self: *@This()) !void {
+            // wait for the value to become 1
+            self.in.wait();
+            self.in.reset();
+            try testing.expectEqual(self.value, 1);
+
+            // bump the value and wake up output()
+            self.value = 2;
+            self.out.set();
+
+            // wait for output to receive 2, bump the value and wake us up with 3
+            self.in.wait();
+            self.in.reset();
+            try testing.expectEqual(self.value, 3);
+
+            // bump the value and wake up output() for it to see 4
+            self.value = 4;
+            self.out.set();
+        }
+
+        fn output(self: *@This()) !void {
+            // start with 0 and bump the value for input to see 1
+            try testing.expectEqual(self.value, 0);
+            self.value = 1;
+            self.in.set();
+
+            // wait for input to receive 1, bump the value to 2 and wake us up
+            self.out.wait();
+            self.out.reset();
+            try testing.expectEqual(self.value, 2);
+
+            // bump the value to 3 for input to see (rhymes)
+            self.value = 3;
+            self.in.set();
+
+            // wait for input to bump the value to 4 and receive no more (rhymes)
+            self.out.wait();
+            self.out.reset();
+            try testing.expectEqual(self.value, 4);
+        }
+    };
+
+    var ctx = Context{};
+
+    const thread = try std.Thread.spawn(.{}, Context.output, .{&ctx});
+    defer thread.join();
+
+    try ctx.input();
+}
+
+test "ResetEvent broadcast" {
+    // This test requires spawning threads
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const num_threads = 10;
+    const Barrier = struct {
+        event: ResetEvent = .unset,
+        counter: std.atomic.Value(usize) = std.atomic.Value(usize).init(num_threads),
+
+        fn wait(self: *@This()) void {
+            if (self.counter.fetchSub(1, .acq_rel) == 1) {
+                self.event.set();
+            }
+        }
+    };
+
+    const Context = struct {
+        start_barrier: Barrier = .{},
+        finish_barrier: Barrier = .{},
+
+        fn run(self: *@This()) void {
+            self.start_barrier.wait();
+            self.finish_barrier.wait();
+        }
+    };
+
+    var ctx = Context{};
+    var threads: [num_threads - 1]std.Thread = undefined;
+
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Context.run, .{&ctx});
+    defer for (threads) |t| t.join();
+
+    ctx.run();
 }

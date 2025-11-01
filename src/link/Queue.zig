@@ -16,23 +16,23 @@ mutex: std.Thread.Mutex,
 /// Validates that only one `flushTaskQueue` thread is running at a time.
 flush_safety: std.debug.SafetyLock,
 
-/// This is the number of prelink tasks which are expected but have not yet been enqueued.
-/// Guarded by `mutex`.
-pending_prelink_tasks: u32,
+/// This value is positive while there are still prelink tasks yet to be queued. Once they are
+/// all queued, this value becomes 0, and ZCU tasks can be run. Guarded by `mutex`.
+prelink_wait_count: u32,
 
 /// Prelink tasks which have been enqueued and are not yet owned by the worker thread.
 /// Allocated into `gpa`, guarded by `mutex`.
-queued_prelink: std.ArrayListUnmanaged(PrelinkTask),
+queued_prelink: std.ArrayList(PrelinkTask),
 /// The worker thread moves items from `queued_prelink` into this array in order to process them.
 /// Allocated into `gpa`, accessed only by the worker thread.
-wip_prelink: std.ArrayListUnmanaged(PrelinkTask),
+wip_prelink: std.ArrayList(PrelinkTask),
 
 /// Like `queued_prelink`, but for ZCU tasks.
 /// Allocated into `gpa`, guarded by `mutex`.
-queued_zcu: std.ArrayListUnmanaged(ZcuTask),
+queued_zcu: std.ArrayList(ZcuTask),
 /// Like `wip_prelink`, but for ZCU tasks.
 /// Allocated into `gpa`, accessed only by the worker thread.
-wip_zcu: std.ArrayListUnmanaged(ZcuTask),
+wip_zcu: std.ArrayList(ZcuTask),
 
 /// When processing ZCU link tasks, we might have to block due to unpopulated MIR. When this
 /// happens, some tasks in `wip_zcu` have been run, and some are still pending. This is the
@@ -59,7 +59,7 @@ state: union(enum) {
     /// The link thread is currently running or queued to run.
     running,
     /// The link thread is not running or queued, because it has exhausted all immediately available
-    /// tasks. It should be spawned when more tasks are enqueued. If `pending_prelink_tasks` is not
+    /// tasks. It should be spawned when more tasks are enqueued. If `prelink_wait_count` is not
     /// zero, we are specifically waiting for prelink tasks.
     finished,
     /// The link thread is not running or queued, because it is waiting for this MIR to be populated.
@@ -73,11 +73,11 @@ state: union(enum) {
 const max_air_bytes_in_flight = 10 * 1024 * 1024;
 
 /// The initial `Queue` state, containing no tasks, expecting no prelink tasks, and with no running worker thread.
-/// The `pending_prelink_tasks` and `queued_prelink` fields may be modified as needed before calling `start`.
+/// The `queued_prelink` field may be appended to before calling `start`.
 pub const empty: Queue = .{
     .mutex = .{},
     .flush_safety = .{},
-    .pending_prelink_tasks = 0,
+    .prelink_wait_count = undefined, // set in `start`
     .queued_prelink = .empty,
     .wip_prelink = .empty,
     .queued_zcu = .empty,
@@ -100,15 +100,47 @@ pub fn deinit(q: *Queue, comp: *Compilation) void {
 }
 
 /// This is expected to be called exactly once, after which the caller must not directly access
-/// `queued_prelink` or `pending_prelink_tasks` any longer. This will spawn the link thread if
-/// necessary.
+/// `queued_prelink` any longer. This will spawn the link thread if necessary.
 pub fn start(q: *Queue, comp: *Compilation) void {
     assert(q.state == .finished);
     assert(q.queued_zcu.items.len == 0);
+    // Reset this to 1. We can't init it to 1 in `empty`, because it would fall to 0 on successive
+    // incremental updates, but we still need the initial 1.
+    q.prelink_wait_count = 1;
     if (q.queued_prelink.items.len != 0) {
         q.state = .running;
         comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
     }
+}
+
+/// Every call to this must be paired with a call to `finishPrelinkItem`.
+pub fn startPrelinkItem(q: *Queue) void {
+    q.mutex.lock();
+    defer q.mutex.unlock();
+    assert(q.prelink_wait_count > 0); // must not have finished everything already
+    q.prelink_wait_count += 1;
+}
+/// This function must be called exactly one more time than `startPrelinkItem` is. The final call
+/// indicates that we have finished calling `startPrelinkItem`, so once all pending items finish,
+/// we are ready to move on to ZCU tasks.
+pub fn finishPrelinkItem(q: *Queue, comp: *Compilation) void {
+    {
+        q.mutex.lock();
+        defer q.mutex.unlock();
+        q.prelink_wait_count -= 1;
+        if (q.prelink_wait_count != 0) return;
+        // The prelink task count dropped to 0; restart the linker thread if necessary.
+        switch (q.state) {
+            .wait_for_mir => unreachable, // we've not started zcu tasks yet
+            .running => return,
+            .finished => {},
+        }
+        assert(q.queued_prelink.items.len == 0);
+        // Even if there are no ZCU tasks, we must restart the linker thread to make sure
+        // that `link.File.prelink()` is called.
+        q.state = .running;
+    }
+    comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
 }
 
 /// Called by codegen workers after they have populated a `ZcuTask.LinkFunc.SharedMir`. If the link
@@ -130,14 +162,14 @@ pub fn mirReady(q: *Queue, comp: *Compilation, func_index: InternPool.Index, mir
     comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
 }
 
-/// Enqueues all prelink tasks in `tasks`. Asserts that they were expected, i.e. that `tasks.len` is
-/// less than or equal to `q.pending_prelink_tasks`. Also asserts that `tasks.len` is not 0.
+/// Enqueues all prelink tasks in `tasks`. Asserts that they were expected, i.e. that
+/// `prelink_wait_count` is not yet 0. Also asserts that `tasks.len` is not 0.
 pub fn enqueuePrelink(q: *Queue, comp: *Compilation, tasks: []const PrelinkTask) Allocator.Error!void {
     {
         q.mutex.lock();
         defer q.mutex.unlock();
+        assert(q.prelink_wait_count > 0);
         try q.queued_prelink.appendSlice(comp.gpa, tasks);
-        q.pending_prelink_tasks -= @intCast(tasks.len);
         switch (q.state) {
             .wait_for_mir => unreachable, // we've not started zcu tasks yet
             .running => return,
@@ -167,7 +199,7 @@ pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!
         try q.queued_zcu.append(comp.gpa, task);
         switch (q.state) {
             .running, .wait_for_mir => return,
-            .finished => if (q.pending_prelink_tasks != 0) return,
+            .finished => if (q.prelink_wait_count > 0) return,
         }
         // Restart the linker thread, unless it would immediately be blocked
         if (task == .link_func and task.link_func.mir.status.load(.acquire) == .pending) {
@@ -181,32 +213,41 @@ pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!
 
 fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
     q.flush_safety.lock(); // every `return` site should unlock this before unlocking `q.mutex`
-
     if (std.debug.runtime_safety) {
         q.mutex.lock();
         defer q.mutex.unlock();
         assert(q.state == .running);
     }
+
+    var have_idle_tasks = true;
     prelink: while (true) {
         assert(q.wip_prelink.items.len == 0);
-        {
-            q.mutex.lock();
-            defer q.mutex.unlock();
-            std.mem.swap(std.ArrayListUnmanaged(PrelinkTask), &q.queued_prelink, &q.wip_prelink);
-            if (q.wip_prelink.items.len == 0) {
-                if (q.pending_prelink_tasks == 0) {
-                    break :prelink; // prelink is done
-                } else {
+        swap_queues: while (true) {
+            {
+                q.mutex.lock();
+                defer q.mutex.unlock();
+                std.mem.swap(std.ArrayList(PrelinkTask), &q.queued_prelink, &q.wip_prelink);
+                if (q.wip_prelink.items.len > 0) break :swap_queues;
+                if (q.prelink_wait_count == 0) break :prelink; // prelink is done
+                if (!have_idle_tasks) {
                     // We're expecting more prelink tasks so can't move on to ZCU tasks.
                     q.state = .finished;
                     q.flush_safety.unlock();
                     return;
                 }
             }
+            have_idle_tasks = link.doIdleTask(comp, tid) catch |err| switch (err) {
+                error.OutOfMemory => have_idle_tasks: {
+                    comp.link_diags.setAllocFailure();
+                    break :have_idle_tasks false;
+                },
+                error.LinkFailure => false,
+            };
         }
         for (q.wip_prelink.items) |task| {
             link.doPrelinkTask(comp, task);
         }
+        have_idle_tasks = true;
         q.wip_prelink.clearRetainingCapacity();
     }
 
@@ -224,17 +265,29 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
 
     // Now we can run ZCU tasks.
     while (true) {
-        if (q.wip_zcu.items.len == q.wip_zcu_idx) {
+        if (q.wip_zcu.items.len == q.wip_zcu_idx) swap_queues: {
             q.wip_zcu.clearRetainingCapacity();
             q.wip_zcu_idx = 0;
-            q.mutex.lock();
-            defer q.mutex.unlock();
-            std.mem.swap(std.ArrayListUnmanaged(ZcuTask), &q.queued_zcu, &q.wip_zcu);
-            if (q.wip_zcu.items.len == 0) {
-                // We've exhausted all available tasks.
-                q.state = .finished;
-                q.flush_safety.unlock();
-                return;
+            while (true) {
+                {
+                    q.mutex.lock();
+                    defer q.mutex.unlock();
+                    std.mem.swap(std.ArrayList(ZcuTask), &q.queued_zcu, &q.wip_zcu);
+                    if (q.wip_zcu.items.len > 0) break :swap_queues;
+                    if (!have_idle_tasks) {
+                        // We've exhausted all available tasks.
+                        q.state = .finished;
+                        q.flush_safety.unlock();
+                        return;
+                    }
+                }
+                have_idle_tasks = link.doIdleTask(comp, tid) catch |err| switch (err) {
+                    error.OutOfMemory => have_idle_tasks: {
+                        comp.link_diags.setAllocFailure();
+                        break :have_idle_tasks false;
+                    },
+                    error.LinkFailure => false,
+                };
             }
         }
         const task = q.wip_zcu.items[q.wip_zcu_idx];
@@ -242,8 +295,18 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
         pending: {
             if (task != .link_func) break :pending;
             const status_ptr = &task.link_func.mir.status;
-            // First check without the mutex to optimize for the common case where MIR is ready.
-            if (status_ptr.load(.acquire) != .pending) break :pending;
+            while (true) {
+                // First check without the mutex to optimize for the common case where MIR is ready.
+                if (status_ptr.load(.acquire) != .pending) break :pending;
+                if (have_idle_tasks) have_idle_tasks = link.doIdleTask(comp, tid) catch |err| switch (err) {
+                    error.OutOfMemory => have_idle_tasks: {
+                        comp.link_diags.setAllocFailure();
+                        break :have_idle_tasks false;
+                    },
+                    error.LinkFailure => false,
+                };
+                if (!have_idle_tasks) break;
+            }
             q.mutex.lock();
             defer q.mutex.unlock();
             if (status_ptr.load(.acquire) != .pending) break :pending;
@@ -266,6 +329,7 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
             }
         }
         q.wip_zcu_idx += 1;
+        have_idle_tasks = true;
     }
 }
 

@@ -1,6 +1,5 @@
 const std = @import("std");
 const uefi = std.os.uefi;
-const io = std.io;
 const Guid = uefi.Guid;
 const Time = uefi.Time;
 const Status = uefi.Status;
@@ -214,7 +213,7 @@ pub const File = extern struct {
     pub fn getInfo(
         self: *const File,
         comptime info: std.meta.Tag(Info),
-        buffer: []u8,
+        buffer: []align(@alignOf(@FieldType(Info, @tagName(info)))) u8,
     ) GetInfoError!*@FieldType(Info, @tagName(info)) {
         const InfoType = @FieldType(Info, @tagName(info));
 

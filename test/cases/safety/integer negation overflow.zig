@@ -17,5 +17,5 @@ fn neg(a: i16) i16 {
     return -a;
 }
 // run
-// backend=stage2,llvm
-// target=native
+// backend=selfhosted,llvm
+// target=x86_64-linux,aarch64-linux

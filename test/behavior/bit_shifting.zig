@@ -112,7 +112,7 @@ test "comptime shift safety check" {
 }
 
 test "Saturating Shift Left where lhs is of a computed type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -154,13 +154,8 @@ test "Saturating Shift Left where lhs is of a computed type" {
     try expect(value.exponent == 0);
 }
 
-comptime {
-    var image: [1]u8 = undefined;
-    _ = &image;
-    _ = @shlExact(@as(u16, image[0]), 8);
-}
-
 test "Saturating Shift Left" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -169,8 +164,6 @@ test "Saturating Shift Left" {
 
     const S = struct {
         fn shlSat(x: anytype, y: std.math.Log2Int(@TypeOf(x))) @TypeOf(x) {
-            // workaround https://github.com/ziglang/zig/issues/23033
-            @setRuntimeSafety(false);
             return x <<| y;
         }
 

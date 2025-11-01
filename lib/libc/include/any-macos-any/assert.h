@@ -40,9 +40,6 @@
  */
 
 #include <sys/cdefs.h>
-#ifdef __cplusplus
-#include <stdlib.h>
-#endif /* __cplusplus */
 
 /*
  * Unlike other ANSI header files, <assert.h> may usefully be included

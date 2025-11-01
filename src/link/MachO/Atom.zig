@@ -581,19 +581,19 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
     var has_error = false;
-    var stream = std.io.fixedBufferStream(buffer);
+    var stream: Writer = .fixed(buffer);
     var i: usize = 0;
     while (i < relocs.len) : (i += 1) {
         const rel = relocs[i];
-        const rel_offset = rel.offset - self.off;
+        const rel_offset: usize = @intCast(rel.offset - self.off);
         const subtractor = if (rel.meta.has_subtractor) relocs[i - 1] else null;
 
         if (rel.tag == .@"extern") {
             if (rel.getTargetSymbol(self, macho_file).getFile(macho_file) == null) continue;
         }
 
-        try stream.seekTo(rel_offset);
-        self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
+        stream.end = rel_offset;
+        self.resolveRelocInner(rel, subtractor, buffer, macho_file, &stream) catch |err| {
             switch (err) {
                 error.RelaxFail => {
                     const target = switch (rel.tag) {
@@ -630,6 +630,7 @@ const ResolveError = error{
     UnexpectedRemainder,
     Overflow,
     OutOfMemory,
+    WriteFailed,
 };
 
 fn resolveRelocInner(
@@ -638,7 +639,7 @@ fn resolveRelocInner(
     subtractor: ?Relocation,
     code: []u8,
     macho_file: *MachO,
-    writer: anytype,
+    writer: *Writer,
 ) ResolveError!void {
     const t = &macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = t.cpu.arch;
@@ -780,8 +781,7 @@ fn resolveRelocInner(
                 };
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
-            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(@intCast(source), @intCast(target))));
-            aarch64.writeAdrpInst(pages, code[rel_offset..][0..4]);
+            aarch64.writeAdrInst(try aarch64.calcNumberOfPages(@intCast(source), @intCast(target)), code[rel_offset..][0..aarch64.encoding.Instruction.size]);
         },
 
         .pageoff => {
@@ -789,26 +789,18 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, S + A) orelse return error.Overflow;
-            const inst_code = code[rel_offset..][0..4];
-            if (aarch64.isArithmeticOp(inst_code)) {
-                aarch64.writeAddImmInst(@truncate(target), inst_code);
-            } else {
-                var inst = aarch64.Instruction{
-                    .load_store_register = mem.bytesToValue(@FieldType(
-                        aarch64.Instruction,
-                        @tagName(aarch64.Instruction.load_store_register),
-                    ), inst_code),
-                };
-                inst.load_store_register.offset = switch (inst.load_store_register.size) {
-                    0 => if (inst.load_store_register.v == 1)
-                        try divExact(self, rel, @truncate(target), 16, macho_file)
-                    else
-                        @truncate(target),
-                    1 => try divExact(self, rel, @truncate(target), 2, macho_file),
-                    2 => try divExact(self, rel, @truncate(target), 4, macho_file),
-                    3 => try divExact(self, rel, @truncate(target), 8, macho_file),
-                };
-                try writer.writeInt(u32, inst.toU32(), .little);
+            const inst_code = code[rel_offset..][0..aarch64.encoding.Instruction.size];
+            var inst: aarch64.encoding.Instruction = .read(inst_code);
+            switch (inst.decode()) {
+                else => unreachable,
+                .data_processing_immediate => aarch64.writeAddImmInst(@truncate(target), inst_code),
+                .load_store => |load_store| {
+                    inst.load_store.register_unsigned_immediate.group.imm12 = switch (load_store.register_unsigned_immediate.decode()) {
+                        .integer => |integer| try divExact(self, rel, @truncate(target), @as(u4, 1) << @intFromEnum(integer.group.size), macho_file),
+                        .vector => |vector| try divExact(self, rel, @truncate(target), @as(u5, 1) << @intFromEnum(vector.group.opc1.decode(vector.group.size)), macho_file),
+                    };
+                    try writer.writeInt(u32, @bitCast(inst), .little);
+                },
             }
         },
 
@@ -834,59 +826,26 @@ fn resolveRelocInner(
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
 
-            const RegInfo = struct {
-                rd: u5,
-                rn: u5,
-                size: u2,
-            };
-
             const inst_code = code[rel_offset..][0..4];
-            const reg_info: RegInfo = blk: {
-                if (aarch64.isArithmeticOp(inst_code)) {
-                    const inst = mem.bytesToValue(@FieldType(
-                        aarch64.Instruction,
-                        @tagName(aarch64.Instruction.add_subtract_immediate),
-                    ), inst_code);
-                    break :blk .{
-                        .rd = inst.rd,
-                        .rn = inst.rn,
-                        .size = inst.sf,
-                    };
-                } else {
-                    const inst = mem.bytesToValue(@FieldType(
-                        aarch64.Instruction,
-                        @tagName(aarch64.Instruction.load_store_register),
-                    ), inst_code);
-                    break :blk .{
-                        .rd = inst.rt,
-                        .rn = inst.rn,
-                        .size = inst.size,
-                    };
-                }
+            const rd, const rn = switch (aarch64.encoding.Instruction.read(inst_code).decode()) {
+                else => unreachable,
+                .data_processing_immediate => |decoded| .{
+                    decoded.add_subtract_immediate.group.Rd.decode(.{ .sp = true }),
+                    decoded.add_subtract_immediate.group.Rn.decode(.{ .sp = true }),
+                },
+                .load_store => |decoded| .{
+                    decoded.register_unsigned_immediate.integer.group.Rt.decode(.{}),
+                    decoded.register_unsigned_immediate.group.Rn.decode(.{ .sp = true }),
+                },
             };
 
-            var inst = if (sym.getSectionFlags().tlv_ptr) aarch64.Instruction{
-                .load_store_register = .{
-                    .rt = reg_info.rd,
-                    .rn = reg_info.rn,
-                    .offset = try divExact(self, rel, @truncate(target), 8, macho_file),
-                    .opc = 0b01,
-                    .op1 = 0b01,
-                    .v = 0,
-                    .size = reg_info.size,
-                },
-            } else aarch64.Instruction{
-                .add_subtract_immediate = .{
-                    .rd = reg_info.rd,
-                    .rn = reg_info.rn,
-                    .imm12 = @truncate(target),
-                    .sh = 0,
-                    .s = 0,
-                    .op = 0,
-                    .sf = @as(u1, @truncate(reg_info.size)),
-                },
-            };
-            try writer.writeInt(u32, inst.toU32(), .little);
+            try writer.writeInt(u32, @bitCast(@as(
+                aarch64.encoding.Instruction,
+                if (sym.getSectionFlags().tlv_ptr) .ldr(rd.x(), .{ .unsigned_offset = .{
+                    .base = rn.x(),
+                    .offset = try divExact(self, rel, @truncate(target), 8, macho_file) * 8,
+                } }) else .add(rd.x(), rn.x(), .{ .immediate = @truncate(target) }),
+            )), .little);
         },
     }
 }
@@ -942,9 +901,9 @@ const x86_64 = struct {
         for (insts) |inst| try inst.encode(&stream, .{});
     }
 
-    const bits = @import("../../arch/x86_64/bits.zig");
-    const encoder = @import("../../arch/x86_64/encoder.zig");
-    const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
+    const bits = @import("../../codegen/x86_64/bits.zig");
+    const encoder = @import("../../codegen/x86_64/encoder.zig");
+    const Disassembler = @import("../../codegen/x86_64/Disassembler.zig");
     const Immediate = bits.Immediate;
     const Instruction = encoder.Instruction;
 };
@@ -1114,7 +1073,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     assert(i == buffer.len);
 }
 
-pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
+pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Alt(Format, Format.print) {
     return .{ .data = .{
         .atom = atom,
         .macho_file = macho_file,
@@ -1189,7 +1148,7 @@ const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.link_relocs);
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 const Allocator = mem.Allocator;
 const AtomicBool = std.atomic.Value(bool);
 

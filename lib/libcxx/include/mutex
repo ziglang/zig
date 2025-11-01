@@ -256,25 +256,23 @@ public:
   _LIBCPP_HIDE_FROM_ABI bool try_lock_for(const chrono::duration<_Rep, _Period>& __d) {
     return try_lock_until(chrono::steady_clock::now() + __d);
   }
+
   template <class _Clock, class _Duration>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS bool
-  try_lock_until(const chrono::time_point<_Clock, _Duration>& __t);
+  _LIBCPP_HIDE_FROM_ABI bool try_lock_until(const chrono::time_point<_Clock, _Duration>& __t) {
+    using namespace chrono;
+    unique_lock<mutex> __lk(__m_);
+    bool __no_timeout = _Clock::now() < __t;
+    while (__no_timeout && __locked_)
+      __no_timeout = __cv_.wait_until(__lk, __t) == cv_status::no_timeout;
+    if (!__locked_) {
+      __locked_ = true;
+      return true;
+    }
+    return false;
+  }
+
   void unlock() _NOEXCEPT;
 };
-
-template <class _Clock, class _Duration>
-bool timed_mutex::try_lock_until(const chrono::time_point<_Clock, _Duration>& __t) {
-  using namespace chrono;
-  unique_lock<mutex> __lk(__m_);
-  bool __no_timeout = _Clock::now() < __t;
-  while (__no_timeout && __locked_)
-    __no_timeout = __cv_.wait_until(__lk, __t) == cv_status::no_timeout;
-  if (!__locked_) {
-    __locked_ = true;
-    return true;
-  }
-  return false;
-}
 
 class _LIBCPP_EXPORTED_FROM_ABI recursive_timed_mutex {
   mutex __m_;
@@ -295,33 +293,31 @@ public:
   _LIBCPP_HIDE_FROM_ABI bool try_lock_for(const chrono::duration<_Rep, _Period>& __d) {
     return try_lock_until(chrono::steady_clock::now() + __d);
   }
+
   template <class _Clock, class _Duration>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS bool
-  try_lock_until(const chrono::time_point<_Clock, _Duration>& __t);
+  _LIBCPP_HIDE_FROM_ABI bool try_lock_until(const chrono::time_point<_Clock, _Duration>& __t) {
+    using namespace chrono;
+    __thread_id __id = this_thread::get_id();
+    unique_lock<mutex> __lk(__m_);
+    if (__id == __id_) {
+      if (__count_ == numeric_limits<size_t>::max())
+        return false;
+      ++__count_;
+      return true;
+    }
+    bool __no_timeout = _Clock::now() < __t;
+    while (__no_timeout && __count_ != 0)
+      __no_timeout = __cv_.wait_until(__lk, __t) == cv_status::no_timeout;
+    if (__count_ == 0) {
+      __count_ = 1;
+      __id_    = __id;
+      return true;
+    }
+    return false;
+  }
+
   void unlock() _NOEXCEPT;
 };
-
-template <class _Clock, class _Duration>
-bool recursive_timed_mutex::try_lock_until(const chrono::time_point<_Clock, _Duration>& __t) {
-  using namespace chrono;
-  __thread_id __id = this_thread::get_id();
-  unique_lock<mutex> __lk(__m_);
-  if (__id == __id_) {
-    if (__count_ == numeric_limits<size_t>::max())
-      return false;
-    ++__count_;
-    return true;
-  }
-  bool __no_timeout = _Clock::now() < __t;
-  while (__no_timeout && __count_ != 0)
-    __no_timeout = __cv_.wait_until(__lk, __t) == cv_status::no_timeout;
-  if (__count_ == 0) {
-    __count_ = 1;
-    __id_    = __id;
-    return true;
-  }
-  return false;
-}
 
 template <class _L0, class _L1>
 _LIBCPP_HIDE_FROM_ABI int try_lock(_L0& __l0, _L1& __l1) {
@@ -423,10 +419,10 @@ inline _LIBCPP_HIDE_FROM_ABI void lock(_L0& __l0, _L1& __l1, _L2& __l2, _L3&... 
 
 #    if _LIBCPP_STD_VER >= 17
 template <class... _Mutexes>
-class _LIBCPP_TEMPLATE_VIS scoped_lock;
+class scoped_lock;
 
 template <>
-class _LIBCPP_TEMPLATE_VIS scoped_lock<> {
+class scoped_lock<> {
 public:
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit scoped_lock() {}
   ~scoped_lock() = default;
@@ -438,7 +434,7 @@ public:
 };
 
 template <class _Mutex>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_THREAD_SAFETY_ANNOTATION(scoped_lockable) scoped_lock<_Mutex> {
+class _LIBCPP_SCOPED_LOCKABLE scoped_lock<_Mutex> {
 public:
   typedef _Mutex mutex_type;
 
@@ -446,16 +442,15 @@ private:
   mutex_type& __m_;
 
 public:
-  [[nodiscard]]
-  _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(mutex_type& __m) _LIBCPP_THREAD_SAFETY_ANNOTATION(acquire_capability(__m))
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(mutex_type& __m) _LIBCPP_ACQUIRE_CAPABILITY(__m)
       : __m_(__m) {
     __m_.lock();
   }
 
-  ~scoped_lock() _LIBCPP_THREAD_SAFETY_ANNOTATION(release_capability()) { __m_.unlock(); }
+  _LIBCPP_RELEASE_CAPABILITY _LIBCPP_HIDE_FROM_ABI ~scoped_lock() { __m_.unlock(); }
 
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(adopt_lock_t, mutex_type& __m)
-      _LIBCPP_THREAD_SAFETY_ANNOTATION(requires_capability(__m))
+  [[nodiscard]]
+  _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(adopt_lock_t, mutex_type& __m) _LIBCPP_REQUIRES_CAPABILITY(__m)
       : __m_(__m) {}
 
   scoped_lock(scoped_lock const&)            = delete;
@@ -463,7 +458,7 @@ public:
 };
 
 template <class... _MArgs>
-class _LIBCPP_TEMPLATE_VIS scoped_lock {
+class scoped_lock {
   static_assert(sizeof...(_MArgs) > 1, "At least 2 lock types required");
   typedef tuple<_MArgs&...> _MutexTuple;
 
@@ -508,6 +503,7 @@ _LIBCPP_POP_MACROS
 #    include <initializer_list>
 #    include <iosfwd>
 #    include <new>
+#    include <optional>
 #    include <stdexcept>
 #    include <system_error>
 #    include <type_traits>

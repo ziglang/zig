@@ -19,7 +19,7 @@ pub fn main() !void {
         \\
     );
 
-    var names = std.ArrayList([]const u8).init(allocator);
+    var names = std.array_list.Managed([]const u8).init(allocator);
     var cwd = try std.fs.cwd().openDir(".", .{ .iterate = true });
     var it = cwd.iterate();
     while (try it.next()) |entry| {
@@ -32,7 +32,7 @@ pub fn main() !void {
     }).lessThan);
 
     for (names.items) |name| {
-        const contents = try std.fs.cwd().readFileAlloc(allocator, name, 250001);
+        const contents = try std.fs.cwd().readFileAlloc(name, allocator, .limited(250001));
         try output.writeAll("test ");
         try writeString(output, name);
         try output.writeAll(" {\n    try ");

@@ -41,7 +41,7 @@ pub fn main() !void {
         std.debug.print("rand seed: {}\n", .{seed});
     }
 
-    var cmd_line_w_buf = std.ArrayList(u16).init(allocator);
+    var cmd_line_w_buf = std.array_list.Managed(u16).init(allocator);
     defer cmd_line_w_buf.deinit();
 
     var i: u64 = 0;
@@ -84,7 +84,7 @@ fn randomCommandLineW(allocator: Allocator, rand: std.Random) ![:0]const u16 {
     };
 
     const choices = rand.uintAtMostBiased(u16, 256);
-    var buf = try std.ArrayList(u16).initCapacity(allocator, choices);
+    var buf = try std.array_list.Managed(u16).initCapacity(allocator, choices);
     errdefer buf.deinit();
 
     for (0..choices) |_| {

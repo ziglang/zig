@@ -171,7 +171,7 @@ __END_DECLS
 #define res_init		__res_init
 #define res_isourserver		__res_isourserver
 
-/* In glibc 2.33 and earlier res_search, res_nsearch, res_query, res_nquery,
+/* zig patch: In glibc 2.33 and earlier res_search, res_nsearch, res_query, res_nquery,
  * res_querydomain, res_nquerydomain, dn_skipname, dn_comp, dn_expand were
  * #define'd to __res_search, __res_nsearch, etc. glibc 2.34 onwards removes
  * the macros and exposes the symbols directly. New glibc exposes compat

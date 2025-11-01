@@ -166,19 +166,25 @@ pub const Inst = struct {
         mod,
         /// Same as `mod` with optimized float mode.
         mod_optimized,
-        /// Add an offset to a pointer, returning a new pointer.
-        /// The offset is in element type units, not bytes.
-        /// Wrapping is illegal behavior.
-        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
-        /// The pointer may be a slice.
-        /// Uses the `ty_pl` field. Payload is `Bin`.
+        /// Add an offset, in element type units, to a pointer, returning a new
+        /// pointer. Element type may not be zero bits.
+        ///
+        /// Wrapping is illegal behavior. If the newly computed address is
+        /// outside the provenance of the operand, the result is undefined.
+        ///
+        /// Uses the `ty_pl` field. Payload is `Bin`. The lhs is the pointer,
+        /// rhs is the offset. Result type is the same as lhs. The operand may
+        /// be a slice.
         ptr_add,
-        /// Subtract an offset from a pointer, returning a new pointer.
-        /// The offset is in element type units, not bytes.
-        /// Wrapping is illegal behavior.
-        /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
-        /// The pointer may be a slice.
-        /// Uses the `ty_pl` field. Payload is `Bin`.
+        /// Subtract an offset, in element type units, from a pointer,
+        /// returning a new pointer. Element type may not be zero bits.
+        ///
+        /// Wrapping is illegal behavior. If the newly computed address is
+        /// outside the provenance of the operand, the result is undefined.
+        ///
+        /// Uses the `ty_pl` field. Payload is `Bin`. The lhs is the pointer,
+        /// rhs is the offset. Result type is the same as lhs. The operand may
+        /// be a slice.
         ptr_sub,
         /// Given two operands which can be floats, integers, or vectors, returns the
         /// greater of the operands. For vectors it operates element-wise.
@@ -961,7 +967,7 @@ pub const Inst = struct {
             return index.unwrap().target;
         }
 
-        pub fn format(index: Index, w: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(index: Index, w: *std.Io.Writer) std.Io.Writer.Error!void {
             try w.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},
@@ -1153,6 +1159,10 @@ pub const Inst = struct {
 
         pub fn fromValue(v: Value) Ref {
             return .fromIntern(v.toIntern());
+        }
+
+        pub fn fromType(t: Type) Ref {
+            return .fromIntern(t.toIntern());
         }
     };
 
@@ -1413,19 +1423,20 @@ pub const ShuffleTwoMask = enum(u32) {
 ///      terminated string.
 ///    - name: memory at this position is reinterpreted as a null
 ///      terminated string. pad to the next u32 after the null byte.
-/// 4. for every clobbers_len
-///    - clobber_name: memory at this position is reinterpreted as a null
-///      terminated string. pad to the next u32 after the null byte.
-/// 5. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
+/// 4. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
 ///    Memory starting at this position is reinterpreted as the source bytes.
 pub const Asm = struct {
     /// Length of the assembly source in bytes.
     source_len: u32,
-    outputs_len: u32,
     inputs_len: u32,
-    /// The MSB is `is_volatile`.
-    /// The rest of the bits are `clobbers_len`.
-    flags: u32,
+    /// A comptime `std.builtin.assembly.Clobbers` value for the target architecture.
+    clobbers: InternPool.Index,
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        outputs_len: u31,
+        is_volatile: bool,
+    };
 };
 
 pub const Cmpxchg = struct {
@@ -1749,7 +1760,7 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
         @field(result, field.name) = switch (field.type) {
             u32 => air.extra.items[i],
             InternPool.Index, Inst.Ref => @enumFromInt(air.extra.items[i]),
-            i32, CondBr.BranchHints => @bitCast(air.extra.items[i]),
+            i32, CondBr.BranchHints, Asm.Flags => @bitCast(air.extra.items[i]),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;

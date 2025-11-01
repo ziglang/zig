@@ -13,7 +13,5 @@ comptime {
 }
 
 // error
-// target=native
-// backend=stage2
 //
 // :2:15: error: field 'f2' with enumeration value '2' is too large for backing int type 'u1'

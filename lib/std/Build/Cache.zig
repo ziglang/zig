@@ -3,8 +3,10 @@
 //! not to withstand attacks using specially-crafted input.
 
 const Cache = @This();
-const std = @import("std");
 const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const crypto = std.crypto;
 const fs = std.fs;
 const assert = std.debug.assert;
@@ -15,10 +17,11 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.cache);
 
 gpa: Allocator,
+io: Io,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
 /// This value is accessed from multiple threads, protected by mutex.
-recent_problematic_timestamp: i128 = 0,
+recent_problematic_timestamp: Io.Timestamp = .zero,
 mutex: std.Thread.Mutex = .{},
 
 /// A set of strings such as the zig library directory or project source root, which
@@ -152,7 +155,7 @@ pub const File = struct {
     pub const Stat = struct {
         inode: fs.File.INode,
         size: u64,
-        mtime: i128,
+        mtime: Io.Timestamp,
 
         pub fn fromFs(fs_stat: fs.File.Stat) Stat {
             return .{
@@ -286,7 +289,7 @@ pub const HashHelper = struct {
 
 pub fn binToHex(bin_digest: BinDigest) HexDigest {
     var out_digest: HexDigest = undefined;
-    var w: std.io.Writer = .fixed(&out_digest);
+    var w: std.Io.Writer = .fixed(&out_digest);
     w.printHex(&bin_digest, .lower) catch unreachable;
     return out_digest;
 }
@@ -327,7 +330,7 @@ pub const Manifest = struct {
     diagnostic: Diagnostic = .none,
     /// Keeps track of the last time we performed a file system write to observe
     /// what time the file system thinks it is, according to its own granularity.
-    recent_problematic_timestamp: i128 = 0,
+    recent_problematic_timestamp: Io.Timestamp = .zero,
 
     pub const Diagnostic = union(enum) {
         none,
@@ -419,6 +422,7 @@ pub const Manifest = struct {
     fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, handle: ?fs.File, max_file_size: ?usize) usize {
         const gop = self.files.getOrPutAssumeCapacityAdapted(prefixed_path, FilesAdapter{});
         if (gop.found_existing) {
+            self.cache.gpa.free(prefixed_path.sub_path);
             gop.key_ptr.updateMaxSize(max_file_size);
             gop.key_ptr.updateHandle(handle);
             return gop.index;
@@ -458,9 +462,9 @@ pub const Manifest = struct {
         }
     }
 
-    pub fn addDepFile(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+    pub fn addDepFile(self: *Manifest, dir: fs.Dir, dep_file_sub_path: []const u8) !void {
         assert(self.manifest_file == null);
-        return self.addDepFileMaybePost(dir, dep_file_basename);
+        return self.addDepFileMaybePost(dir, dep_file_sub_path);
     }
 
     pub const HitError = error{
@@ -660,9 +664,11 @@ pub const Manifest = struct {
         },
     } {
         const gpa = self.cache.gpa;
+        const io = self.cache.io;
         const input_file_count = self.files.entries.len;
-        var manifest_reader = self.manifest_file.?.reader(&.{}); // Reads positionally from zero.
-        const limit: std.io.Limit = .limited(manifest_file_size_max);
+        var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
+        var manifest_reader = self.manifest_file.?.reader(io, &tiny_buffer); // Reads positionally from zero.
+        const limit: std.Io.Limit = .limited(manifest_file_size_max);
         const file_contents = manifest_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.StreamTooLong => return error.OutOfMemory,
@@ -722,7 +728,7 @@ pub const Manifest = struct {
                     file.stat = .{
                         .size = stat_size,
                         .inode = stat_inode,
-                        .mtime = stat_mtime,
+                        .mtime = .{ .nanoseconds = stat_mtime },
                     };
                     file.bin_digest = file_bin_digest;
                     break :f file;
@@ -741,7 +747,7 @@ pub const Manifest = struct {
                         .stat = .{
                             .size = stat_size,
                             .inode = stat_inode,
-                            .mtime = stat_mtime,
+                            .mtime = .{ .nanoseconds = stat_mtime },
                         },
                         .bin_digest = file_bin_digest,
                     };
@@ -774,7 +780,7 @@ pub const Manifest = struct {
                 return error.CacheCheckFailed;
             };
             const size_match = actual_stat.size == cache_hash_file.stat.size;
-            const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
+            const mtime_match = actual_stat.mtime.nanoseconds == cache_hash_file.stat.mtime.nanoseconds;
             const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
 
             if (!size_match or !mtime_match or !inode_match) {
@@ -786,7 +792,7 @@ pub const Manifest = struct {
 
                 if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
                     // The actual file has an unreliable timestamp, force it to be hashed
-                    cache_hash_file.stat.mtime = 0;
+                    cache_hash_file.stat.mtime = .zero;
                     cache_hash_file.stat.inode = 0;
                 }
 
@@ -842,10 +848,10 @@ pub const Manifest = struct {
         }
     }
 
-    fn isProblematicTimestamp(man: *Manifest, file_time: i128) bool {
+    fn isProblematicTimestamp(man: *Manifest, timestamp: Io.Timestamp) bool {
         // If the file_time is prior to the most recent problematic timestamp
         // then we don't need to access the filesystem.
-        if (file_time < man.recent_problematic_timestamp)
+        if (timestamp.nanoseconds < man.recent_problematic_timestamp.nanoseconds)
             return false;
 
         // Next we will check the globally shared Cache timestamp, which is accessed
@@ -855,7 +861,7 @@ pub const Manifest = struct {
 
         // Save the global one to our local one to avoid locking next time.
         man.recent_problematic_timestamp = man.cache.recent_problematic_timestamp;
-        if (file_time < man.recent_problematic_timestamp)
+        if (timestamp.nanoseconds < man.recent_problematic_timestamp.nanoseconds)
             return false;
 
         // This flag prevents multiple filesystem writes for the same hit() call.
@@ -873,7 +879,7 @@ pub const Manifest = struct {
             man.cache.recent_problematic_timestamp = man.recent_problematic_timestamp;
         }
 
-        return file_time >= man.recent_problematic_timestamp;
+        return timestamp.nanoseconds >= man.recent_problematic_timestamp.nanoseconds;
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
@@ -898,7 +904,7 @@ pub const Manifest = struct {
 
         if (self.isProblematicTimestamp(ch_file.stat.mtime)) {
             // The actual file has an unreliable timestamp, force it to be hashed
-            ch_file.stat.mtime = 0;
+            ch_file.stat.mtime = .zero;
             ch_file.stat.inode = 0;
         }
 
@@ -1034,7 +1040,7 @@ pub const Manifest = struct {
 
         if (self.isProblematicTimestamp(new_file.stat.mtime)) {
             // The actual file has an unreliable timestamp, force it to be hashed
-            new_file.stat.mtime = 0;
+            new_file.stat.mtime = .zero;
             new_file.stat.inode = 0;
         }
 
@@ -1047,14 +1053,14 @@ pub const Manifest = struct {
         self.hash.hasher.update(&new_file.bin_digest);
     }
 
-    pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+    pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_sub_path: []const u8) !void {
         assert(self.manifest_file != null);
-        return self.addDepFileMaybePost(dir, dep_file_basename);
+        return self.addDepFileMaybePost(dir, dep_file_sub_path);
     }
 
-    fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+    fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_sub_path: []const u8) !void {
         const gpa = self.cache.gpa;
-        const dep_file_contents = try dir.readFileAlloc(gpa, dep_file_basename, manifest_file_size_max);
+        const dep_file_contents = try dir.readFileAlloc(dep_file_sub_path, gpa, .limited(manifest_file_size_max));
         defer gpa.free(dep_file_contents);
 
         var error_buf: std.ArrayListUnmanaged(u8) = .empty;
@@ -1081,7 +1087,7 @@ pub const Manifest = struct {
                 },
                 else => |err| {
                     try err.printError(gpa, &error_buf);
-                    log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
+                    log.err("failed parsing {s}: {s}", .{ dep_file_sub_path, error_buf.items });
                     return error.InvalidDepFile;
                 },
             }
@@ -1299,7 +1305,7 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) fs.File.PReadErro
 }
 
 // Create/Write a file, close it, then grab its stat.mtime timestamp.
-fn testGetCurrentFileTimestamp(dir: fs.Dir) !i128 {
+fn testGetCurrentFileTimestamp(dir: fs.Dir) !Io.Timestamp {
     const test_out_file = "test-filetimestamp.tmp";
 
     var file = try dir.createFile(test_out_file, .{
@@ -1315,6 +1321,8 @@ fn testGetCurrentFileTimestamp(dir: fs.Dir) !i128 {
 }
 
 test "cache file and then recall it" {
+    const io = std.testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1325,15 +1333,16 @@ test "cache file and then recall it" {
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
-    while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.Thread.sleep(1);
+    while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time.nanoseconds) {
+        try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
     }
 
     var digest1: HexDigest = undefined;
     var digest2: HexDigest = undefined;
 
     {
-        var cache = Cache{
+        var cache: Cache = .{
+            .io = io,
             .gpa = testing.allocator,
             .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
@@ -1376,6 +1385,8 @@ test "cache file and then recall it" {
 }
 
 test "check that changing a file makes cache fail" {
+    const io = std.testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1388,15 +1399,16 @@ test "check that changing a file makes cache fail" {
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
-    while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.Thread.sleep(1);
+    while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time.nanoseconds) {
+        try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
     }
 
     var digest1: HexDigest = undefined;
     var digest2: HexDigest = undefined;
 
     {
-        var cache = Cache{
+        var cache: Cache = .{
+            .io = io,
             .gpa = testing.allocator,
             .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
@@ -1445,6 +1457,8 @@ test "check that changing a file makes cache fail" {
 }
 
 test "no file inputs" {
+    const io = testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1453,7 +1467,8 @@ test "no file inputs" {
     var digest1: HexDigest = undefined;
     var digest2: HexDigest = undefined;
 
-    var cache = Cache{
+    var cache: Cache = .{
+        .io = io,
         .gpa = testing.allocator,
         .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
     };
@@ -1488,6 +1503,8 @@ test "no file inputs" {
 }
 
 test "Manifest with files added after initial hash work" {
+    const io = std.testing.io;
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1500,8 +1517,8 @@ test "Manifest with files added after initial hash work" {
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
-    while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time) {
-        std.Thread.sleep(1);
+    while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time.nanoseconds) {
+        try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
     }
 
     var digest1: HexDigest = undefined;
@@ -1509,7 +1526,8 @@ test "Manifest with files added after initial hash work" {
     var digest3: HexDigest = undefined;
 
     {
-        var cache = Cache{
+        var cache: Cache = .{
+            .io = io,
             .gpa = testing.allocator,
             .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
@@ -1550,8 +1568,8 @@ test "Manifest with files added after initial hash work" {
 
         // Wait for file timestamps to tick
         const initial_time2 = try testGetCurrentFileTimestamp(tmp.dir);
-        while ((try testGetCurrentFileTimestamp(tmp.dir)) == initial_time2) {
-            std.Thread.sleep(1);
+        while ((try testGetCurrentFileTimestamp(tmp.dir)).nanoseconds == initial_time2.nanoseconds) {
+            try std.Io.Clock.Duration.sleep(.{ .clock = .boot, .raw = .fromNanoseconds(1) }, io);
         }
 
         {

@@ -4,8 +4,6 @@ export fn func() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:32: error: expected type '[*c]u8', found '*const [0:0]u8'
 // :3:32: note: cast discards const qualifier

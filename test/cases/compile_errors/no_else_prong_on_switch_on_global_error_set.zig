@@ -8,7 +8,5 @@ fn foo(a: anyerror) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:5: error: else prong required when switching on type 'anyerror'
