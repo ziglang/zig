@@ -63,7 +63,7 @@ pub fn finalize(self: BinaryModule, a: Allocator) ![]Word {
 
     result[0] = spec.magic_number;
     result[1] = @bitCast(self.version);
-    result[2] = spec.zig_generator_id;
+    result[2] = @bitCast(self.generator_magic);
     result[3] = self.id_bound;
     result[4] = 0; // Schema
 
@@ -196,7 +196,7 @@ pub const Parser = struct {
 
         var binary = BinaryModule{
             .version = @bitCast(module[1]),
-            .generator_magic = module[2],
+            .generator_magic = @bitCast(module[2]),
             .id_bound = module[3],
             .instructions = module[header_words..],
             .ext_inst_map = .{},
