@@ -1433,7 +1433,7 @@ pub fn attachSegfaultHandler() void {
         @compileError("segfault handler not supported for this target");
     }
     if (native_os == .windows) {
-        windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
+        windows_segfault_handle = windows.ntdll.RtlAddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
     const act = posix.Sigaction{
@@ -1447,7 +1447,7 @@ pub fn attachSegfaultHandler() void {
 fn resetSegfaultHandler() void {
     if (native_os == .windows) {
         if (windows_segfault_handle) |handle| {
-            assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
+            assert(windows.ntdll.RtlRemoveVectoredExceptionHandler(handle) != 0);
             windows_segfault_handle = null;
         }
         return;
