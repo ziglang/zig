@@ -29,6 +29,7 @@ pub fn preprocess(
         error.OutOfMemory => |e| return e,
         error.WriteFailed => unreachable,
     };
+    try comp.initSearchPath(driver.includes.items, false);
 
     if (hasAnyErrors(comp)) return error.ArgError;
 
@@ -59,7 +60,7 @@ pub fn preprocess(
     pp.preserve_whitespace = true;
     pp.linemarkers = .line_directives;
 
-    pp.preprocessSources(&.{ source, builtin_macros, user_macros }) catch |err| switch (err) {
+    pp.preprocessSources(.{ .main = source, .builtin = builtin_macros, .command_line = user_macros }) catch |err| switch (err) {
         error.FatalError => return error.PreprocessError,
         else => |e| return e,
     };
@@ -71,7 +72,7 @@ pub fn preprocess(
     if (maybe_dependencies) |dependencies| {
         for (comp.sources.values()) |comp_source| {
             if (comp_source.id == builtin_macros.id or comp_source.id == user_macros.id) continue;
-            if (comp_source.id == .unused or comp_source.id == .generated) continue;
+            if (comp_source.id.index == .unused or comp_source.id.index == .generated) continue;
             const duped_path = try dependencies.allocator.dupe(u8, comp_source.path);
             errdefer dependencies.allocator.free(duped_path);
             try dependencies.list.append(dependencies.allocator, duped_path);
