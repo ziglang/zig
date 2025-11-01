@@ -1336,6 +1336,8 @@ pub const Server = struct {
         /// Firewall rules forbid connection.
         BlockedByFirewall,
         ProtocolFailure,
+        /// Socket is not listening for connections.
+        SocketNotListening,
     } || Io.UnexpectedError || Io.Cancelable;
 
     /// Blocks until a client connects to the server.
