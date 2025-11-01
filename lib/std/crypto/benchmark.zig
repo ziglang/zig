@@ -37,6 +37,7 @@ const hashes = [_]Crypto{
 
 const parallel_hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.Blake3, .name = "blake3-parallel" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128-parallel" },
 };
 
 const block_size: usize = 8 * 8192;
