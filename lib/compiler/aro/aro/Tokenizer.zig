@@ -144,6 +144,11 @@ pub const Token = struct {
         hash,
         hash_hash,
 
+        /// Special token for handling expansion of parameters to builtin preprocessor functions
+        macro_param_builtin_func,
+        /// Special token for implementing builtin object macros
+        macro_builtin_obj,
+
         /// Special token to speed up preprocessing, `loc.end` will be an index to the param list.
         macro_param,
         /// Special token to signal that the argument must be replaced without expansion (e.g. in concatenation)
@@ -154,40 +159,6 @@ pub const Token = struct {
         stringify_va_args,
         /// Special macro whitespace, always equal to a single space
         macro_ws,
-        /// Special token for implementing __has_attribute
-        macro_param_has_attribute,
-        /// Special token for implementing __has_c_attribute
-        macro_param_has_c_attribute,
-        /// Special token for implementing __has_declspec_attribute
-        macro_param_has_declspec_attribute,
-        /// Special token for implementing __has_warning
-        macro_param_has_warning,
-        /// Special token for implementing __has_feature
-        macro_param_has_feature,
-        /// Special token for implementing __has_extension
-        macro_param_has_extension,
-        /// Special token for implementing __has_builtin
-        macro_param_has_builtin,
-        /// Special token for implementing __has_include
-        macro_param_has_include,
-        /// Special token for implementing __has_include_next
-        macro_param_has_include_next,
-        /// Special token for implementing __has_embed
-        macro_param_has_embed,
-        /// Special token for implementing __is_identifier
-        macro_param_is_identifier,
-        /// Special token for implementing __FILE__
-        macro_file,
-        /// Special token for implementing __LINE__
-        macro_line,
-        /// Special token for implementing __COUNTER__
-        macro_counter,
-        /// Special token for implementing _Pragma
-        macro_param_pragma_operator,
-        /// Special token for implementing __identifier (MS extension)
-        macro_param_ms_identifier,
-        /// Special token for implementing __pragma (MS extension)
-        macro_param_ms_pragma,
 
         /// Special identifier for implementing __func__
         macro_func,
@@ -195,12 +166,6 @@ pub const Token = struct {
         macro_function,
         /// Special identifier for implementing __PRETTY_FUNCTION__
         macro_pretty_func,
-        /// Special identifier for implementing __DATE__
-        macro_date,
-        /// Special identifier for implementing __TIME__
-        macro_time,
-        /// Special identifier for implementing __TIMESTAMP__
-        macro_timestamp,
 
         keyword_auto,
         keyword_auto_type,
@@ -268,6 +233,17 @@ pub const Token = struct {
         keyword_false,
         keyword_nullptr,
         keyword_typeof_unqual,
+        keyword_float16,
+        keyword_float32,
+        keyword_float64,
+        keyword_float128,
+        keyword_float32x,
+        keyword_float64x,
+        keyword_float128x,
+        keyword_dfloat32,
+        keyword_dfloat64,
+        keyword_dfloat128,
+        keyword_dfloat64x,
 
         // Preprocessor directives
         keyword_include,
@@ -307,19 +283,17 @@ pub const Token = struct {
         keyword_asm,
         keyword_asm1,
         keyword_asm2,
-        /// _Float128
-        keyword_float128_1,
         /// __float128
-        keyword_float128_2,
+        keyword_float128_1,
         keyword_int128,
         keyword_imag1,
         keyword_imag2,
         keyword_real1,
         keyword_real2,
-        keyword_float16,
 
         // clang keywords
         keyword_fp16,
+        keyword_bf16,
 
         // ms keywords
         keyword_declspec,
@@ -375,6 +349,9 @@ pub const Token = struct {
         /// completion of the preceding #include
         include_resume,
 
+        /// Virtual linemarker token output from preprocessor to represent actual linemarker in the source file
+        linemarker,
+
         /// A comment token if asked to preserve comments.
         comment,
 
@@ -408,9 +385,6 @@ pub const Token = struct {
                 .macro_func,
                 .macro_function,
                 .macro_pretty_func,
-                .macro_date,
-                .macro_time,
-                .macro_timestamp,
                 .keyword_auto,
                 .keyword_auto_type,
                 .keyword_break,
@@ -480,7 +454,6 @@ pub const Token = struct {
                 .keyword_asm1,
                 .keyword_asm2,
                 .keyword_float128_1,
-                .keyword_float128_2,
                 .keyword_int128,
                 .keyword_imag1,
                 .keyword_imag2,
@@ -488,6 +461,7 @@ pub const Token = struct {
                 .keyword_real2,
                 .keyword_float16,
                 .keyword_fp16,
+                .keyword_bf16,
                 .keyword_declspec,
                 .keyword_int64,
                 .keyword_int64_2,
@@ -527,6 +501,16 @@ pub const Token = struct {
                 .keyword_false,
                 .keyword_nullptr,
                 .keyword_typeof_unqual,
+                .keyword_float32,
+                .keyword_float64,
+                .keyword_float128,
+                .keyword_float32x,
+                .keyword_float64x,
+                .keyword_float128x,
+                .keyword_dfloat32,
+                .keyword_dfloat64,
+                .keyword_dfloat128,
+                .keyword_dfloat64x,
                 => return true,
                 else => return false,
             }
@@ -570,6 +554,7 @@ pub const Token = struct {
             return switch (id) {
                 .include_start,
                 .include_resume,
+                .linemarker,
                 => unreachable,
 
                 .unterminated_comment,
@@ -605,27 +590,9 @@ pub const Token = struct {
                 .macro_param_no_expand,
                 .stringify_param,
                 .stringify_va_args,
-                .macro_param_has_attribute,
-                .macro_param_has_c_attribute,
-                .macro_param_has_declspec_attribute,
-                .macro_param_has_warning,
-                .macro_param_has_feature,
-                .macro_param_has_extension,
-                .macro_param_has_builtin,
-                .macro_param_has_include,
-                .macro_param_has_include_next,
-                .macro_param_has_embed,
-                .macro_param_is_identifier,
-                .macro_file,
-                .macro_line,
-                .macro_counter,
-                .macro_time,
-                .macro_date,
-                .macro_timestamp,
-                .macro_param_pragma_operator,
-                .macro_param_ms_identifier,
-                .macro_param_ms_pragma,
                 .placemarker,
+                .macro_param_builtin_func,
+                .macro_builtin_obj,
                 => "",
                 .macro_ws => " ",
 
@@ -744,6 +711,17 @@ pub const Token = struct {
                 .keyword_false => "false",
                 .keyword_nullptr => "nullptr",
                 .keyword_typeof_unqual => "typeof_unqual",
+                .keyword_float16 => "_Float16",
+                .keyword_float32 => "_Float32",
+                .keyword_float64 => "_Float64",
+                .keyword_float128 => "_Float128",
+                .keyword_float32x => "_Float32x",
+                .keyword_float64x => "_Float64x",
+                .keyword_float128x => "_Float128x",
+                .keyword_dfloat32 => "_Decimal32",
+                .keyword_dfloat64 => "_Decimal64",
+                .keyword_dfloat128 => "_Decimal128",
+                .keyword_dfloat64x => "_Decimal64x",
                 .keyword_include => "include",
                 .keyword_include_next => "include_next",
                 .keyword_embed => "embed",
@@ -780,15 +758,14 @@ pub const Token = struct {
                 .keyword_asm => "asm",
                 .keyword_asm1 => "__asm",
                 .keyword_asm2 => "__asm__",
-                .keyword_float128_1 => "_Float128",
-                .keyword_float128_2 => "__float128",
+                .keyword_float128_1 => "__float128",
                 .keyword_int128 => "__int128",
                 .keyword_imag1 => "__imag",
                 .keyword_imag2 => "__imag__",
                 .keyword_real1 => "__real",
                 .keyword_real2 => "__real__",
-                .keyword_float16 => "_Float16",
                 .keyword_fp16 => "__fp16",
+                .keyword_bf16 => "__bf16",
                 .keyword_declspec => "__declspec",
                 .keyword_int64 => "__int64",
                 .keyword_int64_2 => "_int64",
@@ -1030,6 +1007,17 @@ pub const Token = struct {
         .{ "false", .keyword_false },
         .{ "nullptr", .keyword_nullptr },
         .{ "typeof_unqual", .keyword_typeof_unqual },
+        .{ "_Float16", .keyword_float16 },
+        .{ "_Float32", .keyword_float32 },
+        .{ "_Float64", .keyword_float64 },
+        .{ "_Float128", .keyword_float128 },
+        .{ "_Float32x", .keyword_float32x },
+        .{ "_Float64x", .keyword_float64x },
+        .{ "_Float128x", .keyword_float128x },
+        .{ "_Decimal32", .keyword_dfloat32 },
+        .{ "_Decimal64", .keyword_dfloat64 },
+        .{ "_Decimal128", .keyword_dfloat128 },
+        .{ "_Decimal64x", .keyword_dfloat64x },
 
         // Preprocessor directives
         .{ "include", .keyword_include },
@@ -1073,17 +1061,16 @@ pub const Token = struct {
         .{ "asm", .keyword_asm },
         .{ "__asm", .keyword_asm1 },
         .{ "__asm__", .keyword_asm2 },
-        .{ "_Float128", .keyword_float128_1 },
-        .{ "__float128", .keyword_float128_2 },
+        .{ "__float128", .keyword_float128_1 },
         .{ "__int128", .keyword_int128 },
         .{ "__imag", .keyword_imag1 },
         .{ "__imag__", .keyword_imag2 },
         .{ "__real", .keyword_real1 },
         .{ "__real__", .keyword_real2 },
-        .{ "_Float16", .keyword_float16 },
 
         // clang keywords
         .{ "__fp16", .keyword_fp16 },
+        .{ "__bf16", .keyword_bf16 },
 
         // ms keywords
         .{ "__declspec", .keyword_declspec },
@@ -1126,6 +1113,8 @@ index: u32 = 0,
 source: Source.Id,
 langopts: LangOpts,
 line: u32 = 1,
+splice_index: u32 = 0,
+splice_locs: []const u32,
 
 pub fn next(self: *Tokenizer) Token {
     var state: enum {
@@ -1909,6 +1898,12 @@ pub fn next(self: *Tokenizer) Token {
         }
     }
 
+    for (self.splice_locs[self.splice_index..]) |splice_offset| {
+        if (splice_offset > start) break;
+        self.line += 1;
+        self.splice_index += 1;
+    }
+
     return .{
         .id = id,
         .start = start,
@@ -2331,7 +2326,7 @@ test "Tokenizer fuzz test" {
         fn testOne(_: @This(), input_bytes: []const u8) anyerror!void {
             var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
             defer arena.deinit();
-            var comp = Compilation.init(std.testing.allocator, arena.allocator(), undefined, std.fs.cwd());
+            var comp = Compilation.init(std.testing.allocator, arena.allocator(), std.testing.io, undefined, std.fs.cwd());
             defer comp.deinit();
 
             const source = try comp.addSourceFromBuffer("fuzz.c", input_bytes);
@@ -2340,6 +2335,7 @@ test "Tokenizer fuzz test" {
                 .buf = source.buf,
                 .source = source.id,
                 .langopts = comp.langopts,
+                .splice_locs = &.{},
             };
             while (true) {
                 const prev_index = tokenizer.index;
@@ -2355,16 +2351,17 @@ test "Tokenizer fuzz test" {
 fn expectTokensExtra(contents: []const u8, expected_tokens: []const Token.Id, langopts: ?LangOpts) !void {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    var comp = Compilation.init(std.testing.allocator, arena.allocator(), undefined, std.fs.cwd());
+    var comp = Compilation.init(std.testing.allocator, arena.allocator(), std.testing.io, undefined, std.fs.cwd());
     defer comp.deinit();
     if (langopts) |provided| {
         comp.langopts = provided;
     }
     const source = try comp.addSourceFromBuffer("path", contents);
-    var tokenizer = Tokenizer{
+    var tokenizer: Tokenizer = .{
         .buf = source.buf,
         .source = source.id,
         .langopts = comp.langopts,
+        .splice_locs = &.{},
     };
     var i: usize = 0;
     while (i < expected_tokens.len) {

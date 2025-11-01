@@ -15,7 +15,7 @@ const GCCVersion = @import("Driver/GCCVersion.zig");
 const LangOpts = @import("LangOpts.zig");
 const Preprocessor = @import("Preprocessor.zig");
 const Source = @import("Source.zig");
-const target_util = @import("target.zig");
+const Target = @import("Target.zig");
 const Toolchain = @import("Toolchain.zig");
 const Tree = @import("Tree.zig");
 
@@ -46,6 +46,10 @@ comp: *Compilation,
 diagnostics: *Diagnostics,
 
 inputs: std.ArrayList(Source) = .empty,
+imacros: std.ArrayList(Source) = .empty,
+implicit_includes: std.ArrayList(Source) = .empty,
+/// List of includes that will be used to construct the compilation's search path
+includes: std.ArrayList(Compilation.Include) = .empty,
 link_objects: std.ArrayList([]const u8) = .empty,
 output_name: ?[]const u8 = null,
 sysroot: ?[]const u8 = null,
@@ -64,6 +68,7 @@ verbose_ast: bool = false,
 verbose_pp: bool = false,
 verbose_ir: bool = false,
 verbose_linker_args: bool = false,
+verbose_search_path: bool = false,
 nobuiltininc: bool = false,
 nostdinc: bool = false,
 nostdlibinc: bool = false,
@@ -99,6 +104,8 @@ aro_name: []const u8 = "",
 
 /// Value of -target passed via CLI
 raw_target_triple: ?[]const u8 = null,
+/// Value of -darwin-target-variant-triple passed via CLI
+raw_darwin_variant_target_triple: ?[]const u8 = null,
 
 /// Value of -mcpu passed via CLI
 raw_cpu: ?[]const u8 = null,
@@ -107,6 +114,7 @@ raw_cpu: ?[]const u8 = null,
 use_assembly_backend: bool = false,
 
 // linker options
+use_linker: ?[]const u8 = null,
 linker_path: ?[]const u8 = null,
 nodefaultlibs: bool = false,
 nolibc: bool = false,
@@ -130,6 +138,9 @@ pub fn deinit(d: *Driver) void {
         d.comp.gpa.free(obj);
     }
     d.inputs.deinit(d.comp.gpa);
+    d.imacros.deinit(d.comp.gpa);
+    d.implicit_includes.deinit(d.comp.gpa);
+    d.includes.deinit(d.comp.gpa);
     d.link_objects.deinit(d.comp.gpa);
     d.* = undefined;
 }
@@ -161,6 +172,8 @@ pub const usage =
     \\
     \\Compile options:
     \\  -c, --compile           Only run preprocess, compile, and assemble steps
+    \\  -darwin-target-variant-triple
+    \\                          Specify the darwin target variant triple
     \\  -fapple-kext            Use Apple's kernel extensions ABI
     \\  -fchar8_t               Enable char8_t (enabled by default in C23 and later)
     \\  -fno-char8_t            Disable char8_t (disabled by default for pre-C23)
@@ -212,6 +225,8 @@ pub const usage =
     \\  --embed-dir=<dir>       Add directory to `#embed` search path
     \\  --emulate=[clang|gcc|msvc]
     \\                          Select which C compiler to emulate (default clang)
+    \\  -imacros <file>         Include macros from <file> before parsing
+    \\  -include <file>         Process <file> as if `#include "file"` appeared as the first line of the primary source file.
     \\  -mabicalls              Enable SVR4-style position-independent code (Mips only)
     \\  -mno-abicalls           Disable SVR4-style position-independent code (Mips only)
     \\  -mcmodel=<code-model>   Generate code for the given code model
@@ -273,7 +288,8 @@ pub fn parseArgs(
     macro_buf: *std.ArrayList(u8),
     args: []const []const u8,
 ) (Compilation.Error || std.Io.Writer.Error)!bool {
-    const io = d.comp.io;
+    const gpa = d.comp.gpa;
+
     var i: usize = 1;
     var comment_arg: []const u8 = "";
     var hosted: ?bool = null;
@@ -310,7 +326,7 @@ pub fn parseArgs(
                     value = macro[some + 1 ..];
                     macro = macro[0..some];
                 }
-                try macro_buf.print(d.comp.gpa, "#define {s} {s}\n", .{ macro, value });
+                try macro_buf.print(gpa, "#define {s} {s}\n", .{ macro, value });
             } else if (mem.startsWith(u8, arg, "-U")) {
                 var macro = arg["-U".len..];
                 if (macro.len == 0) {
@@ -321,7 +337,7 @@ pub fn parseArgs(
                     }
                     macro = args[i];
                 }
-                try macro_buf.print(d.comp.gpa, "#undef {s}\n", .{macro});
+                try macro_buf.print(gpa, "#undef {s}\n", .{macro});
             } else if (mem.eql(u8, arg, "-O")) {
                 d.comp.code_gen_options.optimization_level = .@"1";
             } else if (mem.startsWith(u8, arg, "-O")) {
@@ -334,6 +350,13 @@ pub fn parseArgs(
                 d.system_defines = .no_system_defines;
             } else if (mem.eql(u8, arg, "-c") or mem.eql(u8, arg, "--compile")) {
                 d.only_compile = true;
+            } else if (mem.eql(u8, arg, "-darwin-target-variant-triple")) {
+                i += 1;
+                if (i >= args.len) {
+                    try d.err("expected argument after -darwin-target-variant-triple", .{});
+                    continue;
+                }
+                d.raw_darwin_variant_target_triple = args[i];
             } else if (mem.eql(u8, arg, "-dD")) {
                 d.debug_dump_letters.d = true;
             } else if (mem.eql(u8, arg, "-dM")) {
@@ -508,7 +531,7 @@ pub fn parseArgs(
                     }
                     path = args[i];
                 }
-                try d.comp.include_dirs.append(d.comp.gpa, path);
+                try d.includes.append(gpa, .{ .kind = .normal, .path = path });
             } else if (mem.startsWith(u8, arg, "-idirafter")) {
                 var path = arg["-idirafter".len..];
                 if (path.len == 0) {
@@ -519,7 +542,7 @@ pub fn parseArgs(
                     }
                     path = args[i];
                 }
-                try d.comp.after_include_dirs.append(d.comp.gpa, path);
+                try d.includes.append(gpa, .{ .kind = .after, .path = path });
             } else if (mem.startsWith(u8, arg, "-isystem")) {
                 var path = arg["-isystem".len..];
                 if (path.len == 0) {
@@ -530,7 +553,7 @@ pub fn parseArgs(
                     }
                     path = args[i];
                 }
-                try d.comp.system_include_dirs.append(d.comp.gpa, path);
+                try d.includes.append(gpa, .{ .kind = .system, .path = path });
             } else if (mem.startsWith(u8, arg, "-iquote")) {
                 var path = arg["-iquote".len..];
                 if (path.len == 0) {
@@ -541,7 +564,7 @@ pub fn parseArgs(
                     }
                     path = args[i];
                 }
-                try d.comp.iquote_include_dirs.append(d.comp.gpa, path);
+                try d.includes.append(gpa, .{ .kind = .quote, .path = path });
             } else if (mem.startsWith(u8, arg, "-F")) {
                 var path = arg["-F".len..];
                 if (path.len == 0) {
@@ -552,7 +575,7 @@ pub fn parseArgs(
                     }
                     path = args[i];
                 }
-                try d.comp.framework_dirs.append(d.comp.gpa, path);
+                try d.includes.append(gpa, .{ .kind = .framework, .path = path });
             } else if (mem.startsWith(u8, arg, "-iframework")) {
                 var path = arg["-iframework".len..];
                 if (path.len == 0) {
@@ -563,9 +586,27 @@ pub fn parseArgs(
                     }
                     path = args[i];
                 }
-                try d.comp.system_framework_dirs.append(d.comp.gpa, path);
+                try d.includes.append(gpa, .{ .kind = .system_framework, .path = path });
+            } else if (option(arg, "-include") orelse option(arg, "--include")) |implicit_include| {
+                try d.addImplicitInclude(implicit_include);
+            } else if (mem.eql(u8, arg, "-include") or mem.eql(u8, arg, "--include")) {
+                i += 1;
+                if (i >= args.len) {
+                    try d.err("expected argument after {s}", .{arg});
+                    continue;
+                }
+                try d.addImplicitInclude(args[i]);
+            } else if (option(arg, "-imacros") orelse option(arg, "--imacros")) |imacro_path| {
+                try d.addImacros(imacro_path);
+            } else if (mem.eql(u8, arg, "-imacros") or mem.eql(u8, arg, "--imacros")) {
+                i += 1;
+                if (i >= args.len) {
+                    try d.err("expected argument after {s}", .{arg});
+                    continue;
+                }
+                try d.addImacros(args[i]);
             } else if (option(arg, "--embed-dir=")) |path| {
-                try d.comp.embed_dirs.append(d.comp.gpa, path);
+                try d.comp.embed_dirs.append(gpa, path);
             } else if (option(arg, "--emulate=")) |compiler_str| {
                 const compiler = std.meta.stringToEnum(LangOpts.Compiler, compiler_str) orelse {
                     try d.err("invalid compiler '{s}'", .{arg});
@@ -592,6 +633,9 @@ pub fn parseArgs(
                 d.output_name = file;
             } else if (option(arg, "--sysroot=")) |sysroot| {
                 d.sysroot = sysroot;
+            } else if (mem.eql(u8, arg, "-Wp,-v")) {
+                // TODO this is not how this argument should work
+                d.verbose_search_path = true;
             } else if (mem.eql(u8, arg, "-pedantic")) {
                 d.diagnostics.state.extensions = .warning;
             } else if (mem.eql(u8, arg, "-pedantic-errors")) {
@@ -744,41 +788,22 @@ pub fn parseArgs(
                 try d.warn("unknown argument '{s}'", .{arg});
             }
         } else if (std.mem.endsWith(u8, arg, ".o") or std.mem.endsWith(u8, arg, ".obj")) {
-            try d.link_objects.append(d.comp.gpa, arg);
+            try d.link_objects.append(gpa, arg);
         } else {
             const source = d.addSource(arg) catch |er| {
                 return d.fatal("unable to add source file '{s}': {s}", .{ arg, errorDescription(er) });
             };
-            try d.inputs.append(d.comp.gpa, source);
+            try d.inputs.append(gpa, source);
         }
     }
     {
-        var diags: std.Target.Query.ParseOptions.Diagnostics = .{};
-        const opts: std.Target.Query.ParseOptions = .{
-            .arch_os_abi = d.raw_target_triple orelse "native",
-            .cpu_features = d.raw_cpu,
-            .diagnostics = &diags,
-        };
-        const query = std.Target.Query.parse(opts) catch |er| switch (er) {
-            error.UnknownCpuModel => {
-                return d.fatal("unknown CPU: '{s}'", .{diags.cpu_name.?});
-            },
-            error.UnknownCpuFeature => {
-                return d.fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
-            },
-            error.UnknownArchitecture => {
-                return d.fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
-            },
-            else => |e| return d.fatal("unable to parse target query '{s}': {s}", .{
-                opts.arch_os_abi, @errorName(e),
-            }),
-        };
-        d.comp.target = std.zig.system.resolveTargetQuery(io, query) catch |e| {
-            return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
-        };
+        d.comp.target = try d.parseTarget(d.raw_target_triple orelse "native", d.raw_cpu);
+        if (d.raw_darwin_variant_target_triple) |darwin_triple| {
+            d.comp.darwin_target_variant = try d.parseTarget(darwin_triple, null);
+        }
     }
     if (emulate != null or d.raw_target_triple != null) {
-        d.comp.langopts.setEmulatedCompiler(emulate orelse target_util.systemCompiler(d.comp.target));
+        d.comp.langopts.setEmulatedCompiler(emulate orelse d.comp.target.systemCompiler());
         switch (d.comp.langopts.emulate) {
             .clang => try d.diagnostics.set("clang", .off),
             .gcc => try d.diagnostics.set("gnu", .off),
@@ -839,6 +864,23 @@ fn addSource(d: *Driver, path: []const u8) !Source {
     return d.comp.addSourceFromPath(path);
 }
 
+fn findIncludeCLI(d: *Driver, path: []const u8, kind: []const u8) !Source {
+    const source = (d.comp.findInclude(path, .{ .id = .keyword_include, .source = .generated }, .cli, .first) catch |er|
+        return d.fatal("unable to add {s} file '{s}': {s}", .{ kind, path, errorDescription(er) })) orelse
+        return d.fatal("unable to add {s} file '{s}': NotFound", .{ kind, path });
+    return source;
+}
+
+fn addImplicitInclude(d: *Driver, path: []const u8) !void {
+    const source = try d.findIncludeCLI(path, "implicit include");
+    try d.implicit_includes.append(d.comp.gpa, source);
+}
+
+fn addImacros(d: *Driver, path: []const u8) !void {
+    const source = try d.findIncludeCLI(path, "imacros");
+    try d.imacros.append(d.comp.gpa, source);
+}
+
 pub fn err(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
     var sf = std.heap.stackFallback(1024, d.comp.gpa);
     var allocating: std.Io.Writer.Allocating = .init(sf.get());
@@ -857,11 +899,140 @@ pub fn warn(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
     try d.diagnostics.add(.{ .kind = .warning, .text = allocating.written(), .location = null });
 }
 
-pub fn unsupportedOptionForTarget(d: *Driver, target: std.Target, opt: []const u8) Compilation.Error!void {
+fn unsupportedOptionForTarget(d: *Driver, target: *const Target, opt: []const u8) Compilation.Error!void {
     try d.err(
         "unsupported option '{s}' for target '{s}-{s}-{s}'",
         .{ opt, @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi) },
     );
+}
+
+fn parseTarget(d: *Driver, arch_os_abi: []const u8, opt_cpu_features: ?[]const u8) Compilation.Error!Target {
+    var query: std.Target.Query = .{
+        .dynamic_linker = .init(null),
+    };
+    var vendor: Target.Vendor = .unknown;
+    var opt_sub_arch: ?Target.SubArch = null;
+
+    var it = mem.splitScalar(u8, arch_os_abi, '-');
+    const arch_name = it.first();
+    const arch_is_native = mem.eql(u8, arch_name, "native");
+    if (!arch_is_native) {
+        query.cpu_arch, opt_sub_arch = Target.parseArchName(arch_name) orelse {
+            return d.fatal("unknown architecture: '{s}'", .{arch_name});
+        };
+    }
+    const arch = query.cpu_arch orelse @import("builtin").cpu.arch;
+
+    const opt_os_text = blk: {
+        const opt_os_or_vendor = it.next();
+        if (opt_os_or_vendor) |os_or_vendor| {
+            if (Target.parseVendorName(os_or_vendor)) |parsed_vendor| {
+                vendor = parsed_vendor;
+                break :blk it.next();
+            }
+        }
+        break :blk opt_os_or_vendor;
+    };
+
+    if (opt_os_text) |os_text| {
+        var version_str: []const u8 = undefined;
+        Target.parseOs(&query, os_text, &version_str) catch |er| switch (er) {
+            error.UnknownOs => return d.fatal("unknown operating system '{s}'", .{os_text}),
+            error.InvalidOsVersion => return d.fatal("invalid operating system version '{s}'", .{version_str}),
+        };
+    }
+
+    const opt_abi_text = it.next();
+    if (opt_abi_text) |abi_text| {
+        var version_str: []const u8 = undefined;
+        Target.parseAbi(&query, abi_text, &version_str) catch |er| switch (er) {
+            error.UnknownAbi => return d.fatal("unknown ABI '{s}'", .{abi_text}),
+            error.InvalidAbiVersion => return d.fatal("invalid ABI version '{s}'", .{version_str}),
+            error.InvalidApiVersion => return d.fatal("invalid Android API version '{s}'", .{version_str}),
+        };
+    }
+
+    if (it.next() != null) {
+        return d.fatal("unexpected extra field in target: '{s}'", .{arch_os_abi});
+    }
+
+    if (opt_cpu_features) |cpu_features| {
+        const all_features = arch.allFeaturesList();
+        var index: usize = 0;
+        while (index < cpu_features.len and
+            cpu_features[index] != '+' and
+            cpu_features[index] != '-')
+        {
+            index += 1;
+        }
+        const cpu_name = cpu_features[0..index];
+
+        const add_set = &query.cpu_features_add;
+        const sub_set = &query.cpu_features_sub;
+        if (mem.eql(u8, cpu_name, "native")) {
+            query.cpu_model = .native;
+        } else if (mem.eql(u8, cpu_name, "baseline")) {
+            query.cpu_model = .baseline;
+        } else {
+            query.cpu_model = .{ .explicit = arch.parseCpuModel(cpu_name) catch |er| switch (er) {
+                error.UnknownCpuModel => return d.fatal("unknown CPU model: '{s}'", .{cpu_name}),
+            } };
+        }
+
+        if (opt_sub_arch) |sub_arch| {
+            if (sub_arch.toFeature(arch)) |feature| {
+                add_set.addFeature(feature);
+            }
+        }
+
+        while (index < cpu_features.len) {
+            const op = cpu_features[index];
+            const set = switch (op) {
+                '+' => add_set,
+                '-' => sub_set,
+                else => unreachable,
+            };
+            index += 1;
+            const start = index;
+            while (index < cpu_features.len and
+                cpu_features[index] != '+' and
+                cpu_features[index] != '-')
+            {
+                index += 1;
+            }
+            const feature_name = cpu_features[start..index];
+            for (all_features, 0..) |feature, feat_index_usize| {
+                const feat_index: std.Target.Cpu.Feature.Set.Index = @intCast(feat_index_usize);
+                if (mem.eql(u8, feature_name, feature.name)) {
+                    set.addFeature(feat_index);
+                    break;
+                }
+            } else {
+                return d.fatal("unknown CPU feature: '{s}'", .{feature_name});
+            }
+        }
+    } else if (opt_sub_arch) |sub_arch| {
+        if (sub_arch.toFeature(arch)) |feature| {
+            query.cpu_features_add.addFeature(feature);
+        }
+    }
+
+    const zig_target = std.zig.system.resolveTargetQuery(d.comp.io, query) catch |e|
+        return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
+
+    if (query.isNative()) {
+        if (zig_target.os.tag.isDarwin()) {
+            vendor = .apple;
+        }
+    }
+    return .{
+        .cpu = zig_target.cpu,
+        .vendor = vendor,
+        .os = zig_target.os,
+        .abi = zig_target.abi,
+        .ofmt = zig_target.ofmt,
+        .dynamic_linker = zig_target.dynamic_linker,
+    };
 }
 
 pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalError, OutOfMemory } {
@@ -971,8 +1142,9 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
     };
     tc.defineSystemIncludes() catch |er| switch (er) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.AroIncludeNotFound => return d.fatal("unable to find Aro builtin headers", .{}),
+        error.FatalError => return error.FatalError,
     };
+    try d.comp.initSearchPath(d.includes.items, d.verbose_search_path);
 
     const builtin_macros = d.comp.generateBuiltinMacros(d.system_defines) catch |er| switch (er) {
         error.FileTooBig => return d.fatal("builtin macro source exceeded max size", .{}),
@@ -1110,6 +1282,7 @@ fn processSource(
     comptime fast_exit: bool,
     asm_gen_fn: ?AsmCodeGenFn,
 ) !void {
+    const gpa = d.comp.gpa;
     d.comp.generated_buf.items.len = 0;
     const prev_total = d.diagnostics.errors;
 
@@ -1118,7 +1291,7 @@ fn processSource(
 
     var name_buf: [std.fs.max_name_bytes]u8 = undefined;
     var opt_dep_file = try d.initDepFile(source, &name_buf, false);
-    defer if (opt_dep_file) |*dep_file| dep_file.deinit(d.comp.gpa);
+    defer if (opt_dep_file) |*dep_file| dep_file.deinit(gpa);
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;
 
@@ -1138,7 +1311,13 @@ fn processSource(
         }
     }
 
-    try pp.preprocessSources(&.{ source, builtin, user_macros });
+    try pp.preprocessSources(.{
+        .main = source,
+        .builtin = builtin,
+        .command_line = user_macros,
+        .imacros = d.imacros.items,
+        .implicit_includes = d.implicit_includes.items,
+    });
 
     var writer_buf: [4096]u8 = undefined;
     if (opt_dep_file) |dep_file| {
@@ -1219,8 +1398,8 @@ fn processSource(
             .{},
         );
 
-        const assembly = try asm_fn(d.comp.target, &tree);
-        defer assembly.deinit(d.comp.gpa);
+        const assembly = try asm_fn(d.comp.target.toZigTarget(), &tree);
+        defer assembly.deinit(gpa);
 
         if (d.only_preprocess_and_compile) {
             const out_file = d.comp.cwd.createFile(out_file_name, .{}) catch |er|
@@ -1249,20 +1428,20 @@ fn processSource(
         }
     } else {
         var ir = try tree.genIr();
-        defer ir.deinit(d.comp.gpa);
+        defer ir.deinit(gpa);
 
         if (d.verbose_ir) {
             var stdout = std.fs.File.stdout().writer(&writer_buf);
-            ir.dump(d.comp.gpa, d.detectConfig(stdout.file), &stdout.interface) catch {};
+            ir.dump(gpa, d.detectConfig(stdout.file), &stdout.interface) catch {};
         }
 
         var render_errors: Ir.Renderer.ErrorList = .{};
         defer {
-            for (render_errors.values()) |msg| d.comp.gpa.free(msg);
-            render_errors.deinit(d.comp.gpa);
+            for (render_errors.values()) |msg| gpa.free(msg);
+            render_errors.deinit(gpa);
         }
 
-        var obj = ir.render(d.comp.gpa, d.comp.target, &render_errors) catch |e| switch (e) {
+        var obj = ir.render(gpa, d.comp.target.toZigTarget(), &render_errors) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
             error.LowerFail => {
                 return d.fatal(
@@ -1286,8 +1465,8 @@ fn processSource(
         if (fast_exit) std.process.exit(0); // Not linking, no need for cleanup.
         return;
     }
-    try d.link_objects.ensureUnusedCapacity(d.comp.gpa, 1);
-    d.link_objects.appendAssumeCapacity(try d.comp.gpa.dupe(u8, out_file_name));
+    try d.link_objects.ensureUnusedCapacity(gpa, 1);
+    d.link_objects.appendAssumeCapacity(try gpa.dupe(u8, out_file_name));
     d.temp_file_count += 1;
     if (fast_exit) {
         try d.invokeLinker(tc, fast_exit);
@@ -1357,17 +1536,17 @@ fn exitWithCleanup(d: *Driver, code: u8) noreturn {
 /// Parses the various -fpic/-fPIC/-fpie/-fPIE arguments.
 /// Then, smooshes them together with platform defaults, to decide whether
 /// this compile should be using PIC mode or not.
+/// Returns a tuple of ( backend.CodeGenOptions.PicLevel, IsPIE).
 pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { backend.CodeGenOptions.PicLevel, bool } {
     const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 
-    const target = d.comp.target;
-
-    const is_pie_default = switch (target_util.isPIEDefault(target)) {
+    const target = &d.comp.target;
+    const is_pie_default = switch (target.isPIEDefault()) {
         .yes => true,
         .no => false,
         .depends_on_linker => false,
     };
-    const is_pic_default = switch (target_util.isPICdefault(target)) {
+    const is_pic_default = switch (target.isPICdefault()) {
         .yes => true,
         .no => false,
         .depends_on_linker => false,
@@ -1423,7 +1602,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
     // '-fno-...' arguments, both PIC and PIE are disabled. Any PIE
     // option implicitly enables PIC at the same level.
     if (target.os.tag == .windows and
-        !target_util.isCygwinMinGW(target) and
+        !target.isMinGW() and
         (eqlIgnoreCase(lastpic, "-fpic") or eqlIgnoreCase(lastpic, "-fpie"))) // -fpic/-fPIC, -fpie/-fPIE
     {
         try d.unsupportedOptionForTarget(target, lastpic);
@@ -1434,7 +1613,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
 
     // Check whether the tool chain trumps the PIC-ness decision. If the PIC-ness
     // is forced, then neither PIC nor PIE flags will have no effect.
-    const forced = switch (target_util.isPICDefaultForced(target)) {
+    const forced = switch (target.isPICDefaultForced()) {
         .yes => true,
         .no => false,
         .depends_on_linker => false,
@@ -1447,7 +1626,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
             is_piclevel_two = mem.eql(u8, lastpic, "-fPIE") or mem.eql(u8, lastpic, "-fPIC");
         } else {
             pic, pie = .{ false, false };
-            if (target_util.isPS(target)) {
+            if (target.isPS()) {
                 if (d.comp.cmodel != .kernel) {
                     pic = true;
                     try d.warn(
@@ -1459,7 +1638,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
         }
     }
 
-    if (pic and (target.os.tag.isDarwin() or target_util.isPS(target))) {
+    if (pic and (target.os.tag.isDarwin() or target.isPS())) {
         is_piclevel_two = is_piclevel_two or is_pic_default;
     }
 

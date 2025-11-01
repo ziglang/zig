@@ -5,9 +5,8 @@ const system_defaults = @import("system_defaults");
 
 const Compilation = @import("Compilation.zig");
 const Driver = @import("Driver.zig");
-const Filesystem = @import("Driver/Filesystem.zig").Filesystem;
 const Multilib = @import("Driver/Multilib.zig");
-const target_util = @import("target.zig");
+const Target = @import("Target.zig");
 
 pub const PathList = std.ArrayList([]const u8);
 
@@ -41,7 +40,6 @@ const Inner = union(enum) {
 
 const Toolchain = @This();
 
-filesystem: Filesystem,
 driver: *Driver,
 
 /// The list of toolchain specific path prefixes to search for libraries.
@@ -57,8 +55,8 @@ selected_multilib: Multilib = .{},
 
 inner: Inner = .{ .uninitialized = {} },
 
-pub fn getTarget(tc: *const Toolchain) std.Target {
-    return tc.driver.comp.target;
+pub fn getTarget(tc: *const Toolchain) *const Target {
+    return &tc.driver.comp.target;
 }
 
 fn getDefaultLinker(tc: *const Toolchain) []const u8 {
@@ -107,7 +105,7 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
             if (std.fs.path.dirname(path) == null) {
                 path = tc.getProgramPath(path, buf);
             }
-            if (tc.filesystem.canExecute(path)) {
+            if (tc.canExecute(path)) {
                 return path;
             }
         }
@@ -139,7 +137,7 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
     }
 
     if (std.fs.path.isAbsolute(use_linker)) {
-        if (tc.filesystem.canExecute(use_linker)) {
+        if (tc.canExecute(use_linker)) {
             return use_linker;
         }
     } else {
@@ -155,7 +153,7 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
         }
         linker_name.appendSliceAssumeCapacity(use_linker);
         const linker_path = tc.getProgramPath(linker_name.items, buf);
-        if (tc.filesystem.canExecute(linker_path)) {
+        if (tc.canExecute(linker_path)) {
             return linker_path;
         }
     }
@@ -227,12 +225,12 @@ fn getProgramPath(tc: *const Toolchain, name: []const u8, buf: []u8) []const u8 
 
             const candidate = std.fs.path.join(fib.allocator(), &.{ program_path, tool_name }) catch continue;
 
-            if (tc.filesystem.canExecute(candidate) and candidate.len <= buf.len) {
+            if (tc.canExecute(candidate) and candidate.len <= buf.len) {
                 @memcpy(buf[0..candidate.len], candidate);
                 return buf[0..candidate.len];
             }
         }
-        return tc.filesystem.findProgramByName(tc.driver.comp.gpa, name, tc.driver.comp.environment.path, buf) orelse continue;
+        return tc.findProgramByName(name, buf) orelse continue;
     }
     @memcpy(buf[0..name.len], name);
     return buf[0..name.len];
@@ -256,7 +254,7 @@ pub fn getFilePath(tc: *const Toolchain, name: []const u8) ![]const u8 {
     // todo check compiler RT path
     const aro_dir = std.fs.path.dirname(tc.driver.aro_name) orelse "";
     const candidate = try std.fs.path.join(allocator, &.{ aro_dir, "..", name });
-    if (tc.filesystem.exists(candidate)) {
+    if (tc.exists(candidate)) {
         return arena.dupe(u8, candidate);
     }
 
@@ -283,7 +281,7 @@ fn searchPaths(tc: *const Toolchain, fib: *std.heap.FixedBufferAllocator, sysroo
         else
             std.fs.path.join(fib.allocator(), &.{ path, name }) catch continue;
 
-        if (tc.filesystem.exists(candidate)) {
+        if (tc.exists(candidate)) {
             return candidate;
         }
     }
@@ -304,7 +302,7 @@ pub fn addPathIfExists(tc: *Toolchain, components: []const []const u8, dest_kind
 
     const candidate = try std.fs.path.join(fib.allocator(), components);
 
-    if (tc.filesystem.exists(candidate)) {
+    if (tc.exists(candidate)) {
         const duped = try tc.driver.comp.arena.dupe(u8, candidate);
         const dest = switch (dest_kind) {
             .library => &tc.library_paths,
@@ -404,11 +402,11 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
     const target = tc.getTarget();
     if ((target.abi.isAndroid() and unw == .libgcc) or
         target.ofmt == .wasm or
-        target_util.isWindowsMSVCEnvironment(target) or
+        target.isWindowsMSVCEnvironment() or
         unw == .none) return;
 
     const lgk = tc.getLibGCCKind();
-    const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target_util.isCygwinMinGW(target);
+    const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target.isMinGW();
 
     try argv.ensureUnusedCapacity(tc.driver.comp.gpa, 3);
     if (as_needed) {
@@ -420,7 +418,7 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
         .compiler_rt => if (lgk == .static) {
             argv.appendAssumeCapacity("-l:libunwind.a");
         } else if (lgk == .shared) {
-            if (target_util.isCygwinMinGW(target)) {
+            if (target.isMinGW()) {
                 argv.appendAssumeCapacity("-l:libunwind.dll.a");
             } else {
                 argv.appendAssumeCapacity("-l:libunwind.so");
@@ -455,7 +453,7 @@ pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !v
             // TODO
         },
         .libgcc => {
-            if (target_util.isKnownWindowsMSVCEnvironment(target)) {
+            if (target.isKnownWindowsMSVCEnvironment()) {
                 const rtlib_str = tc.driver.rtlib orelse system_defaults.rtlib;
                 if (!mem.eql(u8, rtlib_str, "platform")) {
                     try tc.driver.err("unsupported runtime library 'libgcc' for platform 'MSVC'", .{});
@@ -477,14 +475,107 @@ pub fn defineSystemIncludes(tc: *Toolchain) !void {
         .unknown => {
             if (tc.driver.nostdinc) return;
 
-            const comp = tc.driver.comp;
             if (!tc.driver.nobuiltininc) {
-                try comp.addBuiltinIncludeDir(tc.driver.aro_name, tc.driver.resource_dir);
+                try tc.addBuiltinIncludeDir();
             }
 
             if (!tc.driver.nostdlibinc) {
-                try comp.addSystemIncludeDir("/usr/include");
+                try tc.addSystemIncludeDir("/usr/include");
             }
         },
     };
+}
+
+pub fn addSystemIncludeDir(tc: *const Toolchain, path: []const u8) !void {
+    const d = tc.driver;
+    _ = try d.includes.append(d.comp.gpa, .{ .kind = .system, .path = try d.comp.arena.dupe(u8, path) });
+}
+
+/// Add built-in aro headers directory to system include paths
+pub fn addBuiltinIncludeDir(tc: *const Toolchain) !void {
+    const d = tc.driver;
+    const comp = d.comp;
+    const gpa = comp.gpa;
+    const arena = comp.arena;
+    try d.includes.ensureUnusedCapacity(gpa, 1);
+    if (d.resource_dir) |resource_dir| {
+        const path = try std.fs.path.join(arena, &.{ resource_dir, "include" });
+        comp.cwd.access(path, .{}) catch {
+            return d.fatal("Aro builtin headers not found in provided -resource-dir", .{});
+        };
+        d.includes.appendAssumeCapacity(.{ .kind = .system, .path = path });
+        return;
+    }
+    var search_path = d.aro_name;
+    while (std.fs.path.dirname(search_path)) |dirname| : (search_path = dirname) {
+        var base_dir = d.comp.cwd.openDir(dirname, .{}) catch continue;
+        defer base_dir.close();
+
+        base_dir.access("include/stddef.h", .{}) catch continue;
+        const path = try std.fs.path.join(arena, &.{ dirname, "include" });
+        d.includes.appendAssumeCapacity(.{ .kind = .system, .path = path });
+        break;
+    } else return d.fatal("unable to find Aro builtin headers", .{});
+}
+
+/// Read the file at `path` into `buf`.
+/// Returns null if any errors are encountered
+/// Otherwise returns a slice of `buf`. If the file is larger than `buf` partial contents are returned
+pub fn readFile(tc: *const Toolchain, path: []const u8, buf: []u8) ?[]const u8 {
+    const comp = tc.driver.comp;
+    return comp.cwd.adaptToNewApi().readFile(comp.io, path, buf) catch null;
+}
+
+pub fn exists(tc: *const Toolchain, path: []const u8) bool {
+    const comp = tc.driver.comp;
+    comp.cwd.adaptToNewApi().access(comp.io, path, .{}) catch return false;
+    return true;
+}
+
+pub fn joinedExists(tc: *const Toolchain, parts: []const []const u8) bool {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var fib = std.heap.FixedBufferAllocator.init(&buf);
+    const joined = std.fs.path.join(fib.allocator(), parts) catch return false;
+    return tc.exists(joined);
+}
+
+pub fn canExecute(tc: *const Toolchain, path: []const u8) bool {
+    if (@import("builtin").os.tag == .windows) {
+        // TODO
+        return true;
+    }
+
+    const comp = tc.driver.comp;
+    comp.cwd.adaptToNewApi().access(comp.io, path, .{ .execute = true }) catch return false;
+    // Todo: ensure path is not a directory
+    return true;
+}
+
+/// Search for an executable named `name` using platform-specific logic
+/// If it's found, write the full path to `buf` and return a slice of it
+/// Otherwise retun null
+pub fn findProgramByName(tc: *const Toolchain, name: []const u8, buf: []u8) ?[]const u8 {
+    std.debug.assert(name.len > 0);
+    if (@import("builtin").os.tag == .windows) {
+        // TODO
+        return null;
+    }
+    const comp = tc.driver.comp;
+
+    // TODO: does WASI need special handling?
+    if (mem.indexOfScalar(u8, name, '/') != null) {
+        @memcpy(buf[0..name.len], name);
+        return buf[0..name.len];
+    }
+    const path_env = comp.environment.path orelse return null;
+    var fib = std.heap.FixedBufferAllocator.init(buf);
+
+    var it = mem.tokenizeScalar(u8, path_env, std.fs.path.delimiter);
+    while (it.next()) |path_dir| {
+        defer fib.reset();
+        const full_path = std.fs.path.join(fib.allocator(), &.{ path_dir, name }) catch continue;
+        if (tc.canExecute(full_path)) return full_path;
+    }
+
+    return null;
 }

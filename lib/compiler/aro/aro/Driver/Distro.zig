@@ -2,7 +2,8 @@
 
 const std = @import("std");
 const mem = std.mem;
-const Filesystem = @import("Filesystem.zig").Filesystem;
+const Target = @import("../Target.zig");
+const Toolchain = @import("../Toolchain.zig");
 
 const MAX_BYTES = 1024; // TODO: Can we assume 1024 bytes enough for the info we need?
 
@@ -168,9 +169,9 @@ fn scanForOsRelease(buf: []const u8) ?Tag {
     return null;
 }
 
-fn detectOsRelease(fs: Filesystem) ?Tag {
+fn detectOsRelease(tc: *const Toolchain) ?Tag {
     var buf: [MAX_BYTES]u8 = undefined;
-    const data = fs.readFile("/etc/os-release", &buf) orelse fs.readFile("/usr/lib/os-release", &buf) orelse return null;
+    const data = tc.readFile("/etc/os-release", &buf) orelse tc.readFile("/usr/lib/os-release", &buf) orelse return null;
     return scanForOsRelease(data);
 }
 
@@ -215,9 +216,9 @@ fn scanForLSBRelease(buf: []const u8) ?Tag {
     return null;
 }
 
-fn detectLSBRelease(fs: Filesystem) ?Tag {
+fn detectLSBRelease(tc: *const Toolchain) ?Tag {
     var buf: [MAX_BYTES]u8 = undefined;
-    const data = fs.readFile("/etc/lsb-release", &buf) orelse return null;
+    const data = tc.readFile("/etc/lsb-release", &buf) orelse return null;
 
     return scanForLSBRelease(data);
 }
@@ -233,9 +234,9 @@ fn scanForRedHat(buf: []const u8) Tag {
     return .unknown;
 }
 
-fn detectRedhat(fs: Filesystem) ?Tag {
+fn detectRedhat(tc: *const Toolchain) ?Tag {
     var buf: [MAX_BYTES]u8 = undefined;
-    const data = fs.readFile("/etc/redhat-release", &buf) orelse return null;
+    const data = tc.readFile("/etc/redhat-release", &buf) orelse return null;
     return scanForRedHat(data);
 }
 
@@ -269,21 +270,21 @@ fn scanForDebian(buf: []const u8) Tag {
     return .unknown;
 }
 
-fn detectDebian(fs: Filesystem) ?Tag {
+fn detectDebian(tc: *const Toolchain) ?Tag {
     var buf: [MAX_BYTES]u8 = undefined;
-    const data = fs.readFile("/etc/debian_version", &buf) orelse return null;
+    const data = tc.readFile("/etc/debian_version", &buf) orelse return null;
     return scanForDebian(data);
 }
 
-pub fn detect(target: std.Target, fs: Filesystem) Tag {
+pub fn detect(target: *const Target, tc: *const Toolchain) Tag {
     if (target.os.tag != .linux) return .unknown;
 
-    if (detectOsRelease(fs)) |tag| return tag;
-    if (detectLSBRelease(fs)) |tag| return tag;
-    if (detectRedhat(fs)) |tag| return tag;
-    if (detectDebian(fs)) |tag| return tag;
+    if (detectOsRelease(tc)) |tag| return tag;
+    if (detectLSBRelease(tc)) |tag| return tag;
+    if (detectRedhat(tc)) |tag| return tag;
+    if (detectDebian(tc)) |tag| return tag;
 
-    if (fs.exists("/etc/gentoo-release")) return .gentoo;
+    if (tc.exists("/etc/gentoo-release")) return .gentoo;
 
     return .unknown;
 }
