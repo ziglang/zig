@@ -316,13 +316,6 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.prefetch.ptr, zcu)) return false;
             },
 
-            .vector_store_elem => {
-                const bin = air.extraData(Air.Bin, data.vector_store_elem.payload).data;
-                if (!checkRef(data.vector_store_elem.vector_ptr, zcu)) return false;
-                if (!checkRef(bin.lhs, zcu)) return false;
-                if (!checkRef(bin.rhs, zcu)) return false;
-            },
-
             .runtime_nav_ptr => {
                 if (!checkType(.fromInterned(data.ty_nav.ty), zcu)) return false;
             },

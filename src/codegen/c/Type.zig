@@ -2514,11 +2514,7 @@ pub const Pool = struct {
                                     kind.noParameter(),
                                 );
                                 if (field_ctype.index == .void) continue;
-                                const field_name = if (loaded_struct.fieldName(ip, field_index)
-                                    .unwrap()) |field_name|
-                                    try pool.string(allocator, field_name.toSlice(ip))
-                                else
-                                    String.fromUnnamed(@intCast(field_index));
+                                const field_name = try pool.string(allocator, loaded_struct.fieldName(ip, field_index).toSlice(ip));
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_struct.fieldAlign(ip, field_index),
                                     .abi = field_type.abiAlignment(zcu),

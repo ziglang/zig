@@ -322,11 +322,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
                 try self.verifyInstOperands(inst, .{ extra.lhs, extra.rhs, pl_op.operand });
             },
-            .vector_store_elem => {
-                const vector_store_elem = data[@intFromEnum(inst)].vector_store_elem;
-                const extra = self.air.extraData(Air.Bin, vector_store_elem.payload).data;
-                try self.verifyInstOperands(inst, .{ vector_store_elem.vector_ptr, extra.lhs, extra.rhs });
-            },
             .cmpxchg_strong,
             .cmpxchg_weak,
             => {
