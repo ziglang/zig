@@ -1,13 +1,5 @@
 const std = @import("std");
 
-const Properties = @This();
-
-param_str: []const u8,
-language: Language = .all_languages,
-attributes: Attributes = Attributes{},
-header: Header = .none,
-target_set: TargetSet = TargetSet.initOne(.basic),
-
 /// Header which must be included for a builtin to be available
 pub const Header = enum {
     none,
@@ -41,6 +33,18 @@ pub const Header = enum {
     complex,
     /// Blocks.h
     blocks,
+    /// intrin.h
+    intrin,
+    /// immintrin.h
+    immintrin,
+    /// xmmintrin.h
+    xmmintrin,
+    /// emmintrin.h
+    emmintrin,
+    /// mmintrin.h
+    mmintrin,
+    /// arm_acle.h
+    arm_acle,
 };
 
 /// Languages in which a builtin is available
@@ -49,6 +53,7 @@ pub const Language = enum {
     all_ms_languages,
     all_gnu_languages,
     gnu_lang,
+    c23_lang,
 };
 
 pub const Attributes = packed struct {
@@ -106,38 +111,7 @@ pub const Attributes = packed struct {
     const_evaluable: bool = false,
 };
 
-pub const Target = enum {
-    /// Supported on all targets
-    basic,
-    aarch64,
-    aarch64_neon_sve_bridge,
-    aarch64_neon_sve_bridge_cg,
-    amdgpu,
-    arm,
-    bpf,
-    hexagon,
-    hexagon_dep,
-    hexagon_map_custom_dep,
-    loong_arch,
-    mips,
-    neon,
-    nvptx,
-    ppc,
-    riscv,
-    riscv_vector,
-    sve,
-    systemz,
-    ve,
-    vevl_gen,
-    webassembly,
-    x86,
-    x86_64,
-    xcore,
-};
-
-/// Targets for which a builtin is enabled
-pub const TargetSet = std.enums.EnumSet(Target);
-
-pub fn isVarArgs(properties: Properties) bool {
-    return properties.param_str[properties.param_str.len - 1] == '.';
+pub fn isVarArgs(param_str: [*:0]const u8) bool {
+    const slice = std.mem.sliceTo(param_str, 0);
+    return slice[slice.len - 1] == '.';
 }
