@@ -4731,6 +4731,25 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#see_also|@cVaArg|@cVaCopy|@cVaEnd#}
       {#header_close#}
 
+      {#header_open|@depositBits#}
+      <pre>{#syntax#}@depositBits(source: T, mask: T) T{#endsyntax#}</pre>
+      <p>
+      {#syntax#}T{#endsyntax#} must be an unsigned integer type, or {#syntax#}comptime_int{#endsyntax#} (for which both parameters must be non-negative). {#syntax#}T{#endsyntax#} is determined by peer-type resolution.
+      </p>
+      <p>
+      Transfers contiguous bits from the bottom of the {#syntax#}source{#endsyntax#} operand to positions in the destination corresponding to bits that are set in the {#syntax#}mask{#endsyntax#}. The remaining bits in the destination are zeroed.
+      </p>
+      <p>
+      Where available, this builtin compiles down to a {#syntax#}pdep{#endsyntax#} instruction on x86 targets with BMI2 enabled. For x86-64, this will happen for types up to {#syntax#}u64{#endsyntax#}, and will happen for types up to {#syntax#}u32{#endsyntax#} for x86.
+      </p>
+      <p>
+      Example:
+      </p>
+
+      {#code|test_depositbits_builtin.zig#}
+      {#see_also|@extractBits#}
+      {#header_close#}
+
       {#header_open|@divExact#}
       <pre>{#syntax#}@divExact(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
@@ -4883,6 +4902,26 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       T must be a pointer type.
       </p>
       {#see_also|@export#}
+      {#header_close#}
+
+      {#header_open|@extractBits#}
+      <pre>{#syntax#}@extractBits(source: T, mask: T) T{#endsyntax#}</pre>
+      <p>
+      {#syntax#}T{#endsyntax#} must be an unsigned integer type, or {#syntax#}comptime_int{#endsyntax#} (for which both parameters must be non-negative). {#syntax#}T{#endsyntax#} is determined by peer-type resolution.
+      </p>
+      <p>
+      Transfers bits in the {#syntax#}source{#endsyntax#} corresponding to bits set in the {#syntax#}mask{#endsyntax#} operand to the destination, writing them as contiguous lower bits. The remaining bits in the destination are zeroed.
+      </p>
+      <p>
+      Where available, this builtin compiles down to a {#syntax#}pext{#endsyntax#} instruction on x86 targets with BMI2 enabled. For x86-64, this will happen for types up to {#syntax#}u64{#endsyntax#}, and will happen for types up to {#syntax#}u32{#endsyntax#} for x86.
+      </p>
+      <p>
+      Example:
+      </p>
+
+      {#code|test_extractbits_builtin.zig#}
+
+      {#see_also|@depositBits#}
       {#header_close#}
 
       {#header_open|@field#}
