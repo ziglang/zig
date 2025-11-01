@@ -254,7 +254,7 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             try cg.module.debugName(func_result_id, nav.fqn.toSlice(ip));
         },
         .global => {
-            assert(ip.indexToKey(val.toIntern()) == .@"extern");
+            const key = ip.indexToKey(val.toIntern()).@"extern";
 
             const storage_class = cg.module.storageClass(nav.getAddrspace());
             assert(storage_class != .generic); // These should be instance globals
@@ -277,14 +277,32 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                         }
                     }
 
-                    switch (ip.indexToKey(ty.toIntern())) {
-                        .func_type, .opaque_type => {},
-                        else => {
-                            try cg.module.decorate(ptr_ty_id, .{
-                                .array_stride = .{ .array_stride = @intCast(ty.abiSize(zcu)) },
+                    try cg.module.decorate(ptr_ty_id, .{
+                        .array_stride = .{ .array_stride = @intCast(ty.abiSize(zcu)) },
+                    });
+
+                    if (key.decoration) |decoration| switch (decoration) {
+                        .location => |location| {
+                            if (storage_class != .output and storage_class != .input and storage_class != .uniform_constant) {
+                                return cg.fail("storage class must be one of (output, input, uniform_constant) but is {s}", .{@tagName(storage_class)});
+                            }
+                            try cg.module.decorate(result_id, .{
+                                .location = .{ .location = location },
                             });
                         },
-                    }
+                        .descriptor => |descriptor| {
+                            if (storage_class != .storage_buffer and storage_class != .uniform and storage_class != .uniform_constant) {
+                                return cg.fail("storage class must be one of (storage_buffer, uniform, uniform_constant) but is {s}", .{@tagName(storage_class)});
+                            }
+                            try cg.module.decorate(result_id, .{
+                                .binding = .{ .binding_point = descriptor.binding },
+                            });
+
+                            try cg.module.decorate(result_id, .{
+                                .descriptor_set = .{ .descriptor_set = descriptor.set },
+                            });
+                        },
+                    };
                 },
                 else => {},
             }

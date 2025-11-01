@@ -2270,6 +2270,7 @@ pub const Key = union(enum) {
         is_threadlocal: bool,
         is_dll_import: bool,
         relocation: std.builtin.ExternOptions.Relocation,
+        decoration: ?std.builtin.ExternOptions.Decoration,
         is_const: bool,
         alignment: Alignment,
         @"addrspace": std.builtin.AddressSpace,
@@ -5985,6 +5986,8 @@ pub const Tag = enum(u8) {
         flags: Flags,
         owner_nav: Nav.Index,
         zir_index: TrackedInst.Index,
+        location_or_descriptor_set: u32,
+        descriptor_binding: u32,
 
         pub const Flags = packed struct(u32) {
             linkage: std.builtin.GlobalLinkage,
@@ -5993,10 +5996,22 @@ pub const Tag = enum(u8) {
             is_dll_import: bool,
             relocation: std.builtin.ExternOptions.Relocation,
             source: Source,
-            _: u24 = 0,
+            decoration_type: DecorationType,
+            _: u22 = 0,
 
             pub const Source = enum(u1) { builtin, syntax };
+            pub const DecorationType = enum(u2) { none, location, descriptor };
         };
+
+        pub fn decoration(self: Extern) ?std.builtin.ExternOptions.Decoration {
+            return switch (self.flags.decoration_type) {
+                .none => null,
+                .location => std.builtin.ExternOptions.Decoration{
+                    .location = self.location_or_descriptor_set,
+                },
+                .descriptor => std.builtin.ExternOptions.Decoration{ .descriptor = .{ .set = self.location_or_descriptor_set, .binding = self.descriptor_binding } },
+            };
+        }
     };
 
     /// Trailing:
@@ -7354,6 +7369,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .is_threadlocal = extra.flags.is_threadlocal,
                 .is_dll_import = extra.flags.is_dll_import,
                 .relocation = extra.flags.relocation,
+                .decoration = extra.decoration(),
                 .is_const = nav.status.fully_resolved.is_const,
                 .alignment = nav.status.fully_resolved.alignment,
                 .@"addrspace" = nav.status.fully_resolved.@"addrspace",
@@ -9243,15 +9259,22 @@ pub fn getExtern(
         .@"linksection" = .none,
         .@"addrspace" = key.@"addrspace",
     }) catch unreachable; // capacity asserted above
+    const decoration_type, const location_or_descriptor_set, const descriptor_binding = if (key.decoration) |decoration| switch (decoration) {
+        .location => |location| .{ Tag.Extern.Flags.DecorationType.location, location, undefined },
+        .descriptor => |descriptor| .{ Tag.Extern.Flags.DecorationType.descriptor, descriptor.binding, descriptor.set },
+    } else .{ Tag.Extern.Flags.DecorationType.none, undefined, undefined };
     const extra_index = addExtraAssumeCapacity(extra, Tag.Extern{
         .ty = key.ty,
         .lib_name = key.lib_name,
+        .location_or_descriptor_set = location_or_descriptor_set,
+        .descriptor_binding = descriptor_binding,
         .flags = .{
             .linkage = key.linkage,
             .visibility = key.visibility,
             .is_threadlocal = key.is_threadlocal,
             .is_dll_import = key.is_dll_import,
             .relocation = key.relocation,
+            .decoration_type = decoration_type,
             .source = key.source,
         },
         .zir_index = key.zir_index,
