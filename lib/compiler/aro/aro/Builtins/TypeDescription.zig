@@ -13,10 +13,10 @@ pub const Component = union(enum) {
 };
 
 pub const ComponentIterator = struct {
-    str: []const u8,
+    str: [*:0]const u8,
     idx: usize,
 
-    pub fn init(str: []const u8) ComponentIterator {
+    pub fn init(str: [*:0]const u8) ComponentIterator {
         return .{
             .str = str,
             .idx = 0,
@@ -30,8 +30,8 @@ pub const ComponentIterator = struct {
     }
 
     pub fn next(self: *ComponentIterator) ?Component {
-        if (self.idx == self.str.len) return null;
         const c = self.str[self.idx];
+        if (c == 0) return null;
         self.idx += 1;
         switch (c) {
             'L' => {
@@ -68,18 +68,14 @@ pub const ComponentIterator = struct {
             'z' => return .{ .spec = .z },
             'w' => return .{ .spec = .w },
             'F' => return .{ .spec = .F },
-            'G' => return .{ .spec = .G },
-            'H' => return .{ .spec = .H },
-            'M' => return .{ .spec = .M },
             'a' => return .{ .spec = .a },
             'A' => return .{ .spec = .A },
-            'V', 'q', 'E' => {
+            'V', 'E' => {
                 const start = self.idx;
                 while (std.ascii.isDigit(self.str[self.idx])) : (self.idx += 1) {}
                 const count = std.fmt.parseUnsigned(u32, self.str[start..self.idx], 10) catch unreachable;
                 return switch (c) {
                     'V' => .{ .spec = .{ .V = count } },
-                    'q' => .{ .spec = .{ .q = count } },
                     'E' => .{ .spec = .{ .E = count } },
                     else => unreachable,
                 };
@@ -103,16 +99,12 @@ pub const ComponentIterator = struct {
             'p' => return .{ .spec = .p },
             '.' => {
                 // can only appear at end of param string; indicates varargs function
-                std.debug.assert(self.idx == self.str.len);
+                std.debug.assert(self.str[self.idx] == 0);
                 return null;
-            },
-            '!' => {
-                std.debug.assert(self.str.len == 1);
-                return .{ .spec = .@"!" };
             },
 
             '*' => {
-                if (self.idx < self.str.len and std.ascii.isDigit(self.str[self.idx])) {
+                if (std.ascii.isDigit(self.str[self.idx])) {
                     defer self.idx += 1;
                     const addr_space = self.str[self.idx] - '0';
                     return .{ .suffix = .{ .@"*" = addr_space } };
@@ -123,6 +115,14 @@ pub const ComponentIterator = struct {
             'C' => return .{ .suffix = .C },
             'D' => return .{ .suffix = .D },
             'R' => return .{ .suffix = .R },
+            'Q' => {
+                defer self.idx += 1;
+                switch (self.str[self.idx]) {
+                    'a' => return .{ .spec = .{ .Q = .aarch64_svcount_t } },
+                    'b' => return .{ .spec = .{ .Q = .amdgpu_buffer_rsrc_t } },
+                    else => unreachable,
+                }
+            },
             else => unreachable,
         }
         return null;
@@ -130,13 +130,13 @@ pub const ComponentIterator = struct {
 };
 
 pub const TypeIterator = struct {
-    param_str: []const u8,
+    param_str: [*:0]const u8,
     prefix: [4]Prefix,
     spec: Spec,
     suffix: [4]Suffix,
     idx: usize,
 
-    pub fn init(param_str: []const u8) TypeIterator {
+    pub fn init(param_str: [*:0]const u8) TypeIterator {
         return .{
             .param_str = param_str,
             .prefix = undefined,
@@ -176,7 +176,7 @@ pub const TypeIterator = struct {
             _ = it.next();
         }
         if (maybe_spec) |spec| {
-            return TypeDescription{
+            return .{
                 .prefix = self.prefix[0..prefix_count],
                 .spec = spec,
                 .suffix = self.suffix[0..suffix_count],
@@ -236,20 +236,17 @@ const Spec = union(enum) {
     w,
     /// constant CFString
     F,
-    /// id
-    G,
-    /// SEL
-    H,
-    /// struct objc_super
-    M,
     /// __builtin_va_list
     a,
     /// "reference" to __builtin_va_list
     A,
     /// Vector, followed by the number of elements and the base type.
     V: u32,
-    /// Scalable vector, followed by the number of elements and the base type.
-    q: u32,
+    /// target builtin type, followed by a character to distinguish the builtin type
+    Q: enum {
+        aarch64_svcount_t,
+        amdgpu_buffer_rsrc_t,
+    },
     /// ext_vector, followed by the number of elements and the base type.
     E: u32,
     /// _Complex, followed by the base type.
@@ -270,8 +267,6 @@ const Spec = union(enum) {
     K,
     /// pid_t
     p,
-    /// Used to indicate a builtin with target-dependent param types. Must appear by itself
-    @"!",
 };
 
 const Suffix = union(enum) {

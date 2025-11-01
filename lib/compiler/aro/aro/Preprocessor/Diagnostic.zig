@@ -73,6 +73,16 @@ pub const line_invalid_filename: Diagnostic = .{
     .kind = .@"error",
 };
 
+pub const line_invalid_number: Diagnostic = .{
+    .fmt = "{s} directive requires a positive integer argument",
+    .kind = .@"error",
+};
+
+pub const line_invalid_flag: Diagnostic = .{
+    .fmt = "invalid flag '{s}' in line marker directive",
+    .kind = .@"error",
+};
+
 pub const unterminated_conditional_directive: Diagnostic = .{
     .fmt = "unterminated conditional directive",
     .kind = .@"error",
@@ -455,4 +465,10 @@ pub const no_argument_variadic_macro: Diagnostic = .{
     .opt = .@"variadic-macro-arguments-omitted",
     .kind = .off,
     .extension = true,
+};
+
+pub const pragma_once_in_main_file: Diagnostic = .{
+    .fmt = "#pragma once in main file",
+    .kind = .warning,
+    .opt = .@"pragma-once-outside-header",
 };

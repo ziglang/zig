@@ -307,7 +307,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     var aro_comp = aro.Compilation.init(gpa, arena, io, &diagnostics, std.fs.cwd());
     defer aro_comp.deinit();
 
-    aro_comp.target = target.*;
+    aro_comp.target = .fromZigTarget(target.*);
 
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 

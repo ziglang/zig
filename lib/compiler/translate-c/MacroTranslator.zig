@@ -637,7 +637,7 @@ fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
 
     // for handling type macros (EVIL)
     // TODO maybe detect and treat type macros as typedefs in parseCSpecifierQualifierList?
-    if (try mt.parseCTypeName(scope, true)) |type_name| {
+    if (try mt.parseCTypeName(scope)) |type_name| {
         return type_name;
     }
 
@@ -825,6 +825,18 @@ fn parseCMulExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
         switch (mt.peek()) {
             .asterisk => {
                 mt.i += 1;
+                switch (mt.peek()) {
+                    .comma, .r_paren, .eof => {
+                        // This is probably a pointer type
+                        return ZigTag.c_pointer.create(mt.t.arena, .{
+                            .is_const = false,
+                            .is_volatile = false,
+                            .is_allowzero = false,
+                            .elem_type = node,
+                        });
+                    },
+                    else => {},
+                }
                 const lhs = try mt.macroIntFromBool(node);
                 const rhs = try mt.macroIntFromBool(try mt.parseCCastExpr(scope));
                 node = try ZigTag.mul.create(mt.t.arena, .{ .lhs = lhs, .rhs = rhs });
@@ -848,7 +860,7 @@ fn parseCMulExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
 
 fn parseCCastExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
     if (mt.eat(.l_paren)) {
-        if (try mt.parseCTypeName(scope, true)) |type_name| {
+        if (try mt.parseCTypeName(scope)) |type_name| {
             while (true) {
                 const next_tok = mt.peek();
                 if (next_tok == .r_paren) {
@@ -882,14 +894,14 @@ fn parseCCastExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
 }
 
 // allow_fail is set when unsure if we are parsing a type-name
-fn parseCTypeName(mt: *MacroTranslator, scope: *Scope, allow_fail: bool) ParseError!?ZigNode {
-    if (try mt.parseCSpecifierQualifierList(scope, allow_fail)) |node| {
+fn parseCTypeName(mt: *MacroTranslator, scope: *Scope) ParseError!?ZigNode {
+    if (try mt.parseCSpecifierQualifierList(scope)) |node| {
         return try mt.parseCAbstractDeclarator(node);
     }
     return null;
 }
 
-fn parseCSpecifierQualifierList(mt: *MacroTranslator, scope: *Scope, allow_fail: bool) ParseError!?ZigNode {
+fn parseCSpecifierQualifierList(mt: *MacroTranslator, scope: *Scope) ParseError!?ZigNode {
     const tok = mt.peek();
     switch (tok) {
         .macro_param, .macro_param_no_expand => {
@@ -897,9 +909,9 @@ fn parseCSpecifierQualifierList(mt: *MacroTranslator, scope: *Scope, allow_fail:
 
             // Assume that this is only a cast if the next token is ')'
             // e.g. param)identifier
-            if (allow_fail and (mt.macro.tokens.len < mt.i + 3 or
+            if (mt.macro.tokens.len < mt.i + 3 or
                 mt.macro.tokens[mt.i + 1].id != .r_paren or
-                mt.macro.tokens[mt.i + 2].id != .identifier))
+                mt.macro.tokens[mt.i + 2].id != .identifier)
                 return null;
 
             mt.i += 1;
@@ -912,10 +924,10 @@ fn parseCSpecifierQualifierList(mt: *MacroTranslator, scope: *Scope, allow_fail:
 
             if (mt.t.global_scope.blank_macros.contains(slice)) {
                 mt.i += 1;
-                return try mt.parseCSpecifierQualifierList(scope, allow_fail);
+                return try mt.parseCSpecifierQualifierList(scope);
             }
 
-            if (!allow_fail or mt.t.typedefs.contains(mangled_name)) {
+            if (mt.t.typedefs.contains(mangled_name)) {
                 mt.i += 1;
                 if (Translator.builtin_typedef_map.get(mangled_name)) |ty| {
                     return try ZigTag.type.create(mt.t.arena, ty);
@@ -952,6 +964,10 @@ fn parseCSpecifierQualifierList(mt: *MacroTranslator, scope: *Scope, allow_fail:
         .keyword_enum, .keyword_struct, .keyword_union => {
             const tag_name = mt.tokSlice();
             mt.i += 1;
+            if (mt.peek() != .identifier) {
+                mt.i -= 1;
+                return null;
+            }
 
             // struct Foo will be declared as struct_Foo by transRecordDecl
             const identifier = mt.tokSlice();
@@ -963,10 +979,7 @@ fn parseCSpecifierQualifierList(mt: *MacroTranslator, scope: *Scope, allow_fail:
         else => {},
     }
 
-    if (allow_fail) return null;
-
-    try mt.fail("unable to translate C expr: unexpected token '{s}'", .{tok.symbol()});
-    return error.ParseError;
+    return null;
 }
 
 fn parseCNumericType(mt: *MacroTranslator) ParseError!ZigNode {
@@ -1126,6 +1139,11 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
         switch (mt.peek()) {
             .period => {
                 mt.i += 1;
+                const tok = mt.tokens[mt.i];
+                if (tok.id == .macro_param or tok.id == .macro_param_no_expand) {
+                    try mt.fail("unable to translate C expr: field access using macro parameter", .{});
+                    return error.ParseError;
+                }
                 const field_name = mt.tokSlice();
                 try mt.expect(.identifier);
 
@@ -1133,6 +1151,11 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
             },
             .arrow => {
                 mt.i += 1;
+                const tok = mt.tokens[mt.i];
+                if (tok.id == .macro_param or tok.id == .macro_param_no_expand) {
+                    try mt.fail("unable to translate C expr: field access using macro parameter", .{});
+                    return error.ParseError;
+                }
                 const field_name = mt.tokSlice();
                 try mt.expect(.identifier);
 
@@ -1286,7 +1309,7 @@ fn parseCUnaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
         .keyword_sizeof => {
             mt.i += 1;
             const operand = if (mt.eat(.l_paren)) blk: {
-                const inner = (try mt.parseCTypeName(scope, false)).?;
+                const inner = (try mt.parseCTypeName(scope)) orelse try mt.parseCUnaryExpr(scope);
                 try mt.expect(.r_paren);
                 break :blk inner;
             } else try mt.parseCUnaryExpr(scope);
@@ -1298,7 +1321,7 @@ fn parseCUnaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
             // TODO this won't work if using <stdalign.h>'s
             // #define alignof _Alignof
             try mt.expect(.l_paren);
-            const operand = (try mt.parseCTypeName(scope, false)).?;
+            const operand = (try mt.parseCTypeName(scope)) orelse try mt.parseCUnaryExpr(scope);
             try mt.expect(.r_paren);
 
             return ZigTag.alignof.create(mt.t.arena, operand);

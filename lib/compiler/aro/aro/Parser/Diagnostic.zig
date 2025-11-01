@@ -1348,6 +1348,11 @@ pub const invalid_asm_str: Diagnostic = .{
     .kind = .@"error",
 };
 
+pub const invalid_asm_output: Diagnostic = .{
+    .fmt = "invalid lvalue in asm output",
+    .kind = .@"error",
+};
+
 pub const dollar_in_identifier_extension: Diagnostic = .{
     .fmt = "'$' in identifier",
     .opt = .@"dollar-in-identifier-extension",
@@ -1744,6 +1749,7 @@ pub const enum_fixed: Diagnostic = .{
     .fmt = "enumeration types with a fixed underlying type are a Clang extension",
     .kind = .off,
     .opt = .@"fixed-enum-extension",
+    .suppress_version = .c23,
     .extension = true,
 };
 
@@ -1764,6 +1770,29 @@ pub const enum_different_explicit_ty: Diagnostic = .{
 
 pub const enum_not_representable_fixed: Diagnostic = .{
     .fmt = "enumerator value is not representable in the underlying type {qt}",
+    .kind = .@"error",
+};
+
+pub const enum_forward_declaration: Diagnostic = .{
+    .fmt = "ISO C forbids forward references to 'enum' types",
+    .kind = .off,
+    .extension = true,
+};
+
+pub const enum_atomic_ignored: Diagnostic = .{
+    .fmt = "'_Atomic' qualifier ignored; operations involving the enumeration type will be non-atomic",
+    .kind = .@"error",
+    .opt = .@"underlying-atomic-qualifier-ignored",
+};
+
+pub const enum_qualifiers_ignored: Diagnostic = .{
+    .fmt = "qualifiers in enumeration underlying type ignored",
+    .kind = .warning,
+    .opt = .@"underlying-cv-qualifier-ignored",
+};
+
+pub const enum_invalid_underlying_type: Diagnostic = .{
+    .fmt = "non-integral type {qt} is an invalid underlying type",
     .kind = .@"error",
 };
 
@@ -2184,6 +2213,31 @@ pub const not_floating_type: Diagnostic = .{
     .kind = .@"error",
 };
 
+pub const elementwise_type: Diagnostic = .{
+    .fmt = "argument must be a vector{s} (was '{qt}')",
+    .kind = .@"error",
+};
+
+pub const nontemporal_address_pointer: Diagnostic = .{
+    .fmt = "address argument to nontemporal builtin must be a pointer ('{qt}' invalid)",
+    .kind = .@"error",
+};
+
+pub const nontemporal_address_type: Diagnostic = .{
+    .fmt = "address argument to nontemporal builtin must be a pointer to integer, float, pointer, or a vector of such types ('{qt}' invalid)",
+    .kind = .@"error",
+};
+
+pub const atomic_address_pointer: Diagnostic = .{
+    .fmt = "address argument to atomic builtin must be a pointer ('{qt}' invalid)",
+    .kind = .@"error",
+};
+
+pub const atomic_address_type: Diagnostic = .{
+    .fmt = "address argument to atomic builtin must be a pointer to an integer or a pointer types ('{qt}' invalid)",
+    .kind = .@"error",
+};
+
 pub const argument_types_differ: Diagnostic = .{
     .fmt = "arguments are of different types ({qt} vs {qt})",
     .kind = .@"error",
@@ -2304,12 +2358,6 @@ pub const overflow_result_requires_ptr: Diagnostic = .{
 pub const attribute_todo: Diagnostic = .{
     .fmt = "TODO: implement '{s}' attribute for {s}",
     .kind = .warning,
-    .opt = .@"attribute-todo",
-};
-
-pub const invalid_type_underlying_enum: Diagnostic = .{
-    .fmt = "non-integral type {qt} is an invalid underlying type",
-    .kind = .@"error",
 };
 
 pub const auto_type_self_initialized: Diagnostic = .{
@@ -2421,4 +2469,14 @@ pub const nonnull_not_applicable: Diagnostic = .{
     .fmt = "'nonnull' attribute only applies to functions, methods, and parameters",
     .kind = .warning,
     .opt = .@"ignored-attributes",
+};
+
+pub const mixing_decimal_floats: Diagnostic = .{
+    .fmt = "cannot mix operands of decimal floating and other floating types",
+    .kind = .@"error",
+};
+
+pub const invalid_attribute_location: Diagnostic = .{
+    .fmt = "{s} cannot appear here",
+    .kind = .@"error",
 };

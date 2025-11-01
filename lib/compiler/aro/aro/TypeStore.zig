@@ -7,7 +7,6 @@ const record_layout = @import("record_layout.zig");
 const Parser = @import("Parser.zig");
 const StringInterner = @import("StringInterner.zig");
 const StringId = StringInterner.StringId;
-const target_util = @import("target.zig");
 const Tree = @import("Tree.zig");
 const Node = Tree.Node;
 const TokenIndex = Tree.TokenIndex;
@@ -92,6 +91,16 @@ const Index = enum(u29) {
     int_pointer = std.math.maxInt(u29) - 27,
     /// Special type used when combining declarators.
     declarator_combine = std.math.maxInt(u29) - 28,
+    float_bf16 = std.math.maxInt(u29) - 29,
+    float_float32 = std.math.maxInt(u29) - 30,
+    float_float64 = std.math.maxInt(u29) - 31,
+    float_float32x = std.math.maxInt(u29) - 32,
+    float_float64x = std.math.maxInt(u29) - 33,
+    float_float128x = std.math.maxInt(u29) - 34,
+    float_dfloat32 = std.math.maxInt(u29) - 35,
+    float_dfloat64 = std.math.maxInt(u29) - 36,
+    float_dfloat128 = std.math.maxInt(u29) - 37,
+    float_dfloat64x = std.math.maxInt(u29) - 38,
     _,
 };
 
@@ -123,12 +132,22 @@ pub const QualType = packed struct(u32) {
     pub const ulong_long: QualType = .{ ._index = .int_ulong_long };
     pub const int128: QualType = .{ ._index = .int_int128 };
     pub const uint128: QualType = .{ ._index = .int_uint128 };
+    pub const bf16: QualType = .{ ._index = .float_bf16 };
     pub const fp16: QualType = .{ ._index = .float_fp16 };
     pub const float16: QualType = .{ ._index = .float_float16 };
     pub const float: QualType = .{ ._index = .float_float };
     pub const double: QualType = .{ ._index = .float_double };
     pub const long_double: QualType = .{ ._index = .float_long_double };
     pub const float128: QualType = .{ ._index = .float_float128 };
+    pub const float32: QualType = .{ ._index = .float_float32 };
+    pub const float64: QualType = .{ ._index = .float_float64 };
+    pub const float32x: QualType = .{ ._index = .float_float32x };
+    pub const float64x: QualType = .{ ._index = .float_float64x };
+    pub const float128x: QualType = .{ ._index = .float_float128x };
+    pub const dfloat32: QualType = .{ ._index = .float_dfloat32 };
+    pub const dfloat64: QualType = .{ ._index = .float_dfloat64 };
+    pub const dfloat128: QualType = .{ ._index = .float_dfloat128 };
+    pub const dfloat64x: QualType = .{ ._index = .float_dfloat64x };
     pub const void_pointer: QualType = .{ ._index = .void_pointer };
     pub const char_pointer: QualType = .{ ._index = .char_pointer };
     pub const int_pointer: QualType = .{ ._index = .int_pointer };
@@ -184,12 +203,22 @@ pub const QualType = packed struct(u32) {
             .int_ulong_long => return .{ .int = .ulong_long },
             .int_int128 => return .{ .int = .int128 },
             .int_uint128 => return .{ .int = .uint128 },
+            .float_bf16 => return .{ .float = .bf16 },
             .float_fp16 => return .{ .float = .fp16 },
             .float_float16 => return .{ .float = .float16 },
             .float_float => return .{ .float = .float },
             .float_double => return .{ .float = .double },
             .float_long_double => return .{ .float = .long_double },
             .float_float128 => return .{ .float = .float128 },
+            .float_float32 => return .{ .float = .float32 },
+            .float_float64 => return .{ .float = .float64 },
+            .float_float32x => return .{ .float = .float32x },
+            .float_float64x => return .{ .float = .float64x },
+            .float_float128x => return .{ .float = .float128x },
+            .float_dfloat32 => return .{ .float = .dfloat32 },
+            .float_dfloat64 => return .{ .float = .dfloat64 },
+            .float_dfloat128 => return .{ .float = .dfloat128 },
+            .float_dfloat64x => return .{ .float = .dfloat64x },
             .void_pointer => return .{ .pointer = .{ .child = .void, .decayed = null } },
             .char_pointer => return .{ .pointer = .{ .child = .char, .decayed = null } },
             .int_pointer => return .{ .pointer = .{ .child = .int, .decayed = null } },
@@ -608,8 +637,17 @@ pub const QualType = packed struct(u32) {
                 .float => comp.target.cTypeAlignment(.float),
                 .double => comp.target.cTypeAlignment(.double),
                 .long_double => comp.target.cTypeAlignment(.longdouble),
-                .fp16, .float16 => 2,
+                .bf16, .fp16, .float16 => 2,
                 .float128 => 16,
+                .float32 => comp.target.cTypeAlignment(.float),
+                .float64 => comp.target.cTypeAlignment(.double),
+                .float32x => 8,
+                .float64x => 16,
+                .float128x => unreachable, // Not supported
+                .dfloat32 => 4,
+                .dfloat64 => 8,
+                .dfloat128 => 16,
+                .dfloat64x => 16,
             },
             .bit_int => |bit_int| {
                 // https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2709.pdf
@@ -628,7 +666,7 @@ pub const QualType = packed struct(u32) {
                 else => comp.target.ptrBitWidth() / 8,
             },
 
-            .func => target_util.defaultFunctionAlignment(comp.target),
+            .func => comp.target.defaultFunctionAlignment(),
 
             .array => |array| continue :loop array.elem.base(comp).type,
             .vector => |vector| continue :loop vector.elem.base(comp).type,
@@ -774,20 +812,31 @@ pub const QualType = packed struct(u32) {
     pub fn floatRank(qt: QualType, comp: *const Compilation) usize {
         return loop: switch (qt.base(comp).type) {
             .float => |float_ty| switch (float_ty) {
-                // TODO: bfloat16 => 0
+                .bf16 => 0,
                 .float16 => 1,
                 .fp16 => 2,
                 .float => 3,
-                .double => 4,
-                .long_double => 5,
-                .float128 => 6,
+                .float32 => 4,
+                .float32x => 5,
+                .double => 6,
+                .float64 => 7,
+                .float64x => 8,
+                .long_double => 9,
+                .float128 => 10,
                 // TODO: ibm128 => 7
+                .float128x => unreachable, // Not supported
+                .dfloat32 => decimal_float_rank + 0,
+                .dfloat64 => decimal_float_rank + 1,
+                .dfloat64x => decimal_float_rank + 2,
+                .dfloat128 => decimal_float_rank + 3,
             },
             .complex => |complex| continue :loop complex.base(comp).type,
             .atomic => |atomic| continue :loop atomic.base(comp).type,
             else => unreachable,
         };
     }
+
+    pub const decimal_float_rank = 90;
 
     /// Rank for integer conversions, ignoring domain (complex vs real)
     /// Asserts that ty is an integer type
@@ -1135,7 +1184,7 @@ pub const QualType = packed struct(u32) {
                 if (index <= aligned_index) break;
             }
             last_aligned_index = index;
-            const requested = if (attribute.args.aligned.alignment) |alignment| alignment.requested else target_util.defaultAlignment(comp.target);
+            const requested = if (attribute.args.aligned.alignment) |alignment| alignment.requested else comp.target.defaultAlignment();
             if (max_requested == null or max_requested.? < requested) {
                 max_requested = requested;
             }
@@ -1143,9 +1192,16 @@ pub const QualType = packed struct(u32) {
         return max_requested;
     }
 
+    pub fn linkage(qt: QualType, comp: *const Compilation) std.builtin.GlobalLinkage {
+        if (qt.hasAttribute(comp, .internal_linkage)) return .internal;
+        if (qt.hasAttribute(comp, .weak)) return .weak;
+        if (qt.hasAttribute(comp, .selectany)) return .link_once;
+        return .strong;
+    }
+
     pub fn enumIsPacked(qt: QualType, comp: *const Compilation) bool {
         std.debug.assert(qt.is(comp, .@"enum"));
-        return comp.langopts.short_enums or target_util.packAllEnums(comp.target) or qt.hasAttribute(comp, .@"packed");
+        return comp.langopts.short_enums or comp.target.packAllEnums() or qt.hasAttribute(comp, .@"packed");
     }
 
     pub fn shouldDesugar(qt: QualType, comp: *const Compilation) bool {
@@ -1275,12 +1331,22 @@ pub const QualType = packed struct(u32) {
             },
             .bit_int => |bit_int| try w.print("{s} _BitInt({d})", .{ @tagName(bit_int.signedness), bit_int.bits }),
             .float => |float_ty| switch (float_ty) {
+                .bf16 => try w.writeAll("__bf16"),
                 .fp16 => try w.writeAll("__fp16"),
                 .float16 => try w.writeAll("_Float16"),
                 .float => try w.writeAll("float"),
                 .double => try w.writeAll("double"),
                 .long_double => try w.writeAll("long double"),
                 .float128 => try w.writeAll("__float128"),
+                .float32 => try w.writeAll("_Float32"),
+                .float64 => try w.writeAll("_Float64"),
+                .float32x => try w.writeAll("_Float32x"),
+                .float64x => try w.writeAll("_Float64x"),
+                .float128x => try w.writeAll("_Float128x"),
+                .dfloat32 => try w.writeAll("_Decimal32"),
+                .dfloat64 => try w.writeAll("_Decimal64"),
+                .dfloat128 => try w.writeAll("_Decimal128"),
+                .dfloat64x => try w.writeAll("_Decimal64x"),
             },
             .complex => |complex| {
                 try w.writeAll("_Complex ");
@@ -1498,21 +1564,41 @@ pub const Type = union(enum) {
     };
 
     pub const Float = enum {
+        bf16,
         fp16,
         float16,
         float,
         double,
         long_double,
         float128,
+        float32,
+        float64,
+        float32x,
+        float64x,
+        float128x,
+        dfloat32,
+        dfloat64,
+        dfloat128,
+        dfloat64x,
 
         pub fn bits(float: Float, comp: *const Compilation) u16 {
             return switch (float) {
+                .bf16 => 16,
                 .fp16 => 16,
                 .float16 => 16,
                 .float => comp.target.cTypeBitSize(.float),
                 .double => comp.target.cTypeBitSize(.double),
                 .long_double => comp.target.cTypeBitSize(.longdouble),
                 .float128 => 128,
+                .float32 => 32,
+                .float64 => 64,
+                .float32x => 32 * 2,
+                .float64x => 64 * 2,
+                .float128x => unreachable, // Not supported
+                .dfloat32 => 32,
+                .dfloat64 => 64,
+                .dfloat128 => 128,
+                .dfloat64x => 64 * 2,
             };
         }
     };
@@ -1747,12 +1833,22 @@ pub fn putExtra(ts: *TypeStore, gpa: std.mem.Allocator, ty: Type) !Index {
             .uint128 => return .int_uint128,
         },
         .float => |float| switch (float) {
+            .bf16 => return .float_bf16,
             .fp16 => return .float_fp16,
             .float16 => return .float_float16,
             .float => return .float_float,
             .double => return .float_double,
             .long_double => return .float_long_double,
             .float128 => return .float_float128,
+            .float32 => return .float_float32,
+            .float64 => return .float_float64,
+            .float32x => return .float_float32x,
+            .float64x => return .float_float64x,
+            .float128x => return .float_float128x,
+            .dfloat32 => return .float_dfloat32,
+            .dfloat64 => return .float_dfloat64,
+            .dfloat128 => return .float_dfloat128,
+            .dfloat64x => return .float_dfloat64x,
         },
         else => {},
     }
@@ -2009,10 +2105,10 @@ pub fn initNamedTypes(ts: *TypeStore, comp: *Compilation) !void {
         else => .int,
     };
 
-    ts.intmax = target_util.intMaxType(comp.target);
-    ts.intptr = target_util.intPtrType(comp.target);
-    ts.int16 = target_util.int16Type(comp.target);
-    ts.int64 = target_util.int64Type(comp.target);
+    ts.intmax = comp.target.intMaxType();
+    ts.intptr = comp.target.intPtrType();
+    ts.int16 = comp.target.int16Type();
+    ts.int64 = comp.target.int64Type();
     ts.uint_least16_t = comp.intLeastN(16, .unsigned);
     ts.uint_least32_t = comp.intLeastN(32, .unsigned);
 
@@ -2100,7 +2196,6 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
         else
             return .char_pointer,
         .powerpc, .powerpcle => .powerpc_va_list,
-        .s390x => .s390x_va_list,
         .x86_64 => switch (comp.target.os.tag) {
             .uefi, .windows => return .char_pointer,
             else => .x86_64_va_list,
@@ -2367,18 +2462,33 @@ pub const Builder = struct {
         complex_sbit_int: u64,
         complex_ubit_int: u64,
 
+        bf16,
         fp16,
         float16,
         float,
         double,
         long_double,
         float128,
+        float32,
+        float64,
+        float32x,
+        float64x,
+        float128x,
+        dfloat32,
+        dfloat64,
+        dfloat128,
+        dfloat64x,
         complex,
         complex_float16,
         complex_float,
         complex_double,
         complex_long_double,
         complex_float128,
+        complex_float32,
+        complex_float64,
+        complex_float32x,
+        complex_float64x,
+        complex_float128x,
 
         // Any not simply constructed from specifier keywords.
         other: QualType,
@@ -2450,6 +2560,7 @@ pub const Builder = struct {
                 .complex_sint128 => "_Complex signed __int128",
                 .complex_uint128 => "_Complex unsigned __int128",
 
+                .bf16 => "__bf16",
                 .fp16 => "__fp16",
                 .float16 => "_Float16",
                 .float => "float",
@@ -2581,18 +2692,33 @@ pub const Builder = struct {
                 break :blk if (complex) try qt.toComplex(b.parser.comp) else qt;
             },
 
+            .bf16 => .bf16,
             .fp16 => .fp16,
             .float16 => .float16,
             .float => .float,
             .double => .double,
             .long_double => .long_double,
             .float128 => .float128,
+            .float32 => .float32,
+            .float64 => .float64,
+            .float32x => .float32x,
+            .float64x => .float64x,
+            .float128x => .float128x,
+            .dfloat32 => .dfloat32,
+            .dfloat64 => .dfloat64,
+            .dfloat128 => .dfloat128,
+            .dfloat64x => .dfloat64x,
 
             .complex_float16,
             .complex_float,
             .complex_double,
             .complex_long_double,
             .complex_float128,
+            .complex_float32,
+            .complex_float64,
+            .complex_float32x,
+            .complex_float64x,
+            .complex_float128x,
             .complex,
             => blk: {
                 const base_qt: QualType = switch (b.type) {
@@ -2601,6 +2727,11 @@ pub const Builder = struct {
                     .complex_double => .double,
                     .complex_long_double => .long_double,
                     .complex_float128 => .float128,
+                    .complex_float32 => .float32,
+                    .complex_float64 => .float64,
+                    .complex_float32x => .float32x,
+                    .complex_float64x => .float64x,
+                    .complex_float128x => .float128x,
                     .complex => .double,
                     else => unreachable,
                 };
@@ -2749,7 +2880,7 @@ pub const Builder = struct {
             else => {},
         }
 
-        if (new == .int128 and !target_util.hasInt128(b.parser.comp.target)) {
+        if (new == .int128 and !b.parser.comp.target.hasInt128()) {
             try b.parser.err(source_tok, .type_not_supported_on_target, .{"__int128"});
         }
 
@@ -2996,13 +3127,59 @@ pub const Builder = struct {
                 .complex => .complex_float128,
                 else => return b.cannotCombine(source_tok),
             },
-            .complex => switch (b.type) {
+            .float32 => switch (b.type) {
+                .none => .float32,
+                .complex => .complex_float32,
+                else => return b.cannotCombine(source_tok),
+            },
+            .float64 => switch (b.type) {
+                .none => .float64,
+                .complex => .complex_float64,
+                else => return b.cannotCombine(source_tok),
+            },
+            .float32x => switch (b.type) {
+                .none => .float32x,
+                .complex => .complex_float32x,
+                else => return b.cannotCombine(source_tok),
+            },
+            .float64x => switch (b.type) {
+                .none => .float64x,
+                .complex => .complex_float64x,
+                else => return b.cannotCombine(source_tok),
+            },
+            .float128x => switch (b.type) {
+                .none => .float128x,
+                .complex => .complex_float128x,
+                else => return b.cannotCombine(source_tok),
+            },
+            .dfloat32 => switch (b.type) {
+                .none => .dfloat32,
+                else => return b.cannotCombine(source_tok),
+            },
+            .dfloat64 => switch (b.type) {
+                .none => .dfloat64,
+                else => return b.cannotCombine(source_tok),
+            },
+            .dfloat128 => switch (b.type) {
+                .none => .dfloat128,
+                else => return b.cannotCombine(source_tok),
+            },
+            .dfloat64x => switch (b.type) {
+                .none => .dfloat64x,
+                else => return b.cannotCombine(source_tok),
+            },
+            .complex => switch (b.type) { //
                 .none => .complex,
                 .float16 => .complex_float16,
                 .float => .complex_float,
                 .double => .complex_double,
                 .long_double => .complex_long_double,
                 .float128 => .complex_float128,
+                .float32 => .complex_float32,
+                .float64 => .complex_float64,
+                .float32x => .complex_float32x,
+                .float64x => .complex_float64x,
+                .float128x => .complex_float128x,
                 .char => .complex_char,
                 .schar => .complex_schar,
                 .uchar => .complex_uchar,
@@ -3072,6 +3249,11 @@ pub const Builder = struct {
                 .complex_bit_int,
                 .complex_sbit_int,
                 .complex_ubit_int,
+                .complex_float32,
+                .complex_float64,
+                .complex_float32x,
+                .complex_float64x,
+                .complex_float128x,
                 => return b.duplicateSpec(source_tok, "_Complex"),
                 else => return b.cannotCombine(source_tok),
             },
@@ -3104,12 +3286,22 @@ pub const Builder = struct {
                 return .{ .bit_int = bit_int.bits };
             },
             .float => |float| switch (float) {
+                .bf16 => .bf16,
                 .fp16 => .fp16,
                 .float16 => .float16,
                 .float => .float,
                 .double => .double,
                 .long_double => .long_double,
                 .float128 => .float128,
+                .float32 => .float32,
+                .float64 => .float64,
+                .float32x => .float32x,
+                .float64x => .float64x,
+                .float128x => .float128x,
+                .dfloat32 => .dfloat32,
+                .dfloat64 => .dfloat64,
+                .dfloat128 => .dfloat128,
+                .dfloat64x => .dfloat64x,
             },
             .complex => |complex| switch (complex.base(comp).type) {
                 .int => |int| switch (int) {
@@ -3134,11 +3326,21 @@ pub const Builder = struct {
                 },
                 .float => |float| switch (float) {
                     .fp16 => unreachable,
+                    .bf16 => unreachable,
                     .float16 => .complex_float16,
                     .float => .complex_float,
                     .double => .complex_double,
                     .long_double => .complex_long_double,
                     .float128 => .complex_float128,
+                    .float32 => .complex_float32,
+                    .float64 => .complex_float64,
+                    .float32x => .complex_float32x,
+                    .float64x => .complex_float64x,
+                    .float128x => .complex_float128x,
+                    .dfloat32 => unreachable,
+                    .dfloat64 => unreachable,
+                    .dfloat128 => unreachable,
+                    .dfloat64x => unreachable,
                 },
                 else => unreachable,
             },
