@@ -636,7 +636,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .@"nosuspend",
         .asm_simple,
         .@"asm",
-        .asm_legacy,
         .array_type,
         .array_type_sentinel,
         .error_value,
@@ -1049,11 +1048,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
                 end_offset += 1; // for the rbrace
                 n = @enumFromInt(tree.extra_data[@intFromEnum(members.end) - 1]); // last parameter
             }
-        },
-        .asm_legacy => {
-            _, const extra_index = tree.nodeData(n).node_and_extra;
-            const extra = tree.extraData(extra_index, Node.AsmLegacy);
-            return extra.rparen + end_offset;
         },
         .@"asm" => {
             _, const extra_index = tree.nodeData(n).node_and_extra;
@@ -1897,18 +1891,6 @@ pub fn asmSimple(tree: Ast, node: Node.Index) full.Asm {
     });
 }
 
-pub fn asmLegacy(tree: Ast, node: Node.Index) full.AsmLegacy {
-    const template, const extra_index = tree.nodeData(node).node_and_extra;
-    const extra = tree.extraData(extra_index, Node.AsmLegacy);
-    const items = tree.extraDataSlice(.{ .start = extra.items_start, .end = extra.items_end }, Node.Index);
-    return tree.legacyAsmComponents(.{
-        .asm_token = tree.nodeMainToken(node),
-        .template = template,
-        .items = items,
-        .rparen = extra.rparen,
-    });
-}
-
 pub fn asmFull(tree: Ast, node: Node.Index) full.Asm {
     const template, const extra_index = tree.nodeData(node).node_and_extra;
     const extra = tree.extraData(extra_index, Node.Asm);
@@ -2214,67 +2196,6 @@ fn fullSwitchCaseComponents(tree: Ast, info: full.SwitchCase.Components, node: N
     return result;
 }
 
-fn legacyAsmComponents(tree: Ast, info: full.AsmLegacy.Components) full.AsmLegacy {
-    var result: full.AsmLegacy = .{
-        .ast = info,
-        .volatile_token = null,
-        .inputs = &.{},
-        .outputs = &.{},
-        .first_clobber = null,
-    };
-    if (tree.tokenTag(info.asm_token + 1) == .keyword_volatile) {
-        result.volatile_token = info.asm_token + 1;
-    }
-    const outputs_end: usize = for (info.items, 0..) |item, i| {
-        switch (tree.nodeTag(item)) {
-            .asm_output => continue,
-            else => break i,
-        }
-    } else info.items.len;
-
-    result.outputs = info.items[0..outputs_end];
-    result.inputs = info.items[outputs_end..];
-
-    if (info.items.len == 0) {
-        // asm ("foo" ::: "a", "b");
-        const template_token = tree.lastToken(info.template);
-        if (tree.tokenTag(template_token + 1) == .colon and
-            tree.tokenTag(template_token + 2) == .colon and
-            tree.tokenTag(template_token + 3) == .colon and
-            tree.tokenTag(template_token + 4) == .string_literal)
-        {
-            result.first_clobber = template_token + 4;
-        }
-    } else if (result.inputs.len != 0) {
-        // asm ("foo" :: [_] "" (y) : "a", "b");
-        const last_input = result.inputs[result.inputs.len - 1];
-        const rparen = tree.lastToken(last_input);
-        var i = rparen + 1;
-        // Allow a (useless) comma right after the closing parenthesis.
-        if (tree.tokenTag(i) == .comma) i = i + 1;
-        if (tree.tokenTag(i) == .colon and
-            tree.tokenTag(i + 1) == .string_literal)
-        {
-            result.first_clobber = i + 1;
-        }
-    } else {
-        // asm ("foo" : [_] "" (x) :: "a", "b");
-        const last_output = result.outputs[result.outputs.len - 1];
-        const rparen = tree.lastToken(last_output);
-        var i = rparen + 1;
-        // Allow a (useless) comma right after the closing parenthesis.
-        if (tree.tokenTag(i) == .comma) i = i + 1;
-        if (tree.tokenTag(i) == .colon and
-            tree.tokenTag(i + 1) == .colon and
-            tree.tokenTag(i + 2) == .string_literal)
-        {
-            result.first_clobber = i + 2;
-        }
-    }
-
-    return result;
-}
-
 fn fullAsmComponents(tree: Ast, info: full.Asm.Components) full.Asm {
     var result: full.Asm = .{
         .ast = info,
@@ -2488,14 +2409,6 @@ pub fn fullAsm(tree: Ast, node: Node.Index) ?full.Asm {
     return switch (tree.nodeTag(node)) {
         .asm_simple => tree.asmSimple(node),
         .@"asm" => tree.asmFull(node),
-        else => null,
-    };
-}
-
-/// To be deleted after 0.15.0 is tagged
-pub fn legacyAsm(tree: Ast, node: Node.Index) ?full.AsmLegacy {
-    return switch (tree.nodeTag(node)) {
-        .asm_legacy => tree.asmLegacy(node),
         else => null,
     };
 }
@@ -2890,21 +2803,6 @@ pub const full = struct {
             template: Node.Index,
             items: []const Node.Index,
             clobbers: Node.OptionalIndex,
-            rparen: TokenIndex,
-        };
-    };
-
-    pub const AsmLegacy = struct {
-        ast: Components,
-        volatile_token: ?TokenIndex,
-        first_clobber: ?TokenIndex,
-        outputs: []const Node.Index,
-        inputs: []const Node.Index,
-
-        pub const Components = struct {
-            asm_token: TokenIndex,
-            template: Node.Index,
-            items: []const Node.Index,
             rparen: TokenIndex,
         };
     };
@@ -3905,14 +3803,6 @@ pub const Node = struct {
         ///
         /// The `main_token` field is the `asm` token.
         asm_simple,
-        /// `asm(lhs, a)`.
-        ///
-        /// The `data` field is a `.node_and_extra`:
-        ///   1. a `Node.Index` to lhs.
-        ///   2. a `ExtraIndex` to `AsmLegacy`.
-        ///
-        /// The `main_token` field is the `asm` token.
-        asm_legacy,
         /// `asm(a, b)`.
         ///
         /// The `data` field is a `.node_and_extra`:
@@ -4087,14 +3977,6 @@ pub const Node = struct {
         section_expr: OptionalIndex,
         /// Populated if callconv(A) is present.
         callconv_expr: OptionalIndex,
-    };
-
-    /// To be removed after 0.15.0 is tagged
-    pub const AsmLegacy = struct {
-        items_start: ExtraIndex,
-        items_end: ExtraIndex,
-        /// Needed to make lastToken() work.
-        rparen: TokenIndex,
     };
 
     pub const Asm = struct {

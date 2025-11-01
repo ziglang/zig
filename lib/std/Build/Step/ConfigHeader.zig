@@ -124,9 +124,6 @@ pub fn getOutputFile(ch: *ConfigHeader) std.Build.LazyPath {
     return ch.getOutputDir().path(ch.step.owner, ch.include_path);
 }
 
-/// Deprecated; use `getOutputFile`.
-pub const getOutput = getOutputFile;
-
 fn addValueInner(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) !void {
     switch (@typeInfo(T)) {
         .null => {

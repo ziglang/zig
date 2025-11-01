@@ -460,7 +460,7 @@ pub fn DebugAllocator(comptime config: Config) type {
         pub fn detectLeaks(self: *Self) usize {
             var leaks: usize = 0;
 
-            const tty_config = std.Io.tty.detectConfig(.stderr());
+            const tty_config: std.Io.tty.Config = .detect(.stderr());
 
             for (self.buckets, 0..) |init_optional_bucket, size_class_index| {
                 var optional_bucket = init_optional_bucket;
@@ -536,7 +536,7 @@ pub fn DebugAllocator(comptime config: Config) type {
         fn reportDoubleFree(ret_addr: usize, alloc_stack_trace: StackTrace, free_stack_trace: StackTrace) void {
             var addr_buf: [stack_n]usize = undefined;
             const second_free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
-            const tty_config = std.Io.tty.detectConfig(.stderr());
+            const tty_config: std.Io.tty.Config = .detect(.stderr());
             log.err("Double free detected. Allocation: {f} First free: {f} Second free: {f}", .{
                 std.debug.FormatStackTrace{
                     .stack_trace = alloc_stack_trace,
@@ -590,7 +590,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
                 var addr_buf: [stack_n]usize = undefined;
                 const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
-                const tty_config = std.Io.tty.detectConfig(.stderr());
+                const tty_config: std.Io.tty.Config = .detect(.stderr());
                 log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
@@ -703,7 +703,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
                 var addr_buf: [stack_n]usize = undefined;
                 const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
-                const tty_config = std.Io.tty.detectConfig(.stderr());
+                const tty_config: std.Io.tty.Config = .detect(.stderr());
                 log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
@@ -935,7 +935,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                     var addr_buf: [stack_n]usize = undefined;
                     const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &addr_buf);
                     if (old_memory.len != requested_size) {
-                        const tty_config = std.Io.tty.detectConfig(.stderr());
+                        const tty_config: std.Io.tty.Config = .detect(.stderr());
                         log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                             requested_size,
                             old_memory.len,
@@ -950,7 +950,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                         });
                     }
                     if (alignment != slot_alignment) {
-                        const tty_config = std.Io.tty.detectConfig(.stderr());
+                        const tty_config: std.Io.tty.Config = .detect(.stderr());
                         log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {f} Free: {f}", .{
                             slot_alignment.toByteUnits(),
                             alignment.toByteUnits(),
@@ -1044,7 +1044,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                 var addr_buf: [stack_n]usize = undefined;
                 const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &addr_buf);
                 if (memory.len != requested_size) {
-                    const tty_config = std.Io.tty.detectConfig(.stderr());
+                    const tty_config: std.Io.tty.Config = .detect(.stderr());
                     log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                         requested_size,
                         memory.len,
@@ -1059,7 +1059,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                     });
                 }
                 if (alignment != slot_alignment) {
-                    const tty_config = std.Io.tty.detectConfig(.stderr());
+                    const tty_config: std.Io.tty.Config = .detect(.stderr());
                     log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {f} Free: {f}", .{
                         slot_alignment.toByteUnits(),
                         alignment.toByteUnits(),

@@ -1148,7 +1148,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
-                    const tty_config = std.Io.tty.detectConfig(.stderr());
+                    const tty_config: std.Io.tty.Config = .detect(.stderr());
                     print(
                         "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {f}",
                         .{

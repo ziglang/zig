@@ -58,7 +58,7 @@ fn serializeFloat(comptime T: type, value: T, w: *std.Io.Writer) !void {
         },
         else => {
             const size = @bitSizeOf(T);
-            const storage_unit = std.meta.intToEnum(StorageUnit, size) catch unreachable;
+            const storage_unit = std.enums.fromInt(StorageUnit, size).?;
             const IntTy = @Type(.{ .int = .{ .signedness = .unsigned, .bits = size } });
             const int_val: IntTy = @bitCast(value);
             return serializeInt(int_val, storage_unit, w);
@@ -95,7 +95,7 @@ fn emitSingleValue(c: *AsmCodeGen, qt: QualType, node: Node.Index) !void {
     if (!scalar_kind.isReal()) {
         return c.todo("Codegen _Complex values", node.tok(c.tree));
     } else if (scalar_kind.isInt()) {
-        const storage_unit = std.meta.intToEnum(StorageUnit, bit_size) catch return c.todo("Codegen _BitInt values", node.tok(c.tree));
+        const storage_unit = std.enums.fromInt(StorageUnit, bit_size) orelse return c.todo("Codegen _BitInt values", node.tok(c.tree));
         try c.data.print("  .{s} ", .{@tagName(storage_unit)});
         _ = try value.print(qt, c.comp, c.data);
         try c.data.writeByte('\n');
