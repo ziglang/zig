@@ -22,11 +22,12 @@ const Identifier = struct {
     byte_offset: u32 = 0,
 
     fn slice(self: Identifier, comp: *const Compilation) []const u8 {
-        var tmp_tokenizer = Tokenizer{
+        var tmp_tokenizer: Tokenizer = .{
             .buf = comp.getSource(self.id).buf,
             .langopts = comp.langopts,
             .index = self.byte_offset,
             .source = .generated,
+            .splice_locs = &.{},
         };
         const res = tmp_tokenizer.next();
         return tmp_tokenizer.buf[res.start..res.end];

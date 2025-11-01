@@ -58,7 +58,7 @@ pub fn main() u8 {
     var driver: aro.Driver = .{ .comp = &comp, .diagnostics = &diagnostics, .aro_name = "aro" };
     defer driver.deinit();
 
-    var toolchain: aro.Toolchain = .{ .driver = &driver, .filesystem = .{ .real = comp.cwd } };
+    var toolchain: aro.Toolchain = .{ .driver = &driver };
     defer toolchain.deinit();
 
     translate(&driver, &toolchain, args, zig_integration) catch |err| switch (err) {

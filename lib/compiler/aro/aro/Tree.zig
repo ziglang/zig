@@ -36,7 +36,7 @@ pub const TokenWithExpansionLocs = struct {
     pub fn expansionSlice(tok: TokenWithExpansionLocs) []const Source.Location {
         const locs = tok.expansion_locs orelse return &[0]Source.Location{};
         var i: usize = 0;
-        while (locs[i].id != .unused) : (i += 1) {}
+        while (locs[i].id.index != .unused) : (i += 1) {}
         return locs[0..i];
     }
 
@@ -56,7 +56,7 @@ pub const TokenWithExpansionLocs = struct {
 
         if (tok.expansion_locs) |locs| {
             var i: usize = 0;
-            while (locs[i].id != .unused) : (i += 1) {}
+            while (locs[i].id.index != .unused) : (i += 1) {}
             list.items = locs[0..i];
             while (locs[i].byte_offset != 1) : (i += 1) {}
             list.capacity = i + 1;
@@ -68,7 +68,7 @@ pub const TokenWithExpansionLocs = struct {
         try list.ensureTotalCapacity(gpa, wanted_len);
 
         for (new) |new_loc| {
-            if (new_loc.id == .generated) continue;
+            if (new_loc.id.index == .generated) continue;
             list.appendAssumeCapacity(new_loc);
         }
     }
@@ -76,7 +76,7 @@ pub const TokenWithExpansionLocs = struct {
     pub fn free(expansion_locs: ?[*]Source.Location, gpa: std.mem.Allocator) void {
         const locs = expansion_locs orelse return;
         var i: usize = 0;
-        while (locs[i].id != .unused) : (i += 1) {}
+        while (locs[i].id.index != .unused) : (i += 1) {}
         while (locs[i].byte_offset != 1) : (i += 1) {}
         gpa.free(locs[0 .. i + 1]);
     }

@@ -8,7 +8,6 @@ const Ir = backend.Ir;
 const Builder = Ir.Builder;
 
 const Builtins = @import("Builtins.zig");
-const Builtin = Builtins.Builtin;
 const Compilation = @import("Compilation.zig");
 const StringId = @import("StringInterner.zig").StringId;
 const Tree = @import("Tree.zig");
@@ -857,7 +856,7 @@ fn genExpr(c: *CodeGen, node_index: Node.Index) Error!Ir.Ref {
         },
         .builtin_call_expr => |call| {
             const name = c.tree.tokSlice(call.builtin_tok);
-            const builtin = c.comp.builtins.lookup(name).builtin;
+            const builtin = c.comp.builtins.lookup(name);
             return c.genBuiltinCall(builtin, call.args, call.qt);
         },
         .addr_of_label,
@@ -1074,10 +1073,10 @@ fn genBoolExpr(c: *CodeGen, base: Node.Index, true_label: Ir.Ref, false_label: I
     try c.addBranch(cmp, true_label, false_label);
 }
 
-fn genBuiltinCall(c: *CodeGen, builtin: Builtin, arg_nodes: []const Node.Index, qt: QualType) Error!Ir.Ref {
+fn genBuiltinCall(c: *CodeGen, builtin: Builtins.Expanded, arg_nodes: []const Node.Index, qt: QualType) Error!Ir.Ref {
     _ = arg_nodes;
     _ = qt;
-    return c.fail("TODO CodeGen.genBuiltinCall {s}\n", .{Builtin.nameFromTag(builtin.tag).span()});
+    return c.fail("TODO CodeGen.genBuiltinCall {t}\n", .{builtin.tag});
 }
 
 fn genCall(c: *CodeGen, call: Node.Call) Error!Ir.Ref {

@@ -8,7 +8,7 @@ const BigIntSpace = Interner.Tag.Int.BigIntSpace;
 
 const annex_g = @import("annex_g.zig");
 const Compilation = @import("Compilation.zig");
-const target_util = @import("target.zig");
+const Target = @import("Target.zig");
 const QualType = @import("TypeStore.zig").QualType;
 
 const Value = @This();
@@ -80,10 +80,10 @@ test "minUnsignedBits" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var comp = Compilation.init(std.testing.allocator, arena, undefined, std.fs.cwd());
+    var comp = Compilation.init(std.testing.allocator, arena, std.testing.io, undefined, std.fs.cwd());
     defer comp.deinit();
     const target_query = try std.Target.Query.parse(.{ .arch_os_abi = "x86_64-linux-gnu" });
-    comp.target = try std.zig.system.resolveTargetQuery(target_query);
+    comp.target = .fromZigTarget(try std.zig.system.resolveTargetQuery(std.testing.io, target_query));
 
     try Test.checkIntBits(&comp, 0, 0);
     try Test.checkIntBits(&comp, 1, 1);
@@ -119,10 +119,10 @@ test "minSignedBits" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var comp = Compilation.init(std.testing.allocator, arena, undefined, std.fs.cwd());
+    var comp = Compilation.init(std.testing.allocator, arena, std.testing.io, undefined, std.fs.cwd());
     defer comp.deinit();
     const target_query = try std.Target.Query.parse(.{ .arch_os_abi = "x86_64-linux-gnu" });
-    comp.target = try std.zig.system.resolveTargetQuery(target_query);
+    comp.target = .fromZigTarget(try std.zig.system.resolveTargetQuery(std.testing.io, target_query));
 
     try Test.checkIntBits(&comp, -1, 1);
     try Test.checkIntBits(&comp, -2, 2);
@@ -401,7 +401,7 @@ pub fn isZero(v: Value, comp: *const Compilation) bool {
     switch (v.ref()) {
         .zero => return true,
         .one => return false,
-        .null => return target_util.nullRepr(comp.target) == 0,
+        .null => return comp.target.nullRepr() == 0,
         else => {},
     }
     const key = comp.interner.get(v.ref());
