@@ -143,6 +143,15 @@ pub fn start(fuzz: *Fuzz) void {
     }
 
     for (fuzz.run_steps) |run| {
+        if (run.fuzz_tests.items.len > 1) {
+            // Multiple fuzzWorkerRuns currently cause race-
+            // conditions since they use the same Run step.
+            fuzz.wait_group.finish();
+            fatal("--fuzz not yet implemented for multiple tests", .{});
+        }
+    }
+
+    for (fuzz.run_steps) |run| {
         for (run.fuzz_tests.items) |unit_test_index| {
             assert(run.rebuilt_executable != null);
             fuzz.thread_pool.spawnWg(&fuzz.wait_group, fuzzWorkerRun, .{
@@ -203,7 +212,7 @@ fn fuzzWorkerRun(
     const prog_node = fuzz.prog_node.start(test_name, 0);
     defer prog_node.end();
 
-    run.rerunInFuzzMode(fuzz, unit_test_index, prog_node) catch |err| switch (err) {
+    run.rerunInFuzzMode(fuzz, gpa, unit_test_index, prog_node) catch |err| switch (err) {
         error.MakeFailed => {
             var buf: [256]u8 = undefined;
             const w, _ = std.debug.lockStderrWriter(&buf);
@@ -218,6 +227,17 @@ fn fuzzWorkerRun(
             return;
         },
     };
+
+    const show_compile_errors = run.step.result_error_bundle.errorMessageCount() > 0;
+    const show_error_msgs = run.step.result_error_msgs.items.len > 0;
+    const show_stderr = run.step.result_stderr.len > 0;
+
+    if (show_error_msgs or show_compile_errors or show_stderr) {
+        var buf: [256]u8 = undefined;
+        const w, _ = std.debug.lockStderrWriter(&buf);
+        defer std.debug.unlockStderrWriter();
+        build_runner.printErrorMessages(gpa, &run.step, .{}, w, fuzz.ttyconf, .verbose, .indent) catch {};
+    }
 }
 
 pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
