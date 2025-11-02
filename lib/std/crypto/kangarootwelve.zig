@@ -848,6 +848,10 @@ fn KTHash(
         final_state: ?StateType, // Running TurboSHAKE state for final node
         num_leaves: usize, // Count of leaves processed (after first chunk)
 
+        // SIMD chunk batching
+        pending_chunks: [8 * chunk_size]u8 align(cache_line_size), // Buffer for up to 8 chunks
+        pending_count: usize, // Number of complete chunks in pending_chunks
+
         /// Initialize a KangarooTwelve hashing context.
         /// The customization string is optional and used for domain separation.
         pub fn init(options: Options) Self {
@@ -861,7 +865,46 @@ fn KTHash(
                 .first_chunk = null,
                 .final_state = null,
                 .num_leaves = 0,
+                .pending_chunks = undefined,
+                .pending_count = 0,
             };
+        }
+
+        /// Flush all pending chunks using SIMD when possible
+        fn flushPendingChunks(self: *Self) void {
+            const cv_size = Variant.cv_size;
+
+            // Process all pending chunks using the largest SIMD batch sizes possible
+            while (self.pending_count > 0) {
+                // Try SIMD batches in decreasing size order
+                inline for ([_]usize{ 8, 4, 2 }) |batch_size| {
+                    if (optimal_vector_len >= batch_size and self.pending_count >= batch_size) {
+                        var leaf_cvs: [batch_size * cv_size]u8 align(cache_line_size) = undefined;
+                        processLeaves(Variant, batch_size, self.pending_chunks[0 .. batch_size * chunk_size], &leaf_cvs);
+                        self.final_state.?.update(&leaf_cvs);
+                        self.num_leaves += batch_size;
+                        self.pending_count -= batch_size;
+
+                        // Shift remaining chunks to the front
+                        if (self.pending_count > 0) {
+                            const remaining_bytes = self.pending_count * chunk_size;
+                            @memcpy(self.pending_chunks[0..remaining_bytes], self.pending_chunks[batch_size * chunk_size ..][0..remaining_bytes]);
+                        }
+                        break; // Continue outer loop to try next batch
+                    }
+                }
+
+                // If no SIMD batch was possible, process one chunk with scalar code
+                if (self.pending_count > 0 and self.pending_count < 2) {
+                    var cv_buffer: [64]u8 = undefined;
+                    const cv_slice = MultiSliceView.init(self.pending_chunks[0..chunk_size], &[_]u8{}, &[_]u8{});
+                    Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                    self.final_state.?.update(cv_buffer[0..cv_size]);
+                    self.num_leaves += 1;
+                    self.pending_count -= 1;
+                    break; // No more chunks to process
+                }
+            }
         }
 
         /// Absorb data into the hash state.
@@ -895,15 +938,21 @@ fn KTHash(
                         const padding = [_]u8{ 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
                         self.final_state.?.update(&padding);
                     } else {
-                        // Subsequent chunks - process as leaf and absorb CV
-                        const cv_size = Variant.cv_size;
-                        var cv_buffer: [64]u8 = undefined; // Max CV size
-                        const cv_slice = MultiSliceView.init(&self.buffer, &[_]u8{}, &[_]u8{});
-                        Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                        // Add chunk to pending buffer for SIMD batch processing
+                        @memcpy(self.pending_chunks[self.pending_count * chunk_size ..][0..chunk_size], &self.buffer);
+                        self.pending_count += 1;
 
-                        // Absorb CV into final state immediately
-                        self.final_state.?.update(cv_buffer[0..cv_size]);
-                        self.num_leaves += 1;
+                        // Flush when we have enough chunks for optimal SIMD batch
+                        // Determine best batch size for this architecture
+                        const optimal_batch_size = comptime blk: {
+                            if (optimal_vector_len >= 8) break :blk 8;
+                            if (optimal_vector_len >= 4) break :blk 4;
+                            if (optimal_vector_len >= 2) break :blk 2;
+                            break :blk 1;
+                        };
+                        if (self.pending_count >= optimal_batch_size) {
+                            self.flushPendingChunks();
+                        }
                     }
                     self.buffer_len = 0;
                 }
@@ -931,24 +980,65 @@ fn KTHash(
                 return;
             }
 
-            // Tree mode: we've already absorbed first_chunk + padding + intermediate CVs
-            // Now handle remaining buffer data
-            const remaining_with_custom_len = self.buffer_len + self.customization.len + self.custom_len_enc.len;
+            // Flush any pending chunks with SIMD
+            self.flushPendingChunks();
+
+            // Build view over remaining data (buffer + customization + encoding)
+            const remaining_view = MultiSliceView.init(
+                self.buffer[0..self.buffer_len],
+                self.customization,
+                self.custom_len_enc.slice(),
+            );
+            const remaining_len = remaining_view.totalLen();
+
             var final_leaves = self.num_leaves;
+            var leaf_start: usize = 0;
 
-            if (remaining_with_custom_len > 0) {
-                // Build final leaf data with customization
-                var final_leaf_buffer: [chunk_size + 256]u8 = undefined; // Extra space for customization
-                @memcpy(final_leaf_buffer[0..self.buffer_len], self.buffer[0..self.buffer_len]);
-                @memcpy(final_leaf_buffer[self.buffer_len..][0..self.customization.len], self.customization);
-                @memcpy(final_leaf_buffer[self.buffer_len + self.customization.len ..][0..self.custom_len_enc.len], self.custom_len_enc.slice());
+            // Tree mode: initialize if not already done (lazy initialization)
+            if (self.final_state == null and remaining_len > 0) {
+                self.final_state = StateType.init(.{});
 
-                // Generate CV for final leaf and absorb it
-                var cv_buffer: [64]u8 = undefined; // Max CV size
-                const cv_slice = MultiSliceView.init(final_leaf_buffer[0..remaining_with_custom_len], &[_]u8{}, &[_]u8{});
-                Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                // Absorb first chunk (up to chunk_size bytes from remaining data)
+                const first_chunk_len = @min(chunk_size, remaining_len);
+                if (remaining_view.tryGetSlice(0, first_chunk_len)) |first_chunk| {
+                    // Data is contiguous, use it directly
+                    self.final_state.?.update(first_chunk);
+                } else {
+                    // Data spans boundaries, copy to buffer
+                    var first_chunk_buf: [chunk_size]u8 = undefined;
+                    remaining_view.copyRange(0, first_chunk_len, first_chunk_buf[0..first_chunk_len]);
+                    self.final_state.?.update(first_chunk_buf[0..first_chunk_len]);
+                }
+
+                // Absorb padding (8 bytes: 0x03 followed by 7 zeros)
+                const padding = [_]u8{ 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+                self.final_state.?.update(&padding);
+
+                // Process remaining data as leaves
+                leaf_start = first_chunk_len;
+            }
+
+            // Process all remaining data as leaves (starting from leaf_start)
+            var offset = leaf_start;
+            while (offset < remaining_len) {
+                const leaf_end = @min(offset + chunk_size, remaining_len);
+                const leaf_size = leaf_end - offset;
+
+                var cv_buffer: [64]u8 = undefined;
+                if (remaining_view.tryGetSlice(offset, leaf_end)) |leaf_data| {
+                    // Data is contiguous, use it directly
+                    const cv_slice = MultiSliceView.init(leaf_data, &[_]u8{}, &[_]u8{});
+                    Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                } else {
+                    // Data spans boundaries, copy to buffer
+                    var leaf_buf: [chunk_size]u8 = undefined;
+                    remaining_view.copyRange(offset, leaf_end, leaf_buf[0..leaf_size]);
+                    const cv_slice = MultiSliceView.init(leaf_buf[0..leaf_size], &[_]u8{}, &[_]u8{});
+                    Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                }
                 self.final_state.?.update(cv_buffer[0..cv_size]);
                 final_leaves += 1;
+                offset = leaf_end;
             }
 
             // Absorb right_encode(num_leaves) and terminator
