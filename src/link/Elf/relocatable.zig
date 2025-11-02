@@ -74,10 +74,11 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     const total_size: usize = blk: {
         var pos: usize = elf.ARMAG.len;
         pos += @sizeOf(elf.ar_hdr) + ar_symtab.size(.p64);
+        pos = mem.alignForward(usize, pos, 2);
 
         if (ar_strtab.size() > 0) {
-            pos = mem.alignForward(usize, pos, 2);
             pos += @sizeOf(elf.ar_hdr) + ar_strtab.size();
+            pos = mem.alignForward(usize, pos, 2);
         }
 
         for (files.items) |index| {
@@ -87,9 +88,9 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
                 .object => |x| &x.output_ar_state,
                 else => unreachable,
             };
-            pos = mem.alignForward(usize, pos, 2);
             state.file_off = pos;
             pos += @sizeOf(elf.ar_hdr) + (math.cast(usize, state.size) orelse return error.Overflow);
+            pos = mem.alignForward(usize, pos, 2);
         }
 
         break :blk pos;
@@ -110,17 +111,18 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
 
     // Write symtab
     try ar_symtab.write(.p64, elf_file, &writer);
+    if (!mem.isAligned(writer.end, 2)) try writer.writeByte(0);
 
     // Write strtab
     if (ar_strtab.size() > 0) {
-        if (!mem.isAligned(writer.end, 2)) try writer.writeByte(0);
         try ar_strtab.write(&writer);
+        if (!mem.isAligned(writer.end, 2)) try writer.writeByte(0);
     }
 
     // Write object files
     for (files.items) |index| {
-        if (!mem.isAligned(writer.end, 2)) try writer.writeByte(0);
         try elf_file.file(index).?.writeAr(elf_file, &writer);
+        if (!mem.isAligned(writer.end, 2)) try writer.writeByte(0);
     }
 
     assert(writer.buffered().len == total_size);
