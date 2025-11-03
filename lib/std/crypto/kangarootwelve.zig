@@ -759,32 +759,37 @@ fn ktMultiThreaded(
     const all_scratch = try allocator.alloc(u8, thread_count * scratch_size);
     defer allocator.free(all_scratch);
 
-    var group: Io.Group = .init;
+    const contexts = try allocator.alloc(LeafBatchContext, thread_count);
+    defer allocator.free(contexts);
+
     var leaves_assigned: usize = 0;
-    var thread_idx: usize = 0;
+    var context_count: usize = 0;
 
     while (leaves_assigned < total_leaves) {
         const batch_count = @min(leaves_per_thread, total_leaves - leaves_assigned);
         const batch_start = chunk_size + leaves_assigned * chunk_size;
         const cvs_offset = leaves_assigned * cv_size;
 
-        const ctx = LeafBatchContext{
+        contexts[context_count] = LeafBatchContext{
             .output_cvs = cvs[cvs_offset .. cvs_offset + batch_count * cv_size],
             .batch_start = batch_start,
             .batch_count = batch_count,
             .view = view,
-            .scratch_buffer = all_scratch[thread_idx * scratch_size .. (thread_idx + 1) * scratch_size],
+            .scratch_buffer = all_scratch[context_count * scratch_size .. (context_count + 1) * scratch_size],
             .total_len = total_len,
         };
 
+        leaves_assigned += batch_count;
+        context_count += 1;
+    }
+
+    var group: Io.Group = .init;
+    for (contexts[0..context_count]) |ctx| {
         group.async(io, struct {
             fn process(c: LeafBatchContext) void {
                 processLeafBatch(Variant, c);
             }
         }.process, .{ctx});
-
-        leaves_assigned += batch_count;
-        thread_idx += 1;
     }
 
     // Wait for all threads to complete
