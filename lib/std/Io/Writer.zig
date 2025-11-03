@@ -911,11 +911,15 @@ pub fn sendFileHeader(
     file_reader: *File.Reader,
     limit: Limit,
 ) FileError!usize {
-    const new_end = w.end + header.len;
+    const old_end = w.end;
+    const new_end = old_end + header.len;
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        return header.len + try w.vtable.sendFile(w, file_reader, limit);
+        return header.len + (w.vtable.sendFile(w, file_reader, limit) catch |err| {
+            w.end = old_end;
+            return err;
+        });
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
