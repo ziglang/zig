@@ -67,6 +67,7 @@ const CoverageMap = struct {
     /// Elements are indexes into `source_locations` pointing to the unit tests that are being fuzz tested.
     entry_points: std.ArrayListUnmanaged(u32),
     start_timestamp: i64,
+    start_n_runs: u64,
 
     fn deinit(cm: *CoverageMap, gpa: Allocator) void {
         std.posix.munmap(cm.mapped_memory);
@@ -318,6 +319,7 @@ pub fn sendUpdate(
                 .source_locations_len = @intCast(coverage_map.source_locations.len),
                 .string_bytes_len = @intCast(coverage_map.coverage.string_bytes.items.len),
                 .start_timestamp = coverage_map.start_timestamp,
+                .start_n_runs = coverage_map.start_n_runs,
             };
             var iovecs: [5][]const u8 = .{
                 @ptrCast(&header),
@@ -399,6 +401,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
         .source_locations = undefined, // populated below
         .entry_points = .{},
         .start_timestamp = ws.now(),
+        .start_n_runs = undefined, // populated below
     };
     errdefer gop.value_ptr.coverage.deinit(fuzz.gpa);
 
@@ -468,6 +471,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
 
     for (sorted_pcs.items(.index), sorted_pcs.items(.sl)) |i, sl| source_locations[i] = sl;
     gop.value_ptr.source_locations = source_locations;
+    gop.value_ptr.start_n_runs = header.n_runs;
 
     ws.notifyUpdate();
 }

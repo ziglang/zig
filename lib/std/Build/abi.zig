@@ -218,6 +218,7 @@ pub const fuzz = struct {
         string_bytes_len: u32,
         /// When, according to the server, fuzzing started.
         start_timestamp: i64 align(4),
+        start_n_runs: u64 align(4),
     };
 
     /// WebSocket server->client.
