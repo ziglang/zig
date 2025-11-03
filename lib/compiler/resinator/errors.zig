@@ -1,5 +1,11 @@
+const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
+
 const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+
 const Token = @import("lex.zig").Token;
 const SourceMappings = @import("source_mapping.zig").SourceMappings;
 const utils = @import("utils.zig");
@@ -11,19 +17,19 @@ const parse = @import("parse.zig");
 const lang = @import("lang.zig");
 const code_pages = @import("code_pages.zig");
 const SupportedCodePage = code_pages.SupportedCodePage;
-const builtin = @import("builtin");
-const native_endian = builtin.cpu.arch.endian();
 
 pub const Diagnostics = struct {
     errors: std.ArrayList(ErrorDetails) = .empty,
     /// Append-only, cannot handle removing strings.
     /// Expects to own all strings within the list.
     strings: std.ArrayList([]const u8) = .empty,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
+    io: Io,
 
-    pub fn init(allocator: std.mem.Allocator) Diagnostics {
+    pub fn init(allocator: Allocator, io: Io) Diagnostics {
         return .{
             .allocator = allocator,
+            .io = io,
         };
     }
 
@@ -61,17 +67,13 @@ pub const Diagnostics = struct {
         return @intCast(index);
     }
 
-    pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.Io.tty.Config, source_mappings: ?SourceMappings) void {
-        const stderr = std.debug.lockStderrWriter(&.{});
+    pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, source_mappings: ?SourceMappings) void {
+        const io = self.io;
+        const stderr, const ttyconf = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         for (self.errors.items) |err_details| {
-            renderErrorMessage(stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
+            renderErrorMessage(io, stderr, ttyconf, cwd, err_details, source, self.strings.items, source_mappings) catch return;
         }
-    }
-
-    pub fn renderToStdErrDetectTTY(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, source_mappings: ?SourceMappings) void {
-        const tty_config = std.Io.tty.detectConfig(std.fs.File.stderr());
-        return self.renderToStdErr(cwd, source, tty_config, source_mappings);
     }
 
     pub fn contains(self: *const Diagnostics, err: ErrorDetails.Error) bool {
@@ -167,9 +169,9 @@ pub const ErrorDetails = struct {
         filename_string_index: FilenameStringIndex,
 
         pub const FilenameStringIndex = std.meta.Int(.unsigned, 32 - @bitSizeOf(FileOpenErrorEnum));
-        pub const FileOpenErrorEnum = std.meta.FieldEnum(std.fs.File.OpenError);
+        pub const FileOpenErrorEnum = std.meta.FieldEnum(std.fs.File.OpenError || std.fs.File.StatError);
 
-        pub fn enumFromError(err: std.fs.File.OpenError) FileOpenErrorEnum {
+        pub fn enumFromError(err: (std.fs.File.OpenError || std.fs.File.StatError)) FileOpenErrorEnum {
             return switch (err) {
                 inline else => |e| @field(ErrorDetails.FileOpenError.FileOpenErrorEnum, @errorName(e)),
             };
@@ -894,7 +896,16 @@ fn cellCount(code_page: SupportedCodePage, source: []const u8, start_index: usiz
 
 const truncated_str = "<...truncated...>";
 
-pub fn renderErrorMessage(writer: *std.Io.Writer, tty_config: std.Io.tty.Config, cwd: std.fs.Dir, err_details: ErrorDetails, source: []const u8, strings: []const []const u8, source_mappings: ?SourceMappings) !void {
+pub fn renderErrorMessage(
+    io: Io,
+    writer: *std.Io.Writer,
+    tty_config: std.Io.tty.Config,
+    cwd: std.fs.Dir,
+    err_details: ErrorDetails,
+    source: []const u8,
+    strings: []const []const u8,
+    source_mappings: ?SourceMappings,
+) !void {
     if (err_details.type == .hint) return;
 
     const source_line_start = err_details.token.getLineStartForErrorDisplay(source);
@@ -989,6 +1000,7 @@ pub fn renderErrorMessage(writer: *std.Io.Writer, tty_config: std.Io.tty.Config,
         var initial_lines_err: ?anyerror = null;
         var file_reader_buf: [max_source_line_bytes * 2]u8 = undefined;
         var corresponding_lines: ?CorrespondingLines = CorrespondingLines.init(
+            io,
             cwd,
             err_details,
             source_line_for_display.line,
@@ -1084,6 +1096,7 @@ const CorrespondingLines = struct {
     code_page: SupportedCodePage,
 
     pub fn init(
+        io: Io,
         cwd: std.fs.Dir,
         err_details: ErrorDetails,
         line_for_comparison: []const u8,
@@ -1108,7 +1121,7 @@ const CorrespondingLines = struct {
             .code_page = err_details.code_page,
             .file_reader = undefined,
         };
-        corresponding_lines.file_reader = corresponding_lines.file.reader(file_reader_buf);
+        corresponding_lines.file_reader = corresponding_lines.file.reader(io, file_reader_buf);
         errdefer corresponding_lines.deinit();
 
         try corresponding_lines.writeLineFromStreamVerbatim(

@@ -1056,15 +1056,15 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
-        const w = std.debug.lockStderrWriter(&.{});
-        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, ttyconf, compile.step.owner, asking_step) catch {};
         std.debug.unlockStderrWriter();
         @panic("missing emit option for " ++ tag_name);
     };
 
     const path = generated_file.path orelse {
-        const w = std.debug.lockStderrWriter(&.{});
-        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, ttyconf, compile.step.owner, asking_step) catch {};
         std.debug.unlockStderrWriter();
         @panic(tag_name ++ " is null. Is there a missing step dependency?");
     };
@@ -1701,7 +1701,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // This prevents a warning, that should probably be upgraded to an error in Zig's
         // CLI parsing code, when the linker sees an -L directory that does not exist.
 
-        if (prefix_dir.accessZ("lib", .{})) |_| {
+        if (prefix_dir.access("lib", .{})) |_| {
             try zig_args.appendSlice(&.{
                 "-L", b.pathJoin(&.{ search_prefix, "lib" }),
             });
@@ -1712,7 +1712,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             }),
         }
 
-        if (prefix_dir.accessZ("include", .{})) |_| {
+        if (prefix_dir.access("include", .{})) |_| {
             try zig_args.appendSlice(&.{
                 "-I", b.pathJoin(&.{ search_prefix, "include" }),
             });
@@ -2027,10 +2027,9 @@ fn checkCompileErrors(compile: *Compile) !void {
         var aw: std.Io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
-            .ttyconf = .no_color,
             .include_reference_trace = false,
             .include_source_line = false,
-        }, &aw.writer);
+        }, &aw.writer, .no_color);
         break :ae try aw.toOwnedSlice();
     };
 

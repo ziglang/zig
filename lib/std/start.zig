@@ -562,7 +562,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // Apply the initial relocations as early as possible in the startup process. We cannot
     // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
     // so this must be fully inlined.
-    if (builtin.position_independent_executable) {
+    if (builtin.link_mode == .static and builtin.position_independent_executable) {
         @call(.always_inline, std.pie.relocate, .{phdrs});
     }
 
@@ -652,7 +652,6 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.environ = envp;
 
     std.debug.maybeEnableSegfaultHandler();
-    maybeIgnoreSigpipe();
 
     return callMain();
 }
@@ -756,39 +755,3 @@ pub fn call_wWinMain() std.os.windows.INT {
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
     return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
 }
-
-fn maybeIgnoreSigpipe() void {
-    const have_sigpipe_support = switch (builtin.os.tag) {
-        .linux,
-        .plan9,
-        .solaris,
-        .netbsd,
-        .openbsd,
-        .haiku,
-        .macos,
-        .ios,
-        .watchos,
-        .tvos,
-        .visionos,
-        .dragonfly,
-        .freebsd,
-        .serenity,
-        => true,
-
-        else => false,
-    };
-
-    if (have_sigpipe_support and !std.options.keep_sigpipe) {
-        const posix = std.posix;
-        const act: posix.Sigaction = .{
-            // Set handler to a noop function instead of `SIG.IGN` to prevent
-            // leaking signal disposition to a child process.
-            .handler = .{ .handler = noopSigHandler },
-            .mask = posix.sigemptyset(),
-            .flags = 0,
-        };
-        posix.sigaction(posix.SIG.PIPE, &act, null);
-    }
-}
-
-fn noopSigHandler(_: i32) callconv(.c) void {}

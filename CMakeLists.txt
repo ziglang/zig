@@ -413,7 +413,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Thread/Futex.zig
     lib/std/Thread/Mutex.zig
     lib/std/Thread/Pool.zig
-    lib/std/Thread/ResetEvent.zig
     lib/std/Thread/WaitGroup.zig
     lib/std/array_hash_map.zig
     lib/std/array_list.zig
@@ -581,7 +580,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
     src/link/Elf2.zig
-    src/link/Goff.zig
     src/link/LdScript.zig
     src/link/Lld.zig
     src/link/MachO.zig
@@ -617,7 +615,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/Wasm/Archive.zig
     src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
-    src/link/Xcoff.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -738,17 +735,12 @@ string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
 if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
 elseif(ZIG_HOST_TARGET_OS STREQUAL "sunos")
-  check_symbol_exists(__illumos__ "" ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
-  if (ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
-    set(ZIG_HOST_TARGET_OS "illumos")
-  else()
-    set(ZIG_HOST_TARGET_OS "solaris")
-  endif()
+  set(ZIG_HOST_TARGET_OS "illumos")
 endif()
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
 if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
-  if (ZIG_HOST_TARGET_OS MATCHES "(solaris|illumos)")
+  if (ZIG_HOST_TARGET_OS STREQUAL "illumos")
     set(ZIG_HOST_TARGET_ARCH "x86_64")
   else()
     set(ZIG_HOST_TARGET_ARCH "x86")

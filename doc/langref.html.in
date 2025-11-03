@@ -3025,7 +3025,7 @@ or
       {#syntax#}catch{#endsyntax#} after performing some logic, you
       can combine {#syntax#}catch{#endsyntax#} with named {#link|Blocks#}:
       </p>
-      {#code|handle_error_with_catch_block.zig.zig#}
+      {#code|handle_error_with_catch_block.zig#}
 
       {#header_close#}
       {#header_open|try#}

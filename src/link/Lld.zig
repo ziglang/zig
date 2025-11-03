@@ -348,7 +348,6 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         object_files.items.ptr,
         object_files.items.len,
         switch (target.os.tag) {
-            .aix => .AIXBIG,
             .windows => .COFF,
             else => if (target.os.tag.isDarwin()) .DARWIN else .GNU,
         },
@@ -809,7 +808,6 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = &comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?Cache.Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -1071,12 +1069,12 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             }
         }
 
-        if (have_dynamic_linker and
-            (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker))
-        {
+        if (output_mode == .Exe and link_mode == .dynamic) {
             if (target.dynamic_linker.get()) |dynamic_linker| {
-                try argv.append("-dynamic-linker");
+                try argv.append("--dynamic-linker");
                 try argv.append(dynamic_linker);
+            } else {
+                try argv.append("--no-dynamic-linker");
             }
         }
 
@@ -1614,11 +1612,9 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     }
 }
 
-fn spawnLld(
-    comp: *Compilation,
-    arena: Allocator,
-    argv: []const []const u8,
-) !void {
+fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !void {
+    const io = comp.io;
+
     if (comp.verbose_link) {
         // Skip over our own name so that the LLD linker name is the first argv item.
         Compilation.dump_argv(argv[1..]);
@@ -1650,7 +1646,7 @@ fn spawnLld(
         child.stderr_behavior = .Pipe;
 
         child.spawn() catch |err| break :term err;
-        var stderr_reader = child.stderr.?.readerStreaming(&.{});
+        var stderr_reader = child.stderr.?.readerStreaming(io, &.{});
         stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
         break :term child.wait();
     }) catch |first_err| term: {
@@ -1660,7 +1656,7 @@ fn spawnLld(
                 const rand_int = std.crypto.random.int(u64);
                 const rsp_path = "tmp" ++ s ++ std.fmt.hex(rand_int) ++ ".rsp";
 
-                const rsp_file = try comp.dirs.local_cache.handle.createFileZ(rsp_path, .{});
+                const rsp_file = try comp.dirs.local_cache.handle.createFile(rsp_path, .{});
                 defer comp.dirs.local_cache.handle.deleteFileZ(rsp_path) catch |err|
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
@@ -1700,7 +1696,7 @@ fn spawnLld(
                     rsp_child.stderr_behavior = .Pipe;
 
                     rsp_child.spawn() catch |err| break :err err;
-                    var stderr_reader = rsp_child.stderr.?.readerStreaming(&.{});
+                    var stderr_reader = rsp_child.stderr.?.readerStreaming(io, &.{});
                     stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
                     break :term rsp_child.wait() catch |err| break :err err;
                 }

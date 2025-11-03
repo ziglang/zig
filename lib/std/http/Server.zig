@@ -688,7 +688,7 @@ pub const WebSocket = struct {
     pub const ReadSmallTextMessageError = error{
         ConnectionClose,
         UnexpectedOpCode,
-        MessageTooBig,
+        MessageOversize,
         MissingMaskBit,
         ReadFailed,
         EndOfStream,
@@ -717,15 +717,15 @@ pub const WebSocket = struct {
                 _ => return error.UnexpectedOpCode,
             }
 
-            if (!h0.fin) return error.MessageTooBig;
+            if (!h0.fin) return error.MessageOversize;
             if (!h1.mask) return error.MissingMaskBit;
 
             const len: usize = switch (h1.payload_len) {
                 .len16 => try in.takeInt(u16, .big),
-                .len64 => std.math.cast(usize, try in.takeInt(u64, .big)) orelse return error.MessageTooBig,
+                .len64 => std.math.cast(usize, try in.takeInt(u64, .big)) orelse return error.MessageOversize,
                 else => @intFromEnum(h1.payload_len),
             };
-            if (len > in.buffer.len) return error.MessageTooBig;
+            if (len > in.buffer.len) return error.MessageOversize;
             const mask: u32 = @bitCast((try in.takeArray(4)).*);
             const payload = try in.take(len);
 

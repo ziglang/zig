@@ -116,7 +116,7 @@ const SingleThreadedImpl = struct {
             unreachable; // deadlock detected
         };
 
-        std.Thread.sleep(delay);
+        _ = delay;
         return error.Timeout;
     }
 
@@ -796,10 +796,10 @@ const PosixImpl = struct {
         var pending = bucket.pending.fetchAdd(1, .acquire);
         assert(pending < std.math.maxInt(usize));
 
-        // If the wait gets cancelled, remove the pending count we previously added.
+        // If the wait gets canceled, remove the pending count we previously added.
         // This is done outside the mutex lock to keep the critical section short in case of contention.
-        var cancelled = false;
-        defer if (cancelled) {
+        var canceled = false;
+        defer if (canceled) {
             pending = bucket.pending.fetchSub(1, .monotonic);
             assert(pending > 0);
         };
@@ -809,8 +809,8 @@ const PosixImpl = struct {
             assert(c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
             defer assert(c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
-            cancelled = ptr.load(.monotonic) != expect;
-            if (cancelled) {
+            canceled = ptr.load(.monotonic) != expect;
+            if (canceled) {
                 return;
             }
 
@@ -827,13 +827,13 @@ const PosixImpl = struct {
             // If we fail to cancel after a timeout, it means a wake() thread dequeued us and will wake us up.
             // We must wait until the event is set as that's a signal that the wake() thread won't access the waiter memory anymore.
             // If we return early without waiting, the waiter on the stack would be invalidated and the wake() thread risks a UAF.
-            defer if (!cancelled) waiter.event.wait(null) catch unreachable;
+            defer if (!canceled) waiter.event.wait(null) catch unreachable;
 
             assert(c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
             defer assert(c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
-            cancelled = WaitQueue.tryRemove(&bucket.treap, address, &waiter);
-            if (cancelled) {
+            canceled = WaitQueue.tryRemove(&bucket.treap, address, &waiter);
+            if (canceled) {
                 return error.Timeout;
             }
         };

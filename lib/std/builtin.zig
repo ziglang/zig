@@ -37,19 +37,6 @@ pub const subsystem: ?std.Target.SubSystem = blk: {
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
-
-    pub fn format(st: *const StackTrace, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        // TODO: why on earth are we using stderr's ttyconfig?
-        // If we want colored output, we should just make a formatter out of `writeStackTrace`.
-        const tty_config = std.Io.tty.detectConfig(.stderr());
-        try writer.writeAll("\n");
-        try std.debug.writeStackTrace(st, writer, tty_config);
-    }
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -222,6 +209,13 @@ pub const CallingConvention = union(enum(u8)) {
     x86_regcall_v4_win: CommonOptions,
     x86_vectorcall: CommonOptions,
     x86_interrupt: CommonOptions,
+
+    // Calling conventions for the `x86_16` architecture.
+
+    x86_16_cdecl: CommonOptions,
+    x86_16_stdcall: CommonOptions,
+    x86_16_regparmcall: CommonOptions,
+    x86_16_interrupt: CommonOptions,
 
     // Calling conventions for the `aarch64` and `aarch64_be` architectures.
     aarch64_aapcs: CommonOptions,
@@ -522,6 +516,10 @@ pub const AddressSpace = enum(u5) {
     gs,
     fs,
     ss,
+
+    // x86_16 extra address spaces.
+    /// Allows addressing the entire address space by storing both segment and offset.
+    far,
 
     // GPU address spaces.
     global,
@@ -1020,10 +1018,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .alpha => VaListAlpha,
     .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
-    .powerpc, .powerpcle => switch (builtin.os.tag) {
-        .aix => *u8,
-        else => VaListPowerPc,
-    },
+    .powerpc, .powerpcle => VaListPowerPc,
     .s390x => VaListS390x,
     .sh, .sheb => VaListSh, // This is wrong for `sh_renesas`: https://github.com/ziglang/zig/issues/24692#issuecomment-3150779829
     .x86_64 => switch (builtin.os.tag) {

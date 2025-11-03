@@ -2631,7 +2631,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
         Compilation.addModuleErrorMsg(zcu, &wip_errors, err_msg.*, false) catch @panic("out of memory");
         std.debug.print("compile error during Sema:\n", .{});
         var error_bundle = wip_errors.toOwnedBundle("") catch @panic("out of memory");
-        error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
+        error_bundle.renderToStdErr(.{}, .auto);
         std.debug.panicExtra(@returnAddress(), "unexpected compile error occurred", .{});
     }
 
@@ -9034,6 +9034,7 @@ pub fn handleExternLibName(
 /// Any calling conventions not included here are either not yet verified to work with variadic
 /// functions or there are no more other calling conventions that support variadic functions.
 const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention.Tag{
+    .x86_16_cdecl,
     .x86_64_sysv,
     .x86_64_x32,
     .x86_64_win,

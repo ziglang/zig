@@ -89,10 +89,9 @@ pub fn main() !void {
     const output = allocating.written()[0 .. allocating.written().len - 1 :0];
 
     var tree = try std.zig.Ast.parse(allocator, output, .zig);
-    var color: std.zig.Color = .on;
 
     if (tree.errors.len != 0) {
-        try std.zig.printAstErrorsToStderr(allocator, tree, "", color);
+        try std.zig.printAstErrorsToStderr(allocator, tree, "", .auto);
         return;
     }
 
@@ -104,7 +103,7 @@ pub fn main() !void {
         try wip_errors.addZirErrorMessages(zir, tree, output, "");
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(allocator);
-        error_bundle.renderToStdErr(color.renderOptions());
+        error_bundle.renderToStdErr(.{}, .auto);
     }
 
     const formatted_output = try tree.renderAlloc(allocator);
@@ -931,7 +930,7 @@ fn parseHexInt(text: []const u8) !u31 {
 }
 
 fn usageAndExit(arg0: []const u8, code: u8) noreturn {
-    const stderr = std.debug.lockStderrWriter(&.{});
+    const stderr, _ = std.debug.lockStderrWriter(&.{});
     stderr.print(
         \\Usage: {s} <SPIRV-Headers repository path> <path/to/zig/src/codegen/spirv/extinst.zig.grammar.json>
         \\

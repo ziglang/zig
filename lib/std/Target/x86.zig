@@ -3081,6 +3081,13 @@ pub const cpu = struct {
             .xsaveopt,
         }),
     };
+    pub const @"i86": CpuModel = .{
+        .name = "i86",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"16bit_mode",
+        }),
+    };
     pub const @"i386": CpuModel = .{
         .name = "i386",
         .llvm_name = "i386",

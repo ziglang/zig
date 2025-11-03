@@ -369,7 +369,7 @@ fn getUnwindLibKind(tc: *const Toolchain) !UnwindLibKind {
         switch (tc.getRuntimeLibKind()) {
             .compiler_rt => {
                 const target = tc.getTarget();
-                if (target.abi.isAndroid() or target.os.tag == .aix) {
+                if (target.abi.isAndroid()) {
                     return .compiler_rt;
                 } else {
                     return .none;
@@ -391,8 +391,8 @@ fn getUnwindLibKind(tc: *const Toolchain) !UnwindLibKind {
     }
 }
 
-fn getAsNeededOption(is_solaris: bool, needed: bool) []const u8 {
-    if (is_solaris) {
+fn getAsNeededOption(is_illumos: bool, needed: bool) []const u8 {
+    if (is_illumos) {
         return if (needed) "-zignore" else "-zrecord";
     } else {
         return if (needed) "--as-needed" else "--no-as-needed";
@@ -408,20 +408,16 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
         unw == .none) return;
 
     const lgk = tc.getLibGCCKind();
-    const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target_util.isCygwinMinGW(target) and target.os.tag != .aix;
+    const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target_util.isCygwinMinGW(target);
 
     try argv.ensureUnusedCapacity(tc.driver.comp.gpa, 3);
     if (as_needed) {
-        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .solaris, true));
+        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .illumos, true));
     }
     switch (unw) {
         .none => return,
         .libgcc => argv.appendAssumeCapacity(if (lgk == .static) "-lgcc_eh" else "-lgcc_s"),
-        .compiler_rt => if (target.os.tag == .aix) {
-            if (lgk != .static) {
-                argv.appendAssumeCapacity("-lunwind");
-            }
-        } else if (lgk == .static) {
+        .compiler_rt => if (lgk == .static) {
             argv.appendAssumeCapacity("-l:libunwind.a");
         } else if (lgk == .shared) {
             if (target_util.isCygwinMinGW(target)) {
@@ -435,7 +431,7 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
     }
 
     if (as_needed) {
-        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .solaris, false));
+        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .illumos, false));
     }
 }
 

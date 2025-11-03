@@ -87,6 +87,7 @@ pub fn updateFile(
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = zcu.gpa;
+    const io = comp.io;
 
     // In any case we need to examine the stat of the file to determine the course of action.
     var source_file = f: {
@@ -127,7 +128,7 @@ pub fn updateFile(
         .astgen_failure, .success => lock: {
             const unchanged_metadata =
                 stat.size == file.stat.size and
-                stat.mtime == file.stat.mtime and
+                stat.mtime.nanoseconds == file.stat.mtime.nanoseconds and
                 stat.inode == file.stat.inode;
 
             if (unchanged_metadata) {
@@ -173,8 +174,6 @@ pub fn updateFile(
             .lock = lock,
         }) catch |err| switch (err) {
             error.NotDir => unreachable, // no dir components
-            error.InvalidUtf8 => unreachable, // it's a hex encoded name
-            error.InvalidWtf8 => unreachable, // it's a hex encoded name
             error.BadPathName => unreachable, // it's a hex encoded name
             error.NameTooLong => unreachable, // it's a fixed size name
             error.PipeBusy => unreachable, // it's not a pipe
@@ -255,7 +254,7 @@ pub fn updateFile(
 
         const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         defer if (file.source == null) gpa.free(source);
-        var source_fr = source_file.reader(&.{});
+        var source_fr = source_file.reader(io, &.{});
         source_fr.size = stat.size;
         source_fr.interface.readSliceAll(source) catch |err| switch (err) {
             error.ReadFailed => return source_fr.err.?,
@@ -353,6 +352,7 @@ fn loadZirZoirCache(
     assert(file.getMode() == mode);
 
     const gpa = zcu.gpa;
+    const io = zcu.comp.io;
 
     const Header = switch (mode) {
         .zig => Zir.Header,
@@ -360,7 +360,7 @@ fn loadZirZoirCache(
     };
 
     var buffer: [2000]u8 = undefined;
-    var cache_fr = cache_file.reader(&buffer);
+    var cache_fr = cache_file.reader(io, &buffer);
     cache_fr.size = stat.size;
     const cache_br = &cache_fr.interface;
 
@@ -375,7 +375,7 @@ fn loadZirZoirCache(
 
     const unchanged_metadata =
         stat.size == header.stat_size and
-        stat.mtime == header.stat_mtime and
+        stat.mtime.nanoseconds == header.stat_mtime and
         stat.inode == header.stat_inode;
 
     if (!unchanged_metadata) {
@@ -2436,6 +2436,7 @@ fn updateEmbedFileInner(
     const tid = pt.tid;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const io = zcu.comp.io;
     const ip = &zcu.intern_pool;
 
     var file = f: {
@@ -2450,7 +2451,7 @@ fn updateEmbedFileInner(
         const old_stat = ef.stat;
         const unchanged_metadata =
             stat.size == old_stat.size and
-            stat.mtime == old_stat.mtime and
+            stat.mtime.nanoseconds == old_stat.mtime.nanoseconds and
             stat.inode == old_stat.inode;
         if (unchanged_metadata) return;
     }
@@ -2464,7 +2465,7 @@ fn updateEmbedFileInner(
         const old_len = string_bytes.mutate.len;
         errdefer string_bytes.shrinkRetainingCapacity(old_len);
         const bytes = (try string_bytes.addManyAsSlice(size_plus_one))[0];
-        var fr = file.reader(&.{});
+        var fr = file.reader(io, &.{});
         fr.size = stat.size;
         fr.interface.readSliceAll(bytes[0..size]) catch |err| switch (err) {
             error.ReadFailed => return fr.err.?,
@@ -4472,7 +4473,7 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     defer if (liveness) |*l| l.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
-        const stderr = std.debug.lockStderrWriter(&.{});
+        const stderr, _ = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         stderr.print("# Begin Function AIR: {f}:\n", .{fqn.fmt(ip)}) catch {};
         air.write(stderr, pt, liveness);

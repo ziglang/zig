@@ -28,6 +28,9 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
     break :b .init;
 };
 
+pub var io_instance: std.Io.Threaded = undefined;
+pub const io = io_instance.io();
+
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
@@ -352,7 +355,7 @@ test expectApproxEqRel {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.Io.tty.detectConfig()`.
+/// The colorized output is optional and controlled by the return of `std.Io.tty.Config.detect`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     const diff_index: usize = diff_index: {
@@ -364,9 +367,9 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         break :diff_index if (expected.len == actual.len) return else shortest;
     };
     if (!backend_can_print) return error.TestExpectedEqual;
-    const stderr_w = std.debug.lockStderrWriter(&.{});
+    const stderr_w, const ttyconf = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
-    failEqualSlices(T, expected, actual, diff_index, stderr_w) catch {};
+    failEqualSlices(T, expected, actual, diff_index, stderr_w, ttyconf) catch {};
     return error.TestExpectedEqual;
 }
 
@@ -376,6 +379,7 @@ fn failEqualSlices(
     actual: []const T,
     diff_index: usize,
     w: *std.Io.Writer,
+    ttyconf: std.Io.tty.Config,
 ) !void {
     try w.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
@@ -395,7 +399,6 @@ fn failEqualSlices(
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.Io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -1145,6 +1148,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
+                    const tty_config = std.Io.tty.detectConfig(.stderr());
                     print(
                         "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {f}",
                         .{
@@ -1154,7 +1158,10 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
                             failing_allocator_inst.freed_bytes,
                             failing_allocator_inst.allocations,
                             failing_allocator_inst.deallocations,
-                            failing_allocator_inst.getStackTrace(),
+                            std.debug.FormatStackTrace{
+                                .stack_trace = failing_allocator_inst.getStackTrace(),
+                                .tty_config = tty_config,
+                            },
                         },
                     );
                     return error.MemoryLeakDetected;

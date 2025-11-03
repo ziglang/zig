@@ -109,15 +109,15 @@ const WindowsImpl = struct {
     srwlock: windows.SRWLOCK = .{},
 
     fn tryLock(self: *@This()) bool {
-        return windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE;
+        return windows.ntdll.RtlTryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE;
     }
 
     fn lock(self: *@This()) void {
-        windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
+        windows.ntdll.RtlAcquireSRWLockExclusive(&self.srwlock);
     }
 
     fn unlock(self: *@This()) void {
-        windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
+        windows.ntdll.RtlReleaseSRWLockExclusive(&self.srwlock);
     }
 
     const windows = std.os.windows;

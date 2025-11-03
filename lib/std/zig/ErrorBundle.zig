@@ -6,12 +6,13 @@
 //! There is one special encoding for this data structure. If both arrays are
 //! empty, it means there are no errors. This special encoding exists so that
 //! heap allocation is not needed in the common case of no errors.
+const ErrorBundle = @This();
 
 const std = @import("std");
-const ErrorBundle = @This();
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Writer = std.Io.Writer;
 
 string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
@@ -156,23 +157,22 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: String) [:0]const u8 {
 }
 
 pub const RenderOptions = struct {
-    ttyconf: std.Io.tty.Config,
     include_reference_trace: bool = true,
     include_source_line: bool = true,
     include_log_text: bool = true,
 };
 
-pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
+pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions, color: std.zig.Color) void {
     var buffer: [256]u8 = undefined;
-    const w = std.debug.lockStderrWriter(&buffer);
+    const w, const ttyconf = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
-    renderToWriter(eb, options, w) catch return;
+    renderToWriter(eb, options, w, color.getTtyConf(ttyconf)) catch return;
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer) (Writer.Error || std.posix.UnexpectedError)!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer, ttyconf: Io.tty.Config) (Writer.Error || std.posix.UnexpectedError)!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, options, err_msg, w, "error", .red, 0);
+        try renderErrorMessageToWriter(eb, options, err_msg, w, ttyconf, "error", .red, 0);
     }
 
     if (options.include_log_text) {
@@ -189,11 +189,11 @@ fn renderErrorMessageToWriter(
     options: RenderOptions,
     err_msg_index: MessageIndex,
     w: *Writer,
+    ttyconf: Io.tty.Config,
     kind: []const u8,
-    color: std.Io.tty.Color,
+    color: Io.tty.Color,
     indent: usize,
 ) (Writer.Error || std.posix.UnexpectedError)!void {
-    const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
@@ -250,7 +250,7 @@ fn renderErrorMessageToWriter(
             try ttyconf.setColor(w, .reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, w, "note", .cyan, indent);
+            try renderErrorMessageToWriter(eb, options, note, w, ttyconf, "note", .cyan, indent);
         }
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
             try ttyconf.setColor(w, .reset);
@@ -299,7 +299,7 @@ fn renderErrorMessageToWriter(
         }
         try ttyconf.setColor(w, .reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, w, "note", .cyan, indent + 4);
+            try renderErrorMessageToWriter(eb, options, note, w, ttyconf, "note", .cyan, indent + 4);
         }
     }
 }
@@ -806,7 +806,7 @@ pub const Wip = struct {
         };
         defer bundle.deinit(std.testing.allocator);
 
-        const ttyconf: std.Io.tty.Config = .no_color;
+        const ttyconf: Io.tty.Config = .no_color;
 
         var bundle_buf: Writer.Allocating = .init(std.testing.allocator);
         const bundle_bw = &bundle_buf.interface;

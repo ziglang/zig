@@ -4,9 +4,12 @@
 //!
 //! Each `Compilation` has exactly one or zero `Zcu`, depending on whether
 //! there is or is not any zig source code, respectively.
+const Zcu = @This();
+const builtin = @import("builtin");
 
 const std = @import("std");
-const builtin = @import("builtin");
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -15,9 +18,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
-const Writer = std.Io.Writer;
 
-const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 pub const Value = @import("Value.zig");
@@ -272,7 +273,7 @@ analysis_roots_len: usize = 0,
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
 /// Allocated into `gpa`.
-resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
+resolved_references: ?std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
 /// If `true`, then semantic analysis must not occur on this update due to AstGen errors.
 /// Essentially the entire pipeline after AstGen, including Sema, codegen, and link, is skipped.
@@ -1037,10 +1038,15 @@ pub const File = struct {
         stat: Cache.File.Stat,
     };
 
-    pub const GetSourceError = error{ OutOfMemory, FileTooBig } || std.fs.File.OpenError || std.fs.File.ReadError;
+    pub const GetSourceError = error{
+        OutOfMemory,
+        FileTooBig,
+        Streaming,
+    } || std.fs.File.OpenError || std.fs.File.ReadError;
 
     pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError!Source {
         const gpa = zcu.gpa;
+        const io = zcu.comp.io;
 
         if (file.source) |source| return .{
             .bytes = source,
@@ -1061,7 +1067,7 @@ pub const File = struct {
         const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         errdefer gpa.free(source);
 
-        var file_reader = f.reader(&.{});
+        var file_reader = f.reader(io, &.{});
         file_reader.size = stat.size;
         file_reader.interface.readSliceAll(source) catch return file_reader.err.?;
 
@@ -2859,9 +2865,9 @@ comptime {
     }
 }
 
-pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
+pub fn loadZirCache(gpa: Allocator, io: Io, cache_file: std.fs.File) !Zir {
     var buffer: [2000]u8 = undefined;
-    var file_reader = cache_file.reader(&buffer);
+    var file_reader = cache_file.reader(io, &buffer);
     return result: {
         const header = file_reader.interface.takeStructPointer(Zir.Header) catch |err| break :result err;
         break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
@@ -2871,7 +2877,7 @@ pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
     };
 }
 
-pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.Io.Reader) !Zir {
+pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *Io.Reader) !Zir {
     var instructions: std.MultiArrayList(Zir.Inst) = .{};
     errdefer instructions.deinit(gpa);
 
@@ -2940,7 +2946,7 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2969,7 +2975,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2988,7 +2994,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
     };
 }
 
-pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.Io.Reader) !Zoir {
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *Io.Reader) !Zoir {
     var zoir: Zoir = .{
         .nodes = .empty,
         .extra = &.{},
@@ -3985,45 +3991,42 @@ pub const ResolvedReference = struct {
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
 /// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
 /// This hashmap is cached, so repeated calls to this function are cheap.
-pub fn resolveReferences(zcu: *Zcu) !*const std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+pub fn resolveReferences(zcu: *Zcu) !*const std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     if (zcu.resolved_references == null) {
         zcu.resolved_references = try zcu.resolveReferencesInner();
     }
     return &zcu.resolved_references.?;
 }
-fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
 
-    var result: std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
-    errdefer result.deinit(gpa);
-
-    var checked_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty;
-    var type_queue: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
-    var unit_queue: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
+    var units: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
+    var types: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
     defer {
-        checked_types.deinit(gpa);
-        type_queue.deinit(gpa);
-        unit_queue.deinit(gpa);
+        units.deinit(gpa);
+        types.deinit(gpa);
     }
 
-    // This is not a sufficient size, but a lower bound.
-    try result.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
+    // This is not a sufficient size, but an approximate lower bound.
+    try units.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
 
-    try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots_len);
+    try types.ensureTotalCapacity(gpa, zcu.analysis_roots_len);
     for (zcu.analysisRoots()) |mod| {
         const file = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const root_ty = zcu.fileRootType(file);
         if (root_ty == .none) continue;
-        type_queue.putAssumeCapacityNoClobber(root_ty, null);
+        types.putAssumeCapacityNoClobber(root_ty, null);
     }
 
+    var unit_idx: usize = 0;
+    var type_idx: usize = 0;
     while (true) {
-        if (type_queue.pop()) |kv| {
-            const ty = kv.key;
-            const referencer = kv.value;
-            try checked_types.putNoClobber(gpa, ty, {});
+        if (type_idx < types.count()) {
+            const ty = types.keys()[type_idx];
+            const referencer = types.values()[type_idx];
+            type_idx += 1;
 
             log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
 
@@ -4037,8 +4040,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             if (has_resolution) {
                 // this should only be referenced by the type
                 const unit: AnalUnit = .wrap(.{ .type = ty });
-                assert(!result.contains(unit));
-                try unit_queue.putNoClobber(gpa, unit, referencer);
+                try units.putNoClobber(gpa, unit, referencer);
             }
 
             // If this is a union with a generated tag, its tag type is automatically referenced.
@@ -4047,9 +4049,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const tag_ty = union_obj.enum_tag_ty;
                 if (tag_ty != .none) {
                     if (ip.indexToKey(tag_ty).enum_type == .generated_tag) {
-                        if (!checked_types.contains(tag_ty)) {
-                            try type_queue.put(gpa, tag_ty, referencer);
-                        }
+                        const gop = try types.getOrPut(gpa, tag_ty);
+                        if (!gop.found_existing) gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4060,12 +4061,13 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             for (zcu.namespacePtr(ns).comptime_decls.items) |cu| {
                 // `comptime` decls are always analyzed.
                 const unit: AnalUnit = .wrap(.{ .@"comptime" = cu });
-                if (!result.contains(unit)) {
+                const gop = try units.getOrPut(gpa, unit);
+                if (!gop.found_existing) {
                     log.debug("type '{f}': ref comptime %{}", .{
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
                     });
-                    try unit_queue.put(gpa, unit, referencer);
+                    gop.value_ptr.* = referencer;
                 }
             }
             for (zcu.namespacePtr(ns).test_decls.items) |nav_id| {
@@ -4092,14 +4094,20 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     },
                 };
                 if (want_analysis) {
-                    log.debug("type '{f}': ref test %{}", .{
-                        Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                        @intFromEnum(inst_info.inst),
-                    });
-                    try unit_queue.put(gpa, .wrap(.{ .nav_val = nav_id }), referencer);
+                    {
+                        const gop = try units.getOrPut(gpa, .wrap(.{ .nav_val = nav_id }));
+                        if (!gop.found_existing) {
+                            log.debug("type '{f}': ref test %{}", .{
+                                Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                                @intFromEnum(inst_info.inst),
+                            });
+                            gop.value_ptr.* = referencer;
+                        }
+                    }
                     // Non-fatal AstGen errors could mean this test decl failed
                     if (nav.status == .fully_resolved) {
-                        try unit_queue.put(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }), referencer);
+                        const gop = try units.getOrPut(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }));
+                        if (!gop.found_existing) gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4110,12 +4118,13 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                    if (!result.contains(unit)) {
+                    const gop = try units.getOrPut(gpa, unit);
+                    if (!gop.found_existing) {
                         log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
-                        try unit_queue.put(gpa, unit, referencer);
+                        gop.value_ptr.* = referencer;
                     }
                 }
             }
@@ -4126,20 +4135,21 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                    if (!result.contains(unit)) {
+                    const gop = try units.getOrPut(gpa, unit);
+                    if (!gop.found_existing) {
                         log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
-                        try unit_queue.put(gpa, unit, referencer);
+                        gop.value_ptr.* = referencer;
                     }
                 }
             }
             continue;
         }
-        if (unit_queue.pop()) |kv| {
-            const unit = kv.key;
-            try result.putNoClobber(gpa, unit, kv.value);
+        if (unit_idx < units.count()) {
+            const unit = units.keys()[unit_idx];
+            unit_idx += 1;
 
             // `nav_val` and `nav_ty` reference each other *implicitly* to save memory.
             queue_paired: {
@@ -4148,8 +4158,9 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     .nav_ty => |n| .{ .nav_val = n },
                     .@"comptime", .type, .func, .memoized_state => break :queue_paired,
                 });
-                if (result.contains(other)) break :queue_paired;
-                try unit_queue.put(gpa, other, kv.value); // same reference location
+                const gop = try units.getOrPut(gpa, other);
+                if (gop.found_existing) break :queue_paired;
+                gop.value_ptr.* = units.values()[unit_idx]; // same reference location
             }
 
             log.debug("handle unit '{f}'", .{zcu.fmtAnalUnit(unit)});
@@ -4159,16 +4170,17 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 var ref_idx = first_ref_idx;
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_references.items[ref_idx];
-                    if (!result.contains(ref.referenced)) {
+                    const gop = try units.getOrPut(gpa, ref.referenced);
+                    if (!gop.found_existing) {
                         log.debug("unit '{f}': ref unit '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             zcu.fmtAnalUnit(ref.referenced),
                         });
-                        try unit_queue.put(gpa, ref.referenced, .{
+                        gop.value_ptr.* = .{
                             .referencer = unit,
                             .src = ref.src,
                             .inline_frame = ref.inline_frame,
-                        });
+                        };
                     }
                     ref_idx = ref.next;
                 }
@@ -4178,16 +4190,17 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 var ref_idx = first_ref_idx;
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_type_references.items[ref_idx];
-                    if (!checked_types.contains(ref.referenced)) {
+                    const gop = try types.getOrPut(gpa, ref.referenced);
+                    if (!gop.found_existing) {
                         log.debug("unit '{f}': ref type '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             Type.fromInterned(ref.referenced).containerTypeName(ip).fmt(ip),
                         });
-                        try type_queue.put(gpa, ref.referenced, .{
+                        gop.value_ptr.* = .{
                             .referencer = unit,
                             .src = ref.src,
                             .inline_frame = .none,
-                        });
+                        };
                     }
                     ref_idx = ref.next;
                 }
@@ -4197,7 +4210,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
         break;
     }
 
-    return result;
+    return units.move();
 }
 
 pub fn analysisRoots(zcu: *Zcu) []*Package.Module {
@@ -4276,7 +4289,7 @@ const FormatAnalUnit = struct {
     zcu: *Zcu,
 };
 
-fn formatAnalUnit(data: FormatAnalUnit, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.unit.unwrap()) {
@@ -4302,7 +4315,7 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *std.Io.Writer) std.Io.Writer.Er
 
 const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *Zcu };
 
-fn formatDependee(data: FormatDependee, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
@@ -4406,6 +4419,10 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 }
             }
             break :ok switch (cc) {
+                .x86_16_cdecl,
+                .x86_16_stdcall,
+                .x86_16_regparmcall,
+                .x86_16_interrupt,
                 .x86_64_sysv,
                 .x86_64_win,
                 .x86_64_vectorcall,

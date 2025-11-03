@@ -26,9 +26,13 @@
 //!
 //! All of this must be done with only referring to the state inside this struct
 //! because this work will be done in a dedicated thread.
+const Fetch = @This();
 
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
 const std = @import("std");
+const Io = std.Io;
 const fs = std.fs;
 const assert = std.debug.assert;
 const ascii = std.ascii;
@@ -36,14 +40,13 @@ const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
-const Fetch = @This();
 const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
-const native_os = builtin.os.tag;
 
 arena: std.heap.ArenaAllocator,
+io: Io,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.OptionalTokenIndex,
@@ -323,6 +326,7 @@ pub const RunError = error{
 };
 
 pub fn run(f: *Fetch) RunError!void {
+    const io = f.io;
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
@@ -389,7 +393,7 @@ pub fn run(f: *Fetch) RunError!void {
 
                 const file_err = if (dir_err == error.NotDir) e: {
                     if (fs.cwd().openFile(path_or_url, .{})) |file| {
-                        var resource: Resource = .{ .file = file.reader(&server_header_buffer) };
+                        var resource: Resource = .{ .file = file.reader(io, &server_header_buffer) };
                         return f.runResource(path_or_url, &resource, null);
                     } else |err| break :e err;
                 } else dir_err;
@@ -484,7 +488,8 @@ fn runResource(
     resource: *Resource,
     remote_hash: ?Package.Hash,
 ) RunError!void {
-    defer resource.deinit();
+    const io = f.io;
+    defer resource.deinit(io);
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
     const s = fs.path.sep_str;
@@ -697,6 +702,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
 }
 
 fn queueJobsForDeps(f: *Fetch) RunError!void {
+    const io = f.io;
     assert(f.job_queue.recursive);
 
     // If the package does not have a build.zig.zon file then there are no dependencies.
@@ -786,6 +792,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
             }
             new_fetch.* = .{
+                .io = io,
                 .arena = std.heap.ArenaAllocator.init(gpa),
                 .location = location,
                 .location_tok = dep.location_tok,
@@ -897,9 +904,9 @@ const Resource = union(enum) {
         decompress_buffer: []u8,
     };
 
-    fn deinit(resource: *Resource) void {
+    fn deinit(resource: *Resource, io: Io) void {
         switch (resource.*) {
-            .file => |*file_reader| file_reader.file.close(),
+            .file => |*file_reader| file_reader.file.close(io),
             .http_request => |*http_request| http_request.request.deinit(),
             .git => |*git_resource| {
                 git_resource.fetch_stream.deinit();
@@ -909,7 +916,7 @@ const Resource = union(enum) {
         resource.* = undefined;
     }
 
-    fn reader(resource: *Resource) *std.Io.Reader {
+    fn reader(resource: *Resource) *Io.Reader {
         return switch (resource.*) {
             .file => |*file_reader| return &file_reader.interface,
             .http_request => |*http_request| return http_request.response.readerDecompressing(
@@ -985,6 +992,7 @@ const FileType = enum {
 const init_resource_buffer_size = git.Packet.max_data_length;
 
 fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) RunError!void {
+    const io = f.io;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
 
@@ -995,7 +1003,7 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
                 f.parent_package_root, path, err,
             }));
         };
-        resource.* = .{ .file = file.reader(reader_buffer) };
+        resource.* = .{ .file = file.reader(io, reader_buffer) };
         return;
     }
 
@@ -1242,7 +1250,7 @@ fn unpackResource(
     }
 }
 
-fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) RunError!UnpackResult {
+fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *Io.Reader) RunError!UnpackResult {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
 
@@ -1273,11 +1281,12 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) RunError!Un
     return res;
 }
 
-fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) error{ ReadFailed, OutOfMemory, FetchFailed }!UnpackResult {
+fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *Io.Reader) error{ ReadFailed, OutOfMemory, FetchFailed }!UnpackResult {
     // We write the entire contents to a file first because zip files
     // must be processed back to front and they could be too large to
     // load into memory.
 
+    const io = f.io;
     const cache_root = f.job_queue.global_cache;
     const prefix = "tmp/";
     const suffix = ".zip";
@@ -1319,7 +1328,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) error{ ReadFailed, 
             f.location_tok,
             try eb.printString("failed writing temporary zip file: {t}", .{err}),
         );
-        break :b zip_file_writer.moveToReader();
+        break :b zip_file_writer.moveToReader(io);
     };
 
     var diagnostics: std.zip.Diagnostics = .{ .allocator = f.arena.allocator() };
@@ -1339,7 +1348,10 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) error{ ReadFailed, 
 }
 
 fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!UnpackResult {
+    const io = f.io;
     const arena = f.arena.allocator();
+    // TODO don't try to get a gpa from an arena. expose this dependency higher up
+    // because the backing of arena could be page allocator
     const gpa = f.arena.child_allocator;
     const object_format: git.Oid.Format = resource.want_oid;
 
@@ -1358,7 +1370,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
             const fetch_reader = &resource.fetch_stream.reader;
             _ = try fetch_reader.streamRemaining(&pack_file_writer.interface);
             try pack_file_writer.interface.flush();
-            break :b pack_file_writer.moveToReader();
+            break :b pack_file_writer.moveToReader(io);
         };
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
@@ -1372,7 +1384,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         }
 
         {
-            var index_file_reader = index_file.reader(&index_file_buffer);
+            var index_file_reader = index_file.reader(io, &index_file_buffer);
             const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
             var repository: git.Repository = undefined;
@@ -2029,9 +2041,9 @@ const UnpackResult = struct {
         // output errors to string
         var errors = try fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(gpa);
-        var aw: std.Io.Writer.Allocating = .init(gpa);
+        var aw: Io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try errors.renderToWriter(.{}, &aw.writer, .no_color);
         try std.testing.expectEqualStrings(
             \\error: unable to unpack
             \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
@@ -2057,6 +2069,7 @@ test "tarball with duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2067,7 +2080,7 @@ test "tarball with duplicate paths" {
 
     // Run tarball fetch, expect to fail
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try std.testing.expectError(error.FetchFailed, fetch.run());
 
@@ -2089,6 +2102,7 @@ test "tarball with excluded duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2099,7 +2113,7 @@ test "tarball with excluded duplicate paths" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try fetch.run();
 
@@ -2133,6 +2147,8 @@ test "tarball without root folder" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2143,7 +2159,7 @@ test "tarball without root folder" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try fetch.run();
 
@@ -2164,6 +2180,8 @@ test "tarball without root folder" {
 test "set executable bit based on file content" {
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2182,7 +2200,7 @@ test "set executable bit based on file content" {
     // -rwxrwxr-x       17  executables/script
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
 
     try fetch.run();
@@ -2232,13 +2250,14 @@ const TestFetchBuilder = struct {
     fn build(
         self: *TestFetchBuilder,
         allocator: std.mem.Allocator,
+        io: Io,
         cache_parent_dir: std.fs.Dir,
         path_or_url: []const u8,
     ) !*Fetch {
         const cache_dir = try cache_parent_dir.makeOpenPath("zig-global-cache", .{});
 
         try self.thread_pool.init(.{ .allocator = allocator });
-        self.http_client = .{ .allocator = allocator };
+        self.http_client = .{ .allocator = allocator, .io = io };
         self.global_cache_directory = .{ .handle = cache_dir, .path = null };
 
         self.job_queue = .{
@@ -2254,6 +2273,7 @@ const TestFetchBuilder = struct {
 
         self.fetch = .{
             .arena = std.heap.ArenaAllocator.init(allocator),
+            .io = io,
             .location = .{ .path_or_url = path_or_url },
             .location_tok = 0,
             .hash_tok = .none,
@@ -2338,9 +2358,9 @@ const TestFetchBuilder = struct {
         if (notes_len > 0) {
             try std.testing.expectEqual(notes_len, em.notes_len);
         }
-        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        var aw: Io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try errors.renderToWriter(.{}, &aw.writer, .no_color);
         try std.testing.expectEqualStrings(msg, aw.written());
     }
 };

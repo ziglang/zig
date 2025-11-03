@@ -19,6 +19,7 @@ else switch (native_arch) {
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .ve => Ve,
     .s390x => S390x,
+    .x86_16 => X86_16,
     .x86 => X86,
     .x86_64 => X86_64,
     else => noreturn,
@@ -961,7 +962,6 @@ const Powerpc = extern struct {
         // * System V Application Binary Interface - PowerPC Processor Supplement §3-46
         // * Power Architecture 32-bit Application Binary Interface Supplement 1.0 - Linux & Embedded §3.4
         // * 64-bit ELF V2 ABI Specification - Power Architecture Revision 1.5 §2.4
-        // * ??? AIX?
         //
         // Are we having fun yet?
 
@@ -1351,6 +1351,46 @@ const Ve = extern struct {
     }
 };
 
+const X86_16 = struct {
+    pub const Register = enum {
+        // zig fmt: off
+        sp, bp, ss,
+        ip, cs,
+        // zig fmt: on
+    };
+
+    regs: std.enums.EnumArray(Register, u16),
+
+    pub inline fn current() X86_16 {
+        var ctx: X86_16 = undefined;
+        asm volatile (
+            \\ movw %%sp, 0x00(%%di)
+            \\ movw %%bp, 0x02(%%di)
+            \\ movw %%ss, 0x04(%%di)
+            \\ pushw %%cs
+            \\ call 1f
+            \\1:
+            \\ popw 0x06(%%di)
+            \\ popw 0x08(%%di)
+            :
+            : [gprs] "{di}" (&ctx.regs.values),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    // NOTE: There doesn't seem to be any standard for DWARF x86-16 so we'll just reuse the ones for x86.
+    pub fn dwarfRegisterBytes(ctx: *X86_16, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            4 => return @ptrCast(ctx.regs.getPtr(.sp)),
+            5 => return @ptrCast(ctx.regs.getPtr(.bp)),
+            6 => return @ptrCast(ctx.regs.getPtr(.ip)),
+            41 => return @ptrCast(ctx.regs.getPtr(.cs)),
+            42 => return @ptrCast(ctx.regs.getPtr(.ss)),
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
 const X86 = struct {
     /// The first 8 registers here intentionally match the order of registers in the x86 instruction
     /// encoding. This order is inherited by the PUSHA instruction and the DWARF register mappings,
@@ -1569,6 +1609,10 @@ const signal_ucontext_t = switch (native_os) {
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/include/uapi/asm-generic/ucontext.h
         .arc,
         .arceb,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .csky,
         .hexagon,
         .m68k,
@@ -1607,6 +1651,14 @@ const signal_ucontext_t = switch (native_os) {
                     _efa: u32,
                     _stop_pc: u32,
                     r30: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/uapi/asm/sigcontext.h
+                .arm, .armeb, .thumb, .thumbeb => extern struct {
+                    _trap_no: u32,
+                    _error_code: u32,
+                    _oldmask: u32,
+                    r: [15]u32,
+                    pc: u32,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/csky/include/uapi/asm/sigcontext.h
                 .csky => extern struct {
@@ -1751,21 +1803,6 @@ const signal_ucontext_t = switch (native_os) {
                     a: [16]u32,
                 },
                 else => unreachable,
-            },
-        },
-        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/asm/ucontext.h
-        .arm, .armeb, .thumb, .thumbeb => extern struct {
-            _flags: u32,
-            _link: ?*signal_ucontext_t,
-            _stack: std.os.linux.stack_t,
-            _unused: [31]i32,
-            // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/uapi/asm/sigcontext.h
-            mcontext: extern struct {
-                _trap_no: u32,
-                _error_code: u32,
-                _oldmask: u32,
-                r: [15]u32,
-                pc: u32,
             },
         },
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/powerpc/include/uapi/asm/ucontext.h
@@ -1936,37 +1973,6 @@ const signal_ucontext_t = switch (native_os) {
             else => unreachable,
         },
     },
-    // This needs to be audited by someone with access to the Solaris headers.
-    .solaris => switch (native_arch) {
-        .sparc64 => @compileError("sparc64-solaris ucontext_t missing"),
-        .x86_64 => extern struct {
-            _flags: u64,
-            _link: ?*signal_ucontext_t,
-            _sigmask: std.c.sigset_t,
-            _stack: std.c.stack_t,
-            mcontext: extern struct {
-                r15: u64,
-                r14: u64,
-                r13: u64,
-                r12: u64,
-                r11: u64,
-                r10: u64,
-                r9: u64,
-                r8: u64,
-                rdi: u64,
-                rsi: u64,
-                rbp: u64,
-                rbx: u64,
-                rdx: u64,
-                rcx: u64,
-                rax: u64,
-                _trapno: i64,
-                _err: i64,
-                rip: u64,
-            },
-        },
-        else => unreachable,
-    },
     // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/ucontext.h
     .illumos => extern struct {
         _flags: usize,
@@ -1994,7 +2000,7 @@ const signal_ucontext_t = switch (native_os) {
             },
             // https://github.com/illumos/illumos-gate/blob/d4ce137bba3bd16823db6374d9e9a643264ce245/usr/src/uts/intel/sys/mcontext.h
             .x86_64 => extern struct {
-                r15: u64,
+                r15: u64 align(16),
                 r14: u64,
                 r13: u64,
                 r12: u64,
@@ -2012,6 +2018,9 @@ const signal_ucontext_t = switch (native_os) {
                 _trapno: i64,
                 _err: i64,
                 rip: u64,
+                _cs: i64,
+                _rflags: i64,
+                rsp: u64,
             },
             else => unreachable,
         },

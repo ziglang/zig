@@ -16,7 +16,7 @@ const uid_t = std.c.uid_t;
 const IFNAMESIZE = std.c.IFNAMESIZE;
 
 comptime {
-    assert(builtin.os.tag == .solaris or builtin.os.tag == .illumos); // Prevent access of std.c symbols on wrong OS.
+    assert(builtin.os.tag == .illumos); // Prevent access of std.c symbols on wrong OS.
 }
 
 pub extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8, arg: ?*anyopaque) c_int;

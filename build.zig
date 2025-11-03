@@ -615,8 +615,8 @@ pub fn build(b: *std.Build) !void {
         .optimize_modes = optimization_modes,
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        // Highest RSS observed in any test case was exactly 1465151488 on x86_64-linux CI.
-        .max_rss = 1758181785,
+        // Highest RSS observed in any test case was exactly 1802878976 on x86_64-linux.
+        .max_rss = 2253598720,
     })) |test_libc_step| test_step.dependOn(test_libc_step);
 }
 
@@ -818,7 +818,7 @@ fn addCmakeCfgOptionsToExe(
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 if (static) try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
-            .solaris, .illumos => {
+            .illumos => {
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },

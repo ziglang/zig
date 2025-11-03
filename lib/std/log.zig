@@ -13,63 +13,15 @@
 //! `const log = std.log.scoped(.libfoo);` to use .libfoo as the scope of its
 //! log messages.
 //!
-//! An example `logFn` might look something like this:
-//!
+//! For an example implementation of the `logFn` function, see `defaultLog`,
+//! which is the default implementation. It outputs to stderr, using color if
+//! the detected `std.Io.tty.Config` supports it. Its output looks like this:
 //! ```
-//! const std = @import("std");
-//!
-//! pub const std_options: std.Options = .{
-//!     // Set the log level to info
-//!     .log_level = .info,
-//!
-//!     // Define logFn to override the std implementation
-//!     .logFn = myLogFn,
-//! };
-//!
-//! pub fn myLogFn(
-//!     comptime level: std.log.Level,
-//!     comptime scope: @Type(.enum_literal),
-//!     comptime format: []const u8,
-//!     args: anytype,
-//! ) void {
-//!     // Ignore all non-error logging from sources other than
-//!     // .my_project, .nice_library and the default
-//!     const scope_prefix = "(" ++ switch (scope) {
-//!         .my_project, .nice_library, std.log.default_log_scope => @tagName(scope),
-//!         else => if (@intFromEnum(level) <= @intFromEnum(std.log.Level.err))
-//!             @tagName(scope)
-//!         else
-//!             return,
-//!     } ++ "): ";
-//!
-//!     const prefix = "[" ++ comptime level.asText() ++ "] " ++ scope_prefix;
-//!
-//!     // Print the message to stderr, silently ignoring any errors
-//!     std.debug.lockStdErr();
-//!     defer std.debug.unlockStdErr();
-//!     var stderr = std.fs.File.stderr().writer(&.{});
-//!     nosuspend stderr.interface.print(prefix ++ format ++ "\n", args) catch return;
-//! }
-//!
-//! pub fn main() void {
-//!     // Using the default scope:
-//!     std.log.debug("A borderline useless debug log message", .{}); // Won't be printed as log_level is .info
-//!     std.log.info("Flux capacitor is starting to overheat", .{});
-//!
-//!     // Using scoped logging:
-//!     const my_project_log = std.log.scoped(.my_project);
-//!     const nice_library_log = std.log.scoped(.nice_library);
-//!     const verbose_lib_log = std.log.scoped(.verbose_lib);
-//!
-//!     my_project_log.debug("Starting up", .{}); // Won't be printed as log_level is .info
-//!     nice_library_log.warn("Something went very wrong, sorry", .{});
-//!     verbose_lib_log.warn("Added 1 + 1: {}", .{1 + 1}); // Won't be printed as it gets filtered out by our log function
-//! }
-//! ```
-//! Which produces the following output:
-//! ```
-//! [info] (default): Flux capacitor is starting to overheat
-//! [warning] (nice_library): Something went very wrong, sorry
+//! error: this is an error
+//! error(scope): this is an error with a non-default scope
+//! warning: this is a warning
+//! info: this is an informative message
+//! debug: this is a debugging message
 //! ```
 
 const std = @import("std.zig");
@@ -104,37 +56,28 @@ pub const default_level: Level = switch (builtin.mode) {
     .ReleaseSafe, .ReleaseFast, .ReleaseSmall => .info,
 };
 
-const level = std.options.log_level;
-
 pub const ScopeLevel = struct {
     scope: @Type(.enum_literal),
     level: Level,
 };
 
-const scope_levels = std.options.log_scope_levels;
-
 fn log(
-    comptime message_level: Level,
+    comptime level: Level,
     comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (comptime !logEnabled(message_level, scope)) return;
+    if (comptime !logEnabled(level, scope)) return;
 
-    std.options.logFn(message_level, scope, format, args);
+    std.options.logFn(level, scope, format, args);
 }
 
 /// Determine if a specific log message level and scope combination are enabled for logging.
-pub fn logEnabled(comptime message_level: Level, comptime scope: @Type(.enum_literal)) bool {
-    inline for (scope_levels) |scope_level| {
-        if (scope_level.scope == scope) return @intFromEnum(message_level) <= @intFromEnum(scope_level.level);
+pub fn logEnabled(comptime level: Level, comptime scope: @Type(.enum_literal)) bool {
+    inline for (std.options.log_scope_levels) |scope_level| {
+        if (scope_level.scope == scope) return @intFromEnum(level) <= @intFromEnum(scope_level.level);
     }
-    return @intFromEnum(message_level) <= @intFromEnum(level);
-}
-
-/// Determine if a specific log message level using the default log scope is enabled for logging.
-pub fn defaultLogEnabled(comptime message_level: Level) bool {
-    return comptime logEnabled(message_level, default_log_scope);
+    return @intFromEnum(level) <= @intFromEnum(std.options.log_level);
 }
 
 /// The default implementation for the log function. Custom log functions may
@@ -143,17 +86,31 @@ pub fn defaultLogEnabled(comptime message_level: Level) bool {
 /// Uses a 64-byte buffer for formatted printing which is flushed before this
 /// function returns.
 pub fn defaultLog(
-    comptime message_level: Level,
+    comptime level: Level,
     comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const level_txt = comptime message_level.asText();
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     var buffer: [64]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
+    const stderr, const ttyconf = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
-    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+    ttyconf.setColor(stderr, switch (level) {
+        .err => .red,
+        .warn => .yellow,
+        .info => .green,
+        .debug => .magenta,
+    }) catch {};
+    ttyconf.setColor(stderr, .bold) catch {};
+    stderr.writeAll(level.asText()) catch return;
+    ttyconf.setColor(stderr, .reset) catch {};
+    ttyconf.setColor(stderr, .dim) catch {};
+    ttyconf.setColor(stderr, .bold) catch {};
+    if (scope != .default) {
+        stderr.print("({s})", .{@tagName(scope)}) catch return;
+    }
+    stderr.writeAll(": ") catch return;
+    ttyconf.setColor(stderr, .reset) catch {};
+    stderr.print(format ++ "\n", args) catch return;
 }
 
 /// Returns a scoped logging namespace that logs all messages using the scope
