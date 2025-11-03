@@ -2056,7 +2056,8 @@ fn renderStructInit(
             const init_token = tree.firstToken(field_init);
             try renderToken(r, init_token - 3, .none); // .
             try renderIdentifier(r, init_token - 2, .space, .eagerly_unquote); // name
-            try renderToken(r, init_token - 1, .space); // =
+            const space_after_equal: Space = if (tree.nodeTag(field_init) == .multiline_string_literal) .none else .space;
+            try renderToken(r, init_token - 1, space_after_equal); // =
             try renderExpressionFixup(r, field_init, .comma_space);
         }
     }

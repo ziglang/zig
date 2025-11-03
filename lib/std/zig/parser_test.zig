@@ -5719,6 +5719,16 @@ test "zig fmt: no space before newline before multiline string" {
         \\        ,
         \\    };
         \\    _ = s2;
+        \\    const s3 = .{ .text =
+        \\        \\hello
+        \\        \\world
+        \\    , .comment = "test" };
+        \\    _ = s3;
+        \\    const s4 = .{ .comment = "test", .text =
+        \\        \\hello
+        \\        \\world
+        \\    };
+        \\    _ = s4;
         \\}
         \\
     );
