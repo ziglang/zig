@@ -1342,6 +1342,24 @@ test "zig fmt: doc comments on param decl" {
     );
 }
 
+test "zig fmt: doc comments on param decl without trailing comma" {
+    try testTransform(
+        \\fn f(
+        \\    /// comment
+        \\    x: u32,
+        \\    y: u32
+        \\) void {}
+        \\
+    ,
+        \\fn f(
+        \\    /// comment
+        \\    x: u32,
+        \\    y: u32,
+        \\) void {}
+        \\
+    );
+}
+
 test "zig fmt: aligned struct field" {
     try testCanonical(
         \\pub const S = struct {

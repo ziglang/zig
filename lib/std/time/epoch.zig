@@ -182,14 +182,19 @@ pub const EpochSeconds = struct {
     }
 };
 
-fn testEpoch(secs: u64, expected_year_day: YearAndDay, expected_month_day: MonthAndDay, expected_day_seconds: struct {
-    /// 0 to 23
-    hours_into_day: u5,
-    /// 0 to 59
-    minutes_into_hour: u6,
-    /// 0 to 59
-    seconds_into_minute: u6,
-}) !void {
+fn testEpoch(
+    secs: u64,
+    expected_year_day: YearAndDay,
+    expected_month_day: MonthAndDay,
+    expected_day_seconds: struct {
+        /// 0 to 23
+        hours_into_day: u5,
+        /// 0 to 59
+        minutes_into_hour: u6,
+        /// 0 to 59
+        seconds_into_minute: u6,
+    },
+) !void {
     const epoch_seconds = EpochSeconds{ .secs = secs };
     const epoch_day = epoch_seconds.getEpochDay();
     const day_seconds = epoch_seconds.getDaySeconds();

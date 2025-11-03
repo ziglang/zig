@@ -680,20 +680,23 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     return base_path.join(arena, bin_name);
 }
 
-pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
-    compile: *Build.Step.Compile,
+pub fn updateTimeReportCompile(
+    ws: *WebServer,
+    opts: struct {
+        compile: *Build.Step.Compile,
 
-    use_llvm: bool,
-    stats: abi.time_report.CompileResult.Stats,
-    ns_total: u64,
+        use_llvm: bool,
+        stats: abi.time_report.CompileResult.Stats,
+        ns_total: u64,
 
-    llvm_pass_timings_len: u32,
-    files_len: u32,
-    decls_len: u32,
+        llvm_pass_timings_len: u32,
+        files_len: u32,
+        decls_len: u32,
 
-    /// The trailing data of `abi.time_report.CompileResult`, except the step name.
-    trailing: []const u8,
-}) void {
+        /// The trailing data of `abi.time_report.CompileResult`, except the step name.
+        trailing: []const u8,
+    },
+) void {
     const gpa = ws.gpa;
 
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
