@@ -395,7 +395,7 @@ fn buildWasmBinary(
     }
 
     if (result_error_bundle.errorMessageCount() > 0) {
-        result_error_bundle.renderToStdErr(.{}, .auto);
+        result_error_bundle.renderToStdErr(.{}, .on);
         std.log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
             try std.Build.Step.allocPrintCmd(arena, null, argv.items),
