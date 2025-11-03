@@ -4,6 +4,7 @@
 //! * Implement all the syscalls in the same way that libc functions will
 //!   provide `rename` when only the `renameat` syscall exists.
 const std = @import("../std.zig");
+const atomic = std.atomic;
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
@@ -754,7 +755,7 @@ pub const futex_param4 = extern union {
 /// The futex_op parameter is a sub-command and flags.  The sub-command
 /// defines which of the subsequent paramters are relevant.
 pub fn futex(
-    uaddr: *const u32,
+    uaddr: *const atomic.Value(u32),
     futex_op: FUTEX_OP,
     val: u32,
     val2timeout: futex_param4,
@@ -774,7 +775,7 @@ pub fn futex(
 
 /// Three-argument variation of the v1 futex call.  Only suitable for a
 /// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
-pub fn futex_3arg(uaddr: *const u32, futex_op: FUTEX_OP, val: u32) usize {
+pub fn futex_3arg(uaddr: *const atomic.Value(u32), futex_op: FUTEX_OP, val: u32) usize {
     return syscall3(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -785,7 +786,7 @@ pub fn futex_3arg(uaddr: *const u32, futex_op: FUTEX_OP, val: u32) usize {
 
 /// Four-argument variation on the v1 futex call.  Only suitable for
 /// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
-pub fn futex_4arg(uaddr: *const u32, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
+pub fn futex_4arg(uaddr: *const atomic.Value(u32), futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
     return syscall4(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -838,7 +839,7 @@ pub fn futex2_waitv(
 /// Requires at least kernel v6.7.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
-    uaddr: *const u32,
+    uaddr: *const atomic.Value(u32),
     /// Value of `uaddr`.
     val: usize,
     /// Bitmask to match against incoming wakeup masks.  Must not be zero.
@@ -867,7 +868,7 @@ pub fn futex2_wait(
 /// Requires at least kernel v6.7.
 pub fn futex2_wake(
     /// Futex to wake
-    uaddr: *const u32,
+    uaddr: *const atomic.Value(u32),
     /// Bitmask to match against waiters.
     mask: Futex2.Bitset,
     /// Maximum number of waiters on the futex to wake.

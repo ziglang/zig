@@ -1289,8 +1289,7 @@ fn dirStatPathLinux(
     var path_buffer: [posix.PATH_MAX]u8 = undefined;
     const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
 
-    const flags: u32 = linux.AT.NO_AUTOMOUNT |
-        @as(u32, if (!options.follow_symlinks) linux.AT.SYMLINK_NOFOLLOW else 0);
+    const flags: linux.At = .{ .no_automount = true, .symlink_nofollow = if (!options.follow_symlinks) true else false };
 
     while (true) {
         try t.checkCancel();
@@ -1299,7 +1298,15 @@ fn dirStatPathLinux(
             dir.handle,
             sub_path_posix,
             flags,
-            linux.STATX_INO | linux.STATX_SIZE | linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            .{
+                .ino = true,
+                .size = true,
+                .type = true,
+                .mode = true,
+                .atime = true,
+                .mtime = true,
+                .ctime = true,
+            },
             &statx,
         );
         switch (linux.errno(rc)) {
@@ -1445,8 +1452,16 @@ fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
         const rc = linux.statx(
             file.handle,
             "",
-            linux.AT.EMPTY_PATH,
-            linux.STATX_INO | linux.STATX_SIZE | linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            .{ .empty_path = true },
+            .{
+                .ino = true,
+                .size = true,
+                .type = true,
+                .mode = true,
+                .atime = true,
+                .mtime = true,
+                .ctime = true,
+            },
             &statx,
         );
         switch (linux.errno(rc)) {
@@ -5862,7 +5877,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
         .linux => {
             const linux = std.os.linux;
             switch (linux.errno(linux.futex_3arg(
-                &ptr.raw,
+                ptr,
                 .{ .cmd = .WAKE, .private = true },
                 @min(max_waiters, std.math.maxInt(i32)),
             ))) {

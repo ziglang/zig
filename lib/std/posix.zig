@@ -3992,7 +3992,7 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
 
     const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
     var stat = mem.zeroes(Stat);
-    switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
+    switch (errno(fstatat_sym(dirfd, pathname, &stat, @bitCast(flags)))) {
         .SUCCESS => return stat,
         .INVAL => unreachable,
         .BADF => unreachable, // Always a race condition.
