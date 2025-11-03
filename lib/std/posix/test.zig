@@ -940,6 +940,25 @@ test "fchmodat smoke test" {
     try expectMode(tmp.dir.fd, "regfile", 0o640);
 }
 
+test "Tmp File" {
+    if (native_os != .linux) {
+        return error.SkipZigTest;
+    } else {
+        const fd_1 = try posix.open(".", .{ .ACCMODE = .RDWR, .DIRECTORY = false, .TMPFILE = true }, 0o664);
+        posix.close(fd_1);
+        const fd_2 = try posix.open(".", .{ .ACCMODE = .WRONLY, .DIRECTORY = false, .TMPFILE = true }, 0o664);
+        posix.close(fd_2);
+
+        const cwd_fd = try posix.open(".", .{ .ACCMODE = .RDONLY }, 0);
+        defer posix.close(cwd_fd);
+
+        const fd_3 = try posix.openat(cwd_fd, ".", .{ .ACCMODE = .RDWR, .DIRECTORY = false, .TMPFILE = true }, 0o664);
+        posix.close(fd_3);
+        const fd_4 = try posix.openat(cwd_fd, ".", .{ .ACCMODE = .WRONLY, .DIRECTORY = false, .TMPFILE = true }, 0o664);
+        posix.close(fd_4);
+    }
+}
+
 const CommonOpenFlags = packed struct {
     ACCMODE: posix.ACCMODE = .RDONLY,
     CREAT: bool = false,
