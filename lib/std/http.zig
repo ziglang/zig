@@ -975,8 +975,11 @@ pub const BodyWriter = struct {
             2 => {
                 try out.writeAll("\r\n");
                 bw.state.chunk_len = 0;
-                assert(file_reader.atEnd());
-                return error.EndOfStream;
+                if (file_reader.atEnd()) {
+                    return error.EndOfStream;
+                } else {
+                    continue :l bw.state.chunk_len;
+                }
             },
             else => {
                 const chunk_limit: std.Io.Limit = .limited(bw.state.chunk_len - 2);
