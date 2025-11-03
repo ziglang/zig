@@ -13,9 +13,15 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
+    const gpa = arena;
+
     const args = try std.process.argsAlloc(arena);
     const input_file = args[1];
     const output_file = args[2];
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     var in_file = try fs.cwd().openFile(input_file, .{ .mode = .read_only });
     defer in_file.close();
@@ -28,7 +34,7 @@ pub fn main() !void {
     var out_dir = try fs.cwd().openDir(fs.path.dirname(output_file).?, .{});
     defer out_dir.close();
 
-    var in_file_reader = in_file.reader(&.{});
+    var in_file_reader = in_file.reader(io, &.{});
     const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .unlimited);
 
     var tokenizer = Tokenizer.init(input_file, input_file_bytes);

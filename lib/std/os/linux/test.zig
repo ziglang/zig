@@ -1,5 +1,7 @@
-const std = @import("../../std.zig");
 const builtin = @import("builtin");
+
+const std = @import("../../std.zig");
+const assert = std.debug.assert;
 const linux = std.os.linux;
 const mem = std.mem;
 const elf = std.elf;
@@ -128,58 +130,32 @@ test "fadvise" {
 }
 
 test "sigset_t" {
-    std.debug.assert(@sizeOf(linux.sigset_t) == (linux.NSIG / 8));
+    const SIG = linux.SIG;
+    assert(@sizeOf(linux.sigset_t) == (linux.NSIG / 8));
 
     var sigset = linux.sigemptyset();
 
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
     for (1..linux.NSIG) |i| {
-        try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
+        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        try expectEqual(false, linux.sigismember(&sigset, sig));
     }
     for (1..linux.NSIG) |i| {
-        linux.sigaddset(&sigset, @truncate(i));
+        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        linux.sigaddset(&sigset, sig);
     }
     for (1..linux.NSIG) |i| {
-        try expectEqual(linux.sigismember(&sigset, @truncate(i)), true);
+        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        try expectEqual(true, linux.sigismember(&sigset, sig));
     }
     for (1..linux.NSIG) |i| {
-        linux.sigdelset(&sigset, @truncate(i));
+        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        linux.sigdelset(&sigset, sig);
     }
     for (1..linux.NSIG) |i| {
-        try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
-    }
-
-    // Kernel sigset_t is either 2+ 32-bit values or 1+ 64-bit value(s).
-    const sigset_len = @typeInfo(linux.sigset_t).array.len;
-    const sigset_elemis64 = 64 == @bitSizeOf(@typeInfo(linux.sigset_t).array.child);
-
-    linux.sigaddset(&sigset, 1);
-    try expectEqual(sigset[0], 1);
-    if (sigset_len > 1) {
-        try expectEqual(sigset[1], 0);
-    }
-
-    linux.sigaddset(&sigset, 31);
-    try expectEqual(sigset[0], 0x4000_0001);
-    if (sigset_len > 1) {
-        try expectEqual(sigset[1], 0);
-    }
-
-    linux.sigaddset(&sigset, 36);
-    if (sigset_elemis64) {
-        try expectEqual(sigset[0], 0x8_4000_0001);
-    } else {
-        try expectEqual(sigset[0], 0x4000_0001);
-        try expectEqual(sigset[1], 0x8);
-    }
-
-    linux.sigaddset(&sigset, 64);
-    if (sigset_elemis64) {
-        try expectEqual(sigset[0], 0x8000_0008_4000_0001);
-    } else {
-        try expectEqual(sigset[0], 0x4000_0001);
-        try expectEqual(sigset[1], 0x8000_0008);
+        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        try expectEqual(false, linux.sigismember(&sigset, sig));
     }
 }
 
@@ -187,14 +163,16 @@ test "sigfillset" {
     // unlike the C library, all the signals are set in the kernel-level fillset
     const sigset = linux.sigfillset();
     for (1..linux.NSIG) |i| {
-        try expectEqual(linux.sigismember(&sigset, @truncate(i)), true);
+        const sig = std.meta.intToEnum(linux.SIG, i) catch continue;
+        try expectEqual(true, linux.sigismember(&sigset, sig));
     }
 }
 
 test "sigemptyset" {
     const sigset = linux.sigemptyset();
     for (1..linux.NSIG) |i| {
-        try expectEqual(linux.sigismember(&sigset, @truncate(i)), false);
+        const sig = std.meta.intToEnum(linux.SIG, i) catch continue;
+        try expectEqual(false, linux.sigismember(&sigset, sig));
     }
 }
 
@@ -208,14 +186,14 @@ test "sysinfo" {
 }
 
 comptime {
-    std.debug.assert(128 == @as(u32, @bitCast(linux.FUTEX_OP{ .cmd = @enumFromInt(0), .private = true, .realtime = false })));
-    std.debug.assert(256 == @as(u32, @bitCast(linux.FUTEX_OP{ .cmd = @enumFromInt(0), .private = false, .realtime = true })));
+    assert(128 == @as(u32, @bitCast(linux.FUTEX_OP{ .cmd = @enumFromInt(0), .private = true, .realtime = false })));
+    assert(256 == @as(u32, @bitCast(linux.FUTEX_OP{ .cmd = @enumFromInt(0), .private = false, .realtime = true })));
 
     // Check futex_param4 union is packed correctly
     const param_union = linux.futex_param4{
         .val2 = 0xaabbcc,
     };
-    std.debug.assert(@intFromPtr(param_union.timeout) == 0xaabbcc);
+    assert(@intFromPtr(param_union.timeout) == 0xaabbcc);
 }
 
 test "futex v1" {
@@ -298,8 +276,8 @@ test "futex v1" {
 }
 
 comptime {
-    std.debug.assert(2 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = .U32, .private = false })));
-    std.debug.assert(128 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = @enumFromInt(0), .private = true })));
+    assert(2 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = .U32, .private = false })));
+    assert(128 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = @enumFromInt(0), .private = true })));
 }
 
 test "futex2_waitv" {

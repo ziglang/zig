@@ -7,10 +7,6 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     @"64bit",
     @"64bitregs",
-    aix,
-    aix_shared_lib_tls_model_opt,
-    aix_small_local_dynamic_tls,
-    aix_small_local_exec_tls,
     allow_unaligned_fp_access,
     altivec,
     booke,
@@ -61,7 +57,6 @@ pub const Feature = enum {
     longcall,
     mfocrf,
     mma,
-    modern_aix_as,
     msync,
     paired_vector_memops,
     partword_atomics,
@@ -108,26 +103,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.@"64bitregs")] = .{
         .llvm_name = "64bitregs",
         .description = "Enable 64-bit registers usage for ppc32 [beta]",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.aix)] = .{
-        .llvm_name = "aix",
-        .description = "AIX OS",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.aix_shared_lib_tls_model_opt)] = .{
-        .llvm_name = "aix-shared-lib-tls-model-opt",
-        .description = "Tune TLS model at function level in shared library loaded with the main program (for 64-bit AIX only)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.aix_small_local_dynamic_tls)] = .{
-        .llvm_name = "aix-small-local-dynamic-tls",
-        .description = "Produce a faster local-dynamic TLS sequence for this function for 64-bit AIX",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.aix_small_local_exec_tls)] = .{
-        .llvm_name = "aix-small-local-exec-tls",
-        .description = "Produce a TOC-free local-exec TLS sequence for this function for 64-bit AIX",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.allow_unaligned_fp_access)] = .{
@@ -445,11 +420,6 @@ pub const all_features = blk: {
             .power8_vector,
             .power9_altivec,
         }),
-    };
-    result[@intFromEnum(Feature.modern_aix_as)] = .{
-        .llvm_name = "modern-aix-as",
-        .description = "AIX system assembler is modern enough to support new mnes",
-        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.msync)] = .{
         .llvm_name = "msync",

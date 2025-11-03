@@ -30,9 +30,15 @@ const hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.sha3.Shake256, .name = "shake-256" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake128(null), .name = "turboshake-128" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake256(null), .name = "turboshake-256" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128" },
     Crypto{ .ty = crypto.hash.blake2.Blake2s256, .name = "blake2s" },
     Crypto{ .ty = crypto.hash.blake2.Blake2b512, .name = "blake2b" },
     Crypto{ .ty = crypto.hash.Blake3, .name = "blake3" },
+};
+
+const parallel_hashes = [_]Crypto{
+    Crypto{ .ty = crypto.hash.Blake3, .name = "blake3-parallel" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128-parallel" },
 };
 
 const block_size: usize = 8 * 8192;
@@ -51,6 +57,25 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
     }
     var final: [Hash.digest_length]u8 = undefined;
     h.final(&final);
+    std.mem.doNotOptimizeAway(final);
+
+    const end = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(bytes / elapsed_s));
+
+    return throughput;
+}
+
+pub fn benchmarkHashParallel(comptime Hash: anytype, comptime bytes: comptime_int, allocator: mem.Allocator, io: std.Io) !u64 {
+    const data: []u8 = try allocator.alloc(u8, bytes);
+    defer allocator.free(data);
+    random.bytes(data);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    var final: [Hash.digest_length]u8 = undefined;
+    try Hash.hashParallel(data, &final, .{}, allocator, io);
     std.mem.doNotOptimizeAway(final);
 
     const end = timer.read();
@@ -507,6 +532,18 @@ pub fn main() !void {
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkHash(H.ty, mode(128 * MiB));
+            try stdout.print("{s:>17}: {:10} MiB/s\n", .{ H.name, throughput / (1 * MiB) });
+            try stdout.flush();
+        }
+    }
+
+    var io_threaded = std.Io.Threaded.init(arena_allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    inline for (parallel_hashes) |H| {
+        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
+            const throughput = try benchmarkHashParallel(H.ty, mode(128 * MiB), arena_allocator, io);
             try stdout.print("{s:>17}: {:10} MiB/s\n", .{ H.name, throughput / (1 * MiB) });
             try stdout.flush();
         }

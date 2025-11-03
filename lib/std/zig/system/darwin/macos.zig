@@ -58,6 +58,8 @@ pub fn detect(target_os: *Target.Os) !void {
             if (parseSystemVersion(bytes)) |ver| {
                 // never return non-canonical `10.(16+)`
                 if (!(ver.major == 10 and ver.minor >= 16)) {
+                    assert(ver.pre == null);
+                    assert(ver.build == null);
                     target_os.version_range.semver.min = ver;
                     target_os.version_range.semver.max = ver;
                     return;

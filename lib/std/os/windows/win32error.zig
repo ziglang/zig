@@ -624,7 +624,7 @@ pub const Win32Error = enum(u16) {
     DATA_NOT_ACCEPTED = 592,
     /// NTVDM encountered a hard error.
     VDM_HARD_ERROR = 593,
-    /// {Cancel Timeout} The driver %hs failed to complete a cancelled I/O request in the allotted time.
+    /// {Cancel Timeout} The driver %hs failed to complete a canceled I/O request in the allotted time.
     DRIVER_CANCEL_TIMEOUT = 594,
     /// {Reply Message Mismatch} An attempt was made to reply to an LPC message, but the thread specified by the client ID in the message was not waiting on that message.
     REPLY_MESSAGE_MISMATCH = 595,

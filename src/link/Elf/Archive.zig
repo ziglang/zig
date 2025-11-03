@@ -34,8 +34,6 @@ pub fn parse(
     defer strtab.deinit(gpa);
 
     while (pos < size) {
-        pos = mem.alignForward(usize, pos, 2);
-
         var hdr: elf.ar_hdr = undefined;
         {
             const n = try handle.preadAll(mem.asBytes(&hdr), pos);
@@ -50,7 +48,7 @@ pub fn parse(
         }
 
         const obj_size = try hdr.size();
-        defer pos += obj_size;
+        defer pos = std.mem.alignForward(usize, pos + obj_size, 2);
 
         if (hdr.isSymtab() or hdr.isSymtab64()) continue;
         if (hdr.isStrtab()) {

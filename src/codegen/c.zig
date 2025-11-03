@@ -5768,21 +5768,25 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         switch (aggregate.storage) {
             .elems => |elems| for (elems, 0..) |elem, i| switch (elem) {
                 .bool_true => {
-                    const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
-                    assert(name.len != 0);
+                    const field_name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                    assert(field_name.len != 0);
 
                     const target = &f.object.dg.mod.resolved_target.result;
-                    if (target.cpu.arch.isMIPS() and name[0] == 'r') {
-                        // GCC uses "$N" for register names instead of "rN" used by Zig.
-                        var c_name_buf: [4]u8 = undefined;
-                        const c_name = (&c_name_buf)[0..name.len];
-                        @memcpy(c_name, name);
-                        c_name_buf[0] = '$';
-
-                        try w.print(" {f}", .{fmtStringLiteral(c_name, null)});
-                        (try w.writableArray(1))[0] = ',';
-                        continue;
-                    }
+                    var c_name_buf: [16]u8 = undefined;
+                    const name =
+                        if ((target.cpu.arch.isMIPS() or target.cpu.arch == .alpha) and field_name[0] == 'r') name: {
+                            // Convert "rN" to "$N"
+                            const c_name = (&c_name_buf)[0..field_name.len];
+                            @memcpy(c_name, field_name);
+                            c_name_buf[0] = '$';
+                            break :name c_name;
+                        } else if ((target.cpu.arch.isMIPS() and (mem.startsWith(u8, field_name, "fcc") or field_name[0] == 'w')) or
+                        ((target.cpu.arch.isMIPS() or target.cpu.arch == .alpha) and field_name[0] == 'f')) name: {
+                            // "$" prefix for FCC, W and F registers
+                            c_name_buf[0] = '$';
+                            @memcpy((&c_name_buf)[1..][0..field_name.len], field_name);
+                            break :name (&c_name_buf)[0 .. 1 + field_name.len];
+                        } else field_name;
 
                     try w.print(" {f}", .{fmtStringLiteral(name, null)});
                     (try w.writableArray(1))[0] = ',';
@@ -8055,9 +8059,11 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
     return switch (cc) {
         .auto, .naked => null,
 
+        .x86_16_cdecl => "cdecl",
+        .x86_16_regparmcall => "regparmcall",
         .x86_64_sysv, .x86_sysv => "sysv_abi",
         .x86_64_win, .x86_win => "ms_abi",
-        .x86_stdcall => "stdcall",
+        .x86_16_stdcall, .x86_stdcall => "stdcall",
         .x86_fastcall => "fastcall",
         .x86_thiscall => "thiscall",
 
@@ -8092,6 +8098,13 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
 
         .avr_signal => "signal",
 
+        .microblaze_interrupt => |opts| switch (opts.type) {
+            .user => "save_volatiles",
+            .regular => "interrupt_handler",
+            .fast => "fast_interrupt",
+            .breakpoint => "break_handler",
+        },
+
         .mips_interrupt,
         .mips64_interrupt,
         => |opts| switch (opts.mode) {
@@ -8106,11 +8119,21 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
             inline else => |m| "interrupt(\"" ++ @tagName(m) ++ "\")",
         },
 
+        .sh_renesas => "renesas",
+        .sh_interrupt => |opts| switch (opts.save) {
+            .fpscr => "trapa_handler", // Implies `interrupt_handler`.
+            .high => "interrupt_handler, nosave_low_regs",
+            .full => "interrupt_handler",
+            .bank => "interrupt_handler, resbank",
+        },
+
         .m68k_rtd => "m68k_rtd",
 
         .avr_interrupt,
         .csky_interrupt,
         .m68k_interrupt,
+        .msp430_interrupt,
+        .x86_16_interrupt,
         .x86_interrupt,
         .x86_64_interrupt,
         => "interrupt",

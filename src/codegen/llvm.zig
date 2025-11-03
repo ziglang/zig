@@ -106,9 +106,19 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .wasm64 => "wasm64",
         .ve => "ve",
 
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .x86_16,
+        .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
 
@@ -169,9 +179,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.append('-');
 
     try llvm_triple.appendSlice(switch (target.os.tag) {
-        .aix,
-        .zos,
-        => "ibm",
         .driverkit,
         .ios,
         .macos,
@@ -202,12 +209,10 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .linux => "linux",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
-        .solaris, .illumos => "solaris",
+        .illumos => "solaris",
         .windows, .uefi => "windows",
-        .zos => "zos",
         .haiku => "haiku",
         .rtems => "rtems",
-        .aix => "aix",
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
@@ -372,13 +377,9 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
             else => "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
         },
         .m68k => "E-m:e-p:32:16:32-i8:8:8-i16:16:16-i32:16:32-n8:16:32-a:0:16-S16",
-        .powerpc => if (target.os.tag == .aix)
-            "E-m:a-p:32:32-Fi32-i64:64-n32"
-        else
-            "E-m:e-p:32:32-Fn32-i64:64-n32",
+        .powerpc => "E-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpcle => "e-m:e-p:32:32-Fn32-i64:64-n32",
         .powerpc64 => switch (target.os.tag) {
-            .aix => "E-m:a-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512",
             .linux => if (target.abi.isMusl())
                 "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
             else
@@ -415,10 +416,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
             "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
         .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
-        .s390x => if (target.os.tag == .zos)
-            "E-m:l-p1:32:32-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64"
-        else
-            "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
+        .s390x => "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
         .x86 => if (target.os.tag == .windows or target.os.tag == .uefi) switch (target.abi) {
             .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
             .gnu => if (target.ofmt == .coff)
@@ -473,9 +471,19 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .loongarch64 => "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .xtensa => "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-n32",
 
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .x86_16,
+        .xtensaeb,
         => unreachable, // Gated by hasLlvmSupport().
     };
 }
@@ -497,7 +505,7 @@ fn codeModel(model: std.builtin.CodeModel, target: *const std.Target) CodeModel 
         .extreme, .large => .large,
         .kernel => .kernel,
         .medany => if (target.cpu.arch.isRISCV()) .medium else .large,
-        .medium => if (target.os.tag == .aix) .large else .medium,
+        .medium => .medium,
         .medmid => .medium,
         .normal, .medlow, .small => .small,
         .tiny => .tiny,
@@ -774,10 +782,10 @@ pub const Object = struct {
     pub const EmitOptions = struct {
         pre_ir_path: ?[]const u8,
         pre_bc_path: ?[]const u8,
-        bin_path: ?[*:0]const u8,
-        asm_path: ?[*:0]const u8,
-        post_ir_path: ?[*:0]const u8,
-        post_bc_path: ?[*:0]const u8,
+        bin_path: ?[:0]const u8,
+        asm_path: ?[:0]const u8,
+        post_ir_path: ?[:0]const u8,
+        post_bc_path: ?[]const u8,
 
         is_debug: bool,
         is_small: bool,
@@ -981,7 +989,7 @@ pub const Object = struct {
                 options.post_ir_path == null and options.post_bc_path == null) return;
 
             if (options.post_bc_path) |path| {
-                var file = std.fs.cwd().createFileZ(path, .{}) catch |err|
+                var file = std.fs.cwd().createFile(path, .{}) catch |err|
                     return diags.fail("failed to create '{s}': {s}", .{ path, @errorName(err) });
                 defer file.close();
 
@@ -1090,8 +1098,8 @@ pub const Object = struct {
             // though it's clearly not ready and produces multiple miscompilations in our std tests.
             .allow_machine_outliner = !comp.root_mod.resolved_target.result.cpu.arch.isRISCV(),
             .asm_filename = null,
-            .bin_filename = options.bin_path,
-            .llvm_ir_filename = options.post_ir_path,
+            .bin_filename = if (options.bin_path) |x| x.ptr else null,
+            .llvm_ir_filename = if (options.post_ir_path) |x| x.ptr else null,
             .bitcode_filename = null,
 
             // `.coverage` value is only used when `.sancov` is enabled.
@@ -1138,7 +1146,7 @@ pub const Object = struct {
             lowered_options.time_report_out = &time_report_c_str;
         }
 
-        lowered_options.asm_filename = options.asm_path;
+        lowered_options.asm_filename = if (options.asm_path) |x| x.ptr else null;
         if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
             defer llvm.disposeMessage(error_message);
             return diags.fail("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
@@ -11381,16 +11389,6 @@ pub const FuncGen = struct {
         const payload_llvm_ty = try o.lowerType(pt, payload_ty);
         const abi_size = payload_ty.abiSize(zcu);
 
-        // llvm bug workarounds:
-        const workaround_explicit_mask = o.target.cpu.arch == .powerpc and abi_size >= 4;
-        const workaround_disable_truncate = o.target.cpu.arch == .wasm32 and abi_size >= 4;
-
-        if (workaround_disable_truncate) {
-            // see https://github.com/llvm/llvm-project/issues/64222
-            // disable the truncation codepath for larger than 32bits value - with this heuristic, the backend passes the test suite.
-            return try fg.wip.load(access_kind, payload_llvm_ty, payload_ptr, payload_alignment, "");
-        }
-
         const load_llvm_ty = if (payload_ty.isAbiInt(zcu))
             try o.builder.intType(@intCast(abi_size * 8))
         else
@@ -11404,14 +11402,7 @@ pub const FuncGen = struct {
         else
             loaded;
 
-        const anded = if (workaround_explicit_mask and payload_llvm_ty != load_llvm_ty) blk: {
-            // this is rendundant with llvm.trunc. But without it, llvm17 emits invalid code for powerpc.
-            const mask_val = try o.builder.intValue(payload_llvm_ty, -1);
-            const zext_mask_val = try fg.wip.cast(.zext, mask_val, load_llvm_ty, "");
-            break :blk try fg.wip.bin(.@"and", shifted, zext_mask_val, "");
-        } else shifted;
-
-        return fg.wip.conv(.unneeded, anded, payload_llvm_ty, "");
+        return fg.wip.conv(.unneeded, shifted, payload_llvm_ty, "");
     }
 
     /// Load a by-ref type by constructing a new alloca and performing a memcpy.
@@ -11823,6 +11814,8 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: *const std.Targ
             std.builtin.CallingConvention.ArcInterruptOptions,
             std.builtin.CallingConvention.ArmInterruptOptions,
             std.builtin.CallingConvention.RiscvInterruptOptions,
+            std.builtin.CallingConvention.ShInterruptOptions,
+            std.builtin.CallingConvention.MicroblazeInterruptOptions,
             std.builtin.CallingConvention.MipsInterruptOptions,
             std.builtin.CallingConvention.CommonOptions,
             => .{ pl.incoming_stack_alignment, 0 },
@@ -11886,6 +11879,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .avr_interrupt => .avr_intrcc,
         .m68k_rtd => .m68k_rtdcc,
         .m68k_interrupt => .m68k_intrcc,
+        .msp430_interrupt => .msp430_intrcc,
         .amdgcn_kernel => .amdgpu_kernel,
         .amdgcn_cs => .amdgpu_cs,
         .nvptx_device => .ptx_device,
@@ -11902,12 +11896,20 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
 
         // All the calling conventions which LLVM does not have a general representation for.
         // Note that these are often still supported through the `cCallingConvention` path above via `ccc`.
+        .x86_16_cdecl,
+        .x86_16_stdcall,
+        .x86_16_regparmcall,
+        .x86_16_interrupt,
         .x86_sysv,
         .x86_win,
         .x86_thiscall_mingw,
+        .x86_64_x32,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
+        .alpha_osf,
+        .microblaze_std,
+        .microblaze_interrupt,
         .mips64_n64,
         .mips64_n32,
         .mips_o32,
@@ -11930,6 +11932,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .csky_sysv,
         .hexagon_sysv,
         .hexagon_sysv_hvx,
+        .hppa_elf,
+        .hppa64_elf,
         .lanai_sysv,
         .loongarch64_lp64,
         .loongarch32_ilp32,
@@ -11940,6 +11944,9 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
+        .sh_gnu,
+        .sh_renesas,
+        .sh_interrupt,
         .ve_sysv,
         .xcore_xs1,
         .xcore_xs2,
@@ -12815,12 +12822,6 @@ fn backendSupportsF128(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/41838
         .sparc,
         => false,
-        // https://github.com/llvm/llvm-project/issues/101545
-        .powerpc,
-        .powerpcle,
-        .powerpc64,
-        .powerpc64le,
-        => target.os.tag != .aix,
         .arm,
         .armeb,
         .thumb,
@@ -13113,9 +13114,19 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM does does not have a backend for these.
+        .alpha,
+        .arceb,
+        .hppa,
+        .hppa64,
         .kalimba,
+        .microblaze,
+        .microblazeel,
         .or1k,
         .propeller,
+        .sh,
+        .sheb,
+        .x86_16,
+        .xtensaeb,
         => unreachable,
     }
 }

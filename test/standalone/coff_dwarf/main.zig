@@ -11,10 +11,14 @@ pub fn main() void {
     var di: std.debug.SelfInfo = .init;
     defer di.deinit(gpa);
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var add_addr: usize = undefined;
     _ = add(1, 2, &add_addr);
 
-    const symbol = di.getSymbol(gpa, add_addr) catch |err| fatal("failed to get symbol: {t}", .{err});
+    const symbol = di.getSymbol(gpa, io, add_addr) catch |err| fatal("failed to get symbol: {t}", .{err});
     defer if (symbol.source_location) |sl| gpa.free(sl.file_name);
 
     if (symbol.name == null) fatal("failed to resolve symbol name", .{});

@@ -419,6 +419,7 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         .aarch64,
         .aarch64_be,
         .arc,
+        .arceb,
         .powerpc64,
         .powerpc64le,
         => 128,
@@ -432,20 +433,29 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mipsle.go#L7
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips64x.go#L9
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sparc/include/asm/cache.h#L14
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/microblaze/include/asm/cache.h#L15
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sh/include/cpu-sh4/cpu/cache.h#L10
         .arm,
         .armeb,
         .thumb,
         .thumbeb,
+        .microblaze,
+        .microblazeel,
         .mips,
         .mipsel,
         .mips64,
         .mips64el,
+        .sh,
+        .sheb,
         .sparc,
         .sparc64,
         => 32,
 
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/m68k/include/asm/cache.h#L10
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/openrisc/include/asm/cache.h#L24
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/parisc/include/asm/cache.h#L16
+        .hppa,
+        .hppa64,
         .m68k,
         .or1k,
         => 16,
@@ -468,6 +478,7 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         // - https://github.com/golang/go/blob/19e923182e590ae6568c2c714f20f32512aeb3e3/src/internal/cpu/cpu_riscv64.go#L7
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/xtensa/variants/csp/include/variant/core.h#L209
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/csky/Kconfig#L183
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/alpha/include/asm/cache.h#L11
         // - https://www.xmos.com/download/The-XMOS-XS3-Architecture.pdf
         else => 64,
     };

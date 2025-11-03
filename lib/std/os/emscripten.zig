@@ -479,50 +479,7 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const SIG = struct {
-    pub const BLOCK = 0;
-    pub const UNBLOCK = 1;
-    pub const SETMASK = 2;
-
-    pub const HUP = 1;
-    pub const INT = 2;
-    pub const QUIT = 3;
-    pub const ILL = 4;
-    pub const TRAP = 5;
-    pub const ABRT = 6;
-    pub const IOT = ABRT;
-    pub const BUS = 7;
-    pub const FPE = 8;
-    pub const KILL = 9;
-    pub const USR1 = 10;
-    pub const SEGV = 11;
-    pub const USR2 = 12;
-    pub const PIPE = 13;
-    pub const ALRM = 14;
-    pub const TERM = 15;
-    pub const STKFLT = 16;
-    pub const CHLD = 17;
-    pub const CONT = 18;
-    pub const STOP = 19;
-    pub const TSTP = 20;
-    pub const TTIN = 21;
-    pub const TTOU = 22;
-    pub const URG = 23;
-    pub const XCPU = 24;
-    pub const XFSZ = 25;
-    pub const VTALRM = 26;
-    pub const PROF = 27;
-    pub const WINCH = 28;
-    pub const IO = 29;
-    pub const POLL = 29;
-    pub const PWR = 30;
-    pub const SYS = 31;
-    pub const UNUSED = SIG.SYS;
-
-    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(std.math.maxInt(usize));
-    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
-    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
-};
+pub const SIG = linux.SIG;
 
 pub const Sigaction = extern struct {
     pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;

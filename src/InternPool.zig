@@ -11381,7 +11381,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 
 fn dumpAllFallible(ip: *const InternPool) anyerror!void {
     var buffer: [4096]u8 = undefined;
-    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    const stderr_bw, _ = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view();
@@ -11513,7 +11513,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     }
 
     var buffer: [4096]u8 = undefined;
-    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    const stderr_bw, _ = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
 
     const SortContext = struct {
@@ -13011,6 +13011,11 @@ const PackedCallingConvention = packed struct(u18) {
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = @intFromEnum(pl.type),
                 },
+                std.builtin.CallingConvention.MicroblazeInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.type),
+                },
                 std.builtin.CallingConvention.MipsInterruptOptions => .{
                     .tag = tag,
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
@@ -13035,6 +13040,11 @@ const PackedCallingConvention = packed struct(u18) {
                     .tag = tag,
                     .incoming_stack_alignment = .none, // unused
                     .extra = @intFromEnum(pl.stage_output),
+                },
+                std.builtin.CallingConvention.ShInterruptOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
+                    .extra = @intFromEnum(pl.save),
                 },
                 else => comptime unreachable,
             },
@@ -13063,6 +13073,10 @@ const PackedCallingConvention = packed struct(u18) {
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .type = @enumFromInt(cc.extra),
                     },
+                    std.builtin.CallingConvention.MicroblazeInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .type = @enumFromInt(cc.extra),
+                    },
                     std.builtin.CallingConvention.MipsInterruptOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .mode = @enumFromInt(cc.extra),
@@ -13084,6 +13098,10 @@ const PackedCallingConvention = packed struct(u18) {
                         .stage_output = @enumFromInt(cc.extra),
                         .max_primitives = undefined, // Populated later
                         .max_vertices = undefined, // Populated later
+                    },
+                    std.builtin.CallingConvention.ShInterruptOptions => .{
+                        .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
+                        .save = @enumFromInt(cc.extra),
                     },
                     else => comptime unreachable,
                 },

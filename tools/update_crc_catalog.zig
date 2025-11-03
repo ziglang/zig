@@ -190,7 +190,9 @@ pub fn main() anyerror!void {
 }
 
 fn printUsageAndExit(arg0: []const u8) noreturn {
-    printUsage(std.debug.lockStderrWriter(&.{}), arg0) catch std.process.exit(2);
+    const w, _ = std.debug.lockStderrWriter(&.{});
+    defer std.debug.unlockStderrWriter();
+    printUsage(w, arg0) catch std.process.exit(2);
     std.process.exit(1);
 }
 

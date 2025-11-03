@@ -74,6 +74,9 @@
 #elif defined (__x86_64__) || (defined(zig_msvc) && defined(_M_X64))
 #define zig_x86_64
 #define zig_x86
+#elif defined(__I86__)
+#define zig_x86_16
+#define zig_x86
 #endif
 
 #if defined(zig_msvc) || __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -84,9 +87,7 @@
 #define zig_big_endian 1
 #endif
 
-#if defined(_AIX)
-#define zig_aix
-#elif defined(__MACH__)
+#if defined(__MACH__)
 #define zig_darwin
 #elif defined(__DragonFly__)
 #define zig_dragonfly
@@ -116,20 +117,14 @@
 #define zig_wasi
 #elif defined(_WIN32)
 #define zig_windows
-#elif defined(__MVS__)
-#define zig_zos
 #endif
 
 #if defined(zig_windows)
 #define zig_coff
 #elif defined(__ELF__)
 #define zig_elf
-#elif defined(zig_zos)
-#define zig_goff
 #elif defined(zig_darwin)
 #define zig_macho
-#elif defined(zig_aix)
-#define zig_xcoff
 #endif
 
 #define zig_concat(lhs, rhs) lhs##rhs
@@ -400,6 +395,8 @@
 #define zig_trap() __asm__ volatile("j 0x2")
 #elif defined(zig_sparc)
 #define zig_trap() __asm__ volatile("illtrap")
+#elif defined(zig_x86_16)
+#define zig_trap() __asm__ volatile("int $0x3")
 #elif defined(zig_x86)
 #define zig_trap() __asm__ volatile("ud2")
 #else
@@ -4219,7 +4216,7 @@ static inline void zig_loongarch_cpucfg(uint32_t word, uint32_t* result) {
 #endif
 }
 
-#elif defined(zig_x86)
+#elif defined(zig_x86) && !defined(zig_x86_16)
 
 static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax, uint32_t* ebx, uint32_t* ecx, uint32_t* edx) {
 #if defined(zig_msvc)

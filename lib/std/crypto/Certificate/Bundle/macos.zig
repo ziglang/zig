@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
@@ -7,7 +8,7 @@ const Bundle = @import("../Bundle.zig");
 
 pub const RescanMacError = Allocator.Error || fs.File.OpenError || fs.File.ReadError || fs.File.SeekError || Bundle.ParseCertError || error{EndOfStream};
 
-pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
+pub fn rescanMac(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp) RescanMacError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 
@@ -16,6 +17,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
         "/Library/Keychains/System.keychain",
     };
 
+    _ = io; // TODO migrate file system to use std.Io
     for (keychain_paths) |keychain_path| {
         const bytes = std.fs.cwd().readFileAlloc(keychain_path, gpa, .limited(std.math.maxInt(u32))) catch |err| switch (err) {
             error.StreamTooLong => return error.FileTooBig,
@@ -23,8 +25,8 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
         };
         defer gpa.free(bytes);
 
-        var reader: std.Io.Reader = .fixed(bytes);
-        scanReader(cb, gpa, &reader) catch |err| switch (err) {
+        var reader: Io.Reader = .fixed(bytes);
+        scanReader(cb, gpa, &reader, now.toSeconds()) catch |err| switch (err) {
             error.ReadFailed => unreachable, // prebuffered
             else => |e| return e,
         };
@@ -33,7 +35,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-fn scanReader(cb: *Bundle, gpa: Allocator, reader: *std.Io.Reader) !void {
+fn scanReader(cb: *Bundle, gpa: Allocator, reader: *Io.Reader, now_sec: i64) !void {
     const db_header = try reader.takeStruct(ApplDbHeader, .big);
     assert(mem.eql(u8, &db_header.signature, "kych"));
 
@@ -48,8 +50,6 @@ fn scanReader(cb: *Bundle, gpa: Allocator, reader: *std.Io.Reader) !void {
     while (table_idx < table_list.len) : (table_idx += 1) {
         table_list[table_idx] = try reader.takeInt(u32, .big);
     }
-
-    const now_sec = std.time.timestamp();
 
     for (table_list) |table_offset| {
         reader.seek = db_header.schema_offset + table_offset;

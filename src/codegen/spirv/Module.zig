@@ -997,6 +997,7 @@ pub fn storageClass(module: *Module, as: std.builtin.AddressSpace) spec.StorageC
         .gs,
         .fs,
         .ss,
+        .far,
         .param,
         .flash,
         .flash1,
