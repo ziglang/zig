@@ -1694,7 +1694,7 @@ pub fn socket(
     domain: linux.Af,
     socket_type: linux.Sock,
     protocol: linux.IpProto,
-    /// flags is unused
+    /// flags are currently unused
     flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
@@ -1711,7 +1711,7 @@ pub fn socket_direct(
     domain: linux.Af,
     socket_type: linux.Sock,
     protocol: linux.IpProto,
-    /// flags is unused
+    /// flags are currently unused
     flags: u32,
     file_index: u32,
 ) !*Sqe {
@@ -1731,7 +1731,7 @@ pub fn socket_direct_alloc(
     domain: linux.Af,
     socket_type: linux.Sock,
     protocol: linux.IpProto,
-    /// flags unused
+    /// flags are currently unused
     flags: u32,
 ) !*Sqe {
     const sqe = try self.get_sqe();
@@ -5377,8 +5377,8 @@ test "timeout (after a relative time)" {
     };
     defer ring.deinit();
 
-    const ms = 10;
-    const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1000000 };
+    const ms = 5;
+    const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1_000_000 };
 
     const started = try std.Io.Clock.awake.now(io);
     const sqe = try ring.timeout(0x55555555, &ts, 0, .{});
@@ -5394,9 +5394,9 @@ test "timeout (after a relative time)" {
     }, cqe);
 
     // Tests should not depend on timings: skip test if outside margin.
-    const margin = 5;
+    const ms_margin = 5;
     const ms_elapsed = started.durationTo(stopped).toMilliseconds();
-    if (ms_elapsed > margin) return error.SkipZigTest;
+    if (ms_elapsed > ms_margin) return error.SkipZigTest;
 }
 
 test "timeout (after a number of completions)" {
@@ -5802,7 +5802,7 @@ test "shutdown" {
     // Socket bound, expect shutdown to work
     {
         // TODO: update posix later to use Typed Flags
-        const server = try posix.socket(address.any.family, @as(u32, @bitCast(linux.Sock{ .type = .stream, .flags = .{ .cloexec = true } })), 0);
+        const server = try posix.socket(address.family, @as(u32, @bitCast(linux.Sock{ .type = .stream, .flags = .{ .cloexec = true } })), 0);
         defer posix.close(server);
         try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(u32, 1)));
         try posix.bind(server, addrAny(&address), @sizeOf(linux.sockaddr.in));
@@ -7460,7 +7460,7 @@ test "bind/listen/connect" {
 
     const listen_fd = brk: {
         // Create socket
-        _ = try ring.socket(1, @enumFromInt(addr.any.family), .{ .type = .stream, .flags = .{ .cloexec = true } }, @enumFromInt(proto), 0);
+        _ = try ring.socket(1, @enumFromInt(addr.family), .{ .type = .stream, .flags = .{ .cloexec = true } }, @enumFromInt(proto), 0);
         try testing.expectEqual(1, try ring.submit());
         var cqe = try ring.copy_cqe();
         try testing.expectEqual(1, cqe.user_data);
@@ -7472,7 +7472,7 @@ test "bind/listen/connect" {
         var optval: u32 = 1;
         (try ring.setsockopt(2, listen_fd, .socket, .reuseaddr, mem.asBytes(&optval))).link_next();
         (try ring.setsockopt(3, listen_fd, .socket, .reuseport, mem.asBytes(&optval))).link_next();
-        (try ring.bind(4, listen_fd, addrAny(&addr), @sizeOf(linux.sockaddr.in), 0)).link_next();
+        (try ring.bind(4, listen_fd, addrAny(&addr), @sizeOf(linux.sockaddr.in))).link_next();
         _ = try ring.listen(5, listen_fd, 1);
         // Submit 4 operations
         try testing.expectEqual(4, try ring.submit());
