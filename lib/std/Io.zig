@@ -734,7 +734,7 @@ pub const Clock = enum {
     /// A settable system-wide clock that measures real (i.e. wall-clock)
     /// time. This clock is affected by discontinuous jumps in the system
     /// time (e.g., if the system administrator manually changes the
-    /// clock), and by frequency adjust‐ ments performed by NTP and similar
+    /// clock), and by frequency adjustments performed by NTP and similar
     /// applications.
     ///
     /// This clock normally counts the number of seconds since 1970-01-01
@@ -742,8 +742,11 @@ pub const Clock = enum {
     /// leap seconds; near a leap second it is typically adjusted by NTP to
     /// stay roughly in sync with UTC.
     ///
-    /// The epoch is implementation-defined. For example NTFS/Windows uses
-    /// 1601-01-01.
+    /// Timestamps returned by implementations of this clock represent time
+    /// elapsed since 1970-01-01T00:00:00Z, the POSIX/Unix epoch, ignoring
+    /// leap seconds. This is colloquially known as "Unix time". If the
+    /// underlying OS uses a different epoch for native timestamps (e.g.,
+    /// Windows, which uses 1601-01-01) they are translated accordingly.
     real,
     /// A nonsettable system-wide clock that represents time since some
     /// unspecified point in the past.
