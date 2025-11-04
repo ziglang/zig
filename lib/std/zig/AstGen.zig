@@ -793,8 +793,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 else => unreachable,
             };
             const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
-            const lhs = try reachableTypeExpr(gz, scope, lhs_node, node);
-            const rhs = try reachableTypeExpr(gz, scope, rhs_node, node);
+            const lhs = try reachableExprComptime(gz, scope, coerced_type_ri, lhs_node, node, .merge_error_set);
+            const rhs = try reachableExprComptime(gz, scope, coerced_type_ri, rhs_node, node, .merge_error_set);
             const result = try gz.addPlNode(inst_tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
             return rvalue(gz, ri, result, node);
         },
