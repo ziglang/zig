@@ -124,6 +124,7 @@
 
 // macOS system headers
 #include <mach/clock.h>
+#include <mach/exception.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <mach/thread_state.h>
@@ -195,6 +196,9 @@
 // Depended on by sqlite-amalgamation
 #include <sys/file.h>
 #include <malloc/malloc.h>
+
+// Depended on by bdwgc
+#include <mach-o/getsect.h>
 
 // Provided by macOS LibC
 #include <memory.h>
