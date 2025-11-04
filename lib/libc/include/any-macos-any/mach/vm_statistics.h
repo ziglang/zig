@@ -283,6 +283,7 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 #define VM_FLAGS_RESILIENT_MEDIA        0x00000040
 #define VM_FLAGS_PERMANENT              0x00000080
 #define VM_FLAGS_TPRO                   0x00001000
+#define VM_FLAGS_MTE                    0x00002000
 #define VM_FLAGS_OVERWRITE              0x00004000  /* delete any existing mappings first */
 /*
  * VM_FLAGS_SUPERPAGE_MASK
@@ -299,7 +300,7 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 	        (flags) = (((flags) & ~VM_FLAGS_ALIAS_MASK) |   \
 	        (((alias) & ~VM_FLAGS_ALIAS_MASK) << 24))
 
-#define VM_FLAGS_HW     (VM_FLAGS_TPRO)
+#define VM_FLAGS_HW     (VM_FLAGS_TPRO | VM_FLAGS_MTE)
 
 /* These are the flags that we accept from user-space */
 #define VM_FLAGS_USER_ALLOCATE  (VM_FLAGS_FIXED |               \
@@ -358,8 +359,13 @@ __enum_decl(virtual_memory_guard_exception_code_t, uint32_t, {
 	kGUARD_EXC_SEC_COPY_DENIED = 100,
 	kGUARD_EXC_SEC_SHARING_DENIED = 101,
 
+	/* Fault-related exceptions. */
+	kGUARD_EXC_MTE_SYNC_FAULT = 200,
+	kGUARD_EXC_MTE_ASYNC_USER_FAULT = 201,
+	kGUARD_EXC_MTE_ASYNC_KERN_FAULT = 202
 });
 
+#define kGUARD_EXC_MTE_SOFT_MODE       0x100000
 
 
 #pragma mark Ledger Tags
