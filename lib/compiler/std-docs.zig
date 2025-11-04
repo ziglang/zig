@@ -28,6 +28,7 @@ pub fn main() !void {
     const gpa = general_purpose_allocator.allocator();
 
     var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
     const io = threaded.io();
 
     var argv = try std.process.argsWithAllocator(arena);
