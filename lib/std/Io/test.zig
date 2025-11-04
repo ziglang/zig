@@ -208,3 +208,24 @@ test "select" {
         },
     }
 }
+
+fn testQueue(comptime len: usize) !void {
+    const io = testing.io;
+    var buf: [len]usize = undefined;
+    var queue: Io.Queue(usize) = .init(&buf);
+    var begin: usize = 0;
+    for (1..len + 1) |n| {
+        const end = begin + n;
+        for (begin..end) |i| try queue.putOne(io, i);
+        for (begin..end) |i| try expect(try queue.getOne(io) == i);
+        begin = end;
+    }
+}
+
+test "Queue" {
+    try testQueue(1);
+    try testQueue(2);
+    try testQueue(3);
+    try testQueue(4);
+    try testQueue(5);
+}
