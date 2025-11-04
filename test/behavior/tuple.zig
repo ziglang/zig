@@ -631,3 +631,15 @@ test "OPV tuple fields aren't comptime" {
     const t2_info = @typeInfo(T2);
     try expect(!t2_info.@"struct".fields[0].is_comptime);
 }
+
+test "array of tuples that end with a zero-bit field followed by padding" {
+    const S = struct {
+        var foo: [2]struct { u32, u8, void } = .{ .{ 1, 2, {} }, .{ 3, 4, {} } };
+    };
+    try expect(S.foo[0][0] == 1);
+    try expect(S.foo[0][1] == 2);
+    try expect(S.foo[0][2] == {});
+    try expect(S.foo[1][0] == 3);
+    try expect(S.foo[1][1] == 4);
+    try expect(S.foo[1][2] == {});
+}
