@@ -2864,7 +2864,8 @@ fn nowWindows(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestam
         .real => {
             // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds
             // and uses the NTFS/Windows epoch, which is 1601-01-01.
-            return .{ .nanoseconds = @as(i96, windows.ntdll.RtlGetSystemTimePrecise()) * 100 };
+            const epoch_100_ns = std.time.epoch.windows * (std.time.ns_per_s / 100);
+            return .{ .nanoseconds = @as(i96, windows.ntdll.RtlGetSystemTimePrecise() + epoch_100_ns) * 100 };
         },
         .awake, .boot => {
             // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
