@@ -425,10 +425,21 @@ pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
         },
     };
 
+    const zig_version = @import("builtin").zig_version;
+    const zig_spirv_compiler_version = comptime (zig_version.major << 12) | (zig_version.minor << 7) | zig_version.patch;
+
+    // A SPIR-V Generator Magic Number is a 32 bit word: The high order 16
+    // bits are a tool ID, which should be unique across all SPIR-V
+    // generators. The low order 16 bits are reserved for use as a tool
+    // version number, or any other purpose the tool supplier chooses.
+    // Only the tool IDs are reserved with Khronos.
+    // See https://github.com/KhronosGroup/SPIRV-Headers/blob/f2e4bd213104fe323a01e935df56557328d37ac8/include/spirv/spir-v.xml#L17C5-L21C54
+    const generator_id: u32 = (spec.zig_generator_id << 16) | zig_spirv_compiler_version;
+
     const header = [_]Word{
         spec.magic_number,
         version.toWord(),
-        spec.zig_generator_id,
+        generator_id,
         module.idBound(),
         0, // Schema (currently reserved for future use)
     };
@@ -437,7 +448,7 @@ pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
     defer source.deinit(module.gpa);
     try module.sections.debug_strings.emit(module.gpa, .OpSource, .{
         .source_language = .zig,
-        .version = 0,
+        .version = zig_spirv_compiler_version,
         // We cannot emit these because the Khronos translator does not parse this instruction
         // correctly.
         // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/2188
