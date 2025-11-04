@@ -177,7 +177,8 @@
 #include <os/lock.h>
 #include <simd/simd.h>
 #include <xpc/xpc.h>
-#include <CommonCrypto/CommonDigest.h>
+#include <CommonCrypto/CommonCrypto.h>
+#include <CommonCrypto/CommonRandom.h> // Not included by CommonCrypto.h
 
 #include <objc/message.h>
 #include <objc/NSObject.h>
