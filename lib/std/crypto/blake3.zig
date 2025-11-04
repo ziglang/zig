@@ -12,8 +12,8 @@ const Vec16 = @Vector(16, u32);
 const chunk_length = 1024;
 const max_depth = 54;
 
-pub const simd_degree = std.simd.suggestVectorLength(u32) orelse 1;
-pub const max_simd_degree = simd_degree;
+const simd_degree = std.simd.suggestVectorLength(u32) orelse 1;
+const max_simd_degree = simd_degree;
 const max_simd_degree_or_2 = if (max_simd_degree > 2) max_simd_degree else 2;
 
 /// Threshold for switching to parallel processing.
@@ -502,9 +502,7 @@ fn hashManySimd(
     var out_ptr = out.ptr;
     var cnt = counter;
 
-    const simd_deg = comptime simd_degree;
-
-    if (comptime simd_deg >= 16) {
+    if (simd_degree >= 16) {
         while (remaining >= 16) {
             const sixteen_inputs = [16][*]const u8{
                 inp[0],  inp[1],  inp[2],  inp[3],
@@ -525,7 +523,7 @@ fn hashManySimd(
         }
     }
 
-    if (comptime simd_deg >= 8) {
+    if (simd_degree >= 8) {
         while (remaining >= 8) {
             const eight_inputs = [8][*]const u8{
                 inp[0], inp[1], inp[2], inp[3],
@@ -544,7 +542,7 @@ fn hashManySimd(
         }
     }
 
-    if (comptime simd_deg >= 4) {
+    if (simd_degree >= 4) {
         while (remaining >= 4) {
             const four_inputs = [4][*]const u8{
                 inp[0],
@@ -571,7 +569,7 @@ fn hashManySimd(
 }
 
 fn hashMany(inputs: [][*]const u8, num_inputs: usize, blocks: usize, key: [8]u32, counter: u64, increment_counter: bool, flags: Flags, flags_start: Flags, flags_end: Flags, out: []u8) void {
-    if (comptime max_simd_degree >= 4) {
+    if (max_simd_degree >= 4) {
         hashManySimd(inputs, num_inputs, blocks, key, counter, increment_counter, flags, flags_start, flags_end, out);
     } else {
         hashManyPortable(inputs, num_inputs, blocks, key, counter, increment_counter, flags, flags_start, flags_end, out);
@@ -909,7 +907,7 @@ pub const Blake3 = struct {
     pub const digest_length = 32;
     pub const key_length = 32;
 
-    pub const Options = struct { key: ?[digest_length]u8 = null };
+    pub const Options = struct { key: ?[key_length]u8 = null };
     pub const KdfOptions = struct {};
 
     key: [8]u32,

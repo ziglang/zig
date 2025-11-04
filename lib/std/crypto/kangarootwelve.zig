@@ -840,7 +840,21 @@ fn KTHash(
         /// The block length, or rate, in bytes.
         pub const block_length = Variant.rate;
 
-        /// Options for KangarooTwelve can include a customization string for domain separation.
+        /// Configuration options for KangarooTwelve hashing.
+        ///
+        /// Options include an optional customization string that provides domain separation,
+        /// ensuring that identical inputs with different customization strings
+        /// produce completely distinct hash outputs.
+        ///
+        /// This prevents hash collisions when the same data is hashed in different contexts.
+        ///
+        /// Customization strings can be of any length.
+        ///
+        /// Common options for customization::
+        ///
+        /// - Key derivation or MAC: 16-byte secret for KT128, 32-byte secret for KT256
+        /// - Context Separation: domain-specific strings (e.g., "email", "password", "session")
+        /// - Composite Keys: concatenation of secret key + context string
         pub const Options = struct {
             customization: ?[]const u8 = null,
         };
@@ -864,7 +878,20 @@ fn KTHash(
         pending_count: usize, // Number of complete chunks in pending_chunks
 
         /// Initialize a KangarooTwelve hashing context.
-        /// The customization string is optional and used for domain separation.
+        ///
+        /// Options include an optional customization string that provides domain separation,
+        /// ensuring that identical inputs with different customization strings
+        /// produce completely distinct hash outputs.
+        ///
+        /// This prevents hash collisions when the same data is hashed in different contexts.
+        ///
+        /// Customization strings can be of any length.
+        ///
+        /// Common options for customization::
+        ///
+        /// - Key derivation or MAC: 16-byte secret for KT128, 32-byte secret for KT256
+        /// - Context Separation: domain-specific strings (e.g., "email", "password", "session")
+        /// - Composite Keys: concatenation of secret key + context string
         pub fn init(options: Options) Self {
             const custom = options.customization orelse &[_]u8{};
             return .{
@@ -971,7 +998,13 @@ fn KTHash(
         }
 
         /// Finalize the hash and produce output.
-        /// After calling this, the context should not be reused.
+        ///
+        /// Unlike traditional hash functions, the output can be of any length.
+        ///
+        /// When using as a regular hash function, use the recommended `digest_length` value (32 bytes for KT128, 64 bytes for KT256).
+        ///
+        /// After calling this method, the context should not be reused. However, the structure can be cloned before finalizing
+        /// to compute multiple hashes with the same prefix.
         pub fn final(self: *Self, out: []u8) void {
             const cv_size = Variant.cv_size;
 
@@ -1063,12 +1096,11 @@ fn KTHash(
         }
 
         /// Hash a message using sequential processing with SIMD acceleration.
-        /// Best performance for inputs under 10MB. Never allocates memory.
         ///
         /// Parameters:
         ///   - message: Input data to hash (any length)
-        ///   - out: Output buffer (any length, arbitrary output sizes supported)
-        ///   - options: Optional settings including customization string for domain separation
+        ///   - out: Output buffer (any length, arbitrary output sizes supported, `digest_length` recommended for standard use)
+        ///   - options: Optional settings to include a secret key or a context separation string
         pub fn hash(message: []const u8, out: []u8, options: Options) !void {
             const custom = options.customization orelse &[_]u8{};
 
