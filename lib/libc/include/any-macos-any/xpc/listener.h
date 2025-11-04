@@ -21,7 +21,7 @@ __BEGIN_DECLS
  * Listeners represent the server side variant of an XPC Session.
  *
  * Listeners are activated and then begin receiving `xpc_session_t` from peers attempting to
- * connect to the server
+ * connect to the server.
  *
  */
 OS_OBJECT_DECL_SENDABLE_CLASS(xpc_listener);
@@ -38,10 +38,10 @@ OS_OBJECT_DECL_SENDABLE_CLASS(xpc_listener);
  * {@link xpc_listener_activate} before it can be used.
  *
  * @const XPC_LISTENER_CREATE_FORCE_MACH
- * Optional key to indicate to the runtime that this listener is for a Mach Service
+ * Optional key to indicate to the runtime that this listener is for a Mach Service.
  *
  * @const XPC_LISTENER_CREATE_FORCE_XPCSERVICE
- * Optional key to indicate to the runtime that this listener is for a XPCService endpoint
+ * Optional key to indicate to the runtime that this listener is for a XPCService endpoint.
  */
 XPC_SWIFT_NOEXPORT
 XPC_FLAGS_ENUM(xpc_listener_create_flags, uint64_t,
@@ -76,7 +76,7 @@ xpc_listener_copy_description(xpc_listener_t listener);
 #pragma mark Server Session Creation
 /*!
  * @function xpc_listener_create
- * Creates a listener with the service defined by the provided name
+ * Creates a listener with the service defined by the provided name.
  *
  * @param service
  * The Mach service or XPC Service name to create the listener with.
@@ -91,8 +91,13 @@ xpc_listener_copy_description(xpc_listener_t listener);
  * Additional attributes to create the listener.
  *
  * @param incoming_session_handler
- * The handler block to be called when a peer  is attempting to establish a
+ * The handler block to be called when a peer is attempting to establish a
  * connection with this listener. The incoming session handler is mandatory.
+ *
+ * Unlike XPC connection listeners that require explicit acceptance,
+ * xpc_listener automatically accepts and activates incoming peer sessions when
+ * the incoming_session_handler returns, unless the peer session was explicitly
+ * rejected using xpc_listener_reject_peer() or cancelled using xpc_session_cancel().
  *
  * @param error_out
  * An out-parameter that, if set and in the event of an error, will point to an
@@ -176,17 +181,20 @@ xpc_listener_cancel(xpc_listener_t listener);
 
 /*!
  * @function xpc_listener_reject_peer
- * Rejects the incoming peer session
+ * Rejects the incoming peer session.
  *
  * @param peer
  * The peer session object to reject. This must be a session that was an argument
- * from an incoming session handler block
+ * from an incoming session handler block.
  *
  * @param reason
- * The reason that the peer was rejected
+ * The reason that the peer was rejected.
  *
  * @discussion
- * The peer session will be cancelled and cannot be used after it has been rejected
+ * The peer session will be cancelled and cannot be used after it has been rejected.
+ * 
+ * An incoming session that is not rejected will automatically be accepted
+ * after returning from the incoming peer handler.
  */
 API_AVAILABLE(macos(14.0), macCatalyst(17.0))
 API_UNAVAILABLE(ios, tvos, watchos)

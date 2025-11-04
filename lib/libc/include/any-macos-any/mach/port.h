@@ -487,7 +487,7 @@ enum mach_port_guard_exception_codes {
 	kGUARD_EXC_MOVE_PROVISIONAL_REPLY_PORT  = 0x00100004,
 	kGUARD_EXC_REPLY_PORT_SINGLE_SO_RIGHT   = 0x00100005,
 	kGUARD_EXC_MOD_REFS_NON_FATAL           = 1u << 21,
-	kGUARD_EXC_IMMOVABLE_NON_FATAL          = 1u << 22,
+	kGUARD_EXC_IMMOVABLE_NON_FATAL          = 1u << 22, /* unused*/
 };
 
 #define MAX_FATAL_kGUARD_EXC_CODE               kGUARD_EXC_MSG_FILTERED

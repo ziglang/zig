@@ -184,6 +184,7 @@
 #define AT_SYMLINK_NOFOLLOW_ANY 0x0800  /* Path should not contain any symlinks */
 #define AT_RESOLVE_BENEATH      0x2000  /* Path must reside in the hierarchy beneath the starting directory */
 #define AT_NODELETEBUSY         0x4000  /* Don't delete busy files */
+#define AT_UNIQUE               0x8000  /* prevent a path lookup from succeeding on a vnode with multiple links */
 #endif
 #endif
 

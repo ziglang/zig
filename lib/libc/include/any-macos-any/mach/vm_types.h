@@ -71,6 +71,12 @@ typedef uint32_t        reg64_t;
 typedef uint32_t ppnum_t __kernel_ptr_semantics; /* Physical page number */
 #define PPNUM_MAX UINT32_MAX
 
+/*
+ * For use with mach_vm_update_pointers_with_remote_tags.
+ * This definition must be kept in sync with the definition in mach_types.defs.
+ */
+#define VM_OFFSET_LIST_MAX  1024
+
 
 typedef mach_port_t             vm_map_t, vm_map_read_t, vm_map_inspect_t;
 typedef mach_port_t             upl_t;

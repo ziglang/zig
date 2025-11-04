@@ -72,6 +72,8 @@
 #define EXC_ARM_SWP             0x104   /* SWP instruction */
 #define EXC_ARM_PAC_FAIL        0x105   /* PAC authentication failure */
 
+#define EXC_ARM_MTE_TAGCHECK_FAIL       0x106   /* MTE Tag Check failure */
+#define EXC_ARM_MTE_CANONICAL_FAIL      0x107   /* MTE Canonical Tag access fail */
 
 /*
  *	EXC_BREAKPOINT
