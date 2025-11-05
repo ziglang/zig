@@ -118,7 +118,6 @@ pub fn setArHdr(opts: struct {
         .ar_fmag = undefined,
     };
     @memset(mem.asBytes(&hdr), 0x20);
-    @memcpy(&hdr.ar_fmag, elf.ARFMAG);
 
     {
         var writer: std.Io.Writer = .fixed(&hdr.ar_name);
@@ -129,10 +128,15 @@ pub fn setArHdr(opts: struct {
             .name_off => |x| writer.print("/{d}", .{x}) catch unreachable,
         }
     }
+    hdr.ar_date[0] = '0';
+    hdr.ar_uid[0] = '0';
+    hdr.ar_gid[0] = '0';
+    hdr.ar_mode[0] = '0';
     {
         var writer: std.Io.Writer = .fixed(&hdr.ar_size);
         writer.print("{d}", .{opts.size}) catch unreachable;
     }
+    hdr.ar_fmag = elf.ARFMAG.*;
 
     return hdr;
 }
