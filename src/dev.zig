@@ -199,6 +199,7 @@ pub const Env = enum {
             .wasm => switch (feature) {
                 .stdio_listen,
                 .incremental,
+                .legalize,
                 .wasm_backend,
                 .wasm_linker,
                 => true,
