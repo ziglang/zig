@@ -715,7 +715,13 @@ fn initHeaders(
         break :phndx phnum;
     } else undefined;
 
-    const expected_nodes_len = 5 + phnum * 2 + @as(usize, 2) * @intFromBool(have_dynamic_section);
+    const expected_nodes_len = expected_nodes_len: {
+        const expected_nodes_len = 5 + phnum * 2 + @as(usize, 2) * @intFromBool(have_dynamic_section);
+        if (@"type" != .REL) break :expected_nodes_len expected_nodes_len;
+        phnum = 0;
+        break :expected_nodes_len expected_nodes_len -
+            @intFromBool(comp.config.any_non_single_threaded);
+    };
     try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     try elf.phdrs.resize(gpa, phnum);
     elf.nodes.appendAssumeCapacity(.file);
@@ -767,37 +773,37 @@ fn initHeaders(
 
     assert(elf.ni.rodata == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
         .alignment = elf.mf.flags.block_size,
-        .moved = true,
+        .moved = @"type" != .REL,
         .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = rodata_phndx });
-    elf.phdrs.items[rodata_phndx] = elf.ni.rodata;
+    if (@"type" != .REL) elf.phdrs.items[rodata_phndx] = elf.ni.rodata;
 
     assert(elf.ni.phdr == try elf.mf.addOnlyChildNode(gpa, elf.ni.rodata, .{
         .size = elf.ehdrField(.phentsize) * elf.ehdrField(.phnum),
         .alignment = addr_align,
-        .moved = true,
-        .resized = true,
+        .moved = @"type" != .REL,
+        .resized = @"type" != .REL,
         .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = phdr_phndx });
-    elf.phdrs.items[phdr_phndx] = elf.ni.phdr;
+    if (@"type" != .REL) elf.phdrs.items[phdr_phndx] = elf.ni.phdr;
 
     assert(elf.ni.text == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
         .alignment = elf.mf.flags.block_size,
-        .moved = true,
+        .moved = @"type" != .REL,
         .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = text_phndx });
-    elf.phdrs.items[text_phndx] = elf.ni.text;
+    if (@"type" != .REL) elf.phdrs.items[text_phndx] = elf.ni.text;
 
     assert(elf.ni.data == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
         .alignment = elf.mf.flags.block_size,
-        .moved = true,
+        .moved = @"type" != .REL,
         .bubbles_moved = false,
     }));
     elf.nodes.appendAssumeCapacity(.{ .segment = data_phndx });
-    elf.phdrs.items[data_phndx] = elf.ni.data;
+    if (@"type" != .REL) elf.phdrs.items[data_phndx] = elf.ni.data;
 
     var ph_vaddr: u32 = switch (elf.ehdrField(.type)) {
         else => 0,
@@ -816,108 +822,110 @@ fn initHeaders(
             const ElfN = ct_class.ElfN();
             const target_endian = elf.targetEndian();
 
-            const phdr: []ElfN.Phdr = @ptrCast(@alignCast(elf.ni.phdr.slice(&elf.mf)));
-            const ph_phdr = &phdr[phdr_phndx];
-            ph_phdr.* = .{
-                .type = std.elf.PT_PHDR,
-                .offset = 0,
-                .vaddr = 0,
-                .paddr = 0,
-                .filesz = 0,
-                .memsz = 0,
-                .flags = .{ .R = true },
-                .@"align" = @intCast(elf.ni.phdr.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_phdr);
-
-            if (maybe_interp) |_| {
-                const ph_interp = &phdr[interp_phndx];
-                ph_interp.* = .{
-                    .type = std.elf.PT_INTERP,
+            if (@"type" != .REL) {
+                const phdr: []ElfN.Phdr = @ptrCast(@alignCast(elf.ni.phdr.slice(&elf.mf)));
+                const ph_phdr = &phdr[phdr_phndx];
+                ph_phdr.* = .{
+                    .type = std.elf.PT_PHDR,
                     .offset = 0,
                     .vaddr = 0,
                     .paddr = 0,
                     .filesz = 0,
                     .memsz = 0,
                     .flags = .{ .R = true },
-                    .@"align" = 1,
+                    .@"align" = @intCast(elf.ni.phdr.alignment(&elf.mf).toByteUnits()),
                 };
-                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_interp);
-            }
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_phdr);
 
-            _, const rodata_size = elf.ni.rodata.location(&elf.mf).resolve(&elf.mf);
-            const ph_rodata = &phdr[rodata_phndx];
-            ph_rodata.* = .{
-                .type = std.elf.PT_NULL,
-                .offset = 0,
-                .vaddr = ph_vaddr,
-                .paddr = ph_vaddr,
-                .filesz = @intCast(rodata_size),
-                .memsz = @intCast(rodata_size),
-                .flags = .{ .R = true },
-                .@"align" = @intCast(elf.ni.rodata.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_rodata);
-            ph_vaddr += @intCast(rodata_size);
+                if (maybe_interp) |_| {
+                    const ph_interp = &phdr[interp_phndx];
+                    ph_interp.* = .{
+                        .type = std.elf.PT_INTERP,
+                        .offset = 0,
+                        .vaddr = 0,
+                        .paddr = 0,
+                        .filesz = 0,
+                        .memsz = 0,
+                        .flags = .{ .R = true },
+                        .@"align" = 1,
+                    };
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_interp);
+                }
 
-            _, const text_size = elf.ni.text.location(&elf.mf).resolve(&elf.mf);
-            const ph_text = &phdr[text_phndx];
-            ph_text.* = .{
-                .type = std.elf.PT_NULL,
-                .offset = 0,
-                .vaddr = ph_vaddr,
-                .paddr = ph_vaddr,
-                .filesz = @intCast(text_size),
-                .memsz = @intCast(text_size),
-                .flags = .{ .R = true, .X = true },
-                .@"align" = @intCast(elf.ni.text.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_text);
-            ph_vaddr += @intCast(text_size);
-
-            _, const data_size = elf.ni.data.location(&elf.mf).resolve(&elf.mf);
-            const ph_data = &phdr[data_phndx];
-            ph_data.* = .{
-                .type = std.elf.PT_NULL,
-                .offset = 0,
-                .vaddr = ph_vaddr,
-                .paddr = ph_vaddr,
-                .filesz = @intCast(data_size),
-                .memsz = @intCast(data_size),
-                .flags = .{ .R = true, .W = true },
-                .@"align" = @intCast(elf.ni.data.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_data);
-            ph_vaddr += @intCast(data_size);
-
-            if (have_dynamic_section) {
-                const ph_dynamic = &phdr[dynamic_phndx];
-                ph_dynamic.* = .{
-                    .type = std.elf.PT_DYNAMIC,
+                _, const rodata_size = elf.ni.rodata.location(&elf.mf).resolve(&elf.mf);
+                const ph_rodata = &phdr[rodata_phndx];
+                ph_rodata.* = .{
+                    .type = std.elf.PT_NULL,
                     .offset = 0,
-                    .vaddr = 0,
-                    .paddr = 0,
-                    .filesz = 0,
-                    .memsz = 0,
+                    .vaddr = ph_vaddr,
+                    .paddr = ph_vaddr,
+                    .filesz = @intCast(rodata_size),
+                    .memsz = @intCast(rodata_size),
+                    .flags = .{ .R = true },
+                    .@"align" = @intCast(elf.ni.rodata.alignment(&elf.mf).toByteUnits()),
+                };
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_rodata);
+                ph_vaddr += @intCast(rodata_size);
+
+                _, const text_size = elf.ni.text.location(&elf.mf).resolve(&elf.mf);
+                const ph_text = &phdr[text_phndx];
+                ph_text.* = .{
+                    .type = std.elf.PT_NULL,
+                    .offset = 0,
+                    .vaddr = ph_vaddr,
+                    .paddr = ph_vaddr,
+                    .filesz = @intCast(text_size),
+                    .memsz = @intCast(text_size),
+                    .flags = .{ .R = true, .X = true },
+                    .@"align" = @intCast(elf.ni.text.alignment(&elf.mf).toByteUnits()),
+                };
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_text);
+                ph_vaddr += @intCast(text_size);
+
+                _, const data_size = elf.ni.data.location(&elf.mf).resolve(&elf.mf);
+                const ph_data = &phdr[data_phndx];
+                ph_data.* = .{
+                    .type = std.elf.PT_NULL,
+                    .offset = 0,
+                    .vaddr = ph_vaddr,
+                    .paddr = ph_vaddr,
+                    .filesz = @intCast(data_size),
+                    .memsz = @intCast(data_size),
                     .flags = .{ .R = true, .W = true },
-                    .@"align" = @intCast(addr_align.toByteUnits()),
+                    .@"align" = @intCast(elf.ni.data.alignment(&elf.mf).toByteUnits()),
                 };
-                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_dynamic);
-            }
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_data);
+                ph_vaddr += @intCast(data_size);
 
-            if (comp.config.any_non_single_threaded) {
-                const ph_tls = &phdr[tls_phndx];
-                ph_tls.* = .{
-                    .type = std.elf.PT_TLS,
-                    .offset = 0,
-                    .vaddr = 0,
-                    .paddr = 0,
-                    .filesz = 0,
-                    .memsz = 0,
-                    .flags = .{ .R = true },
-                    .@"align" = @intCast(elf.mf.flags.block_size.toByteUnits()),
-                };
-                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_tls);
+                if (have_dynamic_section) {
+                    const ph_dynamic = &phdr[dynamic_phndx];
+                    ph_dynamic.* = .{
+                        .type = std.elf.PT_DYNAMIC,
+                        .offset = 0,
+                        .vaddr = 0,
+                        .paddr = 0,
+                        .filesz = 0,
+                        .memsz = 0,
+                        .flags = .{ .R = true, .W = true },
+                        .@"align" = @intCast(addr_align.toByteUnits()),
+                    };
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_dynamic);
+                }
+
+                if (comp.config.any_non_single_threaded) {
+                    const ph_tls = &phdr[tls_phndx];
+                    ph_tls.* = .{
+                        .type = std.elf.PT_TLS,
+                        .offset = 0,
+                        .vaddr = 0,
+                        .paddr = 0,
+                        .filesz = 0,
+                        .memsz = 0,
+                        .flags = .{ .R = true },
+                        .@"align" = @intCast(elf.mf.flags.block_size.toByteUnits()),
+                    };
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_tls);
+                }
             }
 
             const sh_null: *ElfN.Shdr = @ptrCast(@alignCast(elf.ni.shdr.slice(&elf.mf)));
@@ -982,17 +990,17 @@ fn initHeaders(
     try elf.linkSections(.symtab, .strtab);
     elf.si.strtab.node(elf).slice(&elf.mf)[0] = 0;
 
-    assert(elf.si.rodata == try elf.addSection(elf.ni.rodata, .{
+    assert(elf.si.rodata == try elf.addSection(if (@"type" != .REL) elf.ni.rodata else elf.ni.file, .{
         .name = ".rodata",
         .flags = .{ .ALLOC = true },
         .addralign = elf.mf.flags.block_size,
     }));
-    assert(elf.si.text == try elf.addSection(elf.ni.text, .{
+    assert(elf.si.text == try elf.addSection(if (@"type" != .REL) elf.ni.text else elf.ni.file, .{
         .name = ".text",
         .flags = .{ .ALLOC = true, .EXECINSTR = true },
         .addralign = elf.mf.flags.block_size,
     }));
-    assert(elf.si.data == try elf.addSection(elf.ni.data, .{
+    assert(elf.si.data == try elf.addSection(if (@"type" != .REL) elf.ni.data else elf.ni.file, .{
         .name = ".data",
         .flags = .{ .WRITE = true, .ALLOC = true },
         .addralign = elf.mf.flags.block_size,
@@ -1064,15 +1072,17 @@ fn initHeaders(
         try elf.linkSections(elf.si.dynsym, elf.si.dynstr);
     }
     if (comp.config.any_non_single_threaded) {
-        elf.ni.tls = try elf.mf.addLastChildNode(gpa, elf.ni.rodata, .{
-            .alignment = elf.mf.flags.block_size,
-            .moved = true,
-            .bubbles_moved = false,
-        });
-        elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
-        elf.phdrs.items[tls_phndx] = elf.ni.tls;
+        if (@"type" != .REL) {
+            elf.ni.tls = try elf.mf.addLastChildNode(gpa, elf.ni.rodata, .{
+                .alignment = elf.mf.flags.block_size,
+                .moved = true,
+                .bubbles_moved = false,
+            });
+            elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
+            elf.phdrs.items[tls_phndx] = elf.ni.tls;
+        }
 
-        elf.si.tdata = try elf.addSection(elf.ni.tls, .{
+        elf.si.tdata = try elf.addSection(if (@"type" != .REL) elf.ni.tls else elf.ni.file, .{
             .name = ".tdata",
             .flags = .{ .WRITE = true, .ALLOC = true, .TLS = true },
             .addralign = elf.mf.flags.block_size,
