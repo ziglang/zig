@@ -1055,4 +1055,5 @@ pub const always_link_libs = [_][]const u8{
     "ntdll",
     "shell32",
     "user32",
+    "ws2_32",
 };
