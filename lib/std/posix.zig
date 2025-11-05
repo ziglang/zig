@@ -5631,7 +5631,7 @@ pub fn sendto(
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketUnconnected,
             .NETDOWN => return error.NetworkDown,
-            .TIMEOUT => return error.ConnectionTimedOut,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
         }
     }
