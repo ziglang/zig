@@ -642,6 +642,9 @@ pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {
     };
 }
 
+/// This functions is to be used only in tests. When the two strings are not
+/// equal, prints diagnostics to stderr to show exactly they are not equal,
+/// then returns a test expected equal error.
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
     if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
         if (@inComptime()) {
