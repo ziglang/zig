@@ -672,7 +672,6 @@ const Parser = struct {
         const target_name = real_node.enum_literal.get(self.zoir);
         const T_decls = switch (@typeInfo(T)) {
             inline .@"struct", .@"union", .@"enum" => |e| e.decls,
-            // .@"opaque "=> |o| o.decls,
             else => return error.WrongType,
         };
 
