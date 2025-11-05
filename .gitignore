@@ -9,6 +9,7 @@
 # Cheers!
 # -andrewrk
 
+.idea
 .zig-cache/
 zig-out/
 /release/
