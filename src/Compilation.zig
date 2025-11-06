@@ -3127,23 +3127,26 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
 
             // Work around windows `AccessDenied` if any files within this
             // directory are open by closing and reopening the file handles.
+            // While this need is only documented on windows, there are some
+            // niche scenarios, such as WSL on ReFS, where it may be required
+            // on other platforms. As the workaround is low-cost, just 
+            // use it on all platforms rather than trying to isolate every 
+            // specific case where it's needed.
             const need_writable_dance: enum { no, lf_only, lf_and_debug } = w: {
-                if (builtin.os.tag == .windows) {
-                    if (comp.bin_file) |lf| {
-                        // We cannot just call `makeExecutable` as it makes a false
-                        // assumption that we have a file handle open only when linking
-                        // an executable file. This used to be true when our linkers
-                        // were incapable of emitting relocatables and static archive.
-                        // Now that they are capable, we need to unconditionally close
-                        // the file handle and re-open it in the follow up call to
-                        // `makeWritable`.
-                        if (lf.file) |f| {
-                            f.close();
-                            lf.file = null;
+                if (comp.bin_file) |lf| {
+                    // We cannot just call `makeExecutable` as it makes a false
+                    // assumption that we have a file handle open only when linking
+                    // an executable file. This used to be true when our linkers
+                    // were incapable of emitting relocatables and static archive.
+                    // Now that they are capable, we need to unconditionally close
+                    // the file handle and re-open it in the follow up call to
+                    // `makeWritable`.
+                    if (lf.file) |f| {
+                        f.close();
+                        lf.file = null;
 
-                            if (lf.closeDebugInfo()) break :w .lf_and_debug;
-                            break :w .lf_only;
-                        }
+                        if (lf.closeDebugInfo()) break :w .lf_and_debug;
+                        break :w .lf_only;
                     }
                 }
                 break :w .no;
@@ -3177,7 +3180,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     .root_dir = comp.dirs.local_cache,
                     .sub_path = try fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
-                const result: (link.File.OpenError || error{HotSwapUnavailableOnHostOperatingSystem})!void = switch (need_writable_dance) {
+                const result: (link.File.OpenError || error{HotSwapUnavailableOnHostOperatingSystem,RenameAcrossMountPoints,InvalidFileName})!void = switch (need_writable_dance) {
                     .no => {},
                     .lf_only => lf.makeWritable(),
                     .lf_and_debug => res: {
