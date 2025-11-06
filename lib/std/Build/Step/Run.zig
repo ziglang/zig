@@ -746,7 +746,12 @@ fn convertPathArg(run: *Run, path: Build.Cache.Path) []const u8 {
         // Convert it from relative to *our* cwd, to relative to the *child's* cwd.
         break :rel std.fs.path.relative(b.graph.arena, child_cwd, path_str) catch @panic("OOM");
     };
-    assert(!std.fs.path.isAbsolute(child_cwd_rel));
+    // Not every path can be made relative, e.g. if the path and the child cwd are on different
+    // disk designators on Windows. In that case, `relative` will return an absolute path which we can
+    // just return.
+    if (std.fs.path.isAbsolute(child_cwd_rel)) {
+        return child_cwd_rel;
+    }
     // We're not done yet. In some cases this path must be prefixed with './':
     // * On POSIX, the executable name cannot be a single component like 'foo'
     // * Some executables might treat a leading '-' like a flag, which we must avoid
