@@ -3129,8 +3129,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
             // directory are open by closing and reopening the file handles.
             // While this need is only documented on windows, there are some
             // niche scenarios, such as WSL on ReFS, where it may be required
-            // on other platforms. As the workaround is low-cost, just 
-            // use it on all platforms rather than trying to isolate every 
+            // on other platforms. As the workaround is low-cost, just
+            // use it on all platforms rather than trying to isolate every
             // specific case where it's needed.
             const need_writable_dance: enum { no, lf_only, lf_and_debug } = w: {
                 if (comp.bin_file) |lf| {
@@ -3180,7 +3180,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     .root_dir = comp.dirs.local_cache,
                     .sub_path = try fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
-                const result: (link.File.OpenError || error{HotSwapUnavailableOnHostOperatingSystem,RenameAcrossMountPoints,InvalidFileName})!void = switch (need_writable_dance) {
+                const result: (link.File.OpenError || error{ HotSwapUnavailableOnHostOperatingSystem, RenameAcrossMountPoints, InvalidFileName })!void = switch (need_writable_dance) {
                     .no => {},
                     .lf_only => lf.makeWritable(),
                     .lf_and_debug => res: {
