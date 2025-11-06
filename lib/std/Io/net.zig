@@ -1119,7 +1119,13 @@ pub const Socket = struct {
     /// * `receiveTimeout`
     pub fn receive(s: *const Socket, io: Io, buffer: []u8) ReceiveError!IncomingMessage {
         var message: IncomingMessage = undefined;
-        assert(1 == try io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, .none));
+        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, .none);
+        if (maybe_err) |err| switch (err) {
+            // No timeout is passed to `netReceieve`, so it must not return timeout related errors.
+            error.Timeout, error.UnsupportedClock => unreachable,
+            else => |e| return e,
+        };
+        assert(1 == count);
         return message;
     }
 
@@ -1139,7 +1145,9 @@ pub const Socket = struct {
         timeout: Io.Timeout,
     ) ReceiveTimeoutError!IncomingMessage {
         var message: IncomingMessage = undefined;
-        assert(1 == try io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, timeout));
+        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, timeout);
+        if (maybe_err) |err| return err;
+        assert(1 == count);
         return message;
     }
 
