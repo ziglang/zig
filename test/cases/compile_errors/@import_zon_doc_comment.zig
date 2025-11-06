@@ -6,4 +6,4 @@ export fn entry() void {
 // error
 // imports=zon/doc_comment.zon
 //
-// doc_comment.zon:1:1: error: expected expression, found 'a document comment'
+// doc_comment.zon:1:1: error: expected expression, found 'a top-level document comment'
