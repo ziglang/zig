@@ -469,15 +469,15 @@ pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
     }
 }
 
-/// Returns the next `len` bytes from the stream, filling the buffer as
+/// Returns the next `n` bytes from the stream, filling the buffer as
 /// necessary.
 ///
 /// Invalidates previously returned values from `peek`.
 ///
 /// Asserts that the `Reader` was initialized with a buffer capacity at
-/// least as big as `len`.
+/// least as big as `n`.
 ///
-/// If there are fewer than `len` bytes left in the stream, `error.EndOfStream`
+/// If there are fewer than `n` bytes left in the stream, `error.EndOfStream`
 /// is returned instead.
 ///
 /// See also:
