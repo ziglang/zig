@@ -908,7 +908,13 @@ pub const AssemblyOptions = struct {
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(b: *Build, name: []const u8, options: Module.CreateOptions) *Module {
     const module = Module.create(b, options);
-    b.modules.put(b.dupe(name), module) catch @panic("OOM");
+    const gop = b.modules.getOrPutValue(b.dupe(name), module) catch @panic("OOM");
+    if (gop.found_existing) {
+        panic(
+            "A module with the name '{s}' has already been added to the package. Consider creating a private module with std.Build.createModule",
+            .{name},
+        );
+    }
     return module;
 }
 
@@ -1056,12 +1062,24 @@ pub fn addWriteFile(b: *Build, file_path: []const u8, data: []const u8) *Step.Wr
 
 pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
     const wf = Step.WriteFile.create(b);
-    b.named_writefiles.put(b.dupe(name), wf) catch @panic("OOM");
+    const gop = b.named_writefiles.getOrPutValue(b.dupe(name), wf) catch @panic("OOM");
+    if (gop.found_existing) {
+        panic(
+            "A WriteFile step with the name '{s}' has already been added to the package. Consider creating a private WriteFile step with std.Build.addWriteFiles",
+            .{name},
+        );
+    }
     return wf;
 }
 
 pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
-    b.named_lazy_paths.put(b.dupe(name), lp.dupe(b)) catch @panic("OOM");
+    const gop = b.named_lazy_paths.getOrPutValue(b.dupe(name), lp) catch @panic("OOM");
+    if (gop.found_existing) {
+        panic(
+            "A LazyPath with the name '{s}' has already been added to the package.",
+            .{name},
+        );
+    }
 }
 
 pub fn addWriteFiles(b: *Build) *Step.WriteFile {
