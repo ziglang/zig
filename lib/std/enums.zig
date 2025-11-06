@@ -665,6 +665,16 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
             };
         }
 
+        /// Returns an iterator over the map, which visits items in index order.
+        /// Modifications to the underlying map may or may not be observed by
+        /// the iterator, but will not invalidate it.
+        pub fn constIterator(self: *const Self) Iterator {
+            return .{
+                .inner = self.bits.iterator(.{}),
+                .values = &self.values,
+            };
+        }
+
         /// An entry in the map.
         pub const Entry = struct {
             /// The key associated with this entry.
@@ -682,6 +692,33 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
             values: *[Indexer.count]Value,
 
             pub fn next(self: *Iterator) ?Entry {
+                return if (self.inner.next()) |index|
+                    Entry{
+                        .key = Indexer.keyForIndex(index),
+                        .value = &self.values[index],
+                    }
+                else
+                    null;
+            }
+        };
+
+        /// An entry in the map.
+        pub const ConstEntry = struct {
+            /// The key associated with this entry.
+            /// Modifying this key will not change the map.
+            key: Key,
+
+            /// A pointer to the value in the map associated
+            /// with this key.  Modifications through this
+            /// pointer will modify the underlying data.
+            value: *const Value,
+        };
+
+        pub const ConstIterator = struct {
+            inner: BitSet.Iterator(.{}),
+            values: *const [Indexer.count]Value,
+
+            pub fn next(self: *Iterator) ?ConstEntry {
                 return if (self.inner.next()) |index|
                     Entry{
                         .key = Indexer.keyForIndex(index),
@@ -896,6 +933,14 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// but will not invalidate it.
         pub fn iterator(self: *Self) Iterator {
             return self.counts.iterator();
+        }
+
+        /// Returns an iterator over this multiset. Keys with zero
+        /// counts are included. Modifications to the set during
+        /// iteration may or may not be observed by the iterator,
+        /// but will not invalidate it.
+        pub fn constIterator(self: *const Self) Iterator {
+            return self.counts.constIterator();
         }
     };
 }
@@ -1176,6 +1221,13 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
             };
         }
 
+        /// Iterates over the items in the array, in index order.
+        pub fn constIterator(self: *const Self) ConstIterator {
+            return .{
+                .values = &self.values,
+            };
+        }
+
         /// An entry in the array.
         pub const Entry = struct {
             /// The key associated with this entry.
@@ -1191,6 +1243,34 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
         pub const Iterator = struct {
             index: usize = 0,
             values: *[Indexer.count]Value,
+
+            pub fn next(self: *Iterator) ?Entry {
+                const index = self.index;
+                if (index < Indexer.count) {
+                    self.index += 1;
+                    return Entry{
+                        .key = Indexer.keyForIndex(index),
+                        .value = &self.values[index],
+                    };
+                }
+                return null;
+            }
+        };
+
+        /// An entry in the array.
+        pub const ConstEntry = struct {
+            /// The key associated with this entry.
+            /// Modifying this key will not change the array.
+            key: Key,
+
+            /// A pointer to the value in the array associated
+            /// with this key.
+            value: *const Value,
+        };
+
+        pub const ConstIterator = struct {
+            index: usize = 0,
+            values: *const [Indexer.count]Value,
 
             pub fn next(self: *Iterator) ?Entry {
                 const index = self.index;
