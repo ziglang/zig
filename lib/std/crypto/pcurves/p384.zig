@@ -47,7 +47,9 @@ pub const P384 = struct {
     pub fn fromAffineCoordinates(p: AffineCoordinates) EncodingError!P384 {
         const x = p.x;
         const y = p.y;
-        const x3AxB = x.sq().mul(x).sub(x).sub(x).sub(x).add(B);
+        const x3 = x.sq().mul(x);
+        const three_x = x.add(x).add(x);
+        const x3AxB = x3.sub(three_x).add(B);
         const yy = y.sq();
         const on_curve = @intFromBool(x3AxB.equivalent(yy));
         const is_identity = @intFromBool(x.equivalent(AffineCoordinates.identityElement.x)) & @intFromBool(y.equivalent(AffineCoordinates.identityElement.y));
@@ -68,7 +70,9 @@ pub const P384 = struct {
 
     /// Recover the Y coordinate from the X coordinate.
     pub fn recoverY(x: Fe, is_odd: bool) NotSquareError!Fe {
-        const x3AxB = x.sq().mul(x).sub(x).sub(x).sub(x).add(B);
+        const x3 = x.sq().mul(x);
+        const three_x = x.add(x).add(x);
+        const x3AxB = x3.sub(three_x).add(B);
         var y = try x3AxB.sqrt();
         const yn = y.neg();
         y.cMov(yn, @intFromBool(is_odd) ^ @intFromBool(y.isOdd()));
