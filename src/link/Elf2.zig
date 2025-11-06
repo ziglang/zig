@@ -462,7 +462,7 @@ pub const Reloc = extern struct {
                         .TPOFF32 => {
                             const phdr = @field(elf.phdrSlice(), @tagName(class));
                             const ph = &phdr[elf.getNode(elf.ni.tls).segment];
-                            assert(elf.targetLoad(&ph.type) == std.elf.PT_TLS);
+                            assert(elf.targetLoad(&ph.type) == .TLS);
                             std.mem.writeInt(
                                 i32,
                                 loc_slice[0..4],
@@ -715,12 +715,15 @@ fn initHeaders(
         break :phndx phnum;
     } else undefined;
 
-    const expected_nodes_len = expected_nodes_len: {
-        const expected_nodes_len = 5 + phnum * 2 + @as(usize, 2) * @intFromBool(have_dynamic_section);
-        if (@"type" != .REL) break :expected_nodes_len expected_nodes_len;
-        phnum = 0;
-        break :expected_nodes_len expected_nodes_len -
-            @intFromBool(comp.config.any_non_single_threaded);
+    const expected_nodes_len = expected_nodes_len: switch (@"type") {
+        .NONE => unreachable,
+        .REL => {
+            defer phnum = 0;
+            break :expected_nodes_len 5 + phnum;
+        },
+        .EXEC, .DYN => break :expected_nodes_len 5 + phnum * 2 +
+            @as(usize, 2) * @intFromBool(have_dynamic_section),
+        .CORE, _ => unreachable,
     };
     try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
     try elf.phdrs.resize(gpa, phnum);
@@ -771,51 +774,53 @@ fn initHeaders(
     }));
     elf.nodes.appendAssumeCapacity(.shdr);
 
-    assert(elf.ni.rodata == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
-        .alignment = elf.mf.flags.block_size,
-        .moved = @"type" != .REL,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = rodata_phndx });
-    if (@"type" != .REL) elf.phdrs.items[rodata_phndx] = elf.ni.rodata;
+    var ph_vaddr: u32 = if (@"type" != .REL) ph_vaddr: {
+        assert(elf.ni.rodata == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
+            .alignment = elf.mf.flags.block_size,
+            .moved = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = rodata_phndx });
+        elf.phdrs.items[rodata_phndx] = elf.ni.rodata;
 
-    assert(elf.ni.phdr == try elf.mf.addOnlyChildNode(gpa, elf.ni.rodata, .{
-        .size = elf.ehdrField(.phentsize) * elf.ehdrField(.phnum),
-        .alignment = addr_align,
-        .moved = @"type" != .REL,
-        .resized = @"type" != .REL,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = phdr_phndx });
-    if (@"type" != .REL) elf.phdrs.items[phdr_phndx] = elf.ni.phdr;
+        assert(elf.ni.phdr == try elf.mf.addOnlyChildNode(gpa, elf.ni.rodata, .{
+            .size = elf.ehdrField(.phentsize) * elf.ehdrField(.phnum),
+            .alignment = addr_align,
+            .moved = true,
+            .resized = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = phdr_phndx });
+        elf.phdrs.items[phdr_phndx] = elf.ni.phdr;
 
-    assert(elf.ni.text == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
-        .alignment = elf.mf.flags.block_size,
-        .moved = @"type" != .REL,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = text_phndx });
-    if (@"type" != .REL) elf.phdrs.items[text_phndx] = elf.ni.text;
+        assert(elf.ni.text == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
+            .alignment = elf.mf.flags.block_size,
+            .moved = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = text_phndx });
+        elf.phdrs.items[text_phndx] = elf.ni.text;
 
-    assert(elf.ni.data == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
-        .alignment = elf.mf.flags.block_size,
-        .moved = @"type" != .REL,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = data_phndx });
-    if (@"type" != .REL) elf.phdrs.items[data_phndx] = elf.ni.data;
+        assert(elf.ni.data == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
+            .alignment = elf.mf.flags.block_size,
+            .moved = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = data_phndx });
+        elf.phdrs.items[data_phndx] = elf.ni.data;
 
-    var ph_vaddr: u32 = switch (elf.ehdrField(.type)) {
-        else => 0,
-        .EXEC => switch (elf.ehdrField(.machine)) {
-            .@"386" => 0x400000,
-            .AARCH64, .X86_64 => 0x200000,
-            .PPC, .PPC64 => 0x10000000,
-            .S390, .S390_OLD => 0x1000000,
-            .OLD_SPARCV9, .SPARCV9 => 0x100000,
-            else => 0x10000,
-        },
-    };
+        break :ph_vaddr switch (elf.ehdrField(.type)) {
+            else => 0,
+            .EXEC => switch (elf.ehdrField(.machine)) {
+                .@"386" => 0x400000,
+                .AARCH64, .X86_64 => 0x200000,
+                .PPC, .PPC64 => 0x10000000,
+                .S390, .S390_OLD => 0x1000000,
+                .OLD_SPARCV9, .SPARCV9 => 0x100000,
+                else => 0x10000,
+            },
+        };
+    } else undefined;
     switch (class) {
         .NONE, _ => unreachable,
         inline else => |ct_class| {
@@ -826,7 +831,7 @@ fn initHeaders(
                 const phdr: []ElfN.Phdr = @ptrCast(@alignCast(elf.ni.phdr.slice(&elf.mf)));
                 const ph_phdr = &phdr[phdr_phndx];
                 ph_phdr.* = .{
-                    .type = std.elf.PT_PHDR,
+                    .type = .PHDR,
                     .offset = 0,
                     .vaddr = 0,
                     .paddr = 0,
@@ -840,7 +845,7 @@ fn initHeaders(
                 if (maybe_interp) |_| {
                     const ph_interp = &phdr[interp_phndx];
                     ph_interp.* = .{
-                        .type = std.elf.PT_INTERP,
+                        .type = .INTERP,
                         .offset = 0,
                         .vaddr = 0,
                         .paddr = 0,
@@ -855,7 +860,7 @@ fn initHeaders(
                 _, const rodata_size = elf.ni.rodata.location(&elf.mf).resolve(&elf.mf);
                 const ph_rodata = &phdr[rodata_phndx];
                 ph_rodata.* = .{
-                    .type = std.elf.PT_NULL,
+                    .type = if (rodata_size == 0) .NULL else .LOAD,
                     .offset = 0,
                     .vaddr = ph_vaddr,
                     .paddr = ph_vaddr,
@@ -870,7 +875,7 @@ fn initHeaders(
                 _, const text_size = elf.ni.text.location(&elf.mf).resolve(&elf.mf);
                 const ph_text = &phdr[text_phndx];
                 ph_text.* = .{
-                    .type = std.elf.PT_NULL,
+                    .type = if (text_size == 0) .NULL else .LOAD,
                     .offset = 0,
                     .vaddr = ph_vaddr,
                     .paddr = ph_vaddr,
@@ -885,7 +890,7 @@ fn initHeaders(
                 _, const data_size = elf.ni.data.location(&elf.mf).resolve(&elf.mf);
                 const ph_data = &phdr[data_phndx];
                 ph_data.* = .{
-                    .type = std.elf.PT_NULL,
+                    .type = if (data_size == 0) .NULL else .LOAD,
                     .offset = 0,
                     .vaddr = ph_vaddr,
                     .paddr = ph_vaddr,
@@ -900,7 +905,7 @@ fn initHeaders(
                 if (have_dynamic_section) {
                     const ph_dynamic = &phdr[dynamic_phndx];
                     ph_dynamic.* = .{
-                        .type = std.elf.PT_DYNAMIC,
+                        .type = .DYNAMIC,
                         .offset = 0,
                         .vaddr = 0,
                         .paddr = 0,
@@ -915,7 +920,7 @@ fn initHeaders(
                 if (comp.config.any_non_single_threaded) {
                     const ph_tls = &phdr[tls_phndx];
                     ph_tls.* = .{
-                        .type = std.elf.PT_TLS,
+                        .type = .TLS,
                         .offset = 0,
                         .vaddr = 0,
                         .paddr = 0,
@@ -931,7 +936,7 @@ fn initHeaders(
             const sh_null: *ElfN.Shdr = @ptrCast(@alignCast(elf.ni.shdr.slice(&elf.mf)));
             sh_null.* = .{
                 .name = try elf.string(.shstrtab, ""),
-                .type = std.elf.SHT_NULL,
+                .type = .NULL,
                 .flags = .{ .shf = .{} },
                 .addr = 0,
                 .offset = 0,
@@ -951,7 +956,7 @@ fn initHeaders(
                 .unused = 0,
             };
             assert(elf.si.symtab == try elf.addSection(elf.ni.file, .{
-                .type = std.elf.SHT_SYMTAB,
+                .type = .SYMTAB,
                 .size = @sizeOf(ElfN.Sym) * 1,
                 .addralign = addr_align,
                 .entsize = @sizeOf(ElfN.Sym),
@@ -972,7 +977,7 @@ fn initHeaders(
         },
     }
     assert(elf.si.shstrtab == try elf.addSection(elf.ni.file, .{
-        .type = std.elf.SHT_STRTAB,
+        .type = .STRTAB,
         .addralign = elf.mf.flags.block_size,
         .entsize = 1,
     }));
@@ -982,7 +987,7 @@ fn initHeaders(
 
     assert(elf.si.strtab == try elf.addSection(elf.ni.file, .{
         .name = ".strtab",
-        .type = std.elf.SHT_STRTAB,
+        .type = .STRTAB,
         .size = 1,
         .addralign = elf.mf.flags.block_size,
         .entsize = 1,
@@ -1016,6 +1021,7 @@ fn initHeaders(
         elf.phdrs.items[interp_phndx] = interp_ni;
 
         const sec_interp_si = try elf.addSection(interp_ni, .{
+            .type = .PROGBITS,
             .name = ".interp",
             .flags = .{ .ALLOC = true },
             .size = @intCast(interp.len + 1),
@@ -1038,7 +1044,7 @@ fn initHeaders(
                 const ElfN = ct_class.ElfN();
                 elf.si.dynsym = try elf.addSection(elf.ni.rodata, .{
                     .name = ".dynsym",
-                    .type = std.elf.SHT_DYNSYM,
+                    .type = .DYNSYM,
                     .size = @sizeOf(ElfN.Sym) * 1,
                     .addralign = addr_align,
                     .entsize = @sizeOf(ElfN.Sym),
@@ -1057,14 +1063,14 @@ fn initHeaders(
         }
         elf.si.dynstr = try elf.addSection(elf.ni.rodata, .{
             .name = ".dynstr",
-            .type = std.elf.SHT_STRTAB,
+            .type = .STRTAB,
             .size = 1,
             .addralign = elf.mf.flags.block_size,
             .entsize = 1,
         });
         elf.si.dynamic = try elf.addSection(dynamic_ni, .{
             .name = ".dynamic",
-            .type = std.elf.SHT_DYNAMIC,
+            .type = .DYNAMIC,
             .flags = .{ .ALLOC = true, .WRITE = true },
             .addralign = addr_align,
         });
@@ -1126,7 +1132,7 @@ fn computeNodeVAddr(elf: *Elf, ni: MappedFile.Node.Index) u64 {
             .file => return 0,
             .ehdr, .shdr => unreachable,
             .segment => |phndx| break :parent_vaddr switch (elf.phdrSlice()) {
-                inline else => |ph| elf.targetLoad(&ph[phndx].vaddr),
+                inline else => |phdr| elf.targetLoad(&phdr[phndx].vaddr),
             },
             .section => |si| si,
             .input_section => unreachable,
@@ -1581,7 +1587,7 @@ fn loadObject(
                 };
                 try r.discardAll(ehdr.shentsize);
                 switch (section.shdr.type) {
-                    std.elf.SHT_NULL, std.elf.SHT_NOBITS => {},
+                    .NULL, .NOBITS => {},
                     else => if (section.shdr.offset + section.shdr.size > fl.size)
                         return diags.failParse(path, "bad section location", .{}),
                 }
@@ -1590,8 +1596,7 @@ fn loadObject(
                 if (ehdr.shstrndx == std.elf.SHN_UNDEF or ehdr.shstrndx >= ehdr.shnum)
                     return diags.failParse(path, "missing section names", .{});
                 const shdr = &sections[ehdr.shstrndx].shdr;
-                if (shdr.type != std.elf.SHT_STRTAB)
-                    return diags.failParse(path, "invalid shstrtab type", .{});
+                if (shdr.type != .STRTAB) return diags.failParse(path, "invalid shstrtab type", .{});
                 const shstrtab = try gpa.alloc(u8, @intCast(shdr.size));
                 errdefer gpa.free(shstrtab);
                 try fr.seekTo(fl.offset + shdr.offset);
@@ -1604,7 +1609,7 @@ fn loadObject(
             try elf.input_sections.ensureUnusedCapacity(gpa, ehdr.shnum - 1);
             for (sections[1..]) |*section| switch (section.shdr.type) {
                 else => {},
-                std.elf.SHT_PROGBITS, std.elf.SHT_NOBITS => {
+                .PROGBITS, .NOBITS => {
                     if (section.shdr.name >= shstrtab.len) continue;
                     const name = std.mem.sliceTo(shstrtab[section.shdr.name..], 0);
                     const parent_si = elf.namedSection(name) orelse continue;
@@ -1639,14 +1644,14 @@ fn loadObject(
             defer symmap.deinit(gpa);
             for (sections[1..], 1..) |*symtab, symtab_shndx| switch (symtab.shdr.type) {
                 else => {},
-                std.elf.SHT_SYMTAB => {
+                .SYMTAB => {
                     if (symtab.shdr.entsize < @sizeOf(ElfN.Sym))
                         return diags.failParse(path, "unsupported symtab entsize", .{});
                     const strtab = strtab: {
                         if (symtab.shdr.link == std.elf.SHN_UNDEF or symtab.shdr.link >= ehdr.shnum)
                             return diags.failParse(path, "missing symbol names", .{});
                         const shdr = &sections[symtab.shdr.link].shdr;
-                        if (shdr.type != std.elf.SHT_STRTAB)
+                        if (shdr.type != .STRTAB)
                             return diags.failParse(path, "invalid strtab type", .{});
                         const strtab = try gpa.alloc(u8, @intCast(shdr.size));
                         errdefer gpa.free(strtab);
@@ -1729,13 +1734,13 @@ fn loadObject(
                     }
                     for (sections[1..]) |*rels| switch (rels.shdr.type) {
                         else => {},
-                        inline std.elf.SHT_REL, std.elf.SHT_RELA => |sht| {
+                        inline .REL, .RELA => |sht| {
                             if (rels.shdr.link != symtab_shndx or rels.shdr.info == std.elf.SHN_UNDEF or
                                 rels.shdr.info >= ehdr.shnum) continue;
                             const Rel = switch (sht) {
                                 else => comptime unreachable,
-                                std.elf.SHT_REL => ElfN.Rel,
-                                std.elf.SHT_RELA => ElfN.Rela,
+                                .REL => ElfN.Rel,
+                                .RELA => ElfN.Rela,
                             };
                             if (rels.shdr.entsize < @sizeOf(Rel))
                                 return diags.failParse(path, "unsupported rel entsize", .{});
@@ -1810,7 +1815,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *std.Io.File.Reader) !void
                 try r.discardAll(ehdr.phentsize);
                 switch (ph.type) {
                     else => {},
-                    std.elf.PT_DYNAMIC => break ph,
+                    .DYNAMIC => break ph,
                 }
             } else return diags.failParse(path, "no dynamic segment", .{});
             const dynnum = std.math.divExact(
@@ -1846,7 +1851,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *std.Io.File.Reader) !void
                 try r.discardAll(ehdr.phentsize);
                 switch (ph.type) {
                     else => {},
-                    std.elf.PT_LOAD => if (strtab.? >= ph.vaddr and
+                    .LOAD => if (strtab.? >= ph.vaddr and
                         strtab.? + (strsz orelse 0) <= ph.vaddr + ph.filesz) break ph,
                 }
             } else return diags.failParse(path, "strtab not part of a loaded segment", .{});
@@ -1982,15 +1987,15 @@ pub fn getVAddr(elf: *Elf, reloc_info: link.File.RelocInfo, target_si: Symbol.In
 
 fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
     name: []const u8 = "",
-    type: std.elf.Word = std.elf.SHT_NULL,
+    type: std.elf.SHT = .NULL,
     flags: std.elf.SHF = .{},
     size: std.elf.Word = 0,
     addralign: std.mem.Alignment = .@"1",
     entsize: std.elf.Word = 0,
 }) !Symbol.Index {
     switch (opts.type) {
-        std.elf.SHT_NULL => assert(opts.size == 0),
-        std.elf.SHT_PROGBITS => assert(opts.size > 0),
+        .NULL => assert(opts.size == 0),
+        .PROGBITS => assert(opts.size > 0),
         else => {},
     }
     const gpa = elf.base.comp.gpa;
@@ -2626,10 +2631,10 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
                     const ph = &phdr[phndx];
                     switch (elf.targetLoad(&ph.type)) {
                         else => unreachable,
-                        std.elf.PT_NULL, std.elf.PT_LOAD => return,
-                        std.elf.PT_DYNAMIC, std.elf.PT_INTERP => {},
-                        std.elf.PT_PHDR => @field(elf.ehdrPtr(), @tagName(class)).phoff = ph.offset,
-                        std.elf.PT_TLS => {},
+                        .NULL, .LOAD => return,
+                        .DYNAMIC, .INTERP => {},
+                        .PHDR => @field(elf.ehdrPtr(), @tagName(class)).phoff = ph.offset,
+                        .TLS => {},
                     }
                     elf.targetStore(&ph.vaddr, @intCast(elf.computeNodeVAddr(ni)));
                     ph.paddr = ph.vaddr;
@@ -2694,22 +2699,18 @@ fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) !void {
                     elf.targetStore(&ph.memsz, @intCast(memsz));
                     switch (elf.targetLoad(&ph.type)) {
                         else => unreachable,
-                        std.elf.PT_NULL => if (size > 0) elf.targetStore(&ph.type, std.elf.PT_LOAD),
-                        std.elf.PT_LOAD => if (size == 0) elf.targetStore(&ph.type, std.elf.PT_NULL),
-                        std.elf.PT_DYNAMIC, std.elf.PT_INTERP, std.elf.PT_PHDR => return,
-                        std.elf.PT_TLS => return ni.childrenMoved(elf.base.comp.gpa, &elf.mf),
+                        .NULL => if (size > 0) elf.targetStore(&ph.type, .LOAD),
+                        .LOAD => if (size == 0) elf.targetStore(&ph.type, .NULL),
+                        .DYNAMIC, .INTERP, .PHDR => return,
+                        .TLS => return ni.childrenMoved(elf.base.comp.gpa, &elf.mf),
                     }
                     var vaddr = elf.targetLoad(&ph.vaddr);
                     var new_phndx = phndx;
                     for (phdr[phndx + 1 ..], phndx + 1..) |*next_ph, next_phndx| {
                         switch (elf.targetLoad(&next_ph.type)) {
                             else => unreachable,
-                            std.elf.PT_NULL, std.elf.PT_LOAD => {},
-                            std.elf.PT_DYNAMIC,
-                            std.elf.PT_INTERP,
-                            std.elf.PT_PHDR,
-                            std.elf.PT_TLS,
-                            => break,
+                            .NULL, .LOAD => {},
+                            .DYNAMIC, .INTERP, .PHDR, .TLS => break,
                         }
                         const next_vaddr = elf.targetLoad(&next_ph.vaddr);
                         if (vaddr + memsz <= next_vaddr) break;
@@ -2737,13 +2738,13 @@ fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) !void {
                 elf.targetStore(&sh.size, @intCast(size));
                 switch (elf.targetLoad(&sh.type)) {
                     else => unreachable,
-                    std.elf.SHT_NULL => if (size > 0) elf.targetStore(&sh.type, std.elf.SHT_PROGBITS),
-                    std.elf.SHT_PROGBITS => if (size == 0) elf.targetStore(&sh.type, std.elf.SHT_NULL),
-                    std.elf.SHT_SYMTAB, std.elf.SHT_DYNSYM => elf.targetStore(
+                    .NULL => if (size > 0) elf.targetStore(&sh.type, .PROGBITS),
+                    .PROGBITS => if (size == 0) elf.targetStore(&sh.type, .NULL),
+                    .SYMTAB, .DYNSYM => elf.targetStore(
                         &sh.info,
                         @intCast(@divExact(size, elf.targetLoad(&sh.entsize))),
                     ),
-                    std.elf.SHT_STRTAB, std.elf.SHT_DYNAMIC => {},
+                    .STRTAB, .DYNAMIC => {},
                 }
             },
         },
@@ -2870,6 +2871,26 @@ pub fn printNode(
     try w.writeAll(@tagName(node));
     switch (node) {
         else => {},
+        .segment => |phndx| switch (elf.phdrSlice()) {
+            inline else => |phdr| {
+                const ph = &phdr[phndx];
+                try w.writeByte('(');
+                const pt = elf.targetLoad(&ph.type);
+                if (std.enums.tagName(std.elf.PT, pt)) |pt_name|
+                    try w.writeAll(pt_name)
+                else inline for (@typeInfo(std.elf.PT).@"enum".decls) |decl| {
+                    const decl_val = @field(std.elf.PT, decl.name);
+                    if (@TypeOf(decl_val) != std.elf.PT) continue;
+                    if (pt == @field(std.elf.PT, decl.name)) break try w.writeAll(decl.name);
+                } else try w.print("0x{x}", .{pt});
+                try w.writeAll(", ");
+                const pf = elf.targetLoad(&ph.flags);
+                if (pf.R) try w.writeByte('R');
+                if (pf.W) try w.writeByte('W');
+                if (pf.X) try w.writeByte('X');
+                try w.writeByte(')');
+            },
+        },
         .section => |si| try w.print("({s})", .{elf.sectionName(si)}),
         .input_section => |isi| {
             const ii = isi.input(elf);
