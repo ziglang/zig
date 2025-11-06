@@ -645,6 +645,9 @@ fn lowerEnum(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
                 field_name.get(self.file.zoir.?),
                 .no_embedded_nulls,
             );
+
+            const enum_info = ip.loadEnumType(res_ty.ip_index);
+            if (try self.lowerDeclLiteral(node, res_ty, field_name, enum_info.namespace)) |val| return val;
             const field_index = res_ty.enumFieldIndex(field_name_interned, self.sema.pt.zcu) orelse {
                 return self.fail(
                     node,
@@ -746,6 +749,29 @@ fn lowerTuple(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
     return (try self.sema.pt.aggregateValue(res_ty, elems)).toIntern();
 }
 
+fn lowerDeclLiteral(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type, name: Zoir.NullTerminatedString, namespace: InternPool.NamespaceIndex) !?InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+
+    const air = Air.internedToRef(res_ty.toIntern());
+    // Intern the incoming name
+    const decl_name = try ip.getOrPutString(
+        self.sema.gpa,
+        self.sema.pt.tid,
+        name.get(self.file.zoir.?),
+        .no_embedded_nulls,
+    );
+
+    for (ip.namespacePtr(namespace).pub_decls.keys()) |decl| {
+        const nav = ip.getNav(decl);
+        if (nav.name == decl_name) {
+            const src = self.nodeSrc(node);
+            const val = try self.sema.fieldVal(self.block, src, air, decl_name, src);
+            return val.toInterned().?;
+        }
+    }
+    return null;
+}
+
 fn lowerStruct(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
@@ -757,6 +783,10 @@ fn lowerStruct(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
     const fields: @FieldType(Zoir.Node, "struct_literal") = switch (node.get(self.file.zoir.?)) {
         .struct_literal => |fields| fields,
         .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
+        .enum_literal => |name| {
+            if (try self.lowerDeclLiteral(node, res_ty, name, struct_info.namespace)) |val| return val;
+            return error.WrongType;
+        },
         else => return error.WrongType,
     };
 
@@ -905,6 +935,9 @@ fn lowerUnion(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
                 name.get(self.file.zoir.?),
                 .no_embedded_nulls,
             );
+
+            if (try self.lowerDeclLiteral(node, res_ty, name, union_info.namespace)) |val| return val;
+            
             break :b .{ field_name, null };
         },
         .struct_literal => b: {
