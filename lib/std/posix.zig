@@ -1699,6 +1699,14 @@ pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
     }
 }
 
+pub fn getpid() pid_t {
+    return system.getpid();
+}
+
+pub fn getppid() pid_t {
+    return system.getppid();
+}
+
 pub const ExecveError = error{
     SystemResources,
     AccessDenied,

@@ -621,6 +621,21 @@ test "dup & dup2" {
     try testing.expectEqualStrings("dupdup2", try tmp.dir.readFile("os_dup_test", &buffer));
 }
 
+test "getpid" {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+
+    try expect(posix.getpid() != 0);
+}
+
+test "getppid" {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+    if (native_os == .plan9 and !builtin.link_libc) return error.SkipZigTest;
+
+    try expect(posix.getppid() >= 0);
+}
+
 test "writev longer than IOV_MAX" {
     if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
