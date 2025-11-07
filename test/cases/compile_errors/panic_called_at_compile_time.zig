@@ -8,4 +8,4 @@ export fn entry() void {
 
 // error
 //
-// :3:9: error: encountered @panic at comptime
+// :3:9: error: encountered @panic at comptime: aoeu
