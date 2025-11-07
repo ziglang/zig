@@ -2024,7 +2024,9 @@ fn resolveConstString(
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-    reason: ComptimeReason,
+    /// `null` may be passed only if `block.isComptime()`. It indicates that the reason for the value
+    /// being comptime-resolved is that the block is being comptime-evaluated.
+    reason: ?ComptimeReason,
 ) ![]u8 {
     const air_inst = try sema.resolveInst(zir_ref);
     return sema.toConstString(block, src, air_inst, reason);
@@ -2035,7 +2037,9 @@ pub fn toConstString(
     block: *Block,
     src: LazySrcLoc,
     air_inst: Air.Inst.Ref,
-    reason: ComptimeReason,
+    /// `null` may be passed only if `block.isComptime()`. It indicates that the reason for the value
+    /// being comptime-resolved is that the block is being comptime-evaluated.
+    reason: ?ComptimeReason,
 ) ![]u8 {
     const pt = sema.pt;
     const coerced_inst = try sema.coerce(block, .slice_const_u8, air_inst, src);
@@ -2261,6 +2265,8 @@ fn resolveConstValue(
     block: *Block,
     src: LazySrcLoc,
     inst: Air.Inst.Ref,
+    /// `null` may be passed only if `block.isComptime()`. It indicates that the reason for the value
+    /// being comptime-resolved is that the block is being comptime-evaluated.
     reason: ?ComptimeReason,
 ) CompileError!Value {
     return try sema.resolveValue(inst) orelse {
@@ -2288,6 +2294,8 @@ fn resolveConstDefinedValue(
     block: *Block,
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
+    /// `null` may be passed only if `block.isComptime()`. It indicates that the reason for the value
+    /// being comptime-resolved is that the block is being comptime-evaluated.
     reason: ?ComptimeReason,
 ) CompileError!Value {
     const val = try sema.resolveConstValue(block, src, air_ref, reason);
@@ -2317,7 +2325,14 @@ pub fn resolveFinalDeclValue(
     return val;
 }
 
-fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: ?ComptimeReason) CompileError {
+fn failWithNeededComptime(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    /// `null` may be passed only if `block.isComptime()`. It indicates that the reason for the value
+    /// being comptime-resolved is that the block is being comptime-evaluated.
+    reason: ?ComptimeReason,
+) CompileError {
     const msg, const fail_block = msg: {
         const msg = try sema.errMsg(src, "unable to resolve comptime value", .{});
         errdefer msg.destroy(sema.gpa);
@@ -5569,10 +5584,12 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
     const src = block.nodeOffset(inst_data.src_node);
     const msg_inst = try sema.resolveInst(inst_data.operand);
 
-    const coerced_msg = try sema.coerce(block, .slice_const_u8, msg_inst, block.builtinCallArgSrc(inst_data.src_node, 0));
+    const arg_src = block.builtinCallArgSrc(inst_data.src_node, 0);
+    const coerced_msg = try sema.coerce(block, .slice_const_u8, msg_inst, arg_src);
 
     if (block.isComptime()) {
-        return sema.fail(block, src, "encountered @panic at comptime", .{});
+        const string = try sema.resolveConstString(block, arg_src, inst_data.operand, null);
+        return sema.fail(block, src, "encountered @panic at comptime: {s}", .{string});
     }
 
     // We only apply the first hint in a branch.
@@ -37261,7 +37278,9 @@ fn derefSliceAsArray(
     block: *Block,
     src: LazySrcLoc,
     slice_val: Value,
-    reason: ComptimeReason,
+    /// `null` may be passed only if `block.isComptime()`. It indicates that the reason for the value
+    /// being comptime-resolved is that the block is being comptime-evaluated.
+    reason: ?ComptimeReason,
 ) CompileError!Value {
     return try sema.maybeDerefSliceAsArray(block, src, slice_val) orelse {
         return sema.failWithNeededComptime(block, src, reason);
