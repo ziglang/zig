@@ -313,9 +313,9 @@ pub const Base64DecoderWithIgnore = struct {
         return result;
     }
 
-    /// Return the maximum possible decoded size for a given input length - The actual length may be less if the input includes padding.
-    /// `InvalidPadding` is returned if the input length is not valid.
-    pub fn calcSizeUpperBound(decoder_with_ignore: *const Base64DecoderWithIgnore, source_len: usize) Error!usize {
+    /// Return the maximum possible decoded size for a given input length - The actual length may be
+    /// less if the input includes padding or ignored characters.
+    pub fn calcSizeUpperBound(decoder_with_ignore: *const Base64DecoderWithIgnore, source_len: usize) usize {
         var result = source_len / 4 * 3;
         if (decoder_with_ignore.decoder.pad_char == null) {
             const leftover = source_len % 4;
@@ -521,7 +521,7 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
     {
         const decoder_ignore_nothing = codecs.decoderWithIgnore("");
         var buffer: [0x100]u8 = undefined;
-        const decoded = buffer[0..try decoder_ignore_nothing.calcSizeUpperBound(expected_encoded.len)];
+        const decoded = buffer[0..decoder_ignore_nothing.calcSizeUpperBound(expected_encoded.len)];
         const written = try decoder_ignore_nothing.decode(decoded, expected_encoded);
         try testing.expect(written <= decoded.len);
         try testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
@@ -531,7 +531,7 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
 fn testDecodeIgnoreSpace(codecs: Codecs, expected_decoded: []const u8, encoded: []const u8) !void {
     const decoder_ignore_space = codecs.decoderWithIgnore(" ");
     var buffer: [0x100]u8 = undefined;
-    const decoded = buffer[0..try decoder_ignore_space.calcSizeUpperBound(encoded.len)];
+    const decoded = buffer[0..decoder_ignore_space.calcSizeUpperBound(encoded.len)];
     const written = try decoder_ignore_space.decode(decoded, encoded);
     try testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
 }
