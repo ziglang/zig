@@ -4,7 +4,7 @@ const math = std.math;
 const meta = std.meta;
 const expect = std.testing.expect;
 
-/// Returns whether x is a NaN, ignoring sign.
+/// Returns `true` if `x` is not a number (NaN), and `false` otherwise.
 pub fn isNan(x: anytype) bool {
     return x != x;
 }
