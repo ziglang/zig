@@ -9958,7 +9958,9 @@ pub const EVFILT = switch (native_os) {
         /// Filesystem events
         pub const FS = 7;
         /// User events
-        pub const USER = 1;
+        pub const USER = 8;
+        /// Empty filter
+        pub const EMPTY = 9;
     },
     .freebsd => struct {
         pub const READ = -1;
@@ -10108,8 +10110,19 @@ pub const NOTE = switch (native_os) {
         pub const PCTRLMASK = 4026531840;
     },
     .netbsd => struct {
+        /// ignore input fflags
+        pub const FFNOP = 0x00000000;
+        /// AND fflags
+        pub const FFAND = 0x40000000;
+        /// OR fflags
+        pub const FFOR = 0x80000000;
+        /// copy fflags
+        pub const FFCOPY = 0xc0000000;
+        /// masks for operations
+        pub const FFCTRLMASK = 0xc0000000;
+        pub const FFLAGSMASK = 0x00ffffff;
         /// On input, TRIGGER causes the event to be triggered for output.
-        pub const TRIGGER = 0x08000000;
+        pub const TRIGGER = 0x01000000;
         /// low water mark
         pub const LOWAT = 0x00000001;
         /// vnode was removed
@@ -10126,6 +10139,14 @@ pub const NOTE = switch (native_os) {
         pub const RENAME = 0x00000020;
         /// vnode access was revoked
         pub const REVOKE = 0x00000040;
+        /// vnode was opened
+        pub const OPEN = 0x00000080;
+        /// file closed (no FWRITE)
+        pub const CLOSE = 0x00000100;
+        /// file closed (FWRITE)
+        pub const CLOSE_WRITE = 0x00000200;
+        /// file was read
+        pub const READ = 0x00000400;
         /// process exited
         pub const EXIT = 0x80000000;
         /// process forked
@@ -10135,6 +10156,24 @@ pub const NOTE = switch (native_os) {
         /// mask for signal & exit status
         pub const PDATAMASK = 0x000fffff;
         pub const PCTRLMASK = 0xf0000000;
+        /// follow across forks
+        pub const TRACK = 0x00000001;
+        /// could not track child
+        pub const TRACKERR = 0x00000002;
+        /// am a child process
+        pub const CHILD = 0x00000004;
+        /// shared with EVFILT_SIGNAL
+        pub const SIGNAL = 0x08000000;
+        /// data is milliseconds
+        pub const MSECONDS = 0x00000000;
+        /// data is seconds
+        pub const SECONDS = 0x00000001;
+        /// data is microseconds
+        pub const USECONDS = 0x00000002;
+        /// data is nanoseconds
+        pub const NSECONDS = 0x00000003;
+        /// timeout is absolute
+        pub const ABSTIME = 0x00000010;
     },
     .freebsd => struct {
         /// On input, TRIGGER causes the event to be triggered for output.
