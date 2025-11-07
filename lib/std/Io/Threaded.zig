@@ -453,7 +453,7 @@ fn async(
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) ?*Io.AnyFuture {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    if (t.cpu_count == 1) {
+    if (t.cpu_count == 1 or builtin.single_threaded) {
         start(context.ptr, result.ptr);
         return null;
     }
