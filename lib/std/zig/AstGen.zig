@@ -2607,7 +2607,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
                 .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
 
                 .grouped_expression => {
-                    inner_node = tree.nodeData(statement).node_and_token[0];
+                    inner_node = tree.nodeData(inner_node).node_and_token[0];
                     continue;
                 },
 
