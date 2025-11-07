@@ -331,15 +331,6 @@ pub const POLL = struct {
     pub const RDBAND = 0x080;
 };
 
-pub const PROT = struct {
-    pub const NONE = 0x0;
-    pub const READ = 0x1;
-    pub const WRITE = 0x2;
-    pub const EXEC = 0x4;
-    pub const GROWSDOWN = 0x01000000;
-    pub const GROWSUP = 0x02000000;
-};
-
 pub const rlim_t = u64;
 
 pub const RLIM = struct {
