@@ -146,6 +146,18 @@ pub fn expand(noalias packet: []const u8, start_i: usize, noalias dest_buffer: [
     return error.InvalidDnsPacket;
 }
 
+// regression test for <https://github.com/ziglang/zig/issues/25811>
+test "HostName.expand correctly parses host names in DNS packets" {
+    const packet = "\x90A\x81\x80\x00\x01\x00\x03\x00\x00\x00\x00\x03www\x15alditalk-kundenportal\x02de\x00\x00\x01\x00\x01\xc0\x0c\x00\x05\x00\x01\x00\x00\x076\x00\x1f\x06static\x08spectrum\x0atelefonica\x02de\x00\xc0:\x00\x01\x00\x01\x00\x00\x00I\x00\x04\x8deZ'\xc0:\x00\x01\x00\x01\x00\x00\x00I\x00\x04\x8deZ&";
+    const index = 58;
+
+    var out: [max_len]u8 = undefined;
+    const bytes_consumed, const name = try expand(packet, index, &out);
+
+    try std.testing.expectEqual(@as(usize, 31), bytes_consumed);
+    try std.testing.expectEqualSlices(u8, "static.spectrum.telefonica.de", name.bytes);
+}
+
 pub const DnsRecord = enum(u8) {
     A = 1,
     CNAME = 5,
