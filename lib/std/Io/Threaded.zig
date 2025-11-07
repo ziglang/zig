@@ -695,10 +695,6 @@ fn groupAsync(
 
     t.mutex.lock();
 
-    // Append to the group linked list inside the mutex to make `Io.Group.async` thread-safe.
-    gc.node = .{ .next = @ptrCast(@alignCast(group.token)) };
-    group.token = &gc.node;
-
     if (t.available_thread_count == 0) {
         if (t.cpu_count != 0 and t.threads.items.len >= t.cpu_count) {
             t.mutex.unlock();
@@ -726,6 +722,10 @@ fn groupAsync(
     } else {
         t.available_thread_count -= 1;
     }
+
+    // Append to the group linked list inside the mutex to make `Io.Group.async` thread-safe.
+    gc.node = .{ .next = @ptrCast(@alignCast(group.token)) };
+    group.token = &gc.node;
 
     t.run_queue.prepend(&gc.closure.node);
 
