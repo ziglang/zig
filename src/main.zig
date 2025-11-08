@@ -850,7 +850,7 @@ fn buildOutputType(
     var disable_c_depfile = false;
     var linker_sort_section: ?link.File.Lld.Elf.SortSection = null;
     var linker_gc_sections: ?bool = null;
-    var linker_compress_debug_sections: ?link.File.Lld.Elf.CompressDebugSections = null;
+    var linker_compress_debug_sections: ?std.zig.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var allow_so_scripts: bool = false;
     var linker_bind_global_refs_locally: ?bool = null;
@@ -1167,11 +1167,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-install_name")) {
                         install_name = args_iter.nextOrFatal();
                     } else if (mem.cutPrefix(u8, arg, "--compress-debug-sections=")) |param| {
-                        linker_compress_debug_sections = std.meta.stringToEnum(link.File.Lld.Elf.CompressDebugSections, param) orelse {
+                        linker_compress_debug_sections = std.meta.stringToEnum(std.zig.CompressDebugSections, param) orelse {
                             fatal("expected --compress-debug-sections=[none|zlib|zstd], found '{s}'", .{param});
                         };
                     } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
-                        linker_compress_debug_sections = link.File.Lld.Elf.CompressDebugSections.zlib;
+                        linker_compress_debug_sections = .zlib;
                     } else if (mem.eql(u8, arg, "-pagezero_size")) {
                         const next_arg = args_iter.nextOrFatal();
                         pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2335,7 +2335,7 @@ fn buildOutputType(
                         if (it.only_arg.len == 0) {
                             linker_compress_debug_sections = .zlib;
                         } else {
-                            linker_compress_debug_sections = std.meta.stringToEnum(link.File.Lld.Elf.CompressDebugSections, it.only_arg) orelse {
+                            linker_compress_debug_sections = std.meta.stringToEnum(std.zig.CompressDebugSections, it.only_arg) orelse {
                                 fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{it.only_arg});
                             };
                         }
@@ -2523,7 +2523,7 @@ fn buildOutputType(
                     try linker_export_symbol_names.append(arena, linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                     const arg1 = linker_args_it.nextOrFatal();
-                    linker_compress_debug_sections = std.meta.stringToEnum(link.File.Lld.Elf.CompressDebugSections, arg1) orelse {
+                    linker_compress_debug_sections = std.meta.stringToEnum(std.zig.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
                 } else if (mem.cutPrefix(u8, arg, "-z")) |z_rest| {

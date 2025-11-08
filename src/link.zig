@@ -428,7 +428,7 @@ pub const File = struct {
         tsaware: bool,
         nxcompat: bool,
         dynamicbase: bool,
-        compress_debug_sections: Lld.Elf.CompressDebugSections,
+        compress_debug_sections: std.zig.CompressDebugSections,
         bind_global_refs_locally: bool,
         import_symbols: bool,
         import_table: bool,

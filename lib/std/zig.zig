@@ -377,6 +377,8 @@ pub const Subsystem = enum {
     pub const EfiRuntimeDriver: Subsystem = .efi_runtime_driver;
 };
 
+pub const CompressDebugSections = enum { none, zlib, zstd };
+
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
