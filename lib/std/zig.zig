@@ -377,6 +377,19 @@ pub const Subsystem = enum {
     pub const EfiRuntimeDriver: Subsystem = .efi_runtime_driver;
 };
 
+pub const CompressDebugSections = enum { none, zlib, zstd };
+
+pub const RcIncludes = enum {
+    /// Use MSVC if available, fall back to MinGW.
+    any,
+    /// Use MSVC include paths (MSVC install + Windows SDK, must be present on the system).
+    msvc,
+    /// Use MinGW include paths (distributed with Zig).
+    gnu,
+    /// Do not use any autodetected include paths.
+    none,
+};
+
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.

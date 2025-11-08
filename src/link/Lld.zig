@@ -95,11 +95,12 @@ pub const Elf = struct {
     soname: ?[]const u8,
     allow_undefined_version: bool,
     enable_new_dtags: ?bool,
-    compress_debug_sections: CompressDebugSections,
+    compress_debug_sections: std.zig.CompressDebugSections,
     bind_global_refs_locally: bool,
     pub const HashStyle = enum { sysv, gnu, both };
     pub const SortSection = enum { name, alignment };
-    pub const CompressDebugSections = enum { none, zlib, zstd };
+    /// Deprecated; use 'std.zig.CompressDebugSections' instead. To be removed after 0.16.0 is tagged.
+    pub const CompressDebugSections = std.zig.CompressDebugSections;
 
     fn init(comp: *Compilation, options: link.File.OpenOptions) !Elf {
         const PtrWidth = enum { p32, p64 };

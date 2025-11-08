@@ -195,7 +195,7 @@ self_exe_path: ?[]const u8,
 dirs: Directories,
 libc_include_dir_list: []const []const u8,
 libc_framework_dir_list: []const []const u8,
-rc_includes: RcIncludes,
+rc_includes: std.zig.RcIncludes,
 mingw_unicode_entry_point: bool,
 thread_pool: *ThreadPool,
 
@@ -954,17 +954,6 @@ pub const RcSourceFile = struct {
     extra_flags: []const []const u8 = &.{},
 };
 
-pub const RcIncludes = enum {
-    /// Use MSVC if available, fall back to MinGW.
-    any,
-    /// Use MSVC include paths (MSVC install + Windows SDK, must be present on the system).
-    msvc,
-    /// Use MinGW include paths (distributed with Zig).
-    gnu,
-    /// Do not use any autodetected include paths.
-    none,
-};
-
 const Job = union(enum) {
     /// Given the generated AIR for a function, put it onto the code generation queue.
     /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
@@ -1680,7 +1669,7 @@ pub const CreateOptions = struct {
     c_source_files: []const CSourceFile = &.{},
     rc_source_files: []const RcSourceFile = &.{},
     manifest_file: ?[]const u8 = null,
-    rc_includes: RcIncludes = .any,
+    rc_includes: std.zig.RcIncludes = .any,
     link_inputs: []const link.Input = &.{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const Framework = &.{},
@@ -1730,7 +1719,7 @@ pub const CreateOptions = struct {
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = true,
-    linker_compress_debug_sections: ?link.File.Lld.Elf.CompressDebugSections = null,
+    linker_compress_debug_sections: ?std.zig.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
     linker_sort_section: ?link.File.Lld.Elf.SortSection = null,
     major_subsystem_version: ?u16 = null,

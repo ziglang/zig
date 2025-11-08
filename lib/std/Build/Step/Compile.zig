@@ -34,8 +34,7 @@ kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
 formatted_panics: ?bool = null,
-// keep in sync with src/link.zig:CompressDebugSections
-compress_debug_sections: enum { none, zlib, zstd } = .none,
+compress_debug_sections: std.zig.CompressDebugSections = .none,
 verbose_link: bool,
 verbose_cc: bool,
 bundle_compiler_rt: ?bool = null,
@@ -67,13 +66,12 @@ installed_headers: std.array_list.Managed(HeaderInstallation),
 /// created otherwise.
 installed_headers_include_tree: ?*Step.WriteFile = null,
 
-// keep in sync with src/Compilation.zig:RcIncludes
 /// Behavior of automatic detection of include directories when compiling .rc files.
 ///  any: Use MSVC if available, fall back to MinGW.
 ///  msvc: Use MSVC include paths (must be present on the system).
 ///  gnu: Use MinGW include paths (distributed with Zig).
 ///  none: Do not use any autodetected include paths.
-rc_includes: enum { any, msvc, gnu, none } = .any,
+rc_includes: std.zig.RcIncludes = .any,
 
 /// (Windows) .manifest file to embed in the compilation
 /// Set via options; intended to be read-only after that.
