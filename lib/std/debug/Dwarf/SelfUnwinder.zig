@@ -47,16 +47,9 @@ pub const CacheEntry = struct {
 };
 
 pub fn init(cpu_context: *const std.debug.cpu_context.Native) SelfUnwinder {
-    // `@constCast` is safe because we aren't going to store to the resulting pointer.
-    const raw_pc_ptr = regNative(@constCast(cpu_context), ip_reg_num) catch |err| switch (err) {
-        error.InvalidRegister => unreachable, // `ip_reg_num` is definitely valid
-        error.UnsupportedRegister => unreachable, // the implementation needs to support ip
-        error.IncompatibleRegisterSize => unreachable, // ip is definitely `usize`-sized
-    };
-    const pc = stripInstructionPtrAuthCode(raw_pc_ptr.*);
     return .{
         .cpu_state = cpu_context.*,
-        .pc = pc,
+        .pc = stripInstructionPtrAuthCode(cpu_context.getPc()),
         .cfi_vm = .{},
         .expr_vm = .{},
     };
@@ -69,13 +62,7 @@ pub fn deinit(unwinder: *SelfUnwinder, gpa: Allocator) void {
 }
 
 pub fn getFp(unwinder: *const SelfUnwinder) usize {
-    // `@constCast` is safe because we aren't going to store to the resulting pointer.
-    const ptr = regNative(@constCast(&unwinder.cpu_state), fp_reg_num) catch |err| switch (err) {
-        error.InvalidRegister => unreachable, // `fp_reg_num` is definitely valid
-        error.UnsupportedRegister => unreachable, // the implementation needs to support fp
-        error.IncompatibleRegisterSize => unreachable, // fp is a pointer so is `usize`-sized
-    };
-    return ptr.*;
+    return unwinder.cpu_state.getFp();
 }
 
 /// Compute the rule set for the address `unwinder.pc` from the information in `unwind`. The caller
@@ -332,7 +319,6 @@ fn applyOffset(base: usize, offset: i64) !usize {
 }
 
 const ip_reg_num = Dwarf.ipRegNum(builtin.target.cpu.arch).?;
-const fp_reg_num = Dwarf.fpRegNum(builtin.target.cpu.arch);
 const sp_reg_num = Dwarf.spRegNum(builtin.target.cpu.arch);
 
 const std = @import("std");
