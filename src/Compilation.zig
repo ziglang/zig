@@ -1766,7 +1766,7 @@ pub const CreateOptions = struct {
     reference_trace: ?u32 = null,
     test_filters: []const []const u8 = &.{},
     test_runner_path: ?[]const u8 = null,
-    subsystem: ?std.Target.SubSystem = null,
+    subsystem: ?std.zig.Subsystem = null,
     mingw_unicode_entry_point: bool = false,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
     enable_link_snapshots: bool = false,

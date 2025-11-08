@@ -1249,6 +1249,7 @@ test "vector" {
 
 test "enum-literal" {
     try expectFmt(".hello_world", "{}", .{.hello_world});
+    try expectFmt("hello_world", "{t}", .{.hello_world});
 }
 
 test "padding" {

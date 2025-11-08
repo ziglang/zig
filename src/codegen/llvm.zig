@@ -11672,7 +11672,7 @@ pub const FuncGen = struct {
                 \\ srl $$0,  $$0,  19
                 \\ or  $$13, $$13, $$13
                 ,
-                .constraints = "={$11},{$12},{$11},~{memory}",
+                .constraints = "={$11},{$12},{$11},~{memory},~{$1}",
             },
             .mips64, .mips64el => .{
                 .template =
@@ -11680,7 +11680,7 @@ pub const FuncGen = struct {
                 \\ dsll $$0,  $$0,  29   ; dsll $$0, $$0, 19
                 \\ or   $$13, $$13, $$13
                 ,
-                .constraints = "={$11},{$12},{$11},~{memory}",
+                .constraints = "={$11},{$12},{$11},~{memory},~{$1}",
             },
             .powerpc, .powerpcle => .{
                 .template =
@@ -11727,7 +11727,7 @@ pub const FuncGen = struct {
                 \\ roll  $$61, %edi ; roll $$51, %edi
                 \\ xchgl %ebx, %ebx
                 ,
-                .constraints = "={edx},{eax},{edx},~{cc},~{memory}",
+                .constraints = "={edx},{eax},{edx},~{cc},~{memory},~{dirflag},~{fpsr},~{flags}",
             },
             .x86_64 => .{
                 .template =
@@ -11735,7 +11735,7 @@ pub const FuncGen = struct {
                 \\ rolq  $$61, %rdi ; rolq $$51, %rdi
                 \\ xchgq %rbx, %rbx
                 ,
-                .constraints = "={rdx},{rax},{edx},~{cc},~{memory}",
+                .constraints = "={rdx},{rax},{rdx},~{cc},~{memory},~{dirflag},~{fpsr},~{flags}",
             },
             else => unreachable,
         };

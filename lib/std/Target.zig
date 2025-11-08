@@ -1138,16 +1138,8 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
     };
 }
 
-pub const SubSystem = enum {
-    Console,
-    Windows,
-    Posix,
-    Native,
-    EfiApplication,
-    EfiBootServiceDriver,
-    EfiRom,
-    EfiRuntimeDriver,
-};
+/// Deprecated; use 'std.zig.Subsystem' instead. To be removed after 0.16.0 is tagged.
+pub const SubSystem = std.zig.Subsystem;
 
 pub const Cpu = struct {
     /// Architecture

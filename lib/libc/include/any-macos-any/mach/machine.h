@@ -409,6 +409,7 @@ typedef integer_t       cpu_threadtype_t;
 #define CPUFAMILY_ARM_BRAVA 0x17d5b93a
 #define CPUFAMILY_ARM_TAHITI 0x75d4acb9
 #define CPUFAMILY_ARM_TUPAI 0x204526d0
+#define CPUFAMILY_ARM_HIDRA 0x1d5a87e8
 #define CPUFAMILY_ARM_THERA 0xab345f09
 #define CPUFAMILY_ARM_TILOS 0x01d7a72b
 

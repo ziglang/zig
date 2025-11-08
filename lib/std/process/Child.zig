@@ -85,8 +85,8 @@ expand_arg0: Arg0Expand,
 /// Darwin-only. Disable ASLR for the child process.
 disable_aslr: bool = false,
 
-/// Darwin and Windows only. Start child process in suspended state. For Darwin it's started
-/// as if SIGSTOP was sent.
+/// Start child process in suspended state.
+/// For Posix systems it's started as if SIGSTOP was sent.
 start_suspended: bool = false,
 
 /// Windows-only. Sets the CREATE_NO_WINDOW flag in CreateProcess.
@@ -667,6 +667,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
         if (self.pgid) |pid| {
             posix.setpgid(0, pid) catch |err| forkChildErrReport(err_pipe[1], err);
+        }
+
+        if (self.start_suspended) {
+            posix.kill(posix.getpid(), .STOP) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
         const err = switch (self.expand_arg0) {
