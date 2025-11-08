@@ -36075,6 +36075,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .usize_type,
         .isize_type,
         .c_char_type,
+        .c_uchar_type,
         .c_short_type,
         .c_ushort_type,
         .c_int_type,

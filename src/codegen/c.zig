@@ -224,6 +224,7 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "asm", {} },
     .{ "atomic_bool", {} },
     .{ "atomic_char", {} },
+    .{ "atomic_char8_t", {} },
     .{ "atomic_char16_t", {} },
     .{ "atomic_char32_t", {} },
     .{ "atomic_int", {} },

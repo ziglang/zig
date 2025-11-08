@@ -11,6 +11,7 @@ const std = @import("std");
 fn cName(ty: std.Target.CType) []const u8 {
     return switch (ty) {
         .char => "char",
+        .uchar => "unsigned char",
         .short => "short",
         .ushort => "unsigned short",
         .int => "int",

@@ -3095,6 +3095,7 @@ pub const Object = struct {
             => |tag| @field(Builder.Type, "i" ++ @tagName(tag)[1 .. @tagName(tag).len - "_type".len]),
             .usize_type, .isize_type => try o.builder.intType(target.ptrBitWidth()),
             inline .c_char_type,
+            .c_uchar_type,
             .c_short_type,
             .c_ushort_type,
             .c_int_type,

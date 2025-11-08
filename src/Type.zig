@@ -285,6 +285,7 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             .usize,
             .isize,
             .c_char,
+            .c_uchar,
             .c_short,
             .c_ushort,
             .c_int,
@@ -533,6 +534,7 @@ pub fn hasRuntimeBitsInner(
                 .usize,
                 .isize,
                 .c_char,
+                .c_uchar,
                 .c_short,
                 .c_ushort,
                 .c_int,
@@ -702,6 +704,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
             .usize,
             .isize,
             .c_char,
+            .c_uchar,
             .c_short,
             .c_ushort,
             .c_int,
@@ -1037,6 +1040,7 @@ pub fn abiAlignmentInner(
                 => return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())) },
 
                 .c_char => return .{ .scalar = cTypeAlign(target, .char) },
+                .c_uchar => return .{ .scalar = cTypeAlign(target, .char) },
                 .c_short => return .{ .scalar = cTypeAlign(target, .short) },
                 .c_ushort => return .{ .scalar = cTypeAlign(target, .ushort) },
                 .c_int => return .{ .scalar = cTypeAlign(target, .int) },
@@ -1429,6 +1433,7 @@ pub fn abiSizeInner(
                 => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 .c_char => return .{ .scalar = target.cTypeByteSize(.char) },
+                .c_uchar => return .{ .scalar = target.cTypeByteSize(.char) },
                 .c_short => return .{ .scalar = target.cTypeByteSize(.short) },
                 .c_ushort => return .{ .scalar = target.cTypeByteSize(.ushort) },
                 .c_int => return .{ .scalar = target.cTypeByteSize(.int) },
@@ -1681,6 +1686,7 @@ pub fn bitSizeInner(
             => return target.ptrBitWidth(),
 
             .c_char => return target.cTypeBitSize(.char),
+            .c_uchar => return target.cTypeBitSize(.char),
             .c_short => return target.cTypeBitSize(.short),
             .c_ushort => return target.cTypeBitSize(.ushort),
             .c_int => return target.cTypeBitSize(.int),
@@ -2258,7 +2264,7 @@ pub fn isSignedInt(ty: Type, zcu: *const Zcu) bool {
 pub fn isUnsignedInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
         .c_char_type => zcu.getTarget().cCharSignedness() == .unsigned,
-        .usize_type, .c_ushort_type, .c_uint_type, .c_ulong_type, .c_ulonglong_type => true,
+        .usize_type, .c_uchar_type, .c_ushort_type, .c_uint_type, .c_ulong_type, .c_ulonglong_type => true,
         else => switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.signedness == .unsigned,
             else => false,
@@ -2289,6 +2295,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
         .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
         .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
         .c_char_type => return .{ .signedness = zcu.getTarget().cCharSignedness(), .bits = target.cTypeBitSize(.char) },
+        .c_uchar_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.char) },
         .c_short_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.short) },
         .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ushort) },
         .c_int_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.int) },
@@ -2351,6 +2358,7 @@ pub fn isNamedInt(ty: Type) bool {
         .usize_type,
         .isize_type,
         .c_char_type,
+        .c_uchar_type,
         .c_short_type,
         .c_ushort_type,
         .c_int_type,
@@ -2462,6 +2470,7 @@ pub fn isNumeric(ty: Type, zcu: *const Zcu) bool {
         .usize_type,
         .isize_type,
         .c_char_type,
+        .c_uchar_type,
         .c_short_type,
         .c_ushort_type,
         .c_int_type,
@@ -2532,6 +2541,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                 .usize,
                 .isize,
                 .c_char,
+                .c_uchar,
                 .c_short,
                 .c_ushort,
                 .c_int,
@@ -2750,6 +2760,7 @@ pub fn comptimeOnlyInner(
                 .usize,
                 .isize,
                 .c_char,
+                .c_uchar,
                 .c_short,
                 .c_ushort,
                 .c_int,
@@ -3637,6 +3648,7 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .usize_type,
         .isize_type,
         .c_char_type,
+        .c_uchar_type,
         .c_short_type,
         .c_ushort_type,
         .c_int_type,
@@ -4086,6 +4098,7 @@ pub const @"noreturn": Type = .{ .ip_index = .noreturn_type };
 pub const enum_literal: Type = .{ .ip_index = .enum_literal_type };
 
 pub const @"c_char": Type = .{ .ip_index = .c_char_type };
+pub const @"c_uchar": Type = .{ .ip_index = .c_uchar_type };
 pub const @"c_short": Type = .{ .ip_index = .c_short_type };
 pub const @"c_ushort": Type = .{ .ip_index = .c_ushort_type };
 pub const @"c_int": Type = .{ .ip_index = .c_int_type };

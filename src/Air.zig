@@ -1002,6 +1002,7 @@ pub const Inst = struct {
         usize_type = @intFromEnum(InternPool.Index.usize_type),
         isize_type = @intFromEnum(InternPool.Index.isize_type),
         c_char_type = @intFromEnum(InternPool.Index.c_char_type),
+        c_uchar_type = @intFromEnum(InternPool.Index.c_uchar_type),
         c_short_type = @intFromEnum(InternPool.Index.c_short_type),
         c_ushort_type = @intFromEnum(InternPool.Index.c_ushort_type),
         c_int_type = @intFromEnum(InternPool.Index.c_int_type),

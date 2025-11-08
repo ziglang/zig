@@ -520,6 +520,11 @@
           <td>for ABI compatibility with C</td>
         </tr>
         <tr>
+            <th scope="row">{#syntax#}c_uchar{#endsyntax#}</th>
+          <td><code class="c">unsigned char</code>, <code class="c">char8_t</code></td>
+          <td>for ABI compatibility with C</td>
+        </tr>
+        <tr>
             <th scope="row">{#syntax#}c_short{#endsyntax#}</th>
           <td><code class="c">short</code></td>
           <td>for ABI compatibility with C</td>
@@ -6668,6 +6673,7 @@ const builtin = @import("builtin");
       </p>
       <ul>
           <li>{#syntax#}c_char{#endsyntax#}</li>
+          <li>{#syntax#}c_uchar{#endsyntax#}</li>
           <li>{#syntax#}c_short{#endsyntax#}</li>
           <li>{#syntax#}c_ushort{#endsyntax#}</li>
           <li>{#syntax#}c_int{#endsyntax#}</li>

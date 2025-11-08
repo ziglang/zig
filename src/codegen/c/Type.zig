@@ -1434,6 +1434,7 @@ pub const Pool = struct {
             .usize_type => return .usize,
             .isize_type => return .isize,
             .c_char_type => return .{ .index = .char },
+            .c_uchar_type => return .{ .index = .@"unsigned char" },
             .c_short_type => return .{ .index = .short },
             .c_ushort_type => return .{ .index = .@"unsigned short" },
             .c_int_type => return .{ .index = .int },

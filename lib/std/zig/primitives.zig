@@ -12,6 +12,7 @@ pub const names = std.StaticStringMap(void).initComptime(.{
     .{"c_longdouble"},
     .{"c_longlong"},
     .{"c_char"},
+    .{"c_uchar"},
     .{"c_short"},
     .{"c_uint"},
     .{"c_ulong"},

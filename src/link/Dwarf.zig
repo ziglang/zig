@@ -3750,6 +3750,7 @@ fn updateLazyType(
             .usize,
             .isize,
             .c_char,
+            .c_uchar,
             .c_short,
             .c_ushort,
             .c_int,

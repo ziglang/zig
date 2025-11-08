@@ -2944,6 +2944,7 @@ pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
 
 pub const CType = enum {
     char,
+    uchar,
     short,
     ushort,
     int,
@@ -2960,6 +2961,7 @@ pub const CType = enum {
 pub fn cTypeByteSize(t: *const Target, c_type: CType) u16 {
     return switch (c_type) {
         .char,
+        .uchar,
         .short,
         .ushort,
         .int,
@@ -2987,19 +2989,19 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
     switch (target.os.tag) {
         .freestanding, .other => switch (target.cpu.arch) {
             .msp430, .x86_16 => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort, .int, .uint => return 16,
                 .float, .long, .ulong => return 32,
                 .longlong, .ulonglong, .double, .longdouble => return 64,
             },
             .avr => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort, .int, .uint => return 16,
                 .long, .ulong, .float, .double, .longdouble => return 32,
                 .longlong, .ulonglong => return 64,
             },
             .mips64, .mips64el => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.abi) {
@@ -3010,7 +3012,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .longdouble => return 128,
             },
             .x86_64 => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.abi) {
@@ -3021,7 +3023,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .longdouble => return 80,
             },
             else => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => return target.ptrBitWidth(),
@@ -3088,7 +3090,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .emscripten,
         => switch (target.cpu.arch) {
             .mips64, .mips64el => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.abi) {
@@ -3099,7 +3101,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .longdouble => if (target.os.tag == .freebsd) return 64 else return 128,
             },
             .x86_64 => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.abi) {
@@ -3110,7 +3112,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .longdouble => return 80,
             },
             else => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => return target.ptrBitWidth(),
@@ -3178,7 +3180,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
 
         .windows, .uefi => switch (target.cpu.arch) {
             .x86 => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => return 32,
@@ -3189,7 +3191,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 },
             },
             .x86_64 => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.abi) {
@@ -3203,7 +3205,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 },
             },
             else => switch (c_type) {
-                .char => return 8,
+                .char, .uchar => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => return 32,
@@ -3219,7 +3221,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         .visionos,
         .watchos,
         => switch (c_type) {
-            .char => return 8,
+            .char, .uchar => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
             .long, .ulong => switch (target.cpu.arch) {
@@ -3237,7 +3239,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         },
 
         .nvcl, .cuda => switch (c_type) {
-            .char => return 8,
+            .char, .uchar => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
             .long, .ulong => switch (target.cpu.arch) {
@@ -3250,7 +3252,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         },
 
         .amdhsa, .amdpal, .mesa3d => switch (c_type) {
-            .char => return 8,
+            .char, .uchar => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
             .long, .ulong, .longlong, .ulonglong, .double => return 64,
@@ -3258,7 +3260,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         },
 
         .opencl, .vulkan => switch (c_type) {
-            .char => return 8,
+            .char, .uchar => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
             .long, .ulong, .double => return 64,
@@ -3269,14 +3271,14 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         },
 
         .@"3ds" => switch (c_type) {
-            .char => return 8,
+            .char, .uchar => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float, .long, .ulong => return 32,
             .longlong, .ulonglong, .double, .longdouble => return 64,
         },
 
         .ps4, .ps5 => switch (c_type) {
-            .char => return 8,
+            .char, .uchar => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
             .long, .ulong => return 64,
@@ -3284,7 +3286,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .longdouble => return 80,
         },
         .vita => switch (c_type) {
-            .char => return 8,
+            .char, .uchar => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
             .long, .ulong => return 64,

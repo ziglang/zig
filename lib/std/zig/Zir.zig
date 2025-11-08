@@ -2145,7 +2145,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 124;
+        pub const static_len = 125;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
@@ -2197,6 +2197,7 @@ pub const Inst = struct {
         usize_type,
         isize_type,
         c_char_type,
+        c_uchar_type,
         c_short_type,
         c_ushort_type,
         c_int_type,
