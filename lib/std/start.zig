@@ -61,6 +61,10 @@ comptime {
                 } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main, .{ .name = "main" });
                 }
+            } else if (native_os == .windows and builtin.link_libc and @hasDecl(root, "wWinMain")) {
+                if (!@typeInfo(@TypeOf(root.wWinMain)).@"fn".calling_convention.eql(.c)) {
+                    @export(&wWinMain, .{ .name = "wWinMain" });
+                }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
@@ -525,6 +529,10 @@ fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
 
     const result: std.os.windows.INT = call_wWinMain();
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
+}
+
+fn wWinMain(hInstance: *anyopaque, hPrevInstance: ?*anyopaque, pCmdLine: [*:0]u16, nCmdShow: c_int) callconv(.c) c_int {
+    return root.wWinMain(@ptrCast(hInstance), @ptrCast(hPrevInstance), pCmdLine, @intCast(nCmdShow));
 }
 
 fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
