@@ -164,7 +164,26 @@ pub const Node = union(enum) {
     }
 };
 
-pub const Section = struct { si: Symbol.Index, rela_si: Symbol.Index };
+pub const Section = struct {
+    si: Symbol.Index,
+    rela_si: Symbol.Index,
+    rela_free: RelIndex,
+
+    pub const RelIndex = enum(u32) {
+        none,
+        _,
+
+        pub fn wrap(i: ?u32) RelIndex {
+            return @enumFromInt((i orelse return .none) + 1);
+        }
+        pub fn unwrap(ri: RelIndex) ?u32 {
+            return switch (ri) {
+                .none => null,
+                else => @intFromEnum(ri) - 1,
+            };
+        }
+    };
+};
 
 pub const StringTable = struct {
     map: std.HashMapUnmanaged(u32, void, StringTable.Context, std.hash_map.default_max_load_percentage),
@@ -462,7 +481,7 @@ pub const Reloc = extern struct {
     next: Reloc.Index,
     loc: Symbol.Index,
     target: Symbol.Index,
-    rel_index: u32,
+    index: Section.RelIndex,
     offset: u64,
     addend: i64,
 
@@ -471,6 +490,16 @@ pub const Reloc = extern struct {
         AARCH64: std.elf.R_AARCH64,
         RISCV: std.elf.R_RISCV,
         PPC64: std.elf.R_PPC64,
+
+        pub fn none(elf: *Elf) Reloc.Type {
+            return switch (elf.ehdrField(.machine)) {
+                else => unreachable,
+                .AARCH64 => .{ .AARCH64 = .NONE },
+                .PPC64 => .{ .PPC64 = .NONE },
+                .RISCV => .{ .RISCV = .NONE },
+                .X86_64 => .{ .X86_64 = .NONE },
+            };
+        }
 
         pub fn absAddr(elf: *Elf) Reloc.Type {
             return switch (elf.ehdrField(.machine)) {
@@ -481,10 +510,33 @@ pub const Reloc = extern struct {
                 .X86_64 => .{ .X86_64 = .@"64" },
             };
         }
+
         pub fn sizeAddr(elf: *Elf) Reloc.Type {
             return switch (elf.ehdrField(.machine)) {
                 else => unreachable,
                 .X86_64 => .{ .X86_64 = .SIZE64 },
+            };
+        }
+
+        pub fn wrap(int: u32, elf: *Elf) Reloc.Type {
+            return switch (elf.ehdrField(.machine)) {
+                else => unreachable,
+                inline .AARCH64,
+                .PPC64,
+                .RISCV,
+                .X86_64,
+                => |machine| @unionInit(Reloc.Type, @tagName(machine), @enumFromInt(int)),
+            };
+        }
+
+        pub fn unwrap(rt: Reloc.Type, elf: *Elf) u32 {
+            return switch (elf.ehdrField(.machine)) {
+                else => unreachable,
+                inline .AARCH64,
+                .PPC64,
+                .RISCV,
+                .X86_64,
+                => |machine| @intFromEnum(@field(rt, @tagName(machine))),
             };
         }
     };
@@ -589,6 +641,33 @@ pub const Reloc = extern struct {
         switch (reloc.next) {
             .none => {},
             else => |next| next.get(elf).prev = reloc.prev,
+        }
+        switch (elf.ehdrField(.type)) {
+            .NONE, .CORE, _ => unreachable,
+            .REL => {
+                const sh = reloc.loc.shndx(elf).get(elf);
+                switch (elf.shdrPtr(sh.rela_si.shndx(elf))) {
+                    inline else => |shdr, class| {
+                        const Rela = class.ElfN().Rela;
+                        const ent_size = elf.targetLoad(&shdr.entsize);
+                        const start = ent_size * reloc.index.unwrap().?;
+                        const rela_slice = sh.rela_si.node(elf).slice(&elf.mf);
+                        const rela: *Rela = @ptrCast(@alignCast(
+                            rela_slice[@intCast(start)..][0..@intCast(ent_size)],
+                        ));
+                        rela.* = .{
+                            .offset = @intFromEnum(sh.rela_free),
+                            .info = .{
+                                .type = @intCast(Reloc.Type.none(elf).unwrap(elf)),
+                                .sym = 0,
+                            },
+                            .addend = 0,
+                        };
+                    },
+                }
+                sh.rela_free = reloc.index;
+            },
+            .EXEC, .DYN => assert(reloc.index == .none),
         }
         reloc.* = undefined;
     }
@@ -1036,7 +1115,7 @@ fn initHeaders(
                 .entsize = 0,
             };
             if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Shdr, sh_undef);
-            elf.shdrs.appendAssumeCapacity(.{ .si = .null, .rela_si = .null });
+            elf.shdrs.appendAssumeCapacity(.{ .si = .null, .rela_si = .null, .rela_free = .none });
 
             try elf.symtab.ensureTotalCapacity(gpa, 1);
             elf.symtab.addOneAssumeCapacity().* = .{
@@ -1880,18 +1959,7 @@ fn loadObject(
                                     rel.offset - loc_sec.shdr.addr,
                                     target_si,
                                     rel.addend,
-                                    switch (elf.ehdrField(.machine)) {
-                                        else => unreachable,
-                                        inline .AARCH64,
-                                        .PPC64,
-                                        .RISCV,
-                                        .X86_64,
-                                        => |machine| @unionInit(
-                                            Reloc.Type,
-                                            @tagName(machine),
-                                            @enumFromInt(rel.info.type),
-                                        ),
-                                    },
+                                    .wrap(rel.info.type, elf),
                                 );
                             }
                         },
@@ -2156,7 +2224,7 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
     });
     const si = elf.addSymbolAssumeCapacity();
     elf.nodes.appendAssumeCapacity(.{ .section = si });
-    elf.shdrs.appendAssumeCapacity(.{ .si = si, .rela_si = .null });
+    elf.shdrs.appendAssumeCapacity(.{ .si = si, .rela_si = .null, .rela_free = .none });
     si.get(elf).ni = ni;
     const addr = elf.computeNodeVAddr(ni);
     const offset = ni.fileLocation(&elf.mf, false).offset;
@@ -2275,39 +2343,44 @@ pub fn addRelocAssumeCapacity(
         .next = target.target_relocs,
         .loc = loc_si,
         .target = target_si,
-        .rel_index = switch (elf.ehdrField(.type)) {
+        .index = index: switch (elf.ehdrField(.type)) {
             .NONE, .CORE, _ => unreachable,
-            .REL => rel_index: {
-                const rela_si = loc_si.shndx(elf).get(elf).rela_si;
-                switch (elf.shdrPtr(rela_si.shndx(elf))) {
+            .REL => {
+                const sh = loc_si.shndx(elf).get(elf);
+                switch (elf.shdrPtr(sh.rela_si.shndx(elf))) {
                     inline else => |shdr, class| {
                         const Rela = class.ElfN().Rela;
-                        const old_size = elf.targetLoad(&shdr.size);
                         const ent_size = elf.targetLoad(&shdr.entsize);
-                        const new_size = old_size + ent_size;
-                        elf.targetStore(&shdr.size, @intCast(new_size));
+                        const rela_slice = sh.rela_si.node(elf).slice(&elf.mf);
+                        const index: u32 = if (sh.rela_free.unwrap()) |index| alloc_index: {
+                            const rela: *Rela = @ptrCast(@alignCast(
+                                rela_slice[@intCast(ent_size * index)..][0..@intCast(ent_size)],
+                            ));
+                            sh.rela_free = @enumFromInt(rela.offset);
+                            break :alloc_index index;
+                        } else alloc_index: {
+                            const old_size = elf.targetLoad(&shdr.size);
+                            const new_size = old_size + ent_size;
+                            elf.targetStore(&shdr.size, @intCast(new_size));
+                            break :alloc_index @intCast(@divExact(old_size, ent_size));
+                        };
                         const rela: *Rela = @ptrCast(@alignCast(
-                            rela_si.node(elf).slice(&elf.mf)[@intCast(old_size)..@intCast(new_size)],
+                            rela_slice[@intCast(ent_size * index)..][0..@intCast(ent_size)],
                         ));
                         rela.* = .{
                             .offset = @intCast(offset),
                             .info = .{
-                                .type = switch (elf.ehdrField(.machine)) {
-                                    else => |machine| @panic(@tagName(machine)),
-                                    inline .X86_64, .AARCH64, .RISCV, .PPC64 => |machine| @intCast(
-                                        @intFromEnum(@field(@"type", @tagName(machine))),
-                                    ),
-                                },
+                                .type = @intCast(@"type".unwrap(elf)),
                                 .sym = @intCast(@intFromEnum(target_si)),
                             },
                             .addend = @intCast(addend),
                         };
                         if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(Rela, rela);
-                        break :rel_index @intCast(@divExact(old_size, ent_size));
+                        break :index .wrap(index);
                     },
                 }
             },
-            .EXEC, .DYN => 0,
+            .EXEC, .DYN => .none,
         },
         .offset = offset,
         .addend = addend,
