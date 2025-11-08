@@ -3125,50 +3125,54 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
             const bin_digest = man.finalBin();
             const hex_digest = Cache.binToHex(bin_digest);
 
-            // Work around windows `AccessDenied` if any files within this
-            // directory are open by closing and reopening the file handles.
-            // While this need is only documented on windows, there are some
-            // niche scenarios, such as WSL on ReFS, where it may be required
-            // on other platforms. As the workaround is low-cost, just
-            // use it on all platforms rather than trying to isolate every
-            // specific case where it's needed.
-            const need_writable_dance: enum { no, lf_only, lf_and_debug } = w: {
-                if (comp.bin_file) |lf| {
-                    // We cannot just call `makeExecutable` as it makes a false
-                    // assumption that we have a file handle open only when linking
-                    // an executable file. This used to be true when our linkers
-                    // were incapable of emitting relocatables and static archive.
-                    // Now that they are capable, we need to unconditionally close
-                    // the file handle and re-open it in the follow up call to
-                    // `makeWritable`.
-                    if (lf.file) |f| {
-                        f.close();
-                        lf.file = null;
-
-                        if (lf.closeDebugInfo()) break :w .lf_and_debug;
-                        break :w .lf_only;
-                    }
-                }
-                break :w .no;
-            };
-
-            // Rename the temporary directory into place.
-            // Close tmp dir and link.File to avoid open handle during rename.
             whole.tmp_artifact_directory.?.handle.close();
             whole.tmp_artifact_directory = null;
             const s = fs.path.sep_str;
             const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
             const o_sub_path = "o" ++ s ++ hex_digest;
-            renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
-                return comp.setMiscFailure(
-                    .rename_results,
-                    "failed to rename compilation results ('{f}{s}') into local cache ('{f}{s}'): {t}",
-                    .{
-                        comp.dirs.local_cache, tmp_dir_sub_path,
-                        comp.dirs.local_cache, o_sub_path,
-                        err,
-                    },
-                );
+
+            // Work around situations (host OS or filesystem) that disallow
+            // renaming a directory if any files within have open handles.
+            // This is only guaranteed required on windows, but has been
+            // observed in one other niche environment (ReFS on WSL).
+            const need_writable_dance: link.File.ClosedFiles = dance: {
+                // The workaround is only guaranteed required on windows, so try
+                // just doing the rename straight up first on other platforms.
+                if (builtin.os.tag != .windows) b: {
+                    renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
+                        // If we get AccessDenied, assume the host needs the close/open dance and try again.
+                        if (err == error.AccessDenied) {
+                            break :b;
+                        }
+                        return comp.setMiscFailure(
+                            .rename_results,
+                            "failed to rename compilation results ('{f}{s}') into local cache ('{f}{s}'): {t}",
+                            .{
+                                comp.dirs.local_cache, tmp_dir_sub_path,
+                                comp.dirs.local_cache, o_sub_path,
+                                err,
+                            },
+                        );
+                    };
+                    break :dance .no;
+                }
+                
+                std.debug.print("trying windows AccessDenied workaround\n", .{});
+
+                const d = if (comp.bin_file) |f| f.closeBin() else .no;
+                renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
+                    // If we get AccessDenied here, its not the issue we're working around, so we abort.
+                    return comp.setMiscFailure(
+                        .rename_results,
+                        "failed to rename compilation results ('{f}{s}') into local cache ('{f}{s}'): {t}",
+                        .{
+                            comp.dirs.local_cache, tmp_dir_sub_path,
+                            comp.dirs.local_cache, o_sub_path,
+                            err,
+                        },
+                    );
+                };
+                break :dance d;
             };
             comp.digest = bin_digest;
 
@@ -3180,15 +3184,9 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     .root_dir = comp.dirs.local_cache,
                     .sub_path = try fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
-                const result: (link.File.OpenError || error{ HotSwapUnavailableOnHostOperatingSystem, RenameAcrossMountPoints, InvalidFileName })!void = switch (need_writable_dance) {
-                    .no => {},
-                    .lf_only => lf.makeWritable(),
-                    .lf_and_debug => res: {
-                        lf.makeWritable() catch |err| break :res err;
-                        lf.reopenDebugInfo() catch |err| break :res err;
-                    },
-                };
-                result catch |err| {
+                // reopenBin will call makeWritable for us, as well as any
+                // extra work needed beyond that function for certain backends
+                lf.reopenBin(need_writable_dance) catch |err| {
                     return comp.setMiscFailure(
                         .rename_results,
                         "failed to re-open renamed compilation results ('{f}{s}'): {t}",

@@ -651,6 +651,51 @@ pub const File = struct {
         }
     }
 
+    pub const ClosedFiles = enum { lf_only, lf_and_debug, no };
+
+    /// We might need to temporarily close the output binary when moving the compilation result
+    /// directory due to the host OS or filesystem not allowing moving a file/directory while a
+    /// handle remains open.
+    /// Returns `true` if a file was closed. In that case, `reopenBin` may be called.
+    pub fn closeBin(base: *File) ClosedFiles {
+        const f = base.file orelse return .no;
+        switch (base.tag) {
+            .elf2, .coff2 => {
+                const mf = if (base.cast(.elf2)) |elf|
+                    &elf.mf
+                else if (base.cast(.coff2)) |coff|
+                    &coff.mf
+                else
+                    unreachable;
+                mf.unmap();
+            },
+        }
+        f.close();
+        base.file = null;
+        if (base.closeDebugInfo()) return .lf_and_debug;
+        return .lf_only;
+    }
+
+    pub fn reopenBin(base: *File, what: ClosedFiles) !void {
+        b: switch (what) {
+            .no => {},
+            .lf_and_debug => {
+                try base.reopenDebugInfo();
+                continue :b .lf_only;
+            },
+            .lf_only => {
+                try base.makeWritable();
+                switch (base.tag) {
+                    .c, .spirv => {
+                        const emit = base.emit;
+                        base.file = try emit.root_dir.handle.openFile(emit.sub_path, .{ .mode = .read_write });
+                    },
+                    else => {},
+                }
+            },
+        }
+    }
+
     /// Some linkers create a separate file for debug info, which we might need to temporarily close
     /// when moving the compilation result directory due to the host OS not allowing moving a
     /// file/directory while a handle remains open.
