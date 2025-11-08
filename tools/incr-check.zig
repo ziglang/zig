@@ -197,6 +197,9 @@ pub fn main() !void {
         };
 
         try child.spawn();
+        errdefer {
+            _ = child.kill() catch {};
+        }
 
         var poller = Io.poll(arena, Eval.StreamEnum, .{
             .stdout = child.stdout.?,
