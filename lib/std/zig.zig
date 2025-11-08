@@ -349,6 +349,34 @@ pub const BuildId = union(enum) {
 
 pub const LtoMode = enum { none, full, thin };
 
+pub const Subsystem = enum {
+    console,
+    windows,
+    posix,
+    native,
+    efi_application,
+    efi_boot_service_driver,
+    efi_rom,
+    efi_runtime_driver,
+
+    /// Deprecated; use '.console' instead. To be removed after 0.16.0 is tagged.
+    pub const Console: Subsystem = .console;
+    /// Deprecated; use '.windows' instead. To be removed after 0.16.0 is tagged.
+    pub const Windows: Subsystem = .windows;
+    /// Deprecated; use '.posix' instead. To be removed after 0.16.0 is tagged.
+    pub const Posix: Subsystem = .posix;
+    /// Deprecated; use '.native' instead. To be removed after 0.16.0 is tagged.
+    pub const Native: Subsystem = .native;
+    /// Deprecated; use '.efi_application' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiApplication: Subsystem = .efi_application;
+    /// Deprecated; use '.efi_boot_service_driver' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiBootServiceDriver: Subsystem = .efi_boot_service_driver;
+    /// Deprecated; use '.efi_rom' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiRom: Subsystem = .efi_rom;
+    /// Deprecated; use '.efi_runtime_driver' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiRuntimeDriver: Subsystem = .efi_runtime_driver;
+};
+
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.

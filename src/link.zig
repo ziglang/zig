@@ -448,7 +448,7 @@ pub const File = struct {
         allow_shlib_undefined: ?bool,
         allow_undefined_version: bool,
         enable_new_dtags: ?bool,
-        subsystem: ?std.Target.SubSystem,
+        subsystem: ?std.zig.Subsystem,
         linker_script: ?[]const u8,
         version_script: ?[]const u8,
         soname: ?[]const u8,
