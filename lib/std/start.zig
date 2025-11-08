@@ -37,8 +37,10 @@ comptime {
                     @export(&main2, .{ .name = "main" });
                 }
             } else if (builtin.os.tag == .windows) {
-                if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
-                    @export(&wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
+                if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "WinMainCRTStartup") and
+                    !@hasDecl(root, "mainCRTStartup") and !@hasDecl(root, "wmainCRTStartup"))
+                {
+                    @export(&WinStartup2, .{ .name = "wmainCRTStartup" });
                 }
             } else if (builtin.os.tag == .opencl or builtin.os.tag == .vulkan) {
                 if (@hasDecl(root, "main"))
@@ -65,7 +67,7 @@ comptime {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
-                    @export(&WinStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(&WinStartup, .{ .name = "wmainCRTStartup" });
                 } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
@@ -113,7 +115,7 @@ fn spirvMain2() callconv(.kernel) void {
     root.main();
 }
 
-fn wWinMainCRTStartup2() callconv(.c) noreturn {
+fn WinStartup2() callconv(.c) noreturn {
     std.posix.exit(callMain());
 }
 
