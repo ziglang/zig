@@ -5386,7 +5386,7 @@ pub const static_keys: [static_len]Key = .{
 /// This is specified with an integer literal and a corresponding comptime
 /// assert below to break an unfortunate and arguably incorrect dependency loop
 /// when compiling.
-pub const static_len = Zir.Inst.Index.static_len;
+pub const static_len = Zir.Inst.Ref.static_len;
 
 pub const Tag = enum(u8) {
     /// This special tag represents a value which was removed from this pool via
