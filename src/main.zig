@@ -918,7 +918,7 @@ fn buildOutputType(
     var extra_cflags: std.ArrayListUnmanaged([]const u8) = .empty;
     var extra_rcflags: std.ArrayListUnmanaged([]const u8) = .empty;
     var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .empty;
-    var rc_includes: Compilation.RcIncludes = .any;
+    var rc_includes: std.zig.RcIncludes = .any;
     var manifest_file: ?[]const u8 = null;
     var linker_export_symbol_names: std.ArrayListUnmanaged([]const u8) = .empty;
 
@@ -6787,8 +6787,8 @@ fn accessFrameworkPath(
     return false;
 }
 
-fn parseRcIncludes(arg: []const u8) Compilation.RcIncludes {
-    return std.meta.stringToEnum(Compilation.RcIncludes, arg) orelse
+fn parseRcIncludes(arg: []const u8) std.zig.RcIncludes {
+    return std.meta.stringToEnum(std.zig.RcIncludes, arg) orelse
         fatal("unsupported rc includes type: '{s}'", .{arg});
 }
 
