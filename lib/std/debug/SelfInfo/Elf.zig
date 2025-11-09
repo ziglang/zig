@@ -441,11 +441,11 @@ const DlIterContext = struct {
 
         // Populate `build_id` and `gnu_eh_frame`
         for (info.phdr[0..info.phnum]) |phdr| {
-            switch (phdr.p_type) {
-                std.elf.PT_NOTE => {
+            switch (phdr.type) {
+                .NOTE => {
                     // Look for .note.gnu.build-id
-                    const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
-                    var r: std.Io.Reader = .fixed(segment_ptr[0..phdr.p_memsz]);
+                    const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.vaddr);
+                    var r: std.Io.Reader = .fixed(segment_ptr[0..phdr.memsz]);
                     const name_size = r.takeInt(u32, native_endian) catch continue;
                     const desc_size = r.takeInt(u32, native_endian) catch continue;
                     const note_type = r.takeInt(u32, native_endian) catch continue;
@@ -455,9 +455,9 @@ const DlIterContext = struct {
                     const desc = r.take(desc_size) catch continue;
                     build_id = desc;
                 },
-                std.elf.PT_GNU_EH_FRAME => {
-                    const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
-                    gnu_eh_frame = segment_ptr[0..phdr.p_memsz];
+                std.elf.PT.GNU_EH_FRAME => {
+                    const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.vaddr);
+                    gnu_eh_frame = segment_ptr[0..phdr.memsz];
                 },
                 else => {},
             }
@@ -478,11 +478,11 @@ const DlIterContext = struct {
         });
 
         for (info.phdr[0..info.phnum]) |phdr| {
-            if (phdr.p_type != std.elf.PT_LOAD) continue;
+            if (phdr.type != .LOAD) continue;
             try context.si.ranges.append(gpa, .{
                 // Overflowing addition handles VSDOs having p_vaddr = 0xffffffffff700000
-                .start = info.addr +% phdr.p_vaddr,
-                .len = phdr.p_memsz,
+                .start = info.addr +% phdr.vaddr,
+                .len = phdr.memsz,
                 .module_index = module_index,
             });
         }

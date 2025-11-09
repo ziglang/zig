@@ -1658,13 +1658,13 @@ fn posixGetUserInfoPasswdStream(name: []const u8, reader: *std.Io.Reader) !UserI
 pub fn getBaseAddress() usize {
     switch (native_os) {
         .linux => {
-            const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
-            const base = getauxval(std.elf.AT_BASE);
-            if (base != 0) {
-                return base;
-            }
-            const phdr = getauxval(std.elf.AT_PHDR);
-            return phdr - @sizeOf(std.elf.Ehdr);
+            const phdrs = std.posix.getSelfPhdrs();
+            var base: usize = 0;
+            for (phdrs) |phdr| switch (phdr.type) {
+                .LOAD => return base + phdr.vaddr,
+                .PHDR => base = @intFromPtr(phdrs.ptr) - phdr.vaddr,
+                else => {},
+            } else unreachable;
         },
         .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             return @intFromPtr(&std.c._mh_execute_header);

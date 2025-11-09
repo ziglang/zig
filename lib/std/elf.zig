@@ -50,6 +50,7 @@ pub const AT_L2_CACHESIZE = 44;
 pub const AT_L2_CACHEGEOMETRY = 45;
 pub const AT_L3_CACHESIZE = 46;
 pub const AT_L3_CACHEGEOMETRY = 47;
+pub const AT_MINSIGSTKSZ = 51;
 
 pub const DT_NULL = 0;
 pub const DT_NEEDED = 1;
