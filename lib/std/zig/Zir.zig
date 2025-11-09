@@ -2142,13 +2142,10 @@ pub const Inst = struct {
         /// ZIR is structured so that the outermost "main" struct of any file
         /// is always at index 0.
         main_struct_inst = 0,
-        ref_start_index = static_len,
         _,
 
-        pub const static_len = 124;
-
         pub fn toRef(i: Index) Inst.Ref {
-            return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
+            return @enumFromInt(Ref.static_len + @intFromEnum(i));
         }
 
         pub fn toOptional(i: Index) OptionalIndex {
@@ -2160,7 +2157,6 @@ pub const Inst = struct {
         /// ZIR is structured so that the outermost "main" struct of any file
         /// is always at index 0.
         main_struct_inst = 0,
-        ref_start_index = Index.static_len,
         none = std.math.maxInt(u32),
         _,
 
@@ -2309,11 +2305,13 @@ pub const Inst = struct {
 
         _,
 
+        pub const static_len = @typeInfo(@This()).@"enum".fields.len - 1;
+
         pub fn toIndex(inst: Ref) ?Index {
             assert(inst != .none);
             const ref_int = @intFromEnum(inst);
-            if (ref_int >= @intFromEnum(Index.ref_start_index)) {
-                return @enumFromInt(ref_int - @intFromEnum(Index.ref_start_index));
+            if (ref_int >= static_len) {
+                return @enumFromInt(ref_int - static_len);
             } else {
                 return null;
             }
