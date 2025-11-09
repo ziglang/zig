@@ -588,6 +588,8 @@ const Eval = struct {
     fn fatal(eval: *Eval, comptime fmt: []const u8, args: anytype) noreturn {
         eval.tmp_dir.close();
         if (!eval.preserve_tmp_on_fatal) {
+            // Kill the child since it holds an open handle to its CWD which is the tmp dir path
+            _ = eval.child.kill() catch {};
             std.fs.cwd().deleteTree(eval.tmp_dir_path) catch |err| {
                 std.log.warn("failed to delete tree '{s}': {s}", .{ eval.tmp_dir_path, @errorName(err) });
             };
