@@ -669,6 +669,7 @@ pub const File = struct {
                     unreachable;
                 mf.unmap();
             },
+            else => {},
         }
         f.close();
         base.file = null;

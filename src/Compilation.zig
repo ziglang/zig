@@ -3156,8 +3156,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     };
                     break :dance .no;
                 }
-                
-                std.debug.print("trying windows AccessDenied workaround\n", .{});
+
+                log.debug("trying windows AccessDenied workaround\n", .{});
 
                 const d = if (comp.bin_file) |f| f.closeBin() else .no;
                 renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
