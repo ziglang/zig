@@ -1363,7 +1363,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return self.getLast();
         }
 
-        const init_capacity: comptime_int = @max(1, std.atomic.cache_line / @sizeOf(T));
+        const init_capacity: comptime_int = @max(1, std.atomic.cache_line / @max(@sizeOf(T), 1));
 
         /// Called when memory growth is necessary. Returns a capacity larger than
         /// minimum that grows super-linearly.
