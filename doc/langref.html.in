@@ -7150,7 +7150,6 @@ const TypeName = @import("dir_name/TypeName.zig");
 var global_var: i32 = undefined;
 const const_name = 42;
 const PrimitiveTypeAlias = f32;
-const StringAlias = []u8;
 
 const StructName = struct {
     field: i32,
