@@ -809,15 +809,13 @@ static inline bool zig_addo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
 #endif
 }
 
-zig_extern int32_t  __addosi4(int32_t lhs, int32_t rhs, int *overflow);
 static inline bool zig_addo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gcc)
     int32_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
 #else
-    int overflow_int;
-    int32_t full_res = __addosi4(lhs, rhs, &overflow_int);
-    bool overflow = overflow_int != 0;
+    int32_t full_res = (int32_t)((uint32_t)lhs + (uint32_t)rhs);
+    bool overflow = ((full_res ^ lhs) & (full_res ^ rhs)) < 0;
 #endif
     *res = zig_wrap_i32(full_res, bits);
     return overflow || full_res < zig_minInt_i(32, bits) || full_res > zig_maxInt_i(32, bits);
@@ -835,15 +833,13 @@ static inline bool zig_addo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
 #endif
 }
 
-zig_extern int64_t  __addodi4(int64_t lhs, int64_t rhs, int *overflow);
 static inline bool zig_addo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gcc)
     int64_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
 #else
-    int overflow_int;
-    int64_t full_res = __addodi4(lhs, rhs, &overflow_int);
-    bool overflow = overflow_int != 0;
+    int64_t full_res = (int64_t)((uint64_t)lhs + (uint64_t)rhs);
+    bool overflow = ((full_res ^ lhs) & (full_res ^ rhs)) < 0;
 #endif
     *res = zig_wrap_i64(full_res, bits);
     return overflow || full_res < zig_minInt_i(64, bits) || full_res > zig_maxInt_i(64, bits);
@@ -917,15 +913,13 @@ static inline bool zig_subo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
 #endif
 }
 
-zig_extern int32_t  __subosi4(int32_t lhs, int32_t rhs, int *overflow);
 static inline bool zig_subo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     int32_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
 #else
-    int overflow_int;
-    int32_t full_res = __subosi4(lhs, rhs, &overflow_int);
-    bool overflow = overflow_int != 0;
+    int32_t full_res = (int32_t)((uint32_t)lhs - (uint32_t)rhs);
+    bool overflow = ((lhs ^ rhs) & (full_res ^ lhs)) < 0;
 #endif
     *res = zig_wrap_i32(full_res, bits);
     return overflow || full_res < zig_minInt_i(32, bits) || full_res > zig_maxInt_i(32, bits);
@@ -943,15 +937,13 @@ static inline bool zig_subo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
 #endif
 }
 
-zig_extern int64_t  __subodi4(int64_t lhs, int64_t rhs, int *overflow);
 static inline bool zig_subo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     int64_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
 #else
-    int overflow_int;
-    int64_t full_res = __subodi4(lhs, rhs, &overflow_int);
-    bool overflow = overflow_int != 0;
+    int64_t full_res = (int64_t)((uint64_t)lhs - (uint64_t)rhs);
+    bool overflow = ((lhs ^ rhs) & (full_res ^ lhs)) < 0;
 #endif
     *res = zig_wrap_i64(full_res, bits);
     return overflow || full_res < zig_minInt_i(64, bits) || full_res > zig_maxInt_i(64, bits);
@@ -1755,15 +1747,13 @@ static inline bool zig_addo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs, uint
 #endif
 }
 
-zig_extern zig_i128  __addoti4(zig_i128 lhs, zig_i128 rhs, int *overflow);
 static inline bool zig_addo_i128(zig_i128 *res, zig_i128 lhs, zig_i128 rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow)
     zig_i128 full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
 #else
-    int overflow_int;
-    zig_i128 full_res =  __addoti4(lhs, rhs, &overflow_int);
-    bool overflow = overflow_int != 0;
+    zig_i128 full_res = (zig_i128)((zig_u128)lhs + (zig_u128)rhs);
+    bool overflow = ((full_res ^ lhs) & (full_res ^ rhs)) < 0;
 #endif
     *res = zig_wrap_i128(full_res, bits);
     return overflow || full_res < zig_minInt_i(128, bits) || full_res > zig_maxInt_i(128, bits);
@@ -1781,15 +1771,13 @@ static inline bool zig_subo_u128(zig_u128 *res, zig_u128 lhs, zig_u128 rhs, uint
 #endif
 }
 
-zig_extern zig_i128  __suboti4(zig_i128 lhs, zig_i128 rhs, int *overflow);
 static inline bool zig_subo_i128(zig_i128 *res, zig_i128 lhs, zig_i128 rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow)
     zig_i128 full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
 #else
-    int overflow_int;
-    zig_i128 full_res = __suboti4(lhs, rhs, &overflow_int);
-    bool overflow = overflow_int != 0;
+    zig_i128 full_res = (zig_i128)((zig_u128)lhs - (zig_u128)rhs);
+    bool overflow = ((lhs ^ rhs) & (full_res ^ lhs)) < 0;
 #endif
     *res = zig_wrap_i128(full_res, bits);
     return overflow || full_res < zig_minInt_i(128, bits) || full_res > zig_maxInt_i(128, bits);
