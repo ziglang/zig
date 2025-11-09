@@ -990,7 +990,7 @@ pub fn Future(Result: type) type {
         /// Idempotent. Not threadsafe.
         pub fn cancel(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
-            io.vtable.cancel(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
+            io.vtable.cancel(io.userdata, any_future, @ptrCast(&f.result), .of(Result));
             f.any_future = null;
             return f.result;
         }
@@ -998,7 +998,7 @@ pub fn Future(Result: type) type {
         /// Idempotent. Not threadsafe.
         pub fn await(f: *@This(), io: Io) Result {
             const any_future = f.any_future orelse return f.result;
-            io.vtable.await(io.userdata, any_future, @ptrCast((&f.result)[0..1]), .of(Result));
+            io.vtable.await(io.userdata, any_future, @ptrCast(&f.result), .of(Result));
             f.any_future = null;
             return f.result;
         }
@@ -1034,7 +1034,7 @@ pub const Group = struct {
                 @call(.auto, function, args_casted.*);
             }
         };
-        io.vtable.groupAsync(io.userdata, g, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+        io.vtable.groupAsync(io.userdata, g, @ptrCast(&args), .of(Args), TypeErased.start);
     }
 
     /// Blocks until all tasks of the group finish. During this time,
@@ -1111,7 +1111,7 @@ pub fn Select(comptime U: type) type {
                 }
             };
             _ = @atomicRmw(usize, &s.outstanding, .Add, 1, .monotonic);
-            s.io.vtable.groupAsync(s.io.userdata, &s.group, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+            s.io.vtable.groupAsync(s.io.userdata, &s.group, @ptrCast(&args), .of(Args), TypeErased.start);
         }
 
         /// Blocks until another task of the select finishes.
@@ -1539,9 +1539,9 @@ pub fn async(
     var future: Future(Result) = undefined;
     future.any_future = io.vtable.async(
         io.userdata,
-        @ptrCast((&future.result)[0..1]),
+        @ptrCast(&future.result),
         .of(Result),
-        @ptrCast((&args)[0..1]),
+        @ptrCast(&args),
         .of(Args),
         TypeErased.start,
     );
@@ -1580,7 +1580,7 @@ pub fn concurrent(
         io.userdata,
         @sizeOf(Result),
         .of(Result),
-        @ptrCast((&args)[0..1]),
+        @ptrCast(&args),
         .of(Args),
         TypeErased.start,
     );

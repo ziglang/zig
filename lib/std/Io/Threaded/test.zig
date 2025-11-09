@@ -106,3 +106,19 @@ test "group closure where context has extra alignment" {
 
     group.async(io, paramWithExtraAlignment, .{.{ .data = 3 }});
 }
+
+fn returnArray() [32]u8 {
+    return @splat(5);
+}
+
+test "async on function with array parameter or return type" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var future = io.async(returnArray, .{});
+    const result = future.await(io);
+    for (result) |actual| {
+        try std.testing.expectEqual(5, actual);
+    }
+}
