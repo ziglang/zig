@@ -88,6 +88,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .atomic_store_monotonic,
             .atomic_store_release,
             .atomic_store_seq_cst,
+            .legalize_vec_elem_val,
             => {
                 if (!checkRef(data.bin_op.lhs, zcu)) return false;
                 if (!checkRef(data.bin_op.rhs, zcu)) return false;
@@ -322,6 +323,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
 
             .select,
             .mul_add,
+            .legalize_vec_store_elem,
             => {
                 const bin = air.extraData(Air.Bin, data.pl_op.payload).data;
                 if (!checkRef(data.pl_op.operand, zcu)) return false;

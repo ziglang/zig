@@ -320,28 +320,36 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .xor,
             => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
-                if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
+                if (l.typeOf(bin_op.lhs).isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op));
+                }
             },
             .add_safe => if (l.features.has(.expand_add_safe)) {
                 assert(!l.features.has(.scalarize_add_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .add_with_overflow));
             } else if (l.features.has(.scalarize_add_safe)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
-                if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
+                if (l.typeOf(bin_op.lhs).isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op));
+                }
             },
             .sub_safe => if (l.features.has(.expand_sub_safe)) {
                 assert(!l.features.has(.scalarize_sub_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .sub_with_overflow));
             } else if (l.features.has(.scalarize_sub_safe)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
-                if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
+                if (l.typeOf(bin_op.lhs).isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op));
+                }
             },
             .mul_safe => if (l.features.has(.expand_mul_safe)) {
                 assert(!l.features.has(.scalarize_mul_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .mul_with_overflow));
             } else if (l.features.has(.scalarize_mul_safe)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
-                if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
+                if (l.typeOf(bin_op.lhs).isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op));
+                }
             },
             .ptr_add, .ptr_sub => {},
             inline .add_with_overflow,
@@ -350,7 +358,9 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .shl_with_overflow,
             => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-                if (ty_pl.ty.toType().fieldType(0, zcu).isVector(zcu)) continue :inst l.replaceInst(inst, .block, try l.scalarizeOverflowBlockPayload(inst));
+                if (ty_pl.ty.toType().fieldType(0, zcu).isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeOverflowBlockPayload(inst));
+                }
             },
             .alloc => {},
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
@@ -387,7 +397,9 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                             }
                         }
                     }
-                    if (l.features.has(comptime .scalarize(air_tag))) continue :inst try l.scalarize(inst, .bin_op);
+                    if (l.features.has(comptime .scalarize(air_tag))) {
+                        continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op));
+                    }
                 }
             },
             inline .not,
@@ -406,7 +418,9 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .float_from_int,
             => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
-                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+                if (ty_op.ty.toType().isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                }
             },
             .bitcast => if (l.features.has(.scalarize_bitcast)) {
                 if (try l.scalarizeBitcastBlockPayload(inst)) |payload| {
@@ -418,21 +432,27 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 continue :inst l.replaceInst(inst, .block, try l.safeIntcastBlockPayload(inst));
             } else if (l.features.has(.scalarize_intcast_safe)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
-                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+                if (ty_op.ty.toType().isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                }
             },
             .int_from_float_safe => if (l.features.has(.expand_int_from_float_safe)) {
                 assert(!l.features.has(.scalarize_int_from_float_safe));
                 continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, false));
             } else if (l.features.has(.scalarize_int_from_float_safe)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
-                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+                if (ty_op.ty.toType().isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                }
             },
             .int_from_float_optimized_safe => if (l.features.has(.expand_int_from_float_optimized_safe)) {
                 assert(!l.features.has(.scalarize_int_from_float_optimized_safe));
                 continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, true));
             } else if (l.features.has(.scalarize_int_from_float_optimized_safe)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
-                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+                if (ty_op.ty.toType().isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                }
             },
             .block, .loop => {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -467,7 +487,9 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .neg_optimized,
             => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const un_op = l.air_instructions.items(.data)[@intFromEnum(inst)].un_op;
-                if (l.typeOf(un_op).isVector(zcu)) continue :inst try l.scalarize(inst, .un_op);
+                if (l.typeOf(un_op).isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .un_op));
+                }
             },
             .cmp_lt,
             .cmp_lt_optimized,
@@ -484,7 +506,9 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             => {},
             inline .cmp_vector, .cmp_vector_optimized => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-                if (ty_pl.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .cmp_vector);
+                if (ty_pl.ty.toType().isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .cmp_vector));
+                }
             },
             .cond_br => {
                 const pl_op = l.air_instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -614,9 +638,15 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                     else => {},
                 }
             },
-            .shuffle_one => if (l.features.has(.scalarize_shuffle_one)) continue :inst try l.scalarize(inst, .shuffle_one),
-            .shuffle_two => if (l.features.has(.scalarize_shuffle_two)) continue :inst try l.scalarize(inst, .shuffle_two),
-            .select => if (l.features.has(.scalarize_select)) continue :inst try l.scalarize(inst, .select),
+            .shuffle_one => if (l.features.has(.scalarize_shuffle_one)) {
+                continue :inst l.replaceInst(inst, .block, try l.scalarizeShuffleOneBlockPayload(inst));
+            },
+            .shuffle_two => if (l.features.has(.scalarize_shuffle_two)) {
+                continue :inst l.replaceInst(inst, .block, try l.scalarizeShuffleTwoBlockPayload(inst));
+            },
+            .select => if (l.features.has(.scalarize_select)) {
+                continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .select));
+            },
             .memset,
             .memset_safe,
             .memcpy,
@@ -657,7 +687,9 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .union_init, .prefetch => {},
             .mul_add => if (l.features.has(.scalarize_mul_add)) {
                 const pl_op = l.air_instructions.items(.data)[@intFromEnum(inst)].pl_op;
-                if (l.typeOf(pl_op.operand).isVector(zcu)) continue :inst try l.scalarize(inst, .pl_op_bin);
+                if (l.typeOf(pl_op.operand).isVector(zcu)) {
+                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .pl_op_bin));
+                }
             },
             .field_parent_ptr,
             .wasm_memory_size,
@@ -675,96 +707,123 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .work_item_id,
             .work_group_size,
             .work_group_id,
+            .legalize_vec_elem_val,
+            .legalize_vec_store_elem,
             => {},
         }
     }
 }
 
-const ScalarizeForm = enum { un_op, ty_op, bin_op, pl_op_bin, cmp_vector, shuffle_one, shuffle_two, select };
-/// inline to propagate comptime-known `replaceInst` result.
-inline fn scalarize(l: *Legalize, orig_inst: Air.Inst.Index, comptime form: ScalarizeForm) Error!Air.Inst.Tag {
-    return l.replaceInst(orig_inst, .block, try l.scalarizeBlockPayload(orig_inst, form));
-}
-fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form: ScalarizeForm) Error!Air.Inst.Data {
+const ScalarizeForm = enum { un_op, ty_op, bin_op, pl_op_bin, cmp_vector, select };
+fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, form: ScalarizeForm) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
-    const gpa = zcu.gpa;
 
     const orig = l.air_instructions.get(@intFromEnum(orig_inst));
     const res_ty = l.typeOfIndex(orig_inst);
-    const res_len = res_ty.vectorLen(zcu);
+    const result_is_array = switch (res_ty.zigTypeTag(zcu)) {
+        .vector => false,
+        .array => true,
+        else => unreachable,
+    };
+    const res_len = res_ty.arrayLen(zcu);
+    const res_elem_ty = res_ty.childType(zcu);
 
-    const inst_per_elem = switch (form) {
+    if (result_is_array) {
+        // This is only allowed when legalizing an elementwise bitcast.
+        assert(orig.tag == .bitcast);
+        assert(form == .ty_op);
+    }
+
+    // Our output will be a loop doing elementwise stores:
+    //
+    // %1 = block(@Vector(N, Scalar), {
+    //   %2 = alloc(*usize)
+    //   %3 = alloc(*@Vector(N, Scalar))
+    //   %4 = store(%2, @zero_usize)
+    //   %5 = loop({
+    //     %6 = load(%2)
+    //     %7 = <scalar result of operation at index %5>
+    //     %8 = legalize_vec_store_elem(%3, %5, %6)
+    //     %9 = cmp_eq(%6, <usize, N-1>)
+    //     %10 = cond_br(%9, {
+    //       %11 = load(%3)
+    //       %12 = br(%1, %11)
+    //     }, {
+    //       %13 = add(%6, @one_usize)
+    //       %14 = store(%2, %13)
+    //       %15 = repeat(%5)
+    //     })
+    //   })
+    // })
+    //
+    // If scalarizing an elementwise bitcast, the result might be an array, in which case
+    // `legalize_vec_store_elem` becomes two instructions (`ptr_elem_ptr` and `store`).
+    // Therefore, there are 13 or 14 instructions in the block, plus however many are
+    // needed to compute each result element for `form`.
+    const inst_per_form: usize = switch (form) {
         .un_op, .ty_op => 2,
         .bin_op, .cmp_vector => 3,
         .pl_op_bin => 4,
-        .shuffle_one, .shuffle_two => 1,
         .select => 7,
     };
+    const max_inst_per_form = 7; // maximum value in the above switch
+    var inst_buf: [14 + max_inst_per_form]Air.Inst.Index = undefined;
 
-    var sfba_state = std.heap.stackFallback(@sizeOf([inst_per_elem * 32 + 2]Air.Inst.Index) + @sizeOf([32]Air.Inst.Ref), gpa);
-    const sfba = sfba_state.get();
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
 
-    // Plus 2 extra instructions for `aggregate_init` and `br`.
-    const inst_buf = try sfba.alloc(Air.Inst.Index, inst_per_elem * res_len + 2);
-    defer sfba.free(inst_buf);
+    const index_ptr = main_block.addTy(l, .alloc, .ptr_usize).toRef();
+    const result_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(res_ty)).toRef();
 
-    var main_block: Block = .init(inst_buf);
-    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+    _ = main_block.addBinOp(l, .store, index_ptr, .zero_usize);
 
-    const elem_buf = try sfba.alloc(Air.Inst.Ref, res_len);
-    defer sfba.free(elem_buf);
+    var loop: Loop = .init(l, &main_block);
+    loop.block = .init(main_block.stealRemainingCapacity());
 
-    switch (form) {
-        .un_op => {
+    const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
+    const elem_val: Air.Inst.Ref = switch (form) {
+        .un_op => elem: {
             const orig_operand = orig.data.un_op;
-            const un_op_tag = orig.tag;
-            for (elem_buf, 0..) |*elem, elem_idx| {
-                const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-                const operand = main_block.addBinOp(l, .array_elem_val, orig_operand, elem_idx_ref).toRef();
-                elem.* = main_block.addUnOp(l, un_op_tag, operand).toRef();
-            }
+            const operand = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_operand, index_val).toRef();
+            break :elem loop.block.addUnOp(l, orig.tag, operand).toRef();
         },
-        .ty_op => {
+        .ty_op => elem: {
             const orig_operand = orig.data.ty_op.operand;
-            const orig_ty: Type = .fromInterned(orig.data.ty_op.ty.toInterned().?);
-            const scalar_ty = orig_ty.childType(zcu);
-            const ty_op_tag = orig.tag;
-            for (elem_buf, 0..) |*elem, elem_idx| {
-                const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-                const operand = main_block.addBinOp(l, .array_elem_val, orig_operand, elem_idx_ref).toRef();
-                elem.* = main_block.addTyOp(l, ty_op_tag, scalar_ty, operand).toRef();
-            }
+            const operand_is_array = switch (l.typeOf(orig_operand).zigTypeTag(zcu)) {
+                .vector => false,
+                .array => true,
+                else => unreachable,
+            };
+            const operand = loop.block.addBinOp(
+                l,
+                if (operand_is_array) .array_elem_val else .legalize_vec_elem_val,
+                orig_operand,
+                index_val,
+            ).toRef();
+            break :elem loop.block.addTyOp(l, orig.tag, res_elem_ty, operand).toRef();
         },
-        .bin_op => {
-            const orig_operands = orig.data.bin_op;
-            const bin_op_tag = orig.tag;
-            for (elem_buf, 0..) |*elem, elem_idx| {
-                const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-                const lhs = main_block.addBinOp(l, .array_elem_val, orig_operands.lhs, elem_idx_ref).toRef();
-                const rhs = main_block.addBinOp(l, .array_elem_val, orig_operands.rhs, elem_idx_ref).toRef();
-                elem.* = main_block.addBinOp(l, bin_op_tag, lhs, rhs).toRef();
-            }
+        .bin_op => elem: {
+            const orig_bin = orig.data.bin_op;
+            const lhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_bin.lhs, index_val).toRef();
+            const rhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_bin.rhs, index_val).toRef();
+            break :elem loop.block.addBinOp(l, orig.tag, lhs, rhs).toRef();
         },
-        .pl_op_bin => {
+        .pl_op_bin => elem: {
             const orig_operand = orig.data.pl_op.operand;
-            const orig_payload = l.extraData(Air.Bin, orig.data.pl_op.payload).data;
-            const pl_op_tag = orig.tag;
-            for (elem_buf, 0..) |*elem, elem_idx| {
-                const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-                const operand = main_block.addBinOp(l, .array_elem_val, orig_operand, elem_idx_ref).toRef();
-                const lhs = main_block.addBinOp(l, .array_elem_val, orig_payload.lhs, elem_idx_ref).toRef();
-                const rhs = main_block.addBinOp(l, .array_elem_val, orig_payload.rhs, elem_idx_ref).toRef();
-                elem.* = main_block.add(l, .{
-                    .tag = pl_op_tag,
-                    .data = .{ .pl_op = .{
-                        .payload = try l.addExtra(Air.Bin, .{ .lhs = lhs, .rhs = rhs }),
-                        .operand = operand,
-                    } },
-                }).toRef();
-            }
+            const orig_bin = l.extraData(Air.Bin, orig.data.pl_op.payload).data;
+            const operand = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_operand, index_val).toRef();
+            const lhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_bin.lhs, index_val).toRef();
+            const rhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_bin.rhs, index_val).toRef();
+            break :elem loop.block.add(l, .{
+                .tag = orig.tag,
+                .data = .{ .pl_op = .{
+                    .operand = operand,
+                    .payload = try l.addExtra(Air.Bin, .{ .lhs = lhs, .rhs = rhs }),
+                } },
+            }).toRef();
         },
-        .cmp_vector => {
+        .cmp_vector => elem: {
             const orig_payload = l.extraData(Air.VectorCmp, orig.data.ty_pl.payload).data;
             const cmp_op = orig_payload.compareOperator();
             const optimized = switch (orig.tag) {
@@ -772,115 +831,392 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                 .cmp_vector_optimized => true,
                 else => unreachable,
             };
-            for (elem_buf, 0..) |*elem, elem_idx| {
-                const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-                const lhs = main_block.addBinOp(l, .array_elem_val, orig_payload.lhs, elem_idx_ref).toRef();
-                const rhs = main_block.addBinOp(l, .array_elem_val, orig_payload.rhs, elem_idx_ref).toRef();
-                elem.* = main_block.addCmpScalar(l, cmp_op, lhs, rhs, optimized).toRef();
-            }
+            const lhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_payload.lhs, index_val).toRef();
+            const rhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_payload.rhs, index_val).toRef();
+            break :elem loop.block.addCmpScalar(l, cmp_op, lhs, rhs, optimized).toRef();
         },
-        .shuffle_one => {
-            const shuffle = l.getTmpAir().unwrapShuffleOne(zcu, orig_inst);
-            for (elem_buf, shuffle.mask) |*elem, mask| elem.* = switch (mask.unwrap()) {
-                .value => |val| .fromIntern(val),
-                .elem => |src_idx| elem: {
-                    const src_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, src_idx));
-                    break :elem main_block.addBinOp(l, .array_elem_val, shuffle.operand, src_idx_ref).toRef();
-                },
-            };
-        },
-        .shuffle_two => {
-            const shuffle = l.getTmpAir().unwrapShuffleTwo(zcu, orig_inst);
-            const scalar_ty = res_ty.childType(zcu);
-            for (elem_buf, shuffle.mask) |*elem, mask| elem.* = switch (mask.unwrap()) {
-                .undef => .fromValue(try pt.undefValue(scalar_ty)),
-                .a_elem => |src_idx| elem: {
-                    const src_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, src_idx));
-                    break :elem main_block.addBinOp(l, .array_elem_val, shuffle.operand_a, src_idx_ref).toRef();
-                },
-                .b_elem => |src_idx| elem: {
-                    const src_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, src_idx));
-                    break :elem main_block.addBinOp(l, .array_elem_val, shuffle.operand_b, src_idx_ref).toRef();
-                },
-            };
-        },
-        .select => {
+        .select => elem: {
             const orig_cond = orig.data.pl_op.operand;
             const orig_bin = l.extraData(Air.Bin, orig.data.pl_op.payload).data;
-            const res_scalar_ty = res_ty.childType(zcu);
-            for (elem_buf, 0..) |*elem, elem_idx| {
-                // Payload to be populated later; we need the index early for `br`s.
-                const elem_block_inst = main_block.add(l, .{
-                    .tag = .block,
-                    .data = .{ .ty_pl = .{
-                        .ty = .fromType(res_scalar_ty),
-                        .payload = undefined,
-                    } },
-                });
-                var elem_block: Block = .init(main_block.stealCapacity(2));
 
-                const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-                const cond = elem_block.addBinOp(l, .array_elem_val, orig_cond, elem_idx_ref).toRef();
-                var condbr: CondBr = .init(l, cond, &elem_block, .{});
+            const elem_block_inst = loop.block.add(l, .{
+                .tag = .block,
+                .data = .{ .ty_pl = .{
+                    .ty = .fromType(res_elem_ty),
+                    .payload = undefined,
+                } },
+            });
+            var elem_block: Block = .init(loop.block.stealCapacity(2));
+            const cond = elem_block.addBinOp(l, .legalize_vec_elem_val, orig_cond, index_val).toRef();
 
-                condbr.then_block = .init(main_block.stealCapacity(2));
-                const lhs = condbr.then_block.addBinOp(l, .array_elem_val, orig_bin.lhs, elem_idx_ref).toRef();
-                condbr.then_block.addBr(l, elem_block_inst, lhs);
+            var condbr: CondBr = .init(l, cond, &elem_block, .{});
 
-                condbr.else_block = .init(main_block.stealCapacity(2));
-                const rhs = condbr.else_block.addBinOp(l, .array_elem_val, orig_bin.rhs, elem_idx_ref).toRef();
-                condbr.else_block.addBr(l, elem_block_inst, rhs);
+            condbr.then_block = .init(loop.block.stealCapacity(2));
+            const lhs = condbr.then_block.addBinOp(l, .legalize_vec_elem_val, orig_bin.lhs, index_val).toRef();
+            condbr.then_block.addBr(l, elem_block_inst, lhs);
 
-                try condbr.finish(l);
+            condbr.else_block = .init(loop.block.stealCapacity(2));
+            const rhs = condbr.else_block.addBinOp(l, .legalize_vec_elem_val, orig_bin.rhs, index_val).toRef();
+            condbr.else_block.addBr(l, elem_block_inst, rhs);
 
-                const inst_data = l.air_instructions.items(.data);
-                inst_data[@intFromEnum(elem_block_inst)].ty_pl.payload = try l.addBlockBody(elem_block.body());
+            try condbr.finish(l);
 
-                elem.* = elem_block_inst.toRef();
-            }
+            const inst_data = l.air_instructions.items(.data);
+            inst_data[@intFromEnum(elem_block_inst)].ty_pl.payload = try l.addBlockBody(elem_block.body());
+
+            break :elem elem_block_inst.toRef();
         },
+    };
+    _ = loop.block.stealCapacity(max_inst_per_form - inst_per_form);
+    if (result_is_array) {
+        const elem_ptr = loop.block.add(l, .{
+            .tag = .ptr_elem_ptr,
+            .data = .{ .ty_pl = .{
+                .ty = .fromType(try pt.singleMutPtrType(res_elem_ty)),
+                .payload = try l.addExtra(Air.Bin, .{
+                    .lhs = result_ptr,
+                    .rhs = index_val,
+                }),
+            } },
+        }).toRef();
+        _ = loop.block.addBinOp(l, .store, elem_ptr, elem_val);
+    } else {
+        _ = loop.block.add(l, .{
+            .tag = .legalize_vec_store_elem,
+            .data = .{ .pl_op = .{
+                .operand = result_ptr,
+                .payload = try l.addExtra(Air.Bin, .{
+                    .lhs = index_val,
+                    .rhs = elem_val,
+                }),
+            } },
+        });
+        _ = loop.block.stealCapacity(1);
     }
+    const is_end_val = loop.block.addBinOp(l, .cmp_eq, index_val, .fromValue(try pt.intValue(.usize, res_len - 1))).toRef();
 
-    const result = main_block.add(l, .{
-        .tag = .aggregate_init,
-        .data = .{ .ty_pl = .{
-            .ty = .fromType(res_ty),
-            .payload = payload: {
-                const idx = l.air_extra.items.len;
-                try l.air_extra.appendSlice(gpa, @ptrCast(elem_buf));
-                break :payload @intCast(idx);
-            },
-        } },
-    }).toRef();
+    var condbr: CondBr = .init(l, is_end_val, &loop.block, .{});
+    condbr.then_block = .init(loop.block.stealRemainingCapacity());
+    const result_val = condbr.then_block.addTyOp(l, .load, res_ty, result_ptr).toRef();
+    condbr.then_block.addBr(l, orig_inst, result_val);
 
-    main_block.addBr(l, orig_inst, result);
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    const new_index_val = condbr.else_block.addBinOp(l, .add, index_val, .one_usize).toRef();
+    _ = condbr.else_block.addBinOp(l, .store, index_ptr, new_index_val);
+    _ = condbr.else_block.add(l, .{
+        .tag = .repeat,
+        .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+    });
 
-    // Some `form` values may intentionally not use the full instruction buffer.
-    switch (form) {
-        .un_op,
-        .ty_op,
-        .bin_op,
-        .pl_op_bin,
-        .cmp_vector,
-        .select,
-        => {},
-        .shuffle_one,
-        .shuffle_two,
-        => _ = main_block.stealRemainingCapacity(),
-    }
+    try condbr.finish(l);
+
+    try loop.finish(l);
 
     return .{ .ty_pl = .{
         .ty = .fromType(res_ty),
         .payload = try l.addBlockBody(main_block.body()),
     } };
 }
-fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?Air.Inst.Data {
+fn scalarizeShuffleOneBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
+    const shuffle = l.getTmpAir().unwrapShuffleOne(zcu, orig_inst);
+
+    // We're going to emit something like this:
+    //
+    //   var x: @Vector(N, T) = all_comptime_known_elems;
+    //   for (out_idxs, in_idxs) |i, j| x[i] = operand[j];
+    //
+    // So we must first compute `out_idxs` and `in_idxs`.
+
     var sfba_state = std.heap.stackFallback(512, gpa);
     const sfba = sfba_state.get();
+
+    const out_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
+    defer sfba.free(out_idxs_buf);
+
+    const in_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
+    defer sfba.free(in_idxs_buf);
+
+    var n: usize = 0;
+    for (shuffle.mask, 0..) |mask, out_idx| switch (mask.unwrap()) {
+        .value => {},
+        .elem => |in_idx| {
+            out_idxs_buf[n] = (try pt.intValue(.usize, out_idx)).toIntern();
+            in_idxs_buf[n] = (try pt.intValue(.usize, in_idx)).toIntern();
+            n += 1;
+        },
+    };
+
+    const init_val: Value = init: {
+        const undef_val = try pt.undefValue(shuffle.result_ty.childType(zcu));
+        const elems = try sfba.alloc(InternPool.Index, shuffle.mask.len);
+        defer sfba.free(elems);
+        for (shuffle.mask, elems) |mask, *elem| elem.* = switch (mask.unwrap()) {
+            .value => |ip_index| ip_index,
+            .elem => undef_val.toIntern(),
+        };
+        break :init try pt.aggregateValue(shuffle.result_ty, elems);
+    };
+
+    // %1 = block(@Vector(N, T), {
+    //   %2 = alloc(*@Vector(N, T))
+    //   %3 = alloc(*usize)
+    //   %4 = store(%2, <init_val>)
+    //   %5 = [addScalarizedShuffle]
+    //   %6 = load(%2)
+    //   %7 = br(%1, %6)
+    // })
+
+    var inst_buf: [6]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, 19);
+
+    const result_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(shuffle.result_ty)).toRef();
+    const index_ptr = main_block.addTy(l, .alloc, .ptr_usize).toRef();
+
+    _ = main_block.addBinOp(l, .store, result_ptr, .fromValue(init_val));
+
+    try l.addScalarizedShuffle(
+        &main_block,
+        shuffle.operand,
+        result_ptr,
+        index_ptr,
+        out_idxs_buf[0..n],
+        in_idxs_buf[0..n],
+    );
+
+    const result_val = main_block.addTyOp(l, .load, shuffle.result_ty, result_ptr).toRef();
+    main_block.addBr(l, orig_inst, result_val);
+
+    return .{ .ty_pl = .{
+        .ty = .fromType(shuffle.result_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+fn scalarizeShuffleTwoBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    const shuffle = l.getTmpAir().unwrapShuffleTwo(zcu, orig_inst);
+
+    // We're going to emit something like this:
+    //
+    //   var x: @Vector(N, T) = undefined;
+    //   for (out_idxs_a, in_idxs_a) |i, j| x[i] = operand_a[j];
+    //   for (out_idxs_b, in_idxs_b) |i, j| x[i] = operand_b[j];
+    //
+    // The AIR will look like this:
+    //
+    //   %1 = block(@Vector(N, T), {
+    //     %2 = alloc(*@Vector(N, T))
+    //     %3 = alloc(*usize)
+    //     %4 = store(%2, <@Vector(N, T), undefined>)
+    //     %5 = [addScalarizedShuffle]
+    //     %6 = [addScalarizedShuffle]
+    //     %7 = load(%2)
+    //     %8 = br(%1, %7)
+    //   })
+
+    var sfba_state = std.heap.stackFallback(512, gpa);
+    const sfba = sfba_state.get();
+
+    const out_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
+    defer sfba.free(out_idxs_buf);
+
+    const in_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
+    defer sfba.free(in_idxs_buf);
+
+    // Iterate `shuffle.mask` before doing anything, because modifying AIR invalidates it.
+    const out_idxs_a, const in_idxs_a, const out_idxs_b, const in_idxs_b = idxs: {
+        var n: usize = 0;
+        for (shuffle.mask, 0..) |mask, out_idx| switch (mask.unwrap()) {
+            .undef, .b_elem => {},
+            .a_elem => |in_idx| {
+                out_idxs_buf[n] = (try pt.intValue(.usize, out_idx)).toIntern();
+                in_idxs_buf[n] = (try pt.intValue(.usize, in_idx)).toIntern();
+                n += 1;
+            },
+        };
+        const a_len = n;
+        for (shuffle.mask, 0..) |mask, out_idx| switch (mask.unwrap()) {
+            .undef, .a_elem => {},
+            .b_elem => |in_idx| {
+                out_idxs_buf[n] = (try pt.intValue(.usize, out_idx)).toIntern();
+                in_idxs_buf[n] = (try pt.intValue(.usize, in_idx)).toIntern();
+                n += 1;
+            },
+        };
+        break :idxs .{
+            out_idxs_buf[0..a_len],
+            in_idxs_buf[0..a_len],
+            out_idxs_buf[a_len..n],
+            in_idxs_buf[a_len..n],
+        };
+    };
+
+    var inst_buf: [7]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, 33);
+
+    const result_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(shuffle.result_ty)).toRef();
+    const index_ptr = main_block.addTy(l, .alloc, .ptr_usize).toRef();
+
+    _ = main_block.addBinOp(l, .store, result_ptr, .fromValue(try pt.undefValue(shuffle.result_ty)));
+
+    if (out_idxs_a.len == 0) {
+        _ = main_block.stealCapacity(1);
+    } else {
+        try l.addScalarizedShuffle(
+            &main_block,
+            shuffle.operand_a,
+            result_ptr,
+            index_ptr,
+            out_idxs_a,
+            in_idxs_a,
+        );
+    }
+
+    if (out_idxs_b.len == 0) {
+        _ = main_block.stealCapacity(1);
+    } else {
+        try l.addScalarizedShuffle(
+            &main_block,
+            shuffle.operand_b,
+            result_ptr,
+            index_ptr,
+            out_idxs_b,
+            in_idxs_b,
+        );
+    }
+
+    const result_val = main_block.addTyOp(l, .load, shuffle.result_ty, result_ptr).toRef();
+    main_block.addBr(l, orig_inst, result_val);
+
+    return .{ .ty_pl = .{
+        .ty = .fromType(shuffle.result_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+/// Adds code to `parent_block` which behaves like this loop:
+///
+///   for (out_idxs, in_idxs) |i, j| result_vec_ptr[i] = operand_vec[j];
+///
+/// The actual AIR adds exactly one instruction to `parent_block` itself and 14 instructions
+/// overall, and is as follows:
+///
+///   %1 = block(void, {
+///     %2 = store(index_ptr, @zero_usize)
+///     %3 = loop({
+///       %4 = load(index_ptr)
+///       %5 = ptr_elem_val(out_idxs_ptr, %4)
+///       %6 = ptr_elem_val(in_idxs_ptr, %4)
+///       %7 = legalize_vec_elem_val(operand_vec, %6)
+///       %8 = legalize_vec_store_elem(result_vec_ptr, %4, %7)
+///       %9 = cmp_eq(%4, <usize, out_idxs.len-1>)
+///       %10 = cond_br(%9, {
+///         %11 = br(%1, @void_value)
+///       }, {
+///         %12 = add(%4, @one_usize)
+///         %13 = store(index_ptr, %12)
+///         %14 = repeat(%3)
+///       })
+///     })
+///   })
+///
+/// The caller is responsible for reserving space in `l.air_instructions`.
+fn addScalarizedShuffle(
+    l: *Legalize,
+    parent_block: *Block,
+    operand_vec: Air.Inst.Ref,
+    result_vec_ptr: Air.Inst.Ref,
+    index_ptr: Air.Inst.Ref,
+    out_idxs: []const InternPool.Index,
+    in_idxs: []const InternPool.Index,
+) Error!void {
+    const pt = l.pt;
+
+    assert(out_idxs.len == in_idxs.len);
+    const n = out_idxs.len;
+
+    const idxs_ty = try pt.arrayType(.{ .len = n, .child = .usize_type });
+    const idxs_ptr_ty = try pt.singleConstPtrType(idxs_ty);
+    const manyptr_usize_ty = try pt.manyConstPtrType(.usize);
+
+    const out_idxs_ptr = try pt.intern(.{ .ptr = .{
+        .ty = manyptr_usize_ty.toIntern(),
+        .base_addr = .{ .uav = .{
+            .val = (try pt.aggregateValue(idxs_ty, out_idxs)).toIntern(),
+            .orig_ty = idxs_ptr_ty.toIntern(),
+        } },
+        .byte_offset = 0,
+    } });
+    const in_idxs_ptr = try pt.intern(.{ .ptr = .{
+        .ty = manyptr_usize_ty.toIntern(),
+        .base_addr = .{ .uav = .{
+            .val = (try pt.aggregateValue(idxs_ty, in_idxs)).toIntern(),
+            .orig_ty = idxs_ptr_ty.toIntern(),
+        } },
+        .byte_offset = 0,
+    } });
+
+    const main_block_inst = parent_block.add(l, .{
+        .tag = .block,
+        .data = .{ .ty_pl = .{
+            .ty = .void_type,
+            .payload = undefined,
+        } },
+    });
+
+    var inst_buf: [13]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+
+    _ = main_block.addBinOp(l, .store, index_ptr, .zero_usize);
+
+    var loop: Loop = .init(l, &main_block);
+    loop.block = .init(main_block.stealRemainingCapacity());
+
+    const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
+    const in_idx_val = loop.block.addBinOp(l, .ptr_elem_val, .fromIntern(in_idxs_ptr), index_val).toRef();
+    const out_idx_val = loop.block.addBinOp(l, .ptr_elem_val, .fromIntern(out_idxs_ptr), index_val).toRef();
+
+    const elem_val = loop.block.addBinOp(l, .legalize_vec_elem_val, operand_vec, in_idx_val).toRef();
+    _ = loop.block.add(l, .{
+        .tag = .legalize_vec_store_elem,
+        .data = .{ .pl_op = .{
+            .operand = result_vec_ptr,
+            .payload = try l.addExtra(Air.Bin, .{
+                .lhs = out_idx_val,
+                .rhs = elem_val,
+            }),
+        } },
+    });
+
+    const is_end_val = loop.block.addBinOp(l, .cmp_eq, index_val, .fromValue(try pt.intValue(.usize, n - 1))).toRef();
+    var condbr: CondBr = .init(l, is_end_val, &loop.block, .{});
+    condbr.then_block = .init(loop.block.stealRemainingCapacity());
+    condbr.then_block.addBr(l, main_block_inst, .void_value);
+
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    const new_index_val = condbr.else_block.addBinOp(l, .add, index_val, .one_usize).toRef();
+    _ = condbr.else_block.addBinOp(l, .store, index_ptr, new_index_val);
+    _ = condbr.else_block.add(l, .{
+        .tag = .repeat,
+        .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+    });
+
+    try condbr.finish(l);
+    try loop.finish(l);
+
+    const inst_data = l.air_instructions.items(.data);
+    inst_data[@intFromEnum(main_block_inst)].ty_pl.payload = try l.addBlockBody(main_block.body());
+}
+fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
 
     const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
 
@@ -920,72 +1256,204 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
     const uint_ty = try pt.intType(.unsigned, num_bits);
     const shift_ty = try pt.intType(.unsigned, std.math.log2_int_ceil(u16, num_bits));
 
-    const inst_buf = try sfba.alloc(Air.Inst.Index, len: {
-        const operand_to_uint_len: u64 = if (operand_legal) 1 else (operand_ty.arrayLen(zcu) * 5);
-        const uint_to_dest_len: u64 = if (dest_legal) 1 else (dest_ty.arrayLen(zcu) * 3 + 1);
-        break :len @intCast(operand_to_uint_len + uint_to_dest_len + 1);
-    });
-    defer sfba.free(inst_buf);
-    var main_block: Block = .init(inst_buf);
-    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+    var inst_buf: [39]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
 
     // First, convert `operand_ty` to `uint_ty` (`uN`).
 
     const uint_val: Air.Inst.Ref = uint_val: {
-        if (operand_legal) break :uint_val main_block.addBitCast(l, uint_ty, ty_op.operand);
-
-        const bits_per_elem: u16 = @intCast(operand_ty.childType(zcu).bitSize(zcu));
-        const bits_per_elem_ref: Air.Inst.Ref = .fromValue(try pt.intValue(shift_ty, bits_per_elem));
-        const elem_uint_ty = try pt.intType(.unsigned, bits_per_elem);
-
-        var cur_uint: Air.Inst.Ref = .fromValue(try pt.intValue(uint_ty, 0));
-        var elem_idx = operand_ty.arrayLen(zcu);
-        while (elem_idx > 0) {
-            elem_idx -= 1;
-            const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-            const orig_elem = main_block.addBinOp(l, .array_elem_val, ty_op.operand, elem_idx_ref).toRef();
-            const elem_as_uint = main_block.addBitCast(l, elem_uint_ty, orig_elem);
-            const elem_extended = main_block.addTyOp(l, .intcast, uint_ty, elem_as_uint).toRef();
-            cur_uint = main_block.addBinOp(l, .shl_exact, cur_uint, bits_per_elem_ref).toRef();
-            cur_uint = main_block.addBinOp(l, .bit_or, cur_uint, elem_extended).toRef();
+        if (operand_legal) {
+            _ = main_block.stealCapacity(19);
+            break :uint_val main_block.addBitCast(l, uint_ty, ty_op.operand);
         }
-        break :uint_val cur_uint;
+
+        // %1 = block({
+        //   %2 = alloc(*usize)
+        //   %3 = alloc(*uN)
+        //   %4 = store(%2, <usize, operand_len>)
+        //   %5 = store(%3, <uN, 0>)
+        //   %6 = loop({
+        //     %7 = load(%2)
+        //     %8 = array_elem_val(orig_operand, %7)
+        //     %9 = bitcast(uE, %8)
+        //     %10 = intcast(uN, %9)
+        //     %11 = load(%3)
+        //     %12 = shl_exact(%11, <uS, E>)
+        //     %13 = bit_or(%12, %10)
+        //     %14 = cmp_eq(%4, @zero_usize)
+        //     %15 = cond_br(%14, {
+        //       %16 = br(%1, %13)
+        //     }, {
+        //       %17 = store(%3, %13)
+        //       %18 = sub(%7, @one_usize)
+        //       %19 = store(%2, %18)
+        //       %20 = repeat(%6)
+        //     })
+        //   })
+        // })
+
+        const elem_bits = operand_ty.childType(zcu).bitSize(zcu);
+        const elem_bits_val = try pt.intValue(shift_ty, elem_bits);
+        const elem_uint_ty = try pt.intType(.unsigned, @intCast(elem_bits));
+
+        const uint_block_inst = main_block.add(l, .{
+            .tag = .block,
+            .data = .{ .ty_pl = .{
+                .ty = .fromType(uint_ty),
+                .payload = undefined,
+            } },
+        });
+        var uint_block: Block = .init(main_block.stealCapacity(19));
+
+        const index_ptr = uint_block.addTy(l, .alloc, .ptr_usize).toRef();
+        const result_ptr = uint_block.addTy(l, .alloc, try pt.singleMutPtrType(uint_ty)).toRef();
+        _ = uint_block.addBinOp(
+            l,
+            .store,
+            index_ptr,
+            .fromValue(try pt.intValue(.usize, operand_ty.arrayLen(zcu))),
+        );
+        _ = uint_block.addBinOp(l, .store, result_ptr, .fromValue(try pt.intValue(uint_ty, 0)));
+
+        var loop: Loop = .init(l, &uint_block);
+        loop.block = .init(uint_block.stealRemainingCapacity());
+
+        const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
+        const raw_elem = loop.block.addBinOp(
+            l,
+            if (operand_ty.zigTypeTag(zcu) == .vector) .legalize_vec_elem_val else .array_elem_val,
+            ty_op.operand,
+            index_val,
+        ).toRef();
+        const elem_uint = loop.block.addBitCast(l, elem_uint_ty, raw_elem);
+        const elem_extended = loop.block.addTyOp(l, .intcast, uint_ty, elem_uint).toRef();
+        const old_result = loop.block.addTyOp(l, .load, uint_ty, result_ptr).toRef();
+        const shifted_result = loop.block.addBinOp(l, .shl_exact, old_result, .fromValue(elem_bits_val)).toRef();
+        const new_result = loop.block.addBinOp(l, .bit_or, shifted_result, elem_extended).toRef();
+
+        const is_end_val = loop.block.addBinOp(l, .cmp_eq, index_val, .zero_usize).toRef();
+        var condbr: CondBr = .init(l, is_end_val, &loop.block, .{});
+
+        condbr.then_block = .init(loop.block.stealRemainingCapacity());
+        condbr.then_block.addBr(l, uint_block_inst, new_result);
+
+        condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+        _ = condbr.else_block.addBinOp(l, .store, result_ptr, new_result);
+        const new_index_val = condbr.else_block.addBinOp(l, .sub, index_val, .one_usize).toRef();
+        _ = condbr.else_block.addBinOp(l, .store, index_ptr, new_index_val);
+        _ = condbr.else_block.add(l, .{
+            .tag = .repeat,
+            .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+        });
+
+        try condbr.finish(l);
+        try loop.finish(l);
+
+        const inst_data = l.air_instructions.items(.data);
+        inst_data[@intFromEnum(uint_block_inst)].ty_pl.payload = try l.addBlockBody(uint_block.body());
+
+        break :uint_val uint_block_inst.toRef();
     };
 
     // Now convert `uint_ty` (`uN`) to `dest_ty`.
 
-    const result: Air.Inst.Ref = result: {
-        if (dest_legal) break :result main_block.addBitCast(l, dest_ty, uint_val);
+    if (dest_legal) {
+        _ = main_block.stealCapacity(17);
+        const result = main_block.addBitCast(l, dest_ty, uint_val);
+        main_block.addBr(l, orig_inst, result);
+    } else {
+        // %1 = alloc(*usize)
+        // %2 = alloc(*@Vector(N, Result))
+        // %3 = store(%1, @zero_usize)
+        // %4 = loop({
+        //   %5 = load(%1)
+        //   %6 = mul(%5, <usize, E>)
+        //   %7 = intcast(uS, %6)
+        //   %8 = shr(uint_val, %7)
+        //   %9 = trunc(uE, %8)
+        //   %10 = bitcast(Result, %9)
+        //   %11 = legalize_vec_store_elem(%2, %5, %10)
+        //   %12 = cmp_eq(%5, <usize, vec_len>)
+        //   %13 = cond_br(%12, {
+        //     %14 = load(%2)
+        //     %15 = br(%0, %14)
+        //   }, {
+        //     %16 = add(%5, @one_usize)
+        //     %17 = store(%1, %16)
+        //     %18 = repeat(%4)
+        //   })
+        // })
+        //
+        // The result might be an array, in which case `legalize_vec_store_elem`
+        // becomes `ptr_elem_ptr` followed by `store`.
 
         const elem_ty = dest_ty.childType(zcu);
-        const bits_per_elem: u16 = @intCast(elem_ty.bitSize(zcu));
-        const bits_per_elem_ref: Air.Inst.Ref = .fromValue(try pt.intValue(shift_ty, bits_per_elem));
-        const elem_uint_ty = try pt.intType(.unsigned, bits_per_elem);
+        const elem_bits = elem_ty.bitSize(zcu);
+        const elem_uint_ty = try pt.intType(.unsigned, @intCast(elem_bits));
 
-        const elem_buf = try sfba.alloc(Air.Inst.Ref, dest_ty.arrayLen(zcu));
-        defer sfba.free(elem_buf);
+        const index_ptr = main_block.addTy(l, .alloc, .ptr_usize).toRef();
+        const result_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(dest_ty)).toRef();
+        _ = main_block.addBinOp(l, .store, index_ptr, .zero_usize);
 
-        var cur_uint = uint_val;
-        for (elem_buf) |*elem| {
-            const elem_as_uint = main_block.addTyOp(l, .trunc, elem_uint_ty, cur_uint).toRef();
-            elem.* = main_block.addBitCast(l, elem_ty, elem_as_uint);
-            cur_uint = main_block.addBinOp(l, .shr, cur_uint, bits_per_elem_ref).toRef();
+        var loop: Loop = .init(l, &main_block);
+        loop.block = .init(main_block.stealRemainingCapacity());
+
+        const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
+        const bit_offset = loop.block.addBinOp(l, .mul, index_val, .fromValue(try pt.intValue(.usize, elem_bits))).toRef();
+        const casted_bit_offset = loop.block.addTyOp(l, .intcast, shift_ty, bit_offset).toRef();
+        const shifted_uint = loop.block.addBinOp(l, .shr, index_val, casted_bit_offset).toRef();
+        const elem_uint = loop.block.addTyOp(l, .trunc, elem_uint_ty, shifted_uint).toRef();
+        const elem_val = loop.block.addBitCast(l, elem_ty, elem_uint);
+        switch (dest_ty.zigTypeTag(zcu)) {
+            .array => {
+                const elem_ptr = loop.block.add(l, .{
+                    .tag = .ptr_elem_ptr,
+                    .data = .{ .ty_pl = .{
+                        .ty = .fromType(try pt.singleMutPtrType(elem_ty)),
+                        .payload = try l.addExtra(Air.Bin, .{
+                            .lhs = result_ptr,
+                            .rhs = index_val,
+                        }),
+                    } },
+                }).toRef();
+                _ = loop.block.addBinOp(l, .store, elem_ptr, elem_val);
+            },
+            .vector => {
+                _ = loop.block.add(l, .{
+                    .tag = .legalize_vec_store_elem,
+                    .data = .{ .pl_op = .{
+                        .operand = result_ptr,
+                        .payload = try l.addExtra(Air.Bin, .{
+                            .lhs = index_val,
+                            .rhs = elem_val,
+                        }),
+                    } },
+                });
+                _ = loop.block.stealCapacity(1);
+            },
+            else => unreachable,
         }
 
-        break :result main_block.add(l, .{
-            .tag = .aggregate_init,
-            .data = .{ .ty_pl = .{
-                .ty = .fromType(dest_ty),
-                .payload = payload: {
-                    const idx = l.air_extra.items.len;
-                    try l.air_extra.appendSlice(gpa, @ptrCast(elem_buf));
-                    break :payload @intCast(idx);
-                },
-            } },
-        }).toRef();
-    };
+        const is_end_val = loop.block.addBinOp(l, .cmp_eq, index_val, .fromValue(try pt.intValue(.usize, dest_ty.arrayLen(zcu) - 1))).toRef();
 
-    main_block.addBr(l, orig_inst, result);
+        var condbr: CondBr = .init(l, is_end_val, &loop.block, .{});
+
+        condbr.then_block = .init(loop.block.stealRemainingCapacity());
+        const result_val = condbr.then_block.addTyOp(l, .load, dest_ty, result_ptr).toRef();
+        condbr.then_block.addBr(l, orig_inst, result_val);
+
+        condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+        const new_index_val = condbr.else_block.addBinOp(l, .add, index_val, .one_usize).toRef();
+        _ = condbr.else_block.addBinOp(l, .store, index_ptr, new_index_val);
+        _ = condbr.else_block.add(l, .{
+            .tag = .repeat,
+            .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+        });
+
+        try condbr.finish(l);
+        try loop.finish(l);
+    }
 
     return .{ .ty_pl = .{
         .ty = .fromType(dest_ty),
@@ -995,10 +1463,6 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
 fn scalarizeOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-
-    var sfba_state = std.heap.stackFallback(512, gpa);
-    const sfba = sfba_state.get();
 
     const orig = l.air_instructions.get(@intFromEnum(orig_inst));
     const orig_operands = l.extraData(Air.Bin, orig.data.ty_pl.payload).data;
@@ -1015,89 +1479,127 @@ fn scalarizeOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!
     const scalar_int_ty = vec_int_ty.childType(zcu);
     const scalar_tuple_ty = try pt.overflowArithmeticTupleType(scalar_int_ty);
 
+    // %1 = block(struct { @Vector(N, Int), @Vector(N, u1) }, {
+    //   %2 = alloc(*usize)
+    //   %3 = alloc(*struct { @Vector(N, Int), @Vector(N, u1) })
+    //   %4 = struct_field_ptr_index_0(*@Vector(N, Int), %3)
+    //   %5 = struct_field_ptr_index_1(*@Vector(N, u1), %3)
+    //   %6 = store(%2, @zero_usize)
+    //   %7 = loop({
+    //     %8 = load(%2)
+    //     %9 = legalize_vec_elem_val(orig_lhs, %8)
+    //     %10 = legalize_vec_elem_val(orig_rhs, %8)
+    //     %11 = ???_with_overflow(struct { Int, u1 }, %9, %10)
+    //     %12 = struct_field_val(%11, 0)
+    //     %13 = struct_field_val(%11, 1)
+    //     %14 = legalize_vec_store_elem(%4, %8, %12)
+    //     %15 = legalize_vec_store_elem(%4, %8, %13)
+    //     %16 = cmp_eq(%8, <usize, N-1>)
+    //     %17 = cond_br(%16, {
+    //       %18 = load(%3)
+    //       %19 = br(%1, %18)
+    //     }, {
+    //       %20 = add(%8, @one_usize)
+    //       %21 = store(%2, %20)
+    //       %22 = repeat(%7)
+    //     })
+    //   })
+    // })
+
     const elems_len = vec_int_ty.vectorLen(zcu);
 
-    const inst_buf = try sfba.alloc(Air.Inst.Index, 5 * elems_len + 4);
-    defer sfba.free(inst_buf);
+    var inst_buf: [21]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
 
-    var main_block: Block = .init(inst_buf);
-    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+    const index_ptr = main_block.addTy(l, .alloc, .ptr_usize).toRef();
+    const result_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(vec_tuple_ty)).toRef();
+    const result_int_ptr = main_block.addTyOp(
+        l,
+        .struct_field_ptr_index_0,
+        try pt.singleMutPtrType(vec_int_ty),
+        result_ptr,
+    ).toRef();
+    const result_overflow_ptr = main_block.addTyOp(
+        l,
+        .struct_field_ptr_index_1,
+        try pt.singleMutPtrType(vec_overflow_ty),
+        result_ptr,
+    ).toRef();
 
-    const int_elem_buf = try sfba.alloc(Air.Inst.Ref, elems_len);
-    defer sfba.free(int_elem_buf);
-    const overflow_elem_buf = try sfba.alloc(Air.Inst.Ref, elems_len);
-    defer sfba.free(overflow_elem_buf);
+    _ = main_block.addBinOp(l, .store, index_ptr, .zero_usize);
 
-    for (int_elem_buf, overflow_elem_buf, 0..) |*int_elem, *overflow_elem, elem_idx| {
-        const elem_idx_ref: Air.Inst.Ref = .fromValue(try pt.intValue(.usize, elem_idx));
-        const lhs = main_block.addBinOp(l, .array_elem_val, orig_operands.lhs, elem_idx_ref).toRef();
-        const rhs = main_block.addBinOp(l, .array_elem_val, orig_operands.rhs, elem_idx_ref).toRef();
-        const elem_result = main_block.add(l, .{
-            .tag = orig.tag,
-            .data = .{ .ty_pl = .{
-                .ty = .fromType(scalar_tuple_ty),
-                .payload = try l.addExtra(Air.Bin, .{ .lhs = lhs, .rhs = rhs }),
-            } },
-        }).toRef();
-        int_elem.* = main_block.add(l, .{
-            .tag = .struct_field_val,
-            .data = .{ .ty_pl = .{
-                .ty = .fromType(scalar_int_ty),
-                .payload = try l.addExtra(Air.StructField, .{
-                    .struct_operand = elem_result,
-                    .field_index = 0,
-                }),
-            } },
-        }).toRef();
-        overflow_elem.* = main_block.add(l, .{
-            .tag = .struct_field_val,
-            .data = .{ .ty_pl = .{
-                .ty = .bool_type,
-                .payload = try l.addExtra(Air.StructField, .{
-                    .struct_operand = elem_result,
-                    .field_index = 1,
-                }),
-            } },
-        }).toRef();
-    }
+    var loop: Loop = .init(l, &main_block);
+    loop.block = .init(main_block.stealRemainingCapacity());
 
-    const int_vec = main_block.add(l, .{
-        .tag = .aggregate_init,
+    const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
+    const lhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_operands.lhs, index_val).toRef();
+    const rhs = loop.block.addBinOp(l, .legalize_vec_elem_val, orig_operands.rhs, index_val).toRef();
+    const elem_result = loop.block.add(l, .{
+        .tag = orig.tag,
         .data = .{ .ty_pl = .{
-            .ty = .fromType(vec_int_ty),
-            .payload = payload: {
-                const idx = l.air_extra.items.len;
-                try l.air_extra.appendSlice(gpa, @ptrCast(int_elem_buf));
-                break :payload @intCast(idx);
-            },
+            .ty = .fromType(scalar_tuple_ty),
+            .payload = try l.addExtra(Air.Bin, .{ .lhs = lhs, .rhs = rhs }),
         } },
     }).toRef();
-    const overflow_vec = main_block.add(l, .{
-        .tag = .aggregate_init,
+    const int_elem = loop.block.add(l, .{
+        .tag = .struct_field_val,
         .data = .{ .ty_pl = .{
-            .ty = .fromType(vec_overflow_ty),
-            .payload = payload: {
-                const idx = l.air_extra.items.len;
-                try l.air_extra.appendSlice(gpa, @ptrCast(overflow_elem_buf));
-                break :payload @intCast(idx);
-            },
+            .ty = .fromType(scalar_int_ty),
+            .payload = try l.addExtra(Air.StructField, .{
+                .struct_operand = elem_result,
+                .field_index = 0,
+            }),
         } },
     }).toRef();
-
-    const tuple_elems: [2]Air.Inst.Ref = .{ int_vec, overflow_vec };
-    const result = main_block.add(l, .{
-        .tag = .aggregate_init,
+    const overflow_elem = loop.block.add(l, .{
+        .tag = .struct_field_val,
         .data = .{ .ty_pl = .{
-            .ty = .fromType(vec_tuple_ty),
-            .payload = payload: {
-                const idx = l.air_extra.items.len;
-                try l.air_extra.appendSlice(gpa, @ptrCast(&tuple_elems));
-                break :payload @intCast(idx);
-            },
+            .ty = .u1_type,
+            .payload = try l.addExtra(Air.StructField, .{
+                .struct_operand = elem_result,
+                .field_index = 1,
+            }),
         } },
     }).toRef();
+    _ = loop.block.add(l, .{
+        .tag = .legalize_vec_store_elem,
+        .data = .{ .pl_op = .{
+            .operand = result_int_ptr,
+            .payload = try l.addExtra(Air.Bin, .{
+                .lhs = index_val,
+                .rhs = int_elem,
+            }),
+        } },
+    });
+    _ = loop.block.add(l, .{
+        .tag = .legalize_vec_store_elem,
+        .data = .{ .pl_op = .{
+            .operand = result_overflow_ptr,
+            .payload = try l.addExtra(Air.Bin, .{
+                .lhs = index_val,
+                .rhs = overflow_elem,
+            }),
+        } },
+    });
 
-    main_block.addBr(l, orig_inst, result);
+    const is_end_val = loop.block.addBinOp(l, .cmp_eq, index_val, .fromValue(try pt.intValue(.usize, elems_len - 1))).toRef();
+    var condbr: CondBr = .init(l, is_end_val, &loop.block, .{});
+
+    condbr.then_block = .init(loop.block.stealRemainingCapacity());
+    const result_val = condbr.then_block.addTyOp(l, .load, vec_tuple_ty, result_ptr).toRef();
+    condbr.then_block.addBr(l, orig_inst, result_val);
+
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    const new_index_val = condbr.else_block.addBinOp(l, .add, index_val, .one_usize).toRef();
+    _ = condbr.else_block.addBinOp(l, .store, index_ptr, new_index_val);
+    _ = condbr.else_block.add(l, .{
+        .tag = .repeat,
+        .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+    });
+
+    try condbr.finish(l);
+    try loop.finish(l);
 
     return .{ .ty_pl = .{
         .ty = .fromType(vec_tuple_ty),
@@ -1288,7 +1790,7 @@ fn safeIntFromFloatBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimiz
 
     // We emit 9 instructions in the worst case.
     var inst_buf: [9]Air.Inst.Index = undefined;
-    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
     var main_block: Block = .init(&inst_buf);
 
     // This check is a bit annoying because of floating-point rounding and the fact that this
@@ -1771,6 +2273,9 @@ const Block = struct {
             .data = .{ .br = .{ .block_inst = target, .operand = operand } },
         });
     }
+    fn addTy(b: *Block, l: *Legalize, tag: Air.Inst.Tag, ty: Type) Air.Inst.Index {
+        return b.add(l, .{ .tag = tag, .data = .{ .ty = ty } });
+    }
     fn addBinOp(b: *Block, l: *Legalize, tag: Air.Inst.Tag, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) Air.Inst.Index {
         return b.add(l, .{
             .tag = tag,
@@ -1918,6 +2423,31 @@ const Block = struct {
     fn body(b: *const Block) []const Air.Inst.Index {
         assert(b.len == b.instructions.len);
         return b.instructions;
+    }
+};
+
+const Loop = struct {
+    inst: Air.Inst.Index,
+    block: Block,
+
+    /// The return value has `block` initialized to `undefined`; it is the caller's reponsibility
+    /// to initialize it.
+    fn init(l: *Legalize, parent_block: *Block) Loop {
+        return .{
+            .inst = parent_block.add(l, .{
+                .tag = .loop,
+                .data = .{ .ty_pl = .{
+                    .ty = .noreturn_type,
+                    .payload = undefined,
+                } },
+            }),
+            .block = undefined,
+        };
+    }
+
+    fn finish(loop: Loop, l: *Legalize) Error!void {
+        const data = &l.air_instructions.items(.data)[@intFromEnum(loop.inst)];
+        data.ty_pl.payload = try l.addBlockBody(loop.block.body());
     }
 };
 

@@ -1391,6 +1391,11 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
         const tag = air_tags[@intFromEnum(inst)];
         switch (tag) {
             // zig fmt: off
+
+            // No "scalarize" legalizations are enabled, so these instructions never appear.
+            .legalize_vec_elem_val   => unreachable,
+            .legalize_vec_store_elem => unreachable,
+
             .add,
             .add_wrap,
             .sub,

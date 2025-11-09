@@ -134,6 +134,10 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
     var air_inst_index = air_body[air_body_index];
     const initial_def_order_len = isel.def_order.count();
     air_tag: switch (air_tags[@intFromEnum(air_inst_index)]) {
+        // No "scalarize" legalizations are enabled, so these instructions never appear.
+        .legalize_vec_elem_val => unreachable,
+        .legalize_vec_store_elem => unreachable,
+
         .arg,
         .ret_addr,
         .frame_addr,
@@ -950,6 +954,11 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
     };
     air_tag: switch (air.next().?) {
         else => |air_tag| return isel.fail("unimplemented {t}", .{air_tag}),
+
+        // No "scalarize" legalizations are enabled, so these instructions never appear.
+        .legalize_vec_elem_val => unreachable,
+        .legalize_vec_store_elem => unreachable,
+
         .arg => {
             const arg_vi = isel.live_values.fetchRemove(air.inst_index).?.value;
             defer arg_vi.deref(isel);

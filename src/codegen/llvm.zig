@@ -4886,6 +4886,11 @@ pub const FuncGen = struct {
 
             const val: Builder.Value = switch (air_tags[@intFromEnum(inst)]) {
                 // zig fmt: off
+
+                // No "scalarize" legalizations are enabled, so these instructions never appear.
+                .legalize_vec_elem_val   => unreachable,
+                .legalize_vec_store_elem => unreachable,
+
                 .add            => try self.airAdd(inst, .normal),
                 .add_optimized  => try self.airAdd(inst, .fast),
                 .add_wrap       => try self.airAddWrap(inst),

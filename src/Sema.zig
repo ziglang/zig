@@ -15930,16 +15930,21 @@ fn zirOverflowArithmetic(
                     }
                 }
                 // If either of the arguments is one, the result is the other and no overflow occured.
-                const scalar_one = try pt.intValue(dest_ty.scalarType(zcu), 1);
-                const vec_one = try sema.splat(dest_ty, scalar_one);
-                if (maybe_lhs_val) |lhs_val| {
-                    if (!lhs_val.isUndef(zcu) and try sema.compareAll(lhs_val, .eq, vec_one, dest_ty)) {
-                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = rhs };
+                const dest_scalar_ty = dest_ty.scalarType(zcu);
+                const dest_scalar_int = dest_scalar_ty.intInfo(zcu);
+                // We could still be working with i1, where '1' is not a legal value!
+                if (!(dest_scalar_int.bits == 1 and dest_scalar_int.signedness == .signed)) {
+                    const scalar_one = try pt.intValue(dest_scalar_ty, 1);
+                    const vec_one = try sema.splat(dest_ty, scalar_one);
+                    if (maybe_lhs_val) |lhs_val| {
+                        if (!lhs_val.isUndef(zcu) and try sema.compareAll(lhs_val, .eq, vec_one, dest_ty)) {
+                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = rhs };
+                        }
                     }
-                }
-                if (maybe_rhs_val) |rhs_val| {
-                    if (!rhs_val.isUndef(zcu) and try sema.compareAll(rhs_val, .eq, vec_one, dest_ty)) {
-                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (!rhs_val.isUndef(zcu) and try sema.compareAll(rhs_val, .eq, vec_one, dest_ty)) {
+                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
+                        }
                     }
                 }
 

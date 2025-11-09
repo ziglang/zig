@@ -3325,6 +3325,10 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             // zig fmt: off
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
+            // No "scalarize" legalizations are enabled, so these instructions never appear.
+            .legalize_vec_elem_val   => unreachable,
+            .legalize_vec_store_elem => unreachable,
+
             .arg      => try airArg(f, inst),
 
             .breakpoint => try airBreakpoint(f),

@@ -458,6 +458,7 @@ fn analyzeInst(
         .memset_safe,
         .memcpy,
         .memmove,
+        .legalize_vec_elem_val,
         => {
             const o = inst_datas[@intFromEnum(inst)].bin_op;
             return analyzeOperands(a, pass, data, inst, .{ o.lhs, o.rhs, .none });
@@ -768,6 +769,12 @@ fn analyzeInst(
         .wasm_memory_grow => {
             const pl_op = inst_datas[@intFromEnum(inst)].pl_op;
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, .none, .none });
+        },
+
+        .legalize_vec_store_elem => {
+            const pl_op = inst_datas[@intFromEnum(inst)].pl_op;
+            const bin = a.air.extraData(Air.Bin, pl_op.payload).data;
+            return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, bin.lhs, bin.rhs });
         },
     }
 }

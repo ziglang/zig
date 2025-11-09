@@ -171,6 +171,7 @@ const Writer = struct {
             .memmove,
             .memset,
             .memset_safe,
+            .legalize_vec_elem_val,
             => try w.writeBinOp(s, inst),
 
             .is_null,
@@ -331,6 +332,7 @@ const Writer = struct {
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .runtime_nav_ptr => try w.writeRuntimeNavPtr(s, inst),
+            .legalize_vec_store_elem => try w.writeLegalizeVecStoreElem(s, inst),
 
             .work_item_id,
             .work_group_size,
@@ -506,6 +508,18 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.rhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, pl_op.operand);
+    }
+
+    fn writeLegalizeVecStoreElem(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
+        const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+        const bin = w.air.extraData(Air.Bin, pl_op.payload).data;
+
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, bin.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 2, bin.rhs);
+        try s.writeAll(", ");
     }
 
     fn writeShuffleOne(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {

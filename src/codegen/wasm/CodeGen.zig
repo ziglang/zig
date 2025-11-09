@@ -1786,6 +1786,10 @@ fn buildPointerOffset(cg: *CodeGen, ptr_value: WValue, offset: u64, action: enum
 fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const air_tags = cg.air.instructions.items(.tag);
     return switch (air_tags[@intFromEnum(inst)]) {
+        // No "scalarize" legalizations are enabled, so these instructions never appear.
+        .legalize_vec_elem_val => unreachable,
+        .legalize_vec_store_elem => unreachable,
+
         .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
         .add => cg.airBinOp(inst, .add),

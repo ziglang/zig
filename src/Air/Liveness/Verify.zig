@@ -272,6 +272,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .memset_safe,
             .memcpy,
             .memmove,
+            .legalize_vec_elem_val,
             => {
                 const bin_op = data[@intFromEnum(inst)].bin_op;
                 try self.verifyInstOperands(inst, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -576,6 +577,11 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 }
 
                 try self.verifyInst(inst);
+            },
+            .legalize_vec_store_elem => {
+                const pl_op = data[@intFromEnum(inst)].pl_op;
+                const bin = self.air.extraData(Air.Bin, pl_op.payload).data;
+                try self.verifyInstOperands(inst, .{ pl_op.operand, bin.lhs, bin.rhs });
             },
         }
     }
