@@ -1036,7 +1036,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .aarch64, .aarch64_be => .AARCH64,
         .alpha => .ALPHA,
         .amdgcn => .AMDGPU,
-        .arc, .arceb => .ARC_COMPACT,
+        .arc, .arceb => .ARC_COMPACT2,
         .arm, .armeb, .thumb, .thumbeb => .ARM,
         .avr => .AVR,
         .bpfeb, .bpfel => .BPF,
