@@ -427,7 +427,6 @@ const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
     else => false,
 } or switch (builtin.zig_backend) {
-    .stage2_aarch64 => true,
     else => false,
 };
 
