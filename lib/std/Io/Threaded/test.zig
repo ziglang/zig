@@ -115,3 +115,17 @@ test "Group.async context alignment" {
     group.wait(io);
     try std.testing.expectEqualSlices(u8, &expected.x, &result.x);
 }
+
+fn returnArray() [32]u8 {
+    return @splat(5);
+}
+
+test "async with array return type" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var future = io.async(returnArray, .{});
+    const result = future.await(io);
+    try std.testing.expectEqualSlices(u8, &@as([32]u8, @splat(5)), &result);
+}
