@@ -9074,6 +9074,8 @@ const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention
     .hexagon_sysv_hvx,
     .hppa_elf,
     .hppa64_elf,
+    .kvx_lp64,
+    .kvx_ilp32,
     .lanai_sysv,
     .loongarch64_lp64,
     .loongarch32_ilp32,

@@ -477,6 +477,7 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .ve,
         .bpfel,
         .bpfeb,
+        .kvx,
         .s390x,
         => return null,
 
@@ -551,6 +552,7 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .nvptx64,
         .wasm64,
         .spirv64,
+        .kvx,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -636,8 +638,9 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
         .ve => "ve",
-        // Note: propeller1, kalimba and or1k are not supported in LLVM; this is the Zig arch name
+        // Note: propeller1, kalimba, kvx, and or1k are not supported in LLVM; this is the Zig arch name
         .kalimba => "kalimba",
+        .kvx => "kvx",
         .propeller => "propeller",
         .or1k => "or1k",
     };

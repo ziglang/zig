@@ -710,6 +710,7 @@ pub const csky = @import("Target/csky.zig");
 pub const hexagon = @import("Target/hexagon.zig");
 pub const hppa = @import("Target/generic.zig");
 pub const kalimba = @import("Target/generic.zig");
+pub const kvx = @import("Target/kvx.zig");
 pub const lanai = @import("Target/lanai.zig");
 pub const loongarch = @import("Target/loongarch.zig");
 pub const m68k = @import("Target/m68k.zig");
@@ -1043,6 +1044,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .hexagon => .QDSP6,
         .hppa, .hppa64 => .PARISC,
         .kalimba => .CSR_KALIMBA,
+        .kvx => .KVX,
         .lanai => .LANAI,
         .loongarch32, .loongarch64 => .LOONGARCH,
         .m68k => .@"68K",
@@ -1105,6 +1107,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .hppa,
         .hppa64,
         .kalimba,
+        .kvx,
         .lanai,
         .m68k,
         .microblaze,
@@ -1310,6 +1313,7 @@ pub const Cpu = struct {
         hppa,
         hppa64,
         kalimba,
+        kvx,
         lanai,
         loongarch32,
         loongarch64,
@@ -1385,6 +1389,7 @@ pub const Cpu = struct {
             hexagon,
             hppa,
             kalimba,
+            kvx,
             lanai,
             loongarch,
             m68k,
@@ -1420,6 +1425,7 @@ pub const Cpu = struct {
                 .hexagon => .hexagon,
                 .hppa, .hppa64 => .hppa,
                 .kalimba => .kalimba,
+                .kvx => .kvx,
                 .lanai => .lanai,
                 .loongarch32, .loongarch64 => .loongarch,
                 .m68k => .m68k,
@@ -1623,6 +1629,7 @@ pub const Cpu = struct {
                 .csky,
                 .hexagon,
                 .kalimba,
+                .kvx,
                 .loongarch32,
                 .loongarch64,
                 .microblazeel,
@@ -1847,6 +1854,10 @@ pub const Cpu = struct {
                 .hppa64_elf,
                 => &.{.hppa64},
 
+                .kvx_lp64,
+                .kvx_ilp32,
+                => &.{.kvx},
+
                 .lanai_sysv,
                 => &.{.lanai},
 
@@ -1936,6 +1947,7 @@ pub const Cpu = struct {
             return switch (arch) {
                 .amdgcn => &amdgcn.cpu.gfx600,
                 .avr => &avr.cpu.avr1,
+                .kvx => &kvx.cpu.coolidge_v1,
                 .loongarch32 => &loongarch.cpu.generic_la32,
                 .loongarch64 => &loongarch.cpu.generic_la64,
                 .mips, .mipsel => &mips.cpu.mips32,
@@ -1987,6 +1999,7 @@ pub const Cpu = struct {
                 .bpfel, .bpfeb => &bpf.cpu.v3,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
+                .kvx => &kvx.cpu.coolidge_v2,
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.la64v1_0,
                 .m68k => &m68k.cpu.M68000,
@@ -2440,6 +2453,7 @@ pub const DynamicLinker = struct {
                     .aarch64,
                     .aarch64_be,
                     .hexagon,
+                    .kvx,
                     .m68k,
                     .microblaze,
                     .microblazeel,
@@ -2817,6 +2831,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .bpfeb,
         .bpfel,
         .hppa64,
+        .kvx,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -3375,6 +3390,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .aarch64_be,
             .alpha,
             .hppa64,
+            .kvx,
             .loongarch32,
             .loongarch64,
             .mips64,
@@ -3482,6 +3498,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .aarch64_be,
             .alpha,
             .hppa64,
+            .kvx,
             .loongarch32,
             .loongarch64,
             .mips64,
@@ -3557,6 +3574,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .bpfel,
         .bpfeb,
         .hppa64,
+        .kvx,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -3626,6 +3644,10 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .hppa => .{ .hppa_elf = .{} },
         .hppa64 => .{ .hppa64_elf = .{} },
         .kalimba => null,
+        .kvx => switch (target.abi) {
+            .ilp32 => .{ .kvx_ilp32 = .{} },
+            else => .{ .kvx_lp64 = .{} },
+        },
         .lanai => .{ .lanai_sysv = .{} },
         .loongarch64 => .{ .loongarch64_lp64 = .{} },
         .loongarch32 => .{ .loongarch32_ilp32 = .{} },

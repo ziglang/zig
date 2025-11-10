@@ -974,6 +974,43 @@ const targets = [_]ArchTarget{
         },
     },
     .{
+        .zig_name = "kvx",
+        .llvm = null,
+        .extra_features = &.{
+            .{
+                .zig_name = "v3_1",
+                .desc = "Enable ISA v3.1",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "v3_2",
+                .desc = "Enable ISA v3.2",
+                .deps = &.{"v3_1"},
+            },
+            .{
+                .zig_name = "v4_1",
+                .desc = "Enable ISA v4.1",
+                .deps = &.{"v3_2"},
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "coolidge_v1",
+                .features = &.{
+                    "v3_1",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "coolidge_v2",
+                .features = &.{
+                    "v3_2",
+                },
+            },
+        },
+    },
+    .{
         .zig_name = "lanai",
         .llvm = .{
             .name = "Lanai",
