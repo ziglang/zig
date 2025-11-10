@@ -3,6 +3,7 @@ options: link.File.OpenOptions,
 mf: MappedFile,
 ni: Node.Known,
 nodes: std.MultiArrayList(Node),
+shdrs: std.ArrayList(Section),
 phdrs: std.ArrayList(MappedFile.Node.Index),
 si: Symbol.Known,
 symtab: std.ArrayList(Symbol),
@@ -163,9 +164,29 @@ pub const Node = union(enum) {
     }
 };
 
+pub const Section = struct {
+    si: Symbol.Index,
+    rela_si: Symbol.Index,
+    rela_free: RelIndex,
+
+    pub const RelIndex = enum(u32) {
+        none,
+        _,
+
+        pub fn wrap(i: ?u32) RelIndex {
+            return @enumFromInt((i orelse return .none) + 1);
+        }
+        pub fn unwrap(ri: RelIndex) ?u32 {
+            return switch (ri) {
+                .none => null,
+                else => @intFromEnum(ri) - 1,
+            };
+        }
+    };
+};
+
 pub const StringTable = struct {
     map: std.HashMapUnmanaged(u32, void, StringTable.Context, std.hash_map.default_max_load_percentage),
-    size: u32,
 
     const Context = struct {
         slice: []const u8,
@@ -193,14 +214,10 @@ pub const StringTable = struct {
         }
     };
 
-    pub fn get(
-        st: *StringTable,
-        gpa: std.mem.Allocator,
-        mf: *MappedFile,
-        ni: MappedFile.Node.Index,
-        key: []const u8,
-    ) !u32 {
-        const slice_const = ni.sliceConst(mf);
+    pub fn get(st: *StringTable, elf: *Elf, si: Symbol.Index, key: []const u8) !u32 {
+        const gpa = elf.base.comp.gpa;
+        const ni = si.node(elf);
+        const slice_const = ni.sliceConst(&elf.mf);
         const gop = try st.map.getOrPutContextAdapted(
             gpa,
             key,
@@ -208,11 +225,18 @@ pub const StringTable = struct {
             .{ .slice = slice_const },
         );
         if (gop.found_existing) return gop.key_ptr.*;
-        const old_size = st.size;
-        const new_size: u32 = @intCast(old_size + key.len + 1);
-        st.size = new_size;
-        try ni.resize(mf, gpa, new_size);
-        const slice = ni.slice(mf)[old_size..];
+        const old_size, const new_size = size: switch (elf.shdrPtr(si.shndx(elf))) {
+            inline else => |shdr| {
+                const old_size: u32 = @intCast(elf.targetLoad(&shdr.size));
+                const new_size: u32 = @intCast(old_size + key.len + 1);
+                elf.targetStore(&shdr.size, new_size);
+                break :size .{ old_size, new_size };
+            },
+        };
+        _, const node_size = ni.location(&elf.mf).resolve(&elf.mf);
+        if (new_size > node_size)
+            try ni.resize(&elf.mf, gpa, new_size +| new_size / MappedFile.growth_factor);
+        const slice = ni.slice(&elf.mf)[old_size..];
         @memcpy(slice[0..key.len], key);
         slice[key.len] = 0;
         gop.key_ptr.* = old_size;
@@ -226,7 +250,7 @@ pub const Symbol = struct {
     loc_relocs: Reloc.Index,
     /// Relocations targeting this symbol
     target_relocs: Reloc.Index,
-    unused: u32 = 0,
+    unused: u32,
 
     pub const Index = enum(u32) {
         null,
@@ -252,6 +276,52 @@ pub const Symbol = struct {
             return @enumFromInt(@intFromEnum(si) + 1);
         }
 
+        pub const Shndx = enum(Tag) {
+            UNDEF = std.elf.SHN_UNDEF,
+            LIVEPATCH = reserve(std.elf.SHN_LIVEPATCH),
+            ABS = reserve(std.elf.SHN_ABS),
+            COMMON = reserve(std.elf.SHN_COMMON),
+            _,
+
+            pub const Tag = u32;
+
+            pub const LORESERVE: Shndx = .fromSection(std.elf.SHN_LORESERVE);
+            pub const HIRESERVE: Shndx = .fromSection(std.elf.SHN_HIRESERVE);
+            comptime {
+                assert(@intFromEnum(HIRESERVE) == std.math.maxInt(Tag));
+            }
+
+            fn reserve(sec: std.elf.Section) Tag {
+                assert(sec >= std.elf.SHN_LORESERVE and sec <= std.elf.SHN_HIRESERVE);
+                return @as(Tag, std.math.maxInt(Tag) - std.elf.SHN_HIRESERVE) + sec;
+            }
+
+            pub fn fromSection(sec: std.elf.Section) Shndx {
+                return switch (sec) {
+                    std.elf.SHN_UNDEF...std.elf.SHN_LORESERVE - 1 => @enumFromInt(sec),
+                    std.elf.SHN_LORESERVE...std.elf.SHN_HIRESERVE => @enumFromInt(reserve(sec)),
+                };
+            }
+            pub fn toSection(s: Shndx) ?std.elf.Section {
+                return switch (@intFromEnum(s)) {
+                    std.elf.SHN_UNDEF...std.elf.SHN_LORESERVE - 1 => |sec| @intCast(sec),
+                    std.elf.SHN_LORESERVE...reserve(std.elf.SHN_LORESERVE) - 1 => null,
+                    reserve(std.elf.SHN_LORESERVE)...reserve(std.elf.SHN_HIRESERVE) => |sec| @intCast(
+                        sec - reserve(std.elf.SHN_LORESERVE) + std.elf.SHN_LORESERVE,
+                    ),
+                };
+            }
+
+            pub fn get(s: Shndx, elf: *Elf) *Section {
+                return &elf.shdrs.items[@intFromEnum(s)];
+            }
+        };
+        pub fn shndx(si: Symbol.Index, elf: *Elf) Shndx {
+            return .fromSection(switch (elf.symPtr(si)) {
+                inline else => |sym| elf.targetLoad(&sym.shndx),
+            });
+        }
+
         pub const InitOptions = struct {
             name: []const u8 = "",
             lib_name: ?[]const u8 = null,
@@ -260,48 +330,83 @@ pub const Symbol = struct {
             type: std.elf.STT,
             bind: std.elf.STB = .LOCAL,
             visibility: std.elf.STV = .DEFAULT,
-            shndx: std.elf.Section = std.elf.SHN_UNDEF,
+            shndx: Shndx = .UNDEF,
         };
         pub fn init(si: Symbol.Index, elf: *Elf, opts: InitOptions) !void {
             const gpa = elf.base.comp.gpa;
             const target_endian = elf.targetEndian();
-            const sym_size: usize = switch (elf.identClass()) {
-                .NONE, _ => unreachable,
-                inline else => |class| @sizeOf(class.ElfN().Sym),
-            };
             const name_strtab_entry = try elf.string(.strtab, opts.name);
-            try elf.si.symtab.node(elf).resize(&elf.mf, gpa, sym_size * elf.symtab.items.len);
+            switch (elf.shdrPtr(elf.si.symtab.shndx(elf))) {
+                inline else => |shdr| {
+                    const old_size = elf.targetLoad(&shdr.size);
+                    const ent_size = elf.targetLoad(&shdr.entsize);
+                    const new_size = ent_size * elf.symtab.items.len;
+                    if (new_size > old_size) {
+                        elf.targetStore(&shdr.size, @intCast(new_size));
+                        const symtab_ni = elf.si.symtab.node(elf);
+                        _, const node_size = symtab_ni.location(&elf.mf).resolve(&elf.mf);
+                        if (new_size > node_size) try symtab_ni.resize(
+                            &elf.mf,
+                            gpa,
+                            new_size +| new_size / MappedFile.growth_factor,
+                        );
+                    }
+                },
+            }
             switch (elf.symPtr(si)) {
                 inline else => |sym, class| {
+                    const Sym = class.ElfN().Sym;
                     sym.* = .{
                         .name = name_strtab_entry,
                         .value = @intCast(opts.value),
                         .size = @intCast(opts.size),
                         .info = .{ .type = opts.type, .bind = opts.bind },
                         .other = .{ .visibility = opts.visibility },
-                        .shndx = opts.shndx,
+                        .shndx = opts.shndx.toSection().?,
                     };
-                    if (target_endian != native_endian) std.mem.byteSwapAllFields(class.ElfN().Sym, sym);
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(Sym, sym);
                 },
+            }
+            switch (elf.shdrPtr(elf.si.symtab.shndx(elf))) {
+                inline else => |shdr| elf.targetStore(&shdr.info, @max(
+                    elf.targetLoad(&shdr.info),
+                    @intFromEnum(si) + 1,
+                )),
             }
             if (opts.bind == .LOCAL or elf.si.dynsym == .null) return;
             const dsi = elf.dynsym.items.len;
             try elf.dynsym.append(gpa, si);
-            const dynsym_ni = elf.si.dynsym.node(elf);
             const name_dynstr_entry = try elf.string(.dynstr, opts.name);
-            try dynsym_ni.resize(&elf.mf, gpa, sym_size * elf.dynsym.items.len);
+            switch (elf.shdrPtr(elf.si.dynsym.shndx(elf))) {
+                inline else => |shdr| {
+                    const old_size = elf.targetLoad(&shdr.size);
+                    const ent_size = elf.targetLoad(&shdr.entsize);
+                    const new_size = ent_size * elf.dynsym.items.len;
+                    if (new_size > old_size) {
+                        elf.targetStore(&shdr.size, @intCast(new_size));
+                        const dynsym_ni = elf.si.dynsym.node(elf);
+                        _, const node_size = dynsym_ni.location(&elf.mf).resolve(&elf.mf);
+                        if (new_size > node_size) try dynsym_ni.resize(
+                            &elf.mf,
+                            gpa,
+                            new_size +| new_size / MappedFile.growth_factor,
+                        );
+                    }
+                },
+            }
             switch (elf.dynsymSlice()) {
-                inline else => |dynsym, class| {
-                    const dsym = &dynsym[dsi];
-                    dsym.* = .{
+                inline else => |dynsyms, class| {
+                    const Sym = class.ElfN().Sym;
+                    const dynsym = &dynsyms[dsi];
+                    dynsym.* = .{
                         .name = name_dynstr_entry,
                         .value = @intCast(opts.value),
                         .size = @intCast(opts.size),
                         .info = .{ .type = opts.type, .bind = opts.bind },
                         .other = .{ .visibility = opts.visibility },
-                        .shndx = opts.shndx,
+                        .shndx = opts.shndx.toSection().?,
                     };
-                    if (target_endian != native_endian) std.mem.byteSwapAllFields(class.ElfN().Sym, dsym);
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(Sym, dynsym);
                 },
             }
         }
@@ -321,6 +426,7 @@ pub const Symbol = struct {
         }
 
         pub fn applyLocationRelocs(si: Symbol.Index, elf: *Elf) void {
+            if (elf.ehdrField(.type) == .REL) return;
             switch (si.get(elf).loc_relocs) {
                 .none => {},
                 else => |loc_relocs| for (elf.relocs.items[@intFromEnum(loc_relocs)..]) |*reloc| {
@@ -331,6 +437,7 @@ pub const Symbol = struct {
         }
 
         pub fn applyTargetRelocs(si: Symbol.Index, elf: *Elf) void {
+            if (elf.ehdrField(.type) == .REL) return;
             var ri = si.get(elf).target_relocs;
             while (ri != .none) {
                 const reloc = ri.get(elf);
@@ -374,7 +481,7 @@ pub const Reloc = extern struct {
     next: Reloc.Index,
     loc: Symbol.Index,
     target: Symbol.Index,
-    unused: u32,
+    index: Section.RelIndex,
     offset: u64,
     addend: i64,
 
@@ -383,6 +490,16 @@ pub const Reloc = extern struct {
         AARCH64: std.elf.R_AARCH64,
         RISCV: std.elf.R_RISCV,
         PPC64: std.elf.R_PPC64,
+
+        pub fn none(elf: *Elf) Reloc.Type {
+            return switch (elf.ehdrField(.machine)) {
+                else => unreachable,
+                .AARCH64 => .{ .AARCH64 = .NONE },
+                .PPC64 => .{ .PPC64 = .NONE },
+                .RISCV => .{ .RISCV = .NONE },
+                .X86_64 => .{ .X86_64 = .NONE },
+            };
+        }
 
         pub fn absAddr(elf: *Elf) Reloc.Type {
             return switch (elf.ehdrField(.machine)) {
@@ -393,10 +510,33 @@ pub const Reloc = extern struct {
                 .X86_64 => .{ .X86_64 = .@"64" },
             };
         }
+
         pub fn sizeAddr(elf: *Elf) Reloc.Type {
             return switch (elf.ehdrField(.machine)) {
                 else => unreachable,
                 .X86_64 => .{ .X86_64 = .SIZE64 },
+            };
+        }
+
+        pub fn wrap(int: u32, elf: *Elf) Reloc.Type {
+            return switch (elf.ehdrField(.machine)) {
+                else => unreachable,
+                inline .AARCH64,
+                .PPC64,
+                .RISCV,
+                .X86_64,
+                => |machine| @unionInit(Reloc.Type, @tagName(machine), @enumFromInt(int)),
+            };
+        }
+
+        pub fn unwrap(rt: Reloc.Type, elf: *Elf) u32 {
+            return switch (elf.ehdrField(.machine)) {
+                else => unreachable,
+                inline .AARCH64,
+                .PPC64,
+                .RISCV,
+                .X86_64,
+                => |machine| @intFromEnum(@field(rt, @tagName(machine))),
             };
         }
     };
@@ -411,6 +551,7 @@ pub const Reloc = extern struct {
     };
 
     pub fn apply(reloc: *const Reloc, elf: *Elf) void {
+        assert(elf.ehdrField(.type) != .REL);
         const loc_ni = reloc.loc.get(elf).ni;
         switch (loc_ni) {
             .none => return,
@@ -462,7 +603,7 @@ pub const Reloc = extern struct {
                         .TPOFF32 => {
                             const phdr = @field(elf.phdrSlice(), @tagName(class));
                             const ph = &phdr[elf.getNode(elf.ni.tls).segment];
-                            assert(elf.targetLoad(&ph.type) == std.elf.PT_TLS);
+                            assert(elf.targetLoad(&ph.type) == .TLS);
                             std.mem.writeInt(
                                 i32,
                                 loc_slice[0..4],
@@ -500,6 +641,33 @@ pub const Reloc = extern struct {
         switch (reloc.next) {
             .none => {},
             else => |next| next.get(elf).prev = reloc.prev,
+        }
+        switch (elf.ehdrField(.type)) {
+            .NONE, .CORE, _ => unreachable,
+            .REL => {
+                const sh = reloc.loc.shndx(elf).get(elf);
+                switch (elf.shdrPtr(sh.rela_si.shndx(elf))) {
+                    inline else => |shdr, class| {
+                        const Rela = class.ElfN().Rela;
+                        const ent_size = elf.targetLoad(&shdr.entsize);
+                        const start = ent_size * reloc.index.unwrap().?;
+                        const rela_slice = sh.rela_si.node(elf).slice(&elf.mf);
+                        const rela: *Rela = @ptrCast(@alignCast(
+                            rela_slice[@intCast(start)..][0..@intCast(ent_size)],
+                        ));
+                        rela.* = .{
+                            .offset = @intFromEnum(sh.rela_free),
+                            .info = .{
+                                .type = @intCast(Reloc.Type.none(elf).unwrap(elf)),
+                                .sym = 0,
+                            },
+                            .addend = 0,
+                        };
+                    },
+                }
+                sh.rela_free = reloc.index;
+            },
+            .EXEC, .DYN => assert(reloc.index == .none),
         }
         reloc.* = undefined;
     }
@@ -601,6 +769,7 @@ fn create(
             .tls = .none,
         },
         .nodes = .empty,
+        .shdrs = .empty,
         .phdrs = .empty,
         .si = .{
             .dynsym = .null,
@@ -611,16 +780,13 @@ fn create(
         .symtab = .empty,
         .shstrtab = .{
             .map = .empty,
-            .size = 1,
         },
         .strtab = .{
             .map = .empty,
-            .size = 1,
         },
         .dynsym = .empty,
         .dynstr = .{
             .map = .empty,
-            .size = 1,
         },
         .needed = .empty,
         .inputs = .empty,
@@ -650,6 +816,7 @@ pub fn deinit(elf: *Elf) void {
     const gpa = elf.base.comp.gpa;
     elf.mf.deinit(gpa);
     elf.nodes.deinit(gpa);
+    elf.shdrs.deinit(gpa);
     elf.phdrs.deinit(gpa);
     elf.symtab.deinit(gpa);
     elf.shstrtab.map.deinit(gpa);
@@ -681,11 +848,10 @@ fn initHeaders(
     const comp = elf.base.comp;
     const gpa = comp.gpa;
     const have_dynamic_section = switch (@"type") {
-        .NONE => unreachable,
+        .NONE, .CORE, _ => unreachable,
         .REL => false,
         .EXEC => comp.config.link_mode == .dynamic,
         .DYN => true,
-        .CORE, _ => unreachable,
     };
     const addr_align: std.mem.Alignment = switch (class) {
         .NONE, _ => unreachable,
@@ -693,6 +859,7 @@ fn initHeaders(
         .@"64" => .@"8",
     };
 
+    const shnum: u32 = 1;
     var phnum: u32 = 0;
     const phdr_phndx = phnum;
     phnum += 1;
@@ -715,8 +882,17 @@ fn initHeaders(
         break :phndx phnum;
     } else undefined;
 
-    const expected_nodes_len = 5 + phnum * 2 + @as(usize, 2) * @intFromBool(have_dynamic_section);
+    const expected_nodes_len = expected_nodes_len: switch (@"type") {
+        .NONE, .CORE, _ => unreachable,
+        .REL => {
+            defer phnum = 0;
+            break :expected_nodes_len 5 + phnum;
+        },
+        .EXEC, .DYN => break :expected_nodes_len 5 + phnum * 2 +
+            @as(usize, 2) * @intFromBool(have_dynamic_section),
+    };
     try elf.nodes.ensureTotalCapacity(gpa, expected_nodes_len);
+    try elf.shdrs.ensureTotalCapacity(gpa, shnum);
     try elf.phdrs.resize(gpa, phnum);
     elf.nodes.appendAssumeCapacity(.file);
 
@@ -751,7 +927,7 @@ fn initHeaders(
             ehdr.phentsize = @sizeOf(ElfN.Phdr);
             ehdr.phnum = @min(phnum, std.elf.PN_XNUM);
             ehdr.shentsize = @sizeOf(ElfN.Shdr);
-            ehdr.shnum = 1;
+            ehdr.shnum = if (shnum < std.elf.SHN_LORESERVE) shnum else 0;
             ehdr.shstrndx = std.elf.SHN_UNDEF;
             if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(ElfN.Ehdr, ehdr);
         },
@@ -759,181 +935,187 @@ fn initHeaders(
 
     assert(elf.ni.shdr == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
         .size = elf.ehdrField(.shentsize) * elf.ehdrField(.shnum),
-        .alignment = addr_align,
+        .alignment = elf.mf.flags.block_size,
         .moved = true,
         .resized = true,
     }));
     elf.nodes.appendAssumeCapacity(.shdr);
 
-    assert(elf.ni.rodata == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
-        .alignment = elf.mf.flags.block_size,
-        .moved = true,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = rodata_phndx });
-    elf.phdrs.items[rodata_phndx] = elf.ni.rodata;
+    var ph_vaddr: u32 = if (@"type" != .REL) ph_vaddr: {
+        assert(elf.ni.rodata == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
+            .alignment = elf.mf.flags.block_size,
+            .moved = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = rodata_phndx });
+        elf.phdrs.items[rodata_phndx] = elf.ni.rodata;
 
-    assert(elf.ni.phdr == try elf.mf.addOnlyChildNode(gpa, elf.ni.rodata, .{
-        .size = elf.ehdrField(.phentsize) * elf.ehdrField(.phnum),
-        .alignment = addr_align,
-        .moved = true,
-        .resized = true,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = phdr_phndx });
-    elf.phdrs.items[phdr_phndx] = elf.ni.phdr;
+        assert(elf.ni.phdr == try elf.mf.addOnlyChildNode(gpa, elf.ni.rodata, .{
+            .size = elf.ehdrField(.phentsize) * elf.ehdrField(.phnum),
+            .alignment = addr_align,
+            .moved = true,
+            .resized = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = phdr_phndx });
+        elf.phdrs.items[phdr_phndx] = elf.ni.phdr;
 
-    assert(elf.ni.text == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
-        .alignment = elf.mf.flags.block_size,
-        .moved = true,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = text_phndx });
-    elf.phdrs.items[text_phndx] = elf.ni.text;
+        assert(elf.ni.text == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
+            .alignment = elf.mf.flags.block_size,
+            .moved = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = text_phndx });
+        elf.phdrs.items[text_phndx] = elf.ni.text;
 
-    assert(elf.ni.data == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
-        .alignment = elf.mf.flags.block_size,
-        .moved = true,
-        .bubbles_moved = false,
-    }));
-    elf.nodes.appendAssumeCapacity(.{ .segment = data_phndx });
-    elf.phdrs.items[data_phndx] = elf.ni.data;
+        assert(elf.ni.data == try elf.mf.addLastChildNode(gpa, elf.ni.file, .{
+            .alignment = elf.mf.flags.block_size,
+            .moved = true,
+            .bubbles_moved = false,
+        }));
+        elf.nodes.appendAssumeCapacity(.{ .segment = data_phndx });
+        elf.phdrs.items[data_phndx] = elf.ni.data;
 
-    var ph_vaddr: u32 = switch (elf.ehdrField(.type)) {
-        else => 0,
-        .EXEC => switch (elf.ehdrField(.machine)) {
-            .@"386" => 0x400000,
-            .AARCH64, .X86_64 => 0x200000,
-            .PPC, .PPC64 => 0x10000000,
-            .S390, .S390_OLD => 0x1000000,
-            .OLD_SPARCV9, .SPARCV9 => 0x100000,
-            else => 0x10000,
-        },
-    };
+        break :ph_vaddr switch (elf.ehdrField(.type)) {
+            .NONE, .CORE, _ => unreachable,
+            .REL, .DYN => 0,
+            .EXEC => switch (elf.ehdrField(.machine)) {
+                .@"386" => 0x400000,
+                .AARCH64, .X86_64 => 0x200000,
+                .PPC, .PPC64 => 0x10000000,
+                .S390, .S390_OLD => 0x1000000,
+                .OLD_SPARCV9, .SPARCV9 => 0x100000,
+                else => 0x10000,
+            },
+        };
+    } else undefined;
     switch (class) {
         .NONE, _ => unreachable,
         inline else => |ct_class| {
             const ElfN = ct_class.ElfN();
             const target_endian = elf.targetEndian();
 
-            const phdr: []ElfN.Phdr = @ptrCast(@alignCast(elf.ni.phdr.slice(&elf.mf)));
-            const ph_phdr = &phdr[phdr_phndx];
-            ph_phdr.* = .{
-                .type = std.elf.PT_PHDR,
-                .offset = 0,
-                .vaddr = 0,
-                .paddr = 0,
-                .filesz = 0,
-                .memsz = 0,
-                .flags = .{ .R = true },
-                .@"align" = @intCast(elf.ni.phdr.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_phdr);
-
-            if (maybe_interp) |_| {
-                const ph_interp = &phdr[interp_phndx];
-                ph_interp.* = .{
-                    .type = std.elf.PT_INTERP,
+            if (@"type" != .REL) {
+                const phdr: []ElfN.Phdr = @ptrCast(@alignCast(elf.ni.phdr.slice(&elf.mf)));
+                const ph_phdr = &phdr[phdr_phndx];
+                ph_phdr.* = .{
+                    .type = .PHDR,
                     .offset = 0,
                     .vaddr = 0,
                     .paddr = 0,
                     .filesz = 0,
                     .memsz = 0,
                     .flags = .{ .R = true },
-                    .@"align" = 1,
+                    .@"align" = @intCast(elf.ni.phdr.alignment(&elf.mf).toByteUnits()),
                 };
-                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_interp);
-            }
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_phdr);
 
-            _, const rodata_size = elf.ni.rodata.location(&elf.mf).resolve(&elf.mf);
-            const ph_rodata = &phdr[rodata_phndx];
-            ph_rodata.* = .{
-                .type = std.elf.PT_NULL,
-                .offset = 0,
-                .vaddr = ph_vaddr,
-                .paddr = ph_vaddr,
-                .filesz = @intCast(rodata_size),
-                .memsz = @intCast(rodata_size),
-                .flags = .{ .R = true },
-                .@"align" = @intCast(elf.ni.rodata.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_rodata);
-            ph_vaddr += @intCast(rodata_size);
+                if (maybe_interp) |_| {
+                    const ph_interp = &phdr[interp_phndx];
+                    ph_interp.* = .{
+                        .type = .INTERP,
+                        .offset = 0,
+                        .vaddr = 0,
+                        .paddr = 0,
+                        .filesz = 0,
+                        .memsz = 0,
+                        .flags = .{ .R = true },
+                        .@"align" = 1,
+                    };
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_interp);
+                }
 
-            _, const text_size = elf.ni.text.location(&elf.mf).resolve(&elf.mf);
-            const ph_text = &phdr[text_phndx];
-            ph_text.* = .{
-                .type = std.elf.PT_NULL,
-                .offset = 0,
-                .vaddr = ph_vaddr,
-                .paddr = ph_vaddr,
-                .filesz = @intCast(text_size),
-                .memsz = @intCast(text_size),
-                .flags = .{ .R = true, .X = true },
-                .@"align" = @intCast(elf.ni.text.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_text);
-            ph_vaddr += @intCast(text_size);
-
-            _, const data_size = elf.ni.data.location(&elf.mf).resolve(&elf.mf);
-            const ph_data = &phdr[data_phndx];
-            ph_data.* = .{
-                .type = std.elf.PT_NULL,
-                .offset = 0,
-                .vaddr = ph_vaddr,
-                .paddr = ph_vaddr,
-                .filesz = @intCast(data_size),
-                .memsz = @intCast(data_size),
-                .flags = .{ .R = true, .W = true },
-                .@"align" = @intCast(elf.ni.data.alignment(&elf.mf).toByteUnits()),
-            };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_data);
-            ph_vaddr += @intCast(data_size);
-
-            if (have_dynamic_section) {
-                const ph_dynamic = &phdr[dynamic_phndx];
-                ph_dynamic.* = .{
-                    .type = std.elf.PT_DYNAMIC,
+                _, const rodata_size = elf.ni.rodata.location(&elf.mf).resolve(&elf.mf);
+                const ph_rodata = &phdr[rodata_phndx];
+                ph_rodata.* = .{
+                    .type = if (rodata_size == 0) .NULL else .LOAD,
                     .offset = 0,
-                    .vaddr = 0,
-                    .paddr = 0,
-                    .filesz = 0,
-                    .memsz = 0,
+                    .vaddr = ph_vaddr,
+                    .paddr = ph_vaddr,
+                    .filesz = @intCast(rodata_size),
+                    .memsz = @intCast(rodata_size),
+                    .flags = .{ .R = true },
+                    .@"align" = @intCast(elf.ni.rodata.alignment(&elf.mf).toByteUnits()),
+                };
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_rodata);
+                ph_vaddr += @intCast(rodata_size);
+
+                _, const text_size = elf.ni.text.location(&elf.mf).resolve(&elf.mf);
+                const ph_text = &phdr[text_phndx];
+                ph_text.* = .{
+                    .type = if (text_size == 0) .NULL else .LOAD,
+                    .offset = 0,
+                    .vaddr = ph_vaddr,
+                    .paddr = ph_vaddr,
+                    .filesz = @intCast(text_size),
+                    .memsz = @intCast(text_size),
+                    .flags = .{ .R = true, .X = true },
+                    .@"align" = @intCast(elf.ni.text.alignment(&elf.mf).toByteUnits()),
+                };
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_text);
+                ph_vaddr += @intCast(text_size);
+
+                _, const data_size = elf.ni.data.location(&elf.mf).resolve(&elf.mf);
+                const ph_data = &phdr[data_phndx];
+                ph_data.* = .{
+                    .type = if (data_size == 0) .NULL else .LOAD,
+                    .offset = 0,
+                    .vaddr = ph_vaddr,
+                    .paddr = ph_vaddr,
+                    .filesz = @intCast(data_size),
+                    .memsz = @intCast(data_size),
                     .flags = .{ .R = true, .W = true },
-                    .@"align" = @intCast(addr_align.toByteUnits()),
+                    .@"align" = @intCast(elf.ni.data.alignment(&elf.mf).toByteUnits()),
                 };
-                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_dynamic);
+                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_data);
+                ph_vaddr += @intCast(data_size);
+
+                if (have_dynamic_section) {
+                    const ph_dynamic = &phdr[dynamic_phndx];
+                    ph_dynamic.* = .{
+                        .type = .DYNAMIC,
+                        .offset = 0,
+                        .vaddr = 0,
+                        .paddr = 0,
+                        .filesz = 0,
+                        .memsz = 0,
+                        .flags = .{ .R = true, .W = true },
+                        .@"align" = @intCast(addr_align.toByteUnits()),
+                    };
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_dynamic);
+                }
+
+                if (comp.config.any_non_single_threaded) {
+                    const ph_tls = &phdr[tls_phndx];
+                    ph_tls.* = .{
+                        .type = .TLS,
+                        .offset = 0,
+                        .vaddr = 0,
+                        .paddr = 0,
+                        .filesz = 0,
+                        .memsz = 0,
+                        .flags = .{ .R = true },
+                        .@"align" = @intCast(elf.mf.flags.block_size.toByteUnits()),
+                    };
+                    if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_tls);
+                }
             }
 
-            if (comp.config.any_non_single_threaded) {
-                const ph_tls = &phdr[tls_phndx];
-                ph_tls.* = .{
-                    .type = std.elf.PT_TLS,
-                    .offset = 0,
-                    .vaddr = 0,
-                    .paddr = 0,
-                    .filesz = 0,
-                    .memsz = 0,
-                    .flags = .{ .R = true },
-                    .@"align" = @intCast(elf.mf.flags.block_size.toByteUnits()),
-                };
-                if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Phdr, ph_tls);
-            }
-
-            const sh_null: *ElfN.Shdr = @ptrCast(@alignCast(elf.ni.shdr.slice(&elf.mf)));
-            sh_null.* = .{
+            const sh_undef: *ElfN.Shdr = @ptrCast(@alignCast(elf.ni.shdr.slice(&elf.mf)));
+            sh_undef.* = .{
                 .name = try elf.string(.shstrtab, ""),
-                .type = std.elf.SHT_NULL,
+                .type = .NULL,
                 .flags = .{ .shf = .{} },
                 .addr = 0,
                 .offset = 0,
-                .size = 0,
+                .size = if (shnum < std.elf.SHN_LORESERVE) 0 else shnum,
                 .link = 0,
-                .info = if (phnum >= std.elf.PN_XNUM) phnum else 0,
+                .info = if (phnum < std.elf.PN_XNUM) 0 else phnum,
                 .addralign = 0,
                 .entsize = 0,
             };
-            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Shdr, sh_null);
+            if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Shdr, sh_undef);
+            elf.shdrs.appendAssumeCapacity(.{ .si = .null, .rela_si = .null, .rela_free = .none });
 
             try elf.symtab.ensureTotalCapacity(gpa, 1);
             elf.symtab.addOneAssumeCapacity().* = .{
@@ -943,10 +1125,11 @@ fn initHeaders(
                 .unused = 0,
             };
             assert(elf.si.symtab == try elf.addSection(elf.ni.file, .{
-                .type = std.elf.SHT_SYMTAB,
+                .type = .SYMTAB,
                 .size = @sizeOf(ElfN.Sym) * 1,
                 .addralign = addr_align,
                 .entsize = @sizeOf(ElfN.Sym),
+                .node_align = elf.mf.flags.block_size,
             }));
             const symtab_null = @field(elf.symPtr(.null), @tagName(ct_class));
             symtab_null.* = .{
@@ -960,13 +1143,14 @@ fn initHeaders(
             if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Sym, symtab_null);
 
             const ehdr = @field(elf.ehdrPtr(), @tagName(ct_class));
-            ehdr.shstrndx = ehdr.shnum;
+            elf.targetStore(&ehdr.shstrndx, ehdr.shnum);
         },
     }
     assert(elf.si.shstrtab == try elf.addSection(elf.ni.file, .{
-        .type = std.elf.SHT_STRTAB,
-        .addralign = elf.mf.flags.block_size,
+        .type = .STRTAB,
+        .size = 1,
         .entsize = 1,
+        .node_align = elf.mf.flags.block_size,
     }));
     try elf.renameSection(.symtab, ".symtab");
     try elf.renameSection(.shstrtab, ".shstrtab");
@@ -974,10 +1158,10 @@ fn initHeaders(
 
     assert(elf.si.strtab == try elf.addSection(elf.ni.file, .{
         .name = ".strtab",
-        .type = std.elf.SHT_STRTAB,
+        .type = .STRTAB,
         .size = 1,
-        .addralign = elf.mf.flags.block_size,
         .entsize = 1,
+        .node_align = elf.mf.flags.block_size,
     }));
     try elf.linkSections(.symtab, .strtab);
     elf.si.strtab.node(elf).slice(&elf.mf)[0] = 0;
@@ -997,87 +1181,96 @@ fn initHeaders(
         .flags = .{ .WRITE = true, .ALLOC = true },
         .addralign = elf.mf.flags.block_size,
     }));
-    if (maybe_interp) |interp| {
-        const interp_ni = try elf.mf.addLastChildNode(gpa, elf.ni.rodata, .{
-            .size = interp.len + 1,
-            .moved = true,
-            .resized = true,
-            .bubbles_moved = false,
-        });
-        elf.nodes.appendAssumeCapacity(.{ .segment = interp_phndx });
-        elf.phdrs.items[interp_phndx] = interp_ni;
+    if (@"type" != .REL) {
+        if (maybe_interp) |interp| {
+            const interp_ni = try elf.mf.addLastChildNode(gpa, elf.ni.rodata, .{
+                .size = interp.len + 1,
+                .moved = true,
+                .resized = true,
+                .bubbles_moved = false,
+            });
+            elf.nodes.appendAssumeCapacity(.{ .segment = interp_phndx });
+            elf.phdrs.items[interp_phndx] = interp_ni;
 
-        const sec_interp_si = try elf.addSection(interp_ni, .{
-            .name = ".interp",
-            .flags = .{ .ALLOC = true },
-            .size = @intCast(interp.len + 1),
-        });
-        const sec_interp = sec_interp_si.node(elf).slice(&elf.mf);
-        @memcpy(sec_interp[0..interp.len], interp);
-        sec_interp[interp.len] = 0;
-    }
-    if (have_dynamic_section) {
-        const dynamic_ni = try elf.mf.addLastChildNode(gpa, elf.ni.data, .{
-            .moved = true,
-            .bubbles_moved = false,
-        });
-        elf.nodes.appendAssumeCapacity(.{ .segment = dynamic_phndx });
-        elf.phdrs.items[dynamic_phndx] = dynamic_ni;
-
-        switch (class) {
-            .NONE, _ => unreachable,
-            inline else => |ct_class| {
-                const ElfN = ct_class.ElfN();
-                elf.si.dynsym = try elf.addSection(elf.ni.rodata, .{
-                    .name = ".dynsym",
-                    .type = std.elf.SHT_DYNSYM,
-                    .size = @sizeOf(ElfN.Sym) * 1,
-                    .addralign = addr_align,
-                    .entsize = @sizeOf(ElfN.Sym),
-                });
-                const dynsym_null = &@field(elf.dynsymSlice(), @tagName(ct_class))[0];
-                dynsym_null.* = .{
-                    .name = try elf.string(.dynstr, ""),
-                    .value = 0,
-                    .size = 0,
-                    .info = .{ .type = .NOTYPE, .bind = .LOCAL },
-                    .other = .{ .visibility = .DEFAULT },
-                    .shndx = std.elf.SHN_UNDEF,
-                };
-                if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(ElfN.Sym, dynsym_null);
-            },
+            const sec_interp_si = try elf.addSection(interp_ni, .{
+                .type = .PROGBITS,
+                .name = ".interp",
+                .flags = .{ .ALLOC = true },
+                .size = @intCast(interp.len + 1),
+            });
+            const sec_interp = sec_interp_si.node(elf).slice(&elf.mf);
+            @memcpy(sec_interp[0..interp.len], interp);
+            sec_interp[interp.len] = 0;
         }
-        elf.si.dynstr = try elf.addSection(elf.ni.rodata, .{
-            .name = ".dynstr",
-            .type = std.elf.SHT_STRTAB,
-            .size = 1,
-            .addralign = elf.mf.flags.block_size,
-            .entsize = 1,
-        });
-        elf.si.dynamic = try elf.addSection(dynamic_ni, .{
-            .name = ".dynamic",
-            .type = std.elf.SHT_DYNAMIC,
-            .flags = .{ .ALLOC = true, .WRITE = true },
-            .addralign = addr_align,
-        });
-        try elf.linkSections(elf.si.dynamic, elf.si.dynstr);
-        try elf.linkSections(elf.si.dynsym, elf.si.dynstr);
-    }
-    if (comp.config.any_non_single_threaded) {
-        elf.ni.tls = try elf.mf.addLastChildNode(gpa, elf.ni.rodata, .{
-            .alignment = elf.mf.flags.block_size,
-            .moved = true,
-            .bubbles_moved = false,
-        });
-        elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
-        elf.phdrs.items[tls_phndx] = elf.ni.tls;
+        if (have_dynamic_section) {
+            const dynamic_ni = try elf.mf.addLastChildNode(gpa, elf.ni.data, .{
+                .moved = true,
+                .bubbles_moved = false,
+            });
+            elf.nodes.appendAssumeCapacity(.{ .segment = dynamic_phndx });
+            elf.phdrs.items[dynamic_phndx] = dynamic_ni;
 
-        elf.si.tdata = try elf.addSection(elf.ni.tls, .{
-            .name = ".tdata",
-            .flags = .{ .WRITE = true, .ALLOC = true, .TLS = true },
-            .addralign = elf.mf.flags.block_size,
-        });
+            switch (class) {
+                .NONE, _ => unreachable,
+                inline else => |ct_class| {
+                    const Sym = ct_class.ElfN().Sym;
+                    elf.si.dynsym = try elf.addSection(elf.ni.rodata, .{
+                        .name = ".dynsym",
+                        .type = .DYNSYM,
+                        .size = @sizeOf(Sym) * 1,
+                        .addralign = addr_align,
+                        .entsize = @sizeOf(Sym),
+                        .node_align = elf.mf.flags.block_size,
+                    });
+                    const dynsym_null = &@field(elf.dynsymSlice(), @tagName(ct_class))[0];
+                    dynsym_null.* = .{
+                        .name = try elf.string(.dynstr, ""),
+                        .value = 0,
+                        .size = 0,
+                        .info = .{ .type = .NOTYPE, .bind = .LOCAL },
+                        .other = .{ .visibility = .DEFAULT },
+                        .shndx = std.elf.SHN_UNDEF,
+                    };
+                    if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(
+                        Sym,
+                        dynsym_null,
+                    );
+                },
+            }
+            elf.si.dynstr = try elf.addSection(elf.ni.rodata, .{
+                .name = ".dynstr",
+                .type = .STRTAB,
+                .size = 1,
+                .entsize = 1,
+                .node_align = elf.mf.flags.block_size,
+            });
+            elf.si.dynamic = try elf.addSection(dynamic_ni, .{
+                .name = ".dynamic",
+                .type = .DYNAMIC,
+                .flags = .{ .ALLOC = true, .WRITE = true },
+                .node_align = addr_align,
+            });
+            try elf.linkSections(elf.si.dynamic, elf.si.dynstr);
+            try elf.linkSections(elf.si.dynsym, elf.si.dynstr);
+        }
+        if (comp.config.any_non_single_threaded) {
+            elf.ni.tls = try elf.mf.addLastChildNode(gpa, elf.ni.rodata, .{
+                .alignment = elf.mf.flags.block_size,
+                .moved = true,
+                .bubbles_moved = false,
+            });
+            elf.nodes.appendAssumeCapacity(.{ .segment = tls_phndx });
+            elf.phdrs.items[tls_phndx] = elf.ni.tls;
+        }
+    } else {
+        assert(maybe_interp == null);
+        assert(!have_dynamic_section);
     }
+    if (comp.config.any_non_single_threaded) elf.si.tdata = try elf.addSection(elf.ni.tls, .{
+        .name = ".tdata",
+        .flags = .{ .WRITE = true, .ALLOC = true, .TLS = true },
+        .addralign = elf.mf.flags.block_size,
+    });
     assert(elf.nodes.len == expected_nodes_len);
 }
 
@@ -1116,7 +1309,7 @@ fn computeNodeVAddr(elf: *Elf, ni: MappedFile.Node.Index) u64 {
             .file => return 0,
             .ehdr, .shdr => unreachable,
             .segment => |phndx| break :parent_vaddr switch (elf.phdrSlice()) {
-                inline else => |ph| elf.targetLoad(&ph[phndx].vaddr),
+                inline else => |phdr| elf.targetLoad(&phdr[phndx].vaddr),
             },
             .section => |si| si,
             .input_section => unreachable,
@@ -1202,6 +1395,7 @@ pub const PhdrSlice = union(std.elf.CLASS) {
     @"64": []std.elf.Elf64.Phdr,
 };
 pub fn phdrSlice(elf: *Elf) PhdrSlice {
+    assert(elf.ehdrField(.type) != .REL);
     const slice = elf.ni.phdr.slice(&elf.mf);
     return switch (elf.identClass()) {
         .NONE, _ => unreachable,
@@ -1230,6 +1424,17 @@ pub fn shdrSlice(elf: *Elf) ShdrSlice {
     };
 }
 
+pub const ShdrPtr = union(std.elf.CLASS) {
+    NONE: noreturn,
+    @"32": *std.elf.Elf32.Shdr,
+    @"64": *std.elf.Elf64.Shdr,
+};
+pub fn shdrPtr(elf: *Elf, shndx: Symbol.Index.Shndx) ShdrPtr {
+    return switch (elf.shdrSlice()) {
+        inline else => |shdrs, class| @unionInit(ShdrPtr, @tagName(class), &shdrs[@intFromEnum(shndx)]),
+    };
+}
+
 pub const SymtabSlice = union(std.elf.CLASS) {
     NONE: noreturn,
     @"32": []std.elf.Elf32.Sym,
@@ -1242,7 +1447,11 @@ pub fn symtabSlice(elf: *Elf) SymtabSlice {
         inline else => |class| @unionInit(
             SymtabSlice,
             @tagName(class),
-            @ptrCast(@alignCast(slice)),
+            @ptrCast(@alignCast(slice[0..std.mem.alignBackwardAnyAlign(
+                usize,
+                slice.len,
+                @sizeOf(class.ElfN().Sym),
+            )])),
         ),
     };
 }
@@ -1254,7 +1463,7 @@ pub const SymPtr = union(std.elf.CLASS) {
 };
 pub fn symPtr(elf: *Elf, si: Symbol.Index) SymPtr {
     return switch (elf.symtabSlice()) {
-        inline else => |sym, class| @unionInit(SymPtr, @tagName(class), &sym[@intFromEnum(si)]),
+        inline else => |syms, class| @unionInit(SymPtr, @tagName(class), &syms[@intFromEnum(si)]),
     };
 }
 
@@ -1544,7 +1753,7 @@ fn loadObject(
         .si = try elf.initSymbolAssumeCapacity(.{
             .name = std.fs.path.stem(member orelse path.sub_path),
             .type = .FILE,
-            .shndx = std.elf.SHN_ABS,
+            .shndx = .ABS,
         }),
     };
     const target_endian = elf.targetEndian();
@@ -1571,7 +1780,7 @@ fn loadObject(
                 };
                 try r.discardAll(ehdr.shentsize);
                 switch (section.shdr.type) {
-                    std.elf.SHT_NULL, std.elf.SHT_NOBITS => {},
+                    .NULL, .NOBITS => {},
                     else => if (section.shdr.offset + section.shdr.size > fl.size)
                         return diags.failParse(path, "bad section location", .{}),
                 }
@@ -1580,8 +1789,7 @@ fn loadObject(
                 if (ehdr.shstrndx == std.elf.SHN_UNDEF or ehdr.shstrndx >= ehdr.shnum)
                     return diags.failParse(path, "missing section names", .{});
                 const shdr = &sections[ehdr.shstrndx].shdr;
-                if (shdr.type != std.elf.SHT_STRTAB)
-                    return diags.failParse(path, "invalid shstrtab type", .{});
+                if (shdr.type != .STRTAB) return diags.failParse(path, "invalid shstrtab type", .{});
                 const shstrtab = try gpa.alloc(u8, @intCast(shdr.size));
                 errdefer gpa.free(shstrtab);
                 try fr.seekTo(fl.offset + shdr.offset);
@@ -1594,7 +1802,7 @@ fn loadObject(
             try elf.input_sections.ensureUnusedCapacity(gpa, ehdr.shnum - 1);
             for (sections[1..]) |*section| switch (section.shdr.type) {
                 else => {},
-                std.elf.SHT_PROGBITS, std.elf.SHT_NOBITS => {
+                .PROGBITS, .NOBITS => {
                     if (section.shdr.name >= shstrtab.len) continue;
                     const name = std.mem.sliceTo(shstrtab[section.shdr.name..], 0);
                     const parent_si = elf.namedSection(name) orelse continue;
@@ -1611,7 +1819,7 @@ fn loadObject(
                     });
                     section.si = try elf.initSymbolAssumeCapacity(.{
                         .type = .SECTION,
-                        .shndx = elf.targetLoad(&@field(elf.symPtr(parent_si), @tagName(class)).shndx),
+                        .shndx = parent_si.shndx(elf),
                     });
                     section.si.get(elf).ni = ni;
                     elf.input_sections.addOneAssumeCapacity().* = .{
@@ -1629,14 +1837,14 @@ fn loadObject(
             defer symmap.deinit(gpa);
             for (sections[1..], 1..) |*symtab, symtab_shndx| switch (symtab.shdr.type) {
                 else => {},
-                std.elf.SHT_SYMTAB => {
+                .SYMTAB => {
                     if (symtab.shdr.entsize < @sizeOf(ElfN.Sym))
                         return diags.failParse(path, "unsupported symtab entsize", .{});
                     const strtab = strtab: {
                         if (symtab.shdr.link == std.elf.SHN_UNDEF or symtab.shdr.link >= ehdr.shnum)
                             return diags.failParse(path, "missing symbol names", .{});
                         const shdr = &sections[symtab.shdr.link].shdr;
-                        if (shdr.type != std.elf.SHT_STRTAB)
+                        if (shdr.type != .STRTAB)
                             return diags.failParse(path, "invalid strtab type", .{});
                         const strtab = try gpa.alloc(u8, @intCast(shdr.size));
                         errdefer gpa.free(strtab);
@@ -1683,9 +1891,7 @@ fn loadObject(
                             .type = input_sym.info.type,
                             .bind = input_sym.info.bind,
                             .visibility = input_sym.other.visibility,
-                            .shndx = elf.targetLoad(switch (elf.symPtr(parent_si)) {
-                                inline else => |parent_sym| &parent_sym.shndx,
-                            }),
+                            .shndx = parent_si.shndx(elf),
                         });
                         si.get(elf).ni = parent_si.get(elf).ni;
                         switch (input_sym.info.bind) {
@@ -1719,13 +1925,13 @@ fn loadObject(
                     }
                     for (sections[1..]) |*rels| switch (rels.shdr.type) {
                         else => {},
-                        inline std.elf.SHT_REL, std.elf.SHT_RELA => |sht| {
+                        inline .REL, .RELA => |sht| {
                             if (rels.shdr.link != symtab_shndx or rels.shdr.info == std.elf.SHN_UNDEF or
                                 rels.shdr.info >= ehdr.shnum) continue;
                             const Rel = switch (sht) {
                                 else => comptime unreachable,
-                                std.elf.SHT_REL => ElfN.Rel,
-                                std.elf.SHT_RELA => ElfN.Rela,
+                                .REL => ElfN.Rel,
+                                .RELA => ElfN.Rela,
                             };
                             if (rels.shdr.entsize < @sizeOf(Rel))
                                 return diags.failParse(path, "unsupported rel entsize", .{});
@@ -1740,7 +1946,7 @@ fn loadObject(
                                 "relocation section size (0x{x}) is not a multiple of entsize (0x{x})",
                                 .{ rels.shdr.size, rels.shdr.entsize },
                             );
-                            try elf.relocs.ensureUnusedCapacity(gpa, relnum);
+                            try elf.ensureUnusedRelocCapacity(loc_sec.si, relnum);
                             try fr.seekTo(fl.offset + rels.shdr.offset);
                             for (0..relnum) |_| {
                                 const rel = try r.peekStruct(Rel, target_endian);
@@ -1753,18 +1959,7 @@ fn loadObject(
                                     rel.offset - loc_sec.shdr.addr,
                                     target_si,
                                     rel.addend,
-                                    switch (elf.ehdrField(.machine)) {
-                                        else => unreachable,
-                                        inline .AARCH64,
-                                        .PPC64,
-                                        .RISCV,
-                                        .X86_64,
-                                        => |machine| @unionInit(
-                                            Reloc.Type,
-                                            @tagName(machine),
-                                            @enumFromInt(rel.info.type),
-                                        ),
-                                    },
+                                    .wrap(rel.info.type, elf),
                                 );
                             }
                         },
@@ -1800,7 +1995,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *std.Io.File.Reader) !void
                 try r.discardAll(ehdr.phentsize);
                 switch (ph.type) {
                     else => {},
-                    std.elf.PT_DYNAMIC => break ph,
+                    .DYNAMIC => break ph,
                 }
             } else return diags.failParse(path, "no dynamic segment", .{});
             const dynnum = std.math.divExact(
@@ -1817,13 +2012,13 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *std.Io.File.Reader) !void
             var soname: ?ElfN.Addr = null;
             try fr.seekTo(dynamic_ph.offset);
             for (0..dynnum) |_| {
-                const key = try r.takeInt(ElfN.Addr, target_endian);
-                const value = try r.takeInt(ElfN.Addr, target_endian);
-                switch (key) {
+                const tag = try r.takeInt(ElfN.Addr, target_endian);
+                const val = try r.takeInt(ElfN.Addr, target_endian);
+                switch (tag) {
                     else => {},
-                    std.elf.DT_STRTAB => strtab = value,
-                    std.elf.DT_STRSZ => strsz = value,
-                    std.elf.DT_SONAME => soname = value,
+                    std.elf.DT_STRTAB => strtab = val,
+                    std.elf.DT_STRSZ => strsz = val,
+                    std.elf.DT_SONAME => soname = val,
                 }
             }
             if (strtab == null or soname == null)
@@ -1836,7 +2031,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *std.Io.File.Reader) !void
                 try r.discardAll(ehdr.phentsize);
                 switch (ph.type) {
                     else => {},
-                    std.elf.PT_LOAD => if (strtab.? >= ph.vaddr and
+                    .LOAD => if (strtab.? >= ph.vaddr and
                         strtab.? + (strsz orelse 0) <= ph.vaddr + ph.filesz) break ph,
                 }
             } else return diags.failParse(path, "strtab not part of a loaded segment", .{});
@@ -1868,11 +2063,7 @@ fn prelinkInner(elf: *Elf) !void {
         std.fs.path.stem(elf.base.emit.sub_path),
     });
     defer gpa.free(zcu_name);
-    const si = try elf.initSymbolAssumeCapacity(.{
-        .name = zcu_name,
-        .type = .FILE,
-        .shndx = std.elf.SHN_ABS,
-    });
+    const si = try elf.initSymbolAssumeCapacity(.{ .name = zcu_name, .type = .FILE, .shndx = .ABS });
     elf.inputs.addOneAssumeCapacity().* = .{
         .path = elf.base.emit,
         .member = null,
@@ -1972,63 +2163,87 @@ pub fn getVAddr(elf: *Elf, reloc_info: link.File.RelocInfo, target_si: Symbol.In
 
 fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
     name: []const u8 = "",
-    type: std.elf.Word = std.elf.SHT_NULL,
+    type: std.elf.SHT = .NULL,
     flags: std.elf.SHF = .{},
-    size: std.elf.Word = 0,
+    size: std.elf.Xword = 0,
+    link: std.elf.Word = 0,
+    info: std.elf.Word = 0,
     addralign: std.mem.Alignment = .@"1",
     entsize: std.elf.Word = 0,
+    node_align: std.mem.Alignment = .@"1",
 }) !Symbol.Index {
     switch (opts.type) {
-        std.elf.SHT_NULL => assert(opts.size == 0),
-        std.elf.SHT_PROGBITS => assert(opts.size > 0),
+        .NULL => assert(opts.size == 0),
+        .PROGBITS => assert(opts.size > 0),
         else => {},
     }
     const gpa = elf.base.comp.gpa;
     try elf.nodes.ensureUnusedCapacity(gpa, 1);
+    try elf.shdrs.ensureUnusedCapacity(gpa, 1);
     try elf.symtab.ensureUnusedCapacity(gpa, 1);
 
     const shstrtab_entry = try elf.string(.shstrtab, opts.name);
-    const shndx, const shdr_size = shndx: switch (elf.ehdrPtr()) {
-        inline else => |ehdr| {
-            const shndx = elf.targetLoad(&ehdr.shnum);
-            const shnum = shndx + 1;
-            elf.targetStore(&ehdr.shnum, shnum);
-            break :shndx .{ shndx, elf.targetLoad(&ehdr.shentsize) * shnum };
+    const shndx: Symbol.Index.Shndx, const new_shdr_size = shndx: switch (elf.ehdrPtr()) {
+        inline else => |ehdr, class| {
+            const shndx, const shnum = alloc_shndx: switch (elf.targetLoad(&ehdr.shnum)) {
+                1...std.elf.SHN_LORESERVE - 2 => |shndx| {
+                    const shnum = shndx + 1;
+                    elf.targetStore(&ehdr.shnum, shnum);
+                    break :alloc_shndx .{ shndx, shnum };
+                },
+                std.elf.SHN_LORESERVE - 1 => |shndx| {
+                    const shnum = shndx + 1;
+                    elf.targetStore(&ehdr.shnum, 0);
+                    elf.targetStore(&@field(elf.shdrPtr(.UNDEF), @tagName(class)).size, shnum);
+                    break :alloc_shndx .{ shndx, shnum };
+                },
+                std.elf.SHN_LORESERVE...std.elf.SHN_HIRESERVE => unreachable,
+                0 => {
+                    const shnum_ptr = &@field(elf.shdrPtr(.UNDEF), @tagName(class)).size;
+                    const shndx: u32 = @intCast(elf.targetLoad(shnum_ptr));
+                    const shnum = shndx + 1;
+                    elf.targetStore(shnum_ptr, shnum);
+                    break :alloc_shndx .{ shndx, shnum };
+                },
+            };
+            assert(shndx < @intFromEnum(Symbol.Index.Shndx.LORESERVE));
+            break :shndx .{ @enumFromInt(shndx), elf.targetLoad(&ehdr.shentsize) * shnum };
         },
     };
-    try elf.ni.shdr.resize(&elf.mf, gpa, shdr_size);
-    const ni = try elf.mf.addLastChildNode(gpa, segment_ni, .{
-        .alignment = opts.addralign,
+    _, const shdr_node_size = elf.ni.shdr.location(&elf.mf).resolve(&elf.mf);
+    if (new_shdr_size > shdr_node_size)
+        try elf.ni.shdr.resize(&elf.mf, gpa, new_shdr_size +| new_shdr_size / MappedFile.growth_factor);
+    const ni = try elf.mf.addLastChildNode(gpa, switch (elf.ehdrField(.type)) {
+        .NONE, .CORE, _ => unreachable,
+        .REL => elf.ni.file,
+        .EXEC, .DYN => segment_ni,
+    }, .{
+        .alignment = opts.addralign.max(opts.node_align),
         .size = opts.size,
         .resized = opts.size > 0,
     });
     const si = elf.addSymbolAssumeCapacity();
     elf.nodes.appendAssumeCapacity(.{ .section = si });
+    elf.shdrs.appendAssumeCapacity(.{ .si = si, .rela_si = .null, .rela_free = .none });
     si.get(elf).ni = ni;
     const addr = elf.computeNodeVAddr(ni);
     const offset = ni.fileLocation(&elf.mf, false).offset;
-    try si.init(elf, .{
-        .value = addr,
-        .size = opts.size,
-        .type = .SECTION,
-        .shndx = shndx,
-    });
-    switch (elf.shdrSlice()) {
-        inline else => |shdr| {
-            const sh = &shdr[shndx];
-            sh.* = .{
+    try si.init(elf, .{ .value = addr, .type = .SECTION, .shndx = shndx });
+    switch (elf.shdrPtr(shndx)) {
+        inline else => |shdr, class| {
+            shdr.* = .{
                 .name = shstrtab_entry,
                 .type = opts.type,
                 .flags = .{ .shf = opts.flags },
                 .addr = @intCast(addr),
                 .offset = @intCast(offset),
-                .size = opts.size,
-                .link = 0,
-                .info = 0,
+                .size = @intCast(opts.size),
+                .link = opts.link,
+                .info = opts.info,
                 .addralign = @intCast(opts.addralign.toByteUnits()),
                 .entsize = opts.entsize,
             };
-            if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(@TypeOf(sh.*), sh);
+            if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(class.ElfN().Shdr, shdr);
         },
     }
     return si;
@@ -2036,39 +2251,27 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
 
 fn renameSection(elf: *Elf, si: Symbol.Index, name: []const u8) !void {
     const shstrtab_entry = try elf.string(.shstrtab, name);
-    switch (elf.shdrSlice()) {
-        inline else => |shdr, class| elf.targetStore(
-            &shdr[elf.targetLoad(&@field(elf.symPtr(si), @tagName(class)).shndx)].name,
-            shstrtab_entry,
-        ),
+    switch (elf.shdrPtr(si.shndx(elf))) {
+        inline else => |shdr| elf.targetStore(&shdr.name, shstrtab_entry),
     }
 }
 
 fn linkSections(elf: *Elf, si: Symbol.Index, link_si: Symbol.Index) !void {
-    switch (elf.shdrSlice()) {
-        inline else => |shdr, class| shdr[
-            elf.targetLoad(&@field(elf.symPtr(si), @tagName(class)).shndx)
-        ].link = @field(elf.symPtr(link_si), @tagName(class)).shndx,
+    switch (elf.shdrPtr(si.shndx(elf))) {
+        inline else => |shdr| elf.targetStore(&shdr.link, @intFromEnum(link_si.shndx(elf))),
     }
 }
 
 fn sectionName(elf: *Elf, si: Symbol.Index) [:0]const u8 {
-    const name = elf.si.shstrtab.node(elf).slice(&elf.mf)[switch (elf.shdrSlice()) {
-        inline else => |shndx, class| elf.targetLoad(
-            &shndx[elf.targetLoad(&@field(elf.symPtr(si), @tagName(class)).shndx)].name,
-        ),
+    const name = elf.si.shstrtab.node(elf).slice(&elf.mf)[switch (elf.shdrPtr(si.shndx(elf))) {
+        inline else => |shdr| elf.targetLoad(&shdr.name),
     }..];
     return name[0..std.mem.indexOfScalar(u8, name, 0).? :0];
 }
 
 fn string(elf: *Elf, comptime section: enum { shstrtab, strtab, dynstr }, key: []const u8) !u32 {
     if (key.len == 0) return 0;
-    return @field(elf, @tagName(section)).get(
-        elf.base.comp.gpa,
-        &elf.mf,
-        @field(elf.si, @tagName(section)).node(elf),
-        key,
-    );
+    return @field(elf, @tagName(section)).get(elf, @field(elf.si, @tagName(section)), key);
 }
 
 pub fn addReloc(
@@ -2079,8 +2282,50 @@ pub fn addReloc(
     addend: i64,
     @"type": Reloc.Type,
 ) !void {
-    try elf.relocs.ensureUnusedCapacity(elf.base.comp.gpa, 1);
+    try elf.ensureUnusedRelocCapacity(loc_si, 1);
     elf.addRelocAssumeCapacity(loc_si, offset, target_si, addend, @"type");
+}
+pub fn ensureUnusedRelocCapacity(elf: *Elf, loc_si: Symbol.Index, len: usize) !void {
+    if (len == 0) return;
+    const gpa = elf.base.comp.gpa;
+
+    try elf.relocs.ensureUnusedCapacity(gpa, len);
+    if (elf.ehdrField(.type) != .REL) return;
+
+    const shndx = loc_si.shndx(elf);
+    const sh = shndx.get(elf);
+    if (sh.rela_si == .null) {
+        var stack = std.heap.stackFallback(32, gpa);
+        const allocator = stack.get();
+
+        const rela_name = try std.fmt.allocPrint(allocator, ".rela{s}", .{elf.sectionName(sh.si)});
+        defer allocator.free(rela_name);
+
+        const class = elf.identClass();
+        sh.rela_si = try elf.addSection(.none, .{
+            .name = rela_name,
+            .type = .RELA,
+            .link = @intFromEnum(elf.si.symtab.shndx(elf)),
+            .info = @intFromEnum(shndx),
+            .addralign = switch (class) {
+                .NONE, _ => unreachable,
+                .@"32" => .@"4",
+                .@"64" => .@"8",
+            },
+            .entsize = switch (class) {
+                .NONE, _ => unreachable,
+                inline else => |ct_class| @sizeOf(ct_class.ElfN().Rela),
+            },
+            .node_align = elf.mf.flags.block_size,
+        });
+    }
+    const rela_ni = sh.rela_si.node(elf);
+    _, const rela_node_size = rela_ni.location(&elf.mf).resolve(&elf.mf);
+    const rela_size = switch (elf.shdrPtr(sh.rela_si.shndx(elf))) {
+        inline else => |shdr| elf.targetLoad(&shdr.size) + elf.targetLoad(&shdr.entsize) * len,
+    };
+    if (rela_size > rela_node_size)
+        try rela_ni.resize(&elf.mf, gpa, rela_size +| rela_size / MappedFile.growth_factor);
 }
 pub fn addRelocAssumeCapacity(
     elf: *Elf,
@@ -2098,7 +2343,45 @@ pub fn addRelocAssumeCapacity(
         .next = target.target_relocs,
         .loc = loc_si,
         .target = target_si,
-        .unused = 0,
+        .index = index: switch (elf.ehdrField(.type)) {
+            .NONE, .CORE, _ => unreachable,
+            .REL => {
+                const sh = loc_si.shndx(elf).get(elf);
+                switch (elf.shdrPtr(sh.rela_si.shndx(elf))) {
+                    inline else => |shdr, class| {
+                        const Rela = class.ElfN().Rela;
+                        const ent_size = elf.targetLoad(&shdr.entsize);
+                        const rela_slice = sh.rela_si.node(elf).slice(&elf.mf);
+                        const index: u32 = if (sh.rela_free.unwrap()) |index| alloc_index: {
+                            const rela: *Rela = @ptrCast(@alignCast(
+                                rela_slice[@intCast(ent_size * index)..][0..@intCast(ent_size)],
+                            ));
+                            sh.rela_free = @enumFromInt(rela.offset);
+                            break :alloc_index index;
+                        } else alloc_index: {
+                            const old_size = elf.targetLoad(&shdr.size);
+                            const new_size = old_size + ent_size;
+                            elf.targetStore(&shdr.size, @intCast(new_size));
+                            break :alloc_index @intCast(@divExact(old_size, ent_size));
+                        };
+                        const rela: *Rela = @ptrCast(@alignCast(
+                            rela_slice[@intCast(ent_size * index)..][0..@intCast(ent_size)],
+                        ));
+                        rela.* = .{
+                            .offset = @intCast(offset),
+                            .info = .{
+                                .type = @intCast(@"type".unwrap(elf)),
+                                .sym = @intCast(@intFromEnum(target_si)),
+                            },
+                            .addend = @intCast(addend),
+                        };
+                        if (elf.targetEndian() != native_endian) std.mem.byteSwapAllFields(Rela, rela);
+                        break :index .wrap(index);
+                    },
+                }
+            },
+            .EXEC, .DYN => .none,
+        },
         .offset = offset,
         .addend = addend,
     };
@@ -2464,7 +2747,8 @@ fn flushUav(
         switch (sym.ni) {
             .none => {
                 try elf.nodes.ensureUnusedCapacity(gpa, 1);
-                const ni = try elf.mf.addLastChildNode(gpa, elf.si.data.node(elf), .{
+                const sec_si = elf.si.data;
+                const ni = try elf.mf.addLastChildNode(gpa, sec_si.node(elf), .{
                     .alignment = uav_align.toStdMem(),
                     .moved = true,
                 });
@@ -2472,7 +2756,7 @@ fn flushUav(
                 sym.ni = ni;
                 switch (elf.symPtr(si)) {
                     inline else => |sym_ptr, class| sym_ptr.shndx =
-                        @field(elf.symPtr(.data), @tagName(class)).shndx,
+                        @field(elf.symPtr(sec_si), @tagName(class)).shndx,
                 }
             },
             else => {
@@ -2596,11 +2880,10 @@ fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) !void {
             var child_it = ni.children(&elf.mf);
             while (child_it.next()) |child_ni| try elf.flushFileOffset(child_ni);
         },
-        .section => |si| switch (elf.shdrSlice()) {
-            inline else => |shdr, class| elf.targetStore(
-                &shdr[elf.targetLoad(&@field(elf.symPtr(si), @tagName(class)).shndx)].offset,
-                @intCast(ni.fileLocation(&elf.mf, false).offset),
-            ),
+        .section => |si| switch (elf.shdrPtr(si.shndx(elf))) {
+            inline else => |shdr| elf.targetStore(&shdr.offset, @intCast(
+                ni.fileLocation(&elf.mf, false).offset,
+            )),
         },
     }
 }
@@ -2616,10 +2899,10 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
                     const ph = &phdr[phndx];
                     switch (elf.targetLoad(&ph.type)) {
                         else => unreachable,
-                        std.elf.PT_NULL, std.elf.PT_LOAD => return,
-                        std.elf.PT_DYNAMIC, std.elf.PT_INTERP => {},
-                        std.elf.PT_PHDR => @field(elf.ehdrPtr(), @tagName(class)).phoff = ph.offset,
-                        std.elf.PT_TLS => {},
+                        .NULL, .LOAD => return,
+                        .DYNAMIC, .INTERP => {},
+                        .PHDR => @field(elf.ehdrPtr(), @tagName(class)).phoff = ph.offset,
+                        .TLS => {},
                     }
                     elf.targetStore(&ph.vaddr, @intCast(elf.computeNodeVAddr(ni)));
                     ph.paddr = ph.vaddr;
@@ -2629,14 +2912,12 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
         .section => |si| {
             try elf.flushFileOffset(ni);
             const addr = elf.computeNodeVAddr(ni);
-            switch (elf.shdrSlice()) {
+            switch (elf.shdrPtr(si.shndx(elf))) {
                 inline else => |shdr, class| {
-                    const sym = @field(elf.symPtr(si), @tagName(class));
-                    const sh = &shdr[elf.targetLoad(&sym.shndx)];
-                    const flags = elf.targetLoad(&sh.flags).shf;
+                    const flags = elf.targetLoad(&shdr.flags).shf;
                     if (flags.ALLOC) {
-                        elf.targetStore(&sh.addr, @intCast(addr));
-                        sym.value = sh.addr;
+                        elf.targetStore(&shdr.addr, @intCast(addr));
+                        @field(elf.symPtr(si), @tagName(class)).value = shdr.addr;
                     }
                 },
             }
@@ -2684,22 +2965,18 @@ fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) !void {
                     elf.targetStore(&ph.memsz, @intCast(memsz));
                     switch (elf.targetLoad(&ph.type)) {
                         else => unreachable,
-                        std.elf.PT_NULL => if (size > 0) elf.targetStore(&ph.type, std.elf.PT_LOAD),
-                        std.elf.PT_LOAD => if (size == 0) elf.targetStore(&ph.type, std.elf.PT_NULL),
-                        std.elf.PT_DYNAMIC, std.elf.PT_INTERP, std.elf.PT_PHDR => return,
-                        std.elf.PT_TLS => return ni.childrenMoved(elf.base.comp.gpa, &elf.mf),
+                        .NULL => if (size > 0) elf.targetStore(&ph.type, .LOAD),
+                        .LOAD => if (size == 0) elf.targetStore(&ph.type, .NULL),
+                        .DYNAMIC, .INTERP, .PHDR => return,
+                        .TLS => return ni.childrenMoved(elf.base.comp.gpa, &elf.mf),
                     }
                     var vaddr = elf.targetLoad(&ph.vaddr);
                     var new_phndx = phndx;
                     for (phdr[phndx + 1 ..], phndx + 1..) |*next_ph, next_phndx| {
                         switch (elf.targetLoad(&next_ph.type)) {
                             else => unreachable,
-                            std.elf.PT_NULL, std.elf.PT_LOAD => {},
-                            std.elf.PT_DYNAMIC,
-                            std.elf.PT_INTERP,
-                            std.elf.PT_PHDR,
-                            std.elf.PT_TLS,
-                            => break,
+                            .NULL, .LOAD => {},
+                            .DYNAMIC, .INTERP, .PHDR, .TLS => break,
                         }
                         const next_vaddr = elf.targetLoad(&next_ph.vaddr);
                         if (vaddr + memsz <= next_vaddr) break;
@@ -2721,20 +2998,15 @@ fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) !void {
                 }
             },
         },
-        .section => |si| switch (elf.symPtr(si)) {
-            inline else => |sym, class| {
-                const sh = &@field(elf.shdrSlice(), @tagName(class))[elf.targetLoad(&sym.shndx)];
-                elf.targetStore(&sh.size, @intCast(size));
-                switch (elf.targetLoad(&sh.type)) {
+        .section => |si| switch (elf.shdrPtr(si.shndx(elf))) {
+            inline else => |shdr| {
+                switch (elf.targetLoad(&shdr.type)) {
                     else => unreachable,
-                    std.elf.SHT_NULL => if (size > 0) elf.targetStore(&sh.type, std.elf.SHT_PROGBITS),
-                    std.elf.SHT_PROGBITS => if (size == 0) elf.targetStore(&sh.type, std.elf.SHT_NULL),
-                    std.elf.SHT_SYMTAB, std.elf.SHT_DYNSYM => elf.targetStore(
-                        &sh.info,
-                        @intCast(@divExact(size, elf.targetLoad(&sh.entsize))),
-                    ),
-                    std.elf.SHT_STRTAB, std.elf.SHT_DYNAMIC => {},
+                    .NULL => if (size > 0) elf.targetStore(&shdr.type, .PROGBITS),
+                    .PROGBITS => if (size == 0) elf.targetStore(&shdr.type, .NULL),
+                    .SYMTAB, .STRTAB, .RELA, .DYNAMIC, .REL, .DYNSYM => return,
                 }
+                elf.targetStore(&shdr.size, @intCast(size));
             },
         },
         .input_section => {},
@@ -2860,6 +3132,26 @@ pub fn printNode(
     try w.writeAll(@tagName(node));
     switch (node) {
         else => {},
+        .segment => |phndx| switch (elf.phdrSlice()) {
+            inline else => |phdr| {
+                const ph = &phdr[phndx];
+                try w.writeByte('(');
+                const pt = elf.targetLoad(&ph.type);
+                if (std.enums.tagName(std.elf.PT, pt)) |pt_name|
+                    try w.writeAll(pt_name)
+                else inline for (@typeInfo(std.elf.PT).@"enum".decls) |decl| {
+                    const decl_val = @field(std.elf.PT, decl.name);
+                    if (@TypeOf(decl_val) != std.elf.PT) continue;
+                    if (pt == @field(std.elf.PT, decl.name)) break try w.writeAll(decl.name);
+                } else try w.print("0x{x}", .{pt});
+                try w.writeAll(", ");
+                const pf = elf.targetLoad(&ph.flags);
+                if (pf.R) try w.writeByte('R');
+                if (pf.W) try w.writeByte('W');
+                if (pf.X) try w.writeByte('X');
+                try w.writeByte(')');
+            },
+        },
         .section => |si| try w.print("({s})", .{elf.sectionName(si)}),
         .input_section => |isi| {
             const ii = isi.input(elf);

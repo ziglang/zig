@@ -5048,6 +5048,13 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     }
 }
 
+pub fn getSelfPhdrs() []std.elf.ElfN.Phdr {
+    const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
+    assert(getauxval(std.elf.AT_PHENT) == @sizeOf(std.elf.ElfN.Phdr));
+    const phdrs: [*]std.elf.ElfN.Phdr = @ptrFromInt(getauxval(std.elf.AT_PHDR));
+    return phdrs[0..getauxval(std.elf.AT_PHNUM)];
+}
+
 pub fn dl_iterate_phdr(
     context: anytype,
     comptime Error: type,
@@ -5075,34 +5082,24 @@ pub fn dl_iterate_phdr(
         }
     }
 
-    const elf_base = std.process.getBaseAddress();
-    const ehdr: *elf.Ehdr = @ptrFromInt(elf_base);
-    // Make sure the base address points to an ELF image.
-    assert(mem.eql(u8, ehdr.e_ident[0..4], elf.MAGIC));
-    const n_phdr = ehdr.e_phnum;
-    const phdrs = (@as([*]elf.Phdr, @ptrFromInt(elf_base + ehdr.e_phoff)))[0..n_phdr];
-
-    var it = dl.linkmap_iterator(phdrs) catch unreachable;
+    var it = dl.linkmap_iterator() catch unreachable;
 
     // The executable has no dynamic link segment, create a single entry for
     // the whole ELF image.
     if (it.end()) {
-        // Find the base address for the ELF image, if this is a PIE the value
-        // is non-zero.
-        const base_address = for (phdrs) |*phdr| {
-            if (phdr.p_type == elf.PT_PHDR) {
-                break @intFromPtr(phdrs.ptr) - phdr.p_vaddr;
-                // We could try computing the difference between _DYNAMIC and
-                // the p_vaddr of the PT_DYNAMIC section, but using the phdr is
-                // good enough (Is it?).
-            }
-        } else unreachable;
-
-        var info = dl_phdr_info{
-            .addr = base_address,
-            .name = "/proc/self/exe",
+        const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
+        const phdrs = getSelfPhdrs();
+        var info: dl_phdr_info = .{
+            .addr = for (phdrs) |phdr| switch (phdr.type) {
+                .PHDR => break @intFromPtr(phdrs.ptr) - phdr.vaddr,
+                else => {},
+            } else unreachable,
+            .name = switch (getauxval(std.elf.AT_EXECFN)) {
+                0 => "/proc/self/exe",
+                else => |name| @ptrFromInt(name),
+            },
             .phdr = phdrs.ptr,
-            .phnum = ehdr.e_phnum,
+            .phnum = @intCast(phdrs.len),
         };
 
         return callback(&info, @sizeOf(dl_phdr_info), context);
@@ -5110,24 +5107,18 @@ pub fn dl_iterate_phdr(
 
     // Last return value from the callback function.
     while (it.next()) |entry| {
-        var phdr: [*]elf.Phdr = undefined;
-        var phnum: u16 = undefined;
+        const phdrs: []elf.ElfN.Phdr = if (entry.l_addr != 0) phdrs: {
+            const ehdr: *elf.ElfN.Ehdr = @ptrFromInt(entry.l_addr);
+            assert(mem.eql(u8, ehdr.ident[0..4], elf.MAGIC));
+            const phdrs: [*]elf.ElfN.Phdr = @ptrFromInt(entry.l_addr + ehdr.phoff);
+            break :phdrs phdrs[0..ehdr.phnum];
+        } else getSelfPhdrs();
 
-        if (entry.l_addr != 0) {
-            const elf_header: *elf.Ehdr = @ptrFromInt(entry.l_addr);
-            phdr = @ptrFromInt(entry.l_addr + elf_header.e_phoff);
-            phnum = elf_header.e_phnum;
-        } else {
-            // This is the running ELF image
-            phdr = @ptrFromInt(elf_base + ehdr.e_phoff);
-            phnum = ehdr.e_phnum;
-        }
-
-        var info = dl_phdr_info{
+        var info: dl_phdr_info = .{
             .addr = entry.l_addr,
             .name = entry.l_name,
-            .phdr = phdr,
-            .phnum = phnum,
+            .phdr = phdrs.ptr,
+            .phnum = @intCast(phdrs.len),
         };
 
         try callback(&info, @sizeOf(dl_phdr_info), context);

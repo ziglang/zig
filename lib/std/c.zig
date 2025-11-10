@@ -3971,7 +3971,7 @@ pub const dl_phdr_info = switch (native_os) {
         /// Module name.
         name: ?[*:0]const u8,
         /// Pointer to module's phdr.
-        phdr: [*]std.elf.Phdr,
+        phdr: [*]std.elf.ElfN.Phdr,
         /// Number of entries in phdr.
         phnum: u16,
         /// Total number of loads.
@@ -3984,7 +3984,7 @@ pub const dl_phdr_info = switch (native_os) {
     .illumos => extern struct {
         addr: std.elf.Addr,
         name: ?[*:0]const u8,
-        phdr: [*]std.elf.Phdr,
+        phdr: [*]std.elf.ElfN.Phdr,
         phnum: std.elf.Half,
         /// Incremented when a new object is mapped into the process.
         adds: u64,
@@ -3995,7 +3995,7 @@ pub const dl_phdr_info = switch (native_os) {
     .openbsd, .haiku, .dragonfly, .netbsd, .serenity => extern struct {
         addr: usize,
         name: ?[*:0]const u8,
-        phdr: [*]std.elf.Phdr,
+        phdr: [*]std.elf.ElfN.Phdr,
         phnum: std.elf.Half,
     },
     else => void,

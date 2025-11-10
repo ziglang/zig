@@ -486,6 +486,14 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
             break :free .{ free_ni, free_node };
         },
     };
+    switch (opts.prev) {
+        .none => opts.parent.get(mf).first = free_ni,
+        else => |prev_ni| prev_ni.get(mf).next = free_ni,
+    }
+    switch (opts.next) {
+        .none => opts.parent.get(mf).last = free_ni,
+        else => |next_ni| next_ni.get(mf).prev = free_ni,
+    }
     free_node.* = .{
         .parent = opts.parent,
         .prev = opts.prev,
@@ -535,13 +543,10 @@ pub fn addOnlyChildNode(
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
     assert(parent.first == .none and parent.last == .none);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = parent_ni,
         .add_node = opts,
     });
-    parent.first = ni;
-    parent.last = ni;
-    return ni;
 }
 
 pub fn addFirstChildNode(
@@ -552,17 +557,11 @@ pub fn addFirstChildNode(
 ) !Node.Index {
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = parent_ni,
         .next = parent.first,
         .add_node = opts,
     });
-    switch (parent.first) {
-        .none => parent.last = ni,
-        else => |first_ni| first_ni.get(mf).prev = ni,
-    }
-    parent.first = ni;
-    return ni;
 }
 
 pub fn addLastChildNode(
@@ -573,7 +572,7 @@ pub fn addLastChildNode(
 ) !Node.Index {
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = parent_ni,
         .prev = parent.last,
         .offset = offset: switch (parent.last) {
@@ -585,12 +584,6 @@ pub fn addLastChildNode(
         },
         .add_node = opts,
     });
-    switch (parent.last) {
-        .none => parent.first = ni,
-        else => |last_ni| last_ni.get(mf).next = ni,
-    }
-    parent.last = ni;
-    return ni;
 }
 
 pub fn addNodeAfter(
@@ -603,19 +596,13 @@ pub fn addNodeAfter(
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const prev = prev_ni.get(mf);
     const prev_offset, const prev_size = prev.location().resolve(mf);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = prev.parent,
         .prev = prev_ni,
         .next = prev.next,
         .offset = prev_offset + prev_size,
         .add_node = opts,
     });
-    switch (prev.next) {
-        .none => prev.parent.get(mf).last = ni,
-        else => |next_ni| next_ni.get(mf).prev = ni,
-    }
-    prev.next = ni;
-    return ni;
 }
 
 fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested_size: u64) !void {

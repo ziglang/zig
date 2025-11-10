@@ -166,6 +166,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
             .{ .spe, "spe" },
         }),
         .spirv32, .spirv64 => subArchName(target, .spirv, .{
+            .{ .v1_6, "1.6" },
             .{ .v1_5, "1.5" },
             .{ .v1_4, "1.4" },
             .{ .v1_3, "1.3" },

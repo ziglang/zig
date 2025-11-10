@@ -197,6 +197,7 @@ pub const pwhash = struct {
 pub const sign = struct {
     pub const Ed25519 = @import("crypto/25519/ed25519.zig").Ed25519;
     pub const ecdsa = @import("crypto/ecdsa.zig");
+    pub const mldsa = @import("crypto/ml_dsa.zig");
 };
 
 /// Stream ciphers. These do not provide any kind of authentication.
