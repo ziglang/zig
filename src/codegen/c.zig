@@ -5781,8 +5781,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                             c_name_buf[0] = '$';
                             break :name c_name;
                         } else if ((target.cpu.arch.isMIPS() and (mem.startsWith(u8, field_name, "fcc") or field_name[0] == 'w')) or
-                        ((target.cpu.arch.isMIPS() or target.cpu.arch == .alpha) and field_name[0] == 'f')) name: {
-                            // "$" prefix for FCC, W and F registers
+                        ((target.cpu.arch.isMIPS() or target.cpu.arch == .alpha) and field_name[0] == 'f') or
+                        (target.cpu.arch == .kvx and !mem.eql(u8, field_name, "memory"))) name: {
+                            // "$" prefix for these registers
                             c_name_buf[0] = '$';
                             @memcpy((&c_name_buf)[1..][0..field_name.len], field_name);
                             break :name (&c_name_buf)[0 .. 1 + field_name.len];

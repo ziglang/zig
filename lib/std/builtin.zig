@@ -274,6 +274,9 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `hppa64` calling convention.
     hppa64_elf: CommonOptions,
 
+    kvx_lp64: CommonOptions,
+    kvx_ilp32: CommonOptions,
+
     /// The standard `lanai` calling convention.
     lanai_sysv: CommonOptions,
 
@@ -959,6 +962,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .csky,
     .hppa,
     .hppa64,
+    .kvx,
     .lanai,
     .loongarch32,
     .loongarch64,

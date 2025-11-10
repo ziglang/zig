@@ -205,6 +205,7 @@ fn _start() callconv(.naked) noreturn {
             .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
+            .kvx => ".cfi_undefined r14",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
             .microblaze, .microblazeel => ".cfi_undefined r15",
@@ -317,6 +318,15 @@ fn _start() callconv(.naked) noreturn {
             \\ memw(r29 + #-8) = r29
             \\ r29 = add(r29, #-8)
             \\ call %[posixCallMainAndExit]
+            ,
+            .kvx =>
+            \\ make $fp = 0
+            \\ ;;
+            \\ set $ra = $fp
+            \\ copyd $r0 = $sp
+            \\ andd $sp = $sp, -32
+            \\ ;;
+            \\ goto %[posixCallMainAndExit]
             ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero

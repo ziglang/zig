@@ -9,6 +9,7 @@ else switch (native_arch) {
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .csky => Csky,
     .hexagon => Hexagon,
+    .kvx => Kvx,
     .lanai => Lanai,
     .loongarch32, .loongarch64 => LoongArch,
     .m68k => M68k,
@@ -487,6 +488,71 @@ const Hexagon = extern struct {
             77...259 => return error.UnsupportedRegister,
             // 999999...1000030 => return error.UnsupportedRegister,
             // 9999999...10000030 => return error.UnsupportedRegister,
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Kvx = extern struct {
+    r: [64]u64,
+    ra: u64,
+    pc: u64,
+
+    pub inline fn current() Kvx {
+        var ctx: Kvx = undefined;
+        asm volatile (
+            \\ so (0)[$r32] = $r0r1r2r3
+            \\ ;;
+            \\ so (32)[$r32] = $r4r5r6r7
+            \\ ;;
+            \\ so (64)[$r32] = $r8r9r10r11
+            \\ ;;
+            \\ so (96)[$r32] = $r12r13r14r15
+            \\ ;;
+            \\ so (128)[$r32] = $r16r17r18r19
+            \\ ;;
+            \\ so (160)[$r32] = $r20r21r22r23
+            \\ ;;
+            \\ so (192)[$r32] = $r24r25r26r27
+            \\ ;;
+            \\ so (224)[$r32] = $r28r29r30r31
+            \\ ;;
+            \\ so (256)[$r32] = $r32r33r34r35
+            \\ ;;
+            \\ so (288)[$r32] = $r36r37r38r39
+            \\ ;;
+            \\ so (320)[$r32] = $r40r41r42r43
+            \\ ;;
+            \\ so (352)[$r32] = $r44r45r46r47
+            \\ ;;
+            \\ so (384)[$r32] = $r48r49r50r51
+            \\ ;;
+            \\ so (416)[$r32] = $r52r53r54r55
+            \\ ;;
+            \\ so (448)[$r32] = $r56r57r58r59
+            \\ get $r34 = $pc
+            \\ ;;
+            \\ so (480)[$r32] = $r60r61r62r63
+            \\ get $r35 = $ra
+            \\ ;;
+            \\ sq (512)[$r32] = $r34r35
+            :
+            : [ctx] "{r32}" (&ctx),
+            : .{ .r34 = true, .r35 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Kvx, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...63 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.pc),
+            67 => return @ptrCast(&ctx.ra),
+
+            65...66 => return error.UnsupportedRegister, // SFRs
+            68...255 => return error.UnsupportedRegister, // SFRs
+            256...767 => return error.UnsupportedRegister, // XCRs
 
             else => return error.InvalidRegister,
         }
