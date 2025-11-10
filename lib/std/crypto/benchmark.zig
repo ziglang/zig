@@ -166,6 +166,9 @@ const signatures = [_]Crypto{
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaP256Sha256, .name = "ecdsa-p256" },
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaP384Sha384, .name = "ecdsa-p384" },
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaSecp256k1Sha256, .name = "ecdsa-secp256k1" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA44, .name = "ml-dsa-44" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA65, .name = "ml-dsa-65" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA87, .name = "ml-dsa-87" },
 };
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
@@ -189,7 +192,12 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
     return throughput;
 }
 
-const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
+const signature_verifications = [_]Crypto{
+    Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA44, .name = "ml-dsa-44" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA65, .name = "ml-dsa-65" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA87, .name = "ml-dsa-87" },
+};
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
