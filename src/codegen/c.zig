@@ -3801,6 +3801,24 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     });
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.new_local });
     try f.allocs.put(zcu.gpa, local.new_local, true);
+
+    switch (elem_ty.zigTypeTag(zcu)) {
+        .@"struct", .@"union" => switch (elem_ty.containerLayout(zcu)) {
+            .@"packed" => {
+                // For packed aggregates, we zero-initialize to try and work around a design flaw
+                // related to how `packed`, `undefined`, and RLS interact. See comment in `airStore`
+                // for details.
+                const w = &f.object.code.writer;
+                try w.print("memset(&t{d}, 0x00, sizeof(", .{local.new_local});
+                try f.renderType(w, elem_ty);
+                try w.writeAll("));");
+                try f.object.newline();
+            },
+            .auto, .@"extern" => {},
+        },
+        else => {},
+    }
+
     return .{ .local_ref = local.new_local };
 }
 
@@ -3820,6 +3838,24 @@ fn airRetPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     });
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.new_local });
     try f.allocs.put(zcu.gpa, local.new_local, true);
+
+    switch (elem_ty.zigTypeTag(zcu)) {
+        .@"struct", .@"union" => switch (elem_ty.containerLayout(zcu)) {
+            .@"packed" => {
+                // For packed aggregates, we zero-initialize to try and work around a design flaw
+                // related to how `packed`, `undefined`, and RLS interact. See comment in `airStore`
+                // for details.
+                const w = &f.object.code.writer;
+                try w.print("memset(&t{d}, 0x00, sizeof(", .{local.new_local});
+                try f.renderType(w, elem_ty);
+                try w.writeAll("));");
+                try f.object.newline();
+            },
+            .auto, .@"extern" => {},
+        },
+        else => {},
+    }
+
     return .{ .local_ref = local.new_local };
 }
 
@@ -4098,9 +4134,24 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     if (val_is_undef) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         if (safety and ptr_info.packed_offset.host_size == 0) {
+            // If the thing we're initializing is a packed struct/union, we set to 0 instead of
+            // 0xAA. This is a hack to work around a problem with partially-undefined packed
+            // aggregates. If we used 0xAA here, then a later initialization through RLS would
+            // not zero the high padding bits (for a packed type which is not 8/16/32/64/etc bits),
+            // so we would get a miscompilation. Using 0x00 here avoids this bug in some cases. It
+            // is *not* a correct fix; for instance it misses any case where packed structs are
+            // nested in other aggregates. A proper fix for this will involve changing the language,
+            // such as to remove RLS. This just prevents miscompilations in *some* common cases.
+            const byte_str: []const u8 = switch (src_ty.zigTypeTag(zcu)) {
+                else => "0xaa",
+                .@"struct", .@"union" => switch (src_ty.containerLayout(zcu)) {
+                    .auto, .@"extern" => "0xaa",
+                    .@"packed" => "0x00",
+                },
+            };
             try w.writeAll("memset(");
             try f.writeCValue(w, ptr_val, .FunctionArgument);
-            try w.writeAll(", 0xaa, sizeof(");
+            try w.print(", {s}, sizeof(", .{byte_str});
             try f.renderType(w, .fromInterned(ptr_info.child));
             try w.writeAll("));");
             try f.object.newline();
