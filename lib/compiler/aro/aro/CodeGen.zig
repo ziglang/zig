@@ -2,13 +2,12 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const backend = @import("../backend.zig");
+const backend = @import("backend");
 const Interner = backend.Interner;
 const Ir = backend.Ir;
 const Builder = Ir.Builder;
 
 const Builtins = @import("Builtins.zig");
-const Builtin = Builtins.Builtin;
 const Compilation = @import("Compilation.zig");
 const StringId = @import("StringInterner.zig").StringId;
 const Tree = @import("Tree.zig");
@@ -110,6 +109,9 @@ pub fn genIr(tree: *const Tree) Compilation.Error!Ir {
             .variable => |variable| c.genVar(variable) catch |err| switch (err) {
                 error.FatalError => return error.FatalError,
                 error.OutOfMemory => return error.OutOfMemory,
+            },
+            .global_asm => {
+                return c.fail("TODO global assembly", .{});
             },
             else => unreachable,
         }
@@ -497,6 +499,7 @@ fn genExpr(c: *CodeGen, node_index: Node.Index) Error!Ir.Ref {
         .goto_stmt,
         .computed_goto_stmt,
         .nullptr_literal,
+        .asm_stmt,
         => return c.fail("TODO CodeGen.genStmt {s}\n", .{@tagName(node)}),
         .comma_expr => |bin| {
             _ = try c.genExpr(bin.lhs);
@@ -857,7 +860,7 @@ fn genExpr(c: *CodeGen, node_index: Node.Index) Error!Ir.Ref {
         },
         .builtin_call_expr => |call| {
             const name = c.tree.tokSlice(call.builtin_tok);
-            const builtin = c.comp.builtins.lookup(name).builtin;
+            const builtin = c.comp.builtins.lookup(name);
             return c.genBuiltinCall(builtin, call.args, call.qt);
         },
         .addr_of_label,
@@ -1074,10 +1077,10 @@ fn genBoolExpr(c: *CodeGen, base: Node.Index, true_label: Ir.Ref, false_label: I
     try c.addBranch(cmp, true_label, false_label);
 }
 
-fn genBuiltinCall(c: *CodeGen, builtin: Builtin, arg_nodes: []const Node.Index, qt: QualType) Error!Ir.Ref {
+fn genBuiltinCall(c: *CodeGen, builtin: Builtins.Expanded, arg_nodes: []const Node.Index, qt: QualType) Error!Ir.Ref {
     _ = arg_nodes;
     _ = qt;
-    return c.fail("TODO CodeGen.genBuiltinCall {s}\n", .{Builtin.nameFromTag(builtin.tag).span()});
+    return c.fail("TODO CodeGen.genBuiltinCall {t}\n", .{builtin.tag});
 }
 
 fn genCall(c: *CodeGen, call: Node.Call) Error!Ir.Ref {

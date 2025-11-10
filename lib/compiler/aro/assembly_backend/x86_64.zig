@@ -167,7 +167,7 @@ fn genDecls(c: *AsmCodeGen) !void {
     if (c.tree.comp.code_gen_options.debug != .strip) {
         const sources = c.tree.comp.sources.values();
         for (sources) |source| {
-            try c.data.print("  .file {d} \"{s}\"\n", .{ @intFromEnum(source.id) - 1, source.path });
+            try c.data.print("  .file {d} \"{s}\"\n", .{ @intFromEnum(source.id.index) + 1, source.path });
         }
     }
 

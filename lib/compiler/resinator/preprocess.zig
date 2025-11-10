@@ -71,7 +71,7 @@ pub fn preprocess(
     if (maybe_dependencies) |dependencies| {
         for (comp.sources.values()) |comp_source| {
             if (comp_source.id == builtin_macros.id or comp_source.id == user_macros.id) continue;
-            if (comp_source.id == .unused or comp_source.id == .generated) continue;
+            if (comp_source.id.index == .unused or comp_source.id.index == .generated) continue;
             const duped_path = try dependencies.allocator.dupe(u8, comp_source.path);
             errdefer dependencies.allocator.free(duped_path);
             try dependencies.list.append(dependencies.allocator, duped_path);

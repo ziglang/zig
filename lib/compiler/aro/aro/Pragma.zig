@@ -10,6 +10,13 @@ pub const Error = Compilation.Error || error{ UnknownPragma, StopPreprocessing }
 
 const Pragma = @This();
 
+/// A do-nothing pragma; useful for unwrapping an optional pragma into a pragma that does nothing in the null case.
+pub const do_nothing: Pragma = .{
+    .deinit = deinit_nothing,
+};
+
+fn deinit_nothing(_: *Pragma, _: *Compilation) void {}
+
 /// Called during Preprocessor.init
 beforePreprocess: ?*const fn (*Pragma, *Compilation) void = null,
 
@@ -39,6 +46,12 @@ preserveTokens: ?*const fn (*Pragma, *Preprocessor, start_idx: TokenIndex) bool 
 /// Same as preprocessorHandler except called during parsing
 /// The parser's `p.tok_i` field must not be changed
 parserHandler: ?*const fn (*Pragma, *Parser, start_idx: TokenIndex) Compilation.Error!void = null,
+
+/// Whether to perform preprocessor token expansion on the token at index `i`. 0 is the index of the first
+/// token after the name token (the name token is never expanded). Whitespace tokens are always skipped when calculating
+/// token indices. For example, in `#pragma GCC warning "A warning"` token 0 is `warning` and token 1 is `"A warning"`
+/// By default, all tokens are expanded; use this to override that behavior.
+shouldExpandTokenAtIndexHandler: ?*const fn (*const Pragma, i: TokenIndex) bool = null,
 
 pub fn pasteTokens(pp: *Preprocessor, start_idx: TokenIndex) ![]const u8 {
     if (pp.tokens.get(start_idx).id == .nl) return error.ExpectedStringLiteral;
@@ -82,6 +95,11 @@ pub fn parserCB(self: *Pragma, p: *Parser, start_idx: TokenIndex) Compilation.Er
     const tok_index = p.tok_i;
     defer std.debug.assert(tok_index == p.tok_i);
     if (self.parserHandler) |func| return func(self, p, start_idx);
+}
+
+pub fn shouldExpandTokenAtIndex(self: *const Pragma, idx: TokenIndex) bool {
+    if (self.shouldExpandTokenAtIndexHandler) |func| return func(self, idx);
+    return true;
 }
 
 pub const Diagnostic = struct {

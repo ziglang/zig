@@ -15,7 +15,7 @@ const GCCVersion = @import("Driver/GCCVersion.zig");
 const LangOpts = @import("LangOpts.zig");
 const Preprocessor = @import("Preprocessor.zig");
 const Source = @import("Source.zig");
-const target_util = @import("target.zig");
+const Target = @import("Target.zig");
 const Toolchain = @import("Toolchain.zig");
 const Tree = @import("Tree.zig");
 
@@ -99,6 +99,8 @@ aro_name: []const u8 = "",
 
 /// Value of -target passed via CLI
 raw_target_triple: ?[]const u8 = null,
+/// Value of -darwin-target-variant-triple passed via CLI
+raw_darwin_variant_target_triple: ?[]const u8 = null,
 
 /// Value of -mcpu passed via CLI
 raw_cpu: ?[]const u8 = null,
@@ -107,6 +109,7 @@ raw_cpu: ?[]const u8 = null,
 use_assembly_backend: bool = false,
 
 // linker options
+use_linker: ?[]const u8 = null,
 linker_path: ?[]const u8 = null,
 nodefaultlibs: bool = false,
 nolibc: bool = false,
@@ -161,6 +164,8 @@ pub const usage =
     \\
     \\Compile options:
     \\  -c, --compile           Only run preprocess, compile, and assemble steps
+    \\  -darwin-target-variant-triple
+    \\                          Specify the darwin target variant triple
     \\  -fapple-kext            Use Apple's kernel extensions ABI
     \\  -fchar8_t               Enable char8_t (enabled by default in C23 and later)
     \\  -fno-char8_t            Disable char8_t (disabled by default for pre-C23)
@@ -273,7 +278,6 @@ pub fn parseArgs(
     macro_buf: *std.ArrayList(u8),
     args: []const []const u8,
 ) (Compilation.Error || std.Io.Writer.Error)!bool {
-    const io = d.comp.io;
     var i: usize = 1;
     var comment_arg: []const u8 = "";
     var hosted: ?bool = null;
@@ -334,6 +338,13 @@ pub fn parseArgs(
                 d.system_defines = .no_system_defines;
             } else if (mem.eql(u8, arg, "-c") or mem.eql(u8, arg, "--compile")) {
                 d.only_compile = true;
+            } else if (mem.eql(u8, arg, "-darwin-target-variant-triple")) {
+                i += 1;
+                if (i >= args.len) {
+                    try d.err("expected argument after -darwin-target-variant-triple", .{});
+                    continue;
+                }
+                d.raw_darwin_variant_target_triple = args[i];
             } else if (mem.eql(u8, arg, "-dD")) {
                 d.debug_dump_letters.d = true;
             } else if (mem.eql(u8, arg, "-dM")) {
@@ -753,32 +764,13 @@ pub fn parseArgs(
         }
     }
     {
-        var diags: std.Target.Query.ParseOptions.Diagnostics = .{};
-        const opts: std.Target.Query.ParseOptions = .{
-            .arch_os_abi = d.raw_target_triple orelse "native",
-            .cpu_features = d.raw_cpu,
-            .diagnostics = &diags,
-        };
-        const query = std.Target.Query.parse(opts) catch |er| switch (er) {
-            error.UnknownCpuModel => {
-                return d.fatal("unknown CPU: '{s}'", .{diags.cpu_name.?});
-            },
-            error.UnknownCpuFeature => {
-                return d.fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
-            },
-            error.UnknownArchitecture => {
-                return d.fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
-            },
-            else => |e| return d.fatal("unable to parse target query '{s}': {s}", .{
-                opts.arch_os_abi, @errorName(e),
-            }),
-        };
-        d.comp.target = std.zig.system.resolveTargetQuery(io, query) catch |e| {
-            return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
-        };
+        d.comp.target = try d.parseTarget(d.raw_target_triple orelse "native", d.raw_cpu);
+        if (d.raw_darwin_variant_target_triple) |darwin_triple| {
+            d.comp.darwin_target_variant = try d.parseTarget(darwin_triple, null);
+        }
     }
     if (emulate != null or d.raw_target_triple != null) {
-        d.comp.langopts.setEmulatedCompiler(emulate orelse target_util.systemCompiler(d.comp.target));
+        d.comp.langopts.setEmulatedCompiler(emulate orelse d.comp.target.systemCompiler());
         switch (d.comp.langopts.emulate) {
             .clang => try d.diagnostics.set("clang", .off),
             .gcc => try d.diagnostics.set("gnu", .off),
@@ -857,11 +849,140 @@ pub fn warn(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
     try d.diagnostics.add(.{ .kind = .warning, .text = allocating.written(), .location = null });
 }
 
-pub fn unsupportedOptionForTarget(d: *Driver, target: std.Target, opt: []const u8) Compilation.Error!void {
+fn unsupportedOptionForTarget(d: *Driver, target: *const Target, opt: []const u8) Compilation.Error!void {
     try d.err(
         "unsupported option '{s}' for target '{s}-{s}-{s}'",
         .{ opt, @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi) },
     );
+}
+
+fn parseTarget(d: *Driver, arch_os_abi: []const u8, opt_cpu_features: ?[]const u8) Compilation.Error!Target {
+    var query: std.Target.Query = .{
+        .dynamic_linker = .init(null),
+    };
+    var vendor: Target.Vendor = .unknown;
+    var opt_sub_arch: ?Target.SubArch = null;
+
+    var it = mem.splitScalar(u8, arch_os_abi, '-');
+    const arch_name = it.first();
+    const arch_is_native = mem.eql(u8, arch_name, "native");
+    if (!arch_is_native) {
+        query.cpu_arch, opt_sub_arch = Target.parseArchName(arch_name) orelse {
+            return d.fatal("unknown architecture: '{s}'", .{arch_name});
+        };
+    }
+    const arch = query.cpu_arch orelse @import("builtin").cpu.arch;
+
+    const opt_os_text = blk: {
+        const opt_os_or_vendor = it.next();
+        if (opt_os_or_vendor) |os_or_vendor| {
+            if (Target.parseVendorName(os_or_vendor)) |parsed_vendor| {
+                vendor = parsed_vendor;
+                break :blk it.next();
+            }
+        }
+        break :blk opt_os_or_vendor;
+    };
+
+    if (opt_os_text) |os_text| {
+        var version_str: []const u8 = undefined;
+        Target.parseOs(&query, os_text, &version_str) catch |er| switch (er) {
+            error.UnknownOs => return d.fatal("unknown operating system '{s}'", .{os_text}),
+            error.InvalidOsVersion => return d.fatal("invalid operating system version '{s}'", .{version_str}),
+        };
+    }
+
+    const opt_abi_text = it.next();
+    if (opt_abi_text) |abi_text| {
+        var version_str: []const u8 = undefined;
+        Target.parseAbi(&query, abi_text, &version_str) catch |er| switch (er) {
+            error.UnknownOs => return d.fatal("unknown ABI '{s}'", .{abi_text}),
+            error.InvalidAbiVersion => return d.fatal("invalid ABI version '{s}'", .{version_str}),
+            error.InvalidApiVersion => return d.fatal("invalid Android API version '{s}'", .{version_str}),
+        };
+    }
+
+    if (it.next() != null) {
+        return d.fatal("unexpected extra field in target: '{s}'", .{arch_os_abi});
+    }
+
+    if (opt_cpu_features) |cpu_features| {
+        const all_features = arch.allFeaturesList();
+        var index: usize = 0;
+        while (index < cpu_features.len and
+            cpu_features[index] != '+' and
+            cpu_features[index] != '-')
+        {
+            index += 1;
+        }
+        const cpu_name = cpu_features[0..index];
+
+        const add_set = &query.cpu_features_add;
+        const sub_set = &query.cpu_features_sub;
+        if (mem.eql(u8, cpu_name, "native")) {
+            query.cpu_model = .native;
+        } else if (mem.eql(u8, cpu_name, "baseline")) {
+            query.cpu_model = .baseline;
+        } else {
+            query.cpu_model = .{ .explicit = arch.parseCpuModel(cpu_name) catch |er| switch (er) {
+                error.UnknownCpuModel => return d.fatal("unknown CPU model: '{s}'", .{cpu_name}),
+            } };
+        }
+
+        if (opt_sub_arch) |sub_arch| {
+            if (sub_arch.toFeature(arch)) |feature| {
+                add_set.addFeature(feature);
+            }
+        }
+
+        while (index < cpu_features.len) {
+            const op = cpu_features[index];
+            const set = switch (op) {
+                '+' => add_set,
+                '-' => sub_set,
+                else => unreachable,
+            };
+            index += 1;
+            const start = index;
+            while (index < cpu_features.len and
+                cpu_features[index] != '+' and
+                cpu_features[index] != '-')
+            {
+                index += 1;
+            }
+            const feature_name = cpu_features[start..index];
+            for (all_features, 0..) |feature, feat_index_usize| {
+                const feat_index: std.Target.Cpu.Feature.Set.Index = @intCast(feat_index_usize);
+                if (mem.eql(u8, feature_name, feature.name)) {
+                    set.addFeature(feat_index);
+                    break;
+                }
+            } else {
+                return d.fatal("unknown CPU feature: '{s}'", .{feature_name});
+            }
+        }
+    } else if (opt_sub_arch) |sub_arch| {
+        if (sub_arch.toFeature(arch)) |feature| {
+            query.cpu_features_add.addFeature(feature);
+        }
+    }
+
+    const zig_target = std.zig.system.resolveTargetQuery(d.comp.io, query) catch |e|
+        return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
+
+    if (query.isNative()) {
+        if (zig_target.os.tag.isDarwin()) {
+            vendor = .apple;
+        }
+    }
+    return .{
+        .cpu = zig_target.cpu,
+        .vendor = vendor,
+        .os = zig_target.os,
+        .abi = zig_target.abi,
+        .ofmt = zig_target.ofmt,
+        .dynamic_linker = zig_target.dynamic_linker,
+    };
 }
 
 pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalError, OutOfMemory } {
@@ -1219,7 +1340,7 @@ fn processSource(
             .{},
         );
 
-        const assembly = try asm_fn(d.comp.target, &tree);
+        const assembly = try asm_fn(d.comp.target.toZigTarget(), &tree);
         defer assembly.deinit(d.comp.gpa);
 
         if (d.only_preprocess_and_compile) {
@@ -1262,7 +1383,7 @@ fn processSource(
             render_errors.deinit(d.comp.gpa);
         }
 
-        var obj = ir.render(d.comp.gpa, d.comp.target, &render_errors) catch |e| switch (e) {
+        var obj = ir.render(d.comp.gpa, d.comp.target.toZigTarget(), &render_errors) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
             error.LowerFail => {
                 return d.fatal(
@@ -1357,17 +1478,17 @@ fn exitWithCleanup(d: *Driver, code: u8) noreturn {
 /// Parses the various -fpic/-fPIC/-fpie/-fPIE arguments.
 /// Then, smooshes them together with platform defaults, to decide whether
 /// this compile should be using PIC mode or not.
+/// Returns a tuple of ( backend.CodeGenOptions.PicLevel, IsPIE).
 pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { backend.CodeGenOptions.PicLevel, bool } {
     const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 
-    const target = d.comp.target;
-
-    const is_pie_default = switch (target_util.isPIEDefault(target)) {
+    const target = &d.comp.target;
+    const is_pie_default = switch (target.isPIEDefault()) {
         .yes => true,
         .no => false,
         .depends_on_linker => false,
     };
-    const is_pic_default = switch (target_util.isPICdefault(target)) {
+    const is_pic_default = switch (target.isPICdefault()) {
         .yes => true,
         .no => false,
         .depends_on_linker => false,
@@ -1423,7 +1544,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
     // '-fno-...' arguments, both PIC and PIE are disabled. Any PIE
     // option implicitly enables PIC at the same level.
     if (target.os.tag == .windows and
-        !target_util.isCygwinMinGW(target) and
+        !target.isCygwinMinGW() and
         (eqlIgnoreCase(lastpic, "-fpic") or eqlIgnoreCase(lastpic, "-fpie"))) // -fpic/-fPIC, -fpie/-fPIE
     {
         try d.unsupportedOptionForTarget(target, lastpic);
@@ -1434,7 +1555,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
 
     // Check whether the tool chain trumps the PIC-ness decision. If the PIC-ness
     // is forced, then neither PIC nor PIE flags will have no effect.
-    const forced = switch (target_util.isPICDefaultForced(target)) {
+    const forced = switch (target.isPICDefaultForced()) {
         .yes => true,
         .no => false,
         .depends_on_linker => false,
@@ -1447,7 +1568,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
             is_piclevel_two = mem.eql(u8, lastpic, "-fPIE") or mem.eql(u8, lastpic, "-fPIC");
         } else {
             pic, pie = .{ false, false };
-            if (target_util.isPS(target)) {
+            if (target.isPS()) {
                 if (d.comp.cmodel != .kernel) {
                     pic = true;
                     try d.warn(
@@ -1459,7 +1580,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
         }
     }
 
-    if (pic and (target.os.tag.isDarwin() or target_util.isPS(target))) {
+    if (pic and (target.os.tag.isDarwin() or target.isPS())) {
         is_piclevel_two = is_piclevel_two or is_pic_default;
     }
 
