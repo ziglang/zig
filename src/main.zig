@@ -155,11 +155,8 @@ pub fn log(
         } else return;
     }
 
-    const prefix1 = comptime level.asText();
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-
-    // Print the message to stderr, silently ignoring any errors
-    std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
+    // Otherwise, use the default implementation.
+    std.log.defaultLog(level, scope, format, args);
 }
 
 var debug_allocator: std.heap.DebugAllocator(.{
