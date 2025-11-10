@@ -756,6 +756,7 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         => .@"4",
         .bpfeb,
         .bpfel,
+        .kvx,
         .mips64,
         .mips64el,
         => .@"8",
