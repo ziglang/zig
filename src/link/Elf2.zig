@@ -1444,15 +1444,9 @@ pub fn symtabSlice(elf: *Elf) SymtabSlice {
     const slice = elf.si.symtab.node(elf).slice(&elf.mf);
     return switch (elf.identClass()) {
         .NONE, _ => unreachable,
-        inline else => |class| @unionInit(
-            SymtabSlice,
-            @tagName(class),
-            @ptrCast(@alignCast(slice[0..std.mem.alignBackwardAnyAlign(
-                usize,
-                slice.len,
-                @sizeOf(class.ElfN().Sym),
-            )])),
-        ),
+        inline else => |class| @unionInit(SymtabSlice, @tagName(class), @ptrCast(@alignCast(
+            slice[0..std.mem.alignBackwardAnyAlign(usize, slice.len, @sizeOf(class.ElfN().Sym))],
+        ))),
     };
 }
 
@@ -1471,11 +1465,9 @@ pub fn dynsymSlice(elf: *Elf) SymtabSlice {
     const slice = elf.si.dynsym.node(elf).slice(&elf.mf);
     return switch (elf.identClass()) {
         .NONE, _ => unreachable,
-        inline else => |class| @unionInit(
-            SymtabSlice,
-            @tagName(class),
-            @ptrCast(@alignCast(slice)),
-        ),
+        inline else => |class| @unionInit(SymtabSlice, @tagName(class), @ptrCast(@alignCast(
+            slice[0..std.mem.alignBackwardAnyAlign(usize, slice.len, @sizeOf(class.ElfN().Sym))],
+        ))),
     };
 }
 
@@ -1853,7 +1845,7 @@ fn loadObject(
                         break :strtab strtab;
                     };
                     defer gpa.free(strtab);
-                    const symnum = std.math.divExact(
+                    const symnum = std.math.sub(u32, std.math.divExact(
                         u32,
                         @intCast(symtab.shdr.size),
                         @intCast(symtab.shdr.entsize),
@@ -1861,9 +1853,9 @@ fn loadObject(
                         path,
                         "symtab section size (0x{x}) is not a multiple of entsize (0x{x})",
                         .{ symtab.shdr.size, symtab.shdr.entsize },
-                    );
+                    ), 1) catch continue;
                     symmap.clearRetainingCapacity();
-                    try symmap.resize(gpa, std.math.sub(u32, symnum, 1) catch continue);
+                    try symmap.resize(gpa, symnum);
                     try elf.symtab.ensureUnusedCapacity(gpa, symnum);
                     try elf.globals.ensureUnusedCapacity(gpa, symnum);
                     try fr.seekTo(fl.offset + symtab.shdr.offset + symtab.shdr.entsize);
@@ -1874,13 +1866,13 @@ fn loadObject(
                         if (input_sym.name >= strtab.len or input_sym.shndx == std.elf.SHN_UNDEF or
                             input_sym.shndx >= ehdr.shnum) continue;
                         switch (input_sym.info.type) {
-                            else => continue,
+                            .NOTYPE, .OBJECT, .FUNC => {},
                             .SECTION => {
                                 const section = &sections[input_sym.shndx];
                                 if (input_sym.value == section.shdr.addr) si.* = section.si;
                                 continue;
                             },
-                            .OBJECT, .FUNC => {},
+                            else => continue,
                         }
                         const name = std.mem.sliceTo(strtab[input_sym.name..], 0);
                         const parent_si = sections[input_sym.shndx].si;
@@ -1935,8 +1927,13 @@ fn loadObject(
                             };
                             if (rels.shdr.entsize < @sizeOf(Rel))
                                 return diags.failParse(path, "unsupported rel entsize", .{});
+
                             const loc_sec = &sections[rels.shdr.info];
                             if (loc_sec.si == .null) continue;
+                            const loc_sym = loc_sec.si.get(elf);
+                            assert(loc_sym.loc_relocs == .none);
+                            loc_sym.loc_relocs = @enumFromInt(elf.relocs.items.len);
+
                             const relnum = std.math.divExact(
                                 u32,
                                 @intCast(rels.shdr.size),
@@ -1951,7 +1948,7 @@ fn loadObject(
                             for (0..relnum) |_| {
                                 const rel = try r.peekStruct(Rel, target_endian);
                                 try r.discardAll64(rels.shdr.entsize);
-                                if (rel.info.sym >= symnum) continue;
+                                if (rel.info.sym == 0 or rel.info.sym > symnum) continue;
                                 const target_si = symmap.items[rel.info.sym - 1];
                                 if (target_si == .null) continue;
                                 elf.addRelocAssumeCapacity(
@@ -2854,10 +2851,12 @@ fn flushInputSection(elf: *Elf, isi: Node.InputSectionIndex) !void {
     var fr = file.reader(comp.io, &.{});
     try fr.seekTo(file_loc.offset);
     var nw: MappedFile.Node.Writer = undefined;
-    isi.symbol(elf).node(elf).writer(&elf.mf, gpa, &nw);
+    const si = isi.symbol(elf);
+    si.node(elf).writer(&elf.mf, gpa, &nw);
     defer nw.deinit();
     if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
         return error.EndOfStream;
+    si.applyLocationRelocs(elf);
 }
 
 fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) !void {
