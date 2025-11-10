@@ -10,9 +10,6 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
-env:
-  # https://codeberg.org/forgejo/forgejo/issues/9244
-  TERM: dumb
 jobs:
   aarch64-linux-debug:
     runs-on: [self-hosted, aarch64-linux]
