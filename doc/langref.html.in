@@ -7105,10 +7105,12 @@ coding style.
       </p>
       <ul>
         <li>
-            If {#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#}
-            then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}, unless it
-            is a {#syntax#}struct{#endsyntax#} with 0 fields and is never meant to be instantiated,
-            in which case it is considered to be a "namespace" and uses {#syntax#}snake_case{#endsyntax#}.
+            If {#syntax#}x{#endsyntax#} is a {#syntax#}struct{#endsyntax#} with 0 fields and is never meant to be instantiated
+            then {#syntax#}x{#endsyntax#} is considered to be a "namespace" and should be {#syntax#}snake_case{#endsyntax#}.
+        </li>
+		<li>
+            If {#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#} or {#syntax#}type{#endsyntax#} alias
+            then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
         </li>
         <li>
             If {#syntax#}x{#endsyntax#} is callable, and {#syntax#}x{#endsyntax#}'s return type is
@@ -7147,8 +7149,7 @@ const namespace_name = @import("dir_name/file_name.zig");
 const TypeName = @import("dir_name/TypeName.zig");
 var global_var: i32 = undefined;
 const const_name = 42;
-const primitive_type_alias = f32;
-const string_alias = []u8;
+const PrimitiveTypeAlias = f32;
 
 const StructName = struct {
     field: i32,
