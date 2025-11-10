@@ -388,7 +388,8 @@ const AsyncClosure = struct {
     reset_event: ResetEvent,
     select_condition: ?*ResetEvent,
     context_alignment: std.mem.Alignment,
-    result_offset: usize,
+    result_alignment: std.mem.Alignment,
+    result_offset_before_padding: usize,
 
     const done_reset_event: *ResetEvent = @ptrFromInt(@alignOf(ResetEvent));
 
@@ -420,12 +421,12 @@ const AsyncClosure = struct {
 
     fn resultPointer(ac: *AsyncClosure) [*]u8 {
         const base: [*]u8 = @ptrCast(ac);
-        return base + ac.result_offset;
+        return @ptrFromInt(ac.result_alignment.forward(@intFromPtr(base + ac.result_offset_before_padding)));
     }
 
     fn contextPointer(ac: *AsyncClosure) [*]u8 {
         const base: [*]u8 = @ptrCast(ac);
-        return base + ac.context_alignment.forward(@sizeOf(AsyncClosure));
+        return @ptrFromInt(ac.context_alignment.forward(@intFromPtr(base + @sizeOf(AsyncClosure))));
     }
 
     fn waitAndFree(ac: *AsyncClosure, gpa: Allocator, result: []u8) void {
@@ -436,7 +437,9 @@ const AsyncClosure = struct {
 
     fn free(ac: *AsyncClosure, gpa: Allocator, result_len: usize) void {
         const base: [*]align(@alignOf(AsyncClosure)) u8 = @ptrCast(ac);
-        gpa.free(base[0 .. ac.result_offset + result_len]);
+        const result_offset_with_padding = ac.result_alignment.forward(ac.result_offset_before_padding);
+        const allocated_size = result_offset_with_padding + result_len;
+        gpa.free(base[0..allocated_size]);
     }
 };
 
@@ -460,13 +463,16 @@ fn async(
         };
     };
     const gpa = t.allocator;
-    const context_offset = context_alignment.forward(@sizeOf(AsyncClosure));
-    const result_offset = result_alignment.forward(context_offset + context.len);
-    const n = result_offset + result.len;
-    const ac: *AsyncClosure = @ptrCast(@alignCast(gpa.alignedAlloc(u8, .of(AsyncClosure), n) catch {
+    const context_offset_before_padding = @alignOf(AsyncClosure) + @sizeOf(AsyncClosure);
+    const context_offset_with_padding = context_alignment.forward(context_offset_before_padding);
+    const result_offset_before_padding = context_offset_with_padding + context.len;
+    const result_offset_with_padding = result_alignment.forward(result_offset_before_padding);
+    const allocated_size = result_offset_with_padding + result.len;
+    const ac_bytes = gpa.alignedAlloc(u8, .of(AsyncClosure), allocated_size) catch {
         start(context.ptr, result.ptr);
         return null;
-    }));
+    };
+    const ac: *AsyncClosure = @ptrCast(@alignCast(ac_bytes));
 
     ac.* = .{
         .closure = .{
@@ -476,7 +482,8 @@ fn async(
         },
         .func = start,
         .context_alignment = context_alignment,
-        .result_offset = result_offset,
+        .result_alignment = result_alignment,
+        .result_offset_before_padding = result_offset_before_padding,
         .reset_event = .unset,
         .select_condition = null,
     };
@@ -531,10 +538,12 @@ fn concurrent(
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const cpu_count = t.cpu_count catch 1;
     const gpa = t.allocator;
-    const context_offset = context_alignment.forward(@sizeOf(AsyncClosure));
-    const result_offset = result_alignment.forward(context_offset + context.len);
-    const n = result_offset + result_len;
-    const ac_bytes = gpa.alignedAlloc(u8, .of(AsyncClosure), n) catch
+    const context_offset_before_padding = @alignOf(AsyncClosure) + @sizeOf(AsyncClosure);
+    const context_offset_with_padding = context_alignment.forward(context_offset_before_padding);
+    const result_offset_before_padding = context_offset_with_padding + context.len;
+    const result_offset_with_padding = result_alignment.forward(result_offset_before_padding);
+    const allocated_size = result_offset_with_padding + result_len;
+    const ac_bytes = gpa.alignedAlloc(u8, .of(AsyncClosure), allocated_size) catch
         return error.ConcurrencyUnavailable;
     const ac: *AsyncClosure = @ptrCast(@alignCast(ac_bytes));
 
@@ -546,7 +555,8 @@ fn concurrent(
         },
         .func = start,
         .context_alignment = context_alignment,
-        .result_offset = result_offset,
+        .result_alignment = result_alignment,
+        .result_offset_before_padding = result_offset_before_padding,
         .reset_event = .unset,
         .select_condition = null,
     };
@@ -580,6 +590,8 @@ fn concurrent(
     return @ptrCast(ac);
 }
 
+/// Trailing data:
+/// 1. context
 const GroupClosure = struct {
     closure: Closure,
     t: *Threaded,
@@ -621,17 +633,15 @@ const GroupClosure = struct {
         gpa.free(base[0..contextEnd(gc.context_alignment, gc.context_len)]);
     }
 
-    fn contextOffset(context_alignment: std.mem.Alignment) usize {
-        return context_alignment.forward(@sizeOf(GroupClosure));
-    }
-
     fn contextEnd(context_alignment: std.mem.Alignment, context_len: usize) usize {
-        return contextOffset(context_alignment) + context_len;
+        const context_offset_before_padding = @alignOf(GroupClosure) + @sizeOf(GroupClosure);
+        const context_offset_with_padding = context_alignment.forward(context_offset_before_padding);
+        return context_offset_with_padding + context_len;
     }
 
     fn contextPointer(gc: *GroupClosure) [*]u8 {
         const base: [*]u8 = @ptrCast(gc);
-        return base + contextOffset(gc.context_alignment);
+        return @ptrFromInt(gc.context_alignment.forward(@intFromPtr(base + @sizeOf(GroupClosure))));
     }
 
     const sync_is_waiting: usize = 1 << 0;
