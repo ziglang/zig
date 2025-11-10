@@ -2885,6 +2885,7 @@ pub fn stackAlignment(target: *const Target) u16 {
         .ve,
         .wasm32,
         .wasm64,
+        .x86_64,
         => return 16,
         // Some of the following prongs should really be testing the ABI, but our current `Abi` enum
         // can't handle that level of nuance yet.
@@ -2897,7 +2898,7 @@ pub fn stackAlignment(target: *const Target) u16 {
         .riscv64be,
         => if (!target.cpu.has(.riscv, .e)) return 16,
         .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
-        .x86_64 => return 16,
+        .kvx => return 32,
         else => {},
     }
 
