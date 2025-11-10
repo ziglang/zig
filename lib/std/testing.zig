@@ -44,11 +44,17 @@ pub const backend_can_print = switch (builtin.zig_backend) {
     else => true,
 };
 
+/// Writer to be used by std.testing.print
+pub var output: ?std.io.AnyWriter = null;
+
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
         @compileError(std.fmt.comptimePrint(fmt, args));
     } else if (backend_can_print) {
-        std.debug.print(fmt, args);
+        if (output == null) {
+            output = std.io.getStdErr().writer().any();
+        }
+        output.?.print(fmt, args) catch return;
     }
 }
 
