@@ -50,6 +50,7 @@ pub const AT_L2_CACHESIZE = 44;
 pub const AT_L2_CACHEGEOMETRY = 45;
 pub const AT_L3_CACHESIZE = 46;
 pub const AT_L3_CACHEGEOMETRY = 47;
+pub const AT_MINSIGSTKSZ = 51;
 
 pub const DT_NULL = 0;
 pub const DT_NEEDED = 1;
@@ -286,105 +287,111 @@ pub const VER_FLG_BASE = 1;
 /// Weak version identifier
 pub const VER_FLG_WEAK = 2;
 
-/// Program header table entry unused
-pub const PT_NULL = 0;
-/// Loadable program segment
-pub const PT_LOAD = 1;
-/// Dynamic linking information
-pub const PT_DYNAMIC = 2;
-/// Program interpreter
-pub const PT_INTERP = 3;
-/// Auxiliary information
-pub const PT_NOTE = 4;
-/// Reserved
-pub const PT_SHLIB = 5;
-/// Entry for header table itself
-pub const PT_PHDR = 6;
-/// Thread-local storage segment
-pub const PT_TLS = 7;
-/// Number of defined types
-pub const PT_NUM = 8;
-/// Start of OS-specific
-pub const PT_LOOS = 0x60000000;
-/// GCC .eh_frame_hdr segment
-pub const PT_GNU_EH_FRAME = 0x6474e550;
-/// Indicates stack executability
-pub const PT_GNU_STACK = 0x6474e551;
-/// Read-only after relocation
-pub const PT_GNU_RELRO = 0x6474e552;
-pub const PT_LOSUNW = 0x6ffffffa;
-/// Sun specific segment
-pub const PT_SUNWBSS = 0x6ffffffa;
-/// Stack segment
-pub const PT_SUNWSTACK = 0x6ffffffb;
-pub const PT_HISUNW = 0x6fffffff;
-/// End of OS-specific
-pub const PT_HIOS = 0x6fffffff;
-/// Start of processor-specific
-pub const PT_LOPROC = 0x70000000;
-/// End of processor-specific
-pub const PT_HIPROC = 0x7fffffff;
+/// Deprecated, use `@intFromEnum(std.elf.PT.NULL)`
+pub const PT_NULL = @intFromEnum(std.elf.PT.NULL);
+/// Deprecated, use `@intFromEnum(std.elf.PT.LOAD)`
+pub const PT_LOAD = @intFromEnum(std.elf.PT.LOAD);
+/// Deprecated, use `@intFromEnum(std.elf.PT.DYNAMIC)`
+pub const PT_DYNAMIC = @intFromEnum(std.elf.PT.DYNAMIC);
+/// Deprecated, use `@intFromEnum(std.elf.PT.INTERP)`
+pub const PT_INTERP = @intFromEnum(std.elf.PT.INTERP);
+/// Deprecated, use `@intFromEnum(std.elf.PT.NOTE)`
+pub const PT_NOTE = @intFromEnum(std.elf.PT.NOTE);
+/// Deprecated, use `@intFromEnum(std.elf.PT.SHLIB)`
+pub const PT_SHLIB = @intFromEnum(std.elf.PT.SHLIB);
+/// Deprecated, use `@intFromEnum(std.elf.PT.PHDR)`
+pub const PT_PHDR = @intFromEnum(std.elf.PT.PHDR);
+/// Deprecated, use `@intFromEnum(std.elf.PT.TLS)`
+pub const PT_TLS = @intFromEnum(std.elf.PT.TLS);
+/// Deprecated, use `std.elf.PT.NUM`.
+pub const PT_NUM = PT.NUM;
+/// Deprecated, use `@intFromEnum(std.elf.PT.LOOS)`
+pub const PT_LOOS = @intFromEnum(std.elf.PT.LOOS);
+/// Deprecated, use `@intFromEnum(std.elf.PT.GNU_EH_FRAME)`
+pub const PT_GNU_EH_FRAME = @intFromEnum(std.elf.PT.GNU_EH_FRAME);
+/// Deprecated, use `@intFromEnum(std.elf.PT.GNU_STACK)`
+pub const PT_GNU_STACK = @intFromEnum(std.elf.PT.GNU_STACK);
+/// Deprecated, use `@intFromEnum(std.elf.PT.GNU_RELRO)`
+pub const PT_GNU_RELRO = @intFromEnum(std.elf.PT.GNU_RELRO);
+/// Deprecated, use `@intFromEnum(std.elf.PT.LOSUNW)`
+pub const PT_LOSUNW = @intFromEnum(std.elf.PT.LOSUNW);
+/// Deprecated, use `@intFromEnum(std.elf.PT.SUNWBSS)`
+pub const PT_SUNWBSS = @intFromEnum(std.elf.PT.SUNWBSS);
+/// Deprecated, use `@intFromEnum(std.elf.PT.SUNWSTACK)`
+pub const PT_SUNWSTACK = @intFromEnum(std.elf.PT.SUNWSTACK);
+/// Deprecated, use `@intFromEnum(std.elf.PT.HISUNW)`
+pub const PT_HISUNW = @intFromEnum(std.elf.PT.HISUNW);
+/// Deprecated, use `@intFromEnum(std.elf.PT.HIOS)`
+pub const PT_HIOS = @intFromEnum(std.elf.PT.HIOS);
+/// Deprecated, use `@intFromEnum(std.elf.PT.LOPROC)`
+pub const PT_LOPROC = @intFromEnum(std.elf.PT.LOPROC);
+/// Deprecated, use `@intFromEnum(std.elf.PT.HIPROC)`
+pub const PT_HIPROC = @intFromEnum(std.elf.PT.HIPROC);
 
 pub const PN_XNUM = 0xffff;
 
-/// Section header table entry unused
-pub const SHT_NULL = 0;
-/// Program data
-pub const SHT_PROGBITS = 1;
-/// Symbol table
-pub const SHT_SYMTAB = 2;
-/// String table
-pub const SHT_STRTAB = 3;
-/// Relocation entries with addends
-pub const SHT_RELA = 4;
-/// Symbol hash table
-pub const SHT_HASH = 5;
-/// Dynamic linking information
-pub const SHT_DYNAMIC = 6;
-/// Notes
-pub const SHT_NOTE = 7;
-/// Program space with no data (bss)
-pub const SHT_NOBITS = 8;
-/// Relocation entries, no addends
-pub const SHT_REL = 9;
-/// Reserved
-pub const SHT_SHLIB = 10;
-/// Dynamic linker symbol table
-pub const SHT_DYNSYM = 11;
-/// Array of constructors
-pub const SHT_INIT_ARRAY = 14;
-/// Array of destructors
-pub const SHT_FINI_ARRAY = 15;
-/// Array of pre-constructors
-pub const SHT_PREINIT_ARRAY = 16;
-/// Section group
-pub const SHT_GROUP = 17;
-/// Extended section indices
-pub const SHT_SYMTAB_SHNDX = 18;
-/// Start of OS-specific
-pub const SHT_LOOS = 0x60000000;
-/// LLVM address-significance table
-pub const SHT_LLVM_ADDRSIG = 0x6fff4c03;
-/// GNU hash table
-pub const SHT_GNU_HASH = 0x6ffffff6;
-/// GNU version definition table
-pub const SHT_GNU_VERDEF = 0x6ffffffd;
-/// GNU needed versions table
-pub const SHT_GNU_VERNEED = 0x6ffffffe;
-/// GNU symbol version table
-pub const SHT_GNU_VERSYM = 0x6fffffff;
-/// End of OS-specific
-pub const SHT_HIOS = 0x6fffffff;
-/// Start of processor-specific
-pub const SHT_LOPROC = 0x70000000;
-/// Unwind information
-pub const SHT_X86_64_UNWIND = 0x70000001;
-/// End of processor-specific
-pub const SHT_HIPROC = 0x7fffffff;
-/// Start of application-specific
-pub const SHT_LOUSER = 0x80000000;
-/// End of application-specific
-pub const SHT_HIUSER = 0xffffffff;
+/// Deprecated, use `@intFromEnum(std.elf.SHT.NULL)`
+pub const SHT_NULL = @intFromEnum(std.elf.SHT.NULL);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.PROGBITS)`
+pub const SHT_PROGBITS = @intFromEnum(std.elf.SHT.PROGBITS);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.SYMTAB)`
+pub const SHT_SYMTAB = @intFromEnum(std.elf.SHT.SYMTAB);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.STRTAB)`
+pub const SHT_STRTAB = @intFromEnum(std.elf.SHT.STRTAB);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.RELA)`
+pub const SHT_RELA = @intFromEnum(std.elf.SHT.RELA);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.HASH)`
+pub const SHT_HASH = @intFromEnum(std.elf.SHT.HASH);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.DYNAMIC)`
+pub const SHT_DYNAMIC = @intFromEnum(std.elf.SHT.DYNAMIC);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.NOTE)`
+pub const SHT_NOTE = @intFromEnum(std.elf.SHT.NOTE);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.NOBITS)`
+pub const SHT_NOBITS = @intFromEnum(std.elf.SHT.NOBITS);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.REL)`
+pub const SHT_REL = @intFromEnum(std.elf.SHT.REL);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.SHLIB)`
+pub const SHT_SHLIB = @intFromEnum(std.elf.SHT.SHLIB);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.DYNSYM)`
+pub const SHT_DYNSYM = @intFromEnum(std.elf.SHT.DYNSYM);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.INIT_ARRAY)`
+pub const SHT_INIT_ARRAY = @intFromEnum(std.elf.SHT.INIT_ARRAY);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.FINI_ARRAY)`
+pub const SHT_FINI_ARRAY = @intFromEnum(std.elf.SHT.FINI_ARRAY);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.PREINIT_ARRAY)`
+pub const SHT_PREINIT_ARRAY = @intFromEnum(std.elf.SHT.PREINIT_ARRAY);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.GROUP)`
+pub const SHT_GROUP = @intFromEnum(std.elf.SHT.GROUP);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.SYMTAB_SHNDX)`
+pub const SHT_SYMTAB_SHNDX = @intFromEnum(std.elf.SHT.SYMTAB_SHNDX);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.RELR)`
+pub const SHT_RELR = @intFromEnum(std.elf.SHT.RELR);
+/// Deprecated, use `std.elf.SHT.NUM`.
+pub const SHT_NUM = SHT.NUM;
+/// Deprecated, use `@intFromEnum(std.elf.SHT.LOOS)`
+pub const SHT_LOOS = @intFromEnum(std.elf.SHT.LOOS);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.LLVM_ADDRSIG)`
+pub const SHT_LLVM_ADDRSIG = @intFromEnum(std.elf.SHT.LLVM_ADDRSIG);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_HASH)`
+pub const SHT_GNU_HASH = @intFromEnum(std.elf.SHT.GNU_HASH);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_VERDEF)`
+pub const SHT_GNU_VERDEF = @intFromEnum(std.elf.SHT.GNU_VERDEF);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_VERNEED)`
+pub const SHT_GNU_VERNEED = @intFromEnum(std.elf.SHT.GNU_VERNEED);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_VERSYM)`
+pub const SHT_GNU_VERSYM = @intFromEnum(std.elf.SHT.GNU_VERSYM);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.HIOS)`
+pub const SHT_HIOS = @intFromEnum(std.elf.SHT.HIOS);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.LOPROC)`
+pub const SHT_LOPROC = @intFromEnum(std.elf.SHT.LOPROC);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.X86_64_UNWIND)`
+pub const SHT_X86_64_UNWIND = @intFromEnum(std.elf.SHT.X86_64_UNWIND);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.HIPROC)`
+pub const SHT_HIPROC = @intFromEnum(std.elf.SHT.HIPROC);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.LOUSER)`
+pub const SHT_LOUSER = @intFromEnum(std.elf.SHT.LOUSER);
+/// Deprecated, use `@intFromEnum(std.elf.SHT.HIUSER)`
+pub const SHT_HIUSER = @intFromEnum(std.elf.SHT.HIUSER);
 
 // Note type for .note.gnu.build_id
 pub const NT_GNU_BUILD_ID = 3;
@@ -453,6 +460,127 @@ pub const STT_HP_STUB = @intFromEnum(STT.HP_STUB);
 pub const STT_ARM_TFUNC = @intFromEnum(STT.ARM_TFUNC);
 /// Deprecated, use `@intFromEnum(std.elf.STT.ARM_16BIT)`
 pub const STT_ARM_16BIT = @intFromEnum(STT.ARM_16BIT);
+
+pub const PT = enum(Word) {
+    /// Program header table entry unused
+    NULL = 0,
+    /// Loadable program segment
+    LOAD = 1,
+    /// Dynamic linking information
+    DYNAMIC = 2,
+    /// Program interpreter
+    INTERP = 3,
+    /// Auxiliary information
+    NOTE = 4,
+    /// Reserved
+    SHLIB = 5,
+    /// Entry for header table itself
+    PHDR = 6,
+    /// Thread-local storage segment
+    TLS = 7,
+    _,
+
+    /// Number of defined types
+    pub const NUM = @typeInfo(PT).@"enum".fields.len;
+
+    /// Start of OS-specific
+    pub const LOOS: PT = @enumFromInt(0x60000000);
+    /// End of OS-specific
+    pub const HIOS: PT = @enumFromInt(0x6fffffff);
+
+    /// GCC .eh_frame_hdr segment
+    pub const GNU_EH_FRAME: PT = @enumFromInt(0x6474e550);
+    /// Indicates stack executability
+    pub const GNU_STACK: PT = @enumFromInt(0x6474e551);
+    /// Read-only after relocation
+    pub const GNU_RELRO: PT = @enumFromInt(0x6474e552);
+
+    pub const LOSUNW: PT = @enumFromInt(0x6ffffffa);
+    pub const HISUNW: PT = @enumFromInt(0x6fffffff);
+
+    /// Sun specific segment
+    pub const SUNWBSS: PT = @enumFromInt(0x6ffffffa);
+    /// Stack segment
+    pub const SUNWSTACK: PT = @enumFromInt(0x6ffffffb);
+
+    /// Start of processor-specific
+    pub const LOPROC: PT = @enumFromInt(0x70000000);
+    /// End of processor-specific
+    pub const HIPROC: PT = @enumFromInt(0x7fffffff);
+};
+
+pub const SHT = enum(Word) {
+    /// Section header table entry unused
+    NULL = 0,
+    /// Program data
+    PROGBITS = 1,
+    /// Symbol table
+    SYMTAB = 2,
+    /// String table
+    STRTAB = 3,
+    /// Relocation entries with addends
+    RELA = 4,
+    /// Symbol hash table
+    HASH = 5,
+    /// Dynamic linking information
+    DYNAMIC = 6,
+    /// Notes
+    NOTE = 7,
+    /// Program space with no data (bss)
+    NOBITS = 8,
+    /// Relocation entries, no addends
+    REL = 9,
+    /// Reserved
+    SHLIB = 10,
+    /// Dynamic linker symbol table
+    DYNSYM = 11,
+    /// Array of constructors
+    INIT_ARRAY = 14,
+    /// Array of destructors
+    FINI_ARRAY = 15,
+    /// Array of pre-constructors
+    PREINIT_ARRAY = 16,
+    /// Section group
+    GROUP = 17,
+    /// Extended section indices
+    SYMTAB_SHNDX = 18,
+    /// RELR relative relocations
+    RELR = 19,
+    _,
+
+    /// Number of defined types
+    pub const NUM = @typeInfo(SHT).@"enum".fields.len;
+
+    /// Start of OS-specific
+    pub const LOOS: SHT = @enumFromInt(0x60000000);
+    /// End of OS-specific
+    pub const HIOS: SHT = @enumFromInt(0x6fffffff);
+
+    /// LLVM address-significance table
+    pub const LLVM_ADDRSIG: SHT = @enumFromInt(0x6fff4c03);
+
+    /// GNU hash table
+    pub const GNU_HASH: SHT = @enumFromInt(0x6ffffff6);
+    /// GNU version definition table
+    pub const GNU_VERDEF: SHT = @enumFromInt(0x6ffffffd);
+    /// GNU needed versions table
+    pub const GNU_VERNEED: SHT = @enumFromInt(0x6ffffffe);
+    /// GNU symbol version table
+    pub const GNU_VERSYM: SHT = @enumFromInt(0x6fffffff);
+
+    /// Start of processor-specific
+    pub const LOPROC: SHT = @enumFromInt(0x70000000);
+    /// End of processor-specific
+    pub const HIPROC: SHT = @enumFromInt(0x7fffffff);
+
+    /// Unwind information
+    pub const X86_64_UNWIND: SHT = @enumFromInt(0x70000001);
+
+    /// Start of application-specific
+    pub const LOUSER: SHT = @enumFromInt(0x80000000);
+    /// End of application-specific
+    pub const HIUSER: SHT = @enumFromInt(0xffffffff);
+};
 
 pub const STB = enum(u4) {
     /// Local symbol
@@ -899,7 +1027,7 @@ pub const Elf32 = struct {
         shstrndx: Half,
     };
     pub const Phdr = extern struct {
-        type: Word,
+        type: PT,
         offset: Elf32.Off,
         vaddr: Elf32.Addr,
         paddr: Elf32.Addr,
@@ -910,7 +1038,7 @@ pub const Elf32 = struct {
     };
     pub const Shdr = extern struct {
         name: Word,
-        type: Word,
+        type: SHT,
         flags: packed struct { shf: SHF },
         addr: Elf32.Addr,
         offset: Elf32.Off,
@@ -989,7 +1117,7 @@ pub const Elf64 = struct {
         shstrndx: Half,
     };
     pub const Phdr = extern struct {
-        type: Word,
+        type: PT,
         flags: PF,
         offset: Elf64.Off,
         vaddr: Elf64.Addr,
@@ -1000,7 +1128,7 @@ pub const Elf64 = struct {
     };
     pub const Shdr = extern struct {
         name: Word,
-        type: Word,
+        type: SHT,
         flags: packed struct { shf: SHF, unused: Word = 0 },
         addr: Elf64.Addr,
         offset: Elf64.Off,
