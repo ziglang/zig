@@ -421,8 +421,7 @@
       {#code|unattached_doc-comment.zig#}
 
       <p>
-      Doc comments can be interleaved with normal comments. Currently, when producing
-      the package documentation, normal comments are merged with doc comments.
+      Doc comments can be interleaved with normal comments, which are ignored.
       </p>
       {#header_close#}
       {#header_open|Top-Level Doc Comments#}
