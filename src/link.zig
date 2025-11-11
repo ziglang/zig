@@ -1069,7 +1069,7 @@ pub const File = struct {
             errdefer archive.file.close();
             loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
                 error.BadMagic, error.UnexpectedEndOfFile => {
-                    if (base.tag != .elf) return err;
+                    if (base.tag != .elf and base.tag != .elf2) return err;
                     try loadGnuLdScript(base, path, query, archive.file);
                     archive.file.close();
                     return;
@@ -1091,7 +1091,7 @@ pub const File = struct {
         errdefer dso.file.close();
         loadInput(base, .{ .dso = dso }) catch |err| switch (err) {
             error.BadMagic, error.UnexpectedEndOfFile => {
-                if (base.tag != .elf) return err;
+                if (base.tag != .elf and base.tag != .elf2) return err;
                 try loadGnuLdScript(base, path, query, dso.file);
                 dso.file.close();
                 return;
@@ -1101,8 +1101,9 @@ pub const File = struct {
     }
 
     fn loadGnuLdScript(base: *File, path: Path, parent_query: UnresolvedInput.Query, file: fs.File) anyerror!void {
-        const diags = &base.comp.link_diags;
-        const gpa = base.comp.gpa;
+        const comp = base.comp;
+        const diags = &comp.link_diags;
+        const gpa = comp.gpa;
         const stat = try file.stat();
         const size = std.math.cast(u32, stat.size) orelse return error.FileTooBig;
         const buf = try gpa.alloc(u8, size);
@@ -1124,7 +1125,11 @@ pub const File = struct {
                 @panic("TODO");
             } else {
                 if (fs.path.isAbsolute(arg.path)) {
-                    const new_path = Path.initCwd(try gpa.dupe(u8, arg.path));
+                    const new_path = Path.initCwd(path: {
+                        comp.mutex.lock();
+                        defer comp.mutex.unlock();
+                        break :path try comp.arena.dupe(u8, arg.path);
+                    });
                     switch (Compilation.classifyFileExt(arg.path)) {
                         .shared_library => try openLoadDso(base, new_path, query),
                         .object => try openLoadObject(base, new_path),
