@@ -6762,6 +6762,153 @@ const ClangSearchSanitizer = struct {
     };
 };
 
+fn accessLibPath(
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList(u8),
+    lib_dir_path: []const u8,
+    lib_name: []const u8,
+    target: std.Target,
+    link_mode: std.builtin.LinkMode,
+) !bool {
+    const sep = fs.path.sep_str;
+
+    if (target.isDarwin() and link_mode == .dynamic) tbd: {
+        // Prefer .tbd over .dylib.
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "lib{s}.tbd", .{ lib_dir_path, lib_name });
+        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :tbd,
+            else => |e| fatal("unable to search for tbd library '{s}': {s}", .{
+                test_path.items, @errorName(e),
+            }),
+        };
+        return true;
+    }
+
+    main_check: {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
+            lib_dir_path,
+            target.libPrefix(),
+            lib_name,
+            switch (link_mode) {
+                .static => target.staticLibSuffix(),
+                .dynamic => target.dynamicLibSuffix(),
+            },
+        });
+        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :main_check,
+            else => |e| fatal("unable to search for {s} library '{s}': {s}", .{
+                @tagName(link_mode), test_path.items, @errorName(e),
+            }),
+        };
+        return true;
+    }
+
+    if (target.os.tag == .openbsd and link_mode == .dynamic) find_maj_min_sh_lib: {
+        test_path.clearRetainingCapacity();
+
+        var dir = fs.cwd().openDir(lib_dir_path, .{}) catch |err| switch (err) {
+            error.NotDir, error.FileNotFound => break :find_maj_min_sh_lib,
+            else => |e| fatal("unable to open '{s}': {s}", .{ lib_dir_path, @errorName(e) }),
+        };
+        defer dir.close();
+
+        var lib_version = std.SemanticVersion{
+            .major = 0,
+            .minor = 0,
+            .patch = 0, // only to satisfied SemanticVersion
+        };
+
+        var find = false;
+
+        var iter = dir.iterate();
+
+        while (iter.next() catch break :find_maj_min_sh_lib) |file| {
+            const name = try std.fmt.allocPrint(test_path.allocator, "lib{s}.so", .{lib_name});
+            defer test_path.allocator.free(name);
+
+            // If the current file name doesn't contain the "lib{s}.so" format, skip.
+            if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
+                continue;
+            }
+
+            // Library found
+            find = true;
+
+            const version_range = file.name[name.len + 1 ..];
+            const len = std.mem.indexOf(u8, version_range, ".").?;
+
+            const max = std.fmt.parseInt(usize, version_range[0..len], 10) catch |err| switch (err) {
+                error.InvalidCharacter => fatal(" {s} should follow `lib{s}.so.X.Y`", .{ file.name, lib_name }),
+                error.Overflow => fatal("Can't resolve this version due to overflow", .{}),
+            };
+
+            const min = std.fmt.parseInt(usize, version_range[len + 1 ..], 10) catch |err| switch (err) {
+                error.InvalidCharacter => fatal(" {s} should follow `lib{s}.so.X.Y` ", .{ file.name, lib_name }),
+                error.Overflow => fatal("Can't resolve this version due to overflow", .{}),
+            };
+
+            if (lib_version.major < max) {
+                lib_version.major = max;
+                lib_version.minor = min;
+            } else if (lib_version.major == max and lib_version.minor < min) {
+                lib_version.minor = min;
+            }
+        }
+
+        if (find) {
+            try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}.{d}.{d}", .{
+                lib_dir_path,
+                target.libPrefix(),
+                lib_name,
+                target.dynamicLibSuffix(),
+                lib_version.major,
+                lib_version.minor,
+            });
+
+            try checked_paths.writer().print("\n  {s}", .{test_path.items});
+            return true;
+        }
+    }
+
+    // In the case of Darwin, the main check will be .dylib, so here we
+    // additionally check for .so files.
+    if (target.isDarwin() and link_mode == .dynamic) so: {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, lib_name });
+        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :so,
+            else => |e| fatal("unable to search for so library '{s}': {s}", .{
+                test_path.items, @errorName(e),
+            }),
+        };
+        return true;
+    }
+
+    // In the case of MinGW, the main check will be .lib but we also need to
+    // look for `libfoo.a`.
+    if (target.isMinGW() and link_mode == .static) mingw: {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "lib{s}.a", .{
+            lib_dir_path, lib_name,
+        });
+        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :mingw,
+            else => |e| fatal("unable to search for static library '{s}': {s}", .{
+                test_path.items, @errorName(e),
+            }),
+        };
+        return true;
+    }
+
+    return false;
+}
+
 fn accessFrameworkPath(
     test_path: *std.array_list.Managed(u8),
     checked_paths: *std.array_list.Managed(u8),
