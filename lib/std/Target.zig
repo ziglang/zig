@@ -758,7 +758,6 @@ pub const Abi = enum {
     muslx32,
     msvc,
     itanium,
-    cygnus,
     simulator,
     macabi,
     ohos,
@@ -3208,7 +3207,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .long, .ulong => return 32,
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 80,
+                    .gnu, .ilp32 => return 80,
                     else => return 64,
                 },
             },
@@ -3216,13 +3215,10 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
-                .long, .ulong => switch (target.abi) {
-                    .cygnus => return 64,
-                    else => return 32,
-                },
+                .long, .ulong => return 32,
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 80,
+                    .gnu, .ilp32 => return 80,
                     else => return 64,
                 },
             },
@@ -3331,7 +3327,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .windows, .uefi => switch (c_type) {
                 .longlong, .ulonglong, .double => return 8,
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 4,
+                    .gnu, .ilp32 => return 4,
                     else => return 8,
                 },
                 else => {},
@@ -3438,7 +3434,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
         .x86 => switch (target.os.tag) {
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 4,
+                    .gnu, .ilp32 => return 4,
                     else => return 8,
                 },
                 else => {},

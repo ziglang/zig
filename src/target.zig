@@ -63,7 +63,7 @@ pub fn supports_fpic(target: *const std.Target) bool {
     return switch (target.os.tag) {
         .windows,
         .uefi,
-        => target.abi == .gnu or target.abi == .cygnus,
+        => target.abi == .gnu,
         else => true,
     };
 }
@@ -93,7 +93,6 @@ pub fn useEmulatedTls(target: *const std.Target) bool {
     if (target.abi.isOpenHarmony()) return true;
     return switch (target.os.tag) {
         .openbsd => true,
-        .windows => target.abi == .cygnus,
         else => false,
     };
 }

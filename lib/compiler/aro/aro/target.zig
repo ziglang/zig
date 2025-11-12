@@ -375,7 +375,7 @@ pub fn isWindowsMSVCEnvironment(target: std.Target) bool {
 }
 
 pub fn isCygwinMinGW(target: std.Target) bool {
-    return target.os.tag == .windows and (target.abi == .gnu or target.abi == .cygnus);
+    return target.os.tag == .windows and (target.abi == .gnu);
 }
 
 pub fn isPS(target: std.Target) bool {
@@ -727,7 +727,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
-        .cygnus => "cygnus",
         .simulator => "simulator",
         .macabi => "macabi",
         .ohos => "ohos",

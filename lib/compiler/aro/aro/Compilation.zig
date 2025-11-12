@@ -292,16 +292,9 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
                 }
                 try define(w, "__MSVCRT__");
                 try define(w, "__MINGW32__");
-            } else if (comp.target.abi == .cygnus) {
-                try define(w, "__CYGWIN__");
-                if (ptr_width == 64) {
-                    try define(w, "__CYGWIN64__");
-                } else {
-                    try define(w, "__CYGWIN32__");
-                }
             }
 
-            if (comp.target.abi.isGnu() or comp.target.abi == .cygnus) {
+            if (comp.target.abi.isGnu()) {
                 // MinGW and Cygwin define __declspec(a) to __attribute((a)).
                 // Like Clang we make the define no op if -fdeclspec is enabled.
                 if (comp.langopts.declspec_attrs) {
@@ -370,7 +363,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         .ps4,
         .ps5,
         => try defineStd(w, "unix", is_gnu),
-        .windows => if (comp.target.abi.isGnu() or comp.target.abi == .cygnus) {
+        .windows => if (comp.target.abi.isGnu()) {
             try defineStd(w, "unix", is_gnu);
         },
         else => {},

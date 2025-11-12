@@ -262,7 +262,6 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         .androideabi,
         .msvc,
         .itanium,
-        .cygnus,
         .simulator,
         .macabi,
         => unreachable,
