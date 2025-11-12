@@ -694,6 +694,8 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .work_item_id,
             .work_group_size,
             .work_group_id,
+            .deposit_bits,
+            .extract_bits,
             => {},
         }
     }

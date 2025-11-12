@@ -9567,10 +9567,14 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
 
-        .add_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .add_with_overflow),
-        .sub_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .sub_with_overflow),
-        .mul_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .mul_with_overflow),
-        .shl_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .shl_with_overflow),
+        // zig fmt: off
+        .add_with_overflow => return extendedBinOp(gz, scope, ri, node, params, .add_with_overflow),
+        .sub_with_overflow => return extendedBinOp(gz, scope, ri, node, params, .sub_with_overflow),
+        .mul_with_overflow => return extendedBinOp(gz, scope, ri, node, params, .mul_with_overflow),
+        .shl_with_overflow => return extendedBinOp(gz, scope, ri, node, params, .shl_with_overflow),
+        .deposit_bits      => return extendedBinOp(gz, scope, ri, node, params, .deposit_bits),
+        .extract_bits      => return extendedBinOp(gz, scope, ri, node, params, .extract_bits),
+        // zig fmt: on
 
         .atomic_load => {
             const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
@@ -10077,7 +10081,7 @@ fn cImport(
     return block_inst.toRef();
 }
 
-fn overflowArithmetic(
+fn extendedBinOp(
     gz: *GenZir,
     scope: *Scope,
     ri: ResultInfo,

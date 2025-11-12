@@ -1403,6 +1403,90 @@ zig_builtin_clz(16)
 zig_builtin_clz(32)
 zig_builtin_clz(64)
 
+#define zig_builtin_extract_bits(w) \
+    static inline uint##w##_t zig_extract_bits_u##w(uint##w##_t source, uint##w##_t mask_) { \
+        uint##w##_t current_bit = 1;\
+        uint##w##_t result = 0;\
+        uint##w##_t mask = mask_;\
+        \
+        while (mask != 0) {\
+            uint##w##_t bit = mask & ~(mask - 1);\
+            mask &= mask - 1;\
+            if ((source & bit) != 0) result |= current_bit;\
+            current_bit <<= 1;\
+        }\
+        \
+        return result;\
+    }
+
+#if zig_has_builtin(ia32_pext_di)
+    static inline uint64_t zig_extract_bits_u64(uint64_t source, uint64_t mask) {
+        return __builtin_ia32_pext_di(source, mask);
+    }
+#else
+zig_builtin_extract_bits(64)
+#endif
+
+#if zig_has_builtin(ia32_pext_si)
+    static inline uint32_t zig_extract_bits_u32(uint32_t source, uint32_t mask) {
+        return __builtin_ia32_pext_si(source, mask);
+    }
+
+    static inline uint16_t zig_extract_bits_u16(uint16_t source, uint16_t mask) {
+        return (uint16_t)__builtin_ia32_pext_si(source, mask);
+    }
+
+    static inline uint8_t zig_extract_bits_u8(uint8_t source, uint8_t mask) {
+        return (uint8_t)__builtin_ia32_pext_si(source, mask);
+    }
+#else
+zig_builtin_extract_bits(32)
+zig_builtin_extract_bits(16)
+zig_builtin_extract_bits(8)
+#endif
+
+#define zig_builtin_deposit_bits(w) \
+    static inline uint##w##_t zig_deposit_bits_u##w(uint##w##_t source, uint##w##_t mask_) { \
+        uint##w##_t current_bit = 1;\
+        uint##w##_t result = 0;\
+        uint##w##_t mask = mask_;\
+        \
+        while (mask != 0) {\
+            uint##w##_t bit = mask & ~(mask - 1);\
+            mask &= mask - 1;\
+            if ((source & current_bit) != 0) result |= bit; \
+            current_bit <<= 1;\
+        }\
+        \
+        return result;\
+    }
+
+#if zig_has_builtin(ia32_pext_di)
+    static inline uint64_t zig_deposit_bits_u64(uint64_t source, uint64_t mask) {
+        return __builtin_ia32_pdep_di(source, mask);
+    }
+#else
+zig_builtin_deposit_bits(64)
+#endif
+
+#if zig_has_builtin(ia32_pext_si)
+    static inline uint32_t zig_deposit_bits_u32(uint32_t source, uint32_t mask) {
+        return __builtin_ia32_pdep_si(source, mask);
+    }
+
+    static inline uint16_t zig_deposit_bits_u16(uint16_t source, uint16_t mask) {
+        return (uint16_t)__builtin_ia32_pdep_si(source, mask);
+    }
+
+    static inline uint8_t zig_deposit_bits_u8(uint8_t source, uint8_t mask) {
+        return (uint8_t)__builtin_ia32_pdep_si(source, mask);
+    }
+#else
+zig_builtin_deposit_bits(32)
+zig_builtin_deposit_bits(16)
+zig_builtin_deposit_bits(8)
+#endif
+
 /* ======================== 128-bit Integer Support ========================= */
 
 #if !defined(zig_has_int128)

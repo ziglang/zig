@@ -251,6 +251,8 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .deposit_bits,
+        .extract_bits,
         => unreachable,
         .ret_ptr => {
             const ty = air_data[@intFromEnum(air_inst_index)].ty;

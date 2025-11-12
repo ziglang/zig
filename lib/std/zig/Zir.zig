@@ -2129,6 +2129,12 @@ pub const Inst = struct {
         /// For example: Provided with error{Foo}!?f64, returns f64.
         /// `operand` is `operand: Air.Inst.Ref`.
         float_op_result_ty,
+        /// Implements the `@depositBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        deposit_bits,
+        /// Implements the `@extractBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        extract_bits,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -4453,6 +4459,8 @@ fn findTrackableInner(
                 .dbg_empty_stmt,
                 .astgen_error,
                 .float_op_result_ty,
+                .deposit_bits,
+                .extract_bits,
                 => return,
 
                 // `@TypeOf` has a body.

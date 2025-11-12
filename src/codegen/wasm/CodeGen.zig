@@ -2029,6 +2029,10 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .work_group_size,
         .work_group_id,
         => unreachable,
+
+        .deposit_bits,
+        .extract_bits,
+        => |tag| return cg.fail("TODO implement {s}", .{@tagName(tag)}),
     };
 }
 
