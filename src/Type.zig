@@ -198,9 +198,7 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
                         info.packed_offset.bit_offset, info.packed_offset.host_size,
                     });
                 }
-                if (info.flags.vector_index == .runtime) {
-                    try writer.writeAll(":?");
-                } else if (info.flags.vector_index != .none) {
+                if (info.flags.vector_index != .none) {
                     try writer.print(":{d}", .{@intFromEnum(info.flags.vector_index)});
                 }
                 try writer.writeAll(") ");
@@ -3113,7 +3111,7 @@ pub fn enumTagFieldIndex(ty: Type, enum_tag: Value, zcu: *const Zcu) ?u32 {
 pub fn structFieldName(ty: Type, index: usize, zcu: *const Zcu) InternPool.OptionalNullTerminatedString {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
-        .struct_type => ip.loadStructType(ty.toIntern()).fieldName(ip, index),
+        .struct_type => ip.loadStructType(ty.toIntern()).fieldName(ip, index).toOptional(),
         .tuple_type => .none,
         else => unreachable,
     };
@@ -3558,7 +3556,7 @@ pub fn packedStructFieldPtrInfo(
     } else .{
         switch (zcu.comp.getZigBackend()) {
             else => (running_bits + 7) / 8,
-            .stage2_x86_64 => @intCast(struct_ty.abiSize(zcu)),
+            .stage2_x86_64, .stage2_c => @intCast(struct_ty.abiSize(zcu)),
         },
         bit_offset,
     };
@@ -3985,7 +3983,7 @@ pub fn elemPtrType(ptr_ty: Type, offset: ?usize, pt: Zcu.PerThread) !Type {
         break :blk .{
             .host_size = @intCast(parent_ty.arrayLen(zcu)),
             .alignment = parent_ty.abiAlignment(zcu),
-            .vector_index = if (offset) |some| @enumFromInt(some) else .runtime,
+            .vector_index = @enumFromInt(offset.?),
         };
     } else .{};
 

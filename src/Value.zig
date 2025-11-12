@@ -574,166 +574,37 @@ pub fn writeToPackedMemory(
     }
 }
 
-/// Load a Value from the contents of `buffer`.
+/// Load a Value from the contents of `buffer`, where `ty` is an unsigned integer type.
 ///
 /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
 /// the end of the value in memory.
-pub fn readFromMemory(
+pub fn readUintFromMemory(
     ty: Type,
     pt: Zcu.PerThread,
     buffer: []const u8,
     arena: Allocator,
-) error{
-    IllDefinedMemoryLayout,
-    Unimplemented,
-    OutOfMemory,
-}!Value {
+) Allocator.Error!Value {
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const target = zcu.getTarget();
-    const endian = target.cpu.arch.endian();
-    switch (ty.zigTypeTag(zcu)) {
-        .void => return Value.void,
-        .bool => {
-            if (buffer[0] == 0) {
-                return Value.false;
-            } else {
-                return Value.true;
-            }
-        },
-        .int, .@"enum" => |ty_tag| {
-            const int_ty = switch (ty_tag) {
-                .int => ty,
-                .@"enum" => ty.intTagType(zcu),
-                else => unreachable,
-            };
-            const int_info = int_ty.intInfo(zcu);
-            const bits = int_info.bits;
-            const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
-            if (bits == 0 or buffer.len == 0) return zcu.getCoerced(try zcu.intValue(int_ty, 0), ty);
+    const endian = zcu.getTarget().cpu.arch.endian();
 
-            if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
-                .signed => {
-                    const val = std.mem.readVarInt(i64, buffer[0..byte_count], endian);
-                    const result = (val << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
-                    return zcu.getCoerced(try zcu.intValue(int_ty, result), ty);
-                },
-                .unsigned => {
-                    const val = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
-                    const result = (val << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
-                    return zcu.getCoerced(try zcu.intValue(int_ty, result), ty);
-                },
-            } else { // Slow path, we have to construct a big-int
-                const Limb = std.math.big.Limb;
-                const limb_count = (byte_count + @sizeOf(Limb) - 1) / @sizeOf(Limb);
-                const limbs_buffer = try arena.alloc(Limb, limb_count);
+    assert(ty.isUnsignedInt(zcu));
+    const bits = ty.intInfo(zcu).bits;
+    const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
 
-                var bigint = BigIntMutable.init(limbs_buffer, 0);
-                bigint.readTwosComplement(buffer[0..byte_count], bits, endian, int_info.signedness);
-                return zcu.getCoerced(try zcu.intValue_big(int_ty, bigint.toConst()), ty);
-            }
-        },
-        .float => return Value.fromInterned(try pt.intern(.{ .float = .{
-            .ty = ty.toIntern(),
-            .storage = switch (ty.floatBits(target)) {
-                16 => .{ .f16 = @bitCast(std.mem.readInt(u16, buffer[0..2], endian)) },
-                32 => .{ .f32 = @bitCast(std.mem.readInt(u32, buffer[0..4], endian)) },
-                64 => .{ .f64 = @bitCast(std.mem.readInt(u64, buffer[0..8], endian)) },
-                80 => .{ .f80 = @bitCast(std.mem.readInt(u80, buffer[0..10], endian)) },
-                128 => .{ .f128 = @bitCast(std.mem.readInt(u128, buffer[0..16], endian)) },
-                else => unreachable,
-            },
-        } })),
-        .array => {
-            const elem_ty = ty.childType(zcu);
-            const elem_size = elem_ty.abiSize(zcu);
-            const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(zcu)));
-            var offset: usize = 0;
-            for (elems) |*elem| {
-                elem.* = (try readFromMemory(elem_ty, zcu, buffer[offset..], arena)).toIntern();
-                offset += @intCast(elem_size);
-            }
-            return pt.aggregateValue(ty, elems);
-        },
-        .vector => {
-            // We use byte_count instead of abi_size here, so that any padding bytes
-            // follow the data bytes, on both big- and little-endian systems.
-            const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
-            return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
-        },
-        .@"struct" => {
-            const struct_type = zcu.typeToStruct(ty).?;
-            switch (struct_type.layout) {
-                .auto => unreachable, // Sema is supposed to have emitted a compile error already
-                .@"extern" => {
-                    const field_types = struct_type.field_types;
-                    const field_vals = try arena.alloc(InternPool.Index, field_types.len);
-                    for (field_vals, 0..) |*field_val, i| {
-                        const field_ty = Type.fromInterned(field_types.get(ip)[i]);
-                        const off: usize = @intCast(ty.structFieldOffset(i, zcu));
-                        const sz: usize = @intCast(field_ty.abiSize(zcu));
-                        field_val.* = (try readFromMemory(field_ty, zcu, buffer[off..(off + sz)], arena)).toIntern();
-                    }
-                    return pt.aggregateValue(ty, field_vals);
-                },
-                .@"packed" => {
-                    const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
-                    return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
-                },
-            }
-        },
-        .error_set => {
-            const bits = zcu.errorSetBits();
-            const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
-            const int = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
-            const index = (int << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
-            const name = zcu.global_error_set.keys()[@intCast(index)];
+    assert(buffer.len >= byte_count);
 
-            return Value.fromInterned(try pt.intern(.{ .err = .{
-                .ty = ty.toIntern(),
-                .name = name,
-            } }));
-        },
-        .@"union" => switch (ty.containerLayout(zcu)) {
-            .auto => return error.IllDefinedMemoryLayout,
-            .@"extern" => {
-                const union_size = ty.abiSize(zcu);
-                const array_ty = try zcu.arrayType(.{ .len = union_size, .child = .u8_type });
-                const val = (try readFromMemory(array_ty, zcu, buffer, arena)).toIntern();
-                return Value.fromInterned(try pt.internUnion(.{
-                    .ty = ty.toIntern(),
-                    .tag = .none,
-                    .val = val,
-                }));
-            },
-            .@"packed" => {
-                const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
-                return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
-            },
-        },
-        .pointer => {
-            assert(!ty.isSlice(zcu)); // No well defined layout.
-            const int_val = try readFromMemory(Type.usize, zcu, buffer, arena);
-            return Value.fromInterned(try pt.intern(.{ .ptr = .{
-                .ty = ty.toIntern(),
-                .base_addr = .int,
-                .byte_offset = int_val.toUnsignedInt(zcu),
-            } }));
-        },
-        .optional => {
-            assert(ty.isPtrLikeOptional(zcu));
-            const child_ty = ty.optionalChild(zcu);
-            const child_val = try readFromMemory(child_ty, zcu, buffer, arena);
-            return Value.fromInterned(try pt.intern(.{ .opt = .{
-                .ty = ty.toIntern(),
-                .val = switch (child_val.orderAgainstZero(pt)) {
-                    .lt => unreachable,
-                    .eq => .none,
-                    .gt => child_val.toIntern(),
-                },
-            } }));
-        },
-        else => return error.Unimplemented,
+    if (bits <= 64) {
+        const val = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
+        const result = (val << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
+        return pt.intValue(ty, result);
+    } else {
+        const Limb = std.math.big.Limb;
+        const limb_count = (byte_count + @sizeOf(Limb) - 1) / @sizeOf(Limb);
+        const limbs_buffer = try arena.alloc(Limb, limb_count);
+
+        var bigint: BigIntMutable = .init(limbs_buffer, 0);
+        bigint.readTwosComplement(buffer[0..byte_count], bits, endian, .unsigned);
+        return pt.intValue_big(ty, bigint.toConst());
     }
 }
 

@@ -37,6 +37,7 @@ pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
             .expand_packed_load = true,
             .expand_packed_store = true,
             .expand_packed_struct_field_val = true,
+            .expand_packed_aggregate_init = true,
         }),
     };
 }
@@ -1392,114 +1393,21 @@ pub const DeclGen = struct {
                             try w.writeByte('}');
                         },
                         .@"packed" => {
-                            const int_info = ty.intInfo(zcu);
-
-                            const bits = Type.smallestUnsignedBits(int_info.bits - 1);
-                            const bit_offset_ty = try pt.intType(.unsigned, bits);
-
-                            var bit_offset: u64 = 0;
-                            var eff_num_fields: usize = 0;
-
-                            for (0..loaded_struct.field_types.len) |field_index| {
-                                const field_ty: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                                if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-                                eff_num_fields += 1;
-                            }
-
-                            if (eff_num_fields == 0) {
-                                try w.writeByte('(');
-                                try dg.renderUndefValue(w, ty, location);
-                                try w.writeByte(')');
-                            } else if (ty.bitSize(zcu) > 64) {
-                                // zig_or_u128(zig_or_u128(zig_shl_u128(a, a_off), zig_shl_u128(b, b_off)), zig_shl_u128(c, c_off))
-                                var num_or = eff_num_fields - 1;
-                                while (num_or > 0) : (num_or -= 1) {
-                                    try w.writeAll("zig_or_");
-                                    try dg.renderTypeForBuiltinFnName(w, ty);
-                                    try w.writeByte('(');
-                                }
-
-                                var eff_index: usize = 0;
-                                var needs_closing_paren = false;
-                                for (0..loaded_struct.field_types.len) |field_index| {
-                                    const field_ty: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                                    if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-                                    const field_val = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
-                                        .bytes => |bytes| try pt.intern(.{ .int = .{
-                                            .ty = field_ty.toIntern(),
-                                            .storage = .{ .u64 = bytes.at(field_index, ip) },
-                                        } }),
-                                        .elems => |elems| elems[field_index],
-                                        .repeated_elem => |elem| elem,
-                                    };
-                                    const cast_context = IntCastContext{ .value = .{ .value = Value.fromInterned(field_val) } };
-                                    if (bit_offset != 0) {
-                                        try w.writeAll("zig_shl_");
-                                        try dg.renderTypeForBuiltinFnName(w, ty);
-                                        try w.writeByte('(');
-                                        try dg.renderIntCast(w, ty, cast_context, field_ty, .FunctionArgument);
-                                        try w.writeAll(", ");
-                                        try dg.renderValue(w, try pt.intValue(bit_offset_ty, bit_offset), .FunctionArgument);
-                                        try w.writeByte(')');
-                                    } else {
-                                        try dg.renderIntCast(w, ty, cast_context, field_ty, .FunctionArgument);
-                                    }
-
-                                    if (needs_closing_paren) try w.writeByte(')');
-                                    if (eff_index != eff_num_fields - 1) try w.writeAll(", ");
-
-                                    bit_offset += field_ty.bitSize(zcu);
-                                    needs_closing_paren = true;
-                                    eff_index += 1;
-                                }
-                            } else {
-                                try w.writeByte('(');
-                                // a << a_off | b << b_off | c << c_off
-                                var empty = true;
-                                for (0..loaded_struct.field_types.len) |field_index| {
-                                    const field_ty: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                                    if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-                                    if (!empty) try w.writeAll(" | ");
-                                    try w.writeByte('(');
-                                    try dg.renderCType(w, ctype);
-                                    try w.writeByte(')');
-
-                                    const field_val = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
-                                        .bytes => |bytes| try pt.intern(.{ .int = .{
-                                            .ty = field_ty.toIntern(),
-                                            .storage = .{ .u64 = bytes.at(field_index, ip) },
-                                        } }),
-                                        .elems => |elems| elems[field_index],
-                                        .repeated_elem => |elem| elem,
-                                    };
-
-                                    const field_int_info: std.builtin.Type.Int = if (field_ty.isAbiInt(zcu))
-                                        field_ty.intInfo(zcu)
-                                    else
-                                        .{ .signedness = .unsigned, .bits = undefined };
-                                    switch (field_int_info.signedness) {
-                                        .signed => {
-                                            try w.writeByte('(');
-                                            try dg.renderValue(w, Value.fromInterned(field_val), .Other);
-                                            try w.writeAll(" & ");
-                                            const field_uint_ty = try pt.intType(.unsigned, field_int_info.bits);
-                                            try dg.renderValue(w, try field_uint_ty.maxIntScalar(pt, field_uint_ty), .Other);
-                                            try w.writeByte(')');
-                                        },
-                                        .unsigned => try dg.renderValue(w, Value.fromInterned(field_val), .Other),
-                                    }
-                                    if (bit_offset != 0) {
-                                        try w.writeAll(" << ");
-                                        try dg.renderValue(w, try pt.intValue(bit_offset_ty, bit_offset), .FunctionArgument);
-                                    }
-
-                                    bit_offset += field_ty.bitSize(zcu);
-                                    empty = false;
-                                }
-                                try w.writeByte(')');
-                            }
+                            // https://github.com/ziglang/zig/issues/24657 will eliminate most of the
+                            // following logic, leaving only the recursive `renderValue` call. Once
+                            // that proposal is implemented, a `packed struct` will literally be
+                            // represented in the InternPool by its comptime-known backing integer.
+                            var arena: std.heap.ArenaAllocator = .init(zcu.gpa);
+                            defer arena.deinit();
+                            const backing_ty: Type = .fromInterned(loaded_struct.backingIntTypeUnordered(ip));
+                            const buf = try arena.allocator().alloc(u8, @intCast(ty.abiSize(zcu)));
+                            val.writeToMemory(pt, buf) catch |err| switch (err) {
+                                error.IllDefinedMemoryLayout => unreachable,
+                                error.OutOfMemory => |e| return e,
+                                error.ReinterpretDeclRef, error.Unimplemented => return dg.fail("TODO: C backend: lower packed struct value", .{}),
+                            };
+                            const backing_val: Value = try .readUintFromMemory(backing_ty, pt, buf, arena.allocator());
+                            return dg.renderValue(w, backing_val, location);
                         },
                     }
                 },
@@ -1507,33 +1415,38 @@ pub const DeclGen = struct {
             },
             .un => |un| {
                 const loaded_union = ip.loadUnionType(ty.toIntern());
+                if (loaded_union.flagsUnordered(ip).layout == .@"packed") {
+                    // https://github.com/ziglang/zig/issues/24657 will eliminate most of the
+                    // following logic, leaving only the recursive `renderValue` call. Once
+                    // that proposal is implemented, a `packed union` will literally be
+                    // represented in the InternPool by its comptime-known backing integer.
+                    var arena: std.heap.ArenaAllocator = .init(zcu.gpa);
+                    defer arena.deinit();
+                    const backing_ty = try ty.unionBackingType(pt);
+                    const buf = try arena.allocator().alloc(u8, @intCast(ty.abiSize(zcu)));
+                    val.writeToMemory(pt, buf) catch |err| switch (err) {
+                        error.IllDefinedMemoryLayout => unreachable,
+                        error.OutOfMemory => |e| return e,
+                        error.ReinterpretDeclRef, error.Unimplemented => return dg.fail("TODO: C backend: lower packed union value", .{}),
+                    };
+                    const backing_val: Value = try .readUintFromMemory(backing_ty, pt, buf, arena.allocator());
+                    return dg.renderValue(w, backing_val, location);
+                }
                 if (un.tag == .none) {
                     const backing_ty = try ty.unionBackingType(pt);
-                    switch (loaded_union.flagsUnordered(ip).layout) {
-                        .@"packed" => {
-                            if (!location.isInitializer()) {
-                                try w.writeByte('(');
-                                try dg.renderType(w, backing_ty);
-                                try w.writeByte(')');
-                            }
-                            try dg.renderValue(w, Value.fromInterned(un.val), location);
-                        },
-                        .@"extern" => {
-                            if (location == .StaticInitializer) {
-                                return dg.fail("TODO: C backend: implement extern union backing type rendering in static initializers", .{});
-                            }
-
-                            const ptr_ty = try pt.singleConstPtrType(ty);
-                            try w.writeAll("*((");
-                            try dg.renderType(w, ptr_ty);
-                            try w.writeAll(")(");
-                            try dg.renderType(w, backing_ty);
-                            try w.writeAll("){");
-                            try dg.renderValue(w, Value.fromInterned(un.val), location);
-                            try w.writeAll("})");
-                        },
-                        else => unreachable,
+                    assert(loaded_union.flagsUnordered(ip).layout == .@"extern");
+                    if (location == .StaticInitializer) {
+                        return dg.fail("TODO: C backend: implement extern union backing type rendering in static initializers", .{});
                     }
+
+                    const ptr_ty = try pt.singleConstPtrType(ty);
+                    try w.writeAll("*((");
+                    try dg.renderType(w, ptr_ty);
+                    try w.writeAll(")(");
+                    try dg.renderType(w, backing_ty);
+                    try w.writeAll("){");
+                    try dg.renderValue(w, Value.fromInterned(un.val), location);
+                    try w.writeAll("})");
                 } else {
                     if (!location.isInitializer()) {
                         try w.writeByte('(');
@@ -1544,21 +1457,6 @@ pub const DeclGen = struct {
                     const field_index = zcu.unionTagFieldIndex(loaded_union, Value.fromInterned(un.tag)).?;
                     const field_ty: Type = .fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     const field_name = loaded_union.loadTagType(ip).names.get(ip)[field_index];
-                    if (loaded_union.flagsUnordered(ip).layout == .@"packed") {
-                        if (field_ty.hasRuntimeBits(zcu)) {
-                            if (field_ty.isPtrAtRuntime(zcu)) {
-                                try w.writeByte('(');
-                                try dg.renderCType(w, ctype);
-                                try w.writeByte(')');
-                            } else if (field_ty.zigTypeTag(zcu) == .float) {
-                                try w.writeByte('(');
-                                try dg.renderCType(w, ctype);
-                                try w.writeByte(')');
-                            }
-                            try dg.renderValue(w, Value.fromInterned(un.val), location);
-                        } else try w.writeByte('0');
-                        return;
-                    }
 
                     const has_tag = loaded_union.hasTag(ip);
                     if (has_tag) try w.writeByte('{');
@@ -1745,9 +1643,11 @@ pub const DeclGen = struct {
                             }
                             return w.writeByte('}');
                         },
-                        .@"packed" => return w.print("{f}", .{
-                            try dg.fmtIntLiteralHex(try pt.undefValue(ty), .Other),
-                        }),
+                        .@"packed" => return dg.renderUndefValue(
+                            w,
+                            .fromInterned(loaded_struct.backingIntTypeUnordered(ip)),
+                            location,
+                        ),
                     }
                 },
                 .tuple_type => |tuple_info| {
@@ -1815,9 +1715,11 @@ pub const DeclGen = struct {
                             }
                             if (has_tag) try w.writeByte('}');
                         },
-                        .@"packed" => return w.print("{f}", .{
-                            try dg.fmtIntLiteralHex(try pt.undefValue(ty), .Other),
-                        }),
+                        .@"packed" => return dg.renderUndefValue(
+                            w,
+                            try ty.unionBackingType(pt),
+                            location,
+                        ),
                     }
                 },
                 .error_union_type => |error_union_type| switch (ctype.info(ctype_pool)) {
@@ -2445,10 +2347,7 @@ pub const DeclGen = struct {
         const ty = val.typeOf(zcu);
         return .{ .data = .{
             .dg = dg,
-            .int_info = if (ty.zigTypeTag(zcu) == .@"union" and ty.containerLayout(zcu) == .@"packed")
-                .{ .signedness = .unsigned, .bits = @intCast(ty.bitSize(zcu)) }
-            else
-                ty.intInfo(zcu),
+            .int_info = ty.intInfo(zcu),
             .kind = kind,
             .ctype = try dg.ctypeFromType(ty, kind),
             .val = val,
@@ -3426,6 +3325,10 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             // zig fmt: off
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
+            // No "scalarize" legalizations are enabled, so these instructions never appear.
+            .legalize_vec_elem_val   => unreachable,
+            .legalize_vec_store_elem => unreachable,
+
             .arg      => try airArg(f, inst),
 
             .breakpoint => try airBreakpoint(f),
@@ -3656,7 +3559,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
 
             .is_named_enum_value => return f.fail("TODO: C backend: implement is_named_enum_value", .{}),
             .error_set_has_value => return f.fail("TODO: C backend: implement error_set_has_value", .{}),
-            .vector_store_elem => return f.fail("TODO: C backend: implement vector_store_elem", .{}),
 
             .runtime_nav_ptr => try airRuntimeNavPtr(f, inst),
 
@@ -3899,6 +3801,24 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     });
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.new_local });
     try f.allocs.put(zcu.gpa, local.new_local, true);
+
+    switch (elem_ty.zigTypeTag(zcu)) {
+        .@"struct", .@"union" => switch (elem_ty.containerLayout(zcu)) {
+            .@"packed" => {
+                // For packed aggregates, we zero-initialize to try and work around a design flaw
+                // related to how `packed`, `undefined`, and RLS interact. See comment in `airStore`
+                // for details.
+                const w = &f.object.code.writer;
+                try w.print("memset(&t{d}, 0x00, sizeof(", .{local.new_local});
+                try f.renderType(w, elem_ty);
+                try w.writeAll("));");
+                try f.object.newline();
+            },
+            .auto, .@"extern" => {},
+        },
+        else => {},
+    }
+
     return .{ .local_ref = local.new_local };
 }
 
@@ -3918,6 +3838,24 @@ fn airRetPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     });
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.new_local });
     try f.allocs.put(zcu.gpa, local.new_local, true);
+
+    switch (elem_ty.zigTypeTag(zcu)) {
+        .@"struct", .@"union" => switch (elem_ty.containerLayout(zcu)) {
+            .@"packed" => {
+                // For packed aggregates, we zero-initialize to try and work around a design flaw
+                // related to how `packed`, `undefined`, and RLS interact. See comment in `airStore`
+                // for details.
+                const w = &f.object.code.writer;
+                try w.print("memset(&t{d}, 0x00, sizeof(", .{local.new_local});
+                try f.renderType(w, elem_ty);
+                try w.writeAll("));");
+                try f.object.newline();
+            },
+            .auto, .@"extern" => {},
+        },
+        else => {},
+    }
+
     return .{ .local_ref = local.new_local };
 }
 
@@ -3956,6 +3894,10 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const ptr_info = ptr_scalar_ty.ptrInfo(zcu);
     const src_ty: Type = .fromInterned(ptr_info.child);
 
+    // `Air.Legalize.Feature.expand_packed_load` should ensure that the only
+    // bit-pointers we see here are vector element pointers.
+    assert(ptr_info.packed_offset.host_size == 0 or ptr_info.flags.vector_index != .none);
+
     if (!src_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
         try reap(f, inst, &.{ty_op.operand});
         return .none;
@@ -3987,40 +3929,6 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
         try w.writeAll(", sizeof(");
         try f.renderType(w, src_ty);
         try w.writeAll("))");
-    } else if (ptr_info.packed_offset.host_size > 0 and ptr_info.flags.vector_index == .none) {
-        const host_bits: u16 = ptr_info.packed_offset.host_size * 8;
-        const host_ty = try pt.intType(.unsigned, host_bits);
-
-        const bit_offset_ty = try pt.intType(.unsigned, Type.smallestUnsignedBits(host_bits - 1));
-        const bit_offset_val = try pt.intValue(bit_offset_ty, ptr_info.packed_offset.bit_offset);
-
-        const field_ty = try pt.intType(.unsigned, @as(u16, @intCast(src_ty.bitSize(zcu))));
-
-        try f.writeCValue(w, local, .Other);
-        try v.elem(f, w);
-        try w.writeAll(" = (");
-        try f.renderType(w, src_ty);
-        try w.writeAll(")zig_wrap_");
-        try f.object.dg.renderTypeForBuiltinFnName(w, field_ty);
-        try w.writeAll("((");
-        try f.renderType(w, field_ty);
-        try w.writeByte(')');
-        const cant_cast = host_ty.isInt(zcu) and host_ty.bitSize(zcu) > 64;
-        if (cant_cast) {
-            if (field_ty.bitSize(zcu) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
-            try w.writeAll("zig_lo_");
-            try f.object.dg.renderTypeForBuiltinFnName(w, host_ty);
-            try w.writeByte('(');
-        }
-        try w.writeAll("zig_shr_");
-        try f.object.dg.renderTypeForBuiltinFnName(w, host_ty);
-        try w.writeByte('(');
-        try f.writeCValueDeref(w, operand);
-        try v.elem(f, w);
-        try w.print(", {f})", .{try f.fmtIntLiteralDec(bit_offset_val)});
-        if (cant_cast) try w.writeByte(')');
-        try f.object.dg.renderBuiltinInfo(w, field_ty, .bits);
-        try w.writeByte(')');
     } else {
         try f.writeCValue(w, local, .Other);
         try v.elem(f, w);
@@ -4213,6 +4121,10 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const ptr_scalar_ty = ptr_ty.scalarType(zcu);
     const ptr_info = ptr_scalar_ty.ptrInfo(zcu);
 
+    // `Air.Legalize.Feature.expand_packed_store` should ensure that the only
+    // bit-pointers we see here are vector element pointers.
+    assert(ptr_info.packed_offset.host_size == 0 or ptr_info.flags.vector_index != .none);
+
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.typeOf(bin_op.rhs);
 
@@ -4222,9 +4134,24 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     if (val_is_undef) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         if (safety and ptr_info.packed_offset.host_size == 0) {
+            // If the thing we're initializing is a packed struct/union, we set to 0 instead of
+            // 0xAA. This is a hack to work around a problem with partially-undefined packed
+            // aggregates. If we used 0xAA here, then a later initialization through RLS would
+            // not zero the high padding bits (for a packed type which is not 8/16/32/64/etc bits),
+            // so we would get a miscompilation. Using 0x00 here avoids this bug in some cases. It
+            // is *not* a correct fix; for instance it misses any case where packed structs are
+            // nested in other aggregates. A proper fix for this will involve changing the language,
+            // such as to remove RLS. This just prevents miscompilations in *some* common cases.
+            const byte_str: []const u8 = switch (src_ty.zigTypeTag(zcu)) {
+                else => "0xaa",
+                .@"struct", .@"union" => switch (src_ty.containerLayout(zcu)) {
+                    .auto, .@"extern" => "0xaa",
+                    .@"packed" => "0x00",
+                },
+            };
             try w.writeAll("memset(");
             try f.writeCValue(w, ptr_val, .FunctionArgument);
-            try w.writeAll(", 0xaa, sizeof(");
+            try w.print(", {s}, sizeof(", .{byte_str});
             try f.renderType(w, .fromInterned(ptr_info.child));
             try w.writeAll("));");
             try f.object.newline();
@@ -4276,66 +4203,6 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try f.freeCValue(inst, array_src);
         try w.writeByte(';');
         try f.object.newline();
-        try v.end(f, inst, w);
-    } else if (ptr_info.packed_offset.host_size > 0 and ptr_info.flags.vector_index == .none) {
-        const host_bits = ptr_info.packed_offset.host_size * 8;
-        const host_ty = try pt.intType(.unsigned, host_bits);
-
-        const bit_offset_ty = try pt.intType(.unsigned, Type.smallestUnsignedBits(host_bits - 1));
-        const bit_offset_val = try pt.intValue(bit_offset_ty, ptr_info.packed_offset.bit_offset);
-
-        const src_bits = src_ty.bitSize(zcu);
-
-        const ExpectedContents = [BigInt.Managed.default_capacity]BigIntLimb;
-        var stack align(@alignOf(ExpectedContents)) =
-            std.heap.stackFallback(@sizeOf(ExpectedContents), f.object.dg.gpa);
-
-        var mask = try BigInt.Managed.initCapacity(stack.get(), BigInt.calcTwosCompLimbCount(host_bits));
-        defer mask.deinit();
-
-        try mask.setTwosCompIntLimit(.max, .unsigned, @intCast(src_bits));
-        try mask.shiftLeft(&mask, ptr_info.packed_offset.bit_offset);
-        try mask.bitNotWrap(&mask, .unsigned, host_bits);
-
-        const mask_val = try pt.intValue_big(host_ty, mask.toConst());
-
-        const v = try Vectorize.start(f, inst, w, ptr_ty);
-        const a = try Assignment.start(f, w, src_scalar_ctype);
-        try f.writeCValueDeref(w, ptr_val);
-        try v.elem(f, w);
-        try a.assign(f, w);
-        try w.writeAll("zig_or_");
-        try f.object.dg.renderTypeForBuiltinFnName(w, host_ty);
-        try w.writeAll("(zig_and_");
-        try f.object.dg.renderTypeForBuiltinFnName(w, host_ty);
-        try w.writeByte('(');
-        try f.writeCValueDeref(w, ptr_val);
-        try v.elem(f, w);
-        try w.print(", {f}), zig_shl_", .{try f.fmtIntLiteralHex(mask_val)});
-        try f.object.dg.renderTypeForBuiltinFnName(w, host_ty);
-        try w.writeByte('(');
-        const cant_cast = host_ty.isInt(zcu) and host_ty.bitSize(zcu) > 64;
-        if (cant_cast) {
-            if (src_ty.bitSize(zcu) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
-            try w.writeAll("zig_make_");
-            try f.object.dg.renderTypeForBuiltinFnName(w, host_ty);
-            try w.writeAll("(0, ");
-        } else {
-            try w.writeByte('(');
-            try f.renderType(w, host_ty);
-            try w.writeByte(')');
-        }
-
-        if (src_ty.isPtrAtRuntime(zcu)) {
-            try w.writeByte('(');
-            try f.renderType(w, .usize);
-            try w.writeByte(')');
-        }
-        try f.writeCValue(w, src_val, .Other);
-        try v.elem(f, w);
-        if (cant_cast) try w.writeByte(')');
-        try w.print(", {f}))", .{try f.fmtIntLiteralDec(bit_offset_val)});
-        try a.end(f, w);
         try v.end(f, inst, w);
     } else {
         switch (ptr_val) {
@@ -6015,10 +5882,7 @@ fn fieldLocation(
                 else if (!field_ptr_ty.childType(zcu).hasRuntimeBitsIgnoreComptime(zcu))
                     .{ .byte_offset = loaded_struct.offsets.get(ip)[field_index] }
                 else
-                    .{ .field = if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name|
-                        .{ .identifier = field_name.toSlice(ip) }
-                    else
-                        .{ .field = field_index } },
+                    .{ .field = .{ .identifier = loaded_struct.fieldName(ip, field_index).toSlice(ip) } },
                 .@"packed" => if (field_ptr_ty.ptrInfo(zcu).packed_offset.host_size == 0)
                     .{ .byte_offset = @divExact(zcu.structPackedFieldBitOffset(loaded_struct, field_index) +
                         container_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset, 8) }
@@ -6202,115 +6066,20 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     // Ensure complete type definition is visible before accessing fields.
     _ = try f.ctypeFromType(struct_ty, .complete);
 
+    assert(struct_ty.containerLayout(zcu) != .@"packed"); // `Air.Legalize.Feature.expand_packed_struct_field_val` handles this case
     const field_name: CValue = switch (ip.indexToKey(struct_ty.toIntern())) {
-        .struct_type => field_name: {
-            const loaded_struct = ip.loadStructType(struct_ty.toIntern());
-            switch (loaded_struct.layout) {
-                .auto, .@"extern" => break :field_name if (loaded_struct.fieldName(ip, extra.field_index).unwrap()) |field_name|
-                    .{ .identifier = field_name.toSlice(ip) }
-                else
-                    .{ .field = extra.field_index },
-                .@"packed" => {
-                    const int_info = struct_ty.intInfo(zcu);
-
-                    const bit_offset_ty = try pt.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
-
-                    const bit_offset = zcu.structPackedFieldBitOffset(loaded_struct, extra.field_index);
-
-                    const field_int_signedness = if (inst_ty.isAbiInt(zcu))
-                        inst_ty.intInfo(zcu).signedness
-                    else
-                        .unsigned;
-                    const field_int_ty = try pt.intType(field_int_signedness, @as(u16, @intCast(inst_ty.bitSize(zcu))));
-
-                    const temp_local = try f.allocLocal(inst, field_int_ty);
-                    try f.writeCValue(w, temp_local, .Other);
-                    try w.writeAll(" = zig_wrap_");
-                    try f.object.dg.renderTypeForBuiltinFnName(w, field_int_ty);
-                    try w.writeAll("((");
-                    try f.renderType(w, field_int_ty);
-                    try w.writeByte(')');
-                    const cant_cast = int_info.bits > 64;
-                    if (cant_cast) {
-                        if (field_int_ty.bitSize(zcu) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
-                        try w.writeAll("zig_lo_");
-                        try f.object.dg.renderTypeForBuiltinFnName(w, struct_ty);
-                        try w.writeByte('(');
-                    }
-                    if (bit_offset > 0) {
-                        try w.writeAll("zig_shr_");
-                        try f.object.dg.renderTypeForBuiltinFnName(w, struct_ty);
-                        try w.writeByte('(');
-                    }
-                    try f.writeCValue(w, struct_byval, .Other);
-                    if (bit_offset > 0) try w.print(", {f})", .{
-                        try f.fmtIntLiteralDec(try pt.intValue(bit_offset_ty, bit_offset)),
-                    });
-                    if (cant_cast) try w.writeByte(')');
-                    try f.object.dg.renderBuiltinInfo(w, field_int_ty, .bits);
-                    try w.writeAll(");");
-                    try f.object.newline();
-                    if (inst_ty.eql(field_int_ty, zcu)) return temp_local;
-
-                    const local = try f.allocLocal(inst, inst_ty);
-                    if (local.new_local != temp_local.new_local) {
-                        try w.writeAll("memcpy(");
-                        try f.writeCValue(w, .{ .local_ref = local.new_local }, .FunctionArgument);
-                        try w.writeAll(", ");
-                        try f.writeCValue(w, .{ .local_ref = temp_local.new_local }, .FunctionArgument);
-                        try w.writeAll(", sizeof(");
-                        try f.renderType(w, inst_ty);
-                        try w.writeAll("));");
-                        try f.object.newline();
-                    }
-                    try freeLocal(f, inst, temp_local.new_local, null);
-                    return local;
-                },
+        .struct_type => .{ .identifier = struct_ty.structFieldName(extra.field_index, zcu).unwrap().?.toSlice(ip) },
+        .union_type => name: {
+            const union_type = ip.loadUnionType(struct_ty.toIntern());
+            const enum_tag_ty: Type = .fromInterned(union_type.enum_tag_ty);
+            const field_name_str = enum_tag_ty.enumFieldName(extra.field_index, zcu).toSlice(ip);
+            if (union_type.hasTag(ip)) {
+                break :name .{ .payload_identifier = field_name_str };
+            } else {
+                break :name .{ .identifier = field_name_str };
             }
         },
         .tuple_type => .{ .field = extra.field_index },
-        .union_type => field_name: {
-            const loaded_union = ip.loadUnionType(struct_ty.toIntern());
-            switch (loaded_union.flagsUnordered(ip).layout) {
-                .auto, .@"extern" => {
-                    const name = loaded_union.loadTagType(ip).names.get(ip)[extra.field_index];
-                    break :field_name if (loaded_union.hasTag(ip))
-                        .{ .payload_identifier = name.toSlice(ip) }
-                    else
-                        .{ .identifier = name.toSlice(ip) };
-                },
-                .@"packed" => {
-                    const operand_lval = if (struct_byval == .constant) blk: {
-                        const operand_local = try f.allocLocal(inst, struct_ty);
-                        try f.writeCValue(w, operand_local, .Other);
-                        try w.writeAll(" = ");
-                        try f.writeCValue(w, struct_byval, .Other);
-                        try w.writeByte(';');
-                        try f.object.newline();
-                        break :blk operand_local;
-                    } else struct_byval;
-                    const local = try f.allocLocal(inst, inst_ty);
-                    if (switch (local) {
-                        .new_local, .local => |local_index| switch (operand_lval) {
-                            .new_local, .local => |operand_local_index| local_index != operand_local_index,
-                            else => true,
-                        },
-                        else => true,
-                    }) {
-                        try w.writeAll("memcpy(&");
-                        try f.writeCValue(w, local, .Other);
-                        try w.writeAll(", &");
-                        try f.writeCValue(w, operand_lval, .Other);
-                        try w.writeAll(", sizeof(");
-                        try f.renderType(w, inst_ty);
-                        try w.writeAll("));");
-                        try f.object.newline();
-                    }
-                    try f.freeCValue(inst, operand_lval);
-                    return local;
-                },
-            }
-        },
         else => unreachable,
     };
 
@@ -7702,98 +7471,13 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
                         const a = try Assignment.start(f, w, try f.ctypeFromType(field_ty, .complete));
-                        try f.writeCValueMember(w, local, if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name|
-                            .{ .identifier = field_name.toSlice(ip) }
-                        else
-                            .{ .field = field_index });
+                        try f.writeCValueMember(w, local, .{ .identifier = loaded_struct.fieldName(ip, field_index).toSlice(ip) });
                         try a.assign(f, w);
                         try f.writeCValue(w, resolved_elements[field_index], .Other);
                         try a.end(f, w);
                     }
                 },
-                .@"packed" => {
-                    try f.writeCValue(w, local, .Other);
-                    try w.writeAll(" = ");
-
-                    const backing_int_ty: Type = .fromInterned(loaded_struct.backingIntTypeUnordered(ip));
-                    const int_info = backing_int_ty.intInfo(zcu);
-
-                    const bit_offset_ty = try pt.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
-
-                    var bit_offset: u64 = 0;
-
-                    var empty = true;
-                    for (0..elements.len) |field_index| {
-                        if (inst_ty.structFieldIsComptime(field_index, zcu)) continue;
-                        const field_ty = inst_ty.fieldType(field_index, zcu);
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-                        if (!empty) {
-                            try w.writeAll("zig_or_");
-                            try f.object.dg.renderTypeForBuiltinFnName(w, inst_ty);
-                            try w.writeByte('(');
-                        }
-                        empty = false;
-                    }
-                    empty = true;
-                    for (resolved_elements, 0..) |element, field_index| {
-                        if (inst_ty.structFieldIsComptime(field_index, zcu)) continue;
-                        const field_ty = inst_ty.fieldType(field_index, zcu);
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-                        if (!empty) try w.writeAll(", ");
-                        // TODO: Skip this entire shift if val is 0?
-                        try w.writeAll("zig_shlw_");
-                        try f.object.dg.renderTypeForBuiltinFnName(w, inst_ty);
-                        try w.writeByte('(');
-
-                        if (field_ty.isAbiInt(zcu)) {
-                            try w.writeAll("zig_and_");
-                            try f.object.dg.renderTypeForBuiltinFnName(w, inst_ty);
-                            try w.writeByte('(');
-                        }
-
-                        if (inst_ty.isAbiInt(zcu) and (field_ty.isAbiInt(zcu) or field_ty.isPtrAtRuntime(zcu))) {
-                            try f.renderIntCast(w, inst_ty, element, .{}, field_ty, .FunctionArgument);
-                        } else {
-                            try w.writeByte('(');
-                            try f.renderType(w, inst_ty);
-                            try w.writeByte(')');
-                            if (field_ty.isPtrAtRuntime(zcu)) {
-                                try w.writeByte('(');
-                                try f.renderType(w, switch (int_info.signedness) {
-                                    .unsigned => .usize,
-                                    .signed => .isize,
-                                });
-                                try w.writeByte(')');
-                            }
-                            try f.writeCValue(w, element, .Other);
-                        }
-
-                        if (field_ty.isAbiInt(zcu)) {
-                            try w.writeAll(", ");
-                            const field_int_info = field_ty.intInfo(zcu);
-                            const field_mask = if (int_info.signedness == .signed and int_info.bits == field_int_info.bits)
-                                try pt.intValue(backing_int_ty, -1)
-                            else
-                                try (try pt.intType(.unsigned, field_int_info.bits)).maxIntScalar(pt, backing_int_ty);
-                            try f.object.dg.renderValue(w, field_mask, .FunctionArgument);
-                            try w.writeByte(')');
-                        }
-
-                        try w.print(", {f}", .{
-                            try f.fmtIntLiteralDec(try pt.intValue(bit_offset_ty, bit_offset)),
-                        });
-                        try f.object.dg.renderBuiltinInfo(w, inst_ty, .bits);
-                        try w.writeByte(')');
-                        if (!empty) try w.writeByte(')');
-
-                        bit_offset += field_ty.bitSize(zcu);
-                        empty = false;
-                    }
-                    try w.writeByte(';');
-                    try f.object.newline();
-                },
+                .@"packed" => unreachable, // `Air.Legalize.Feature.expand_packed_struct_init` handles this case
             }
         },
         .tuple_type => |tuple_info| for (0..tuple_info.types.len) |field_index| {
@@ -7828,8 +7512,9 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{extra.init});
 
     const w = &f.object.code.writer;
-    const local = try f.allocLocal(inst, union_ty);
     if (loaded_union.flagsUnordered(ip).layout == .@"packed") return f.moveCValue(inst, union_ty, payload);
+
+    const local = try f.allocLocal(inst, union_ty);
 
     const field: CValue = if (union_ty.unionTagTypeSafety(zcu)) |tag_ty| field: {
         const layout = union_ty.unionGetLayout(zcu);

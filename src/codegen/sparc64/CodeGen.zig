@@ -479,6 +479,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         self.reused_operands = @TypeOf(self.reused_operands).initEmpty();
         switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
+
+            // No "scalarize" legalizations are enabled, so these instructions never appear.
+            .legalize_vec_elem_val   => unreachable,
+            .legalize_vec_store_elem => unreachable,
+
             .ptr_add => try self.airPtrArithmetic(inst, .ptr_add),
             .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),
 
@@ -702,7 +707,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
             .error_set_has_value => @panic("TODO implement error_set_has_value"),
-            .vector_store_elem => @panic("TODO implement vector_store_elem"),
             .runtime_nav_ptr => @panic("TODO implement runtime_nav_ptr"),
 
             .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),

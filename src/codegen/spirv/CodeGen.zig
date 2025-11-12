@@ -1520,8 +1520,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
-                const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                    try ip.getOrPutStringFmt(zcu.gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+                const field_name = struct_type.fieldName(ip, field_index);
                 try member_types.append(try cg.resolveType(field_ty, .indirect));
                 try member_names.append(field_name.toSlice(ip));
                 try member_offsets.append(@intCast(ty.structFieldOffset(field_index, zcu)));
@@ -2725,8 +2724,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .ptr_elem_ptr   => try cg.airPtrElemPtr(inst),
             .ptr_elem_val   => try cg.airPtrElemVal(inst),
             .array_elem_val => try cg.airArrayElemVal(inst),
-
-            .vector_store_elem  => return cg.airVectorStoreElem(inst),
 
             .set_union_tag => return cg.airSetUnionTag(inst),
             .get_union_tag => try cg.airGetUnionTag(inst),
@@ -4444,29 +4441,6 @@ fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const index_id = try cg.resolve(bin_op.rhs);
     const elem_ptr_id = try cg.ptrElemPtr(ptr_ty, ptr_id, index_id);
     return try cg.load(elem_ty, elem_ptr_id, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
-}
-
-fn airVectorStoreElem(cg: *CodeGen, inst: Air.Inst.Index) !void {
-    const zcu = cg.module.zcu;
-    const data = cg.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
-    const extra = cg.air.extraData(Air.Bin, data.payload).data;
-
-    const vector_ptr_ty = cg.typeOf(data.vector_ptr);
-    const vector_ty = vector_ptr_ty.childType(zcu);
-    const scalar_ty = vector_ty.scalarType(zcu);
-
-    const scalar_ty_id = try cg.resolveType(scalar_ty, .indirect);
-    const storage_class = cg.module.storageClass(vector_ptr_ty.ptrAddressSpace(zcu));
-    const scalar_ptr_ty_id = try cg.module.ptrType(scalar_ty_id, storage_class);
-
-    const vector_ptr = try cg.resolve(data.vector_ptr);
-    const index = try cg.resolve(extra.lhs);
-    const operand = try cg.resolve(extra.rhs);
-
-    const elem_ptr_id = try cg.accessChainId(scalar_ptr_ty_id, vector_ptr, &.{index});
-    try cg.store(scalar_ty, elem_ptr_id, operand, .{
-        .is_volatile = vector_ptr_ty.isVolatilePtr(zcu),
-    });
 }
 
 fn airSetUnionTag(cg: *CodeGen, inst: Air.Inst.Index) !void {

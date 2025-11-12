@@ -660,8 +660,8 @@ pub const Inst = struct {
         /// Given a pointer to a slice, return a pointer to the pointer of the slice.
         /// Uses the `ty_op` field.
         ptr_slice_ptr_ptr,
-        /// Given an (array value or vector value) and element index,
-        /// return the element value at that index.
+        /// Given an (array value or vector value) and element index, return the element value at
+        /// that index. If the lhs is a vector value, the index is guaranteed to be comptime-known.
         /// Result type is the element type of the array operand.
         /// Uses the `bin_op` field.
         array_elem_val,
@@ -874,10 +874,6 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field.
         save_err_return_trace_index,
 
-        /// Store an element to a vector pointer at an index.
-        /// Uses the `vector_store_elem` field.
-        vector_store_elem,
-
         /// Compute a pointer to a `Nav` at runtime, always one of:
         ///
         /// * `threadlocal var`
@@ -918,6 +914,26 @@ pub const Inst = struct {
         /// Uses the `pl_op` field, payload is the dimension to get the work group id for.
         /// Operand is unused and set to Ref.none
         work_group_id,
+
+        // The remaining instructions are not emitted by Sema. They are only emitted by `Legalize`,
+        // depending on the enabled features. As such, backends can consider them `unreachable` if
+        // they do not enable the relevant legalizations.
+
+        /// Given a pointer to a vector, a runtime-known index, and a scalar value, store the value
+        /// into the vector at the given index. Zig does not support this operation, but `Legalize`
+        /// may emit it when scalarizing vector operations.
+        ///
+        /// Uses the `pl_op` field with payload `Bin`. `operand` is the vector pointer. `lhs` is the
+        /// element index of type `usize`. `rhs` is the element value. Result is always void.
+        legalize_vec_store_elem,
+        /// Given a vector value and a runtime-known index, return the element value at that index.
+        /// This instruction is similar to `array_elem_val`; the only difference is that the index
+        /// here is runtime-known, which is usually not allowed for vectors. `Legalize` may emit
+        /// this instruction when scalarizing vector operations.
+        ///
+        /// Uses the `bin_op` field. `lhs` is the vector pointer. `rhs` is the element index. Result
+        /// type is the vector element type.
+        legalize_vec_elem_val,
 
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
@@ -1219,11 +1235,6 @@ pub const Inst = struct {
         reduce: struct {
             operand: Ref,
             operation: std.builtin.ReduceOp,
-        },
-        vector_store_elem: struct {
-            vector_ptr: Ref,
-            // Index into a different array.
-            payload: u32,
         },
         ty_nav: struct {
             ty: InternPool.Index,
@@ -1689,8 +1700,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .set_union_tag,
         .prefetch,
         .set_err_return_trace,
-        .vector_store_elem,
         .c_va_end,
+        .legalize_vec_store_elem,
         => return .void,
 
         .slice_len,
@@ -1709,7 +1720,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
             return .fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
         },
 
-        .slice_elem_val, .ptr_elem_val, .array_elem_val => {
+        .slice_elem_val, .ptr_elem_val, .array_elem_val, .legalize_vec_elem_val => {
             const ptr_ty = air.typeOf(datas[@intFromEnum(inst)].bin_op.lhs, ip);
             return ptr_ty.childTypeIp(ip);
         },
@@ -1857,7 +1868,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .prefetch,
         .wasm_memory_grow,
         .set_err_return_trace,
-        .vector_store_elem,
         .c_va_arg,
         .c_va_copy,
         .c_va_end,
@@ -1868,6 +1878,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .intcast_safe,
         .int_from_float_safe,
         .int_from_float_optimized_safe,
+        .legalize_vec_store_elem,
         => true,
 
         .add,
@@ -2013,6 +2024,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .legalize_vec_elem_val,
         => false,
 
         .is_non_null_ptr, .is_null_ptr, .is_non_err_ptr, .is_err_ptr => air.typeOf(data.un_op, ip).isVolatilePtrIp(ip),
