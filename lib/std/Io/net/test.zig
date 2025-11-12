@@ -343,3 +343,53 @@ test "non-blocking tcp server" {
     const msg = buf[0..len];
     try testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
+
+test "decompress compressed DNS name" {
+    const packet = &[_]u8{
+        // Header section
+        // ----------------------------------------------------------
+        0x00, 0x00, // ID: 0
+        0x81, 0x80, // Flags (QR:1, RCODE:0, etc.)
+        0x00, 0x01, // QDCOUNT: 1 (Question Count)
+        0x00, 0x01, // ANCOUNT: 1 (Answer Count)
+        0x00, 0x00, // NSCOUNT: 0
+        0x00, 0x00, // ARCOUNT: 0
+        // ----------------------------------------------------------
+
+        // Question section (12 byte offset)
+        // ----------------------------------------------------------
+        // QNAME: "www.ziglang.org"
+        0x03, 'w', 'w', 'w', // label
+        0x07, 'z', 'i', 'g', 'l', 'a', 'n', 'g', // label
+        0x03, 'o', 'r', 'g', // label
+        0x00, // null label
+        0x00, 0x01, // QTYPE: A
+        0x00, 0x01, // QCLASS: IN
+        // ----------------------------------------------------------
+
+        // Resource Record (Answer) (33 byte offset)
+        // ----------------------------------------------------------
+        0xc0, 0x0c, // NAME: pointer to 0x0c ("www.ziglang.org")
+        0x00, 0x05, // TYPE: CNAME
+        0x00, 0x01, // CLASS: IN
+        0x00, 0x00, 0x01, 0x00, // TTL: 256 (seconds)
+        0x00, 0x06, // RDLENGTH: 6 bytes
+
+        // RDATA (45 byte offset): "target.ziglang.org" (compressed)
+        0x06, 't', 'a', 'r', 'g', 'e', 't', // 6, "target"
+        0xc0, 0x10, // pointer (0xc0 flag) to 0x10 byte offset ("ziglang.org")
+        // ----------------------------------------------------------
+    };
+
+    // The start index of the CNAME RDATA is 45
+    const cname_data_index = 45;
+    var dest_buffer: [net.HostName.max_len]u8 = undefined;
+
+    const n_consumed, const result = try net.HostName.expand(
+        packet,
+        cname_data_index,
+        &dest_buffer,
+    );
+    try testing.expectEqual(packet.len - cname_data_index, n_consumed);
+    try testing.expectEqualStrings("target.ziglang.org", result.bytes);
+}
