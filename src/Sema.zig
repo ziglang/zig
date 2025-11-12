@@ -25528,9 +25528,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += 1;
         if (extra.data.bits.ret_ty_is_generic) break :blk .generic_poison;
 
-        const ret_ty_air_ref = try sema.resolveInst(ret_ty_ref);
-        const ret_ty_val = try sema.resolveConstDefinedValue(block, ret_src, ret_ty_air_ref, .{ .simple = .function_ret_ty });
-        break :blk ret_ty_val.toType();
+        break :blk try sema.resolveType(block, ret_src, ret_ty_ref);
     } else .void;
 
     const noalias_bits: u32 = if (extra.data.bits.has_any_noalias) blk: {
