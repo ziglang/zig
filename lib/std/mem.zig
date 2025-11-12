@@ -19,7 +19,7 @@ pub const byte_size_in_bits = 8;
 pub const Allocator = @import("mem/Allocator.zig");
 
 /// Stored as a power-of-two.
-pub const Alignment = enum(math.Log2Int(usize)) {
+pub const Alignment = enum(math.Log2Int(u29)) {
     @"1" = 0,
     @"2" = 1,
     @"4" = 2,
