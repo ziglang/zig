@@ -4137,8 +4137,8 @@ fn collectSubtypes(ty: Type, pt: Zcu.PerThread, visited: *std.AutoArrayHashMapUn
 
 fn shouldDedupeType(ty: Type, ctx: *Comparison, pt: Zcu.PerThread) error{OutOfMemory}!Comparison.DedupeEntry {
     if (ctx.type_occurrences.get(ty)) |occ| {
-        if (ctx.type_dedupe_cache.getEntry(ty)) |entry| {
-            return entry.value_ptr.*;
+        if (ctx.type_dedupe_cache.get(ty)) |cached| {
+            return cached;
         }
 
         var discarding: std.Io.Writer.Discarding = .init(&.{});
@@ -4152,7 +4152,8 @@ fn shouldDedupeType(ty: Type, ctx: *Comparison, pt: Zcu.PerThread) error{OutOfMe
         const min_saved_bytes: i32 = 10;
 
         const saved_bytes = (type_len - placeholder_len) * (occ - 1);
-        const should_dedupe = saved_bytes >= min_saved_bytes;
+        const max_placeholders = 7; // T to Z
+        const should_dedupe = saved_bytes >= min_saved_bytes and ctx.placeholder_index < max_placeholders;
 
         const entry: Comparison.DedupeEntry = if (should_dedupe) b: {
             ctx.placeholder_index += 1;
@@ -4222,25 +4223,6 @@ pub const Comparison = struct {
 
         pub fn format(self: Comparison.Formatter, writer: anytype) error{WriteFailed}!void {
             print(self.ty, writer, self.pt, self.ctx) catch return error.WriteFailed;
-        }
-    };
-
-    pub fn iterPlaceholders(ctx: *Comparison) Comparison.PlaceholdersIterator {
-        return .{ .i = 0, .iter = ctx.type_dedupe_cache.iterator() };
-    }
-    pub const PlaceholdersIterator = struct {
-        i: u32,
-        iter: std.AutoArrayHashMapUnmanaged(Type, DedupeEntry).Iterator,
-
-        pub fn next(s: *PlaceholdersIterator) ?struct { Placeholder, Type } {
-            while (true)
-                if (s.iter.next()) |entry|
-                    switch (entry.value_ptr.*) {
-                        .dedupe => |placeholder| return .{ placeholder, entry.key_ptr.* },
-                        .dont_dedupe => continue,
-                    }
-                else
-                    return null;
         }
     };
 };

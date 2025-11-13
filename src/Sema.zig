@@ -2602,9 +2602,9 @@ fn typeMismatchErrMsg(sema: *Sema, src: LazySrcLoc, expected: Type, found: Type)
     });
     errdefer msg.destroy(sema.gpa);
 
-    var placeholders_iter = cmp.iterPlaceholders();
-    while (placeholders_iter.next()) |kv| {
-        const placeholder, const ty = kv;
+    for (cmp.type_dedupe_cache.keys(), cmp.type_dedupe_cache.values()) |ty, value| {
+        if (value == .dont_dedupe) continue;
+        const placeholder = value.dedupe;
         try sema.errNote(src, msg, "{f} = {f}", .{ placeholder, ty.fmt(pt) });
     }
 
