@@ -156,7 +156,7 @@ impl: Impl,
 pub const max_name_len = switch (native_os) {
     .linux => 15,
     .windows => 31,
-    .macos, .ios, .watchos, .tvos, .visionos => 63,
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => 63,
     .netbsd => 31,
     .freebsd => 15,
     .openbsd => 23,
@@ -234,7 +234,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 else => |err| return windows.unexpectedStatus(err),
             }
         },
-        .macos, .ios, .watchos, .tvos, .visionos => if (use_pthreads) {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => if (use_pthreads) {
             // There doesn't seem to be a way to set the name for an arbitrary thread, only the current one.
             if (self.getHandle() != std.c.pthread_self()) return error.Unsupported;
 
@@ -351,7 +351,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 else => |err| return windows.unexpectedStatus(err),
             }
         },
-        .macos, .ios, .watchos, .tvos, .visionos => if (use_pthreads) {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
             switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
@@ -411,7 +411,7 @@ pub const Id = switch (native_os) {
     .wasi,
     .serenity,
     => u32,
-    .macos, .ios, .watchos, .tvos, .visionos => u64,
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => u64,
     .windows => windows.DWORD,
     else => usize,
 };
@@ -741,7 +741,7 @@ const PosixThreadImpl = struct {
             .linux => {
                 return LinuxThreadImpl.getCurrentId();
             },
-            .macos, .ios, .watchos, .tvos, .visionos => {
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
                 var thread_id: u64 = undefined;
                 // Pass thread=null to get the current thread ID.
                 assert(c.pthread_threadid_np(null, &thread_id) == 0);
@@ -1734,7 +1734,7 @@ test "setName, getName" {
     context.test_done_event.wait();
 
     switch (native_os) {
-        .macos, .ios, .watchos, .tvos, .visionos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             const res = thread.setName("foobar");
             try std.testing.expectError(error.Unsupported, res);
         },

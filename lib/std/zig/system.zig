@@ -81,7 +81,7 @@ pub fn getExternalExecutor(
     // If the OS match and OS is macOS and CPU is arm64, we can use Rosetta 2
     // to emulate the foreign architecture.
     if (options.allow_rosetta and os_match and
-        host.os.tag == .macos and host.cpu.arch == .aarch64)
+        (host.os.tag == .maccatalyst or host.os.tag == .macos) and host.cpu.arch == .aarch64)
     {
         switch (candidate.cpu.arch) {
             .x86_64 => return .rosetta,

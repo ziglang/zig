@@ -2131,7 +2131,7 @@ const signal_ucontext_t = switch (native_os) {
         },
     },
     // https://github.com/ziglang/zig/blob/60be67d3c0ba6ae15fa7115596734ab1e74fbcd3/lib/libc/include/any-macos-any/sys/_types/_ucontext.h
-    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .watchos, .visionos => extern struct {
         _onstack: i32,
         _sigmask: std.c.sigset_t,
         _stack: std.c.stack_t,

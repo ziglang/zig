@@ -1467,6 +1467,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
     // generation, independent of the argument order.
     if (kernel_or_kext and
         (!(target.os.tag != .ios) or (target.os.isAtLeast(.ios, .{ .major = 6, .minor = 0, .patch = 0 }) orelse false)) and
+        (!(target.os.tag != .maccatalyst) or (target.os.isAtLeast(.maccatalyst, .{ .major = 6, .minor = 0, .patch = 0 }) orelse false)) and
         !(target.os.tag != .watchos) and
         !(target.os.tag != .driverkit))
     {

@@ -83,7 +83,7 @@ pub fn defaultQueryPageSize() usize {
             @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
         else
             std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
             if (task_port == std.c.TASK.NULL) break :size 0;
@@ -155,7 +155,7 @@ const CAllocator = struct {
     else {};
 
     pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .illumos, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
+        .dragonfly, .netbsd, .freebsd, .illumos, .openbsd, .linux, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .serenity => true,
         else => false,
     };
 
@@ -703,7 +703,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
 }
 
 const page_size_min_default: ?usize = switch (builtin.os.tag) {
-    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
         .x86_64 => 4 << 10,
         .aarch64 => 16 << 10,
         else => null,
@@ -862,7 +862,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
 };
 
 const page_size_max_default: ?usize = switch (builtin.os.tag) {
-    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
         .x86_64 => 4 << 10,
         .aarch64 => 16 << 10,
         else => null,

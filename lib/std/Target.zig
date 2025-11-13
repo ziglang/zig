@@ -39,6 +39,7 @@ pub const Os = struct {
 
         driverkit,
         ios,
+        maccatalyst,
         macos,
         tvos,
         visionos,
@@ -78,6 +79,7 @@ pub const Os = struct {
             return switch (tag) {
                 .driverkit,
                 .ios,
+                .maccatalyst,
                 .macos,
                 .tvos,
                 .visionos,
@@ -121,6 +123,7 @@ pub const Os = struct {
                 .windows, .uefi => ".dll",
                 .driverkit,
                 .ios,
+                .maccatalyst,
                 .macos,
                 .tvos,
                 .visionos,
@@ -180,8 +183,9 @@ pub const Os = struct {
                 .openbsd,
 
                 .driverkit,
-                .macos,
                 .ios,
+                .maccatalyst,
+                .macos,
                 .tvos,
                 .visionos,
                 .watchos,
@@ -546,7 +550,7 @@ pub const Os = struct {
                         .max = .{ .major = 15, .minor = 6, .patch = 0 },
                     },
                 },
-                .ios => .{
+                .ios, .maccatalyst => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
                         .max = .{ .major = 18, .minor = 6, .patch = 0 },
@@ -759,7 +763,6 @@ pub const Abi = enum {
     msvc,
     itanium,
     simulator,
-    macabi,
     ohos,
     ohoseabi,
 
@@ -885,8 +888,6 @@ pub const Abi = enum {
                 => .eabihf,
                 else => .none,
             },
-            .ios => if (arch == .x86_64) .macabi else .none,
-            .tvos, .visionos, .watchos => if (arch == .x86_64) .simulator else .none,
             .windows => .gnu,
             .uefi => .msvc,
             .@"3ds" => .eabihf,
@@ -902,7 +903,12 @@ pub const Abi = enum {
             .serenity,
             .dragonfly,
             .driverkit,
+            .ios,
+            .maccatalyst,
             .macos,
+            .tvos,
+            .visionos,
+            .watchos,
             .ps3,
             .ps4,
             .ps5,
@@ -1018,7 +1024,7 @@ pub const ObjectFormat = enum {
 
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
-            .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
             else => switch (arch) {
@@ -1988,7 +1994,7 @@ pub const Cpu = struct {
                 },
                 .armeb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
-                    .driverkit, .macos => &aarch64.cpu.apple_m1,
+                    .driverkit, .maccatalyst, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
                     .visionos => &aarch64.cpu.apple_m2,
                     .watchos => &aarch64.cpu.apple_s4,
@@ -2014,8 +2020,8 @@ pub const Cpu = struct {
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
-                    .driverkit => &x86.cpu.nehalem,
-                    .ios, .macos, .tvos, .visionos, .watchos => &x86.cpu.core2,
+                    .driverkit, .maccatalyst => &x86.cpu.nehalem,
+                    .macos => &x86.cpu.core2,
                     .ps4 => &x86.cpu.btver2,
                     .ps5 => &x86.cpu.znver2,
                     else => generic(arch),
@@ -2112,7 +2118,7 @@ pub inline fn isMuslLibC(target: *const Target) bool {
 
 pub inline fn isDarwinLibC(target: *const Target) bool {
     return switch (target.abi) {
-        .none, .macabi, .simulator => target.os.tag.isDarwin(),
+        .none, .simulator => target.os.tag.isDarwin(),
         else => false,
     };
 }
@@ -2141,8 +2147,9 @@ pub fn requiresLibC(target: *const Target) bool {
     return switch (target.os.tag) {
         .illumos,
         .driverkit,
-        .macos,
         .ios,
+        .maccatalyst,
+        .macos,
         .tvos,
         .watchos,
         .visionos,
@@ -2307,6 +2314,7 @@ pub const DynamicLinker = struct {
 
             .driverkit,
             .ios,
+            .maccatalyst,
             .macos,
             .tvos,
             .visionos,
@@ -2722,6 +2730,7 @@ pub const DynamicLinker = struct {
 
             .driverkit,
             .ios,
+            .maccatalyst,
             .macos,
             .tvos,
             .visionos,
@@ -3234,6 +3243,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
 
         .driverkit,
         .ios,
+        .maccatalyst,
         .macos,
         .tvos,
         .visionos,

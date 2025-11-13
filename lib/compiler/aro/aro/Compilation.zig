@@ -335,6 +335,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         .openbsd => try define(w, "__OpenBSD__"),
         .dragonfly => try define(w, "__DragonFly__"),
         .illumos => try defineStd(w, "sun", is_gnu),
+        .maccatalyst,
         .macos,
         .tvos,
         .ios,
@@ -635,7 +636,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         },
         .aarch64, .aarch64_be => {
             try define(w, "__aarch64__");
-            if (comp.target.os.tag == .macos) {
+            if (comp.target.os.tag.isDarwin()) {
                 try define(w, "__AARCH64_SIMD__");
                 if (ptr_width == 32) {
                     try define(w, "__ARM64_ARCH_8_32__");
@@ -992,7 +993,7 @@ fn writeBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefinesMode
         \\
     );
     if (comp.langopts.standard.atLeast(.c11)) switch (comp.target.os.tag) {
-        .openbsd, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .openbsd, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             try w.writeAll("#define __STDC_NO_THREADS__ 1\n");
         },
         .ps4, .ps5 => {

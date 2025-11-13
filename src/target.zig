@@ -29,6 +29,7 @@ pub fn libCNeedsLibUnwind(target: *const std.Target, link_mode: std.builtin.Link
 
 pub fn libCxxNeedsLibUnwind(target: *const std.Target) bool {
     return switch (target.os.tag) {
+        .maccatalyst,
         .macos,
         .ios,
         .watchos,

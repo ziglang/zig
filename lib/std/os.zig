@@ -74,11 +74,13 @@ pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
 pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
     return switch (os.tag) {
         .windows,
-        .macos,
+        .driverkit,
         .ios,
-        .watchos,
+        .maccatalyst,
+        .macos,
         .tvos,
         .visionos,
+        .watchos,
         .linux,
         .illumos,
         .freebsd,
@@ -113,7 +115,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
             return out_buffer[0..end_index];
         },
-        .macos, .ios, .watchos, .tvos, .visionos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             // On macOS, we can use F.GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
             @memset(out_buffer[0..max_path_bytes], 0);

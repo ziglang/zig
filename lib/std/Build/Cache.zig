@@ -538,7 +538,7 @@ pub const Manifest = struct {
                     // disambiguates by returning EEXIST, indicating original
                     // failure was a race, or ENOENT, indicating deletion of
                     // the directory of our open handle.
-                    if (builtin.os.tag != .macos) {
+                    if (!builtin.os.tag.isDarwin()) {
                         self.diagnostic = .{ .manifest_create = error.FileNotFound };
                         return error.CacheCheckFailed;
                     }
