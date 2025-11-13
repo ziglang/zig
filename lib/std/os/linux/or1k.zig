@@ -131,43 +131,4 @@ pub fn clone() callconv(.naked) u32 {
 
 pub const VDSO = void;
 
-pub const blksize_t = u32;
-pub const nlink_t = u32;
 pub const time_t = i32;
-pub const mode_t = u32;
-pub const off_t = i64;
-pub const ino_t = u64;
-pub const dev_t = u64;
-pub const blkcnt_t = i64;
-
-// The `stat64` definition used by the Linux kernel.
-pub const Stat = extern struct {
-    dev: dev_t,
-    ino: ino_t,
-    mode: mode_t,
-    nlink: nlink_t,
-    uid: std.os.linux.uid_t,
-    gid: std.os.linux.gid_t,
-    rdev: dev_t,
-    _pad0: [2]u32,
-    size: off_t,
-    blksize: blksize_t,
-    _pad1: u32,
-    blocks: blkcnt_t,
-    atim: std.os.linux.timespec,
-    mtim: std.os.linux.timespec,
-    ctim: std.os.linux.timespec,
-    _pad2: [2]u32,
-
-    pub fn atime(self: @This()) std.os.linux.timespec {
-        return self.atim;
-    }
-
-    pub fn mtime(self: @This()) std.os.linux.timespec {
-        return self.mtim;
-    }
-
-    pub fn ctime(self: @This()) std.os.linux.timespec {
-        return self.ctim;
-    }
-};

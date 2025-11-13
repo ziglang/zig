@@ -95,15 +95,14 @@ pub fn clone(
 pub const ARCH = arch_bits.ARCH;
 pub const HWCAP = arch_bits.HWCAP;
 pub const SC = arch_bits.SC;
-pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
-pub const blkcnt_t = arch_bits.blkcnt_t;
-pub const blksize_t = arch_bits.blksize_t;
-pub const dev_t = arch_bits.dev_t;
-pub const ino_t = arch_bits.ino_t;
-pub const mode_t = arch_bits.mode_t;
-pub const nlink_t = arch_bits.nlink_t;
-pub const off_t = arch_bits.off_t;
+pub const blkcnt_t = u64;
+pub const blksize_t = u32;
+pub const dev_t = u64;
+pub const ino_t = u64;
+pub const mode_t = u32;
+pub const nlink_t = u32;
+pub const off_t = i64;
 pub const time_t = arch_bits.time_t;
 pub const user_desc = arch_bits.user_desc;
 
@@ -2202,61 +2201,13 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
     return syscall4(.accept4, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), flags);
 }
 
-pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No fstat syscall on this architecture.");
-    } else if (@hasField(SYS, "fstat64")) {
-        return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
-    } else {
-        return syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
-    }
-}
-
-pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No stat syscall on this architecture.");
-    } else if (@hasField(SYS, "stat64")) {
-        return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
-    } else {
-        return syscall2(.stat, @intFromPtr(pathname), @intFromPtr(statbuf));
-    }
-}
-
-pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No lstat syscall on this architecture.");
-    } else if (@hasField(SYS, "lstat64")) {
-        return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
-    } else {
-        return syscall2(.lstat, @intFromPtr(pathname), @intFromPtr(statbuf));
-    }
-}
-
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
-        @compileError("No fstatat syscall on this architecture.");
-    } else if (@hasField(SYS, "fstatat64")) {
-        return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
-    } else {
-        return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
-    }
-}
-
-pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
+pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: STATX, statx_buf: *Statx) usize {
     return syscall5(
         .statx,
         @as(usize, @bitCast(@as(isize, dirfd))),
         @intFromPtr(path),
         flags,
-        mask,
+        @as(u32, @bitCast(mask)),
         @intFromPtr(statx_buf),
     );
 }
@@ -6946,96 +6897,161 @@ pub const utsname = extern struct {
 };
 pub const HOST_NAME_MAX = 64;
 
-pub const STATX_TYPE = 0x0001;
-pub const STATX_MODE = 0x0002;
-pub const STATX_NLINK = 0x0004;
-pub const STATX_UID = 0x0008;
-pub const STATX_GID = 0x0010;
-pub const STATX_ATIME = 0x0020;
-pub const STATX_MTIME = 0x0040;
-pub const STATX_CTIME = 0x0080;
-pub const STATX_INO = 0x0100;
-pub const STATX_SIZE = 0x0200;
-pub const STATX_BLOCKS = 0x0400;
-pub const STATX_BASIC_STATS = 0x07ff;
+/// Flags used to request specific members in `Statx` be filled out.
+/// The `Statx.mask` member will be updated with what information the kernel
+/// returned. Callers must check this field since support varies by kernel
+/// version and filesystem.
+pub const STATX = packed struct(u32) {
+    /// Want `mode & S.IFMT`.
+    TYPE: bool = false,
+    /// Want `mode & ~S.IFMT`.
+    MODE: bool = false,
+    /// Want the `nlink` member.
+    NLINK: bool = false,
+    /// Want the `uid` member.
+    UID: bool = false,
+    /// Want the `gid` member.
+    GID: bool = false,
+    /// Want the `atime` member.
+    ATIME: bool = false,
+    /// Want the `mtime` member.
+    MTIME: bool = false,
+    /// Want the `ctime` member.
+    CTIME: bool = false,
+    /// Want the `ino` member.
+    INO: bool = false,
+    /// Want the `size` member.
+    SIZE: bool = false,
+    /// Want the `blocks` member.
+    BLOCKS: bool = false,
+    /// Want the `btime` member.
+    BTIME: bool = false,
+    /// Want the `mnt_id` member.
+    MNT_ID: bool = false,
+    /// Want the `dio_mem_align` and `dio_offset_align` members.
+    DIOALIGN: bool = false,
+    /// Want the `stx_mnt_id` member.
+    MNT_ID_UNIQUE: bool = false,
+    /// Want the `sub` member.
+    SUBVOL: bool = false,
+    /// Want the `atomic_write_unit_min`, `atomic_write_unit_max` and
+    /// `atomic_write_segments_max` members.
+    WRITE_ATOMIC: bool = false,
+    /// Want the `dio_read_offset_align` member.
+    DIO_READ_ALIGN: bool = false,
+    __pad: u13 = 0,
+    /// Reserved for future expansion; must not be set.
+    __RESERVED: bool = false,
 
-pub const STATX_BTIME = 0x0800;
+    pub const BASIC_STATS: STATX = @bitCast(@as(u32, 0x7ff));
+};
 
-pub const STATX_ATTR_COMPRESSED = 0x0004;
-pub const STATX_ATTR_IMMUTABLE = 0x0010;
-pub const STATX_ATTR_APPEND = 0x0020;
-pub const STATX_ATTR_NODUMP = 0x0040;
-pub const STATX_ATTR_ENCRYPTED = 0x0800;
-pub const STATX_ATTR_AUTOMOUNT = 0x1000;
+/// Attributes about the state or features of a file as a bitmask.
+/// Flags marked [I] correspond to the `FS_IOC_SETFLAGS` values semantically.
+/// See [FS_IOC_SETFLAGS(2const)](https://man7.org/linux/man-pages/man2/FS_IOC_GETFLAGS.2const.html)
+/// for more.
+pub const STATX_ATTR = packed struct(u64) {
+    __pad1: u3 = 0,
+    /// [I] File is compressed by the fs.
+    COMPRESSED: bool = false,
+    __pad2: u1 = 0,
+    /// [I] File is marked immutable.
+    IMMUTABLE: bool = false,
+    /// [I] File is append-only.
+    APPEND: bool = false,
+    /// [I] File is not to be dumped.
+    NODUMP: bool = false,
+    /// [I] File requires a key to decrypt in the filesystem.
+    ENCRYPTED: bool = false,
+    /// File names a directory that triggers an automount.
+    AUTOMOUNT: bool = false,
+    /// File names the root of a mount.
+    MOUNT_ROOT: bool = false,
+    /// [I] File is protected by the `dm-verity` device.
+    VERITY: bool = false,
+    /// File is currently in the CPU direct access state.
+    /// Does not correspond to the per-inode DAX flag that some filesystems support.
+    DAX: bool = false,
+    /// File supports atomic write operations.
+    WRITE_ATOMIC: bool = false,
+    __pad3: u50 = 0,
+};
 
 pub const statx_timestamp = extern struct {
+    /// Number of seconds before or after `1970-01-01T00:00:00Z`.
     sec: i64,
+    /// Number of nanoseconds (0..999,999,999) after `sec`.
     nsec: u32,
+    // Reserved for future increases in resolution.
     __pad1: u32,
 };
 
 /// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
-    /// Mask of bits indicating filled fields
-    mask: u32,
-
-    /// Block size for filesystem I/O
+    /// Mask of bits indicating filled fields.
+    mask: STATX,
+    /// Block size for filesystem I/O.
     blksize: u32,
-
-    /// Extra file attribute indicators
-    attributes: u64,
-
-    /// Number of hard links
+    /// Extra file attribute indicators.
+    attributes: STATX_ATTR,
+    /// Number of hard links.
     nlink: u32,
-
-    /// User ID of owner
+    /// User ID of owner.
     uid: uid_t,
-
-    /// Group ID of owner
+    /// Group ID of owner.
     gid: gid_t,
-
-    /// File type and mode
+    /// File type and mode.
     mode: u16,
-    __pad1: u16,
-
-    /// Inode number
+    __spare0: u16,
+    /// Inode number.
     ino: u64,
-
-    /// Total size in bytes
+    /// Total size in bytes.
     size: u64,
-
-    /// Number of 512B blocks allocated
+    /// Number of 512B blocks allocated.
     blocks: u64,
-
     /// Mask to show what's supported in `attributes`.
-    attributes_mask: u64,
-
-    /// Last access file timestamp
+    attributes_mask: STATX_ATTR,
+    /// Last access file timestamp.
     atime: statx_timestamp,
-
-    /// Creation file timestamp
+    /// Creation file timestamp.
     btime: statx_timestamp,
-
-    /// Last status change file timestamp
+    /// Last status change file timestamp.
     ctime: statx_timestamp,
-
-    /// Last modification file timestamp
+    /// Last modification file timestamp.
     mtime: statx_timestamp,
-
     /// Major ID, if this file represents a device.
     rdev_major: u32,
-
     /// Minor ID, if this file represents a device.
     rdev_minor: u32,
-
     /// Major ID of the device containing the filesystem where this file resides.
     dev_major: u32,
-
     /// Minor ID of the device containing the filesystem where this file resides.
     dev_minor: u32,
-
-    __pad2: [14]u64,
+    /// Mount ID
+    mnt_id: u64,
+    /// Memory buffer alignment for direct I/O.
+    dio_mem_align: u32,
+    /// File offset alignment for direct I/O.
+    dio_offset_align: u32,
+    /// Subvolume identifier.
+    subvol: u64,
+    /// Min atomic write unit in bytes.
+    atomic_write_unit_min: u32,
+    /// Max atomic write unit in bytes.
+    atomic_write_unit_max: u32,
+    /// Max atomic write segment count.
+    atomic_write_segments_max: u32,
+    /// File offset alignment for direct I/O reads.
+    dio_read_offset_align: u32,
+    /// Optimised max atomic write unit in bytes.
+    atomic_write_unit_max_opt: u32,
+    __spare2: [1]u32,
+    __spare3: [8]u64,
 };
+
+comptime {
+    assert(@sizeOf(Statx) == 0x100);
+}
 
 pub const addrinfo = extern struct {
     flags: AI,
@@ -9974,6 +9990,46 @@ pub const wrapped = struct {
             .XDEV => return error.NotSameFileSystem,
             else => |err| return unexpectedErrno(err),
         }
+    }
+
+    pub const StatxError = std.posix.UnexpectedError || error{
+        /// Search permission is dened for one of the directories in `path`.
+        AccessDenied,
+        /// Too many symbolic links were encountered traversing `path`.
+        SymLinkLoop,
+        /// `path` is too long.
+        NameTooLong,
+        /// One of:
+        /// - A component of `path` does not exist.
+        /// - A component of `path` is not a directory.
+        /// - `path` is a relative and `dirfd` is not a directory file descriptor.
+        FileNotFound,
+        /// Insufficient memory is available.
+        SystemResources,
+    };
+
+    pub fn statx(dirfd: fd_t, path: [*:0]const u8, flags: u32, mask: STATX) StatxError!Statx {
+        const use_c = std.c.versionCheck(if (builtin.abi.isAndroid())
+            .{ .major = 30, .minor = 0, .patch = 0 }
+        else
+            .{ .major = 2, .minor = 28, .patch = 0 });
+        const sys = if (use_c) std.c else std.os.linux;
+
+        var stx = std.mem.zeroes(Statx);
+        const rc = sys.statx(dirfd, path, flags, mask, &stx);
+        return switch (errno(rc)) {
+            .SUCCESS => stx,
+            .ACCES => error.AccessDenied,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .LOOP => error.SymLinkLoop,
+            .NAMETOOLONG => error.NameTooLong,
+            .NOENT => error.FileNotFound,
+            .NOTDIR => error.FileNotFound,
+            .NOMEM => error.FileNotFound,
+            else => |err| unexpectedErrno(err),
+        };
     }
 
     const unexpectedErrno = std.posix.unexpectedErrno;

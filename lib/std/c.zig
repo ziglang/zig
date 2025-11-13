@@ -7477,166 +7477,6 @@ pub const EAI = if (builtin.abi.isAndroid()) enum(c_int) {
 pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.c) c_int;
 
 pub const Stat = switch (native_os) {
-    .linux => switch (native_arch) {
-        .sparc64 => extern struct {
-            dev: u64,
-            __pad1: u16,
-            ino: ino_t,
-            mode: u32,
-            nlink: u32,
-
-            uid: u32,
-            gid: u32,
-            rdev: u64,
-            __pad2: u16,
-
-            size: off_t,
-            blksize: isize,
-            blocks: i64,
-
-            atim: timespec,
-            mtim: timespec,
-            ctim: timespec,
-            __reserved: [2]usize,
-
-            pub fn atime(self: @This()) timespec {
-                return self.atim;
-            }
-
-            pub fn mtime(self: @This()) timespec {
-                return self.mtim;
-            }
-
-            pub fn ctime(self: @This()) timespec {
-                return self.ctim;
-            }
-        },
-        .mips, .mipsel => if (builtin.target.abi.isMusl()) extern struct {
-            dev: dev_t,
-            __pad0: [2]i32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: dev_t,
-            __pad1: [2]i32,
-            size: off_t,
-            atim: timespec,
-            mtim: timespec,
-            ctim: timespec,
-            blksize: blksize_t,
-            __pad3: i32,
-            blocks: blkcnt_t,
-            __pad4: [14]i32,
-
-            pub fn atime(self: @This()) timespec {
-                return self.atim;
-            }
-
-            pub fn mtime(self: @This()) timespec {
-                return self.mtim;
-            }
-
-            pub fn ctime(self: @This()) timespec {
-                return self.ctim;
-            }
-        } else extern struct {
-            dev: u32,
-            __pad0: [3]u32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: u32,
-            __pad1: [3]u32,
-            size: off_t,
-            atim: timespec,
-            mtim: timespec,
-            ctim: timespec,
-            blksize: blksize_t,
-            __pad3: u32,
-            blocks: blkcnt_t,
-            __pad4: [14]u32,
-
-            pub fn atime(self: @This()) timespec {
-                return self.atim;
-            }
-
-            pub fn mtime(self: @This()) timespec {
-                return self.mtim;
-            }
-
-            pub fn ctime(self: @This()) timespec {
-                return self.ctim;
-            }
-        },
-        .mips64, .mips64el => if (builtin.target.abi.isMusl()) extern struct {
-            dev: dev_t,
-            __pad0: [3]i32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: dev_t,
-            __pad1: [2]u32,
-            size: off_t,
-            __pad2: i32,
-            atim: timespec,
-            mtim: timespec,
-            ctim: timespec,
-            blksize: blksize_t,
-            __pad3: u32,
-            blocks: blkcnt_t,
-            __pad4: [14]i32,
-
-            pub fn atime(self: @This()) timespec {
-                return self.atim;
-            }
-
-            pub fn mtime(self: @This()) timespec {
-                return self.mtim;
-            }
-
-            pub fn ctime(self: @This()) timespec {
-                return self.ctim;
-            }
-        } else extern struct {
-            dev: dev_t,
-            __pad0: [3]u32,
-            ino: ino_t,
-            mode: mode_t,
-            nlink: nlink_t,
-            uid: uid_t,
-            gid: gid_t,
-            rdev: dev_t,
-            __pad1: [3]u32,
-            size: off_t,
-            atim: timespec,
-            mtim: timespec,
-            ctim: timespec,
-            blksize: blksize_t,
-            __pad3: u32,
-            blocks: blkcnt_t,
-            __pad4: [14]i32,
-
-            pub fn atime(self: @This()) timespec {
-                return self.atim;
-            }
-
-            pub fn mtime(self: @This()) timespec {
-                return self.mtim;
-            }
-
-            pub fn ctime(self: @This()) timespec {
-                return self.ctim;
-            }
-        },
-
-        else => std.os.linux.Stat, // libc stat is the same as kernel stat.
-    },
     .emscripten => emscripten.Stat,
     .wasi => extern struct {
         // Match wasi-libc's `struct stat` in lib/libc/include/wasm-wasi-musl/__struct_stat.h
@@ -10313,6 +10153,7 @@ pub const fstat = switch (native_os) {
         else => private.fstat,
     },
     .netbsd => private.__fstat50,
+    .linux => {},
     else => private.fstat,
 };
 
@@ -10321,8 +10162,12 @@ pub const fstatat = switch (native_os) {
         .x86_64 => private.@"fstatat$INODE64",
         else => private.fstatat,
     },
+    .linux => {},
     else => private.fstatat,
 };
+
+pub extern "c" fn statx(dirfd: fd_t, path: [*:0]const u8, flags: u32, mask: linux.STATX, buf: *linux.Statx) c_int;
+
 pub extern "c" fn getpwent() ?*passwd;
 pub extern "c" fn endpwent() void;
 pub extern "c" fn setpwent() void;
@@ -10396,8 +10241,6 @@ pub extern "c" fn inotify_init1(flags: c_uint) c_int;
 pub extern "c" fn inotify_add_watch(fd: fd_t, pathname: [*:0]const u8, mask: u32) c_int;
 pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 
-pub extern "c" fn fstat64(fd: fd_t, buf: *Stat) c_int;
-pub extern "c" fn fstatat64(dirfd: fd_t, noalias path: [*:0]const u8, noalias stat_buf: *Stat, flags: u32) c_int;
 pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
@@ -10570,14 +10413,6 @@ pub const socketpair = switch (native_os) {
     // https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/#unsupported\unavailable:
     .windows => void,
     else => private.socketpair,
-};
-
-pub const stat = switch (native_os) {
-    .macos => switch (native_arch) {
-        .x86_64 => private.@"stat$INODE64",
-        else => private.stat,
-    },
-    else => private.stat,
 };
 
 pub const _msize = switch (native_os) {
@@ -11422,7 +11257,6 @@ const private = struct {
     extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
-    extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn sysconf(sc: c_int) c_long;
     extern "c" fn shm_open(name: [*:0]const u8, flag: c_int, mode: mode_t) c_int;
