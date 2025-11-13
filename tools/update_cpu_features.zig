@@ -1051,6 +1051,152 @@ const targets = [_]ArchTarget{
         },
     },
     .{
+        .zig_name = "hppa",
+        .llvm = null,
+        .extra_features = &.{
+            .{
+                .zig_name = "64bit",
+                .desc = "Enable 64-bit PA-RISC 2.0",
+                .deps = &.{"v2_0"},
+            },
+            .{
+                .zig_name = "max_1",
+                .desc = "Enable MAX-1 multimedia acceleration extensions",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "max_2",
+                .desc = "Enable MAX-2 multimedia acceleration extensions",
+                .deps = &.{"max_1"},
+            },
+            .{
+                .zig_name = "v1_1",
+                .desc = "Enable ISA v1.1",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "v2_0",
+                .desc = "Enable ISA v2.0",
+                .deps = &.{ "max_2", "v1_1" },
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "ts_1",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "ns_1",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "ns_2",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pcx",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_7000",
+                .features = &.{
+                    "v1_1",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_7100",
+                .features = &.{
+                    "v1_1",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_7150",
+                .features = &.{
+                    "v1_1",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_7100lc",
+                .features = &.{
+                    "max_1",
+                    "v1_1",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_7200",
+                .features = &.{
+                    "v1_1",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_7300lc",
+                .features = &.{
+                    "max_1",
+                    "v1_1",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_8000",
+                .features = &.{
+                    "64bit",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_8200",
+                .features = &.{
+                    "64bit",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_8500",
+                .features = &.{
+                    "64bit",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_8600",
+                .features = &.{
+                    "64bit",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_8700",
+                .features = &.{
+                    "64bit",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_8800",
+                .features = &.{
+                    "64bit",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pa_8900",
+                .features = &.{
+                    "64bit",
+                },
+            },
+        },
+    },
+    .{
         .zig_name = "kvx",
         .llvm = null,
         .extra_features = &.{
