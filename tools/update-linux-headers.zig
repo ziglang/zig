@@ -110,8 +110,8 @@ const DestTarget = struct {
     const HashContext = struct {
         pub fn hash(self: @This(), a: DestTarget) u32 {
             _ = self;
-            var hasher = std.hash.Wyhash.init(0);
-            std.hash.autoHash(&hasher, a.arch);
+            var hasher: std.hash.Wyhash = .init(0);
+            std.hash.auto(&hasher, a.arch);
             return @as(u32, @truncate(hasher.final()));
         }
 

@@ -868,8 +868,8 @@ pub const Match = struct {
     pub const Context = struct {
         pub fn hash(self: Context, a: Match) u32 {
             _ = self;
-            var hasher = Hash.init(0);
-            std.hash.autoHash(&hasher, a.step);
+            var hasher: Hash = .init(0);
+            std.hash.auto(&hasher, a.step);
             hasher.update(a.basename);
             return @truncate(hasher.final());
         }

@@ -780,6 +780,18 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;
 
+        const VersionHashContext = struct {
+            pub fn hash(_: @This(), version: Version) u32 {
+                var hasher: std.hash.Wyhash = .init(0);
+                std.hash.autoStrat(&hasher, version, .deep);
+                return @truncate(hasher.final());
+            }
+
+            pub fn eql(_: @This(), lhs: Version, rhs: Version, _: usize) bool {
+                return std.meta.eql(lhs, rhs);
+            }
+        };
+
         // There can be situations where there are multiple inclusions for the same symbol with
         // partially overlapping versions, due to different target lists. For example:
         //
@@ -794,7 +806,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         //
         // If we don't handle this, we end up writing the default `lgammal` symbol for version 2.33
         // twice, which causes a "duplicate symbol" assembler error.
-        var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
+        const VersionSet = std.ArrayHashMapUnmanaged(Version, void, VersionHashContext, true);
+        var versions_written: VersionSet = .empty;
 
         var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
@@ -858,7 +871,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
 
             versions_written.clearRetainingCapacity();
-            try versions_written.ensureTotalCapacity(versions_len);
+            try versions_written.ensureTotalCapacity(arena, versions_len);
 
             {
                 var ver_buf_i: u8 = 0;
@@ -1034,7 +1047,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
 
             versions_written.clearRetainingCapacity();
-            try versions_written.ensureTotalCapacity(versions_len);
+            try versions_written.ensureTotalCapacity(arena, versions_len);
 
             {
                 var ver_buf_i: u8 = 0;

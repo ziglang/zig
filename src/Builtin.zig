@@ -26,14 +26,22 @@ pub fn hash(opts: @This()) [std.Build.Cache.bin_digest_len]u8 {
     inline for (@typeInfo(@This()).@"struct".fields) |f| {
         if (comptime std.mem.eql(u8, f.name, "target")) {
             // This needs special handling.
-            std.hash.autoHash(&h, opts.target.cpu);
-            std.hash.autoHash(&h, opts.target.os.tag);
-            std.hash.autoHash(&h, opts.target.os.versionRange());
-            std.hash.autoHash(&h, opts.target.abi);
-            std.hash.autoHash(&h, opts.target.ofmt);
-            std.hash.autoHash(&h, opts.target.dynamic_linker);
+            std.hash.auto(&h, opts.target.cpu);
+            std.hash.auto(&h, opts.target.os.tag);
+            switch (opts.target.os.versionRange()) {
+                // Hash the OS version deeply to include
+                // the prerelease/build components.
+                // Currently, those components should always be null,
+                // but if a prerelease/build component were
+                // for some reason present, this would be
+                // the more correct behavior.
+                inline else => |ver| std.hash.autoStrat(&h, ver, .deep),
+            }
+            std.hash.auto(&h, opts.target.abi);
+            std.hash.auto(&h, opts.target.ofmt);
+            h.update(opts.target.dynamic_linker.get() orelse &.{});
         } else {
-            std.hash.autoHash(&h, @field(opts, f.name));
+            std.hash.auto(&h, @field(opts, f.name));
         }
     }
     return h.finalResult();

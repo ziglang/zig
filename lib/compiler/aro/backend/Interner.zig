@@ -89,24 +89,22 @@ pub const Key = union(enum) {
     };
 
     pub fn hash(key: Key) u32 {
-        var hasher = Hash.init(0);
+        var hasher: Hash = .init(0);
         const tag = std.meta.activeTag(key);
-        std.hash.autoHash(&hasher, tag);
+        std.hash.auto(&hasher, tag);
         switch (key) {
             .bytes => |bytes| {
                 hasher.update(bytes);
             },
-            .record_ty => |elems| for (elems) |elem| {
-                std.hash.autoHash(&hasher, elem);
-            },
+            .record_ty => |elems| std.hash.autoStrat(&hasher, elems, .deep),
             .float => |repr| switch (repr) {
-                inline else => |data| std.hash.autoHash(
+                inline else => |data| std.hash.auto(
                     &hasher,
                     @as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(data))), @bitCast(data)),
                 ),
             },
             .complex => |repr| switch (repr) {
-                inline else => |data| std.hash.autoHash(
+                inline else => |data| std.hash.auto(
                     &hasher,
                     @as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(data))), @bitCast(data)),
                 ),
@@ -114,11 +112,10 @@ pub const Key = union(enum) {
             .int => |repr| {
                 var space: Tag.Int.BigIntSpace = undefined;
                 const big = repr.toBigInt(&space);
-                std.hash.autoHash(&hasher, big.positive);
-                for (big.limbs) |limb| std.hash.autoHash(&hasher, limb);
+                std.hash.autoStrat(&hasher, big, .deep);
             },
             inline else => |info| {
-                std.hash.autoHash(&hasher, info);
+                std.hash.auto(&hasher, info);
             },
         }
         return @truncate(hasher.final());

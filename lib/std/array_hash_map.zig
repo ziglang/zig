@@ -4,7 +4,6 @@ const assert = debug.assert;
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
-const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const hash_map = @This();
@@ -2641,8 +2640,8 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
             if (std.meta.hasUniqueRepresentation(K)) {
                 return @truncate(Wyhash.hash(0, std.mem.asBytes(&key)));
             } else {
-                var hasher = Wyhash.init(0);
-                autoHash(&hasher, key);
+                var hasher: Wyhash = .init(0);
+                std.hash.auto(&hasher, key);
                 return @truncate(hasher.final());
             }
         }
@@ -2681,8 +2680,8 @@ pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime str
     return struct {
         fn hash(ctx: Context, key: K) u32 {
             _ = ctx;
-            var hasher = Wyhash.init(0);
-            std.hash.autoHashStrat(&hasher, key, strategy);
+            var hasher: Wyhash = .init(0);
+            std.hash.autoStrat(&hasher, key, strategy);
             return @as(u32, @truncate(hasher.final()));
         }
     }.hash;
