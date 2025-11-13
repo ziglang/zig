@@ -394,6 +394,83 @@ const targets = [_]ArchTarget{
         },
     },
     .{
+        .zig_name = "alpha",
+        .llvm = null,
+        .extra_features = &.{
+            .{
+                .zig_name = "bwx",
+                .desc = "Enable byte/word extensions",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "cix",
+                .desc = "Enable counting extensions",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "fix",
+                .desc = "Enable floating point move and square root extensions",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "max",
+                .desc = "Enable motion video extensions",
+                .deps = &.{},
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "ev4",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "ev45",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "ev5",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "ev56",
+                .features = &.{
+                    "bwx",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "pca56",
+                .features = &.{
+                    "bwx",
+                    "max",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "ev6",
+                .features = &.{
+                    "bwx",
+                    "fix",
+                    "max",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "ev67",
+                .features = &.{
+                    "bwx",
+                    "cix",
+                    "fix",
+                    "max",
+                },
+            },
+        },
+    },
+    .{
         .zig_name = "amdgcn",
         .llvm = .{
             .name = "AMDGPU",

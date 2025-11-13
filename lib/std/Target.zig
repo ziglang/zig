@@ -700,7 +700,7 @@ pub const Os = struct {
 };
 
 pub const aarch64 = @import("Target/aarch64.zig");
-pub const alpha = @import("Target/generic.zig");
+pub const alpha = @import("Target/alpha.zig");
 pub const amdgcn = @import("Target/amdgcn.zig");
 pub const arc = @import("Target/arc.zig");
 pub const arm = @import("Target/arm.zig");
@@ -1944,6 +1944,7 @@ pub const Cpu = struct {
         /// Clang compatibility is important, consider using `baseline` instead.
         pub fn generic(arch: Arch) *const Model {
             return switch (arch) {
+                .alpha => &alpha.cpu.ev4,
                 .amdgcn => &amdgcn.cpu.gfx600,
                 .avr => &avr.cpu.avr1,
                 .kvx => &kvx.cpu.coolidge_v1,
@@ -1976,6 +1977,7 @@ pub const Cpu = struct {
         /// `Os.Tag.freestanding`.
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
+                .alpha => &alpha.cpu.ev6,
                 .amdgcn => &amdgcn.cpu.gfx906,
                 .arm => switch (os.tag) {
                     .@"3ds" => &arm.cpu.mpcore,
