@@ -776,6 +776,24 @@ fn analyzeInst(
             const bin = a.air.extraData(Air.Bin, pl_op.payload).data;
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, bin.lhs, bin.rhs });
         },
+
+        .legalize_compiler_rt_call => {
+            const extra = a.air.extraData(Air.Call, inst_datas[@intFromEnum(inst)].legalize_compiler_rt_call.payload);
+            const args: []const Air.Inst.Ref = @ptrCast(a.air.extra.items[extra.end..][0..extra.data.args_len]);
+            if (args.len <= bpi - 1) {
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
+                @memcpy(buf[0..args.len], args);
+                return analyzeOperands(a, pass, data, inst, buf);
+            }
+            var big = try AnalyzeBigOperands(pass).init(a, data, inst, args.len + 1);
+            defer big.deinit();
+            var i: usize = args.len;
+            while (i > 0) {
+                i -= 1;
+                try big.feed(args[i]);
+            }
+            return big.finish();
+        },
     }
 }
 

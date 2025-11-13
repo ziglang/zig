@@ -115,6 +115,8 @@ pub const Feature = enum {
     scalarize_int_from_float_safe,
     scalarize_int_from_float_optimized_safe,
     scalarize_float_from_int,
+    scalarize_reduce,
+    scalarize_reduce_optimized,
     scalarize_shuffle_one,
     scalarize_shuffle_two,
     scalarize_select,
@@ -158,6 +160,27 @@ pub const Feature = enum {
     expand_packed_struct_field_val,
     /// Replace `aggregate_init` of a packed struct with a sequence of `shl_exact`, `bitcast`, `intcast`, and `bit_or`.
     expand_packed_aggregate_init,
+
+    /// Replace all arithmetic operations on 16-bit floating-point types with calls to soft-float
+    /// routines in compiler_rt, including `fptrunc`/`fpext`/`float_from_int`/`int_from_float`
+    /// where the operand or target type is a 16-bit floating-point type. This feature implies:
+    ///
+    /// * scalarization of 16-bit float vector operations
+    /// * expansion of safety-checked 16-bit float operations
+    ///
+    /// If this feature is enabled, the following AIR instruction tags may be emitted:
+    /// * `.legalize_vec_elem_val`
+    /// * `.legalize_vec_store_elem`
+    /// * `.legalize_compiler_rt_call`
+    soft_f16,
+    /// Like `soft_f16`, but for 32-bit floating-point types.
+    soft_f32,
+    /// Like `soft_f16`, but for 64-bit floating-point types.
+    soft_f64,
+    /// Like `soft_f16`, but for 80-bit floating-point types.
+    soft_f80,
+    /// Like `soft_f16`, but for 128-bit floating-point types.
+    soft_f128,
 
     fn scalarize(tag: Air.Inst.Tag) Feature {
         return switch (tag) {
@@ -238,6 +261,8 @@ pub const Feature = enum {
             .int_from_float_safe => .scalarize_int_from_float_safe,
             .int_from_float_optimized_safe => .scalarize_int_from_float_optimized_safe,
             .float_from_int => .scalarize_float_from_int,
+            .reduce => .scalarize_reduce,
+            .reduce_optimized => .scalarize_reduce_optimized,
             .shuffle_one => .scalarize_shuffle_one,
             .shuffle_two => .scalarize_shuffle_two,
             .select => .scalarize_select,
@@ -283,6 +308,10 @@ fn extraData(l: *const Legalize, comptime T: type, index: usize) @TypeOf(Air.ext
 }
 
 fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
+    // In zig1, this function needs a lot of eval branch quota, because all of the inlined feature
+    // checks are comptime-evaluated (to ensure unused features are not included in the binary).
+    @setEvalBranchQuota(4000);
+
     const zcu = l.pt.zcu;
     const ip = &zcu.intern_pool;
     for (0..body_len) |body_index| {
@@ -291,30 +320,67 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .arg => {},
             inline .add,
             .add_optimized,
-            .add_wrap,
-            .add_sat,
             .sub,
             .sub_optimized,
-            .sub_wrap,
-            .sub_sat,
             .mul,
             .mul_optimized,
-            .mul_wrap,
-            .mul_sat,
             .div_float,
             .div_float_optimized,
-            .div_trunc,
-            .div_trunc_optimized,
-            .div_floor,
-            .div_floor_optimized,
             .div_exact,
             .div_exact_optimized,
             .rem,
             .rem_optimized,
-            .mod,
-            .mod_optimized,
-            .max,
             .min,
+            .max,
+            => |air_tag| {
+                const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                const ty = l.typeOf(bin_op.lhs);
+                switch (l.wantScalarizeOrSoftFloat(air_tag, ty)) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op)),
+                    .soft_float => continue :inst try l.compilerRtCall(
+                        inst,
+                        softFloatFunc(air_tag, ty, zcu),
+                        &.{ bin_op.lhs, bin_op.rhs },
+                        l.typeOf(bin_op.lhs),
+                    ),
+                }
+            },
+            inline .div_trunc,
+            .div_trunc_optimized,
+            .div_floor,
+            .div_floor_optimized,
+            => |air_tag| {
+                const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                switch (l.wantScalarizeOrSoftFloat(air_tag, l.typeOf(bin_op.lhs))) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op)),
+                    .soft_float => continue :inst l.replaceInst(inst, .block, try l.softFloatDivTruncFloorBlockPayload(
+                        inst,
+                        bin_op.lhs,
+                        bin_op.rhs,
+                        air_tag,
+                    )),
+                }
+            },
+            inline .mod, .mod_optimized => |air_tag| {
+                const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                switch (l.wantScalarizeOrSoftFloat(air_tag, l.typeOf(bin_op.lhs))) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .bin_op)),
+                    .soft_float => continue :inst l.replaceInst(inst, .block, try l.softFloatModBlockPayload(
+                        inst,
+                        bin_op.lhs,
+                        bin_op.rhs,
+                    )),
+                }
+            },
+            inline .add_wrap,
+            .add_sat,
+            .sub_wrap,
+            .sub_sat,
+            .mul_wrap,
+            .mul_sat,
             .bit_and,
             .bit_or,
             .xor,
@@ -408,18 +474,78 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .popcount,
             .byte_swap,
             .bit_reverse,
-            .abs,
-            .fptrunc,
-            .fpext,
             .intcast,
             .trunc,
-            .int_from_float,
-            .int_from_float_optimized,
-            .float_from_int,
             => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
                 if (ty_op.ty.toType().isVector(zcu)) {
                     continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                }
+            },
+            .abs => {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                switch (l.wantScalarizeOrSoftFloat(.abs, ty_op.ty.toType())) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op)),
+                    .soft_float => continue :inst try l.compilerRtCall(
+                        inst,
+                        softFloatFunc(.abs, ty_op.ty.toType(), zcu),
+                        &.{ty_op.operand},
+                        ty_op.ty.toType(),
+                    ),
+                }
+            },
+            .fptrunc => {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                const src_ty = l.typeOf(ty_op.operand);
+                const dest_ty = ty_op.ty.toType();
+                if (src_ty.zigTypeTag(zcu) == .vector) {
+                    if (l.features.has(.scalarize_fptrunc) or
+                        l.wantSoftFloatScalar(src_ty.childType(zcu)) or
+                        l.wantSoftFloatScalar(dest_ty.childType(zcu)))
+                    {
+                        continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                    }
+                } else if (l.wantSoftFloatScalar(src_ty) or l.wantSoftFloatScalar(dest_ty)) {
+                    continue :inst try l.compilerRtCall(inst, l.softFptruncFunc(src_ty, dest_ty), &.{ty_op.operand}, dest_ty);
+                }
+            },
+            .fpext => {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                const src_ty = l.typeOf(ty_op.operand);
+                const dest_ty = ty_op.ty.toType();
+                if (src_ty.zigTypeTag(zcu) == .vector) {
+                    if (l.features.has(.scalarize_fpext) or
+                        l.wantSoftFloatScalar(src_ty.childType(zcu)) or
+                        l.wantSoftFloatScalar(dest_ty.childType(zcu)))
+                    {
+                        continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                    }
+                } else if (l.wantSoftFloatScalar(src_ty) or l.wantSoftFloatScalar(dest_ty)) {
+                    continue :inst try l.compilerRtCall(inst, l.softFpextFunc(src_ty, dest_ty), &.{ty_op.operand}, dest_ty);
+                }
+            },
+            inline .int_from_float, .int_from_float_optimized => |air_tag| {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                switch (l.wantScalarizeOrSoftFloat(air_tag, l.typeOf(ty_op.operand))) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op)),
+                    .soft_float => switch (try l.softIntFromFloat(inst)) {
+                        .call => |func| continue :inst try l.compilerRtCall(inst, func, &.{ty_op.operand}, ty_op.ty.toType()),
+                        .block_payload => |data| continue :inst l.replaceInst(inst, .block, data),
+                    },
+                }
+            },
+            .float_from_int => {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                const dest_ty = ty_op.ty.toType();
+                switch (l.wantScalarizeOrSoftFloat(.float_from_int, dest_ty)) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op)),
+                    .soft_float => switch (try l.softFloatFromInt(inst)) {
+                        .call => |func| continue :inst try l.compilerRtCall(inst, func, &.{ty_op.operand}, dest_ty),
+                        .block_payload => |data| continue :inst l.replaceInst(inst, .block, data),
+                    },
                 }
             },
             .bitcast => if (l.features.has(.scalarize_bitcast)) {
@@ -436,22 +562,25 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                     continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
                 }
             },
-            .int_from_float_safe => if (l.features.has(.expand_int_from_float_safe)) {
-                assert(!l.features.has(.scalarize_int_from_float_safe));
-                continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, false));
-            } else if (l.features.has(.scalarize_int_from_float_safe)) {
-                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
-                if (ty_op.ty.toType().isVector(zcu)) {
-                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+            inline .int_from_float_safe,
+            .int_from_float_optimized_safe,
+            => |air_tag| {
+                const optimized = air_tag == .int_from_float_optimized_safe;
+                const expand_feature = switch (air_tag) {
+                    .int_from_float_safe => .expand_int_from_float_safe,
+                    .int_from_float_optimized_safe => .expand_int_from_float_optimized_safe,
+                    else => unreachable,
+                };
+                if (l.features.has(expand_feature)) {
+                    assert(!l.features.has(.scalarize(air_tag)));
+                    continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, optimized));
                 }
-            },
-            .int_from_float_optimized_safe => if (l.features.has(.expand_int_from_float_optimized_safe)) {
-                assert(!l.features.has(.scalarize_int_from_float_optimized_safe));
-                continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, true));
-            } else if (l.features.has(.scalarize_int_from_float_optimized_safe)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
-                if (ty_op.ty.toType().isVector(zcu)) {
-                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                switch (l.wantScalarizeOrSoftFloat(air_tag, l.typeOf(ty_op.operand))) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op)),
+                    // Expand the safety check so that soft-float can rewrite the unchecked operation.
+                    .soft_float => continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, optimized)),
                 }
             },
             .block, .loop => {
@@ -483,12 +612,26 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .ceil,
             .round,
             .trunc_float,
-            .neg,
-            .neg_optimized,
-            => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
-                const un_op = l.air_instructions.items(.data)[@intFromEnum(inst)].un_op;
-                if (l.typeOf(un_op).isVector(zcu)) {
-                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .un_op));
+            => |air_tag| {
+                const operand = l.air_instructions.items(.data)[@intFromEnum(inst)].un_op;
+                const ty = l.typeOf(operand);
+                switch (l.wantScalarizeOrSoftFloat(air_tag, ty)) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .un_op)),
+                    .soft_float => continue :inst try l.compilerRtCall(
+                        inst,
+                        softFloatFunc(air_tag, ty, zcu),
+                        &.{operand},
+                        l.typeOf(operand),
+                    ),
+                }
+            },
+            inline .neg, .neg_optimized => |air_tag| {
+                const operand = l.air_instructions.items(.data)[@intFromEnum(inst)].un_op;
+                switch (l.wantScalarizeOrSoftFloat(air_tag, l.typeOf(operand))) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .un_op)),
+                    .soft_float => continue :inst l.replaceInst(inst, .block, try l.softFloatNegBlockPayload(inst, operand)),
                 }
             },
             .cmp_lt,
@@ -503,11 +646,24 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .cmp_gt_optimized,
             .cmp_neq,
             .cmp_neq_optimized,
-            => {},
-            inline .cmp_vector, .cmp_vector_optimized => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
+            => |air_tag| {
+                const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                const ty = l.typeOf(bin_op.lhs);
+                if (l.wantSoftFloatScalar(ty)) {
+                    continue :inst l.replaceInst(
+                        inst,
+                        .block,
+                        try l.softFloatCmpBlockPayload(inst, ty, air_tag.toCmpOp().?, bin_op.lhs, bin_op.rhs),
+                    );
+                }
+            },
+            inline .cmp_vector, .cmp_vector_optimized => |air_tag| {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-                if (ty_pl.ty.toType().isVector(zcu)) {
-                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .cmp_vector));
+                const payload = l.extraData(Air.VectorCmp, ty_pl.payload).data;
+                switch (l.wantScalarizeOrSoftFloat(air_tag, l.typeOf(payload.lhs))) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .cmp_vector)),
+                    .soft_float => unreachable, // the operand is not a scalar
                 }
             },
             .cond_br => {
@@ -615,16 +771,27 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .ptr_elem_ptr,
             .array_to_slice,
             => {},
-            .reduce, .reduce_optimized => if (l.features.has(.reduce_one_elem_to_bitcast)) {
+            inline .reduce, .reduce_optimized => |air_tag| {
                 const reduce = l.air_instructions.items(.data)[@intFromEnum(inst)].reduce;
                 const vector_ty = l.typeOf(reduce.operand);
-                switch (vector_ty.vectorLen(zcu)) {
-                    0 => unreachable,
-                    1 => continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
-                        .ty = .fromType(vector_ty.childType(zcu)),
-                        .operand = reduce.operand,
-                    } }),
-                    else => {},
+                if (l.features.has(.reduce_one_elem_to_bitcast)) {
+                    switch (vector_ty.vectorLen(zcu)) {
+                        0 => unreachable,
+                        1 => continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
+                            .ty = .fromType(vector_ty.childType(zcu)),
+                            .operand = reduce.operand,
+                        } }),
+                        else => {},
+                    }
+                }
+                switch (l.wantScalarizeOrSoftFloat(air_tag, vector_ty)) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(
+                        inst,
+                        .block,
+                        try l.scalarizeReduceBlockPayload(inst, air_tag == .reduce_optimized),
+                    ),
+                    .soft_float => unreachable, // the operand is not a scalar
                 }
             },
             .splat => if (l.features.has(.splat_one_elem_to_bitcast)) {
@@ -638,14 +805,30 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                     else => {},
                 }
             },
-            .shuffle_one => if (l.features.has(.scalarize_shuffle_one)) {
-                continue :inst l.replaceInst(inst, .block, try l.scalarizeShuffleOneBlockPayload(inst));
+            .shuffle_one => {
+                const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+                switch (l.wantScalarizeOrSoftFloat(.shuffle_one, ty_pl.ty.toType())) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeShuffleOneBlockPayload(inst)),
+                    .soft_float => unreachable, // the operand is not a scalar
+                }
             },
-            .shuffle_two => if (l.features.has(.scalarize_shuffle_two)) {
-                continue :inst l.replaceInst(inst, .block, try l.scalarizeShuffleTwoBlockPayload(inst));
+            .shuffle_two => {
+                const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+                switch (l.wantScalarizeOrSoftFloat(.shuffle_two, ty_pl.ty.toType())) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeShuffleTwoBlockPayload(inst)),
+                    .soft_float => unreachable, // the operand is not a scalar
+                }
             },
-            .select => if (l.features.has(.scalarize_select)) {
-                continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .select));
+            .select => {
+                const pl_op = l.air_instructions.items(.data)[@intFromEnum(inst)].pl_op;
+                const bin = l.extraData(Air.Bin, pl_op.payload).data;
+                switch (l.wantScalarizeOrSoftFloat(.select, l.typeOf(bin.lhs))) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .select)),
+                    .soft_float => unreachable, // the operand is not a scalar
+                }
             },
             .memset,
             .memset_safe,
@@ -685,10 +868,17 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 }
             },
             .union_init, .prefetch => {},
-            .mul_add => if (l.features.has(.scalarize_mul_add)) {
+            .mul_add => {
                 const pl_op = l.air_instructions.items(.data)[@intFromEnum(inst)].pl_op;
-                if (l.typeOf(pl_op.operand).isVector(zcu)) {
-                    continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .pl_op_bin));
+                const ty = l.typeOf(pl_op.operand);
+                switch (l.wantScalarizeOrSoftFloat(.mul_add, ty)) {
+                    .none => {},
+                    .scalarize => continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .pl_op_bin)),
+                    .soft_float => {
+                        const bin = l.extraData(Air.Bin, pl_op.payload).data;
+                        const func = softFloatFunc(.mul_add, ty, zcu);
+                        continue :inst try l.compilerRtCall(inst, func, &.{ bin.lhs, bin.rhs, pl_op.operand }, ty);
+                    },
                 }
             },
             .field_parent_ptr,
@@ -709,6 +899,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .work_group_id,
             .legalize_vec_elem_val,
             .legalize_vec_store_elem,
+            .legalize_compiler_rt_call,
             => {},
         }
     }
@@ -1606,6 +1797,128 @@ fn scalarizeOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!
         .payload = try l.addBlockBody(main_block.body()),
     } };
 }
+fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimized: bool) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+
+    const reduce = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].reduce;
+
+    const vector_ty = l.typeOf(reduce.operand);
+    const scalar_ty = vector_ty.childType(zcu);
+
+    const ident_val: Value = switch (reduce.operation) {
+        // identity for add is 0; identity for OR and XOR is all 0 bits
+        .Or, .Xor, .Add => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => try pt.intValue(scalar_ty, 0),
+            .float => try pt.floatValue(scalar_ty, 0.0),
+            else => unreachable,
+        },
+        // identity for multiplication is 1
+        .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => try pt.intValue(scalar_ty, 1),
+            .float => try pt.floatValue(scalar_ty, 1.0),
+            else => unreachable,
+        },
+        // identity for AND is all 1 bits
+        .And => switch (scalar_ty.intInfo(zcu).signedness) {
+            .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
+            .signed => try pt.intValue(scalar_ty, -1),
+        },
+        // identity for @min is maximum value
+        .Min => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => try scalar_ty.maxIntScalar(pt, scalar_ty),
+            .float => try pt.floatValue(scalar_ty, std.math.inf(f32)),
+            else => unreachable,
+        },
+        // identity for @max is minimum value
+        .Max => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => try scalar_ty.minIntScalar(pt, scalar_ty),
+            .float => try pt.floatValue(scalar_ty, -std.math.inf(f32)),
+            else => unreachable,
+        },
+    };
+
+    const op_tag: Air.Inst.Tag = switch (reduce.operation) {
+        .Or => .bit_or,
+        .And => .bit_and,
+        .Xor => .xor,
+        .Min => .min,
+        .Max => .max,
+        .Add => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => .add_wrap,
+            .float => if (optimized) .add_optimized else .add,
+            else => unreachable,
+        },
+        .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => .mul_wrap,
+            .float => if (optimized) .mul_optimized else .mul,
+            else => unreachable,
+        },
+    };
+
+    // %1 = block(Scalar, {
+    //   %2 = alloc(*usize)
+    //   %3 = alloc(*Scalar)
+    //   %4 = store(%2, @zero_usize)
+    //   %5 = store(%3, <Scalar, 0>)  // or whatever the identity is for this operator
+    //   %6 = loop({
+    //     %7 = load(%2)
+    //     %8 = legalize_vec_elem_val(orig_operand, %7)
+    //     %9 = load(%3)
+    //     %10 = add(%8, %9)  // or whatever the operator is
+    //     %11 = cmp_eq(%7, <usize, N-1>)
+    //     %12 = cond_br(%11, {
+    //       %13 = br(%1, %10)
+    //     }, {
+    //       %14 = store(%3, %10)
+    //       %15 = add(%7, @one_usize)
+    //       %16 = store(%2, %15)
+    //       %17 = repeat(%6)
+    //     })
+    //   })
+    // })
+
+    var inst_buf: [16]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+
+    const index_ptr = main_block.addTy(l, .alloc, .ptr_usize).toRef();
+    const accum_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(scalar_ty)).toRef();
+    _ = main_block.addBinOp(l, .store, index_ptr, .zero_usize);
+    _ = main_block.addBinOp(l, .store, accum_ptr, .fromValue(ident_val));
+
+    var loop: Loop = .init(l, &main_block);
+    loop.block = .init(main_block.stealRemainingCapacity());
+
+    const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
+    const elem_val = loop.block.addBinOp(l, .legalize_vec_elem_val, reduce.operand, index_val).toRef();
+    const old_accum = loop.block.addTyOp(l, .load, scalar_ty, accum_ptr).toRef();
+    const new_accum = loop.block.addBinOp(l, op_tag, old_accum, elem_val).toRef();
+
+    const is_end_val = loop.block.addBinOp(l, .cmp_eq, index_val, .fromValue(try pt.intValue(.usize, vector_ty.vectorLen(zcu) - 1))).toRef();
+
+    var condbr: CondBr = .init(l, is_end_val, &loop.block, .{});
+
+    condbr.then_block = .init(loop.block.stealRemainingCapacity());
+    condbr.then_block.addBr(l, orig_inst, new_accum);
+
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    _ = condbr.else_block.addBinOp(l, .store, accum_ptr, new_accum);
+    const new_index_val = condbr.else_block.addBinOp(l, .add, index_val, .one_usize).toRef();
+    _ = condbr.else_block.addBinOp(l, .store, index_ptr, new_index_val);
+    _ = condbr.else_block.add(l, .{
+        .tag = .repeat,
+        .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+    });
+
+    try condbr.finish(l);
+    try loop.finish(l);
+
+    return .{ .ty_pl = .{
+        .ty = .fromType(scalar_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
 
 fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
     const pt = l.pt;
@@ -2298,6 +2611,22 @@ const Block = struct {
         });
     }
 
+    fn addCompilerRtCall(b: *Block, l: *Legalize, func: Air.CompilerRtFunc, args: []const Air.Inst.Ref) Error!Air.Inst.Index {
+        return b.add(l, .{
+            .tag = .legalize_compiler_rt_call,
+            .data = .{ .legalize_compiler_rt_call = .{
+                .func = func,
+                .payload = payload: {
+                    const extra_len = @typeInfo(Air.Call).@"struct".fields.len + args.len;
+                    try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, extra_len);
+                    const index = l.addExtra(Air.Call, .{ .args_len = @intCast(args.len) }) catch unreachable;
+                    l.air_extra.appendSliceAssumeCapacity(@ptrCast(args));
+                    break :payload index;
+                },
+            } },
+        });
+    }
+
     /// Adds the code to call the panic handler `panic_id`. This is usually `.call` then `.unreach`,
     /// but if `Zcu.Feature.panic_fn` is unsupported, we lower to `.trap` instead.
     fn addPanic(b: *Block, l: *Legalize, panic_id: Zcu.SimplePanicId) Error!void {
@@ -2365,14 +2694,7 @@ const Block = struct {
         optimized: bool,
     ) Air.Inst.Index {
         return b.add(l, .{
-            .tag = switch (op) {
-                .lt => if (optimized) .cmp_lt_optimized else .cmp_lt,
-                .lte => if (optimized) .cmp_lte_optimized else .cmp_lte,
-                .eq => if (optimized) .cmp_eq_optimized else .cmp_eq,
-                .gte => if (optimized) .cmp_gte_optimized else .cmp_gte,
-                .gt => if (optimized) .cmp_gt_optimized else .cmp_gt,
-                .neq => if (optimized) .cmp_neq_optimized else .cmp_neq,
-            },
+            .tag = .fromCmpOp(op, optimized),
             .data = .{ .bin_op = .{
                 .lhs = lhs,
                 .rhs = rhs,
@@ -2397,6 +2719,82 @@ const Block = struct {
         }).toRef();
         _ = b.stealCapacity(1);
         return operand;
+    }
+
+    /// This function emits *two* instructions.
+    fn addSoftFloatCmp(
+        b: *Block,
+        l: *Legalize,
+        float_ty: Type,
+        op: std.math.CompareOperator,
+        lhs: Air.Inst.Ref,
+        rhs: Air.Inst.Ref,
+    ) Error!Air.Inst.Ref {
+        const pt = l.pt;
+        const target = pt.zcu.getTarget();
+        const use_aeabi = target.cpu.arch.isArm() and switch (target.abi) {
+            .eabi,
+            .eabihf,
+            .musleabi,
+            .musleabihf,
+            .gnueabi,
+            .gnueabihf,
+            .android,
+            .androideabi,
+            => true,
+            else => false,
+        };
+        const func: Air.CompilerRtFunc, const ret_cmp_op: std.math.CompareOperator = switch (float_ty.floatBits(target)) {
+            // zig fmt: off
+            16 => switch (op) {
+                .eq  => .{ .__eqhf2, .eq  },
+                .neq => .{ .__nehf2, .neq },
+                .lt  => .{ .__lthf2, .lt  },
+                .lte => .{ .__lehf2, .lte },
+                .gt  => .{ .__gthf2, .gt  },
+                .gte => .{ .__gehf2, .gte },
+            },
+            32 => switch (op) {
+                .eq  => if (use_aeabi) .{ .__aeabi_fcmpeq, .neq } else .{ .__eqsf2, .eq  },
+                .neq => if (use_aeabi) .{ .__aeabi_fcmpeq, .eq  } else .{ .__nesf2, .neq },
+                .lt  => if (use_aeabi) .{ .__aeabi_fcmplt, .neq } else .{ .__ltsf2, .lt  },
+                .lte => if (use_aeabi) .{ .__aeabi_fcmple, .neq } else .{ .__lesf2, .lte },
+                .gt  => if (use_aeabi) .{ .__aeabi_fcmpgt, .neq } else .{ .__gtsf2, .gt  },
+                .gte => if (use_aeabi) .{ .__aeabi_fcmpge, .neq } else .{ .__gesf2, .gte },
+            },
+            64 => switch (op) {
+                .eq  => if (use_aeabi) .{ .__aeabi_dcmpeq, .neq } else .{ .__eqdf2, .eq  },
+                .neq => if (use_aeabi) .{ .__aeabi_dcmpeq, .eq  } else .{ .__nedf2, .neq },
+                .lt  => if (use_aeabi) .{ .__aeabi_dcmplt, .neq } else .{ .__ltdf2, .lt  },
+                .lte => if (use_aeabi) .{ .__aeabi_dcmple, .neq } else .{ .__ledf2, .lte },
+                .gt  => if (use_aeabi) .{ .__aeabi_dcmpgt, .neq } else .{ .__gtdf2, .gt  },
+                .gte => if (use_aeabi) .{ .__aeabi_dcmpge, .neq } else .{ .__gedf2, .gte },
+            },
+            80 => switch (op) {
+                .eq  => .{ .__eqxf2, .eq  },
+                .neq => .{ .__nexf2, .neq },
+                .lt  => .{ .__ltxf2, .lt  },
+                .lte => .{ .__lexf2, .lte },
+                .gt  => .{ .__gtxf2, .gt  },
+                .gte => .{ .__gexf2, .gte },
+            },
+            128 => switch (op) {
+                .eq  => .{ .__eqtf2, .eq  },
+                .neq => .{ .__netf2, .neq },
+                .lt  => .{ .__lttf2, .lt  },
+                .lte => .{ .__letf2, .lte },
+                .gt  => .{ .__gttf2, .gt  },
+                .gte => .{ .__getf2, .gte },
+            },
+            else => unreachable,
+            // zig fmt: on
+        };
+        const call_inst = try b.addCompilerRtCall(l, func, &.{ lhs, rhs });
+        const raw_result = call_inst.toRef();
+        assert(l.typeOf(raw_result).toIntern() == .i32_type);
+        const zero_i32: Air.Inst.Ref = .fromValue(try pt.intValue(.i32, 0));
+        const ret_cmp_tag: Air.Inst.Tag = .fromCmpOp(ret_cmp_op, false);
+        return b.addBinOp(l, ret_cmp_tag, raw_result, zero_i32).toRef();
     }
 
     /// Returns the unused capacity of `b.instructions`, and shrinks `b.instructions` down to `b.len`.
@@ -2523,6 +2921,484 @@ inline fn replaceInst(l: *Legalize, inst: Air.Inst.Index, comptime tag: Air.Inst
     l.air_instructions.set(@intFromEnum(inst), .{ .tag = tag, .data = data });
     if (std.debug.runtime_safety) assert(l.typeOfIndex(inst).toIntern() == orig_ty.toIntern());
     return tag;
+}
+
+fn compilerRtCall(
+    l: *Legalize,
+    orig_inst: Air.Inst.Index,
+    func: Air.CompilerRtFunc,
+    args: []const Air.Inst.Ref,
+    result_ty: Type,
+) Error!Air.Inst.Tag {
+    const zcu = l.pt.zcu;
+    const gpa = zcu.gpa;
+
+    const func_ret_ty = func.returnType();
+
+    if (func_ret_ty.toIntern() == result_ty.toIntern()) {
+        try l.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".fields.len + args.len);
+        const payload = l.addExtra(Air.Call, .{ .args_len = @intCast(args.len) }) catch unreachable;
+        l.air_extra.appendSliceAssumeCapacity(@ptrCast(args));
+        return l.replaceInst(orig_inst, .legalize_compiler_rt_call, .{ .legalize_compiler_rt_call = .{
+            .func = func,
+            .payload = payload,
+        } });
+    }
+
+    // We need to bitcast the result to an "alias" type (e.g. c_int/i32, c_longdouble/f128).
+
+    assert(func_ret_ty.bitSize(zcu) == result_ty.bitSize(zcu));
+
+    var inst_buf: [3]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+
+    const call_inst = try main_block.addCompilerRtCall(l, func, args);
+    const casted_result = main_block.addBitCast(l, result_ty, call_inst.toRef());
+    main_block.addBr(l, orig_inst, casted_result);
+
+    return l.replaceInst(orig_inst, .block, .{ .ty_pl = .{
+        .ty = .fromType(result_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } });
+}
+
+fn softFptruncFunc(l: *const Legalize, src_ty: Type, dst_ty: Type) Air.CompilerRtFunc {
+    const target = l.pt.zcu.getTarget();
+    const src_bits = src_ty.floatBits(target);
+    const dst_bits = dst_ty.floatBits(target);
+    assert(dst_bits < src_bits);
+    const to_f16_func: Air.CompilerRtFunc = switch (src_bits) {
+        128 => .__trunctfhf2,
+        80 => .__truncxfhf2,
+        64 => .__truncdfhf2,
+        32 => .__truncsfhf2,
+        else => unreachable,
+    };
+    const offset: u8 = switch (dst_bits) {
+        16 => 0,
+        32 => 1,
+        64 => 2,
+        80 => 3,
+        else => unreachable,
+    };
+    return @enumFromInt(@intFromEnum(to_f16_func) + offset);
+}
+fn softFpextFunc(l: *const Legalize, src_ty: Type, dst_ty: Type) Air.CompilerRtFunc {
+    const target = l.pt.zcu.getTarget();
+    const src_bits = src_ty.floatBits(target);
+    const dst_bits = dst_ty.floatBits(target);
+    assert(dst_bits > src_bits);
+    const to_f128_func: Air.CompilerRtFunc = switch (src_bits) {
+        16 => .__extendhftf2,
+        32 => .__extendsftf2,
+        64 => .__extenddftf2,
+        80 => .__extendxftf2,
+        else => unreachable,
+    };
+    const offset: u8 = switch (dst_bits) {
+        128 => 0,
+        80 => 1,
+        64 => 2,
+        32 => 3,
+        else => unreachable,
+    };
+    return @enumFromInt(@intFromEnum(to_f128_func) + offset);
+}
+fn softFloatFromInt(l: *Legalize, orig_inst: Air.Inst.Index) Error!union(enum) {
+    call: Air.CompilerRtFunc,
+    block_payload: Air.Inst.Data,
+} {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const target = zcu.getTarget();
+
+    const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
+    const dest_ty = ty_op.ty.toType();
+    const src_ty = l.typeOf(ty_op.operand);
+
+    const src_info = src_ty.intInfo(zcu);
+    const float_off: u32 = switch (dest_ty.floatBits(target)) {
+        16 => 0,
+        32 => 1,
+        64 => 2,
+        80 => 3,
+        128 => 4,
+        else => unreachable,
+    };
+    const base: Air.CompilerRtFunc = switch (src_info.signedness) {
+        .signed => .__floatsihf,
+        .unsigned => .__floatunsihf,
+    };
+    fixed: {
+        const extended_int_bits: u16, const int_bits_off: u32 = switch (src_info.bits) {
+            0...32 => .{ 32, 0 },
+            33...64 => .{ 64, 5 },
+            65...128 => .{ 128, 10 },
+            else => break :fixed,
+        };
+        // x86_64-windows uses an odd callconv for 128-bit integers, so we use the
+        // arbitrary-precision routine in that case for simplicity.
+        if (target.cpu.arch == .x86_64 and target.os.tag == .windows and extended_int_bits == 128) {
+            break :fixed;
+        }
+
+        const func: Air.CompilerRtFunc = @enumFromInt(@intFromEnum(base) + int_bits_off + float_off);
+        if (extended_int_bits == src_info.bits) return .{ .call = func };
+
+        // We need to emit a block which first sign/zero-extends to the right type and *then* calls
+        // the required routine.
+        const extended_ty = try l.pt.intType(src_info.signedness, extended_int_bits);
+
+        var inst_buf: [4]Air.Inst.Index = undefined;
+        var main_block: Block = .init(&inst_buf);
+        try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+
+        const extended_val = main_block.addTyOp(l, .intcast, extended_ty, ty_op.operand).toRef();
+        const call_inst = try main_block.addCompilerRtCall(l, func, &.{extended_val});
+        const casted_result = main_block.addBitCast(l, dest_ty, call_inst.toRef());
+        main_block.addBr(l, orig_inst, casted_result);
+
+        return .{ .block_payload = .{ .ty_pl = .{
+            .ty = .fromType(dest_ty),
+            .payload = try l.addBlockBody(main_block.body()),
+        } } };
+    }
+
+    // We need to emit a block which puts the integer into an `alloc` (possibly sign/zero-extended)
+    // and calls an arbitrary-width conversion routine.
+
+    const func: Air.CompilerRtFunc = @enumFromInt(@intFromEnum(base) + 15 + float_off);
+
+    // The extended integer routines expect the integer representation where the integer is
+    // effectively zero- or sign-extended to its ABI size. We represent that by intcasting to
+    // such an integer type and passing a pointer to *that*.
+    const extended_ty = try pt.intType(src_info.signedness, @intCast(src_ty.abiSize(zcu) * 8));
+    assert(extended_ty.abiSize(zcu) == src_ty.abiSize(zcu));
+
+    var inst_buf: [6]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+
+    const extended_val: Air.Inst.Ref = if (extended_ty.toIntern() != src_ty.toIntern()) ext: {
+        break :ext main_block.addTyOp(l, .intcast, extended_ty, ty_op.operand).toRef();
+    } else ext: {
+        _ = main_block.stealCapacity(1);
+        break :ext ty_op.operand;
+    };
+    const extended_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(extended_ty)).toRef();
+    _ = main_block.addBinOp(l, .store, extended_ptr, extended_val);
+    const bits_val = try pt.intValue(.usize, src_info.bits);
+    const call_inst = try main_block.addCompilerRtCall(l, func, &.{ extended_ptr, .fromValue(bits_val) });
+    const casted_result = main_block.addBitCast(l, dest_ty, call_inst.toRef());
+    main_block.addBr(l, orig_inst, casted_result);
+
+    return .{ .block_payload = .{ .ty_pl = .{
+        .ty = .fromType(dest_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } } };
+}
+fn softIntFromFloat(l: *Legalize, orig_inst: Air.Inst.Index) Error!union(enum) {
+    call: Air.CompilerRtFunc,
+    block_payload: Air.Inst.Data,
+} {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const target = zcu.getTarget();
+
+    const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
+    const src_ty = l.typeOf(ty_op.operand);
+    const dest_ty = ty_op.ty.toType();
+
+    const dest_info = dest_ty.intInfo(zcu);
+    const float_off: u32 = switch (src_ty.floatBits(target)) {
+        16 => 0,
+        32 => 1,
+        64 => 2,
+        80 => 3,
+        128 => 4,
+        else => unreachable,
+    };
+    const base: Air.CompilerRtFunc = switch (dest_info.signedness) {
+        .signed => .__fixhfsi,
+        .unsigned => .__fixunshfsi,
+    };
+    fixed: {
+        const extended_int_bits: u16, const int_bits_off: u32 = switch (dest_info.bits) {
+            0...32 => .{ 32, 0 },
+            33...64 => .{ 64, 5 },
+            65...128 => .{ 128, 10 },
+            else => break :fixed,
+        };
+        // x86_64-windows uses an odd callconv for 128-bit integers, so we use the
+        // arbitrary-precision routine in that case for simplicity.
+        if (target.cpu.arch == .x86_64 and target.os.tag == .windows and extended_int_bits == 128) {
+            break :fixed;
+        }
+
+        const func: Air.CompilerRtFunc = @enumFromInt(@intFromEnum(base) + int_bits_off + float_off);
+        if (extended_int_bits == dest_info.bits) return .{ .call = func };
+
+        // We need to emit a block which calls the routine and then casts to the required type.
+
+        var inst_buf: [3]Air.Inst.Index = undefined;
+        var main_block: Block = .init(&inst_buf);
+        try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+
+        const call_inst = try main_block.addCompilerRtCall(l, func, &.{ty_op.operand});
+        const casted_val = main_block.addTyOp(l, .intcast, dest_ty, call_inst.toRef()).toRef();
+        main_block.addBr(l, orig_inst, casted_val);
+
+        return .{ .block_payload = .{ .ty_pl = .{
+            .ty = .fromType(dest_ty),
+            .payload = try l.addBlockBody(main_block.body()),
+        } } };
+    }
+
+    // We need to emit a block which calls an arbitrary-width conversion routine, then loads the
+    // integer from an `alloc` and possibly truncates it.
+    const func: Air.CompilerRtFunc = @enumFromInt(@intFromEnum(base) + 15 + float_off);
+
+    const extended_ty = try pt.intType(dest_info.signedness, @intCast(dest_ty.abiSize(zcu) * 8));
+    assert(extended_ty.abiSize(zcu) == dest_ty.abiSize(zcu));
+
+    var inst_buf: [5]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+
+    const extended_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(extended_ty)).toRef();
+    const bits_val = try pt.intValue(.usize, dest_info.bits);
+    _ = try main_block.addCompilerRtCall(l, func, &.{ extended_ptr, .fromValue(bits_val), ty_op.operand });
+    const extended_val = main_block.addTyOp(l, .load, extended_ty, extended_ptr).toRef();
+    const result_val = main_block.addTyOp(l, .intcast, dest_ty, extended_val).toRef();
+    main_block.addBr(l, orig_inst, result_val);
+
+    return .{ .block_payload = .{ .ty_pl = .{
+        .ty = .fromType(dest_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } } };
+}
+fn softFloatFunc(op: Air.Inst.Tag, float_ty: Type, zcu: *const Zcu) Air.CompilerRtFunc {
+    const f16_func: Air.CompilerRtFunc = switch (op) {
+        .add, .add_optimized => .__addhf3,
+        .sub, .sub_optimized => .__subhf3,
+        .mul, .mul_optimized => .__mulhf3,
+
+        .div_float,
+        .div_float_optimized,
+        .div_exact,
+        .div_exact_optimized,
+        => .__divhf3,
+
+        .min => .__fminh,
+        .max => .__fmaxh,
+
+        .ceil => .__ceilh,
+        .floor => .__floorh,
+        .trunc_float => .__trunch,
+        .round => .__roundh,
+
+        .log => .__logh,
+        .log2 => .__log2h,
+        .log10 => .__log10h,
+
+        .exp => .__exph,
+        .exp2 => .__exp2h,
+
+        .sin => .__sinh,
+        .cos => .__cosh,
+        .tan => .__tanh,
+
+        .abs => .__fabsh,
+        .sqrt => .__sqrth,
+        .rem, .rem_optimized => .__fmodh,
+        .mul_add => .__fmah,
+
+        else => unreachable,
+    };
+    const offset: u8 = switch (float_ty.floatBits(zcu.getTarget())) {
+        16 => 0,
+        32 => 1,
+        64 => 2,
+        80 => 3,
+        128 => 4,
+        else => unreachable,
+    };
+    return @enumFromInt(@intFromEnum(f16_func) + offset);
+}
+
+fn softFloatNegBlockPayload(
+    l: *Legalize,
+    orig_inst: Air.Inst.Index,
+    operand: Air.Inst.Ref,
+) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    const float_ty = l.typeOfIndex(orig_inst);
+
+    const int_ty: Type, const sign_bit: Value = switch (float_ty.floatBits(zcu.getTarget())) {
+        16 => .{ .u16, try pt.intValue(.u16, @as(u16, 1) << 15) },
+        32 => .{ .u32, try pt.intValue(.u32, @as(u32, 1) << 31) },
+        64 => .{ .u64, try pt.intValue(.u64, @as(u64, 1) << 63) },
+        80 => .{ .u80, try pt.intValue(.u80, @as(u80, 1) << 79) },
+        128 => .{ .u128, try pt.intValue(.u128, @as(u128, 1) << 127) },
+        else => unreachable,
+    };
+
+    const sign_bit_ref: Air.Inst.Ref = .fromValue(sign_bit);
+
+    var inst_buf: [4]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+
+    const operand_as_int = main_block.addBitCast(l, int_ty, operand);
+    const result_as_int = main_block.addBinOp(l, .xor, operand_as_int, sign_bit_ref).toRef();
+    const result = main_block.addBitCast(l, float_ty, result_as_int);
+    main_block.addBr(l, orig_inst, result);
+
+    return .{ .ty_pl = .{
+        .ty = .fromType(float_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+
+fn softFloatDivTruncFloorBlockPayload(
+    l: *Legalize,
+    orig_inst: Air.Inst.Index,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+    air_tag: Air.Inst.Tag,
+) Error!Air.Inst.Data {
+    const zcu = l.pt.zcu;
+    const gpa = zcu.gpa;
+
+    const float_ty = l.typeOfIndex(orig_inst);
+
+    const floor_tag: Air.Inst.Tag = switch (air_tag) {
+        .div_trunc, .div_trunc_optimized => .trunc_float,
+        .div_floor, .div_floor_optimized => .floor,
+        else => unreachable,
+    };
+
+    var inst_buf: [4]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+
+    const div_inst = try main_block.addCompilerRtCall(l, softFloatFunc(.div_float, float_ty, zcu), &.{ lhs, rhs });
+    const floor_inst = try main_block.addCompilerRtCall(l, softFloatFunc(floor_tag, float_ty, zcu), &.{div_inst.toRef()});
+    const casted_result = main_block.addBitCast(l, float_ty, floor_inst.toRef());
+    main_block.addBr(l, orig_inst, casted_result);
+
+    return .{ .ty_pl = .{
+        .ty = .fromType(float_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+fn softFloatModBlockPayload(
+    l: *Legalize,
+    orig_inst: Air.Inst.Index,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    const float_ty = l.typeOfIndex(orig_inst);
+
+    var inst_buf: [10]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+
+    const rem = try main_block.addCompilerRtCall(l, softFloatFunc(.rem, float_ty, zcu), &.{ lhs, rhs });
+    const lhs_lt_zero = try main_block.addSoftFloatCmp(l, float_ty, .lt, lhs, .fromValue(try pt.floatValue(float_ty, 0.0)));
+
+    var condbr: CondBr = .init(l, lhs_lt_zero, &main_block, .{});
+    condbr.then_block = .init(main_block.stealRemainingCapacity());
+    {
+        const add = try condbr.then_block.addCompilerRtCall(l, softFloatFunc(.add, float_ty, zcu), &.{ rem.toRef(), rhs });
+        const inner_rem = try condbr.then_block.addCompilerRtCall(l, softFloatFunc(.rem, float_ty, zcu), &.{ add.toRef(), rhs });
+        const casted_result = condbr.then_block.addBitCast(l, float_ty, inner_rem.toRef());
+        condbr.then_block.addBr(l, orig_inst, casted_result);
+    }
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    {
+        const casted_result = condbr.else_block.addBitCast(l, float_ty, rem.toRef());
+        condbr.else_block.addBr(l, orig_inst, casted_result);
+    }
+
+    try condbr.finish(l);
+
+    return .{ .ty_pl = .{
+        .ty = .fromType(float_ty),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+fn softFloatCmpBlockPayload(
+    l: *Legalize,
+    orig_inst: Air.Inst.Index,
+    float_ty: Type,
+    op: std.math.CompareOperator,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const gpa = pt.zcu.gpa;
+
+    var inst_buf: [3]Air.Inst.Index = undefined;
+    var main_block: Block = .init(&inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
+
+    const result = try main_block.addSoftFloatCmp(l, float_ty, op, lhs, rhs);
+    main_block.addBr(l, orig_inst, result);
+
+    return .{ .ty_pl = .{
+        .ty = .bool_type,
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+
+/// `inline` to propagate potentially comptime-known return value.
+inline fn wantScalarizeOrSoftFloat(
+    l: *const Legalize,
+    comptime air_tag: Air.Inst.Tag,
+    ty: Type,
+) enum {
+    none,
+    scalarize,
+    soft_float,
+} {
+    const zcu = l.pt.zcu;
+    const is_vec, const scalar_ty = switch (ty.zigTypeTag(zcu)) {
+        .vector => .{ true, ty.childType(zcu) },
+        else => .{ false, ty },
+    };
+
+    if (is_vec and l.features.has(.scalarize(air_tag))) return .scalarize;
+
+    if (l.wantSoftFloatScalar(scalar_ty)) {
+        return if (is_vec) .scalarize else .soft_float;
+    }
+    return .none;
+}
+
+/// `inline` to propagate potentially comptime-known return value.
+inline fn wantSoftFloatScalar(l: *const Legalize, ty: Type) bool {
+    const zcu = l.pt.zcu;
+    return switch (ty.zigTypeTag(zcu)) {
+        .vector => unreachable,
+        .float => switch (ty.floatBits(zcu.getTarget())) {
+            16 => l.features.has(.soft_f16),
+            32 => l.features.has(.soft_f32),
+            64 => l.features.has(.soft_f64),
+            80 => l.features.has(.soft_f80),
+            128 => l.features.has(.soft_f128),
+            else => unreachable,
+        },
+        else => false,
+    };
 }
 
 const Air = @import("../Air.zig");

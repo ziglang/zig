@@ -4889,6 +4889,8 @@ pub const FuncGen = struct {
                 // No "scalarize" legalizations are enabled, so these instructions never appear.
                 .legalize_vec_elem_val   => unreachable,
                 .legalize_vec_store_elem => unreachable,
+                // No soft float legalizations are enabled.
+                .legalize_compiler_rt_call => unreachable,
 
                 .add            => try self.airAdd(inst, .normal),
                 .add_optimized  => try self.airAdd(inst, .fast),
@@ -6670,7 +6672,9 @@ pub const FuncGen = struct {
             "",
         );
 
-        const rt_int_bits = compilerRtIntBits(@intCast(operand_scalar_ty.bitSize(zcu)));
+        const rt_int_bits = compilerRtIntBits(@intCast(operand_scalar_ty.bitSize(zcu))) orelse {
+            return self.todo("float_from_int from '{f}' without intrinsics", .{operand_scalar_ty.fmt(pt)});
+        };
         const rt_int_ty = try o.builder.intType(rt_int_bits);
         var extended = try self.wip.conv(
             if (is_signed_int) .signed else .unsigned,
@@ -6739,7 +6743,9 @@ pub const FuncGen = struct {
             );
         }
 
-        const rt_int_bits = compilerRtIntBits(@intCast(dest_scalar_ty.bitSize(zcu)));
+        const rt_int_bits = compilerRtIntBits(@intCast(dest_scalar_ty.bitSize(zcu))) orelse {
+            return self.todo("int_from_float to '{f}' without intrinsics", .{dest_scalar_ty.fmt(pt)});
+        };
         const ret_ty = try o.builder.intType(rt_int_bits);
         const libc_ret_ty = if (rt_int_bits == 128 and (target.os.tag == .windows and target.cpu.arch == .x86_64)) b: {
             // On Windows x86-64, "ti" functions must use Vector(2, u64) instead of the standard
@@ -12823,13 +12829,13 @@ const optional_layout_version = 3;
 
 const lt_errors_fn_name = "__zig_lt_errors_len";
 
-fn compilerRtIntBits(bits: u16) u16 {
+fn compilerRtIntBits(bits: u16) ?u16 {
     inline for (.{ 32, 64, 128 }) |b| {
         if (bits <= b) {
             return b;
         }
     }
-    return bits;
+    return null;
 }
 
 fn buildAllocaInner(

@@ -418,6 +418,12 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 for (inputs) |input| if (input != .none and !checkRef(input, zcu)) return false;
             },
 
+            .legalize_compiler_rt_call => {
+                const extra = air.extraData(Air.Call, data.legalize_compiler_rt_call.payload);
+                const args: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..extra.data.args_len]);
+                for (args) |arg| if (!checkRef(arg, zcu)) return false;
+            },
+
             .trap,
             .breakpoint,
             .ret_addr,
