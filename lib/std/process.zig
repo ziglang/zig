@@ -1530,11 +1530,13 @@ pub const UserInfo = struct {
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (native_os) {
         .linux,
-        .macos,
-        .watchos,
-        .visionos,
-        .tvos,
+        .driverkit,
         .ios,
+        .maccatalyst,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
         .freebsd,
         .netbsd,
         .openbsd,
@@ -1666,7 +1668,7 @@ pub fn getBaseAddress() usize {
                 else => {},
             } else unreachable;
         },
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
         .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
@@ -1682,7 +1684,7 @@ pub const can_execv = switch (native_os) {
 
 /// Tells whether spawning child processes is supported (e.g. via Child)
 pub const can_spawn = switch (native_os) {
-    .wasi, .watchos, .tvos, .visionos => false,
+    .wasi, .ios, .tvos, .visionos, .watchos => false,
     else => true,
 };
 
@@ -1770,7 +1772,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             return @as(u64, @intCast(physmem));
         },
         // whole Darwin family
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             // "hw.memsize" returns uint64_t
             var physmem: u64 = undefined;
             var len: usize = @sizeOf(u64);

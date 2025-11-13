@@ -987,7 +987,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .xcore,
     => *anyopaque,
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos, .windows => *u8,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .windows => *u8,
         else => switch (builtin.zig_backend) {
             else => VaListAarch64,
             .stage2_llvm => @compileError("disabled due to miscompilations"),

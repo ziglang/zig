@@ -861,7 +861,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     // Prevents EINVAL.
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
     while (true) {
@@ -1002,7 +1002,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     // Prevent EINVAL.
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
 
@@ -1115,7 +1115,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     const have_pread_but_not_preadv = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku => true,
+        .windows, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .haiku => true,
         else => false,
     };
     if (have_pread_but_not_preadv) {
@@ -1269,7 +1269,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
     while (true) {
@@ -1433,7 +1433,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     // Prevent EINVAL.
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
 
@@ -1487,7 +1487,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
 /// If `iov.len` is larger than `IOV_MAX`, a partial write will occur.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usize {
     const have_pwrite_but_not_pwritev = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku => true,
+        .windows, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .haiku => true,
         else => false,
     };
 
@@ -1747,7 +1747,7 @@ pub fn execveZ(
         .NOTDIR => return error.NotDir,
         .TXTBSY => return error.FileBusy,
         else => |err| switch (native_os) {
-            .macos, .ios, .tvos, .watchos, .visionos => switch (err) {
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (err) {
                 .BADEXEC => return error.InvalidExe,
                 .BADARCH => return error.InvalidExe,
                 else => return unexpectedErrno(err),
@@ -6570,7 +6570,7 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, data: usize) PtraceError!vo
             else => |err| return unexpectedErrno(err),
         },
 
-        .macos, .ios, .tvos, .watchos, .visionos => switch (errno(std.c.ptrace(
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (errno(std.c.ptrace(
             @enumFromInt(request),
             pid,
             @ptrFromInt(addr),

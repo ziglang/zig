@@ -189,7 +189,7 @@ pub fn updateFile(
                 // disambiguates by returning EEXIST, indicating original
                 // failure was a race, or ENOENT, indicating deletion of the
                 // directory of our open handle.
-                if (builtin.os.tag != .macos) {
+                if (!builtin.os.tag.isDarwin()) {
                     std.process.fatal("cache directory '{f}' unexpectedly removed during compiler execution", .{
                         cache_directory,
                     });

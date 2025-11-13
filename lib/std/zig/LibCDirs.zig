@@ -227,7 +227,7 @@ pub fn detectFromBuilding(
 fn libCGenericName(target: *const std.Target) [:0]const u8 {
     switch (target.os.tag) {
         .windows => return "mingw",
-        .macos, .ios, .tvos, .watchos, .visionos => return "darwin",
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => return "darwin",
         .freebsd => return "freebsd",
         .netbsd => return "netbsd",
         else => {},
@@ -263,7 +263,6 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         .msvc,
         .itanium,
         .simulator,
-        .macabi,
         => unreachable,
     }
 }

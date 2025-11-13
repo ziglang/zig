@@ -73,7 +73,7 @@ pub const RescanError = RescanLinuxError || RescanMacError || RescanWithPathErro
 pub fn rescan(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp) RescanError!void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa, io, now),
-        .macos => return rescanMac(cb, gpa, io, now),
+        .maccatalyst, .macos => return rescanMac(cb, gpa, io, now),
         .freebsd, .openbsd => return rescanWithPath(cb, gpa, io, now, "/etc/ssl/cert.pem"),
         .netbsd => return rescanWithPath(cb, gpa, io, now, "/etc/openssl/certs/ca-certificates.crt"),
         .dragonfly => return rescanWithPath(cb, gpa, io, now, "/usr/local/etc/ssl/cert.pem"),

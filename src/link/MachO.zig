@@ -3596,7 +3596,7 @@ pub fn requiresCodeSig(self: MachO) bool {
     const target = self.getTarget();
     return switch (target.cpu.arch) {
         .aarch64 => switch (target.os.tag) {
-            .driverkit, .macos => true,
+            .driverkit, .maccatalyst, .macos => true,
             .ios, .tvos, .visionos, .watchos => target.abi == .simulator,
             else => false,
         },
@@ -4032,7 +4032,7 @@ fn formatSectType(tt: u8, w: *Writer) Writer.Error!void {
 }
 
 const is_hot_update_compatible = switch (builtin.target.os.tag) {
-    .macos => true,
+    .maccatalyst, .macos => true,
     else => false,
 };
 
@@ -4174,7 +4174,7 @@ pub const Platform = struct {
                     .os_tag = switch (cmd.platform) {
                         .DRIVERKIT => .driverkit,
                         .IOS, .IOSSIMULATOR => .ios,
-                        .MACCATALYST => .ios,
+                        .MACCATALYST => .maccatalyst,
                         .MACOS => .macos,
                         .TVOS, .TVOSSIMULATOR => .tvos,
                         .VISIONOS, .VISIONOSSIMULATOR => .visionos,
@@ -4182,7 +4182,6 @@ pub const Platform = struct {
                         else => @panic("TODO"),
                     },
                     .abi = switch (cmd.platform) {
-                        .MACCATALYST => .macabi,
                         .IOSSIMULATOR,
                         .TVOSSIMULATOR,
                         .VISIONOSSIMULATOR,
@@ -4198,6 +4197,7 @@ pub const Platform = struct {
             .VERSION_MIN_TVOS,
             .VERSION_MIN_WATCHOS,
             => {
+                // We can't distinguish Mac Catalyst here, but this is legacy stuff anyway.
                 const cmd = lc.cast(macho.version_min_command).?;
                 return .{
                     .os_tag = switch (lc.cmd()) {
@@ -4230,11 +4230,8 @@ pub const Platform = struct {
     pub fn toApplePlatform(plat: Platform) macho.PLATFORM {
         return switch (plat.os_tag) {
             .driverkit => .DRIVERKIT,
-            .ios => switch (plat.abi) {
-                .macabi => .MACCATALYST,
-                .simulator => .IOSSIMULATOR,
-                else => .IOS,
-            },
+            .ios => if (plat.abi == .simulator) .IOSSIMULATOR else .IOS,
+            .maccatalyst => .MACCATALYST,
             .macos => .MACOS,
             .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
             .visionos => if (plat.abi == .simulator) .VISIONOSSIMULATOR else .VISIONOS,
@@ -4300,17 +4297,17 @@ const SupportedPlatforms = struct {
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
 // zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .driverkit, .none,      0x130000, 0x130000 },
-    .{ .ios,       .none,      0x0C0000, 0x070000 },
-    .{ .ios,       .macabi,    0x0D0000, 0x0D0000 },
-    .{ .ios,       .simulator, 0x0D0000, 0x080000 },
-    .{ .macos,     .none,      0x0A0E00, 0x0A0800 },
-    .{ .tvos,      .none,      0x0C0000, 0x070000 },
-    .{ .tvos,      .simulator, 0x0D0000, 0x080000 },
-    .{ .visionos,  .none,      0x010000, 0x010000 },
-    .{ .visionos,  .simulator, 0x010000, 0x010000 },
-    .{ .watchos,   .none,      0x050000, 0x020000 },
-    .{ .watchos,   .simulator, 0x060000, 0x020000 },
+    .{ .driverkit,   .none,      0x130000, 0x130000 },
+    .{ .ios,         .none,      0x0C0000, 0x070000 },
+    .{ .ios,         .simulator, 0x0D0000, 0x080000 },
+    .{ .maccatalyst, .none,      0x0D0000, 0x0D0000 },
+    .{ .macos,       .none,      0x0A0E00, 0x0A0800 },
+    .{ .tvos,        .none,      0x0C0000, 0x070000 },
+    .{ .tvos,        .simulator, 0x0D0000, 0x080000 },
+    .{ .visionos,    .none,      0x010000, 0x010000 },
+    .{ .visionos,    .simulator, 0x010000, 0x010000 },
+    .{ .watchos,     .none,      0x050000, 0x020000 },
+    .{ .watchos,     .simulator, 0x060000, 0x020000 },
 };
 // zig fmt: on
 

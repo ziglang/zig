@@ -183,6 +183,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.appendSlice(switch (target.os.tag) {
         .driverkit,
         .ios,
+        .maccatalyst,
         .macos,
         .tvos,
         .visionos,
@@ -204,7 +205,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.append('-');
 
     const llvm_os = switch (target.os.tag) {
-        .freestanding => "unknown",
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
@@ -218,11 +218,9 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
-        .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
         .ps3 => "lv2",
         .ps4 => "ps4",
         .ps5 => "ps5",
-        .vita => "unknown", // LLVM doesn't know about this target
         .mesa3d => "mesa3d",
         .amdpal => "amdpal",
         .hermit => "hermit",
@@ -230,7 +228,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .wasi => "wasi",
         .emscripten => "emscripten",
         .macos => "macosx",
-        .ios => "ios",
+        .ios, .maccatalyst => "ios",
         .tvos => "tvos",
         .watchos => "watchos",
         .driverkit => "driverkit",
@@ -240,10 +238,13 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .managarm => "managarm",
 
         .@"3ds",
-        .opengl,
-        .plan9,
         .contiki,
+        .freestanding,
+        .opencl, // https://llvm.org/docs/SPIRVUsage.html#target-triples
+        .opengl,
         .other,
+        .plan9,
+        .vita,
         => "unknown",
     };
     try llvm_triple.appendSlice(llvm_os);
@@ -266,7 +267,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.append('-');
 
     const llvm_abi = switch (target.abi) {
-        .none, .ilp32 => "unknown",
+        .none => if (target.os.tag == .maccatalyst) "macabi" else "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",
@@ -275,6 +276,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
+        .ilp32 => "unknown",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
@@ -296,7 +298,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .msvc => "msvc",
         .itanium => "itanium",
         .simulator => "simulator",
-        .macabi => "macabi",
         .ohos, .ohoseabi => "ohos",
     };
     try llvm_triple.appendSlice(llvm_abi);
@@ -12595,7 +12596,7 @@ fn ccAbiPromoteInt(cc: std.builtin.CallingConvention, zcu: *Zcu, ty: Type) ?std.
         else => return null,
     };
     return switch (target.os.tag) {
-        .macos, .ios, .watchos, .tvos, .visionos => switch (int_info.bits) {
+        .driverkit, .ios, .maccatalyst, .macos, .watchos, .tvos, .visionos => switch (int_info.bits) {
             0...16 => int_info.signedness,
             else => null,
         },

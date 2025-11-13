@@ -5116,11 +5116,11 @@ fn clockToPosix(clock: Io.Clock) posix.clockid_t {
     return switch (clock) {
         .real => posix.CLOCK.REALTIME,
         .awake => switch (native_os) {
-            .macos, .ios, .watchos, .tvos => posix.CLOCK.UPTIME_RAW,
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => posix.CLOCK.UPTIME_RAW,
             else => posix.CLOCK.MONOTONIC,
         },
         .boot => switch (native_os) {
-            .macos, .ios, .watchos, .tvos => posix.CLOCK.MONOTONIC_RAW,
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => posix.CLOCK.MONOTONIC_RAW,
             // On freebsd derivatives, use MONOTONIC_FAST as currently there's
             // no precision tradeoff.
             .freebsd, .dragonfly => posix.CLOCK.MONOTONIC_FAST,
@@ -5663,7 +5663,7 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
                 else => unreachable,
             };
         },
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             const c = std.c;
             const flags: c.UL = .{
                 .op = .COMPARE_AND_WAIT,
@@ -5750,7 +5750,7 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
                 else => recoverableOsBugDetected(),
             }
         },
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             const c = std.c;
             const flags: c.UL = .{
                 .op = .COMPARE_AND_WAIT,
@@ -5848,7 +5848,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
                 else => return recoverableOsBugDetected(), // deadlock due to operating system bug
             }
         },
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             const c = std.c;
             const flags: c.UL = .{
                 .op = .COMPARE_AND_WAIT,

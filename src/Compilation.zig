@@ -6761,12 +6761,15 @@ fn addCommonCCArgs(
     }
 
     switch (target.os.tag) {
-        .ios, .macos, .tvos, .watchos => |os| if (is_clang) {
+        .ios, .maccatalyst, .macos, .tvos, .watchos => |os| if (is_clang) {
             try argv.ensureUnusedCapacity(2);
             // Pass the proper -m<os>-version-min argument for darwin.
             const ver = target.os.version_range.semver.min;
             argv.appendAssumeCapacity(try std.fmt.allocPrint(arena, "-m{s}{s}-version-min={d}.{d}.{d}", .{
-                @tagName(os),
+                switch (os) {
+                    .maccatalyst => "ios",
+                    else => @tagName(os),
+                },
                 switch (target.abi) {
                     .simulator => "-simulator",
                     else => "",

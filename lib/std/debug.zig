@@ -1392,6 +1392,7 @@ pub const have_segfault_handling_support = switch (native_os) {
 
     .driverkit,
     .ios,
+    .maccatalyst,
     .macos,
     .tvos,
     .visionos,
@@ -1487,6 +1488,7 @@ fn handleSegfaultPosix(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*
             .freebsd,
             .driverkit,
             .ios,
+            .maccatalyst,
             .macos,
             .tvos,
             .visionos,

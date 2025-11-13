@@ -16,7 +16,7 @@ pub const DynLib = struct {
         else
             DlDynLib,
         .windows => WindowsDynLib,
-        .macos, .tvos, .watchos, .ios, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly, .illumos => DlDynLib,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .freebsd, .netbsd, .openbsd, .dragonfly, .illumos => DlDynLib,
         else => struct {
             const open = @compileError("unsupported platform");
             const openZ = @compileError("unsupported platform");
@@ -675,7 +675,7 @@ test "dynamic_library" {
     const libname = switch (native_os) {
         .linux, .freebsd, .openbsd, .illumos => "invalid_so.so",
         .windows => "invalid_dll.dll",
-        .macos, .tvos, .watchos, .ios, .visionos => "invalid_dylib.dylib",
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => "invalid_dylib.dylib",
         else => return error.SkipZigTest,
     };
 

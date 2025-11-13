@@ -620,7 +620,7 @@ pub const File = struct {
                             .linux => std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                                 log.warn("ptrace failure: {s}", .{@errorName(err)});
                             },
-                            .macos => {
+                            .maccatalyst, .macos => {
                                 const macho_file = base.cast(.macho).?;
                                 macho_file.ptraceAttach(pid) catch |err| {
                                     log.warn("attaching failed with error: {s}", .{@errorName(err)});
@@ -700,7 +700,7 @@ pub const File = struct {
 
                 if (base.child_pid) |pid| {
                     switch (builtin.os.tag) {
-                        .macos => {
+                        .maccatalyst, .macos => {
                             const macho_file = base.cast(.macho).?;
                             macho_file.ptraceDetach(pid) catch |err| {
                                 log.warn("detaching failed with error: {s}", .{@errorName(err)});
