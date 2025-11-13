@@ -206,6 +206,22 @@ pub const EnvMap = struct {
         return self.hash_map.iterator();
     }
 
+    /// Returns a full copy of `em` allocated with `gpa`, which is not necessarily
+    /// the same allocator used to allocate `em`.
+    pub fn clone(em: *const EnvMap, gpa: Allocator) Allocator.Error!EnvMap {
+        var new: EnvMap = .init(gpa);
+        errdefer new.deinit();
+        // Since we need to dupe the keys and values, the only way for error handling to not be a
+        // nightmare is to add keys to an empty map one-by-one. This could be avoided if this
+        // abstraction were a bit less... OOP-esque.
+        try new.hash_map.ensureUnusedCapacity(em.hash_map.count());
+        var it = em.hash_map.iterator();
+        while (it.next()) |entry| {
+            try new.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        return new;
+    }
+
     fn free(self: EnvMap, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }

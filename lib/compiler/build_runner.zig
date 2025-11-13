@@ -443,11 +443,6 @@ pub fn main() !void {
     }
 
     const ttyconf = color.detectTtyConf();
-    switch (ttyconf) {
-        .no_color => try graph.env_map.put("NO_COLOR", "1"),
-        .escape_codes => try graph.env_map.put("CLICOLOR_FORCE", "1"),
-        .windows_api => {},
-    }
 
     const main_progress_node = std.Progress.start(.{
         .disable_printing = (color == .off),
@@ -1389,6 +1384,7 @@ fn workerMakeOneStep(
         .thread_pool = thread_pool,
         .watch = run.watch,
         .web_server = if (run.web_server) |*ws| ws else null,
+        .ttyconf = run.ttyconf,
         .unit_test_timeout_ns = run.unit_test_timeout_ns,
         .gpa = run.gpa,
     });
