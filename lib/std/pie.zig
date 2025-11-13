@@ -56,8 +56,9 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ call 1f
-                \\ 1: pop %[ret]
-                \\ lea _DYNAMIC-1b(%[ret]), %[ret]
+                \\1:
+                \\ pop %[ret]
+                \\ lea _DYNAMIC - 1b(%[ret]), %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
             .x86_64 => asm volatile (
@@ -79,8 +80,9 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ ldr %[ret], 1f
                 \\ add %[ret], pc
                 \\ b 2f
-                \\ 1: .word _DYNAMIC-1b
-                \\ 2:
+                \\1:
+                \\ .word _DYNAMIC-1b
+                \\2:
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
             // A simple `adr` is not enough as it has a limited offset range
@@ -99,7 +101,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ ldq %[ret], -0x8000($29)
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : .{ .r26 = true }),
+                : .{ .r26 = true, .r29 = true }),
             // The CSKY ABI requires the gb register to point to the GOT. Additionally, the first
             // entry in the GOT is defined to hold the address of _DYNAMIC.
             .csky => asm volatile (
@@ -112,7 +114,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ jump 1f
                 \\ .word _DYNAMIC - .
-                \\ 1:
+                \\1:
                 \\ r1 = pc
                 \\ r1 = add(r1, #-4)
                 \\ %[ret] = memw(r1)
@@ -198,7 +200,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ bl 1f
                 \\ .long _DYNAMIC - .
-                \\ 1:
+                \\1:
                 \\ mflr %[ret]
                 \\ lwz 4, 0(%[ret])
                 \\ add %[ret], 4, %[ret]
@@ -210,7 +212,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ bl 1f
                 \\ .quad _DYNAMIC - .
-                \\ 1:
+                \\1:
                 \\ mflr %[ret]
                 \\ ld 4, 0(%[ret])
                 \\ add %[ret], 4, %[ret]
@@ -229,8 +231,9 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ larl %[ret], 1f
                 \\ ag %[ret], 0(%[ret])
                 \\ jg 2f
-                \\ 1: .quad _DYNAMIC - .
-                \\ 2:
+                \\1:
+                \\ .quad _DYNAMIC - .
+                \\2:
                 : [ret] "=a" (-> [*]const elf.Dyn),
             ),
             .sh, .sheb => asm volatile (
@@ -252,11 +255,12 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
             .sparc, .sparc64 => asm volatile (
                 \\ sethi %%hi(_GLOBAL_OFFSET_TABLE_ - 4), %%l7
                 \\ call 1f
-                \\ add %%l7, %%lo(_GLOBAL_OFFSET_TABLE_ + 4), %%l7
-                \\ 1:
+                \\  add %%l7, %%lo(_GLOBAL_OFFSET_TABLE_ + 4), %%l7
+                \\1:
                 \\ add %%l7, %%o7, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
-            ),
+                :
+                : .{ .l7 = true }),
             else => {
                 @compileError("PIE startup is not yet supported for this target!");
             },
