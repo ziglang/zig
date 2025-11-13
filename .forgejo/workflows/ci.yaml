@@ -1,9 +1,9 @@
 name: ci
 on:
   pull_request:
-  # push:
-  #   branches:
-  #     - master
+  push:
+    branches:
+      - master
   workflow_dispatch:
 concurrency:
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
