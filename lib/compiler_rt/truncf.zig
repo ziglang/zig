@@ -177,7 +177,7 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
         }
     }
 
-    const result align(@alignOf(dst_t)) = abs_result | @as(dst_rep_t, sign) << dst_bits - 16;
+    const result align(@alignOf(dst_t)) = abs_result | @as(dst_rep_t, sign) << (dst_bits - 16);
     return @bitCast(result);
 }
 

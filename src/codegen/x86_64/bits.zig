@@ -664,7 +664,7 @@ pub const Register = enum(u8) {
             .general_purpose, .gphi => if (reg.isExtended())
                 reg.enc()
             else
-                @as(u3, @truncate(@as(u24, 0o54673120) >> @as(u5, reg.enc()) * 3)),
+                @as(u3, @truncate(@as(u24, 0o54673120) >> (@as(u5, reg.enc()) * 3))),
             .sse => 17 + @as(u6, reg.enc()),
             .x87 => 33 + @as(u6, reg.enc()),
             .mmx => 41 + @as(u6, reg.enc()),

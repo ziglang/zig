@@ -3003,13 +3003,10 @@ test "zig fmt: precedence" {
         \\    !(a{});
         \\    a + b{};
         \\    (a + b){};
-        \\    a << b + c;
         \\    (a << b) + c;
         \\    a & b << c;
         \\    (a & b) << c;
-        \\    a ^ b & c;
         \\    (a ^ b) & c;
-        \\    a | b ^ c;
         \\    (a | b) ^ c;
         \\    a == b | c;
         \\    (a == b) | c;
@@ -3022,6 +3019,25 @@ test "zig fmt: precedence" {
         \\}
         \\
     );
+}
+
+test "zig fmt: ambiguous precedence" {
+    try testError(
+        \\test "ambiguous precedence" {
+        \\    a << b + c;
+        \\    a ^ b & c;
+        \\    a | b ^ c;
+        \\    a % b % c;
+        \\    a ** b ** c;
+        \\}
+        \\
+    , &[_]Error{
+        .ambiguous_operator_precedence,
+        .ambiguous_operator_precedence,
+        .ambiguous_operator_precedence,
+        .illegal_chained_operators,
+        .illegal_chained_operators,
+    });
 }
 
 test "zig fmt: prefix operators" {
@@ -6115,7 +6131,7 @@ test "recovery: missing comma" {
         \\        2 => {}
         \\        3 => {}
         \\        else => {
-        \\            foo & bar +;
+        \\            foo & bar |;
         \\        }
         \\    }
         \\}
@@ -6232,7 +6248,7 @@ test "recovery: invalid asterisk after pointer dereference" {
     });
     try testError(
         \\test "" {
-        \\    var sequence = "repeat".** 10&a;
+        \\    var sequence = ("repeat".** 10)&a;
         \\}
     , &[_]Error{
         .asterisk_after_ptr_deref,

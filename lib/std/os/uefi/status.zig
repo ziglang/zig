@@ -1,6 +1,6 @@
 const testing = @import("std").testing;
 
-const high_bit = 1 << @typeInfo(usize).int.bits - 1;
+const high_bit = 1 << (@typeInfo(usize).int.bits - 1);
 
 pub const Status = enum(usize) {
     /// The operation completed successfully.
