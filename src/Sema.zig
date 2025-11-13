@@ -1034,7 +1034,7 @@ fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.In
     return sema.branch_hint orelse .none;
 }
 
-/// Semantically analyze a ZIR function body. It is guranteed by AstGen that such a body cannot
+/// Semantically analyze a ZIR function body. It is guaranteed by AstGen that such a body cannot
 /// trigger comptime control flow to move above the function body.
 pub fn analyzeFnBody(
     sema: *Sema,
@@ -16386,18 +16386,11 @@ fn zirAsm(
     } else sema.code.nullTerminatedString(extra.data.asm_source);
 
     if (is_global_assembly) {
-        if (outputs_len != 0) {
-            return sema.fail(block, src, "module-level assembly does not support outputs", .{});
-        }
-        if (inputs_len != 0) {
-            return sema.fail(block, src, "module-level assembly does not support inputs", .{});
-        }
-        if (extra.data.clobbers != .none) {
-            return sema.fail(block, src, "module-level assembly does not support clobbers", .{});
-        }
-        if (is_volatile) {
-            return sema.fail(block, src, "volatile keyword is redundant on module-level assembly", .{});
-        }
+        assert(outputs_len == 0); // validated by AstGen
+        assert(inputs_len == 0); // validated by AstGen
+        assert(extra.data.clobbers == .none); // validated by AstGen
+        assert(!is_volatile); // validated by AstGen
+
         try zcu.addGlobalAssembly(sema.owner, asm_source);
         return .void_value;
     }
