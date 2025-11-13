@@ -282,7 +282,9 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "inline", {} },
     .{ "int", {} },
     .{ "int16_t", {} },
+    .{ "int24_t", {} },
     .{ "int32_t", {} },
+    .{ "int48_t", {} },
     .{ "int64_t", {} },
     .{ "int8_t", {} },
     .{ "intptr_t", {} },
@@ -304,7 +306,9 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "typedef", {} },
     .{ "typeof", {} },
     .{ "uint16_t", {} },
+    .{ "uint24_t", {} },
     .{ "uint32_t", {} },
+    .{ "uint48_t", {} },
     .{ "uint64_t", {} },
     .{ "uint8_t", {} },
     .{ "uintptr_t", {} },
@@ -7823,6 +7827,9 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .x86_interrupt,
         .x86_64_interrupt,
         => "interrupt",
+
+        .ez80_tiflags,
+        => "__tiflags__",
 
         else => unreachable, // `Zcu.callconvSupported`
     };

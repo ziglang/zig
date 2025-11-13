@@ -341,6 +341,10 @@ pub const CallingConvention = union(enum(u8)) {
     spirv_fragment,
     spirv_vertex,
 
+    // Calling conventions for the `ez80` architecture.
+    ez80_cet,
+    ez80_tiflags,
+
     /// Options shared across most calling conventions.
     pub const CommonOptions = struct {
         /// The boundary the stack is aligned to when the function is called.

@@ -26294,6 +26294,7 @@ fn validateExternType(
         },
         .int => switch (ty.intInfo(zcu).bits) {
             0, 8, 16, 32, 64, 128 => return true,
+            24, 48 => return sema.pt.zcu.getTarget().cpu.arch == .ez80,
             else => return false,
         },
         .@"fn" => {
@@ -34331,7 +34332,7 @@ pub fn resolveStructAlignment(
     assert(struct_type.layout != .@"packed");
     assert(struct_type.flagsUnordered(ip).alignment == .none);
 
-    const ptr_align = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+    const ptr_align = Type.ptrAbiAlignment(target);
 
     // We'll guess "pointer-aligned", if the struct has an
     // underaligned pointer field then some allocations
@@ -34440,7 +34441,7 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
     }
 
     if (struct_type.flagsUnordered(ip).assumed_pointer_aligned and
-        big_align.compareStrict(.neq, Alignment.fromByteUnits(@divExact(zcu.getTarget().ptrBitWidth(), 8))))
+        big_align.compareStrict(.neq, Type.ptrAbiAlignment(zcu.getTarget())))
     {
         const msg = try sema.errMsg(
             ty.srcLoc(zcu),
@@ -34676,7 +34677,7 @@ pub fn resolveUnionAlignment(
 
     assert(!union_type.haveLayout(ip));
 
-    const ptr_align = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+    const ptr_align = Type.ptrAbiAlignment(target);
 
     // We'll guess "pointer-aligned", if the union has an
     // underaligned pointer field then some allocations
@@ -34826,7 +34827,7 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     }
 
     if (union_type.flagsUnordered(ip).assumed_pointer_aligned and
-        alignment.compareStrict(.neq, Alignment.fromByteUnits(@divExact(pt.zcu.getTarget().ptrBitWidth(), 8))))
+        alignment.compareStrict(.neq, Type.ptrAbiAlignment(pt.zcu.getTarget())))
     {
         const msg = try sema.errMsg(
             ty.srcLoc(pt.zcu),

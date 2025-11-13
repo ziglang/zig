@@ -6,8 +6,12 @@ pub const @"i8": CType = .{ .index = .int8_t };
 pub const @"u8": CType = .{ .index = .uint8_t };
 pub const @"i16": CType = .{ .index = .int16_t };
 pub const @"u16": CType = .{ .index = .uint16_t };
+pub const @"u24": CType = .{ .index = .uint24_t };
+pub const @"i24": CType = .{ .index = .int24_t };
 pub const @"i32": CType = .{ .index = .int32_t };
 pub const @"u32": CType = .{ .index = .uint32_t };
+pub const @"i48": CType = .{ .index = .int48_t };
+pub const @"u48": CType = .{ .index = .uint48_t };
 pub const @"i64": CType = .{ .index = .int64_t };
 pub const @"u64": CType = .{ .index = .uint64_t };
 pub const @"i128": CType = .{ .index = .zig_i128 };
@@ -63,8 +67,12 @@ pub fn isInteger(ctype: CType) bool {
         .int8_t,
         .uint16_t,
         .int16_t,
+        .uint24_t,
+        .int24_t,
         .uint32_t,
         .int32_t,
+        .uint48_t,
+        .int48_t,
         .uint64_t,
         .int64_t,
         .uintptr_t,
@@ -87,7 +95,9 @@ pub fn signedness(ctype: CType, mod: *Module) std.builtin.Signedness {
         .ptrdiff_t,
         .int8_t,
         .int16_t,
+        .int24_t,
         .int32_t,
+        .int48_t,
         .int64_t,
         .intptr_t,
         .zig_i128,
@@ -100,7 +110,9 @@ pub fn signedness(ctype: CType, mod: *Module) std.builtin.Signedness {
         .size_t,
         .uint8_t,
         .uint16_t,
+        .uint24_t,
         .uint32_t,
+        .uint48_t,
         .uint64_t,
         .uintptr_t,
         .zig_u128,
@@ -135,7 +147,9 @@ pub fn toSigned(ctype: CType) CType {
         .size_t, .ptrdiff_t => .{ .index = .ptrdiff_t },
         .uint8_t, .int8_t => .{ .index = .int8_t },
         .uint16_t, .int16_t => .{ .index = .int16_t },
+        .uint24_t, .int24_t => .{ .index = .int24_t },
         .uint32_t, .int32_t => .{ .index = .int32_t },
+        .uint48_t, .int48_t => .{ .index = .int48_t },
         .uint64_t, .int64_t => .{ .index = .int64_t },
         .uintptr_t, .intptr_t => .{ .index = .intptr_t },
         .zig_u128, .zig_i128 => .{ .index = .zig_i128 },
@@ -162,7 +176,9 @@ pub fn toUnsigned(ctype: CType) CType {
         .size_t, .ptrdiff_t => .{ .index = .size_t },
         .uint8_t, .int8_t => .{ .index = .uint8_t },
         .uint16_t, .int16_t => .{ .index = .uint16_t },
+        .uint24_t, .int24_t => .{ .index = .uint24_t },
         .uint32_t, .int32_t => .{ .index = .uint32_t },
+        .uint48_t, .int48_t => .{ .index = .uint48_t },
         .uint64_t, .int64_t => .{ .index = .uint64_t },
         .uintptr_t, .intptr_t => .{ .index = .uintptr_t },
         .zig_u128, .zig_i128 => .{ .index = .zig_u128 },
@@ -228,8 +244,12 @@ pub fn getStandardDefineAbbrev(ctype: CType) ?[]const u8 {
         .int8_t => "INT8",
         .uint16_t => "UINT16",
         .int16_t => "INT16",
+        .uint24_t => "UINT24",
+        .int24_t => "INT24",
         .uint32_t => "UINT32",
         .int32_t => "INT32",
+        .uint48_t => "UINT48",
+        .int48_t => "INT48",
         .uint64_t => "UINT64",
         .int64_t => "INT64",
         .uintptr_t => "UINTPTR",
@@ -271,8 +291,12 @@ pub fn renderLiteralPrefix(ctype: CType, w: *Writer, kind: Kind, pool: *const Po
             .int8_t,
             .uint16_t,
             .int16_t,
+            .uint24_t,
+            .int24_t,
             .uint32_t,
             .int32_t,
+            .uint48_t,
+            .int48_t,
             .uint64_t,
             .int64_t,
             => try w.print("{s}_C(", .{ctype.getStandardDefineAbbrev().?}),
@@ -331,8 +355,12 @@ pub fn renderLiteralSuffix(ctype: CType, w: *Writer, pool: *const Pool) Writer.E
             .int8_t,
             .uint16_t,
             .int16_t,
+            .uint24_t,
+            .int24_t,
             .uint32_t,
             .int32_t,
+            .uint48_t,
+            .int48_t,
             .uint64_t,
             .int64_t,
             .zig_u128,
@@ -390,7 +418,9 @@ pub fn byteSize(ctype: CType, pool: *const Pool, mod: *Module) u64 {
             .intptr_t,
             => @divExact(target.ptrBitWidth(), 8),
             .uint16_t, .int16_t, .zig_f16 => 2,
+            .uint24_t, .int24_t => 3,
             .uint32_t, .int32_t, .zig_f32 => 4,
+            .uint48_t, .int48_t => 6,
             .uint64_t, .int64_t, .zig_f64 => 8,
             .zig_u128, .zig_i128, .zig_f128 => 16,
             .zig_f80 => if (target.cTypeBitSize(.longdouble) == 80)
@@ -706,6 +736,12 @@ const Index = enum(u32) {
     zig_f80,
     zig_f128,
     zig_c_longdouble,
+
+    // ez80 stdint.h
+    uint24_t,
+    int24_t,
+    uint48_t,
+    int48_t,
 
     _,
 
@@ -1346,6 +1382,7 @@ pub const Pool = struct {
         mod: *Module,
         kind: Kind,
     ) !CType {
+        const is_ez80 = mod.resolved_target.result.cpu.arch == .ez80;
         switch (int_info.bits) {
             0 => return .void,
             1...8 => switch (int_info.signedness) {
@@ -1356,11 +1393,19 @@ pub const Pool = struct {
                 .signed => return .i16,
                 .unsigned => return .u16,
             },
-            17...32 => switch (int_info.signedness) {
+            17...24 => switch (int_info.signedness) {
+                .signed => return if (is_ez80) .i24 else .i32,
+                .unsigned => return if (is_ez80) .u24 else .u32,
+            },
+            25...32 => switch (int_info.signedness) {
                 .signed => return .i32,
                 .unsigned => return .u32,
             },
-            33...64 => switch (int_info.signedness) {
+            33...48 => switch (int_info.signedness) {
+                .signed => return if (is_ez80) .i48 else .i64,
+                .unsigned => return if (is_ez80) .u48 else .u64,
+            },
+            49...64 => switch (int_info.signedness) {
                 .signed => return .i64,
                 .unsigned => return .u64,
             },
