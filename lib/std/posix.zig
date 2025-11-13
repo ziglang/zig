@@ -3213,6 +3213,29 @@ pub fn setpgid(pid: pid_t, pgid: pid_t) SetPgidError!void {
     }
 }
 
+pub const SetSidError = error{PermissionDenied} || UnexpectedError;
+
+pub fn setsid() SetSidError!pid_t {
+    const res = system.setsid();
+    switch (errno(@as(isize, res))) {
+        .SUCCESS => return res,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const GetSidError = error{ProcessNotFound} || SetSidError;
+
+pub fn getsid(pid: pid_t) GetSidError!pid_t {
+    const res = system.getsid(pid);
+    switch (errno(@as(isize, res))) {
+        .SUCCESS => return res,
+        .PERM => return error.PermissionDenied,
+        .SRCH => return error.ProcessNotFound,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub fn getuid() uid_t {
     return system.getuid();
 }
