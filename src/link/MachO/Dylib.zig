@@ -716,6 +716,11 @@ pub const TargetMatcher = struct {
                 const host_target = try targetToAppleString(allocator, cpu_arch, .MACOS);
                 try self.target_strings.append(allocator, host_target);
             },
+            .MACCATALYST => {
+                // Mac Catalyst is allowed to link macOS libraries in a TBD because Apple were apparently too lazy
+                // to add the proper target strings despite doing so in other places in the format???
+                try self.target_strings.append(allocator, try targetToAppleString(allocator, cpu_arch, .MACOS));
+            },
             .MACOS => {
                 // Turns out that around 10.13/10.14 macOS release version, Apple changed the target tags in
                 // tbd files from `macosx` to `macos`. In order to be compliant and therefore actually support
