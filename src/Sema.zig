@@ -29385,13 +29385,17 @@ const InMemoryCoercionResult = union(enum) {
                 break;
             },
             .array_sentinel => |sentinel| {
-                if (sentinel.actual.toIntern() != .unreachable_value) {
-                    try sema.errNote(src, msg, "array sentinel '{f}' cannot cast into array sentinel '{f}'", .{
-                        sentinel.actual.fmtValueSema(pt, sema), sentinel.wanted.fmtValueSema(pt, sema),
+                if (sentinel.wanted.toIntern() == .unreachable_value) {
+                    try sema.errNote(src, msg, "source array cannot be guaranteed to maintain '{f}' sentinel", .{
+                        sentinel.actual.fmtValueSema(pt, sema),
                     });
-                } else {
+                } else if (sentinel.actual.toIntern() == .unreachable_value) {
                     try sema.errNote(src, msg, "destination array requires '{f}' sentinel", .{
                         sentinel.wanted.fmtValueSema(pt, sema),
+                    });
+                } else {
+                    try sema.errNote(src, msg, "array sentinel '{f}' cannot cast into array sentinel '{f}'", .{
+                        sentinel.actual.fmtValueSema(pt, sema), sentinel.wanted.fmtValueSema(pt, sema),
                     });
                 }
                 break;
@@ -30179,10 +30183,14 @@ fn coerceInMemoryAllowedPtrs(
         src_src,
         null,
     );
-    if (child != .ok and !dest_is_mut) allow: {
+    if (child != .ok) allow: {
         // As a special case, we also allow coercing `*[n:s]T` to `*[n]T`, akin to dropping the sentinel from a slice.
         // `*[n:s]T` cannot coerce in memory to `*[n]T` since they have different sizes.
-        if (src_child.zigTypeTag(zcu) == .array and dest_child.zigTypeTag(zcu) == .array and
+        //
+        // We must once again include `dest_is_mut` because `**[n:s]T -> **[n]T`
+        // is not allowed, as it would make it possible to assign an illegal value
+        // to the sentinel-terminated side.
+        if (!dest_is_mut and src_child.zigTypeTag(zcu) == .array and dest_child.zigTypeTag(zcu) == .array and
             src_child.arrayLen(zcu) == dest_child.arrayLen(zcu) and
             src_child.sentinel(zcu) != null and dest_child.sentinel(zcu) == null and
             .ok == try sema.coerceInMemoryAllowed(block, dest_child.childType(zcu), src_child.childType(zcu), !dest_info.flags.is_const, target, dest_src, src_src, null))
