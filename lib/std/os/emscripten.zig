@@ -213,34 +213,6 @@ pub const X_OK = 1;
 pub const W_OK = 2;
 pub const R_OK = 4;
 
-pub const W = struct {
-    pub const NOHANG = 1;
-    pub const UNTRACED = 2;
-    pub const STOPPED = 2;
-    pub const EXITED = 4;
-    pub const CONTINUED = 8;
-    pub const NOWAIT = 0x1000000;
-
-    pub fn EXITSTATUS(s: u32) u8 {
-        return @as(u8, @intCast((s & 0xff00) >> 8));
-    }
-    pub fn TERMSIG(s: u32) u32 {
-        return s & 0x7f;
-    }
-    pub fn STOPSIG(s: u32) u32 {
-        return EXITSTATUS(s);
-    }
-    pub fn IFEXITED(s: u32) bool {
-        return TERMSIG(s) == 0;
-    }
-    pub fn IFSTOPPED(s: u32) bool {
-        return @as(u16, @truncate(((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
-    }
-    pub fn IFSIGNALED(s: u32) bool {
-        return (s & 0xffff) -% 1 < 0xff;
-    }
-};
-
 pub const Flock = extern struct {
     type: i16,
     whence: i16,

@@ -1983,7 +1983,7 @@ pub fn register_files(self: *IoUring, fds: []const linux.fd_t) !void {
 pub fn unregister_files(self: *IoUring) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(self.fd, .unregister_files, null, 0);
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         .NXIO => return error.FilesNotRegistered,
         else => |errno| return posix.unexpectedErrno(errno),
@@ -2270,7 +2270,7 @@ pub fn init_buffer_ring(
 /// matches `io_uring_register_buf_ring`
 pub fn register_buffer_ring(self: *IoUring, buf_reg: *BufferRegister) !void {
     var res = linux.io_uring_register(self.fd, .register_pbuf_ring, buf_reg, 1);
-    if (linux.E.init(res) == .INVAL and buf_reg.flags.iou_pbuf_ring_inc) {
+    if (linux.errno(res) == .INVAL and buf_reg.flags.iou_pbuf_ring_inc) {
         // Retry without incremental buffer consumption.
         // It is available since kernel 6.12. returns INVAL on older.
         buf_reg.flags.iou_pbuf_ring_inc = false;

@@ -3686,278 +3686,686 @@ pub const T = switch (native_os) {
     },
     else => void,
 };
+
 pub const IOCPARM_MASK = switch (native_os) {
     .windows => ws2_32.IOCPARM_MASK,
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => 0x1fff,
     else => void,
 };
+
 pub const TCSA = std.posix.TCSA;
+
 pub const TFD = switch (native_os) {
     .linux => linux.TFD,
     else => void,
 };
+
 pub const VDSO = switch (native_os) {
     .linux => linux.VDSO,
     else => void,
 };
+
 pub const W = switch (native_os) {
-    .linux => linux.W,
-    .emscripten => emscripten.W,
-    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => struct {
+    .emscripten, .linux => linux.W,
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => packed struct(u32) {
         /// [XSI] no hang in wait/no child to reap
-        pub const NOHANG = 0x00000001;
+        nohang: bool = false,
         /// [XSI] notify on stop, untraced child
-        pub const UNTRACED = 0x00000002;
+        untraced: bool = false,
+        _3: u30 = 0,
 
-        pub fn EXITSTATUS(x: u32) u8 {
-            return @as(u8, @intCast(x >> 8));
-        }
-        pub fn TERMSIG(x: u32) u32 {
-            return status(x);
-        }
-        pub fn STOPSIG(x: u32) u32 {
-            return x >> 8;
-        }
-        pub fn IFEXITED(x: u32) bool {
-            return status(x) == 0;
-        }
-        pub fn IFSTOPPED(x: u32) bool {
-            return status(x) == stopped and STOPSIG(x) != 0x13;
-        }
-        pub fn IFSIGNALED(x: u32) bool {
-            return status(x) != stopped and status(x) != 0;
-        }
-
-        fn status(x: u32) u32 {
-            return x & 0o177;
-        }
         const stopped = 0o177;
-    },
-    .freebsd => struct {
-        pub const NOHANG = 1;
-        pub const UNTRACED = 2;
-        pub const STOPPED = UNTRACED;
-        pub const CONTINUED = 4;
-        pub const NOWAIT = 8;
-        pub const EXITED = 16;
-        pub const TRAPPED = 32;
 
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(W{ .untraced = true });
+
+        pub fn exitStatus(x: W) u8 {
+            return @intCast(x.toInt() >> 8);
+        }
+
+        pub fn termSig(x: W) u32 {
+            return x.status();
+        }
+
+        pub fn stopSig(x: W) u32 {
+            return x.toInt() >> 8;
+        }
+
+        pub fn ifExited(x: W) bool {
+            return x.status() == 0;
+        }
+
+        pub fn ifStopped(x: W) bool {
+            return x.status() == stopped and x.stopSig() != 0x13;
+        }
+
+        pub fn ifSignaled(x: W) bool {
+            return x.status() != stopped and x.status() != 0;
+        }
+
+        /// DEPRECATED: use `exitStatus`
+        pub fn EXITSTATUS(x: u32) u8 {
+            return exitStatus(@bitCast(x));
+        }
+        /// DEPRECATED: use `termSig`
+        pub fn TERMSIG(x: u32) u32 {
+            return termSig(@bitCast(x));
+        }
+        /// DEPRECATED: use `stopSig`
+        pub fn STOPSIG(x: u32) u32 {
+            return stopSig(@bitCast(x));
+        }
+        /// DEPRECATED: use `ifExited`
+        pub fn IFEXITED(x: u32) bool {
+            return ifExited(@bitCast(x));
+        }
+        /// DEPRECATED: use `ifSignaled`
+        pub fn IFSIGNALED(x: u32) bool {
+            return ifSignaled(@bitCast(x));
+        }
+        /// DEPRECATED: use `ifStopped`
+        pub fn IFSTOPPED(x: u32) bool {
+            return ifStopped(@bitCast(x));
+        }
+
+        fn status(x: W) u32 {
+            return x.toInt() & 0o177;
+        }
+
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
+        }
+    },
+    .freebsd => packed struct(u32) {
+        /// no hang in wait/no child to reap
+        nohang: bool = false,
+        /// notify on stop, untraced child
+        stopped: bool = false,
+        /// process continued
+        continued: bool = false,
+        /// don't wait for processes to exit
+        nowait: bool = false,
+        /// process exited
+        exited: bool = false,
+        /// process trapped
+        trapped: bool = false,
+        _7: u26 = 0,
+
+        const untraced: W = .{ .stopped = true };
+
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(untraced);
+        /// DEPRECATED: use `untraced`
+        pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+        /// DEPRECATED: use `continued`
+        pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+        /// DEPRECATED: use `nowait`
+        pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
+        /// DEPRECATED: use `exited`
+        pub const EXITED: u32 = @bitCast(W{ .exited = true });
+        /// DEPRECATED: use `trapped`
+        pub const TRAPPED: u32 = @bitCast(W{ .trapped = true });
+
+        pub fn exitStatus(s: W) u8 {
+            return @intCast((s.toInt() & 0xff00) >> 8);
+        }
+
+        pub fn termSig(s: W) u32 {
+            return s.toInt() & 0x7f;
+        }
+
+        pub fn stopSig(s: W) u32 {
+            return s.exitStatus();
+        }
+
+        pub fn ifExited(s: W) bool {
+            return s.termSig() == 0;
+        }
+
+        pub fn ifStopped(s: W) bool {
+            return @as(u16, @truncate((((s.toInt() & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
+        }
+
+        pub fn ifSignaled(s: W) bool {
+            return (s.toInt() & 0xffff) -% 1 < 0xff;
+        }
+
+        /// DEPRECATED: use `exitStatus`
         pub fn EXITSTATUS(s: u32) u8 {
-            return @as(u8, @intCast((s & 0xff00) >> 8));
+            return exitStatus(@bitCast(s));
         }
+        /// DEPRECATED: use `termSig`
         pub fn TERMSIG(s: u32) u32 {
-            return s & 0x7f;
+            return termSig(@bitCast(s));
         }
+        /// DEPRECATED: use `stopSig`
         pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+            return stopSig(@bitCast(s));
         }
+        /// DEPRECATED: use `ifExited`
         pub fn IFEXITED(s: u32) bool {
-            return TERMSIG(s) == 0;
+            return ifExited(s);
         }
+        /// DEPRECATED: use `ifStopped`
         pub fn IFSTOPPED(s: u32) bool {
-            return @as(u16, @truncate((((s & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
+            return ifStopped(@bitCast(s));
         }
+        /// DEPRECATED: use `ifSignaled`
         pub fn IFSIGNALED(s: u32) bool {
-            return (s & 0xffff) -% 1 < 0xff;
+            return ifSignaled(@bitCast(s));
+        }
+
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
         }
     },
-    .illumos => struct {
-        pub const EXITED = 0o001;
-        pub const TRAPPED = 0o002;
-        pub const UNTRACED = 0o004;
-        pub const STOPPED = UNTRACED;
-        pub const CONTINUED = 0o010;
-        pub const NOHANG = 0o100;
-        pub const NOWAIT = 0o200;
+    .illumos => packed struct(u32) {
+        /// process exited
+        exited: bool = false,
+        /// process trapped
+        trapped: bool = false,
+        /// notify on stop, untraced child
+        stopped: bool = false,
+        /// process continued
+        continued: bool = false,
+        _5: u2 = 0,
+        /// no hang in wait/no child to reap
+        nohang: bool = false,
+        /// don't wait for processes to exit
+        nowait: bool = false,
+        _8: u24 = 0,
 
-        pub fn EXITSTATUS(s: u32) u8 {
-            return @as(u8, @intCast((s >> 8) & 0xff));
-        }
-        pub fn TERMSIG(s: u32) u32 {
-            return s & 0x7f;
-        }
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
-        }
-        pub fn IFEXITED(s: u32) bool {
-            return TERMSIG(s) == 0;
+        pub const untraced: W = .{ .stopped = true };
+
+        /// DEPRECATED: use `exited`
+        pub const EXITED: u32 = @bitCast(W{ .exited = true });
+        /// DEPRECATED: use `trapped`
+        pub const TRAPPED: u32 = @bitCast(W{ .trapped = true });
+        /// DEPRECATED: use `untraced`
+        pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(untraced);
+        /// DEPRECATED: use `continued`
+        pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `nowait`
+        pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
+
+        pub fn exitStatus(x: W) u8 {
+            return @intCast((x.toInt() >> 8) & 0xff);
         }
 
-        pub fn IFCONTINUED(s: u32) bool {
-            return ((s & 0o177777) == 0o177777);
+        pub fn termSig(x: W) u32 {
+            return x.toInt() & 0x7f;
         }
 
-        pub fn IFSTOPPED(s: u32) bool {
+        pub fn stopSig(x: W) u32 {
+            return x.exitStatus();
+        }
+
+        pub fn ifExited(x: W) bool {
+            return x.termSig() == 0;
+        }
+
+        pub fn ifContinued(x: W) bool {
+            return (x.toInt() & 0o177777) == 0o177777;
+        }
+
+        pub fn ifStopped(x: W) bool {
+            const s = x.toInt();
             return (s & 0x00ff != 0o177) and !(s & 0xff00 != 0);
         }
 
-        pub fn IFSIGNALED(s: u32) bool {
+        pub fn ifSignaled(x: W) bool {
+            const s = x.toInt();
             return s & 0x00ff > 0 and s & 0xff00 == 0;
         }
-    },
-    .netbsd => struct {
-        pub const NOHANG = 0x00000001;
-        pub const UNTRACED = 0x00000002;
-        pub const STOPPED = UNTRACED;
-        pub const CONTINUED = 0x00000010;
-        pub const NOWAIT = 0x00010000;
-        pub const EXITED = 0x00000020;
-        pub const TRAPPED = 0x00000040;
 
+        /// DEPRECATED: use `exitStatus`
         pub fn EXITSTATUS(s: u32) u8 {
-            return @as(u8, @intCast((s >> 8) & 0xff));
+            return exitStatus(@bitCast(s));
         }
+        /// DEPRECATED: use `termSig`
         pub fn TERMSIG(s: u32) u32 {
-            return s & 0x7f;
+            return termSig(@bitCast(s));
         }
+        /// DEPRECATED: use `stopSig`
         pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+            return stopSig(@bitCast(s));
         }
+        /// DEPRECATED: use `ifExited`
         pub fn IFEXITED(s: u32) bool {
-            return TERMSIG(s) == 0;
+            return ifExited(@bitCast(s));
         }
-
+        /// DEPRECATED: use `ifContinued`
         pub fn IFCONTINUED(s: u32) bool {
-            return ((s & 0x7f) == 0xffff);
+            return ifContinued(@bitCast(s));
         }
-
+        /// DEPRECATED: use `ifStopped`
         pub fn IFSTOPPED(s: u32) bool {
-            return ((s & 0x7f != 0x7f) and !IFCONTINUED(s));
+            return ifStopped(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifSignaled`
+        pub fn IFSIGNALED(s: u32) bool {
+            return ifSignaled(@bitCast(s));
         }
 
-        pub fn IFSIGNALED(s: u32) bool {
-            return !IFSTOPPED(s) and !IFCONTINUED(s) and !IFEXITED(s);
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
         }
     },
-    .dragonfly => struct {
-        pub const NOHANG = 0x0001;
-        pub const UNTRACED = 0x0002;
-        pub const CONTINUED = 0x0004;
-        pub const STOPPED = UNTRACED;
-        pub const NOWAIT = 0x0008;
-        pub const EXITED = 0x0010;
-        pub const TRAPPED = 0x0020;
+    .netbsd => packed struct(u32) {
+        /// no hang in wait/no child to reap
+        nohang: bool = false,
+        /// notify on stop, untraced child
+        stopped: bool = false,
+        _3: u2 = 0,
+        /// process continued
+        continued: bool = false,
+        /// process exited
+        exited: bool = false,
+        /// process trapped
+        trapped: bool = false,
+        _8: u9 = 0,
+        /// don't wait for processes to exit
+        nowait: bool = false,
+        _18: u15 = 0,
 
+        pub const untraced: W = .{ .stopped = true };
+
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(untraced);
+        /// DEPRECATED: use `stopped`
+        pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+        /// DEPRECATED: use `continued`
+        pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+        /// DEPRECATED: use `nowait`
+        pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
+        /// DEPRECATED: use `exited`
+        pub const EXITED: u32 = @bitCast(W{ .exited = true });
+        /// DEPRECATED: use `trapped`
+        pub const TRAPPED: u32 = @bitCast(W{ .trapped = true });
+
+        pub fn exitStatus(x: W) u8 {
+            return @intCast((x.toInt() >> 8) & 0xff);
+        }
+        pub fn termSig(x: W) u32 {
+            return x.toInt() & 0x7f;
+        }
+        pub fn stopSig(x: W) u32 {
+            return x.exitStatus();
+        }
+        pub fn ifExited(x: W) bool {
+            return x.termSig() == 0;
+        }
+        pub fn ifContinued(x: W) bool {
+            return (x.toInt() & 0x7f) == 0xffff;
+        }
+        pub fn ifStopped(x: W) bool {
+            const s = x.toInt();
+            return (s & 0x7f != 0x7f) and !x.ifContinued();
+        }
+        pub fn ifSignaled(x: W) bool {
+            return !x.ifStopped() and !x.ifContinued() and !x.ifExited();
+        }
+
+        /// DEPRECATED: use `exitStatus`
         pub fn EXITSTATUS(s: u32) u8 {
-            return @as(u8, @intCast((s & 0xff00) >> 8));
+            return exitStatus(@bitCast(s));
         }
+        /// DEPRECATED: use `termSig`
         pub fn TERMSIG(s: u32) u32 {
-            return s & 0x7f;
+            return termSig(@bitCast(s));
         }
+        /// DEPRECATED: use `stopSig`
         pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+            return stopSig(@bitCast(s));
         }
+        /// DEPRECATED: use `ifExited`
         pub fn IFEXITED(s: u32) bool {
-            return TERMSIG(s) == 0;
+            return ifExited(@bitCast(s));
         }
-        pub fn IFSTOPPED(s: u32) bool {
-            return @as(u16, @truncate((((s & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
-        }
-        pub fn IFSIGNALED(s: u32) bool {
-            return (s & 0xffff) -% 1 < 0xff;
-        }
-    },
-    .haiku => struct {
-        pub const NOHANG = 0x1;
-        pub const UNTRACED = 0x2;
-        pub const CONTINUED = 0x4;
-        pub const EXITED = 0x08;
-        pub const STOPPED = 0x10;
-        pub const NOWAIT = 0x20;
-
-        pub fn EXITSTATUS(s: u32) u8 {
-            return @as(u8, @intCast(s & 0xff));
-        }
-
-        pub fn TERMSIG(s: u32) u32 {
-            return (s >> 8) & 0xff;
-        }
-
-        pub fn STOPSIG(s: u32) u32 {
-            return (s >> 16) & 0xff;
-        }
-
-        pub fn IFEXITED(s: u32) bool {
-            return (s & ~@as(u32, 0xff)) == 0;
-        }
-
-        pub fn IFSTOPPED(s: u32) bool {
-            return ((s >> 16) & 0xff) != 0;
-        }
-
-        pub fn IFSIGNALED(s: u32) bool {
-            return ((s >> 8) & 0xff) != 0;
-        }
-    },
-    .openbsd => struct {
-        pub const NOHANG = 1;
-        pub const UNTRACED = 2;
-        pub const CONTINUED = 8;
-
-        pub fn EXITSTATUS(s: u32) u8 {
-            return @as(u8, @intCast((s >> 8) & 0xff));
-        }
-        pub fn TERMSIG(s: u32) u32 {
-            return (s & 0x7f);
-        }
-        pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
-        }
-        pub fn IFEXITED(s: u32) bool {
-            return TERMSIG(s) == 0;
-        }
-
+        /// DEPRECATED: use `ifContinued`
         pub fn IFCONTINUED(s: u32) bool {
-            return ((s & 0o177777) == 0o177777);
+            return ifContinued(@bitCast(s));
         }
-
+        /// DEPRECATED: use `ifStopped`
         pub fn IFSTOPPED(s: u32) bool {
-            return (s & 0xff == 0o177);
+            return ifStopped(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifSignaled`
+        pub fn IFSIGNALED(s: u32) bool {
+            return ifSignaled(@bitCast(s));
         }
 
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
+        }
+    },
+    .dragonfly => packed struct(u32) {
+        /// no hang in wait/no child to reap
+        nohang: bool = false,
+        /// notify on stop, untraced child
+        stopped: bool = false,
+        /// process continued
+        continued: bool = false,
+        /// don't wait for processes to exit
+        nowait: bool = false,
+        /// process exited
+        exited: bool = false,
+        /// process trapped
+        trapped: bool = false,
+        _7: u26 = 0,
+
+        pub const untraced: W = .{ .stopped = true };
+
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(untraced);
+        /// DEPRECATED: use `continued`
+        pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+        /// DEPRECATED: use `stopped`
+        pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+        /// DEPRECATED: use `nowait`
+        pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
+        /// DEPRECATED: use `exited`
+        pub const EXITED: u32 = @bitCast(W{ .exited = true });
+        /// DEPRECATED: use `trapped`
+        pub const TRAPPED: u32 = @bitCast(W{ .trapped = true });
+
+        pub fn exitStatus(x: W) u8 {
+            return @intCast((x.toInt() & 0xff00) >> 8);
+        }
+        pub fn termSig(x: W) u32 {
+            return x.toInt() & 0x7f;
+        }
+        pub fn stopSig(x: W) u32 {
+            return x.exitStatus();
+        }
+        pub fn ifExited(x: W) bool {
+            return x.termSig() == 0;
+        }
+        pub fn ifStopped(x: W) bool {
+            return @as(u16, @truncate((((x.toInt() & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
+        }
+        pub fn ifSignaled(x: W) bool {
+            return (x.toInt() & 0xffff) -% 1 < 0xff;
+        }
+
+        /// DEPRECATED: use `exitStatus`
+        pub fn EXITSTATUS(s: u32) u8 {
+            return exitStatus(@bitCast(s));
+        }
+        /// DEPRECATED: use `termSig`
+        pub fn TERMSIG(s: u32) u32 {
+            return termSig(@bitCast(s));
+        }
+        /// DEPRECATED: use `stopSig`
+        pub fn STOPSIG(s: u32) u32 {
+            return stopSig(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifExited`
+        pub fn IFEXITED(s: u32) bool {
+            return ifExited(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifStopped`
+        pub fn IFSTOPPED(s: u32) bool {
+            return ifStopped(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifSignaled`
         pub fn IFSIGNALED(s: u32) bool {
-            return (((s) & 0o177) != 0o177) and (((s) & 0o177) != 0);
+            return ifSignaled(@bitCast(s));
+        }
+
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
+        }
+    },
+    .haiku => packed struct(u32) {
+        /// no hang in wait/no child to reap
+        nohang: bool = false,
+        /// notify on stop, untraced child
+        untraced: bool = false,
+        /// process continued
+        continued: bool = false,
+        /// process exited
+        exited: bool = false,
+        /// process stopped
+        stopped: bool = false,
+        /// don't wait for processes to exit
+        nowait: bool = false,
+        _7: u26 = 0,
+
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(W{ .untraced = true });
+        /// DEPRECATED: use `continued`
+        pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+        /// DEPRECATED: use `exited`
+        pub const EXITED: u32 = @bitCast(W{ .exited = true });
+        /// DEPRECATED: use `stopped`
+        pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+        /// DEPRECATED: use `nowait`
+        pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
+
+        pub fn exitStatus(x: W) u8 {
+            return @intCast(x.toInt() & 0xff);
+        }
+        pub fn termSig(x: W) u32 {
+            return (x.toInt() >> 8) & 0xff;
+        }
+        pub fn stopSig(x: W) u32 {
+            return (x.toInt() >> 16) & 0xff;
+        }
+        pub fn ifExited(x: W) bool {
+            return (x.toInt() & ~@as(u32, 0xff)) == 0;
+        }
+        pub fn ifStopped(x: W) bool {
+            return ((x.toInt() >> 16) & 0xff) != 0;
+        }
+        pub fn ifSignaled(x: W) bool {
+            return ((x.toInt() >> 8) & 0xff) != 0;
+        }
+
+        /// DEPRECATED: use `exitStatus`
+        pub fn EXITSTATUS(s: u32) u8 {
+            return exitStatus(@bitCast(s));
+        }
+        /// DEPRECATED: use `termSig`
+        pub fn TERMSIG(s: u32) u32 {
+            return termSig(@bitCast(s));
+        }
+        /// DEPRECATED: use `stopSig`
+        pub fn STOPSIG(s: u32) u32 {
+            return stopSig(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifExited`
+        pub fn IFEXITED(s: u32) bool {
+            return ifExited(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifStopped`
+        pub fn IFSTOPPED(s: u32) bool {
+            return ifStopped(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifSignaled`
+        pub fn IFSIGNALED(s: u32) bool {
+            return ifSignaled(@bitCast(s));
+        }
+
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
+        }
+    },
+    .openbsd => packed struct(u32) {
+        /// no hang in wait/no child to reap
+        nohang: bool = false,
+        /// notify on stop, untraced child
+        untraced: bool = false,
+        _3: u1 = 0,
+        /// process continued
+        continued: bool = false,
+        _5: u28 = 0,
+
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(W{ .untraced = true });
+        /// DEPRECATED: use `continued`
+        pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+
+        pub fn exitStatus(x: W) u8 {
+            return @intCast((x.toInt() >> 8) & 0xff);
+        }
+        pub fn termSig(x: W) u32 {
+            return x.toInt() & 0x7f;
+        }
+        pub fn stopSig(x: W) u32 {
+            return x.exitStatus();
+        }
+        pub fn ifExited(x: W) bool {
+            return x.termSig() == 0;
+        }
+        pub fn ifContinued(x: W) bool {
+            return (x.toInt() & 0o177777) == 0o177777;
+        }
+        pub fn ifStopped(x: W) bool {
+            return (x.toInt() & 0xff == 0o177);
+        }
+        pub fn ifSignaled(x: W) bool {
+            const s = x.toInt();
+            return (s & 0o177) != 0o177 and (s & 0o177) != 0;
+        }
+
+        /// DEPRECATED: use `exitStatus`
+        pub fn EXITSTATUS(s: u32) u8 {
+            return exitStatus(@bitCast(s));
+        }
+        /// DEPRECATED: use `termSig`
+        pub fn TERMSIG(s: u32) u32 {
+            return termSig(@bitCast(s));
+        }
+        /// DEPRECATED: use `stopSig`
+        pub fn STOPSIG(s: u32) u32 {
+            return stopSig(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifExited`
+        pub fn IFEXITED(s: u32) bool {
+            return ifExited(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifContinued`
+        pub fn IFCONTINUED(s: u32) bool {
+            return ifContinued(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifStopped`
+        pub fn IFSTOPPED(s: u32) bool {
+            return ifStopped(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifSignaled`
+        pub fn IFSIGNALED(s: u32) bool {
+            return ifSignaled(@bitCast(s));
+        }
+
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
         }
     },
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/sys/wait.h
-    .serenity => struct {
-        pub const NOHANG = 1;
-        pub const UNTRACED = 2;
-        pub const STOPPED = UNTRACED;
-        pub const EXITED = 4;
-        pub const CONTINUED = 8;
-        pub const NOWAIT = 0x1000000;
+    .serenity => packed struct(u32) {
+        /// no hang in wait/no child to reap
+        nohang: bool = false,
+        /// notify on stop, untraced child
+        stopped: bool = false,
+        /// process exited
+        exited: bool = false,
+        /// process continued
+        continued: bool = false,
+        _5: u20 = 0,
+        /// don't wait for processes to exit
+        nowait: bool = false,
+        _26: u7 = 0,
 
+        pub const untraced: u32 = @bitCast(W{ .stopped = true });
+
+        /// DEPRECATED: use `nohang`
+        pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+        /// DEPRECATED: use `stopped`
+        pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+        /// DEPRECATED: use `untraced`
+        pub const UNTRACED: u32 = @bitCast(untraced);
+        /// DEPRECATED: use `exited`
+        pub const EXITED: u32 = @bitCast(W{ .exited = true });
+        /// DEPRECATED: use `continued`
+        pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+        /// DEPRECATED: use `nowait`
+        pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
+
+        pub fn exitStatus(x: W) u8 {
+            return @intCast((x.toInt() & 0xff00) >> 8);
+        }
+        pub fn stopSig(x: W) u32 {
+            return x.exitStatus();
+        }
+        pub fn termSig(x: W) u32 {
+            return x.toInt() & 0x7f;
+        }
+        pub fn ifExited(x: W) bool {
+            return x.termSig() == 0;
+        }
+        pub fn ifStopped(x: W) bool {
+            return (x.toInt() & 0xff) == 0x7f;
+        }
+        pub fn ifSignaled(x: W) bool {
+            return (((x.toInt() & 0x7f) + 1) >> 1) > 0;
+        }
+        pub fn ifContinued(x: W) bool {
+            return x.toInt() == 0xffff;
+        }
+
+        /// DEPRECATED: use `exitStatus`
         pub fn EXITSTATUS(s: u32) u8 {
-            return @intCast((s & 0xff00) >> 8);
+            return exitStatus(@bitCast(s));
         }
-
+        /// DEPRECATED: use `stopSig`
         pub fn STOPSIG(s: u32) u32 {
-            return EXITSTATUS(s);
+            return stopSig(@bitCast(s));
         }
-
+        /// DEPRECATED: use `termSig`
         pub fn TERMSIG(s: u32) u32 {
-            return s & 0x7f;
+            return termSig(@bitCast(s));
         }
-
+        /// DEPRECATED: use `ifExited`
         pub fn IFEXITED(s: u32) bool {
-            return TERMSIG(s) == 0;
+            return ifExited(@bitCast(s));
         }
-
+        /// DEPRECATED: use `ifStopped`
         pub fn IFSTOPPED(s: u32) bool {
-            return (s & 0xff) == 0x7f;
+            return ifStopped(@bitCast(s));
         }
-
+        /// DEPRECATED: use `ifSignaled`
         pub fn IFSIGNALED(s: u32) bool {
-            return (((s & 0x7f) + 1) >> 1) > 0;
+            return ifSignaled(@bitCast(s));
+        }
+        /// DEPRECATED: use `ifContinued`
+        pub fn IFCONTINUED(s: u32) bool {
+            return ifContinued(@bitCast(s));
         }
 
-        pub fn IFCONTINUED(s: u32) bool {
-            return s == 0xffff;
+        fn toInt(s: W) u32 {
+            return @bitCast(s);
         }
     },
     else => void,
 };
+
 pub const accept_filter_arg = switch (native_os) {
     // https://github.com/freebsd/freebsd-src/blob/2024887abc7d1b931e00fbb0697658e98adf048d/sys/sys/socket.h#L205
     // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/6098912863ed4c7b3f70d7483910ce2956cf4ed3/sys/sys/socket.h#L164
@@ -3969,6 +4377,7 @@ pub const accept_filter_arg = switch (native_os) {
     },
     else => void,
 };
+
 pub const clock_t = switch (native_os) {
     .linux => linux.clock_t,
     .emscripten => emscripten.clock_t,
