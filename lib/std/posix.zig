@@ -272,14 +272,7 @@ pub const socket_t = if (native_os == .windows) windows.ws2_32.SOCKET else fd_t;
 /// for others it will use a thread-local errno variable. Therefore, this
 /// function only returns a well-defined value when it is called directly after
 /// the system function call whose errno value is intended to be observed.
-pub fn errno(rc: anytype) E {
-    if (use_libc) {
-        return if (rc == -1) @enumFromInt(std.c._errno().*) else .SUCCESS;
-    }
-    const signed: isize = @bitCast(rc);
-    const int = if (signed > -4096 and signed < 0) -signed else 0;
-    return @enumFromInt(int);
-}
+pub const errno = system.errno;
 
 /// Closes the file descriptor.
 ///
@@ -433,7 +426,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
         // Later on this should be changed to `system.fchmodat2`
         // when the musl/glibc add a wrapper.
         const res = linux.fchmodat2(dirfd, &path_c, mode, flags);
-        switch (E.init(res)) {
+        switch (linux.errno(res)) {
             .SUCCESS => return,
             .INTR => continue,
             .BADF => unreachable,
@@ -588,7 +581,7 @@ pub const RebootCommand = switch (native_os) {
 pub fn reboot(cmd: RebootCommand) RebootError!void {
     switch (native_os) {
         .linux => {
-            switch (linux.E.init(linux.reboot(
+            switch (linux.errno(linux.reboot(
                 .MAGIC1,
                 .MAGIC2,
                 cmd,
@@ -647,7 +640,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
                 break :res .{ @bitCast(rc), errno(rc) };
             } else res: {
                 const rc = linux.getrandom(buf.ptr, buf.len, 0);
-                break :res .{ rc, linux.E.init(rc) };
+                break :res .{ rc, linux.errno(rc) };
             };
 
             switch (err) {
@@ -3298,7 +3291,7 @@ pub fn isatty(handle: fd_t) bool {
             var wsz: winsize = undefined;
             const fd: usize = @bitCast(@as(isize, handle));
             const rc = linux.syscall3(.ioctl, fd, linux.T.IOCGWINSZ, @intFromPtr(&wsz));
-            switch (linux.E.init(rc)) {
+            switch (linux.errno(rc)) {
                 .SUCCESS => return true,
                 .INTR => continue,
                 else => return false,
@@ -5762,7 +5755,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         while (true) {
             const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
             if (native_os == .freebsd) {
-                switch (errno(rc)) {
+                switch (sys.errno(rc)) {
                     .SUCCESS => return @intCast(rc),
                     .BADF => return error.FilesOpenedWithWrongFlags,
                     .FBIG => return error.FileTooBig,
@@ -5775,7 +5768,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
                     else => |err| return unexpectedErrno(err),
                 }
             } else { // assume linux
-                switch (errno(rc)) {
+                switch (sys.errno(rc)) {
                     .SUCCESS => return @intCast(rc),
                     .BADF => return error.FilesOpenedWithWrongFlags,
                     .FBIG => return error.FileTooBig,
@@ -6070,7 +6063,7 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
             const use_c = std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 30, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 });
             const sys = if (use_c) std.c else linux;
             const rc = sys.memfd_create(name, flags);
-            switch (errno(rc)) {
+            switch (sys.errno(rc)) {
                 .SUCCESS => return @intCast(rc),
                 .FAULT => unreachable, // name has invalid memory
                 .INVAL => return error.NameTooLong, // or, program has a bug and flags are faulty
@@ -6494,7 +6487,7 @@ pub fn perf_event_open(
     if (native_os == .linux) {
         // There is no syscall wrapper for this function exposed by libcs
         const rc = linux.perf_event_open(attr, pid, cpu, group_fd, flags);
-        switch (errno(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .@"2BIG" => return error.TooBig,
             .ACCES => return error.PermissionDenied,

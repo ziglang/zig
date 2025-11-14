@@ -72,6 +72,11 @@ pub inline fn versionCheck(comptime version: std.SemanticVersion) bool {
     };
 }
 
+/// Get the errno if rc is -1 and SUCCESS if rc is not -1.
+pub fn errno(rc: anytype) E {
+    return if (rc == -1) @enumFromInt(_errno().*) else .SUCCESS;
+}
+
 pub const ino_t = switch (native_os) {
     .linux => linux.ino_t,
     .emscripten => emscripten.ino_t,
@@ -11580,6 +11585,6 @@ const private = struct {
     extern threadlocal var errno: c_int;
 
     fn errnoFromThreadLocal() *c_int {
-        return &errno;
+        return &private.errno;
     }
 };

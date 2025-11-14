@@ -1,5 +1,5 @@
 const std = @import("../../std.zig");
-const errno = linux.E.init;
+const errno = linux.errno;
 const unexpectedErrno = std.posix.unexpectedErrno;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;

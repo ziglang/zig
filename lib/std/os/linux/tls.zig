@@ -555,7 +555,7 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
         }
 
         const begin_addr = mmap_tls(area_desc.size + area_desc.alignment - 1);
-        if (@call(.always_inline, linux.E.init, .{begin_addr}) != .SUCCESS) @trap();
+        if (@call(.always_inline, linux.errno, .{begin_addr}) != .SUCCESS) @trap();
 
         const area_ptr: [*]align(page_size_min) u8 = @ptrFromInt(begin_addr);
 

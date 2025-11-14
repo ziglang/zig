@@ -1437,7 +1437,7 @@ fn updateNavCode(
                     .len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
-                switch (std.os.linux.E.init(rc)) {
+                switch (std.os.linux.errno(rc)) {
                     .SUCCESS => assert(rc == code.len),
                     else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
                 }
@@ -2026,7 +2026,7 @@ fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
                     .len = out.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
-                switch (std.os.linux.E.init(rc)) {
+                switch (std.os.linux.errno(rc)) {
                     .SUCCESS => assert(rc == out.len),
                     else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
                 }
