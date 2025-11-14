@@ -704,7 +704,7 @@ pub const Os = struct {
 };
 
 pub const aarch64 = @import("Target/aarch64.zig");
-pub const alpha = @import("Target/generic.zig");
+pub const alpha = @import("Target/alpha.zig");
 pub const amdgcn = @import("Target/amdgcn.zig");
 pub const arc = @import("Target/arc.zig");
 pub const arm = @import("Target/arm.zig");
@@ -712,7 +712,7 @@ pub const avr = @import("Target/avr.zig");
 pub const bpf = @import("Target/bpf.zig");
 pub const csky = @import("Target/csky.zig");
 pub const hexagon = @import("Target/hexagon.zig");
-pub const hppa = @import("Target/generic.zig");
+pub const hppa = @import("Target/hppa.zig");
 pub const kalimba = @import("Target/generic.zig");
 pub const kvx = @import("Target/kvx.zig");
 pub const lanai = @import("Target/lanai.zig");
@@ -1950,8 +1950,11 @@ pub const Cpu = struct {
         /// Clang compatibility is important, consider using `baseline` instead.
         pub fn generic(arch: Arch) *const Model {
             return switch (arch) {
+                .alpha => &alpha.cpu.ev4,
                 .amdgcn => &amdgcn.cpu.gfx600,
                 .avr => &avr.cpu.avr1,
+                .hppa => &hppa.cpu.ts_1,
+                .hppa64 => &hppa.cpu.pa_8000,
                 .kvx => &kvx.cpu.coolidge_v1,
                 .loongarch32 => &loongarch.cpu.generic_la32,
                 .loongarch64 => &loongarch.cpu.generic_la64,
@@ -1982,6 +1985,7 @@ pub const Cpu = struct {
         /// `Os.Tag.freestanding`.
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
+                .alpha => &alpha.cpu.ev6,
                 .amdgcn => &amdgcn.cpu.gfx906,
                 .arm => switch (os.tag) {
                     .@"3ds" => &arm.cpu.mpcore,
@@ -2004,6 +2008,7 @@ pub const Cpu = struct {
                 .bpfel, .bpfeb => &bpf.cpu.v3,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
+                .hppa => &hppa.cpu.pa_7300lc,
                 .kvx => &kvx.cpu.coolidge_v2,
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.la64v1_0,
