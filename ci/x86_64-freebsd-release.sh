@@ -49,7 +49,7 @@ stage3-release/bin/zig build test docs \
   -Dskip-linux \
   -Dskip-netbsd \
   -Dskip-windows \
-  -Dskip-macos \
+  -Dskip-darwin \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
   --test-timeout 2m
