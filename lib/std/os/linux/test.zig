@@ -138,23 +138,23 @@ test "sigset_t" {
     // See that none are set, then set each one, see that they're all set, then
     // remove them all, and then see that none are set.
     for (1..linux.NSIG) |i| {
-        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        const sig = std.enums.fromInt(SIG, i) orelse continue;
         try expectEqual(false, linux.sigismember(&sigset, sig));
     }
     for (1..linux.NSIG) |i| {
-        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        const sig = std.enums.fromInt(SIG, i) orelse continue;
         linux.sigaddset(&sigset, sig);
     }
     for (1..linux.NSIG) |i| {
-        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        const sig = std.enums.fromInt(SIG, i) orelse continue;
         try expectEqual(true, linux.sigismember(&sigset, sig));
     }
     for (1..linux.NSIG) |i| {
-        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        const sig = std.enums.fromInt(SIG, i) orelse continue;
         linux.sigdelset(&sigset, sig);
     }
     for (1..linux.NSIG) |i| {
-        const sig = std.meta.intToEnum(SIG, i) catch continue;
+        const sig = std.enums.fromInt(SIG, i) orelse continue;
         try expectEqual(false, linux.sigismember(&sigset, sig));
     }
 }
@@ -163,7 +163,7 @@ test "sigfillset" {
     // unlike the C library, all the signals are set in the kernel-level fillset
     const sigset = linux.sigfillset();
     for (1..linux.NSIG) |i| {
-        const sig = std.meta.intToEnum(linux.SIG, i) catch continue;
+        const sig = std.enums.fromInt(linux.SIG, i) orelse continue;
         try expectEqual(true, linux.sigismember(&sigset, sig));
     }
 }
@@ -171,7 +171,7 @@ test "sigfillset" {
 test "sigemptyset" {
     const sigset = linux.sigemptyset();
     for (1..linux.NSIG) |i| {
-        const sig = std.meta.intToEnum(linux.SIG, i) catch continue;
+        const sig = std.enums.fromInt(linux.SIG, i) orelse continue;
         try expectEqual(false, linux.sigismember(&sigset, sig));
     }
 }

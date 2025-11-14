@@ -1247,9 +1247,6 @@ test trimStart {
     try testing.expectEqualSlices(u8, "foo\n ", trimStart(u8, " foo\n ", " \n"));
 }
 
-/// Deprecated: use `trimStart` instead.
-pub const trimLeft = trimStart;
-
 /// Remove a set of values from the end of a slice.
 pub fn trimEnd(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var end: usize = slice.len;
@@ -1260,9 +1257,6 @@ pub fn trimEnd(comptime T: type, slice: []const T, values_to_strip: []const T) [
 test trimEnd {
     try testing.expectEqualSlices(u8, " foo", trimEnd(u8, " foo\n ", " \n"));
 }
-
-/// Deprecated: use `trimEnd` instead.
-pub const trimRight = trimEnd;
 
 /// Remove a set of values from the beginning and end of a slice.
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
