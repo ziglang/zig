@@ -1599,6 +1599,15 @@ pub const MADV = switch (native_os) {
         pub const SEQUENTIAL = 0x5;
         pub const RANDOM = 0x6;
     },
+    .netbsd => struct {
+        pub const NORMAL = 0;
+        pub const RANDOM = 1;
+        pub const SEQUENTIAL = 2;
+        pub const WILLNEED = 3;
+        pub const DONTNEED = 4;
+        pub const SPACEAVAIL = 5;
+        pub const FREE = 6;
+    },
     else => void,
 };
 pub const MCL = switch (native_os) {
