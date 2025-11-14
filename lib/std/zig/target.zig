@@ -393,11 +393,11 @@ pub fn isLibCLibName(target: *const std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "rpcsvc"))
             return true;
-    }
 
-    if (target.os.isAtLeast(.macos, .{ .major = 10, .minor = 8, .patch = 0 }) orelse false) {
-        if (eqlIgnoreCase(ignore_case, name, "mx"))
-            return true;
+        if (target.os.tag == .maccatalyst or target.os.tag == .macos) {
+            if (eqlIgnoreCase(ignore_case, name, "mx"))
+                return true;
+        }
     }
 
     if (target.isFreeBSDLibC()) {
