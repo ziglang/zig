@@ -8,13 +8,14 @@ const LazyPath = std.Build.LazyPath;
 const Options = @This();
 
 pub const base_id: Step.Id = .options;
+const indent_width = 4;
 
 step: Step,
 generated_file: GeneratedFile,
 
 contents: std.ArrayListUnmanaged(u8),
 args: std.ArrayListUnmanaged(Arg),
-encountered_types: std.StringHashMapUnmanaged(void),
+printed_types: std.StringHashMapUnmanaged(void),
 
 pub fn create(owner: *std.Build) *Options {
     const options = owner.allocator.create(Options) catch @panic("OOM");
@@ -28,7 +29,7 @@ pub fn create(owner: *std.Build) *Options {
         .generated_file = undefined,
         .contents = .empty,
         .args = .empty,
-        .encountered_types = .empty,
+        .printed_types = .empty,
     };
     options.generated_file = .{ .step = &options.step };
 
@@ -36,376 +37,291 @@ pub fn create(owner: *std.Build) *Options {
 }
 
 pub fn addOption(options: *Options, comptime T: type, name: []const u8, value: T) void {
-    return addOptionFallible(options, T, name, value) catch @panic("unhandled error");
+    return printDecl(options, T, name, value) catch @panic("unhandled error");
 }
 
-fn addOptionFallible(options: *Options, comptime T: type, name: []const u8, value: T) !void {
-    try printType(options, &options.contents, T, value, 0, name);
-}
-
-fn printType(
-    options: *Options,
-    out: *std.ArrayListUnmanaged(u8),
-    comptime T: type,
-    value: T,
-    indent: u8,
-    name: ?[]const u8,
-) !void {
+fn printDecl(options: *Options, comptime T: type, name: []const u8, value: T) !void {
     const gpa = options.step.owner.allocator;
-    switch (T) {
-        []const []const u8 => {
-            if (name) |payload| {
-                try out.print(gpa, "pub const {f}: []const []const u8 = ", .{std.zig.fmtId(payload)});
-            }
+    const out = &options.contents;
+    try printTypeDefinition(options, T);
+    try out.print(gpa, "pub const {f}: ", .{std.zig.fmtId(name)});
+    try printTypeName(options, T, 0);
+    try out.appendSlice(gpa, " = ");
+    try printValue(options, T, value, 0);
+    try out.appendSlice(gpa, ";\n\n");
+}
 
-            try out.appendSlice(gpa, "&[_][]const u8{\n");
+fn printTypeDefinition(options: *Options, comptime T: type) !void {
+    if (T == std.SemanticVersion) return;
 
-            for (value) |slice| {
-                try out.appendNTimes(gpa, ' ', indent);
-                try out.print(gpa, "    \"{f}\",\n", .{std.zig.fmtString(slice)});
-            }
+    const type_info = @typeInfo(T);
+    switch (type_info) {
+        inline .array, .pointer, .optional => |info| return printTypeDefinition(options, info.child),
+        .@"enum", .@"struct", .@"union" => {},
+        else => return,
+    }
 
-            if (name != null) {
-                try out.appendSlice(gpa, "};\n");
-            } else {
-                try out.appendSlice(gpa, "},\n");
-            }
+    const gpa = options.step.owner.allocator;
+    const out = &options.contents;
 
-            return;
+    const gop = try options.printed_types.getOrPut(gpa, @typeName(T));
+    if (gop.found_existing) return;
+
+    switch (type_info) {
+        .@"enum" => {
+            try out.print(gpa, "pub const {f} = ", .{std.zig.fmtId(@typeName(T))});
+            try printEnumDefinition(options, T);
+            try out.appendSlice(gpa, ";\n\n");
         },
-        []const u8 => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: []const u8 = \"{f}\";", .{
-                    std.zig.fmtId(some), std.zig.fmtString(value),
-                });
-            } else {
-                try out.print(gpa, "\"{f}\",", .{std.zig.fmtString(value)});
+        .@"struct" => |@"struct"| {
+            inline for (@"struct".fields) |field| {
+                try printTypeDefinition(options, field.type);
             }
-            return out.appendSlice(gpa, "\n");
+
+            if (@"struct".is_tuple) return;
+
+            try out.print(gpa, "pub const {f} = ", .{std.zig.fmtId(@typeName(T))});
+            try printStructDefinition(options, T, 0);
+            try out.appendSlice(gpa, ";\n\n");
         },
-        [:0]const u8 => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: [:0]const u8 = \"{f}\";", .{ std.zig.fmtId(some), std.zig.fmtString(value) });
-            } else {
-                try out.print(gpa, "\"{f}\",", .{std.zig.fmtString(value)});
+        .@"union" => |@"union"| {
+            inline for (@"union".fields) |field| {
+                try printTypeDefinition(options, field.type);
             }
-            return out.appendSlice(gpa, "\n");
+
+            try out.print(gpa, "pub const {f} = ", .{std.zig.fmtId(@typeName(T))});
+            try printUnionDefinition(options, T);
+            try out.appendSlice(gpa, ";\n\n");
         },
-        ?[]const u8 => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: ?[]const u8 = ", .{std.zig.fmtId(some)});
-            }
+        else => comptime unreachable,
+    }
+}
 
-            if (value) |payload| {
-                try out.print(gpa, "\"{f}\"", .{std.zig.fmtString(payload)});
-            } else {
-                try out.appendSlice(gpa, "null");
-            }
+fn printEnumDefinition(options: *Options, comptime T: type) !void {
+    const @"enum" = @typeInfo(T).@"enum";
+    const gpa = options.step.owner.allocator;
+    const out = &options.contents;
 
-            if (name != null) {
-                try out.appendSlice(gpa, ";\n");
-            } else {
-                try out.appendSlice(gpa, ",\n");
-            }
-            return;
+    try out.appendSlice(gpa, "enum(");
+    try printTypeName(options, @"enum".tag_type, indent_width);
+    try out.appendSlice(gpa, ")");
+    if (@"enum".fields.len == 0 and @"enum".is_exhaustive) return out.appendSlice(gpa, " {}");
+    try out.appendSlice(gpa, " {\n");
+
+    inline for (@"enum".fields) |field| {
+        try out.print(gpa, " " ** indent_width ++ "{f} = {d},\n", .{ std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true }), field.value });
+    }
+
+    if (!@"enum".is_exhaustive) {
+        try out.appendSlice(gpa, " " ** indent_width ++ "_,\n");
+    }
+
+    try out.appendSlice(gpa, "}");
+}
+
+fn printStructDefinition(options: *Options, comptime T: type, indent: u8) !void {
+    const @"struct" = @typeInfo(T).@"struct";
+    const gpa = options.step.owner.allocator;
+    const out = &options.contents;
+
+    switch (@"struct".layout) {
+        .auto => try out.appendSlice(gpa, "struct"),
+        .@"extern" => try out.appendSlice(gpa, "extern struct"),
+        .@"packed" => {
+            try out.appendSlice(gpa, "packed struct(");
+            try printTypeName(options, @"struct".backing_integer.?, indent);
+            try out.appendSlice(gpa, ")");
         },
-        ?[:0]const u8 => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: ?[:0]const u8 = ", .{std.zig.fmtId(some)});
-            }
+    }
+    if (@"struct".fields.len == 0) return out.appendSlice(gpa, " {}");
+    try out.appendSlice(gpa, " {\n");
 
-            if (value) |payload| {
-                try out.print(gpa, "\"{f}\"", .{std.zig.fmtString(payload)});
-            } else {
-                try out.appendSlice(gpa, "null");
-            }
+    inline for (@"struct".fields) |field| {
+        const field_indent = indent +| indent_width;
+        try out.appendNTimes(gpa, ' ', field_indent);
+        if (field.is_comptime) try out.appendSlice(gpa, "comptime ");
+        if (!@"struct".is_tuple) try out.print(gpa, "{f}: ", .{std.zig.fmtIdFlags(field.name, .{ .allow_underscore = true, .allow_primitive = true })});
+        try printTypeName(options, field.type, field_indent);
+        if (!@"struct".is_tuple and @"struct".layout != .@"packed" and field.alignment != @alignOf(field.type)) {
+            try out.print(gpa, " align({})", .{field.alignment});
+        }
+        if (field.defaultValue()) |default_value| {
+            try out.appendSlice(gpa, " = ");
+            try printValue(options, field.type, default_value, field_indent);
+        }
+        try out.appendSlice(gpa, ",\n");
+    }
 
-            if (name != null) {
-                try out.appendSlice(gpa, ";\n");
-            } else {
-                try out.appendSlice(gpa, ",\n");
-            }
-            return;
-        },
-        std.SemanticVersion => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: @import(\"std\").SemanticVersion = ", .{std.zig.fmtId(some)});
-            }
+    try out.appendNTimes(gpa, ' ', indent);
+    try out.appendSlice(gpa, "}");
+}
 
-            try out.appendSlice(gpa, ".{\n");
-            try out.appendNTimes(gpa, ' ', indent);
-            try out.print(gpa, "    .major = {d},\n", .{value.major});
-            try out.appendNTimes(gpa, ' ', indent);
-            try out.print(gpa, "    .minor = {d},\n", .{value.minor});
-            try out.appendNTimes(gpa, ' ', indent);
-            try out.print(gpa, "    .patch = {d},\n", .{value.patch});
+fn printUnionDefinition(options: *Options, comptime T: type) !void {
+    const @"union" = @typeInfo(T).@"union";
+    if (@"union".layout != .auto) {
+        unsupported(@tagName(@"union".layout) ++ " union");
+    }
+    const tag_type = @"union".tag_type orelse unsupported("untagged union");
 
-            if (value.pre) |some| {
-                try out.appendNTimes(gpa, ' ', indent);
-                try out.print(gpa, "    .pre = \"{f}\",\n", .{std.zig.fmtString(some)});
-            }
-            if (value.build) |some| {
-                try out.appendNTimes(gpa, ' ', indent);
-                try out.print(gpa, "    .build = \"{f}\",\n", .{std.zig.fmtString(some)});
-            }
+    const gpa = options.step.owner.allocator;
+    const out = &options.contents;
 
-            if (name != null) {
-                try out.appendSlice(gpa, "};\n");
-            } else {
-                try out.appendSlice(gpa, "},\n");
-            }
-            return;
-        },
-        else => {},
+    try out.appendSlice(gpa, "union(");
+    try printTypeName(options, tag_type, indent_width);
+    try out.appendSlice(gpa, ")");
+    if (@"union".fields.len == 0) return out.appendSlice(gpa, " {}");
+    try out.appendSlice(gpa, " {\n");
+
+    inline for (@"union".fields) |field| {
+        try out.appendSlice(gpa, " " ** indent_width);
+        try out.print(gpa, "{f}: ", .{std.zig.fmtIdFlags(field.name, .{ .allow_underscore = true, .allow_primitive = true })});
+        try printTypeName(options, field.type, indent_width);
+        if (field.alignment != @alignOf(field.type)) {
+            try out.print(gpa, " align({})", .{field.alignment});
+        }
+        try out.appendSlice(gpa, ",\n");
+    }
+
+    try out.appendSlice(gpa, "}");
+}
+
+fn printTypeName(options: *Options, comptime T: type, indent: u8) !void {
+    const gpa = options.step.owner.allocator;
+    const out = &options.contents;
+
+    if (T == std.SemanticVersion) {
+        return out.appendSlice(gpa, "@import(\"std\").SemanticVersion");
     }
 
     switch (@typeInfo(T)) {
-        .array => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+        .array => |array| {
+            try out.print(gpa, "[{}", .{array.len});
+            if (array.sentinel()) |sentinel| {
+                try out.appendSlice(gpa, ":");
+                try printValue(options, array.child, sentinel, indent);
             }
-
-            try out.print(gpa, "{s} {{\n", .{@typeName(T)});
-            for (value) |item| {
-                try out.appendNTimes(gpa, ' ', indent + 4);
-                try printType(options, out, @TypeOf(item), item, indent + 4, null);
-            }
-            try out.appendNTimes(gpa, ' ', indent);
-            try out.appendSlice(gpa, "}");
-
-            if (name != null) {
-                try out.appendSlice(gpa, ";\n");
-            } else {
-                try out.appendSlice(gpa, ",\n");
-            }
-            return;
+            try out.appendSlice(gpa, "]");
+            try printTypeName(options, array.child, indent);
         },
-        .pointer => |p| {
-            if (p.size != .slice) {
-                @compileError("Non-slice pointers are not yet supported in build options");
+        .pointer => |pointer| {
+            if (pointer.size != .slice) {
+                unsupported("non-slice pointer");
             }
 
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+            try out.appendSlice(gpa, "[");
+            if (pointer.sentinel()) |sentinel| {
+                try out.appendSlice(gpa, ":");
+                try printValue(options, pointer.child, sentinel, indent);
             }
-
-            try out.print(gpa, "&[_]{s} {{\n", .{@typeName(p.child)});
-            for (value) |item| {
-                try out.appendNTimes(gpa, ' ', indent + 4);
-                try printType(options, out, @TypeOf(item), item, indent + 4, null);
-            }
-            try out.appendNTimes(gpa, ' ', indent);
-            try out.appendSlice(gpa, "}");
-
-            if (name != null) {
-                try out.appendSlice(gpa, ";\n");
-            } else {
-                try out.appendSlice(gpa, ",\n");
-            }
-            return;
+            try out.appendSlice(gpa, "]const ");
+            try printTypeName(options, pointer.child, indent);
         },
-        .optional => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
-            }
-
-            if (value) |inner| {
-                try printType(options, out, @TypeOf(inner), inner, indent + 4, null);
-                // Pop the '\n' and ',' chars
-                _ = options.contents.pop();
-                _ = options.contents.pop();
-            } else {
-                try out.appendSlice(gpa, "null");
-            }
-
-            if (name != null) {
-                try out.appendSlice(gpa, ";\n");
-            } else {
-                try out.appendSlice(gpa, ",\n");
-            }
-            return;
+        .optional => |optional| {
+            try out.appendSlice(gpa, "?");
+            try printTypeName(options, optional.child, indent);
         },
         .void,
         .bool,
         .int,
-        .comptime_int,
         .float,
-        .null,
-        => {
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: {s} = {any};\n", .{ std.zig.fmtId(some), @typeName(T), value });
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        => try out.print(gpa, "{s}", .{@typeName(T)}),
+        .@"enum" => try out.print(gpa, "{f}", .{std.zig.fmtId(@typeName(T))}),
+        .@"struct" => |@"struct"| {
+            if (@"struct".is_tuple) {
+                try printStructDefinition(options, T, indent);
             } else {
-                try out.print(gpa, "{any},\n", .{value});
+                try out.print(gpa, "{f}", .{std.zig.fmtId(@typeName(T))});
             }
-            return;
         },
-        .@"enum" => |info| {
-            try printEnum(options, out, T, info, indent);
-
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: {f} = .{f};\n", .{
-                    std.zig.fmtId(some),
-                    std.zig.fmtId(@typeName(T)),
-                    std.zig.fmtIdFlags(@tagName(value), .{ .allow_underscore = true, .allow_primitive = true }),
-                });
-            }
-            return;
-        },
-        .@"struct" => |info| {
-            try printStruct(options, out, T, info, indent);
-
-            if (name) |some| {
-                try out.print(gpa, "pub const {f}: {f} = ", .{
-                    std.zig.fmtId(some),
-                    std.zig.fmtId(@typeName(T)),
-                });
-                try printStructValue(options, out, info, value, indent);
-            }
-            return;
-        },
-        else => @compileError(std.fmt.comptimePrint("`{s}` are not yet supported as build options", .{@tagName(@typeInfo(T))})),
+        .@"union" => try out.print(gpa, "{f}", .{std.zig.fmtId(@typeName(T))}),
+        else => |tag| unsupported(@tagName(tag)),
     }
 }
 
-fn printUserDefinedType(options: *Options, out: *std.ArrayListUnmanaged(u8), comptime T: type, indent: u8) !void {
+fn printValue(options: *Options, comptime T: type, value: T, indent: u8) !void {
+    const gpa = options.step.owner.allocator;
+    const out = &options.contents;
+
+    if (T == []const u8 or T == [:0]const u8) {
+        return out.print(gpa, "\"{f}\"", .{std.zig.fmtString(value)});
+    }
+
     switch (@typeInfo(T)) {
-        .@"enum" => |info| {
-            return try printEnum(options, out, T, info, indent);
-        },
-        .@"struct" => |info| {
-            return try printStruct(options, out, T, info, indent);
-        },
-        else => {},
-    }
-}
+        inline .array, .pointer => |type_info, tag| {
+            if (tag == .pointer) try out.appendSlice(gpa, "&");
+            if (value.len == 0) return out.appendSlice(gpa, ".{}");
 
-fn printEnum(
-    options: *Options,
-    out: *std.ArrayListUnmanaged(u8),
-    comptime T: type,
-    comptime val: std.builtin.Type.Enum,
-    indent: u8,
-) !void {
-    const gpa = options.step.owner.allocator;
-    const gop = try options.encountered_types.getOrPut(gpa, @typeName(T));
-    if (gop.found_existing) return;
-
-    try out.appendNTimes(gpa, ' ', indent);
-    try out.print(gpa, "pub const {f} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
-
-    inline for (val.fields) |field| {
-        try out.appendNTimes(gpa, ' ', indent);
-        try out.print(gpa, "    {f} = {d},\n", .{
-            std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true }), field.value,
-        });
-    }
-
-    if (!val.is_exhaustive) {
-        try out.appendNTimes(gpa, ' ', indent);
-        try out.appendSlice(gpa, "    _,\n");
-    }
-
-    try out.appendNTimes(gpa, ' ', indent);
-    try out.appendSlice(gpa, "};\n");
-}
-
-fn printStruct(options: *Options, out: *std.ArrayListUnmanaged(u8), comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
-    const gpa = options.step.owner.allocator;
-    const gop = try options.encountered_types.getOrPut(gpa, @typeName(T));
-    if (gop.found_existing) return;
-
-    try out.appendNTimes(gpa, ' ', indent);
-    try out.print(gpa, "pub const {f} = ", .{std.zig.fmtId(@typeName(T))});
-
-    switch (val.layout) {
-        .@"extern" => try out.appendSlice(gpa, "extern struct"),
-        .@"packed" => try out.appendSlice(gpa, "packed struct"),
-        else => try out.appendSlice(gpa, "struct"),
-    }
-
-    try out.appendSlice(gpa, " {\n");
-
-    inline for (val.fields) |field| {
-        try out.appendNTimes(gpa, ' ', indent);
-
-        const type_name = @typeName(field.type);
-
-        // If the type name doesn't contains a '.' the type is from zig builtins.
-        if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
-            try out.print(gpa, "    {f}: {f}", .{
-                std.zig.fmtIdFlags(field.name, .{ .allow_underscore = true, .allow_primitive = true }),
-                std.zig.fmtId(type_name),
-            });
-        } else {
-            try out.print(gpa, "    {f}: {s}", .{
-                std.zig.fmtIdFlags(field.name, .{ .allow_underscore = true, .allow_primitive = true }),
-                type_name,
-            });
-        }
-
-        if (field.defaultValue()) |default_value| {
-            try out.appendSlice(gpa, " = ");
-            switch (@typeInfo(@TypeOf(default_value))) {
-                .@"enum" => try out.print(gpa, ".{s},\n", .{@tagName(default_value)}),
-                .@"struct" => |info| {
-                    try printStructValue(options, out, info, default_value, indent + 4);
-                },
-                else => try printType(options, out, @TypeOf(default_value), default_value, indent, null),
+            try out.appendSlice(gpa, ".{\n");
+            for (value) |item| {
+                const elem_indent = indent +| indent_width;
+                try out.appendNTimes(gpa, ' ', elem_indent);
+                try printValue(options, type_info.child, item, elem_indent);
+                try out.appendSlice(gpa, ",\n");
             }
-        } else {
-            try out.appendSlice(gpa, ",\n");
-        }
-    }
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.appendSlice(gpa, "}");
+        },
+        .optional => |optional| {
+            if (value) |inner| {
+                try printValue(options, optional.child, inner, indent);
+            } else {
+                try out.appendSlice(gpa, "@as(");
+                try printTypeName(options, T, indent);
+                try out.appendSlice(gpa, ", null)");
+            }
+        },
+        .void,
+        .bool,
+        .int,
+        .float,
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        => try out.print(gpa, "{any}", .{value}),
+        .@"enum" => |@"enum"| {
+            if (@"enum".is_exhaustive) {
+                try out.print(gpa, ".{f}", .{std.zig.fmtIdFlags(@tagName(value), .{ .allow_underscore = true, .allow_primitive = true })});
+            } else {
+                if (std.enums.tagName(T, value)) |name| {
+                    try out.print(gpa, ".{f}", .{std.zig.fmtIdFlags(name, .{ .allow_underscore = true, .allow_primitive = true })});
+                } else {
+                    try out.print(gpa, "@enumFromInt({})", .{@intFromEnum(value)});
+                }
+            }
+        },
+        .@"struct" => |@"struct"| {
+            if (@"struct".fields.len == 0) return out.appendSlice(gpa, ".{}");
 
-    // TODO: write declarations
-
-    try out.appendNTimes(gpa, ' ', indent);
-    try out.appendSlice(gpa, "};\n");
-
-    inline for (val.fields) |field| {
-        try printUserDefinedType(options, out, field.type, 0);
+            try out.appendSlice(gpa, ".{\n");
+            inline for (@"struct".fields) |field| {
+                const field_indent = indent +| indent_width;
+                try out.appendNTimes(gpa, ' ', field_indent);
+                if (!@"struct".is_tuple) try out.print(gpa, ".{f} = ", .{std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true, .allow_underscore = true })});
+                try printValue(options, field.type, @field(value, field.name), field_indent);
+                try out.appendSlice(gpa, ",\n");
+            }
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.appendSlice(gpa, "}");
+        },
+        .@"union" => {
+            try out.appendSlice(gpa, ".{ ");
+            switch (value) {
+                inline else => |payload, tag| {
+                    try out.print(gpa, ".{f} = ", .{std.zig.fmtIdFlags(@tagName(tag), .{ .allow_primitive = true, .allow_underscore = true })});
+                    try printValue(options, @TypeOf(payload), payload, indent);
+                },
+            }
+            try out.appendSlice(gpa, " }");
+        },
+        else => |tag| unsupported(@tagName(tag)),
     }
 }
 
-fn printStructValue(
-    options: *Options,
-    out: *std.ArrayListUnmanaged(u8),
-    comptime struct_val: std.builtin.Type.Struct,
-    val: anytype,
-    indent: u8,
-) !void {
-    const gpa = options.step.owner.allocator;
-    try out.appendSlice(gpa, ".{\n");
-
-    if (struct_val.is_tuple) {
-        inline for (struct_val.fields) |field| {
-            try out.appendNTimes(gpa, ' ', indent);
-            try printType(options, out, @TypeOf(@field(val, field.name)), @field(val, field.name), indent, null);
-        }
-    } else {
-        inline for (struct_val.fields) |field| {
-            try out.appendNTimes(gpa, ' ', indent);
-            try out.print(gpa, "    .{f} = ", .{
-                std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true, .allow_underscore = true }),
-            });
-
-            const field_name = @field(val, field.name);
-            switch (@typeInfo(@TypeOf(field_name))) {
-                .@"enum" => try out.print(gpa, ".{s},\n", .{@tagName(field_name)}),
-                .@"struct" => |struct_info| {
-                    try printStructValue(options, out, struct_info, field_name, indent + 4);
-                },
-                else => try printType(options, out, @TypeOf(field_name), field_name, indent, null),
-            }
-        }
-    }
-
-    if (indent == 0) {
-        try out.appendSlice(gpa, "};\n");
-    } else {
-        try out.appendNTimes(gpa, ' ', indent);
-        try out.appendSlice(gpa, "},\n");
-    }
+inline fn unsupported(comptime str: []const u8) noreturn {
+    @compileError(std.fmt.comptimePrint("'{s}' not supported within build options", .{str}));
 }
 
 /// The value is the path in the cache dir.
@@ -585,65 +501,99 @@ test Options {
         world: bool = true,
     };
 
+    const NormalUnion = union(NormalEnum) {
+        foo: u16,
+        bar: [2]u8,
+    };
+
     const NestedStruct = struct {
         normal_struct: NormalStruct,
         normal_enum: NormalEnum = .foo,
     };
 
+    const NonExhaustiveEnum = enum(u8) {
+        one,
+        two,
+        three,
+        _,
+    };
+
+    const NonExhaustiveEnumNoFields = enum(u8) { _ };
+
     options.addOption(usize, "option1", 1);
     options.addOption(?usize, "option2", null);
     options.addOption(?usize, "option3", 3);
     options.addOption(comptime_int, "option4", 4);
+    options.addOption(comptime_float, "option5", 0.125);
+    options.addOption(@Type(.enum_literal), "option6", .foo);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
     options.addOption([2][2]u16, "nested_array", nested_array);
     options.addOption([]const []const u16, "nested_slice", nested_slice);
     options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
-    options.addOption(NormalEnum, "normal1_enum", NormalEnum.foo);
-    options.addOption(NormalEnum, "normal2_enum", NormalEnum.bar);
-    options.addOption(NormalStruct, "normal1_struct", NormalStruct{
-        .hello = "foo",
+    options.addOption(NormalEnum, "normal1_enum", .foo);
+    options.addOption(NormalEnum, "normal2_enum", .bar);
+    options.addOption(NormalStruct, "normal1_struct", .{ .hello = "foo" });
+    options.addOption(NormalStruct, "normal2_struct", .{ .hello = null, .world = false });
+    options.addOption(NormalUnion, "normal_union", .{ .bar = .{ 42, 64 } });
+    options.addOption(NestedStruct, "nested_struct", .{ .normal_struct = .{ .hello = "bar" } });
+    options.addOption(NonExhaustiveEnum, "non_exhaustive_enum1", .two);
+    options.addOption(NonExhaustiveEnum, "non_exhaustive_enum2", @enumFromInt(20));
+    options.addOption(NonExhaustiveEnumNoFields, "non_exhaustive_enum3", @enumFromInt(42));
+    options.addOption([2]NormalStruct, "array_of_structs", .{
+        .{ .hello = null },
+        .{ .hello = "zig", .world = true },
     });
-    options.addOption(NormalStruct, "normal2_struct", NormalStruct{
-        .hello = null,
-        .world = false,
-    });
-    options.addOption(NestedStruct, "nested_struct", NestedStruct{
-        .normal_struct = .{ .hello = "bar" },
-    });
+    options.addOption(??u32, "nested_optional1", 10);
+    options.addOption(??u32, "nested_optional2", @as(?u32, null));
+    options.addOption(??u32, "nested_optional3", null);
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
-        \\pub const option2: ?usize = null;
+        \\
+        \\pub const option2: ?usize = @as(?usize, null);
+        \\
         \\pub const option3: ?usize = 3;
+        \\
         \\pub const option4: comptime_int = 4;
+        \\
+        \\pub const option5: comptime_float = 0.125;
+        \\
+        \\pub const option6: @Type(.enum_literal) = .foo;
+        \\
         \\pub const string: []const u8 = "zigisthebest";
-        \\pub const optional_string: ?[]const u8 = null;
-        \\pub const nested_array: [2][2]u16 = [2][2]u16 {
-        \\    [2]u16 {
+        \\
+        \\pub const optional_string: ?[]const u8 = @as(?[]const u8, null);
+        \\
+        \\pub const nested_array: [2][2]u16 = .{
+        \\    .{
         \\        300,
         \\        200,
         \\    },
-        \\    [2]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\};
-        \\pub const nested_slice: []const []const u16 = &[_][]const u16 {
-        \\    &[_]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\    &[_]u16 {
+        \\    .{
         \\        300,
         \\        200,
         \\    },
         \\};
-        \\pub const @"Build.Step.Options.decltest.Options.KeywordEnum" = enum (u0) {
+        \\
+        \\pub const nested_slice: []const []const u16 = &.{
+        \\    &.{
+        \\        300,
+        \\        200,
+        \\    },
+        \\    &.{
+        \\        300,
+        \\        200,
+        \\    },
+        \\};
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.KeywordEnum" = enum(u0) {
         \\    @"0.8.1" = 0,
         \\};
+        \\
         \\pub const keyword_enum: @"Build.Step.Options.decltest.Options.KeywordEnum" = .@"0.8.1";
+        \\
         \\pub const semantic_version: @import("std").SemanticVersion = .{
         \\    .major = 0,
         \\    .minor = 1,
@@ -651,28 +601,46 @@ test Options {
         \\    .pre = "foo",
         \\    .build = "bar",
         \\};
-        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum (u1) {
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum(u1) {
         \\    foo = 0,
         \\    bar = 1,
         \\};
+        \\
         \\pub const normal1_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo;
+        \\
         \\pub const normal2_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .bar;
+        \\
         \\pub const @"Build.Step.Options.decltest.Options.NormalStruct" = struct {
         \\    hello: ?[]const u8,
         \\    world: bool = true,
         \\};
+        \\
         \\pub const normal1_struct: @"Build.Step.Options.decltest.Options.NormalStruct" = .{
         \\    .hello = "foo",
         \\    .world = true,
         \\};
+        \\
         \\pub const normal2_struct: @"Build.Step.Options.decltest.Options.NormalStruct" = .{
-        \\    .hello = null,
+        \\    .hello = @as(?[]const u8, null),
         \\    .world = false,
         \\};
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.NormalUnion" = union(@"Build.Step.Options.decltest.Options.NormalEnum") {
+        \\    foo: u16,
+        \\    bar: [2]u8,
+        \\};
+        \\
+        \\pub const normal_union: @"Build.Step.Options.decltest.Options.NormalUnion" = .{ .bar = .{
+        \\    42,
+        \\    64,
+        \\} };
+        \\
         \\pub const @"Build.Step.Options.decltest.Options.NestedStruct" = struct {
         \\    normal_struct: @"Build.Step.Options.decltest.Options.NormalStruct",
         \\    normal_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo,
         \\};
+        \\
         \\pub const nested_struct: @"Build.Step.Options.decltest.Options.NestedStruct" = .{
         \\    .normal_struct = .{
         \\        .hello = "bar",
@@ -680,6 +648,41 @@ test Options {
         \\    },
         \\    .normal_enum = .foo,
         \\};
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.NonExhaustiveEnum" = enum(u8) {
+        \\    one = 0,
+        \\    two = 1,
+        \\    three = 2,
+        \\    _,
+        \\};
+        \\
+        \\pub const non_exhaustive_enum1: @"Build.Step.Options.decltest.Options.NonExhaustiveEnum" = .two;
+        \\
+        \\pub const non_exhaustive_enum2: @"Build.Step.Options.decltest.Options.NonExhaustiveEnum" = @enumFromInt(20);
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.NonExhaustiveEnumNoFields" = enum(u8) {
+        \\    _,
+        \\};
+        \\
+        \\pub const non_exhaustive_enum3: @"Build.Step.Options.decltest.Options.NonExhaustiveEnumNoFields" = @enumFromInt(42);
+        \\
+        \\pub const array_of_structs: [2]@"Build.Step.Options.decltest.Options.NormalStruct" = .{
+        \\    .{
+        \\        .hello = @as(?[]const u8, null),
+        \\        .world = true,
+        \\    },
+        \\    .{
+        \\        .hello = "zig",
+        \\        .world = true,
+        \\    },
+        \\};
+        \\
+        \\pub const nested_optional1: ??u32 = 10;
+        \\
+        \\pub const nested_optional2: ??u32 = @as(?u32, null);
+        \\
+        \\pub const nested_optional3: ??u32 = @as(??u32, null);
+        \\
         \\
     , options.contents.items);
 
