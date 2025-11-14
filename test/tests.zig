@@ -1186,7 +1186,15 @@ const test_targets = blk: {
             .use_lld = false,
         },
 
-        // macOS Targets
+        // Darwin Targets
+
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .maccatalyst,
+                .abi = .none,
+            },
+        },
 
         .{
             .target = .{
@@ -1206,6 +1214,14 @@ const test_targets = blk: {
             .use_lld = false,
             .optimize_mode = .ReleaseFast,
             .strip = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .maccatalyst,
+                .abi = .none,
+            },
         },
 
         .{
