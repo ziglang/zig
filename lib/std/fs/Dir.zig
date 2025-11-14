@@ -671,10 +671,12 @@ pub const SelectiveWalker = struct {
     name_buffer: std.ArrayListUnmanaged(u8),
     allocator: Allocator,
 
+    pub const Error = IteratorError || Allocator.Error;
+
     /// After each call to this function, and on deinit(), the memory returned
     /// from this function becomes invalid. A copy must be made in order to keep
     /// a reference to the path.
-    pub fn next(self: *SelectiveWalker) !?Walker.Entry {
+    pub fn next(self: *SelectiveWalker) Error!?Walker.Entry {
         while (self.stack.items.len > 0) {
             const top = &self.stack.items[self.stack.items.len - 1];
             var dirname_len = top.dirname_len;
