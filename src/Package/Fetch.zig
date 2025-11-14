@@ -551,7 +551,8 @@ fn runResource(
         // directory.
         f.computed_hash = try computeHash(f, pkg_path, filter);
 
-        break :blk if (unpack_result.root_dir.len > 0)
+        const dot_root_dir = unpack_result.root_dir.len == 1 and unpack_result.root_dir[0] == '.';
+        break :blk if (unpack_result.root_dir.len > 0 and !dot_root_dir)
             try fs.path.join(arena, &.{ tmp_dir_sub_path, unpack_result.root_dir })
         else
             tmp_dir_sub_path;
