@@ -1640,7 +1640,17 @@ pub const MSF = switch (native_os) {
         pub const DEACTIVATE = 0x8;
         pub const SYNC = 0x10;
     },
-    .openbsd, .haiku, .dragonfly, .netbsd, .illumos, .freebsd => struct {
+    .freebsd, .dragonfly => struct {
+        pub const SYNC = 0;
+        pub const ASYNC = 1;
+        pub const INVALIDATE = 2;
+    },
+    .openbsd => struct {
+        pub const ASYNC = 1;
+        pub const SYNC = 2;
+        pub const INVALIDATE = 4;
+    },
+    .haiku, .netbsd, .illumos => struct {
         pub const ASYNC = 1;
         pub const INVALIDATE = 2;
         pub const SYNC = 4;
