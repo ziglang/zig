@@ -24,7 +24,7 @@ pub fn cwd() Dir {
     return switch (native_os) {
         .windows => .{ .handle = std.os.windows.peb().ProcessParameters.CurrentDirectory.Handle },
         .wasi => .{ .handle = std.options.wasiCwd() },
-        else => .{ .handle = std.posix.AT.FDCWD },
+        else => .{ .handle = std.posix.At.fdcwd },
     };
 }
 
