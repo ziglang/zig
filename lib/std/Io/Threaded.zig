@@ -1339,12 +1339,12 @@ fn dirStatPathPosix(
     var path_buffer: [posix.PATH_MAX]u8 = undefined;
     const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
 
-    const flags: u32 = if (!options.follow_symlinks) posix.AT.SYMLINK_NOFOLLOW else 0;
+    const flags: posix.At = .{ .symlink_nofollow = if (!options.follow_symlinks) true else false };
 
     while (true) {
         try t.checkCancel();
         var stat = std.mem.zeroes(posix.Stat);
-        switch (posix.errno(fstatat_sym(dir.handle, sub_path_posix, &stat, flags))) {
+        switch (posix.errno(fstatat_sym(dir.handle, sub_path_posix, &stat, @bitCast(flags)))) {
             .SUCCESS => return statFromPosix(&stat),
             .INTR => continue,
             .CANCELED => return error.Canceled,
@@ -1568,7 +1568,7 @@ fn dirAccessPosix(
     var path_buffer: [posix.PATH_MAX]u8 = undefined;
     const sub_path_posix = try pathToPosix(sub_path, &path_buffer);
 
-    const flags: u32 = @as(u32, if (!options.follow_symlinks) posix.AT.SYMLINK_NOFOLLOW else 0);
+    const flags: posix.At = .{ .symlink_nofollow = if (!options.follow_symlinks) true else false };
 
     const mode: u32 =
         @as(u32, if (options.read) posix.R_OK else 0) |
@@ -1577,7 +1577,7 @@ fn dirAccessPosix(
 
     while (true) {
         try t.checkCancel();
-        switch (posix.errno(posix.system.faccessat(dir.handle, sub_path_posix, mode, flags))) {
+        switch (posix.errno(posix.system.faccessat(dir.handle, sub_path_posix, mode, @bitCast(flags)))) {
             .SUCCESS => return,
             .INTR => continue,
             .CANCELED => return error.Canceled,
@@ -2837,7 +2837,7 @@ fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekErr
 fn openSelfExe(userdata: ?*anyopaque, flags: Io.File.OpenFlags) Io.File.OpenSelfExeError!Io.File {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     switch (native_os) {
-        .linux, .serenity => return dirOpenFilePosix(t, .{ .handle = posix.AT.FDCWD }, "/proc/self/exe", flags),
+        .linux, .serenity => return dirOpenFilePosix(t, .{ .handle = posix.At.fdcwd }, "/proc/self/exe", flags),
         .windows => {
             // If ImagePathName is a symlink, then it will contain the path of the symlink,
             // not the path that the symlink points to. However, because we are opening

@@ -8375,128 +8375,267 @@ pub const port_event = switch (native_os) {
     else => void,
 };
 
-pub const AT = switch (native_os) {
-    .linux => linux.AT,
-    .windows => struct {
+/// Deprecated Alias to `At`
+pub const AT = At;
+
+pub const At = switch (native_os) {
+    .emscripten, .linux => linux.At,
+    .windows => packed struct(u32) {
+        _: u9 = 0,
         /// Remove directory instead of unlinking file
-        pub const REMOVEDIR = 0x200;
+        removedir: bool = false,
+        _11: u22 = 0,
+
+        /// DEPRECATED aliase to `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
     },
-    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => struct {
-        pub const FDCWD = -2;
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => packed struct(u32) {
+        _: u4 = 0,
         /// Use effective ids in access check
-        pub const EACCESS = 0x0010;
+        eaccess: bool = false,
         /// Act on the symlink itself not the target
-        pub const SYMLINK_NOFOLLOW = 0x0020;
+        symlink_nofollow: bool = false,
         /// Act on target of symlink
-        pub const SYMLINK_FOLLOW = 0x0040;
+        symlink_follow: bool = false,
         /// Path refers to directory
-        pub const REMOVEDIR = 0x0080;
+        removedir: bool = false,
+        _9: u24 = 0,
+
+        pub const fdcwd: fd_t = -2;
+
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
     },
-    .freebsd => struct {
-        /// Magic value that specify the use of the current working directory
-        /// to determine the target of relative file paths in the openat() and
-        /// similar syscalls.
-        pub const FDCWD = -100;
+    .freebsd => packed struct(u32) {
+        _: u8 = 0,
         /// Check access using effective user and group ID
-        pub const EACCESS = 0x0100;
+        eaccess: bool = false,
         /// Do not follow symbolic links
-        pub const SYMLINK_NOFOLLOW = 0x0200;
+        symlink_nofollow: bool = false,
         /// Follow symbolic link
-        pub const SYMLINK_FOLLOW = 0x0400;
+        symlink_follow: bool = false,
         /// Remove directory instead of file
-        pub const REMOVEDIR = 0x0800;
+        removedir: bool = false,
         /// Fail if not under dirfd
-        pub const BENEATH = 0x1000;
-    },
-    .netbsd => struct {
+        beneath: bool = false,
+        _14: u19 = 0,
+
         /// Magic value that specify the use of the current working directory
         /// to determine the target of relative file paths in the openat() and
         /// similar syscalls.
-        pub const FDCWD = -100;
+        pub const fdcwd: fd_t = -100;
+
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+        /// DEPRECATED: use `beneath`
+        pub const BENEATH: u32 = @bitCast(At{ .beneath = true });
+
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
+    },
+    .netbsd => packed struct(u32) {
+        _: u8 = 0,
         /// Check access using effective user and group ID
-        pub const EACCESS = 0x0100;
+        eaccess: bool = false,
         /// Do not follow symbolic links
-        pub const SYMLINK_NOFOLLOW = 0x0200;
+        symlink_nofollow: bool = false,
         /// Follow symbolic link
-        pub const SYMLINK_FOLLOW = 0x0400;
+        symlink_follow: bool = false,
         /// Remove directory instead of file
-        pub const REMOVEDIR = 0x0800;
-    },
-    .dragonfly => struct {
-        pub const FDCWD = -328243;
-        pub const SYMLINK_NOFOLLOW = 1;
-        pub const REMOVEDIR = 2;
-        pub const EACCESS = 4;
-        pub const SYMLINK_FOLLOW = 8;
-    },
-    .openbsd => struct {
+        removedir: bool = false,
+        _12: u20 = 0,
+
         /// Magic value that specify the use of the current working directory
         /// to determine the target of relative file paths in the openat() and
         /// similar syscalls.
-        pub const FDCWD = -100;
-        /// Check access using effective user and group ID
-        pub const EACCESS = 0x01;
+        pub const fdcwd: fd_t = -100;
+
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
+    },
+    .dragonfly => packed struct(u32) {
         /// Do not follow symbolic links
-        pub const SYMLINK_NOFOLLOW = 0x02;
-        /// Follow symbolic link
-        pub const SYMLINK_FOLLOW = 0x04;
+        symlink_nofollow: bool = false,
         /// Remove directory instead of file
-        pub const REMOVEDIR = 0x08;
+        removedir: bool = false,
+        /// Check access using effective user and group ID
+        eaccess: bool = false,
+        /// Follow symbolic link
+        symlink_follow: bool = false,
+        _: u28 = 0,
+
+        pub const fdcwd: fd_t = -328243;
+
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
     },
-    .haiku => struct {
-        pub const FDCWD = -1;
-        pub const SYMLINK_NOFOLLOW = 0x01;
-        pub const SYMLINK_FOLLOW = 0x02;
-        pub const REMOVEDIR = 0x04;
-        pub const EACCESS = 0x08;
-    },
-    .illumos => struct {
+    .openbsd => packed struct(u32) {
+        /// Check access using effective user and group ID
+        eaccess: bool = false,
+        /// Do not follow symbolic links
+        symlink_nofollow: bool = false,
+        /// Follow symbolic link
+        symlink_follow: bool = false,
+        /// Remove directory instead of file
+        removedir: bool = false,
+        _: u28 = 0,
+
         /// Magic value that specify the use of the current working directory
         /// to determine the target of relative file paths in the openat() and
         /// similar syscalls.
-        pub const FDCWD: fd_t = @bitCast(@as(u32, 0xffd19553));
+        pub const fdcwd: fd_t = -100;
+
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+
+        pub const FDCWD = fdcwd;
+    },
+    .haiku => packed struct(u32) {
         /// Do not follow symbolic links
-        pub const SYMLINK_NOFOLLOW = 0x1000;
+        symlink_nofollow: bool = false,
         /// Follow symbolic link
-        pub const SYMLINK_FOLLOW = 0x2000;
+        symlink_follow: bool = false,
         /// Remove directory instead of file
-        pub const REMOVEDIR = 0x1;
-        pub const TRIGGER = 0x2;
+        removedir: bool = false,
         /// Check access using effective user and group ID
-        pub const EACCESS = 0x4;
+        eaccess: bool = false,
+        _: u28 = 0,
+
+        pub const fdcwd: fd_t = -1;
+
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
     },
-    .emscripten => struct {
-        pub const FDCWD = -100;
-        pub const SYMLINK_NOFOLLOW = 0x100;
-        pub const REMOVEDIR = 0x200;
-        pub const SYMLINK_FOLLOW = 0x400;
-        pub const NO_AUTOMOUNT = 0x800;
-        pub const EMPTY_PATH = 0x1000;
-        pub const STATX_SYNC_TYPE = 0x6000;
-        pub const STATX_SYNC_AS_STAT = 0x0000;
-        pub const STATX_FORCE_SYNC = 0x2000;
-        pub const STATX_DONT_SYNC = 0x4000;
-        pub const RECURSIVE = 0x8000;
+    .illumos => packed struct(u32) {
+        /// Remove directory instead of file
+        removedir: bool = false,
+        trigger: bool = false,
+        /// Check access using effective user and group ID
+        eaccess: bool = false,
+        _4: u9 = 0,
+        /// Do not follow symbolic links
+        symlink_nofollow: bool = false,
+        /// Follow symbolic link
+        symlink_follow: bool = false,
+        _15: u18 = 0,
+
+        /// Magic value that specify the use of the current working directory
+        /// to determine the target of relative file paths in the openat() and
+        /// similar syscalls.
+        pub const fdcwd: fd_t = @bitCast(@as(u32, 0xffd19553));
+
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+        /// DEPRECATED: use `trigger`
+        pub const TRIGGER: u32 = @bitCast(At{ .trigger = true });
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
     },
-    .wasi => struct {
-        // Match `AT_*` constants in lib/libc/include/wasm-wasi-musl/__header_fcntl.h
-        pub const EACCESS = 0x0;
-        pub const SYMLINK_NOFOLLOW = 0x1;
-        pub const SYMLINK_FOLLOW = 0x2;
-        pub const REMOVEDIR = 0x4;
-        /// When linking libc, we follow their convention and use -2 for current working directory.
-        /// However, without libc, Zig does a different convention: it assumes the
-        /// current working directory is the first preopen. This behavior can be
-        /// overridden with a public function called `wasi_cwd` in the root source
-        /// file.
-        pub const FDCWD: fd_t = if (builtin.link_libc) -2 else 3;
+    // Match `AT_*` constants in lib/libc/include/wasm-wasi-musl/__header_fcntl.h
+    .wasi => packed struct(u32) {
+        /// Do not follow symbolic links
+        symlink_nofollow: bool = false,
+        /// Follow symbolic link
+        symlink_follow: bool = false,
+        /// Remove directory instead of file
+        removedir: bool = false,
+        _: u29 = 0,
+
+        pub const eaccess: u32 = @bitCast(At{});
+
+        /// When linking libc, we follow their convention and use -2 for
+        /// current working directory. However, without libc, Zig does a
+        /// different convention: it assumes the current working directory is
+        /// the first preopen. This behavior can be overridden with a public
+        /// function called `wasi_cwd` in the root source file.
+        pub const fdcwd: fd_t = if (builtin.link_libc) -2 else 3;
+
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `symlink_follow`
+        pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = eaccess;
     },
     // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L49-L52
-    .serenity => struct {
-        pub const FDCWD = -100;
-        pub const SYMLINK_NOFOLLOW = 0x100;
-        pub const REMOVEDIR = 0x200;
-        pub const EACCESS = 0x400;
+    .serenity => packed struct(u32) {
+        _: u8 = 0,
+        /// Do not follow symbolic links
+        symlink_nofollow: bool = false,
+        /// Remove directory instead of file
+        removedir: bool = false,
+        /// Check access using effective user and group ID
+        eaccess: bool = false,
+        _11: u21 = 0,
+
+        pub const fdcwd: fd_t = -100;
+
+        /// DEPRECATED: use `symlink_nofollow`
+        pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+        /// DEPRECATED: use `removedir`
+        pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+        /// DEPRECATED: use `eaccess`
+        pub const EACCESS: u32 = @bitCast(At{ .eaccess = true });
+        /// DEPRECATED: use `fdcwd`
+        pub const FDCWD = fdcwd;
     },
     else => void,
 };
@@ -10485,7 +10624,7 @@ pub extern "c" fn inotify_add_watch(fd: fd_t, pathname: [*:0]const u8, mask: u32
 pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 
 pub extern "c" fn fstat64(fd: fd_t, buf: *Stat) c_int;
-pub extern "c" fn fstatat64(dirfd: fd_t, noalias path: [*:0]const u8, noalias stat_buf: *Stat, flags: u32) c_int;
+pub extern "c" fn fstatat64(dirfd: fd_t, noalias path: [*:0]const u8, noalias stat_buf: *Stat, flags: At) c_int;
 pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;

@@ -1253,7 +1253,7 @@ pub fn rmdir(path: [*:0]const u8) usize {
     if (@hasField(SYS, "rmdir")) {
         return syscall1(.rmdir, @intFromPtr(path));
     } else {
-        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @as(u32, @bitCast(At{ .removedir_or_handle_fid = .{ .removedir = true } })));
+        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @as(u32, @bitCast(At{ .removedir = true })));
     }
 }
 
@@ -3573,7 +3573,7 @@ pub const STDERR_FILENO = 2;
 pub const AT = At;
 /// matches AT_* and AT_STATX_*
 pub const At = packed struct(u32) {
-    _u1: u8 = 0,
+    _1: u8 = 0,
     /// Do not follow symbolic links
     symlink_nofollow: bool = false,
     /// Remove directory instead of unlinking file
