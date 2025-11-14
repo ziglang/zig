@@ -1302,7 +1302,7 @@ fn dirStatPathLinux(
             linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
             &statx,
         );
-        switch (linux.E.init(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => return statFromLinux(&statx),
             .INTR => continue,
             .CANCELED => return error.Canceled,
@@ -1449,7 +1449,7 @@ fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
             linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
             &statx,
         );
-        switch (linux.E.init(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => return statFromLinux(&statx),
             .INTR => continue,
             .CANCELED => return error.Canceled,
@@ -2931,7 +2931,7 @@ fn sleepLinux(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
     var timespec: posix.timespec = timestampToPosix(deadline_nanoseconds);
     while (true) {
         try t.checkCancel();
-        switch (std.os.linux.E.init(std.os.linux.clock_nanosleep(clock_id, .{ .ABSTIME = switch (timeout) {
+        switch (std.os.linux.errno(std.os.linux.clock_nanosleep(clock_id, .{ .ABSTIME = switch (timeout) {
             .none, .duration => false,
             .deadline => true,
         } }, &timespec, &timespec))) {
@@ -5677,7 +5677,7 @@ fn futexWait(t: *Threaded, ptr: *const std.atomic.Value(u32), expect: u32) Io.Ca
             const linux = std.os.linux;
             try t.checkCancel();
             const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
-            if (is_debug) switch (linux.E.init(rc)) {
+            if (is_debug) switch (linux.errno(rc)) {
                 .SUCCESS => {}, // notified by `wake()`
                 .INTR => {}, // gives caller a chance to check cancellation
                 .AGAIN => {}, // ptr.* != expect
@@ -5764,7 +5764,7 @@ pub fn futexWaitUncancelable(ptr: *const std.atomic.Value(u32), expect: u32) voi
         .linux => {
             const linux = std.os.linux;
             const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, null);
-            switch (linux.E.init(rc)) {
+            switch (linux.errno(rc)) {
                 .SUCCESS => {}, // notified by `wake()`
                 .INTR => {}, // gives caller a chance to check cancellation
                 .AGAIN => {}, // ptr.* != expect
@@ -5827,7 +5827,7 @@ pub fn futexWaitDurationUncancelable(ptr: *const std.atomic.Value(u32), expect: 
         const linux = std.os.linux;
         var ts = timestampToPosix(timeout.toNanoseconds());
         const rc = linux.futex_4arg(ptr, .{ .cmd = .WAIT, .private = true }, expect, &ts);
-        if (is_debug) switch (linux.E.init(rc)) {
+        if (is_debug) switch (linux.errno(rc)) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // gives caller a chance to check cancellation
             .AGAIN => {}, // ptr.* != expect
@@ -5861,7 +5861,7 @@ pub fn futexWake(ptr: *const std.atomic.Value(u32), max_waiters: u32) void {
     } else switch (native_os) {
         .linux => {
             const linux = std.os.linux;
-            switch (linux.E.init(linux.futex_3arg(
+            switch (linux.errno(linux.futex_3arg(
                 &ptr.raw,
                 .{ .cmd = .WAKE, .private = true },
                 @min(max_waiters, std.math.maxInt(i32)),

@@ -378,7 +378,7 @@ pub const Iterator = switch (native_os) {
                         self.first_iter = false;
                     }
                     const rc = linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
-                    switch (linux.E.init(rc)) {
+                    switch (linux.errno(rc)) {
                         .SUCCESS => {},
                         .BADF => unreachable, // Dir is invalid or was opened without iteration ability
                         .FAULT => unreachable,

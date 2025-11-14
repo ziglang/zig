@@ -645,7 +645,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
             @intCast(requested_size +| requested_size / growth_factor),
         ) - old_size;
         _, const file_size = Node.Index.root.location(mf).resolve(mf);
-        while (true) switch (linux.E.init(switch (std.math.order(range_file_offset, file_size)) {
+        while (true) switch (linux.errno(switch (std.math.order(range_file_offset, file_size)) {
             .lt => linux.fallocate(
                 mf.file.handle,
                 linux.FALLOC.FL_INSERT_RANGE,
@@ -858,7 +858,7 @@ fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
     // delete the copy of this node at the old location
     if (is_linux and !mf.flags.fallocate_punch_hole_unsupported and
         size >= mf.flags.block_size.toByteUnits() * 2 - 1) while (true)
-        switch (linux.E.init(linux.fallocate(
+        switch (linux.errno(linux.fallocate(
             mf.file.handle,
             linux.FALLOC.FL_PUNCH_HOLE | linux.FALLOC.FL_KEEP_SIZE,
             @intCast(old_file_offset),
@@ -910,7 +910,7 @@ fn copyFileRange(
                 @intCast(remaining_size),
                 0,
             );
-            switch (linux.E.init(copy_len)) {
+            switch (linux.errno(copy_len)) {
                 .SUCCESS => {
                     if (copy_len == 0) break;
                     remaining_size -= copy_len;

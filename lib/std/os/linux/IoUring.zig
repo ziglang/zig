@@ -46,7 +46,7 @@ pub fn init_params(entries: u16, p: *linux.io_uring_params) !IoUring {
     assert(p.resv[2] == 0);
 
     const res = linux.io_uring_setup(entries, p);
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         .FAULT => return error.ParamsOutsideAccessibleAddressSpace,
         // The resv array contains non-zero data, p.flags contains an unsupported flag,
@@ -175,7 +175,7 @@ pub fn submit_and_wait(self: *IoUring, wait_nr: u32) !u32 {
 pub fn enter(self: *IoUring, to_submit: u32, min_complete: u32, flags: u32) !u32 {
     assert(self.fd >= 0);
     const res = linux.io_uring_enter(self.fd, to_submit, min_complete, flags, null);
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         // The kernel was unable to allocate memory or ran out of resources for the request.
         // The application should wait for some completions and try again:
@@ -1298,7 +1298,7 @@ pub fn register_buffers(self: *IoUring, buffers: []const posix.iovec) !void {
 pub fn unregister_buffers(self: *IoUring) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(self.fd, .UNREGISTER_BUFFERS, null, 0);
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         .NXIO => return error.BuffersNotRegistered,
         else => |errno| return posix.unexpectedErrno(errno),
@@ -1316,7 +1316,7 @@ pub fn get_probe(self: *IoUring) !linux.io_uring_probe {
 }
 
 fn handle_registration_result(res: usize) !void {
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         // One or more fds in the array are invalid, or the kernel does not support sparse sets:
         .BADF => return error.FileDescriptorInvalid,
@@ -1341,7 +1341,7 @@ fn handle_registration_result(res: usize) !void {
 pub fn unregister_files(self: *IoUring) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(self.fd, .UNREGISTER_FILES, null, 0);
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         .NXIO => return error.FilesNotRegistered,
         else => |errno| return posix.unexpectedErrno(errno),
@@ -1771,7 +1771,7 @@ fn register_buf_ring(
         .flags = flags,
     });
     var res = linux.io_uring_register(fd, .REGISTER_PBUF_RING, @as(*const anyopaque, @ptrCast(&reg)), 1);
-    if (linux.E.init(res) == .INVAL and reg.flags.inc) {
+    if (linux.errno(res) == .INVAL and reg.flags.inc) {
         // Retry without incremental buffer consumption.
         // It is available since kernel 6.12. returns INVAL on older.
         reg.flags.inc = false;
@@ -1794,7 +1794,7 @@ fn unregister_buf_ring(fd: linux.fd_t, group_id: u16) !void {
 }
 
 fn handle_register_buf_ring_result(res: usize) !void {
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         .INVAL => return error.ArgumentsInvalid,
         else => |errno| return posix.unexpectedErrno(errno),
@@ -4085,7 +4085,7 @@ inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
 
     var uts: linux.utsname = undefined;
     const res = linux.uname(&uts);
-    switch (linux.E.init(res)) {
+    switch (linux.errno(res)) {
         .SUCCESS => {},
         else => |errno| return posix.unexpectedErrno(errno),
     }

@@ -1772,7 +1772,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
         .linux => {
             var info: std.os.linux.Sysinfo = undefined;
             const result: usize = std.os.linux.sysinfo(&info);
-            if (std.os.linux.E.init(result) != .SUCCESS) {
+            if (std.os.linux.errno(result) != .SUCCESS) {
                 return error.UnknownTotalSystemMemory;
             }
             // Promote to u64 to avoid overflow on systems where info.totalram is a 32-bit usize

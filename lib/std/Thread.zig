@@ -1622,7 +1622,7 @@ const LinuxThreadImpl = struct {
             linux.CLONE.PARENT_SETTID | linux.CLONE.CHILD_CLEARTID |
             linux.CLONE.SIGHAND | linux.CLONE.SYSVSEM | linux.CLONE.SETTLS;
 
-        switch (linux.E.init(linux.clone(
+        switch (linux.errno(linux.clone(
             Instance.entryFn,
             @intFromPtr(&mapped[stack_offset]),
             flags,
@@ -1661,7 +1661,7 @@ const LinuxThreadImpl = struct {
             const tid = self.thread.child_tid.load(.seq_cst);
             if (tid == 0) break;
 
-            switch (linux.E.init(linux.futex_4arg(
+            switch (linux.errno(linux.futex_4arg(
                 &self.thread.child_tid.raw,
                 .{ .cmd = .WAIT, .private = false },
                 @bitCast(tid),

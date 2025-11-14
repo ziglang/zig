@@ -269,7 +269,7 @@ const LinuxImpl = struct {
             if (timeout != null) &ts else null,
         );
 
-        switch (linux.E.init(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // spurious wakeup
             .AGAIN => {}, // ptr.* != expect
@@ -290,7 +290,7 @@ const LinuxImpl = struct {
             @min(max_waiters, std.math.maxInt(i32)),
         );
 
-        switch (linux.E.init(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => {}, // successful wake up
             .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
             .FAULT => {}, // pointer became invalid while doing the wake
