@@ -1057,6 +1057,17 @@ pub const ExternOptions = struct {
     is_thread_local: bool = false,
     is_dll_import: bool = false,
     relocation: Relocation = .any,
+    decoration: ?Decoration = null,
+
+    pub const Decoration = union(enum) {
+        location: u32,
+        descriptor: Descriptor,
+
+        pub const Descriptor = struct {
+            binding: u32,
+            set: u32,
+        };
+    };
 
     pub const Relocation = enum(u1) {
         /// Any type of relocation is allowed.
