@@ -60,6 +60,8 @@ test Stringify {
     try testing.expectEqualSlices(u8, expected, out.written());
 }
 
+pub const ObjectMapManaged = @import("json/dynamic.zig").ObjectMapManaged;
+pub const ArrayManaged = @import("json/dynamic.zig").ArrayManaged;
 pub const ObjectMap = @import("json/dynamic.zig").ObjectMap;
 pub const Array = @import("json/dynamic.zig").Array;
 pub const Value = @import("json/dynamic.zig").Value;
