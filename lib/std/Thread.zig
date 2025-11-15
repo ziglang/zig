@@ -1811,6 +1811,7 @@ test "Thread.getCurrentId" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
+    if (@sizeOf(usize) == 4) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25498
 
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});
