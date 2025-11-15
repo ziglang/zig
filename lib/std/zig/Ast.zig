@@ -4142,3 +4142,625 @@ test {
     _ = Parse;
     _ = Render;
 }
+
+/// printNode prints a visual representation of the AST in a human-readable
+/// format, starting at `node`.
+///
+/// This funciton is expected to be used for debugging purposes.
+pub fn printNode(tree: *const Ast, w: *Writer, node: Node.Index) Writer.Error!void {
+    var p: Printer = .{
+        .tree = tree,
+        .w = w,
+    };
+    try p.printNode(node);
+    try p.w.writeByte('\n');
+}
+
+const Printer = struct {
+    tree: *const Ast,
+    w: *Writer,
+
+    depth: usize = 0,
+
+    fn printNamedOptionalToken(p: *Printer, name: []const u8, token: OptionalTokenIndex) Writer.Error!void {
+        if (token.unwrap()) |t| {
+            try p.printNamedToken(name, t);
+        } else {
+            try p.w.print("{s} = .none", .{name});
+        }
+    }
+
+    fn printNamedOptionalNode(p: *Printer, name: []const u8, node: Node.OptionalIndex) Writer.Error!void {
+        if (node.unwrap()) |t| {
+            try p.printNamedNode(name, t);
+        } else {
+            try p.w.print("{s} = .none", .{name});
+        }
+    }
+
+    fn printNamedToken(p: *Printer, name: []const u8, token: TokenIndex) Writer.Error!void {
+        const tok = p.tree.tokens.get(token);
+        const loc = p.tree.tokenLocation(0, token);
+        if (p.tree.tokenTag(token).lexeme() == null) {
+            try p.w.print("{s} = .{s} {s} ({}:{})", .{ name, @tagName(tok.tag), p.tree.tokenSlice(token), loc.line + 1, loc.column + 1 });
+        } else {
+            try p.w.print("{s} = .{s} ({}:{})", .{ name, @tagName(tok.tag), loc.line + 1, loc.column + 1 });
+        }
+    }
+
+    fn printNamedNode(p: *Printer, name: []const u8, node: Node.Index) Writer.Error!void {
+        try p.w.print("{s} = ", .{name});
+        try p.printNode(node);
+    }
+
+    fn indent(p: *const Printer) Writer.Error!void {
+        const tab: []const u8 = "\n" ++ (".  " ** 256);
+        try p.w.writeAll(tab[0 .. 1 + @min(p.depth * 3, tab.len - 1)]);
+    }
+
+    pub fn printNode(p: *Printer, node: Node.Index) Writer.Error!void {
+        try p.w.print("%{} ", .{@intFromEnum(node)});
+        try p.w.writeByte('{');
+
+        p.depth += 1;
+
+        try p.indent();
+        try p.w.print("tag = .{s}", .{@tagName(p.tree.nodeTag(node))});
+        try p.indent();
+        try p.printNamedToken("main_token", p.tree.nodeMainToken(node));
+
+        switch (p.tree.nodeTag(node)) {
+            .error_value,
+            .anyframe_literal,
+            .char_literal,
+            .number_literal,
+            .unreachable_literal,
+            .identifier,
+            .enum_literal,
+            .string_literal,
+            => {}, // data field unused.
+            else => {
+                try p.indent();
+                try p.w.writeAll("data.");
+                try p.printData(node);
+                try p.indent();
+                try p.w.writeByte('}');
+            },
+        }
+
+        p.depth -= 1;
+        try p.indent();
+        try p.w.writeByte('}');
+    }
+
+    fn printData(p: *Printer, node: Node.Index) Writer.Error!void {
+        switch (p.tree.nodeTag(node)) {
+            .error_value,
+            .anyframe_literal,
+            .char_literal,
+            .number_literal,
+            .unreachable_literal,
+            .identifier,
+            .enum_literal,
+            .string_literal,
+            => unreachable, // data field unused.
+
+            .root,
+            .array_init_dot,
+            .struct_init_dot,
+            .block,
+            .container_decl,
+            .tagged_union,
+            .builtin_call,
+            .array_init_dot_comma,
+            .struct_init_dot_comma,
+            .block_semicolon,
+            .container_decl_trailing,
+            .tagged_union_trailing,
+            .builtin_call_comma,
+            => {
+                try p.w.writeAll("extra_range = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                try p.printExtraNodes(p.tree.extraDataSlice(p.tree.nodeData(node).extra_range, Node.Index));
+            },
+
+            .bool_not,
+            .negation,
+            .bit_not,
+            .negation_wrap,
+            .address_of,
+            .@"try",
+            .optional_type,
+            .@"suspend",
+            .@"resume",
+            .@"nosuspend",
+            .@"comptime",
+            .@"defer",
+            .deref,
+            => {
+                try p.w.writeAll("node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                try p.printNamedNode("node", p.tree.nodeData(node).node);
+            },
+
+            .@"return" => {
+                try p.w.writeAll("opt_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                try p.printNamedOptionalNode("opt_node", p.tree.nodeData(node).opt_node);
+            },
+
+            .@"catch",
+            .equal_equal,
+            .bang_equal,
+            .less_than,
+            .greater_than,
+            .less_or_equal,
+            .greater_or_equal,
+            .assign_mul,
+            .assign_div,
+            .assign_mod,
+            .assign_add,
+            .assign_sub,
+            .assign_shl,
+            .assign_shl_sat,
+            .assign_shr,
+            .assign_bit_and,
+            .assign_bit_xor,
+            .assign_bit_or,
+            .assign_mul_wrap,
+            .assign_add_wrap,
+            .assign_sub_wrap,
+            .assign_mul_sat,
+            .assign_add_sat,
+            .assign_sub_sat,
+            .assign,
+            .merge_error_sets,
+            .mul,
+            .div,
+            .mod,
+            .array_mult,
+            .mul_wrap,
+            .mul_sat,
+            .add,
+            .sub,
+            .array_cat,
+            .add_wrap,
+            .sub_wrap,
+            .add_sat,
+            .sub_sat,
+            .shl,
+            .shl_sat,
+            .shr,
+            .bit_and,
+            .bit_xor,
+            .bit_or,
+            .@"orelse",
+            .bool_and,
+            .bool_or,
+            .error_union,
+            .if_simple,
+            .while_simple,
+            .for_simple,
+            .fn_decl,
+            .array_type,
+            .switch_range,
+            .array_access,
+            .array_init_one,
+            .container_field_align,
+            .slice_open,
+            .array_init_one_comma,
+            => {
+                try p.w.writeAll("node_and_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).node_and_node;
+                try p.printNamedNode("node", n[0]);
+                try p.indent();
+                try p.printNamedNode("node", n[1]);
+            },
+
+            .multiline_string_literal, .error_set_decl => {
+                try p.w.writeAll("token_and_token = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).token_and_token;
+                try p.printNamedToken("token", n[0]);
+                try p.indent();
+                try p.printNamedToken("token", n[1]);
+            },
+
+            .anyframe_type => {
+                try p.w.writeAll("token_and_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).token_and_node;
+                try p.printNamedToken("token", n[0]);
+                try p.indent();
+                try p.printNamedNode("node", n[1]);
+            },
+
+            .field_access,
+            .unwrap_optional,
+            .asm_simple,
+            .grouped_expression,
+            .asm_input,
+            => {
+                try p.w.writeAll("node_and_token = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).node_and_token;
+                try p.printNamedNode("node", n[0]);
+                try p.indent();
+                try p.printNamedToken("token", n[1]);
+            },
+
+            .switch_case_one,
+            .switch_case_inline_one,
+            .ptr_type_aligned,
+            .ptr_type_sentinel,
+            => {
+                try p.w.writeAll("opt_node_and_node");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).opt_node_and_node;
+                try p.printNamedOptionalNode("opt_node", n[0]);
+                try p.indent();
+                try p.printNamedNode("node", n[1]);
+            },
+
+            .test_decl,
+            .@"errdefer",
+            => {
+                try p.w.writeAll("opt_token_and_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).opt_token_and_node;
+                try p.printNamedOptionalToken("opt_tok", n[0]);
+                try p.indent();
+                try p.printNamedNode("node", n[1]);
+            },
+
+            .@"continue", .@"break" => {
+                try p.w.writeAll("opt_token_and_opt_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).opt_token_and_opt_node;
+                try p.printNamedOptionalToken("opt_token", n[0]);
+                try p.indent();
+                try p.printNamedOptionalNode("opt_node", n[1]);
+            },
+
+            .for_range,
+            .call_one,
+            .aligned_var_decl,
+            .container_field_init,
+            .call_one_comma,
+            .struct_init_one_comma,
+            .struct_init_one,
+            => {
+                try p.w.writeAll("node_and_opt_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).node_and_opt_node;
+                try p.printNamedNode("node", n[0]);
+                try p.indent();
+                try p.printNamedOptionalNode("opt_node", n[1]);
+            },
+
+            .tagged_union_two_trailing,
+            .container_decl_two_trailing,
+            .struct_init_dot_two_comma,
+            .block_two_semicolon,
+            .builtin_call_two_comma,
+            .array_init_dot_two_comma,
+            .container_decl_two,
+            .struct_init_dot_two,
+            .builtin_call_two,
+            .block_two,
+            .tagged_union_two,
+            .array_init_dot_two,
+            .simple_var_decl,
+            .fn_proto_simple,
+            => {
+                try p.w.writeAll("opt_token_and_opt_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).opt_node_and_opt_node;
+                try p.printNamedOptionalNode("opt_node", n[0]);
+                try p.indent();
+                try p.printNamedOptionalNode("opt_node", n[1]);
+            },
+
+            .asm_output => {
+                try p.w.writeAll("opt_node_and_token = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).opt_node_and_token;
+                try p.printNamedOptionalNode("opt_node", n[0]);
+                try p.indent();
+                try p.printNamedToken("token", n[1]);
+            },
+
+            .switch_case,
+            .switch_case_inline,
+            => {
+                try p.w.writeAll("extra_and_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).extra_and_node;
+                try p.printExtraNodes(p.tree.extraDataSlice(p.tree.extraData(n[0], Node.SubRange), Node.Index));
+                try p.indent();
+                try p.printNamedNode("node", n[1]);
+            },
+
+            .assign_destructure => {
+                try p.w.writeAll("extra_and_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).extra_and_node;
+                const variable_count = p.tree.extra_data[@intFromEnum(n[0])];
+                try p.printExtraNodes(p.tree.extraDataSliceWithLen(@enumFromInt(@intFromEnum(n[0]) + 1), variable_count, Node.Index));
+                try p.indent();
+                try p.printNamedNode("node", n[1]);
+            },
+
+            .ptr_type => {
+                try p.printExtraAndNode(node, Node.PtrType);
+            },
+
+            .ptr_type_bit_range => {
+                try p.printExtraAndNode(node, Node.PtrTypeBitRange);
+            },
+
+            .call,
+            .call_comma,
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            .@"switch",
+            .container_decl_arg,
+            .asm_legacy,
+            .@"asm",
+            .array_init,
+            .struct_init,
+            .array_init_comma,
+            .struct_init_comma,
+            .container_decl_arg_trailing,
+            .switch_comma,
+            => {
+                try p.w.writeAll("node_and_extra = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).node_and_extra;
+                try p.printNode(n[0]);
+                try p.printExtraNodes(p.tree.extraDataSlice(p.tree.extraData(n[1], Node.SubRange), Node.Index));
+            },
+            .container_field => {
+                try p.printNodeAndExtra(node, Node.ContainerField);
+            },
+            .slice => {
+                try p.printNodeAndExtra(node, Node.Slice);
+            },
+            .slice_sentinel => {
+                try p.printNodeAndExtra(node, Node.SliceSentinel);
+            },
+            .while_cont => {
+                try p.printNodeAndExtra(node, Node.WhileCont);
+            },
+            .@"while" => {
+                try p.printNodeAndExtra(node, Node.While);
+            },
+            .@"if" => {
+                try p.printNodeAndExtra(node, Node.If);
+            },
+            .array_type_sentinel => {
+                try p.printNodeAndExtra(node, Node.ArrayTypeSentinel);
+            },
+
+            .fn_proto_multi => {
+                try p.w.writeAll("extra_and_opt_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).extra_and_opt_node;
+                try p.printExtraNodes(p.tree.extraDataSlice(p.tree.extraData(n[0], Node.SubRange), Node.Index));
+                try p.indent();
+                try p.printNamedOptionalNode("opt_node", n[1]);
+            },
+
+            .fn_proto => {
+                try p.w.writeAll("extra_and_opt_node = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).extra_and_opt_node;
+
+                try p.w.writeAll("extra = {");
+                p.depth += 1;
+
+                const d = p.tree.extraData(n[0], Node.FnProto);
+                const params = p.tree.extraDataSlice(.{ .start = d.params_start, .end = d.params_end }, Node.Index);
+
+                for (params, 0..) |ni, i| {
+                    try p.indent();
+                    try p.w.print("[{}] = ", .{i});
+                    try p.printNode(ni);
+                }
+
+                try p.indent();
+                try p.printNamedOptionalNode("align_expr", d.align_expr);
+                try p.indent();
+                try p.printNamedOptionalNode("addrspace_expr", d.addrspace_expr);
+                try p.indent();
+                try p.printNamedOptionalNode("section_expr", d.section_expr);
+                try p.indent();
+                try p.printNamedOptionalNode("callconv_expr", d.callconv_expr);
+
+                p.depth -= 1;
+                try p.indent();
+                try p.w.writeByte('}');
+
+                try p.indent();
+                try p.printNamedOptionalNode("opt_node", n[1]);
+            },
+
+            .fn_proto_one => {
+                try p.printExtraAndOptNode(node, Node.FnProtoOne);
+            },
+            .global_var_decl => {
+                try p.printExtraAndOptNode(node, Node.GlobalVarDecl);
+            },
+            .local_var_decl => {
+                try p.printExtraAndOptNode(node, Node.LocalVarDecl);
+            },
+
+            .@"for" => {
+                try p.w.writeAll("for = {");
+
+                p.depth += 1;
+                defer p.depth -= 1;
+                try p.indent();
+
+                const n = p.tree.nodeData(node).@"for";
+                try p.printExtraNodes(p.tree.extraDataSliceWithLen(n[0], n[1].inputs, Node.Index));
+                const else_expr: Node.OptionalIndex = if (n[1].has_else) @enumFromInt(p.tree.extra_data[@intFromEnum(n[0]) + n[1].inputs + 1]) else .none;
+                try p.indent();
+                try p.printNamedOptionalNode("else_expr", else_expr);
+            },
+        }
+    }
+
+    fn printExtraNodes(p: *Printer, nodes: []const Node.Index) Writer.Error!void {
+        try p.w.writeAll("extra = {");
+
+        p.depth += 1;
+        for (nodes, 0..) |ni, i| {
+            try p.indent();
+            try p.w.print("[{}] = ", .{i});
+            try p.printNode(ni);
+        }
+        p.depth -= 1;
+
+        try p.indent();
+        try p.w.writeByte('}');
+    }
+
+    fn printExtraAndNode(p: *Printer, node: Node.Index, comptime T: type) Writer.Error!void {
+        try p.w.writeAll("extra_and_node = {");
+
+        p.depth += 1;
+        defer p.depth -= 1;
+        try p.indent();
+
+        const n = p.tree.nodeData(node).extra_and_node;
+        try p.printExtraData(n[0], T);
+        try p.indent();
+        try p.printNamedNode("node", n[1]);
+    }
+
+    fn printExtraAndOptNode(p: *Printer, node: Node.Index, comptime T: type) Writer.Error!void {
+        try p.w.writeAll("extra_and_opt_node = {");
+
+        p.depth += 1;
+        defer p.depth -= 1;
+        try p.indent();
+
+        const n = p.tree.nodeData(node).extra_and_opt_node;
+        try p.printExtraData(n[0], T);
+        try p.indent();
+        try p.printNamedOptionalNode("opt_node", n[1]);
+    }
+
+    fn printNodeAndExtra(p: *Printer, node: Node.Index, comptime T: type) Writer.Error!void {
+        try p.w.writeAll("node_and_extra = {");
+
+        p.depth += 1;
+        defer p.depth -= 1;
+        try p.indent();
+
+        const n = p.tree.nodeData(node).node_and_extra;
+        try p.printNamedNode("node", n[0]);
+        try p.indent();
+        try p.printExtraData(n[1], T);
+    }
+
+    fn printExtraData(p: *Printer, index: ExtraIndex, comptime T: type) Writer.Error!void {
+        try p.w.writeAll("extra = {");
+
+        p.depth += 1;
+        const d = p.tree.extraData(index, T);
+        inline for (std.meta.fields(T)) |field| {
+            const f = @field(d, field.name);
+            switch (field.type) {
+                Node.OptionalIndex => try p.printNamedOptionalNode(field.name, f),
+                TokenIndex => try p.printNamedToken(field.name, f),
+                OptionalTokenIndex => try p.printNamedOptionalToken(field.name, f),
+                Node.Index => try p.printNamedNode(field.name, f),
+                ExtraIndex => @compileError("unable to handle ExtraIndex"),
+                else => @compileError("unexpected field type: " ++ @typeName(field.type)),
+            }
+        }
+        p.depth -= 1;
+
+        try p.indent();
+        try p.w.writeByte('}');
+    }
+};
+
+test {
+    _ = &printNode;
+}
