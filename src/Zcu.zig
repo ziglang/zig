@@ -4082,10 +4082,14 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                 const want_analysis = switch (decl.kind) {
                     .@"const", .@"var" => unreachable,
                     .@"comptime" => unreachable,
-                    .unnamed_test => true,
+                    .unnamed_test => !comp.test_filter_exact,
                     .@"test", .decltest => a: {
                         const fqn_slice = nav.fqn.toSlice(ip);
-                        if (comp.test_filters.len > 0) {
+                        if (comp.test_filter_exact) {
+                            for (comp.test_filters) |test_filter| {
+                                if (std.mem.eql(u8, fqn_slice, test_filter)) break;
+                            } else break :a false;
+                        } else if (comp.test_filters.len > 0) {
                             for (comp.test_filters) |test_filter| {
                                 if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
                             } else break :a false;

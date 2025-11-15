@@ -658,6 +658,9 @@ const usage_build_generic =
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match any filter
+    \\  --test-filter-exact [text]     Include the test with specified fully qualified name; this flag
+    \\                                 can be passed multiple times to include more than one test.
+    \\                                 Cannot be used with --test-filter.
     \\  --test-cmd [arg]               Specify test execution command one arg at a time
     \\  --test-cmd-bin                 Appends test binary path to test cmd args
     \\  --test-no-exec                 Compiles test binary without running it
@@ -885,6 +888,7 @@ fn buildOutputType(
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
     var test_filters: std.ArrayListUnmanaged([]const u8) = .empty;
+    var test_filter_mode_exact: ?bool = null;
     var test_runner_path: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
@@ -1308,6 +1312,18 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--libc")) {
                         create_module.libc_paths_file = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-filter")) {
+                        if (test_filter_mode_exact) |b| {
+                            if (b) {
+                                fatal("cannot use both --test-filter and --test-filter-exact", .{});
+                            }
+                        } else test_filter_mode_exact = false;
+                        try test_filters.append(arena, args_iter.nextOrFatal());
+                    } else if (mem.eql(u8, arg, "--test-filter-exact")) {
+                        if (test_filter_mode_exact) |b| {
+                            if (!b) {
+                                fatal("cannot use both --test-filter and --test-filter-exact", .{});
+                            }
+                        } else test_filter_mode_exact = true;
                         try test_filters.append(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--test-runner")) {
                         test_runner_path = args_iter.nextOrFatal();
@@ -3484,6 +3500,7 @@ fn buildOutputType(
         .time_report = time_report,
         .stack_report = stack_report,
         .build_id = build_id,
+        .test_filter_exact = test_filter_mode_exact orelse false,
         .test_filters = test_filters.items,
         .test_runner_path = test_runner_path,
         .cache_mode = cache_mode,
