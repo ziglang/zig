@@ -11782,7 +11782,11 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: *const std.Targ
     const llvm_cc = toLlvmCallConvTag(cc, target) orelse return null;
     const incoming_stack_alignment: ?u64, const register_params: u2 = switch (cc) {
         inline else => |pl| switch (@TypeOf(pl)) {
-            void => .{ null, 0 },
+            void,
+            std.builtin.CallingConvention.SpirvKernelOptions,
+            std.builtin.CallingConvention.SpirvMeshOptions,
+            std.builtin.CallingConvention.SpirvFragmentOptions,
+            => .{ null, 0 },
             std.builtin.CallingConvention.ArcInterruptOptions,
             std.builtin.CallingConvention.ArmInterruptOptions,
             std.builtin.CallingConvention.RiscvInterruptOptions,
@@ -11931,6 +11935,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
+        .spirv_task,
+        .spirv_mesh,
         => null,
     };
 }

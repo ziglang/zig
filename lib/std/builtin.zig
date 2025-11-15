@@ -140,7 +140,7 @@ pub const CallingConvention = union(enum(u8)) {
     pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
         .amdgcn => .amdgcn_kernel,
         .nvptx, .nvptx64 => .nvptx_kernel,
-        .spirv32, .spirv64 => .spirv_kernel,
+        .spirv32, .spirv64 => .{ .spirv_kernel = .{ .x = 1, .y = 1, .z = 1 } },
         else => unreachable,
     };
 
@@ -335,11 +335,13 @@ pub const CallingConvention = union(enum(u8)) {
     nvptx_device,
     nvptx_kernel,
 
-    // Calling conventions for kernels and shaders on the `spirv`, `spirv32`, and `spirv64` architectures.
+    // Calling conventions for kernels and shaders on the `spirv32`, and `spirv64` architectures.
     spirv_device,
-    spirv_kernel,
-    spirv_fragment,
+    spirv_kernel: SpirvKernelOptions,
+    spirv_fragment: SpirvFragmentOptions,
     spirv_vertex,
+    spirv_task: SpirvKernelOptions,
+    spirv_mesh: SpirvMeshOptions,
 
     /// Options shared across most calling conventions.
     pub const CommonOptions = struct {
@@ -446,6 +448,32 @@ pub const CallingConvention = union(enum(u8)) {
             supervisor,
             machine,
         };
+    };
+
+    pub const SpirvKernelOptions = struct { x: u32, y: u32, z: u32 };
+
+    pub const SpirvFragmentOptions = struct {
+        const DepthAssumption = enum(u2) {
+            none = 0,
+            greater = 1,
+            less = 2,
+            unchanged = 3,
+        };
+
+        pixel_centered_integer: bool = false,
+        depth_assumption: DepthAssumption = .none,
+    };
+
+    pub const SpirvMeshOptions = struct {
+        const StageOutput = enum(u2) {
+            output_points = 0,
+            output_lines = 1,
+            output_triangles = 2,
+        };
+
+        stage_output: StageOutput = .output_triangles,
+        max_primitives: u32 = 1,
+        max_vertices: u32 = 3,
     };
 
     /// Options for the `sh_interrupt` calling convention.
