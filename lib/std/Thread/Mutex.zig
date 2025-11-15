@@ -51,6 +51,8 @@ else if (builtin.os.tag == .windows)
     WindowsImpl
 else if (builtin.os.tag.isDarwin())
     DarwinImpl
+else if (builtin.os.tag == .wasi)
+    WasiImpl
 else
     FutexImpl;
 
@@ -205,6 +207,77 @@ const FutexImpl = struct {
         if (state == contended) {
             Futex.wake(&self.state, 1);
         }
+    }
+};
+
+const WasiImpl = struct {
+    status: std.atomic.Value(u32) = .{ .raw = free },
+    wait_count: std.atomic.Value(u32) = .{ .raw = 0 },
+
+    const free: u32 = 0; // no one owns the lock
+    const owned: u32 = 1; // a worker thread has the lock
+    const seized: u32 = 2; // the main thread either has the lock already or is about to get it
+    const forfeited: u32 = 3; // the main thread has received the lock from the previous owner
+
+    pub fn lock(self: *@This()) void {
+        if (inMainThread()) {
+            // announce that the lock will be taken by the main thread
+            switch (self.status.swap(seized, .acquire)) {
+                // seizing a free lock
+                free => {},
+                // keep spinning until the current owner surrenders it
+                owned => while (self.status.load(.monotonic) != forfeited) {},
+                else => unreachable,
+            }
+        } else {
+            while (true) {
+                // try to get the lock
+                if (self.status.cmpxchgWeak(free, owned, .acquire, .monotonic)) |status| {
+                    // pause the worker when the lock is not free
+                    if (status != free) {
+                        _ = self.wait_count.fetchAdd(1, .monotonic);
+                        Thread.Futex.wait(&self.status, status);
+                        _ = self.wait_count.fetchSub(1, .monotonic);
+                    }
+                } else break;
+            }
+        }
+    }
+
+    pub fn unlock(self: *@This()) void {
+        if (inMainThread()) {
+            // just release the lock
+            self.status.store(free, .release);
+        } else {
+            // release the lock if the worker thread still owns it
+            if (self.status.cmpxchgStrong(owned, free, .release, .monotonic)) |status| {
+                switch (status) {
+                    seized => {
+                        // let the spinning main thread take the lock
+                        self.status.store(forfeited, .release);
+                        return;
+                    },
+                    else => unreachable,
+                }
+            }
+        }
+        if (self.wait_count.load(.monotonic) > 0) {
+            // awaken a waiting worker thread
+            Thread.Futex.wake(&self.status, 1);
+        }
+    }
+
+    pub fn tryLock(self: *@This()) bool {
+        const new_status: u32 = if (inMainThread()) seized else owned;
+        return self.status.cmpxchgStrong(free, new_status, .acquire, .monotonic) == null;
+    }
+
+    fn inMainThread() bool {
+        const root = @import("root");
+        if (@hasDecl(root, "std_options") and root.std_options.wasi_main_thread_wait) {
+            return false;
+        }
+        return Thread.getCurrentId() == 0;
     }
 };
 

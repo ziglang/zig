@@ -10,9 +10,6 @@ comptime {
     if (!builtin.target.cpu.arch.isWasm()) {
         @compileError("only available for wasm32 arch");
     }
-    if (!builtin.single_threaded) {
-        @compileError("TODO implement support for multi-threaded wasm");
-    }
 }
 
 pub const vtable: Allocator.VTable = .{
@@ -44,10 +41,19 @@ var next_addrs: [size_class_count]usize = @splat(0);
 var frees: [size_class_count]usize = @splat(0);
 /// For each big size class, points to the freed pointer.
 var big_frees: [big_size_class_count]usize = @splat(0);
+var mutex: switch (builtin.single_threaded) {
+    false => std.Thread.Mutex,
+    true => struct {
+        inline fn lock(_: *@This()) void {}
+        inline fn unlock(_: *@This()) void {}
+    },
+} = .{};
 
 fn alloc(ctx: *anyopaque, len: usize, alignment: mem.Alignment, return_address: usize) ?[*]u8 {
     _ = ctx;
     _ = return_address;
+    mutex.lock();
+    defer mutex.unlock();
     // Make room for the freelist next pointer.
     const actual_len = @max(len +| @sizeOf(usize), alignment.toByteUnits());
     const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return null;
@@ -127,6 +133,8 @@ fn free(
 ) void {
     _ = ctx;
     _ = return_address;
+    mutex.lock();
+    defer mutex.unlock();
     const buf_align = alignment.toByteUnits();
     const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
