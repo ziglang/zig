@@ -5,4 +5,5 @@ export fn entry() void {
 
 // error
 //
-// :3:11: error: expected type '@TypeOf(.{})', found 'struct { comptime comptime_int = 1, comptime comptime_int = 2, comptime comptime_int = 3 }'
+// :3:11: error: expected type '@TypeOf(.{})', found 'struct { comptime <T> = 1, comptime <T> = 2, comptime <T> = 3 }'
+// :3:11: note: <T> = comptime_int

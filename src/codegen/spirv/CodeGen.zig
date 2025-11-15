@@ -1213,7 +1213,7 @@ fn resolveTypeName(cg: *CodeGen, ty: Type) ![]const u8 {
     const gpa = cg.module.gpa;
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    ty.print(&aw.writer, cg.pt) catch |err| switch (err) {
+    ty.print(&aw.writer, cg.pt, null) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
     return try aw.toOwnedSlice();
