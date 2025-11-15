@@ -64,6 +64,7 @@ pub const ValueOptions = struct {
     emit_codepoint_literals: EmitCodepointLiterals = .never,
     emit_strings_as_containers: bool = false,
     emit_default_optional_fields: bool = true,
+    escape_non_ascii: bool = false,
 };
 
 /// Determines when to emit Unicode code point literals as opposed to integer literals.
@@ -125,7 +126,7 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
     comptime assert(canSerializeType(@TypeOf(val)));
     switch (@typeInfo(@TypeOf(val))) {
         .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
-            self.codePoint(c) catch |err| switch (err) {
+            self.codePoint(c, .{ .escape_non_ascii = options.escape_non_ascii }) catch |err| switch (err) {
                 error.InvalidCodepoint => unreachable, // Already validated
                 else => |e| return e,
             };
@@ -146,7 +147,7 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
                 (pointer.sentinel() == null or pointer.sentinel() == 0) and
                 !options.emit_strings_as_containers)
             {
-                return try self.string(val);
+                return try self.string(val, .{ .escape_non_ascii = options.escape_non_ascii });
             }
 
             // Serialize as either a tuple or as the child type
@@ -280,12 +281,21 @@ pub fn ident(self: *Serializer, name: []const u8) Error!void {
 }
 
 pub const CodePointError = Error || error{InvalidCodepoint};
+/// Options for formatting code points.
+pub const CodePointOptions = struct {
+    escape_non_ascii: bool = false,
+};
 
 /// Serialize `val` as a Unicode codepoint.
 ///
 /// Returns `error.InvalidCodepoint` if `val` is not a valid Unicode codepoint.
-pub fn codePoint(self: *Serializer, val: u21) CodePointError!void {
-    try self.writer.print("'{f}'", .{std.zig.fmtChar(val)});
+pub fn codePoint(self: *Serializer, val: u21, options: CodePointOptions) CodePointError!void {
+    try self.writer.writeByte('\'');
+    try self.writeCodepoint(val, .{
+        .escape_non_ascii = options.escape_non_ascii,
+        .quote_style = .single,
+    });
+    try self.writer.writeByte('\'');
 }
 
 /// Like `value`, but always serializes `val` as a tuple.
@@ -341,9 +351,101 @@ fn tupleImpl(self: *Serializer, val: anytype, options: ValueOptions) Error!void 
     }
 }
 
+/// Options for writing a Unicode codepoint.
+const WriteCodepointOptions = struct {
+    escape_non_ascii: bool = false,
+    /// If single quote style then single quotes are escaped, otherwise double quotes are escaped.
+    quote_style: enum { single, double } = .single,
+};
+
+/// Write a Unicode codepoint to the writer using the given options.
+///
+/// Returns `error.InvalidCodepoint` if `codepoint` is not a valid Unicode codepoint.
+fn writeCodepoint(self: *Serializer, val: u21, options: WriteCodepointOptions) CodePointError!void {
+    switch (val) {
+        // Printable ASCII
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try self.writer.writeByte(@intCast(val)),
+        // Unprintable ASCII
+        0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F, 0x7F => try self.writer.print("\\x{x:0>2}", .{val}),
+        // ASCII with special escapes
+        '\n' => try self.writer.writeAll("\\n"),
+        '\r' => try self.writer.writeAll("\\r"),
+        '\t' => try self.writer.writeAll("\\t"),
+        '\\' => try self.writer.writeAll("\\\\"),
+        // Quotes need escaping if they conflict with the in-use quote character
+        '\'' => if (options.quote_style == .single) try self.writer.writeAll("\\'") else try self.writer.writeByte('\''),
+        '\"' => if (options.quote_style == .double) try self.writer.writeAll("\\\"") else try self.writer.writeByte('"'),
+        // Non-ASCII but still one byte
+        0x80...0xFF => if (options.escape_non_ascii) {
+            try self.writer.print("\\x{x:0>2}", .{val});
+        } else {
+            try self.writer.writeByte(@intCast(val));
+        },
+
+        // Surrogates can only be written with an escape
+        0xD800...0xDFFF => try self.writer.print("\\u{{{x}}}", .{val}),
+        // Other valid codepoints
+        0x100...0xD7FF, 0xE000...0x10FFFF => if (options.escape_non_ascii) {
+            try self.writer.print("\\u{{{x}}}", .{val});
+        } else {
+            var buf: [7]u8 = undefined;
+            const len = std.unicode.utf8Encode(val, &buf) catch unreachable;
+            try self.writer.writeAll(buf[0..len]);
+        },
+        // Invalid codepoints
+        0x110000...std.math.maxInt(u21) => return error.InvalidCodepoint,
+    }
+}
+
+pub const StringOptions = struct {
+    escape_non_ascii: bool = false,
+};
+
 /// Like `value`, but always serializes `val` as a string.
-pub fn string(self: *Serializer, val: []const u8) Error!void {
-    try self.writer.print("\"{f}\"", .{std.zig.fmtString(val)});
+pub fn string(self: *Serializer, val: []const u8, options: StringOptions) Writer.Error!void {
+    try self.writer.writeByte('"');
+    // Batch write sequences of "raw" bytes (printable ASCII or non-escaped non-ASCII) for performance.
+    // `val[start..i]` contains pending raw bytes to write.
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i < val.len) {
+        const byte = val[i];
+        // Check if this byte can be written as-is
+        const is_raw = switch (byte) {
+            ' ', '!', '#'...'[', ']'...'~' => true,
+            0x80...0xFF => !options.escape_non_ascii,
+            else => false,
+        };
+        if (is_raw) {
+            i += 1;
+            continue;
+        }
+        // Flush pending raw bytes
+        try self.writer.writeAll(val[start..i]);
+        // Handle the special character
+        if (byte >= 0x80) {
+            // Decode UTF-8 sequence and write the codepoint
+            const ulen = std.unicode.utf8ByteSequenceLength(byte) catch unreachable;
+            const codepoint = std.unicode.utf8Decode(val[i..][0..ulen]) catch unreachable;
+            // InvalidCodepoint cannot occur from valid UTF-8
+            self.writeCodepoint(codepoint, .{
+                .escape_non_ascii = options.escape_non_ascii,
+                .quote_style = .double,
+            }) catch unreachable;
+            i += ulen;
+        } else {
+            // ASCII character that needs escaping
+            self.writeCodepoint(byte, .{
+                .escape_non_ascii = options.escape_non_ascii,
+                .quote_style = .double,
+            }) catch unreachable; // InvalidCodepoint cannot occur for valid ASCII values
+            i += 1;
+        }
+        start = i;
+    }
+
+    try self.writer.writeAll(val[start..]);
+    try self.writer.writeByte('"');
 }
 
 /// Options for formatting multiline strings.

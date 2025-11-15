@@ -24,7 +24,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Writer = std.Io.Writer;
-const Serializer = std.zon.Serializer;
+const Serializer = @import("Serializer.zig");
 
 pub const SerializeOptions = struct {
     /// If false, whitespace is omitted. Otherwise whitespace is emitted in standard Zig style.
@@ -37,6 +37,8 @@ pub const SerializeOptions = struct {
     /// If false, struct fields are not written if they are equal to their default value. Comparison
     /// is done by `std.meta.eql`.
     emit_default_optional_fields: bool = true,
+    /// If true, non-ASCII unicode characters are escaped.
+    escape_non_ascii: bool = false,
 };
 
 /// Serialize the given value as ZON.
@@ -51,6 +53,7 @@ pub fn serialize(val: anytype, options: SerializeOptions, writer: *Writer) Write
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_non_ascii = options.escape_non_ascii,
     });
 }
 
@@ -72,6 +75,7 @@ pub fn serializeMaxDepth(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_non_ascii = options.escape_non_ascii,
     }, depth);
 }
 
@@ -91,6 +95,7 @@ pub fn serializeArbitraryDepth(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_non_ascii = options.escape_non_ascii,
     });
 }
 
@@ -588,7 +593,7 @@ test "std.zon stringify utf8 codepoints" {
     try std.testing.expectEqualStrings("97", aw.written());
     aw.clearRetainingCapacity();
 
-    try s.codePoint('a');
+    try s.codePoint('a', .{});
     try std.testing.expectEqualStrings("'a'", aw.written());
     aw.clearRetainingCapacity();
 
@@ -609,7 +614,7 @@ test "std.zon stringify utf8 codepoints" {
     try std.testing.expectEqualStrings("10", aw.written());
     aw.clearRetainingCapacity();
 
-    try s.codePoint('\n');
+    try s.codePoint('\n', .{});
     try std.testing.expectEqualStrings("'\\n'", aw.written());
     aw.clearRetainingCapacity();
 
@@ -630,11 +635,11 @@ test "std.zon stringify utf8 codepoints" {
     try std.testing.expectEqualStrings("9889", aw.written());
     aw.clearRetainingCapacity();
 
-    try s.codePoint('⚡');
+    try s.codePoint('⚡', .{ .escape_non_ascii = true });
     try std.testing.expectEqualStrings("'\\u{26a1}'", aw.written());
     aw.clearRetainingCapacity();
 
-    try s.value('⚡', .{ .emit_codepoint_literals = .always });
+    try s.value('⚡', .{ .emit_codepoint_literals = .always, .escape_non_ascii = true });
     try std.testing.expectEqualStrings("'\\u{26a1}'", aw.written());
     aw.clearRetainingCapacity();
 
@@ -647,8 +652,7 @@ test "std.zon stringify utf8 codepoints" {
     aw.clearRetainingCapacity();
 
     // Invalid codepoint
-    try s.codePoint(0x110000 + 1);
-    try std.testing.expectEqualStrings("'\\u{110001}'", aw.written());
+    try std.testing.expectError(error.InvalidCodepoint, s.codePoint(0x110000 + 1, .{ .escape_non_ascii = true }));
     aw.clearRetainingCapacity();
 
     try s.int(0x110000 + 1);
@@ -681,7 +685,7 @@ test "std.zon stringify utf8 codepoints" {
     aw.clearRetainingCapacity();
 
     // Make sure value options are passed to children
-    try s.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .always });
+    try s.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .always, .escape_non_ascii = true });
     try std.testing.expectEqualStrings(".{ .c = '\\u{26a1}' }", aw.written());
     aw.clearRetainingCapacity();
 
@@ -696,8 +700,8 @@ test "std.zon stringify strings" {
     defer aw.deinit();
 
     // Minimal case
-    try s.string("abc⚡\n");
-    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", aw.written());
+    try s.string("abc⚡\n", .{ .escape_non_ascii = true });
+    try std.testing.expectEqualStrings("\"abc\\u{26a1}\\n\"", aw.written());
     aw.clearRetainingCapacity();
 
     try s.tuple("abc⚡\n", .{});
@@ -714,8 +718,8 @@ test "std.zon stringify strings" {
     , aw.written());
     aw.clearRetainingCapacity();
 
-    try s.value("abc⚡\n", .{});
-    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", aw.written());
+    try s.value("abc⚡\n", .{ .escape_non_ascii = false });
+    try std.testing.expectEqualStrings("\"abc⚡\\n\"", aw.written());
     aw.clearRetainingCapacity();
 
     try s.value("abc⚡\n", .{ .emit_strings_as_containers = true });
@@ -816,7 +820,7 @@ test "std.zon stringify multiline strings" {
 
         {
             const str: []const u8 = &.{ 'a', '\r', 'c' };
-            try s.string(str);
+            try s.string(str, .{ .escape_non_ascii = false });
             try std.testing.expectEqualStrings("\"a\\rc\"", aw.written());
             aw.clearRetainingCapacity();
         }
