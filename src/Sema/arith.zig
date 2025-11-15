@@ -1978,7 +1978,7 @@ fn intShr(
     }
     if (op == .shr_exact and lhs_bigint.ctz(shift_amt) < shift_amt) {
         return sema.failWithOwnedErrorMsg(block, msg: {
-            const msg = try sema.errMsg(src, "exact shift shifted out 1 bits", .{});
+            const msg = try sema.errMsg(src, "exact right shift shifted out 1 bits", .{});
             errdefer msg.destroy(sema.gpa);
             if (vec_idx) |i| try sema.errNote(rhs_src, msg, "when computing vector element at index '{d}'", .{i});
             break :msg msg;
