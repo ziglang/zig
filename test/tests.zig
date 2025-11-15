@@ -2092,8 +2092,8 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileArg(example_zig);
-        const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
+        run.addFileArg(.{ .lazy_path = example_zig });
+        const example_s = run.addOutputFileArg(.{ .prefix = "-femit-asm=", .basename = "example.s" });
 
         const checkfile = b.addCheckFile(example_s, .{
             .expected_matches = &.{
@@ -2208,9 +2208,10 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-Dstring=hello",
         });
         run_test.addArg("--build-file");
-        run_test.addFileArg(b.path("test/cli/options/build.zig"));
+
+        run_test.addFileArg(.{ .lazy_path = b.path("test/cli/options/build.zig") });
         run_test.addArg("--cache-dir");
-        run_test.addFileArg(.{ .cwd_relative = b.cache_root.join(b.allocator, &.{}) catch @panic("OOM") });
+        run_test.addFileArg(.{ .lazy_path = .{ .cwd_relative = b.cache_root.join(b.allocator, &.{}) catch @panic("OOM") } });
         run_test.setName("test build options");
 
         step.dependOn(&run_test.step);
@@ -2671,7 +2672,7 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
         run.setName(b.fmt("incr-check '{s}'", .{entry.basename}));
 
         run.addArg(b.graph.zig_exe);
-        run.addFileArg(b.path("test/incremental/").path(b, entry.path));
+        run.addFileArg(.{ .lazy_path = b.path("test/incremental/").path(b, entry.path) });
         run.addArgs(&.{ "--zig-lib-dir", b.fmt("{f}", .{b.graph.zig_lib_directory}) });
 
         run.addCheck(.{ .expect_term = .{ .Exited = 0 } });

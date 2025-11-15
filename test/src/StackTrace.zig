@@ -198,7 +198,7 @@ fn addCaseInstance(
 
     const check_run = b.addRunArtifact(self.convert_exe);
     check_run.setName(annotated_case_name);
-    check_run.addFileArg(run.captureStdErr(.{}));
+    check_run.addFileArg(.{ .lazy_path = run.captureStdErr(.{}) });
     check_run.expectExitCode(0);
     check_run.addCheck(.{ .expect_stdout_match = expect_stderr });
 

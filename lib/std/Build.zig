@@ -952,11 +952,11 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
                 if (cmd_arg) |arg| {
                     run_step.addArg(arg);
                 } else {
-                    run_step.addArtifactArg(exe);
+                    run_step.addArtifactArg(.{ .artifact = exe });
                 }
             }
         } else {
-            run_step.addArtifactArg(exe);
+            run_step.addArtifactArg(.{ .artifact = exe });
         }
 
         const test_server_mode: bool = s: {
@@ -991,7 +991,7 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
             run_step.expectExitCode(0);
         }
     } else {
-        run_step.addArtifactArg(exe);
+        run_step.addArtifactArg(.{ .artifact = exe });
     }
 
     return run_step;
