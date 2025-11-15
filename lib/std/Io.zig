@@ -903,6 +903,10 @@ pub const Timestamp = struct {
         return .{ .nanoseconds = x };
     }
 
+    pub fn toMilliseconds(t: Timestamp) i64 {
+        return @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_ms));
+    }
+
     pub fn toSeconds(t: Timestamp) i64 {
         return @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_s));
     }
